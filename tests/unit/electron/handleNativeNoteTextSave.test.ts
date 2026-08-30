@@ -1643,6 +1643,27 @@ describe('handleNativeNoteTextSave', () => {
             .toBe(cap.markupItems + 1);
         expect(payloads.reduce((count, payload) => count + ((payload.placedImages as unknown[] | undefined)?.length ?? 0), 0))
             .toBe(cap.placedImages + 1);
+        expect(payloads.flatMap(payload => (payload.updates as Array<{objectNumber?: number}> | undefined) ?? [])
+            .map(update => update.objectNumber))
+            .toEqual(Array.from({length: cap.noteTextUpdates + 1}, (_, index) => index + 1));
+        expect(payloads.flatMap(payload => (payload.freeTextEditors as Array<{stableKey?: string}> | undefined) ?? [])
+            .map(editor => editor.stableKey))
+            .toEqual(Array.from({length: cap.freeTextEditors + 1}, (_, index) => `editor-${index}`));
+        expect(payloads.flatMap(payload => (payload.pageLabels as {ranges?: Array<{startPage?: number}>} | undefined)?.ranges ?? [])
+            .map(range => range.startPage))
+            .toEqual(Array.from({length: cap.pageLabelRanges + 1}, (_, index) => index + 1));
+        expect(payloads.flatMap(payload => (payload.bookmarks as {items?: Array<{title?: string}>} | undefined)?.items ?? [])
+            .map(item => item.title))
+            .toEqual(Array.from({length: cap.bookmarkItems + 1}, (_, index) => `Chapter ${index}`));
+        expect(payloads.flatMap(payload => (payload.shapes as {shapes?: Array<{id?: string}>} | undefined)?.shapes ?? [])
+            .map(shape => shape.id))
+            .toEqual(Array.from({length: cap.shapes + 1}, (_, index) => `shape-${index}`));
+        expect(payloads.flatMap(payload => (payload.markup as {overrides?: Array<readonly [string, string]>} | undefined)?.overrides ?? [])
+            .map(([annotationId]) => annotationId))
+            .toEqual(Array.from({length: cap.markupItems + 1}, (_, index) => `${index + 1}R`));
+        expect(payloads.flatMap(payload => (payload.placedImages as Array<{stableKey?: string}> | undefined) ?? [])
+            .map(image => image.stableKey))
+            .toEqual(Array.from({length: cap.placedImages + 1}, (_, index) => `image-${index}`));
         for (const payload of payloads) {
             expect((payload.updates as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.noteTextUpdates);
             expect((payload.freeTextEditors as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.freeTextEditors);
