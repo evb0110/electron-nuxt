@@ -38,6 +38,35 @@ An annotation kind the annotation editor layer can create and modify: text box,
 highlight, note, stamp, shape.
 _Avoid_: editor type, supported annotation
 
+**Note**:
+An editable annotation that shows as a small icon on the page and opens its text
+in a window. Foreign viewers display the same icon.
+_Avoid_: sticky note, point note, marker, FreeText note
+
+**Text box**:
+An editable annotation whose text is drawn on the page inside a rectangle.
+_Avoid_: FreeText editor, free text, text annotation
+
+**Canonical property**:
+A property of an editable annotation that the canonical annotation store owns
+and the annotation editor layer can change.
+_Avoid_: editable field, core field, semantic field
+
+**Preserved property**:
+Data on an editable annotation that the store does not own and the writer
+leaves in the file untouched, including replies and review states on a note.
+_Avoid_: fidelity, opaque blob, passthrough, unknown keys
+
+**Derived property**:
+A value the app recomputes from the document each time it opens, never stored
+as the source of truth, such as the text under a highlight.
+_Avoid_: cache, snapshot, hint
+
+**Round-trip equality**:
+The rule that every canonical property compares equal after parse, save,
+reopen, parse, within a tolerance no user can see on the page.
+_Avoid_: fingerprint match, semantic equality, persistence parity
+
 **Foreign annotation**:
 An annotation the canonical annotation store does not own: a non-editable
 type (link, widget, unknown subtype) or an editable type it cannot represent.

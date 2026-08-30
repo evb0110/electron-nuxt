@@ -1,5 +1,10 @@
 # FreeText Note Persistence
 
+> **Status (2026-08-30): superseded by [ADR 0003](adr/0003-notes-are-text-annotations.md).**
+> New notes are written as `/Text` annotations. This document describes the
+> FreeText+Popup marker form that the reader still recognizes and the writer
+> rewrites on first edit; it stays as history for that recognition code.
+
 > Why sticky note text disappears on save/reopen, and why the fix works the way it does.
 
 ## The Core Constraint
