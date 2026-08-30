@@ -1273,13 +1273,46 @@ export async function goToPageViaToolbar(
 
         await page.mouse.click(displayPoint.x, displayPoint.y);
         try {
-            await page.waitForSelector('.page-controls-inline-input', { timeout: 2_000 });
+            await page.waitForFunction(() => Array.from(
+                document.querySelectorAll<HTMLElement>('.page-controls-inline-input'),
+            ).some((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            }), {timeout: 2_000});
         } catch {
             lastFailure = 'clicking the page control did not open the inline editor';
             continue;
         }
 
-        await page.click('.page-controls-inline-input', { count: 3 });
+        const inputPoint = await page.evaluate(() => {
+            const input = Array.from(
+                document.querySelectorAll<HTMLElement>('.page-controls-inline-input'),
+            ).find((candidate) => {
+                const rect = candidate.getBoundingClientRect();
+                const style = window.getComputedStyle(candidate);
+                return rect.width > 8
+                    && rect.height > 8
+                    && style.display !== 'none'
+                    && style.visibility !== 'hidden';
+            });
+            if (!input) {
+                return null;
+            }
+            const rect = input.getBoundingClientRect();
+            return {
+                x: Math.round(rect.left + rect.width / 2),
+                y: Math.round(rect.top + rect.height / 2),
+            };
+        });
+        if (!inputPoint) {
+            lastFailure = 'the visible inline page editor disappeared before input';
+            continue;
+        }
+        await page.mouse.click(inputPoint.x, inputPoint.y, {count: 3});
         await page.keyboard.type(String(pageNumber));
         await page.keyboard.press('Enter');
         await waitForToolbarCurrentPage(page, pageNumber, Math.max(1, deadline - Date.now()));
