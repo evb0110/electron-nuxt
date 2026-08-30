@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {
     effectScope,
+    reactive,
     ref,
     shallowRef,
 } from 'vue';
@@ -348,13 +349,13 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 fileName: 'photo.jpg',
                 mimeType: 'image/jpeg',
                 bytes: imageBytes,
-                nativeSourceHandle: {
+                nativeSourceHandle: reactive({
                     path: '/tmp/photo.jpg',
                     size: imageBytes.byteLength,
                     sha256: 'a'.repeat(64),
                     leaseId: 'photo-lease',
                     revision: null,
-                },
+                }),
                 targetPixelWidth: 180,
                 targetPixelHeight: 160,
             },
@@ -362,6 +363,9 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
         await vi.waitFor(() => {
             expect(applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledTimes(1);
         });
+        expect(() => structuredClone(
+            applyPdfNativeMutationsToWorkingCopy.mock.calls[0]?.[1],
+        )).not.toThrow();
         expect(readDocumentBytes).not.toHaveBeenCalled();
 
         nativeApply.resolve({
