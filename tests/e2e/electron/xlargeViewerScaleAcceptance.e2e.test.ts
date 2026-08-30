@@ -55,6 +55,11 @@ const TARGET_PAGES = [
     MIDDLE_PAGE,
     LAST_PAGE,
 ] as const;
+const PREVIEW_TARGET_PAGES = [
+    FIRST_PAGE,
+    LAST_PAGE,
+    MIDDLE_PAGE,
+] as const;
 const TARGET_OUTLINE_TITLES = [
     'Scale Outline 00000',
     'Scale Outline 05000',
@@ -322,7 +327,7 @@ async function installPreviewReachabilityProbe(page: Page) {
             subtree: true,
         });
         capture();
-    }, TARGET_PAGES.length);
+    }, PREVIEW_TARGET_PAGES.length);
 }
 
 async function pollFreshPageUntil<T>(
@@ -383,7 +388,7 @@ async function proveNativePreviewReachability(
 ) {
     await installPreviewReachabilityProbe(page);
     const openPromise = triggerOpenPathInApp(page, pdfPath, STEP_TIMEOUT_MS);
-    for (const pageNumber of TARGET_PAGES) {
+    for (const pageNumber of PREVIEW_TARGET_PAGES) {
         if (pageNumber !== FIRST_PAGE) {
             const navigation = await callWorkspaceCommand(page, 'handleGoToPage', [pageNumber]);
             expect(navigation.called).toBe(true);
