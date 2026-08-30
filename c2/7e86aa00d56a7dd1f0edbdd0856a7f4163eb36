@@ -1,0 +1,23 @@
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_54d017eb59948f::t_c5477a97b4ef0e 267
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_54d017eb59948f::t_712d43efc24cda 140,438,442,704-713,721,1884,1921-1925,1974-1978
+  s_54d017eb59948f::t_96ae09e1534f4e 148,766-767
+  s_54d017eb59948f::t_b87a1f3b25f84e 11,17,39,72-76,114-139,141-147,149-152,410-437,439-441,443-451,478-556,683-703,714-720,722-765,1881-1883,1885-1920,1926-1973,1979-1981
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c27e86aa00d56a7dd1f0edbdd0856a7f4163eb36",
+  "prompts": {},
+  "sessions": {
+    "s_54d017eb59948f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-48a3-7f80-ae3f-b3e6dde552c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

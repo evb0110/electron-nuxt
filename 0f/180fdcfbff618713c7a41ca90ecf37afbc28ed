@@ -1,0 +1,29 @@
+native/pdf-page-ops/src/markup.rs
+  s_be8b4e0de7d61d::t_88da6a639e3b65 853-861
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_be8b4e0de7d61d::t_57c16300d36f09 231
+  s_be8b4e0de7d61d::t_adde02fdd5f612 254-287
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_be8b4e0de7d61d::t_adde02fdd5f612 520-591,593-608
+  s_be8b4e0de7d61d::t_b07d7ee0ca5a0f 592
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_be8b4e0de7d61d::t_f9dc03345acde1 277-278
+app/modules/pdf-viewer/runtime/save/nativeShapeMutations.ts
+  s_be8b4e0de7d61d::t_adde02fdd5f612 127-146,165-172,176-180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f180fdcfbff618713c7a41ca90ecf37afbc28ed",
+  "prompts": {},
+  "sessions": {
+    "s_be8b4e0de7d61d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-75d5-77f3-b900-3f7841189a07",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

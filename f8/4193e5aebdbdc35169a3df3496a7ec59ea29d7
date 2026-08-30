@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_54d017eb59948f::t_96ae09e1534f4e 67,378-383
+tests/unit/app/composables/annotations/useAnnotationSyncHelpers.test.ts
+  s_54d017eb59948f::t_96ae09e1534f4e 16,589,680
+app/modules/pdf-viewer/engine/annotations/annotation-rules/resolvePdfAnnotationCanonicalKind.ts
+  ai_agent 1-23
+docs/reliability/large-document-audit-ledger-2026-08-27.md
+  s_54d017eb59948f::t_cda48d952af16a 267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f84193e5aebdbdc35169a3df3496a7ec59ea29d7",
+  "prompts": {},
+  "sessions": {
+    "s_54d017eb59948f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-48a3-7f80-ae3f-b3e6dde552c5",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
