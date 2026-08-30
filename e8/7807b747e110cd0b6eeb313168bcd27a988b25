@@ -1,0 +1,21 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_32b865e8b0fa20::t_8971e0f5c6783b 304-309,340-345,3012,3082-3091,3099,3117-3119,3186-3187,3207,3209-3210
+  s_32b865e8b0fa20::t_3cdf9d68583ae5 2995
+  s_32b865e8b0fa20::t_5254833c26b84d 3051-3067
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e87807b747e110cd0b6eeb313168bcd27a988b25",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
