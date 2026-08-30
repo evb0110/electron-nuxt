@@ -273,6 +273,72 @@ describe('PDF annotation parse IPC contracts', () => {
         };
         expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult(noteWithUnknownReply))
             .toThrow(/unsupported field/iu);
+
+        const shapeWithUnknownPointField = {
+            ...shape,
+            points: [{
+                x: 0.1,
+                y: 0.2,
+                unexpected: true,
+            }],
+        };
+        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            ...chunk,
+            entries: [
+                textBox,
+                note,
+                foreign,
+                highlight,
+                stamp,
+                shapeWithUnknownPointField,
+            ],
+        })).toThrow(/unsupported field/iu);
+
+        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            ...chunk,
+            entries: [
+                {
+                    ...textBox,
+                    fontSize: 512.01,
+                },
+                note,
+                foreign,
+                highlight,
+                stamp,
+                shape,
+            ],
+        })).toThrow(/fontSize.*512/iu);
+
+        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            ...chunk,
+            entries: [
+                textBox,
+                note,
+                foreign,
+                {
+                    ...highlight,
+                    opacity: 1.01,
+                },
+                stamp,
+                shape,
+            ],
+        })).toThrow(/highlight\.opacity.*1/iu);
+
+        expect(() => codecs[channels.readPdfAnnotationParseChunk]!.decodeResult({
+            ...chunk,
+            entries: [
+                textBox,
+                note,
+                foreign,
+                highlight,
+                stamp,
+                {
+                    ...shape,
+                    opacity: 1.01,
+                },
+            ],
+        })).toThrow(/shape\.opacity.*1/iu);
+
         expect(codecs[channels.releasePdfAnnotationParse]!.decodeArgs(['annotation-parse-session']))
             .toEqual(['annotation-parse-session']);
         expect(codecs[channels.releasePdfAnnotationParse]!.decodeResult(true)).toBe(true);

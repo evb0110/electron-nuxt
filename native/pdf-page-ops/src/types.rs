@@ -1024,9 +1024,12 @@ pub(crate) struct MarkupSubtypeHint {
     pub(crate) source: Option<String>,
 }
 
+/// One identity report entry: the caller's canonical annotation identity and
+/// the PDF object reference the writer produced for it. Every writer family
+/// (markup, notes, text boxes, stamps and shapes) pushes into the same report.
 #[derive(Clone, Debug, Eq, PartialEq, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
-pub(crate) struct MarkupIdentityBinding {
+pub(crate) struct AnnotationIdentityBinding {
     pub(crate) annotation_id: String,
     pub(crate) pdf_ref: String,
 }

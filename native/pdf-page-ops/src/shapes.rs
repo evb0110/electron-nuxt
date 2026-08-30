@@ -1151,6 +1151,7 @@ pub(crate) fn append_remaining_shape_annotations(
     page_resolver: &PageTreeResolver,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut modified = false;
     for shape in shapes {
@@ -1169,6 +1170,7 @@ pub(crate) fn append_remaining_shape_annotations(
             attach_ink_shape_appearance(&mut dict, appearance_ref);
         }
         let object_id = document.add_object(Object::Dictionary(dict));
+        report_shape_identity_binding(identity_bindings, &shape, object_id);
         append_annots_to_page(document, page_id, &[object_id])?;
         modified = true;
     }
@@ -1180,6 +1182,7 @@ pub(crate) fn append_remaining_shape_annotations_incremental(
     page_resolver: &PageTreeResolver,
     shapes: Vec<ShapeAnnotation>,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut modified = false;
     for shape in shapes {
@@ -1200,16 +1203,34 @@ pub(crate) fn append_remaining_shape_annotations_incremental(
         let object_id = incremental
             .new_document
             .add_object(Object::Dictionary(dict));
+        report_shape_identity_binding(identity_bindings, &shape, object_id);
         append_annots_to_page_incremental(incremental, page_id, &[object_id])?;
         modified = true;
     }
     Ok(modified)
 }
 
+/// Report a newly created shape's durable identity. A shape carries its
+/// stable key, or falls back to the pdf.js-era annotation id for imported
+/// shapes; shapes with neither have no identity to report.
+fn report_shape_identity_binding(
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
+    shape: &ShapeAnnotation,
+    object_id: ObjectId,
+) {
+    append_annotation_identity_binding(
+        identity_bindings,
+        shape.stable_key.as_deref(),
+        shape.annotation_id.as_deref(),
+        object_id,
+    );
+}
+
 pub(crate) fn apply_shape_annotations(
     document: &mut Document,
     shapes: &ShapesMutation,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     assert_mutation_page_count(document, shapes.total_pages, "Shape mutation")?;
     let page_resolver = PageTreeResolver::new(document)?;
@@ -1247,9 +1268,13 @@ pub(crate) fn apply_shape_annotations(
     extend_shape_page_ids_from_refs(document, &refs_to_delete, &mut page_ids);
     modified = remove_shape_refs_from_pages(document, &page_ids, &refs_to_delete)? || modified;
     let remaining = state.remaining().cloned().collect::<Vec<_>>();
-    modified =
-        append_remaining_shape_annotations(document, &page_resolver, remaining, modified_at)?
-            || modified;
+    modified = append_remaining_shape_annotations(
+        document,
+        &page_resolver,
+        remaining,
+        modified_at,
+        identity_bindings,
+    )? || modified;
     if !modified
         && (shapes.rewrite_shape_state
             || !shapes.shapes.is_empty()
@@ -1265,6 +1290,7 @@ pub(crate) fn apply_shape_annotations_incremental(
     incremental: &mut IncrementalDocument,
     shapes: &ShapesMutation,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     assert_mutation_page_count(
         incremental.get_prev_documents(),
@@ -1322,6 +1348,7 @@ pub(crate) fn apply_shape_annotations_incremental(
         &page_resolver,
         remaining,
         modified_at,
+        identity_bindings,
     )? || modified;
     if !modified
         && (shapes.rewrite_shape_state

@@ -752,7 +752,7 @@ fn create_new_markup_annotations_with_bindings(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<bool> {
     create_new_markup_annotations_internal(
         document,
@@ -770,7 +770,7 @@ fn create_new_markup_annotations_internal(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
     for state in page_hints.iter_mut() {
@@ -795,7 +795,7 @@ fn create_new_markup_annotations_internal(
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
-            bindings.push(MarkupIdentityBinding {
+            bindings.push(AnnotationIdentityBinding {
                 annotation_id: app_annotation_id
                     .expect("binding mode validates canonical annotation identity")
                     .to_string(),
@@ -970,7 +970,7 @@ fn create_new_markup_annotations_incremental_with_bindings(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<bool> {
     create_new_markup_annotations_incremental_internal(
         incremental,
@@ -988,7 +988,7 @@ fn create_new_markup_annotations_incremental_internal(
     page_view: PdfRect,
     page_rotation: i64,
     page_hints: &mut [MarkupHintState],
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<bool> {
     let mut created = Vec::new();
     for state in page_hints.iter_mut() {
@@ -1018,7 +1018,7 @@ fn create_new_markup_annotations_incremental_internal(
         state.consumed = true;
         created.push(object_id);
         if let Some(bindings) = identity_bindings.as_mut() {
-            bindings.push(MarkupIdentityBinding {
+            bindings.push(AnnotationIdentityBinding {
                 annotation_id: app_annotation_id
                     .expect("binding mode validates canonical annotation identity")
                     .to_string(),
@@ -1045,7 +1045,7 @@ pub(crate) fn apply_markup_mutations_with_bindings(
     document: &mut Document,
     markup: &MarkupMutation,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_markup_mutations_internal(document, markup, modified_at, Some(identity_bindings))
 }
@@ -1054,7 +1054,7 @@ pub(crate) fn apply_markup_mutations_internal(
     document: &mut Document,
     markup: &MarkupMutation,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
     let page_resolver = PageTreeResolver::new(document)?;
@@ -1127,7 +1127,7 @@ pub(crate) fn apply_markup_mutations_incremental_with_bindings(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_markup_mutations_incremental_internal(
         incremental,
@@ -1141,7 +1141,7 @@ pub(crate) fn apply_markup_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     markup: &MarkupMutation,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let (overrides, hints_by_page) = build_markup_inputs(markup)?;
     let page_targets = {

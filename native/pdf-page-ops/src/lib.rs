@@ -110,6 +110,7 @@ mod tests {
     include!("tests/decryption.rs");
     include!("tests/crop.rs");
     include!("tests/notes.rs");
+    include!("tests/identity_bindings.rs");
     include!("tests/placed_images.rs");
     include!("tests/markup_shapes.rs");
     include!("tests/catalog.rs");

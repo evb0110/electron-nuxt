@@ -67,9 +67,16 @@ function decodeStringValue(value: unknown, fieldName: string, allowEmpty = false
     return value;
 }
 
-function decodeFiniteNumber(value: unknown, fieldName: string, min?: number) {
-    if (typeof value !== 'number' || !Number.isFinite(value) || (min !== undefined && value < min)) {
-        fail(`${fieldName} must be a finite number${min === undefined ? '' : ` >= ${min}`}`);
+function decodeFiniteNumber(value: unknown, fieldName: string, min?: number, max?: number) {
+    if (
+        typeof value !== 'number'
+        || !Number.isFinite(value)
+        || (min !== undefined && value < min)
+        || (max !== undefined && value > max)
+    ) {
+        const lowerBound = min === undefined ? '' : ` >= ${min}`;
+        const upperBound = max === undefined ? '' : ` <= ${max}`;
+        fail(`${fieldName} must be a finite number${lowerBound}${upperBound}`);
     }
     return value;
 }
@@ -179,7 +186,7 @@ function decodeTextBox(value: Record<string, unknown>): IPdfAnnotationTextBoxEnt
         text: decodeStringValue(value.text, 'annotation parse text-box.text', true),
         rect: decodeMarkerRect(value.rect, 'annotation parse text-box.rect'),
         rotation: decodeRotation(value.rotation, 'annotation parse text-box.rotation'),
-        fontSize: decodeFiniteNumber(value.fontSize, 'annotation parse text-box.fontSize', Number.MIN_VALUE),
+        fontSize: decodeFiniteNumber(value.fontSize, 'annotation parse text-box.fontSize', Number.MIN_VALUE, 512),
         color: decodeRgbColor(value.color, 'annotation parse text-box.color'),
     };
 }
@@ -276,7 +283,7 @@ function decodeHighlight(value: Record<string, unknown>): IPdfAnnotationHighligh
         subtype: value.subtype,
         quadPoints: value.quadPoints.map((point, index) => decodeMarkerRect(point, `annotation parse highlight.quadPoints[${index}]`)),
         color: decodeRgbColor(value.color, 'annotation parse highlight.color'),
-        opacity: decodeFiniteNumber(value.opacity, 'annotation parse highlight.opacity', 0),
+        opacity: decodeFiniteNumber(value.opacity, 'annotation parse highlight.opacity', 0, 1),
         contents: decodeStringValue(value.contents, 'annotation parse highlight.contents', true),
     };
 }
@@ -389,7 +396,7 @@ function decodeShape(value: Record<string, unknown>): IPdfAnnotationShapeEntry {
         fillColor: value.fillColor === undefined || value.fillColor === null
             ? null
             : decodeRgbColor(value.fillColor, 'annotation parse shape.fillColor'),
-        opacity: decodeFiniteNumber(value.opacity, 'annotation parse shape.opacity', 0),
+        opacity: decodeFiniteNumber(value.opacity, 'annotation parse shape.opacity', 0, 1),
         strokeWidth: decodeFiniteNumber(value.strokeWidth, 'annotation parse shape.strokeWidth', 0),
         points,
         strokes,
@@ -411,6 +418,10 @@ function decodePointsFromValue(value: unknown, fieldName: string): IPdfAnnotatio
             x?: unknown;
             y?: unknown
         }>(point, `${fieldName}[${index}]`);
+        rejectUnknownFields(decoded, `${fieldName}[${index}]`, [
+            'x',
+            'y',
+        ]);
         return {
             x: decodeFiniteNumber(decoded.x, `${fieldName}[${index}].x`),
             y: decodeFiniteNumber(decoded.y, `${fieldName}[${index}].y`),

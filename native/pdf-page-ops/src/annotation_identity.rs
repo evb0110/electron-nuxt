@@ -2,13 +2,38 @@ use super::*;
 use sha2::{Digest, Sha256};
 
 /// Read the document's durable annotation name, treating an empty or
-/// whitespace-only PDF string as absent.
+/// whitespace-only PDF string as absent while preserving every character of
+/// a nonblank name.
 pub(crate) fn read_annotation_name(dict: &Dictionary) -> Option<String> {
     dict.get(b"NM")
         .ok()
         .and_then(pdf_string_to_text)
-        .map(|name| name.trim().to_string())
-        .filter(|name| !name.is_empty())
+        .and_then(|name| (!name.trim().is_empty()).then_some(name))
+}
+
+/// Append a newly created annotation's durable identity when either of its
+/// identity candidates is present. The primary candidate always wins after
+/// trimming, unless it is blank, in which case the fallback is considered.
+pub(crate) fn append_annotation_identity_binding(
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
+    primary_identity: Option<&str>,
+    fallback_identity: Option<&str>,
+    object_id: ObjectId,
+) {
+    let annotation_id = primary_identity
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            fallback_identity
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        });
+    if let (Some(annotation_id), Some(bindings)) = (annotation_id, identity_bindings) {
+        bindings.push(AnnotationIdentityBinding {
+            annotation_id: annotation_id.to_string(),
+            pdf_ref: format!("{} {} R", object_id.0, object_id.1),
+        });
+    }
 }
 
 /// Store an annotation identity in the PDF's `/NM` string.
@@ -22,17 +47,17 @@ pub(crate) fn write_annotation_name(dict: &mut Dictionary, id: &str) {
 /// Reuse a unique `/NM` value or mint a deterministic UUID-shaped identity.
 ///
 /// The wasm build deliberately uses a zero-filling getrandom backend, so a
-/// random UUID would repeat there. Hashing the page/object/subtype and request
-/// timestamp gives each parse request a stable identity without adding a
-/// randomness dependency. A collision suffix handles duplicate `/NM` values
-/// and the otherwise possible direct-dictionary object `0R0`.
+/// random UUID would repeat there. Hashing the page/object/subtype gives each
+/// annotation a stable identity without adding a randomness dependency or
+/// making the result depend on a parse request's timestamp. A collision suffix
+/// handles duplicate `/NM` values and the otherwise possible direct-dictionary
+/// object `0R0`.
 pub(crate) fn resolve_or_mint_name(
     dict: &Dictionary,
     existing_names: &HashSet<String>,
     page_index: u64,
     object_id: ObjectId,
     subtype: &str,
-    modified_at: &str,
 ) -> String {
     if let Some(name) = read_annotation_name(dict) {
         if !existing_names.contains(&name) {
@@ -40,10 +65,7 @@ pub(crate) fn resolve_or_mint_name(
         }
     }
 
-    let seed = format!(
-        "{page_index}:{}:{}:{subtype}:{modified_at}",
-        object_id.0, object_id.1
-    );
+    let seed = format!("{page_index}:{}:{}:{subtype}", object_id.0, object_id.1);
     for collision in 0_u64.. {
         let candidate = mint_uuid(&seed, collision);
         if !existing_names.contains(&candidate) {
@@ -87,10 +109,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_and_writes_trimmed_names() {
+    fn preserves_nonblank_names_and_rejects_blank_names() {
         let mut dict = Dictionary::new();
         dict.set("NM", Object::string_literal("  name  "));
-        assert_eq!(read_annotation_name(&dict).as_deref(), Some("name"));
+        assert_eq!(read_annotation_name(&dict).as_deref(), Some("  name  "));
+
+        dict.set("NM", Object::string_literal(" \t\n "));
+        assert_eq!(read_annotation_name(&dict), None);
 
         write_annotation_name(&mut dict, "new-name");
         assert_eq!(read_annotation_name(&dict).as_deref(), Some("new-name"));
@@ -100,19 +125,16 @@ mod tests {
     fn mints_a_deterministic_uuid_for_missing_and_duplicate_names() {
         let dict = Dictionary::new();
         let empty = HashSet::new();
-        let first =
-            resolve_or_mint_name(&dict, &empty, 2, (17, 0), "FreeText", "D:20260830120000Z");
+        let first = resolve_or_mint_name(&dict, &empty, 2, (17, 0), "FreeText");
         assert_eq!(first.len(), 36);
         assert_eq!(first.as_bytes()[14], b'4');
         assert!(matches!(first.as_bytes()[19], b'8'..=b'b'));
 
-        let again =
-            resolve_or_mint_name(&dict, &empty, 2, (17, 0), "FreeText", "D:20260830120000Z");
+        let again = resolve_or_mint_name(&dict, &empty, 2, (17, 0), "FreeText");
         assert_eq!(first, again);
 
         let used = HashSet::from([first.clone()]);
-        let second =
-            resolve_or_mint_name(&dict, &used, 2, (17, 0), "FreeText", "D:20260830120000Z");
+        let second = resolve_or_mint_name(&dict, &used, 2, (17, 0), "FreeText");
         assert_ne!(first, second);
     }
 
@@ -122,12 +144,12 @@ mod tests {
         dict.set("NM", Object::string_literal("foreign-name"));
         let empty = HashSet::new();
         assert_eq!(
-            resolve_or_mint_name(&dict, &empty, 0, (4, 0), "Link", "D:20260830120000Z",),
+            resolve_or_mint_name(&dict, &empty, 0, (4, 0), "Link"),
             "foreign-name"
         );
         let used = HashSet::from(["foreign-name".to_string()]);
         assert_ne!(
-            resolve_or_mint_name(&dict, &used, 0, (5, 0), "Link", "D:20260830120000Z",),
+            resolve_or_mint_name(&dict, &used, 0, (5, 0), "Link"),
             "foreign-name"
         );
     }

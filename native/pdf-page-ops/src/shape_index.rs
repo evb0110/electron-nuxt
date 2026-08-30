@@ -386,7 +386,7 @@ fn supported_shape_subtype(subtype: &str) -> Option<&'static str> {
     }
 }
 
-fn parse_shape_index_entry(
+pub(crate) fn parse_shape_index_entry(
     document: &impl PdfObjectSource,
     dict: &Dictionary,
     page_index: u64,
@@ -866,7 +866,7 @@ fn normalized_color_component(value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-fn read_shape_opacity(document: &impl PdfObjectSource, dict: &Dictionary) -> f64 {
+pub(crate) fn read_shape_opacity(document: &impl PdfObjectSource, dict: &Dictionary) -> f64 {
     dict.get(b"CA")
         .ok()
         .and_then(|object| document.resolved(object).ok())

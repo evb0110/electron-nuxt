@@ -1260,6 +1260,7 @@ fn same_page_free_text_batch_indexes_initial_annots_once_and_preserves_order() {
         &notes,
         "D:20260609123456Z",
         &mut annotation_visits,
+        &mut None,
     )
     .unwrap();
 
@@ -1311,6 +1312,7 @@ fn incremental_same_batch_duplicate_note_reuses_the_indexed_annotation() {
         &notes,
         "D:20260609123456Z",
         &mut annotation_visits,
+        &mut None,
     )
     .unwrap();
 

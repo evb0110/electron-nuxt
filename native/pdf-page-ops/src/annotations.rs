@@ -277,6 +277,7 @@ pub(crate) fn upsert_free_text_notes_with_counter(
     notes: &[FreeTextNote],
     modified_at: &str,
     annotation_visits: &mut usize,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
@@ -347,6 +348,7 @@ pub(crate) fn upsert_free_text_notes_with_counter(
         let popup_dict = build_popup_annotation_dict(note, pdf_rect, modified_at, annot_ref);
         document.set_object(annot_ref, Object::Dictionary(annot_dict));
         document.set_object(popup_ref, Object::Dictionary(popup_dict));
+        report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
         annotation_indexes
             .get_mut(&page_id)
             .expect("FreeText pages are indexed before mutation")
@@ -358,11 +360,24 @@ pub(crate) fn upsert_free_text_notes_with_counter(
     Ok(())
 }
 
+/// Report a newly created note or text box's durable identity so the caller
+/// can refresh its object references after the save. Both writers identify
+/// their annotations by stable key; the writer keeps no other canonical
+/// identity.
+fn report_annotation_identity_binding(
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
+    stable_key: &str,
+    annot_ref: ObjectId,
+) {
+    append_annotation_identity_binding(identity_bindings, Some(stable_key), None, annot_ref);
+}
+
 pub(crate) fn upsert_free_text_notes_incremental_with_counter(
     incremental: &mut IncrementalDocument,
     notes: &[FreeTextNote],
     modified_at: &str,
     annotation_visits: &mut usize,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if notes.is_empty() {
         return Ok(());
@@ -440,6 +455,7 @@ pub(crate) fn upsert_free_text_notes_incremental_with_counter(
         incremental
             .new_document
             .set_object(popup_ref, Object::Dictionary(popup_dict));
+        report_annotation_identity_binding(identity_bindings, &note.stable_key, annot_ref);
         annotation_indexes
             .get_mut(&page_id)
             .expect("FreeText pages are indexed before mutation")
@@ -456,6 +472,7 @@ pub(crate) fn upsert_free_text_editors_with_counter(
     editors: &[FreeTextEditor],
     modified_at: &str,
     annotation_visits: &mut usize,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if editors.is_empty() {
         return Ok(());
@@ -495,6 +512,7 @@ pub(crate) fn upsert_free_text_editors_with_counter(
         dict.set("F", Object::Integer(4));
         set_free_text_editor_fields(&mut dict, editor, &name, rect, modified_at, appearance_ref);
         document.set_object(annotation_ref, Object::Dictionary(dict));
+        report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
         annotation_indexes
             .get_mut(&page_id)
             .expect("FreeText editor pages are indexed before mutation")
@@ -511,6 +529,7 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
     editors: &[FreeTextEditor],
     modified_at: &str,
     annotation_visits: &mut usize,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if editors.is_empty() {
         return Ok(());
@@ -557,6 +576,7 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
         incremental
             .new_document
             .set_object(annotation_ref, Object::Dictionary(dict));
+        report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
         annotation_indexes
             .get_mut(&page_id)
             .expect("FreeText editor pages are indexed before mutation")

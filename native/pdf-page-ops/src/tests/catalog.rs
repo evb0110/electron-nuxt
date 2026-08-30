@@ -640,7 +640,7 @@
             deleted_annotation_ids: Vec::new(),
             deleted_stable_keys: Vec::new(),
         };
-        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z", &mut None).unwrap();
 
         let note_id = document.add_object(dictionary! {
             "Type" => "Annot",
@@ -657,7 +657,7 @@
         flatten_million_page_tree(&mut document, first_page_id);
 
         reset_page_tree_node_read_count();
-        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z").unwrap();
+        apply_shape_annotations(&mut document, &shape_mutation, "D:20260609123456Z", &mut None).unwrap();
         assert!(
             page_tree_node_read_count() < 100,
             "shape mutation walked too many page-tree nodes: {}",
@@ -723,6 +723,7 @@
             &mut incremental,
             &shape_mutation,
             "D:20260609123456Z",
+            &mut None,
         )
         .unwrap();
         assert!(

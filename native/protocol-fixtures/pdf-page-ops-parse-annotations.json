@@ -46,6 +46,78 @@
       "replies": []
     },
     {
+      "kind": "highlight",
+      "pageIndex": 0,
+      "objectNumber": 20,
+      "generationNumber": 0,
+      "name": "highlight-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "subtype": "Highlight",
+      "quadPoints": [
+        {
+          "left": 0.1,
+          "top": 0.2,
+          "width": 0.4,
+          "height": 0.05
+        }
+      ],
+      "color": "#ffcc00",
+      "opacity": 0.5,
+      "contents": "Fixture highlight"
+    },
+    {
+      "kind": "stamp",
+      "pageIndex": 0,
+      "objectNumber": 21,
+      "generationNumber": 0,
+      "name": "stamp-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "rect": {
+        "left": 0.1,
+        "top": 0.5,
+        "width": 0.3,
+        "height": 0.2
+      },
+      "rotation": 90,
+      "image": {
+        "objectNumber": 22,
+        "generationNumber": 0,
+        "byteLength": 128,
+        "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "kind": "shape",
+      "pageIndex": 0,
+      "objectNumber": 23,
+      "generationNumber": 0,
+      "name": "shape-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "stableKey": "shape-fixture",
+      "pdfSubtype": "Line",
+      "type": "line",
+      "x": 0.1,
+      "y": 0.2,
+      "width": 0.7,
+      "height": 0.7,
+      "x2": 0.8,
+      "y2": 0.9,
+      "color": "#112233",
+      "fillColor": null,
+      "opacity": 0.75,
+      "strokeWidth": 2,
+      "points": null,
+      "strokes": null,
+      "lineStartStyle": "none",
+      "lineEndStyle": "closedArrow"
+    },
+    {
       "kind": "foreign",
       "pageIndex": 0,
       "objectNumber": 19,

@@ -4,6 +4,8 @@ use evb_native_support::output::{AtomicOutput, PathRevisionWitness};
 const SEED_COMPARE_CHUNK_BYTES: usize = 64 * 1024;
 const MAX_CLASSIC_XREF_OFFSET: u64 = 9_999_999_999;
 const XREF_STREAM_OFFSET_BYTES: usize = 8;
+const MAX_ANNOTATION_IDENTITY_BINDINGS: usize = 4_096;
+const MAX_ANNOTATION_IDENTITY_REPORT_BYTES: usize = 256 * 1024;
 
 pub(crate) trait AppendRollback: Write {
     fn rollback_to(&mut self, len: u64) -> std::io::Result<()>;
@@ -246,7 +248,7 @@ pub(crate) fn apply_native_mutations_with_bindings(
     document: &mut Document,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_native_mutations_internal(document, mutations, modified_at, Some(identity_bindings))
 }
@@ -255,7 +257,7 @@ fn apply_native_mutations_internal(
     document: &mut Document,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
@@ -270,6 +272,7 @@ fn apply_native_mutations_internal(
             &mutations.free_text_notes,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.free_text_editors.is_empty() {
@@ -278,6 +281,7 @@ fn apply_native_mutations_internal(
             &mutations.free_text_editors,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.deletes.is_empty() {
@@ -290,7 +294,7 @@ fn apply_native_mutations_internal(
         set_bookmarks(document, bookmarks)?;
     }
     if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations(document, shapes, modified_at)?;
+        apply_shape_annotations(document, shapes, modified_at, &mut identity_bindings)?;
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
@@ -308,6 +312,7 @@ fn apply_native_mutations_internal(
             image_bytes,
             placed_image_chunk_index(mutations),
             modified_at,
+            &mut identity_bindings,
         )?;
     }
     Ok(())
@@ -325,7 +330,7 @@ pub(crate) fn apply_native_mutations_incremental_with_bindings(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    identity_bindings: &mut Vec<MarkupIdentityBinding>,
+    identity_bindings: &mut Vec<AnnotationIdentityBinding>,
 ) -> Result<()> {
     apply_native_mutations_incremental_internal(
         incremental,
@@ -339,7 +344,7 @@ fn apply_native_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
     modified_at: &str,
-    mut identity_bindings: Option<&mut Vec<MarkupIdentityBinding>>,
+    mut identity_bindings: Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     let mut annotation_visits = 0usize;
     if !mutations.updates.is_empty() {
@@ -354,6 +359,7 @@ fn apply_native_mutations_incremental_internal(
             &mutations.free_text_notes,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.free_text_editors.is_empty() {
@@ -362,6 +368,7 @@ fn apply_native_mutations_incremental_internal(
             &mutations.free_text_editors,
             modified_at,
             &mut annotation_visits,
+            &mut identity_bindings,
         )?;
     }
     if !mutations.deletes.is_empty() {
@@ -380,7 +387,12 @@ fn apply_native_mutations_incremental_internal(
         set_bookmarks_incremental(incremental, bookmarks, mutations.continuation.as_ref())?;
     }
     if let Some(shapes) = &mutations.shapes {
-        apply_shape_annotations_incremental(incremental, shapes, modified_at)?;
+        apply_shape_annotations_incremental(
+            incremental,
+            shapes,
+            modified_at,
+            &mut identity_bindings,
+        )?;
     }
     if let Some(markup) = &mutations.markup {
         match identity_bindings.as_mut() {
@@ -403,6 +415,7 @@ fn apply_native_mutations_incremental_internal(
             image_bytes,
             placed_image_chunk_index(mutations),
             modified_at,
+            &mut identity_bindings,
         )?;
     }
     Ok(())
@@ -550,6 +563,9 @@ fn write_native_mutations_revision(
     } else {
         apply_native_mutations_incremental(incremental, mutations, modified_at)?;
     }
+    let identity_bindings_report = identity_bindings_path
+        .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
+        .transpose()?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -591,19 +607,30 @@ fn write_native_mutations_revision(
                 previous_xref_start,
             )?;
         }
-        if let Some(path) = identity_bindings_path {
-            write_markup_identity_bindings_report(path, &identity_bindings)?;
+        if let (Some(path), Some(bytes)) =
+            (identity_bindings_path, identity_bindings_report.as_deref())
+        {
+            fs::write(path, bytes)?;
         }
     }
     result
 }
 
-pub(crate) fn write_markup_identity_bindings_report(
+#[cfg(test)]
+pub(crate) fn write_annotation_identity_bindings_report(
     path: &Path,
-    bindings: &[MarkupIdentityBinding],
+    bindings: &[AnnotationIdentityBinding],
 ) -> Result<()> {
-    if bindings.len() > MAX_MARKUP_SUBTYPE_HINTS {
-        return Err("Native markup identity binding report exceeds its item limit".into());
+    let bytes = serialize_annotation_identity_bindings_report(bindings)?;
+    fs::write(path, bytes)?;
+    Ok(())
+}
+
+fn serialize_annotation_identity_bindings_report(
+    bindings: &[AnnotationIdentityBinding],
+) -> Result<Vec<u8>> {
+    if bindings.len() > MAX_ANNOTATION_IDENTITY_BINDINGS {
+        return Err("Native annotation identity binding report exceeds its item limit".into());
     }
     let mut annotation_ids = HashSet::new();
     let mut pdf_refs = HashSet::new();
@@ -614,7 +641,7 @@ pub(crate) fn write_markup_identity_bindings_report(
             || !pdf_refs.insert(binding.pdf_ref.as_str())
         {
             return Err(
-                "Native markup identity binding report contains a duplicate or invalid binding"
+                "Native annotation identity binding report contains a duplicate or invalid binding"
                     .into(),
             );
         }
@@ -628,16 +655,16 @@ pub(crate) fn write_markup_identity_bindings_report(
             || ref_parts.next().is_some()
         {
             return Err(
-                "Native markup identity binding report contains an invalid PDF reference".into(),
+                "Native annotation identity binding report contains an invalid PDF reference"
+                    .into(),
             );
         }
     }
     let bytes = serde_json::to_vec(bindings)?;
-    if bytes.len() > 256 * 1024 {
-        return Err("Native markup identity binding report is too large".into());
+    if bytes.len() > MAX_ANNOTATION_IDENTITY_REPORT_BYTES {
+        return Err("Native annotation identity binding report is too large".into());
     }
-    fs::write(path, bytes)?;
-    Ok(())
+    Ok(bytes)
 }
 
 /// The non-append CLI form still has path-backed semantics. Seed its requested
@@ -675,6 +702,9 @@ pub(crate) fn write_native_mutations_path(
         } else {
             apply_native_mutations(&mut document, mutations, modified_at)?;
         }
+        let identity_bindings_report = identity_bindings_path
+            .map(|_| serialize_annotation_identity_bindings_report(&identity_bindings))
+            .transpose()?;
         let mut staged = AtomicOutput::create(output_path)
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
         document
@@ -684,12 +714,15 @@ pub(crate) fn write_native_mutations_path(
                     .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?,
             )
             .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
-        if let Some(path) = identity_bindings_path {
-            write_markup_identity_bindings_report(path, &identity_bindings)?;
-        }
-        return staged
+        staged
             .publish_if_unchanged()
-            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()));
+            .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
+        if let (Some(path), Some(bytes)) =
+            (identity_bindings_path, identity_bindings_report.as_deref())
+        {
+            fs::write(path, bytes)?;
+        }
+        return Ok(());
     }
 
     let source_witness = PathRevisionWitness::capture(input_path)

@@ -15,7 +15,6 @@ fn digest_hex(digest: &[u8]) -> String {
     output
 }
 
-#[cfg(test)]
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     digest_hex(&Sha256::digest(bytes))
 }
@@ -522,6 +521,7 @@ pub(crate) fn apply_placed_images(
     image_bytes: Vec<Vec<u8>>,
     chunk_index: u32,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if images.is_empty() {
         return Ok(());
@@ -584,6 +584,7 @@ pub(crate) fn apply_placed_images(
         );
         document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
         if existing_stamp_ref.is_none() {
+            report_stamp_identity_binding(identity_bindings, image, stamp_ref);
             annotation_indexes
                 .get_mut(&page_id)
                 .expect("Placed-image pages are indexed before mutation")
@@ -602,6 +603,7 @@ pub(crate) fn apply_placed_images_incremental(
     image_bytes: Vec<Vec<u8>>,
     chunk_index: u32,
     modified_at: &str,
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
 ) -> Result<()> {
     if images.is_empty() {
         return Ok(());
@@ -676,6 +678,7 @@ pub(crate) fn apply_placed_images_incremental(
             .new_document
             .set_object(stamp_ref, Object::Dictionary(stamp_dict));
         if existing_stamp_ref.is_none() {
+            report_stamp_identity_binding(identity_bindings, image, stamp_ref);
             annotation_indexes
                 .get_mut(&page_id)
                 .expect("Placed-image pages are indexed before mutation")
@@ -686,4 +689,20 @@ pub(crate) fn apply_placed_images_incremental(
         write_page_annotation_index_incremental(incremental, page_id, index)?;
     }
     Ok(())
+}
+
+/// Report a newly created stamp's durable identity. A stamp carries its
+/// stable key, or falls back to the pdf.js-era annotation id for imported
+/// images; stamps with neither have no identity to report.
+fn report_stamp_identity_binding(
+    identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
+    image: &PlacedImage,
+    stamp_ref: ObjectId,
+) {
+    append_annotation_identity_binding(
+        identity_bindings,
+        image.stable_key.as_deref(),
+        image.annotation_id.as_deref(),
+        stamp_ref,
+    );
 }

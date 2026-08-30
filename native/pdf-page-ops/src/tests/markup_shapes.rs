@@ -271,14 +271,14 @@ fn emits_exact_identity_binding_for_new_native_markup() {
     let object_id = annots[0].as_reference().unwrap();
     assert_eq!(
         bindings[0],
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: format!("{} {} R", object_id.0, object_id.1),
         }
     );
 
     let report_path = temp_pdf_path("markup-identity-report").with_extension("json");
-    write_markup_identity_bindings_report(&report_path, &bindings).unwrap();
+    write_annotation_identity_bindings_report(&report_path, &bindings).unwrap();
     assert_eq!(
         read(&report_path).unwrap(),
         format!(
@@ -329,34 +329,34 @@ fn rejects_new_native_markup_without_a_canonical_identity_binding() {
 #[test]
 fn rejects_malformed_or_duplicate_native_markup_identity_reports() {
     let report_path = temp_pdf_path("invalid-markup-identity-report").with_extension("json");
-    let reject = |bindings: Vec<MarkupIdentityBinding>| {
-        assert!(write_markup_identity_bindings_report(&report_path, &bindings).is_err());
+    let reject = |bindings: Vec<AnnotationIdentityBinding>| {
+        assert!(write_annotation_identity_bindings_report(&report_path, &bindings).is_err());
     };
 
-    reject(vec![MarkupIdentityBinding {
+    reject(vec![AnnotationIdentityBinding {
         annotation_id: String::new(),
         pdf_ref: "700 0 R".to_string(),
     }]);
-    reject(vec![MarkupIdentityBinding {
+    reject(vec![AnnotationIdentityBinding {
         annotation_id: "app-annotation-1".to_string(),
         pdf_ref: "700R".to_string(),
     }]);
     reject(vec![
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "701 0 R".to_string(),
         },
     ]);
     reject(vec![
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-1".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
-        MarkupIdentityBinding {
+        AnnotationIdentityBinding {
             annotation_id: "app-annotation-2".to_string(),
             pdf_ref: "700 0 R".to_string(),
         },
@@ -1395,7 +1395,8 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
                 deleted_stable_keys: vec![stable_key.to_string()],
             },
             "D:20260609123456Z",
-        )
+        &mut None,
+)
         .unwrap();
         assert!(get_page_annots(&document, last_page_id).unwrap().is_empty());
         assert!(
@@ -1432,7 +1433,8 @@ fn deletes_high_index_shapes_by_evb_key_or_managed_nm_without_a_page_walk() {
                 deleted_stable_keys: vec![stable_key.to_string()],
             },
             "D:20260609123456Z",
-        )
+        &mut None,
+)
         .unwrap();
         let revision = AppendedRevision::new(&incremental);
         assert!(get_page_annots(&revision, last_page_id).unwrap().is_empty());
@@ -1952,7 +1954,8 @@ fn removes_stale_appearance_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert!(shape_dict(&document, "evb-shape:stale-full-rewrite-square")
@@ -1979,7 +1982,8 @@ fn keeps_the_source_rect_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2070,7 +2074,8 @@ fn keeps_the_source_rect_of_an_untouched_off_page_circle_on_the_full_rewrite_rou
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2165,7 +2170,8 @@ fn keeps_an_indirect_source_rect_on_the_full_rewrite_shape_route() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     assert_eq!(
@@ -2194,7 +2200,8 @@ fn rewrites_an_indirect_source_rect_when_the_shape_moved() {
             deleted_stable_keys: Vec::new(),
         },
         "D:20260609123456+03'00'",
-    )
+    &mut None,
+)
     .unwrap();
 
     let rect = resolved_shape_rect_values(&document, object_id);

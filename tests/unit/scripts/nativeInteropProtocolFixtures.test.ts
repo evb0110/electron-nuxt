@@ -62,6 +62,9 @@ describe('native interop golden protocol fixtures', () => {
         expect(fixture.entries.map(entry => entry.kind)).toEqual([
             'text-box',
             'note',
+            'highlight',
+            'stamp',
+            'shape',
             'foreign',
         ]);
         expect(fixture.entries[0]).toMatchObject({
@@ -77,6 +80,45 @@ describe('native interop golden protocol fixtures', () => {
             color: '#ff0000',
         });
         expect(fixture.entries[2]).toMatchObject({
+            kind: 'highlight',
+            subtype: 'Highlight',
+            quadPoints: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.4,
+                height: 0.05,
+            }],
+            color: '#ffcc00',
+            opacity: 0.5,
+            contents: 'Fixture highlight',
+        });
+        expect(fixture.entries[3]).toMatchObject({
+            kind: 'stamp',
+            rect: {
+                left: 0.1,
+                top: 0.5,
+                width: 0.3,
+                height: 0.2,
+            },
+            rotation: 90,
+            image: {
+                objectNumber: 22,
+                generationNumber: 0,
+                byteLength: 128,
+                sha256: 'a'.repeat(64),
+            },
+        });
+        expect(fixture.entries[4]).toMatchObject({
+            kind: 'shape',
+            stableKey: 'shape-fixture',
+            pdfSubtype: 'Line',
+            type: 'line',
+            x2: 0.8,
+            y2: 0.9,
+            lineStartStyle: 'none',
+            lineEndStyle: 'closedArrow',
+        });
+        expect(fixture.entries[5]).toMatchObject({
             kind: 'foreign',
             subtype: 'Link',
         });
