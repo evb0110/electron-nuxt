@@ -6,7 +6,11 @@ import {
     realpathSync,
     type BigIntStats,
 } from 'fs';
-import {stat} from 'fs/promises';
+import {
+    open,
+    stat,
+} from 'fs/promises';
+import {createOriginalFileContentFingerprintHash} from '@electron/file-access/createOriginalFileContentFingerprintHash';
 
 export type TWorkingCopyRole = 'current' | 'snapshot';
 export type TWorkingCopyBackingState =
@@ -95,6 +99,8 @@ const RETIRED_WORKING_COPY_TTL_MS = (() => {
     }
     return Math.min(parsed, 60 * 60 * 1000);
 })();
+const WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
+const WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 
 function stripWindowsExtendedLengthPrefix(filePath: string) {
     if (filePath.startsWith('\\\\?\\UNC\\')) {
@@ -191,7 +197,69 @@ async function createOriginalFileExpectation(
         if (!originalStat.isFile()) {
             return undefined;
         }
-        return createOriginalFileExpectationFromStat(originalStat);
+        const expectation = createOriginalFileExpectationFromStat(originalStat);
+        if (
+            process.platform !== 'win32'
+            || originalStat.size > BigInt(WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES)
+        ) {
+            return expectation;
+        }
+
+        const handle = await open(originalPath, 'r');
+        try {
+            const before = await handle.stat({bigint: true});
+            if (
+                !before.isFile()
+                || before.size !== originalStat.size
+                || before.dev !== originalStat.dev
+                || before.ino !== originalStat.ino
+            ) {
+                return undefined;
+            }
+            const hash = createOriginalFileContentFingerprintHash(Number(before.size));
+            const buffer = Buffer.allocUnsafe(Math.max(
+                1,
+                Math.min(Number(before.size), WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES),
+            ));
+            let offset = 0;
+            while (offset < Number(before.size)) {
+                signal?.throwIfAborted();
+                const length = Math.min(buffer.byteLength, Number(before.size) - offset);
+                let readOffset = 0;
+                while (readOffset < length) {
+                    const {bytesRead} = await handle.read(
+                        buffer,
+                        readOffset,
+                        length - readOffset,
+                        offset + readOffset,
+                    );
+                    if (bytesRead <= 0) {
+                        return undefined;
+                    }
+                    hash.update(buffer.subarray(readOffset, readOffset + bytesRead));
+                    readOffset += bytesRead;
+                }
+                offset += length;
+            }
+            const after = await handle.stat({bigint: true});
+            signal?.throwIfAborted();
+            if (
+                !after.isFile()
+                || after.size !== before.size
+                || after.dev !== before.dev
+                || after.ino !== before.ino
+                || after.mtimeNs !== before.mtimeNs
+                || after.ctimeNs !== before.ctimeNs
+            ) {
+                return undefined;
+            }
+            return {
+                ...createOriginalFileExpectationFromStat(after),
+                contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+            };
+        } finally {
+            await handle.close().catch(() => undefined);
+        }
     } catch {
         return undefined;
     }
@@ -455,10 +523,9 @@ export async function setWorkingCopyOriginalPath(
         setCurrentWorkingCopyForOriginal(workingPath, entry);
     });
 
-    // Normal mapped working copies capture a constant-time stat witness here.
-    // Routes that explicitly defer it cannot publish back to the original
-    // until they refresh the witness; the save fence fails closed when it is
-    // absent. No full-file fingerprint is taken during registration.
+    // Normal mapped working copies capture a stat witness here. Small Windows
+    // sources also get a bounded content fingerprint, while routes that
+    // explicitly defer the witness remain fail-closed until they refresh it.
     if (options.deferOriginalFileExpectation || options.originalFileExpectation) {
         return;
     }

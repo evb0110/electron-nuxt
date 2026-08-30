@@ -15,6 +15,7 @@ import {
     realpathSync,
     rmSync,
     symlinkSync,
+    truncateSync,
     utimesSync,
     writeFileSync,
 } from 'fs';
@@ -288,6 +289,96 @@ describe('workingCopy', () => {
             await expect(
                 originalPathSaveBaseMatches(workingPath, originalPath, ownerWebContentsId),
             ).resolves.toBe(true);
+        }
+    });
+
+    it('captures a bounded content fingerprint for small Windows mapped working copies', async () => {
+        setPlatform('win32');
+        process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+        const {createWorkingCopy} = await import('@electron/file-access/workingCopyCreation');
+        const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+        const {getWorkingCopyOriginalFileExpectation} = await import('@electron/file-access/workingCopyStore');
+        const originalPath = join(tempRoot, 'windows-fingerprint-original.pdf');
+        writeFileSync(originalPath, Buffer.alloc(256 * 1024, 7));
+        const trustedOriginalPath = allowOpenPath(originalPath);
+        expect(trustedOriginalPath).not.toBeNull();
+
+        const workingPath = await createWorkingCopy(trustedOriginalPath!, 7);
+
+        expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({contentFingerprint: 'sha256-full-v1:48af473d28c041d4a5de15465f1768fefbfedda7c449580c2f2eb1f7941ad95f'});
+    });
+
+    it('keeps large Windows mapped working copies on the bounded stat witness', async () => {
+        setPlatform('win32');
+        const {
+            getWorkingCopyOriginalFileExpectation,
+            setWorkingCopyOriginalPath,
+        } = await import('@electron/file-access/workingCopyStore');
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+        const originalPath = join(tempRoot, 'windows-large-original.pdf');
+        const workingPath = join(tempRoot, 'windows-large-working.pdf');
+        const largeSize = 64 * 1024 * 1024 + 1;
+        writeFileSync(originalPath, Buffer.alloc(1));
+        writeFileSync(workingPath, Buffer.alloc(1));
+        truncateSync(originalPath, largeSize);
+        truncateSync(workingPath, 1);
+
+        try {
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toMatchObject({size: largeSize});
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)?.contentFingerprint).toBeUndefined();
+        } finally {
+            await clearAllWorkingCopies();
+        }
+    });
+
+    it('fails closed when a Windows source mutates during fingerprinting', async () => {
+        setPlatform('win32');
+        const originalPath = join(tempRoot, 'windows-mutating-original.pdf');
+        const workingPath = join(tempRoot, 'windows-mutating-working.pdf');
+        const sourceBytes = Buffer.alloc(2 * 1024 * 1024, 7);
+        writeFileSync(originalPath, sourceBytes);
+        writeFileSync(workingPath, Buffer.alloc(1));
+        truncateSync(workingPath, 1);
+        vi.doMock('fs/promises', async importOriginal => {
+            const original = await importOriginal<typeof FsPromises>();
+            return {
+                ...original,
+                open: vi.fn(async (...args: Parameters<typeof original.open>) => {
+                    const handle = await original.open(...args);
+                    let mutated = false;
+                    return Object.assign(Object.create(handle), {
+                        close: () => handle.close(),
+                        read: async (buffer: Buffer, offset: number, length: number, position: number) => {
+                            const result = await handle.read(buffer, offset, length, position);
+                            if (!mutated) {
+                                mutated = true;
+                                writeFileSync(originalPath, Buffer.alloc(sourceBytes.length, 19));
+                            }
+                            return result;
+                        },
+                        stat: (...statArgs: Parameters<typeof handle.stat>) => handle.stat(...statArgs),
+                    }) as Awaited<ReturnType<typeof original.open>>;
+                }),
+            };
+        });
+        vi.resetModules();
+        const {clearAllWorkingCopies} = await import('@electron/file-access/workingCopyCleanup');
+
+        try {
+            const {
+                getWorkingCopyOriginalFileExpectation,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+
+            await setWorkingCopyOriginalPath(workingPath, originalPath, 7);
+
+            expect(getWorkingCopyOriginalFileExpectation(workingPath, 7)).toBeNull();
+        } finally {
+            await clearAllWorkingCopies();
+            vi.doUnmock('fs/promises');
+            vi.resetModules();
         }
     });
 
