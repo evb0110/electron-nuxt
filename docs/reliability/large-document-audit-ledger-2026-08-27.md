@@ -39,8 +39,10 @@ Text/Popup acceptance), `0f180fdcf` (retired annotation recreation),
 `89432c542` (quiet-host exact-fixture ledger evidence), `b6df6e832` (stale
 atomic-replace backup cleanup), `df72592c0` (persisted FreeText sidebar-delete
 acceptance), `1b36b4f0b` (persisted editor-owned FreeText admission),
-`f820922d7` (retired markup override filtering), and `17d61287e` (macOS print
-window readiness ordering). All are published on remote `main`.
+`f820922d7` (retired markup override filtering), `17d61287e` (macOS print
+window readiness ordering), and `acf4c1505` (registered PDF.js
+editor-constructor caching for xlarge annotation activation). All are
+published on remote `main`.
 
 Post-audit follow-ups are tracked with their owning issues even when they do
 not add a new baseline row. Issue #142 is verified and closed against
@@ -460,7 +462,7 @@ Post-audit issues and follow-ups:
 | [#139 Large-PDF FreeText annotations](https://github.com/evb0110/evb-viewer/issues/139) | `ANN-005` is complete for the persisted-sidebar-delete reproduction at `df72592c0`; the broader projection, resize, close-transition, and multi-existing-editor acceptance remains open. |
 | [#145 macOS print handoff](https://github.com/evb0110/evb-viewer/issues/145) | The readiness ordering fix is published at `17d61287e`; a real macOS system-sheet and nonblank-output run remains open. |
 | [#146 Save transaction follow-ups](https://github.com/evb0110/evb-viewer/issues/146) | `SAV-020` remains open; `b6df6e832` adds conservative stale atomic-replace backup cleanup, while Windows witness and transaction acceptance remain. |
-| [#149 Xlarge pre-save renderer stall](https://github.com/evb0110/evb-viewer/issues/149) | The 9.1 s pre-save placement stall is intentionally kept separate from the passing save-window heartbeat row `TEST-017`; source ownership and a quiet-host fix remain open. |
+| [#149 Xlarge pre-save renderer stall](https://github.com/evb0110/evb-viewer/issues/149) | `acf4c1505` avoids the registered-editor constructor discovery scan during xlarge annotation activation, with a red-to-green 16-test bridge gate. The exact 9.1 s pre-save placement attribution and quiet-host <5 s acceptance remain open. |
 | #142, #147, and #148 | Closed after their published source fixes and focused or cross-process acceptance. #142 is `0ef7011d2`, #147 is `85670d391`, and #148 is `42601baf0`. |
 
 Fixed and verified in the umbrella: `SAV-001`, `SAV-007`, `TEST-011`,
