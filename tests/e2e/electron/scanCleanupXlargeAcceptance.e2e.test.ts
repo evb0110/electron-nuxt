@@ -43,7 +43,14 @@ import {
 
 const FIXTURE_ENV = 'EVB_E2E_SCAN_CLEANUP_XLARGE_FIXTURE';
 const ARTIFACT_ENV = 'EVB_E2E_SCAN_CLEANUP_XLARGE_ARTIFACT';
-const PAGE_COUNT = 138_000;
+const PAGE_COUNT_ENV = 'EVB_E2E_SCAN_CLEANUP_XLARGE_PAGE_COUNT';
+const ACCEPTANCE_PAGE_COUNT = 138_000;
+const MIN_ANALYSIS_PAGES_PER_MINUTE = ACCEPTANCE_PAGE_COUNT / 20;
+const configuredPageCount = Number.parseInt(process.env[PAGE_COUNT_ENV]?.trim() || String(ACCEPTANCE_PAGE_COUNT), 10);
+if (!Number.isSafeInteger(configuredPageCount) || configuredPageCount < 1) {
+    throw new RangeError(`${PAGE_COUNT_ENV} must be a positive safe integer`);
+}
+const PAGE_COUNT = configuredPageCount;
 const MAIN_RSS_MAX_DELTA_BYTES = 512 * 1_024 * 1_024;
 const RENDERER_JS_HEAP_MAX_DELTA_BYTES = 256 * 1_024 * 1_024;
 const SETTINGS_MAX_BYTES = 1 * 1_024 * 1_024;
@@ -103,6 +110,8 @@ interface IAcceptanceTelemetry {
         path: string;
         sha256: string;
     };
+    analysisDurationMs: number | null;
+    analysisPagesPerMinute: number | null;
     analysisStatus: string | null;
     detectionArtifacts: IDetectionArtifactTelemetry | null;
     firstRail: IRailTelemetry | null;
@@ -280,7 +289,7 @@ async function driveRailToLastPage(page: Page): Promise<IRailTelemetry> {
             renderedPageCount: renderedPages.length,
             renderedPageMax: Math.max(0, ...renderedPages),
         };
-    }, PAGE_COUNT), value => value.activeSegment > 0 && value.currentPageMounted, 30_000, 250);
+    }, PAGE_COUNT), value => value.activeSegment >= 0 && value.currentPageMounted, 30_000, 250);
 }
 
 async function waitForAriaChecked(page: Page, selector: string, expected: string) {
@@ -337,7 +346,7 @@ function assertMemoryBudget(telemetry: IMemoryTelemetry) {
     expect(telemetry.rendererJsHeapDeltaBytes).toBeLessThanOrEqual(RENDERER_JS_HEAP_MAX_DELTA_BYTES);
 }
 
-acceptanceDescribe('scan cleanup 138,000-page acceptance', () => {
+acceptanceDescribe('scan cleanup xlarge page-source acceptance', () => {
     const fixture = createElectronE2ESessionFixture({
         sessionName: () => `e2e-scan-cleanup-xlarge-${Date.now()}`,
         extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
@@ -356,6 +365,8 @@ acceptanceDescribe('scan cleanup 138,000-page acceptance', () => {
                 path: fixturePath,
                 sha256: fixtureSha256,
             },
+            analysisDurationMs: null,
+            analysisPagesPerMinute: null,
             analysisStatus: null,
             detectionArtifacts: null,
             firstRail: null,
@@ -388,6 +399,7 @@ acceptanceDescribe('scan cleanup 138,000-page acceptance', () => {
                 getSessionInfo(session.name)?.electronPid ?? null,
             );
             activeSampler = firstSampler;
+            const analysisStartedAt = performance.now();
             await clickVisibleToolbarButton(session.page, 'Scan cleanup');
             await session.page.waitForSelector('.scan-cleanup-surface', {
                 timeout: OPEN_TIMEOUT_MS,
@@ -395,13 +407,18 @@ acceptanceDescribe('scan cleanup 138,000-page acceptance', () => {
             });
             telemetry.firstRail = await driveRailToLastPage(session.page);
             expect(telemetry.firstRail.mountedPageCount).toBeLessThanOrEqual(40);
-            expect(telemetry.firstRail.activeSegment).toBeGreaterThan(0);
+            if (PAGE_COUNT === ACCEPTANCE_PAGE_COUNT) {
+                expect(telemetry.firstRail.activeSegment).toBeGreaterThan(0);
+            }
             expect(telemetry.firstRail.contentHeightPx).toBeGreaterThan(0);
             expect(telemetry.firstRail.contentHeightPx).toBeLessThanOrEqual(16_000_000);
             expect(telemetry.firstRail.currentPageMounted).toBe(true);
 
             telemetry.analysisStatus = await waitForAnalysisTerminal(session.page);
+            telemetry.analysisDurationMs = Math.round((performance.now() - analysisStartedAt) * 10) / 10;
+            telemetry.analysisPagesPerMinute = PAGE_COUNT * 60_000 / telemetry.analysisDurationMs;
             expect(telemetry.analysisStatus).toBe('completed');
+            expect(telemetry.analysisPagesPerMinute).toBeGreaterThan(MIN_ANALYSIS_PAGES_PER_MINUTE);
             telemetry.detectionArtifacts = await readDetectionArtifacts(session.name);
             expect(telemetry.detectionArtifacts.storeCount).toBe(1);
             expect(telemetry.detectionArtifacts.indexBytes).toBe(DETECTION_INDEX_BYTES);
