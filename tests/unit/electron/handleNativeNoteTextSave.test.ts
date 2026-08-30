@@ -161,6 +161,27 @@ function createNativeFreeTextNote() {
     };
 }
 
+function createNativeFreeTextEditor() {
+    return {
+        pageIndex: 0,
+        stableKey: 'pdfjs_internal_editor_0',
+        text: 'Editor text',
+        rect: [
+            0.1,
+            0.2,
+            0.4,
+            0.3,
+        ] as [number, number, number, number],
+        rotation: 0 as const,
+        fontSize: 12,
+        color: [
+            17,
+            24,
+            39,
+        ] as [number, number, number],
+    };
+}
+
 function createNativeBookmark(title = 'Chapter'): INativeBookmarkTestItem {
     return {
         title,
@@ -1529,6 +1550,120 @@ describe('handleNativeNoteTextSave', () => {
                 + ((payload.freeTextNotes as unknown[] | undefined)?.length ?? 0),
             ).toBeLessThanOrEqual(PDF_NATIVE_MUTATION_LIMITS.noteChanges);
         }
+        expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledOnce();
+        expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledOnce();
+        expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();
+    });
+
+    it('continues every capped mutation family through one native revision', async () => {
+        const {
+            requestedWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        const payloads: Array<Record<string, unknown>> = [];
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            expect(args[0]).toBe('save-mutations');
+            const payloadPath = args[args.indexOf('--mutations-file') + 1];
+            if (!payloadPath) {
+                throw new Error('Missing mutations file path');
+            }
+            payloads.push(JSON.parse(readFileSync(payloadPath, 'utf8')) as Record<string, unknown>);
+            await appendFile(tempPath, '\n% native all-family continuation');
+        });
+        const {handleNativePdfMutationsSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+        const cap = PDF_NATIVE_MUTATION_LIMITS;
+        const result = await handleNativePdfMutationsSave(
+            context,
+            requestedWorkingPath,
+            {
+                updates: Array.from({length: cap.noteTextUpdates + 1}, (_, index) => ({
+                    objectNumber: index + 1,
+                    generationNumber: 0,
+                    text: `Updated note ${index}`,
+                })),
+                freeTextEditors: Array.from({length: cap.freeTextEditors + 1}, (_, index) => ({
+                    ...createNativeFreeTextEditor(),
+                    stableKey: `editor-${index}`,
+                })),
+                pageLabels: {
+                    totalPages: cap.pageLabelRanges + 1,
+                    ranges: Array.from({length: cap.pageLabelRanges + 1}, (_, index) => ({
+                        startPage: index + 1,
+                        style: 'D',
+                        prefix: `${index}-`,
+                        startNumber: 1,
+                    })),
+                },
+                bookmarks: {
+                    totalPages: 3,
+                    untitledLabel: 'Untitled',
+                    items: Array.from({length: cap.bookmarkItems + 1}, (_, index) => createNativeBookmark(`Chapter ${index}`)),
+                },
+                shapes: {
+                    totalPages: 3,
+                    rewriteShapeState: true,
+                    shapes: Array.from({length: cap.shapes + 1}, (_, index) => ({
+                        ...createNativeShape(),
+                        id: `shape-${index}`,
+                    })),
+                    deletedAnnotationIds: [],
+                    deletedStableKeys: [],
+                },
+                markup: {
+                    overrides: Array.from({length: cap.markupItems + 1}, (_, index) => [
+                        `${index + 1}R`,
+                        'Highlight',
+                    ] as const),
+                    hints: [],
+                },
+                placedImages: Array.from({length: cap.placedImages + 1}, (_, index) => ({
+                    ...createNativePlacedImage(),
+                    stableKey: `image-${index}`,
+                })),
+            },
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({applied: true});
+        expect(payloads.length).toBeGreaterThan(1);
+        expect(payloads.reduce((count, payload) => count + ((payload.updates as unknown[] | undefined)?.length ?? 0), 0))
+            .toBe(cap.noteTextUpdates + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.freeTextEditors as unknown[] | undefined)?.length ?? 0), 0))
+            .toBe(cap.freeTextEditors + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.pageLabels as {ranges?: unknown[]} | undefined)?.ranges?.length ?? 0), 0))
+            .toBe(cap.pageLabelRanges + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.bookmarks as {items?: unknown[]} | undefined)?.items?.length ?? 0), 0))
+            .toBe(cap.bookmarkItems + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.shapes as {shapes?: unknown[]} | undefined)?.shapes?.length ?? 0), 0))
+            .toBe(cap.shapes + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.markup as {overrides?: unknown[]} | undefined)?.overrides?.length ?? 0), 0))
+            .toBe(cap.markupItems + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.placedImages as unknown[] | undefined)?.length ?? 0), 0))
+            .toBe(cap.placedImages + 1);
+        for (const payload of payloads) {
+            expect((payload.updates as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.noteTextUpdates);
+            expect((payload.freeTextEditors as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.freeTextEditors);
+            expect((payload.pageLabels as {ranges?: unknown[]} | undefined)?.ranges?.length ?? 0).toBeLessThanOrEqual(cap.pageLabelRanges);
+            expect((payload.bookmarks as {items?: unknown[]} | undefined)?.items?.length ?? 0).toBeLessThanOrEqual(cap.bookmarkItems);
+            expect((payload.shapes as {shapes?: unknown[]} | undefined)?.shapes?.length ?? 0).toBeLessThanOrEqual(cap.shapes);
+            expect((payload.markup as {overrides?: unknown[]} | undefined)?.overrides?.length ?? 0).toBeLessThanOrEqual(cap.markupItems);
+            expect((payload.placedImages as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.placedImages);
+        }
+        expect(payloads[0]!.continuation).toBeUndefined();
+        expect(new Set(payloads.slice(1).map(payload => (
+            payload.continuation as {family?: string} | undefined
+        )?.family))).toEqual(new Set([
+            'notes',
+            'freeTextEditors',
+            'pageLabels',
+            'bookmarks',
+            'shapes',
+            'markup',
+            'placedImages',
+        ]));
         expect(mocks.assertWorkingCopyRevisionCurrent).toHaveBeenCalledOnce();
         expect(mocks.copyFileCopyOnWrite).toHaveBeenCalledOnce();
         expect(mocks.transitionOriginalAndWorkingCopyRevision).toHaveBeenCalledOnce();

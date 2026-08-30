@@ -458,6 +458,10 @@ export async function captureOriginalPathSaveWitness(
             await handle.close().catch(() => undefined);
             return null;
         }
+        if (!await matchesExpectedContentFingerprint(originalPath, expected, handleStat)) {
+            await handle.close().catch(() => undefined);
+            return null;
+        }
         const pathSnapshot = await capturePathSnapshot(originalPath);
         if (!snapshotsMatch(snapshot, pathSnapshot)) {
             await handle.close().catch(() => undefined);
@@ -471,14 +475,15 @@ export async function captureOriginalPathSaveWitness(
 }
 
 /**
- * Fences an original-path save without reading the document bytes.
+ * Fences an original-path save without an unbounded document read.
  *
- * A full SHA-256 made every annotation save proportional to the PDF size. The
- * expectation now captures filesystem identity and change timestamps when the
- * source is opened or last published. On POSIX, ctime cannot be restored by an
- * ordinary writer, so same-size and backdated external edits still fail the
- * fence. Older restored registrations may only have size and mtime; those stay
- * compatible without falling back to a whole-document comparison.
+ * The expectation captures filesystem identity and change timestamps when the
+ * source is opened or last published. On Windows, small files with a stored
+ * content fingerprint are hashed to catch same-size edits whose metadata is
+ * unchanged. On POSIX, ctime cannot be restored by an ordinary writer, so
+ * same-size and backdated external edits still fail the fence. Older restored
+ * registrations may only have size and mtime; those stay compatible without a
+ * whole-document comparison.
  */
 export async function originalPathSaveBaseMatches(
     workingPath: string,

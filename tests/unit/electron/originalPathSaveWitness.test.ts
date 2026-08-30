@@ -55,6 +55,7 @@ vi.mock('node:fs/promises', async importOriginal => {
 vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyOriginalFileExpectation: mocks.getWorkingCopyOriginalFileExpectation}));
 
 const {
+    captureOriginalPathSaveWitness,
     capturePathSaveWitness,
     originalPathSaveBaseMatches,
 } = await import('@electron/file-access/originalPathSaveWitness');
@@ -179,6 +180,78 @@ describe('originalPathSaveBaseMatches', () => {
             });
 
             await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(false);
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
+    });
+
+    it('rejects a Windows content change before admitting a transaction witness', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+        try {
+            const originalPath = join(tempDir, 'original.pdf');
+            const originalBytes = Buffer.alloc(256 * 1024, 7);
+            const originalHash = createOriginalFileContentFingerprintHash(originalBytes.byteLength);
+            originalHash.update(originalBytes);
+            const originalFingerprint = `sha256-full-v1:${originalHash.digest('hex')}`;
+
+            const changedBytes = Buffer.from(originalBytes);
+            changedBytes[70_000] = 8;
+            await writeFile(originalPath, changedBytes);
+            const changedStat = await stat(originalPath, {bigint: true});
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+                contentFingerprint: originalFingerprint,
+                ctimeNs: changedStat.ctimeNs.toString(),
+                deviceId: changedStat.dev.toString(),
+                inode: changedStat.ino.toString(),
+                mtimeMs: Number(changedStat.mtimeNs) / 1_000_000,
+                mtimeNs: changedStat.mtimeNs.toString(),
+                size: Number(changedStat.size),
+            });
+
+            await expect(captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12))
+                .resolves.toBeNull();
+        } finally {
+            Object.defineProperty(process, 'platform', {
+                configurable: true,
+                value: originalPlatform,
+            });
+        }
+    });
+
+    it('admits a Windows witness when the stored content fingerprint matches', async () => {
+        const originalPlatform = process.platform;
+        Object.defineProperty(process, 'platform', {
+            configurable: true,
+            value: 'win32',
+        });
+        try {
+            const originalPath = join(tempDir, 'original.pdf');
+            const bytes = Buffer.alloc(256 * 1024, 7);
+            const hash = createOriginalFileContentFingerprintHash(bytes.byteLength);
+            hash.update(bytes);
+            await writeFile(originalPath, bytes);
+            const originalStat = await stat(originalPath, {bigint: true});
+            mocks.getWorkingCopyOriginalFileExpectation.mockReturnValue({
+                contentFingerprint: `sha256-full-v1:${hash.digest('hex')}`,
+                ctimeNs: originalStat.ctimeNs.toString(),
+                deviceId: originalStat.dev.toString(),
+                inode: originalStat.ino.toString(),
+                mtimeMs: Number(originalStat.mtimeNs) / 1_000_000,
+                mtimeNs: originalStat.mtimeNs.toString(),
+                size: Number(originalStat.size),
+            });
+
+            const witness = await captureOriginalPathSaveWitness('/unused-working.pdf', originalPath, 12);
+            expect(witness).not.toBeNull();
+            await witness!.close();
+            await expect(originalPathSaveBaseMatches('/unused-working.pdf', originalPath, 12)).resolves.toBe(true);
         } finally {
             Object.defineProperty(process, 'platform', {
                 configurable: true,
