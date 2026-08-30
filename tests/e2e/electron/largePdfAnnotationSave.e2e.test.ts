@@ -8,11 +8,13 @@ import {
     constants,
     copyFileSync,
     createReadStream,
+    existsSync,
     mkdtempSync,
     readFileSync,
     realpathSync,
     rmSync,
     statSync,
+    writeFileSync,
 } from 'node:fs';
 import {
     execFile,
@@ -34,6 +36,7 @@ import {
     PDFName,
     PDFRef,
     PDFString,
+    StandardFonts,
 } from 'pdf-lib';
 import type {Page} from 'puppeteer-core';
 import {
@@ -66,7 +69,11 @@ import {
     waitForNoOpenNoteWindows,
 } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import { workspaceCrashCheckpointPath } from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
-import {resolveExactPdfFixtureExpectation} from '@scripts/ci/stageExactPdfFixture';
+import {
+    readExactPdfFixtureIdentity,
+    resolveExactPdfFixtureExpectation,
+    validateExactPdfFixtureIdentity,
+} from '@scripts/ci/stageExactPdfFixture';
 import {getSessionInfo} from '@scripts/electron-run/electronRunSessionArtifacts';
 import {
     collectDescendantPidsUnix,
@@ -104,6 +111,45 @@ const qpdfAvailable = (() => {
 })();
 const runStickyRestartScenario = qpdfAvailable
     || process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
+const IMPORTED_TEXT_POPUP_NAME = 'evb-pdf-003-text-parent';
+const IMPORTED_TEXT_POPUP_TEXT = 'PDF-003 imported Text Popup note';
+const IMPORTED_TEXT_POPUP_PARENT_RECT = [
+    72,
+    680,
+    96,
+    704,
+] as const;
+const IMPORTED_TEXT_POPUP_RECT = [
+    100,
+    560,
+    340,
+    700,
+] as const;
+const IMPORTED_TEXT_POPUP_TIMEOUT_MS = 15 * 60_000;
+
+function resolveExactZaliznyakSourcePath() {
+    const configuredPath = process.env.EVB_E2E_LARGE_PDF_FIXTURE?.trim();
+    if (configuredPath && !/^(?:https?|file):\/\//u.test(configuredPath)) {
+        return configuredPath;
+    }
+    return null;
+}
+
+const exactZaliznyakSourcePath = resolveExactZaliznyakSourcePath();
+const runImportedTextPopupScenario = qpdfAvailable
+    && process.env[EXACT_ZALIZNYAK_REQUIRED_ENV] === '1';
+
+interface IImportedTextPopupFixture {
+    annotationName: string;
+    parentRect: readonly [number, number, number, number];
+    popupRect: readonly [number, number, number, number];
+    text: string;
+}
+
+interface IQpdfObjectRef {
+    generationNumber: number;
+    objectNumber: number;
+}
 
 interface ICommentAtPointViewer {commentAtPoint?: (
     pageNumber: number,
@@ -361,6 +407,48 @@ async function readDocumentSaveIdentity(page: Page) {
     });
 }
 
+interface ICanonicalImportedTextPopupComment extends Record<string, unknown> {
+    annotationName: string | null;
+    hasNote: boolean | null;
+    source: string | null;
+    subtype: string | null;
+    text: string | null;
+}
+
+async function readCanonicalImportedTextPopupComments(page: Page) {
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate((): ICanonicalImportedTextPopupComment[] => {
+        const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi
+            ?.readActiveWorkspaceStateValues<{annotationComments?: ICanonicalImportedTextPopupComment[]}>(
+                ['annotationComments'],
+            );
+        return (state?.annotationComments ?? []).map(comment => ({
+            annotationName: comment.annotationName ?? null,
+            hasNote: comment.hasNote ?? null,
+            source: comment.source ?? null,
+            subtype: comment.subtype ?? null,
+            text: comment.text ?? null,
+        }));
+    });
+}
+
+async function waitForCanonicalImportedTextPopupComment(
+    page: Page,
+    fixture: IImportedTextPopupFixture,
+    timeoutMs = NOTE_TEXT_ENTRY_TIMEOUT_MS,
+) {
+    await expect.poll(
+        () => readCanonicalImportedTextPopupComments(page),
+        {timeout: timeoutMs},
+    ).toEqual([expect.objectContaining({
+        annotationName: fixture.annotationName,
+        hasNote: true,
+        source: 'pdf',
+        subtype: 'FreeText',
+        text: fixture.text,
+    })]);
+}
+
 async function qpdfCheck(filePath: string) {
     await execFileAsync('qpdf', [
         '--check',
@@ -385,6 +473,85 @@ async function qpdfPageCount(filePath: string) {
         throw new Error(`qpdf returned an invalid page count: ${JSON.stringify(stdout)}`);
     }
     return pageCount;
+}
+
+async function createImportedTextPopupFixture(filePath: string): Promise<IImportedTextPopupFixture> {
+    const document = await PDFDocument.create();
+    const page = document.addPage([
+        612,
+        792,
+    ]);
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    page.drawText('PDF-003 Text annotation fixture', {
+        font,
+        size: 18,
+        x: 72,
+        y: 720,
+    });
+
+    const parentRef = document.context.nextRef();
+    const popupRef = document.context.nextRef();
+    const parent = document.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Text'),
+        Rect: [...IMPORTED_TEXT_POPUP_PARENT_RECT],
+        NM: PDFHexString.fromText(IMPORTED_TEXT_POPUP_NAME),
+        Contents: PDFHexString.fromText(IMPORTED_TEXT_POPUP_TEXT),
+        Popup: popupRef,
+        Open: false,
+        F: 4,
+        C: [
+            1,
+            1,
+            0,
+        ],
+        T: PDFHexString.fromText('EVB PDF-003'),
+        M: PDFString.of('D:20260829000000Z'),
+    });
+    const popup = document.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Popup'),
+        Rect: [...IMPORTED_TEXT_POPUP_RECT],
+        Parent: parentRef,
+        Contents: PDFHexString.fromText(IMPORTED_TEXT_POPUP_TEXT),
+        Open: false,
+        F: 4,
+        M: PDFString.of('D:20260829000000Z'),
+    });
+    document.context.assign(parentRef, parent);
+    document.context.assign(popupRef, popup);
+    page.node.set(PDFName.of('Annots'), document.context.obj([parentRef]));
+
+    writeFileSync(filePath, await document.save({
+        addDefaultPage: false,
+        useObjectStreams: false,
+    }));
+    return {
+        annotationName: IMPORTED_TEXT_POPUP_NAME,
+        parentRect: IMPORTED_TEXT_POPUP_PARENT_RECT,
+        popupRect: IMPORTED_TEXT_POPUP_RECT,
+        text: IMPORTED_TEXT_POPUP_TEXT,
+    };
+}
+
+async function combineImportedTextPopupWithExactFixture(
+    onePageFixturePath: string,
+    exactFixturePath: string,
+    outputPath: string,
+) {
+    await execFileAsync('qpdf', [
+        onePageFixturePath,
+        '--pages',
+        '.',
+        '1',
+        exactFixturePath,
+        '2-z',
+        '--',
+        outputPath,
+    ], {
+        maxBuffer: 128 * 1024,
+        timeout: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+    });
 }
 
 async function admitExactZaliznyakFixture(filePath: string) {
@@ -511,6 +678,91 @@ async function readQpdfObject(
         timeout: 120_000,
     });
     return stdout;
+}
+
+async function inspectImportedTextPopupStructure(
+    filePath: string,
+    fixture: IImportedTextPopupFixture,
+) {
+    const {stdout: pagesOutput} = await execFileAsync('qpdf', [
+        '--show-pages',
+        filePath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 2 * 1024 * 1024,
+        timeout: IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+    });
+    const pageRefMatch = pagesOutput.match(/^page 1: (\d+) (\d+) R$/mu);
+    if (!pageRefMatch) {
+        throw new Error(`qpdf did not report the first page object for ${filePath}`);
+    }
+    const pageRef: IQpdfObjectRef = {
+        objectNumber: Number(pageRefMatch[1]),
+        generationNumber: Number(pageRefMatch[2]),
+    };
+    const pageObject = await readQpdfObject(filePath, pageRef, 'none');
+    const indirectAnnotsMatch = pageObject.match(/\/Annots\s+(\d+)\s+(\d+)\s+R/u);
+    const annotsSource = indirectAnnotsMatch
+        ? await readQpdfObject(filePath, {
+            objectNumber: Number(indirectAnnotsMatch[1]),
+            generationNumber: Number(indirectAnnotsMatch[2]),
+        }, 'none')
+        : pageObject;
+    const annotsMatch = indirectAnnotsMatch
+        ? annotsSource.match(/\[\s*([^\]]*)\]/u)
+        : annotsSource.match(/\/Annots\s*\[\s*([^\]]*)\]/u);
+    const annotsValue = annotsMatch?.[1];
+    const annotationRefs = annotsValue
+        ? [...annotsValue.matchAll(/(\d+)\s+(\d+)\s+R/gu)].map(match => ({
+            objectNumber: Number(match[1]),
+            generationNumber: Number(match[2]),
+        }))
+        : [];
+    expect(annotationRefs, `First page has no bounded annotation array: ${annotsSource}`).toHaveLength(1);
+
+    const annotationObjects: Array<{
+        object: string;
+        ref: IQpdfObjectRef;
+        subtype: string | null;
+    }> = [];
+    for (const ref of annotationRefs) {
+        const object = await readQpdfObject(filePath, ref, 'none');
+        annotationObjects.push({
+            object,
+            ref,
+            subtype: object.match(/\/Subtype\s+\/([A-Za-z]+)/u)?.[1] ?? null,
+        });
+    }
+    const parentEntry = annotationObjects.find(entry => entry.subtype === 'Text');
+    expect(parentEntry, JSON.stringify(annotationObjects)).toBeDefined();
+    if (!parentEntry) {
+        throw new Error(`First page did not retain its Text object: ${JSON.stringify(annotationObjects)}`);
+    }
+
+    const popupRefMatch = parentEntry.object.match(/\/Popup\s+(\d+)\s+(\d+)\s+R/u);
+    expect(popupRefMatch, parentEntry.object).not.toBeNull();
+    if (!popupRefMatch) {
+        throw new Error(`Text annotation did not retain its Popup reference: ${parentEntry.object}`);
+    }
+    const popupRef: IQpdfObjectRef = {
+        objectNumber: Number(popupRefMatch[1]),
+        generationNumber: Number(popupRefMatch[2]),
+    };
+    const popupObject = await readQpdfObject(filePath, popupRef, 'none');
+    expect(popupObject).toMatch(/\/Subtype\s+\/Popup/u);
+    expect(popupObject).toMatch(new RegExp(
+        `/Parent\\s+${String(parentEntry.ref.objectNumber)}\\s+${String(parentEntry.ref.generationNumber)}\\s+R`,
+        'u',
+    ));
+    expect(qpdfDictionaryContainsText(parentEntry.object, 'NM', fixture.annotationName)).toBe(true);
+    expect(qpdfDictionaryContainsText(parentEntry.object, 'Contents', fixture.text)).toBe(true);
+    expect(qpdfDictionaryContainsText(popupObject, 'Contents', fixture.text)).toBe(true);
+    expect(parseRectFromQpdfObject(parentEntry.object)).toEqual(fixture.parentRect);
+    expect(parseRectFromQpdfObject(popupObject)).toEqual(fixture.popupRect);
+    return {
+        annotation: parentEntry.ref,
+        popup: popupRef,
+    };
 }
 
 function parseRectFromQpdfObject(value: string): [number, number, number, number] {
@@ -1625,6 +1877,108 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         sessionName: () => `e2e-large-pdf-${Date.now()}`,
         timeoutMs: LARGE_PDF_TIMEOUT_MS,
     });
+
+    it.runIf(runImportedTextPopupScenario)('imports a Text annotation with its Popup and preserves it through a clean save and hard restart', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Electron session is unavailable for the imported Text annotation test');
+        }
+        if (exactZaliznyakSourcePath === null || !existsSync(exactZaliznyakSourcePath)) {
+            throw new Error('Set EVB_E2E_LARGE_PDF_FIXTURE to the exact Zaliznyak fixture');
+        }
+
+        const exactSourceIdentity = await readExactPdfFixtureIdentity(
+            exactZaliznyakSourcePath,
+            {timeoutMs: IMPORTED_TEXT_POPUP_TIMEOUT_MS},
+        );
+        validateExactPdfFixtureIdentity(exactSourceIdentity, EXACT_ZALIZNYAK_EXPECTATION);
+        expect(exactSourceIdentity.pages).toBe(882);
+
+        const artifactDirectory = mkdtempSync(join(tmpdir(), '.evb-pdf-003-text-popup-'));
+        onTestFinished(() => rmSync(artifactDirectory, {
+            force: true,
+            recursive: true,
+        }));
+        const onePageFixturePath = join(artifactDirectory, 'text-popup-one-page.pdf');
+        const fixturePath = join(artifactDirectory, 'text-popup-882-pages.pdf');
+        const fixture = await createImportedTextPopupFixture(onePageFixturePath);
+        await combineImportedTextPopupWithExactFixture(
+            onePageFixturePath,
+            exactZaliznyakSourcePath,
+            fixturePath,
+        );
+        const fixtureRealPath = realpathSync(fixturePath);
+        expect(await qpdfPageCount(fixtureRealPath)).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+
+        await openPdfInApp(session.page, fixtureRealPath, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await waitForViewerInteractive(session.page, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
+        await expect.poll(async () => (
+            await getWorkspaceToolbarSnapshot(session.page)
+        )?.totalPages, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(EXACT_ZALIZNYAK_EXPECTATION.pages);
+        await waitForCanonicalImportedTextPopupComment(
+            session.page,
+            fixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        );
+        await expect.poll(async () => {
+            const state = await readWorkspaceStateValues<{dirtyState?: {
+                annotationDirty?: boolean;
+                fileDirty?: boolean;
+                hasAnnotationChanges?: boolean;
+                hasLivePdfJsAnnotationChanges?: boolean;
+                hasPendingUnsavedChanges?: boolean;
+            };}>(session.page, ['dirtyState']);
+            const dirty = state.dirtyState;
+            return dirty
+                ? {
+                    annotationDirty: dirty.annotationDirty,
+                    fileDirty: dirty.fileDirty,
+                    hasAnnotationChanges: dirty.hasAnnotationChanges,
+                    hasLivePdfJsAnnotationChanges: dirty.hasLivePdfJsAnnotationChanges,
+                    hasPendingUnsavedChanges: dirty.hasPendingUnsavedChanges,
+                }
+                : null;
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
+            annotationDirty: false,
+            fileDirty: false,
+            hasAnnotationChanges: false,
+            hasLivePdfJsAnnotationChanges: false,
+            hasPendingUnsavedChanges: false,
+        });
+
+        const cleanSave = await callWorkspaceCommand<boolean>(session.page, 'handleSave');
+        expect(cleanSave).toEqual({
+            called: true,
+            value: true,
+        });
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+
+        await waitForCrashCheckpointPath(session.name, fixtureRealPath);
+        const firstProcesses = readSessionProcessSnapshot(session.name);
+        const restartedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!restartedSession) {
+            throw new Error('Hard restart did not produce a new Electron process for the imported Text annotation test');
+        }
+        await expectProcessesExited(firstProcesses.pids);
+        const restartedProcesses = readSessionProcessSnapshot(restartedSession.name);
+        expect(restartedProcesses.rootPid).not.toBe(firstProcesses.rootPid);
+        await waitForRestoredDocument(restartedSession.page, fixtureRealPath);
+        await waitForCanonicalImportedTextPopupComment(
+            restartedSession.page,
+            fixture,
+            IMPORTED_TEXT_POPUP_TIMEOUT_MS,
+        );
+        await qpdfCheck(fixtureRealPath);
+        await inspectImportedTextPopupStructure(fixtureRealPath, fixture);
+    }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
 
     it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {
         const session = sessionFixture.getSession();
