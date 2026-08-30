@@ -1,0 +1,23 @@
+tests/unit/electron/twoTargetDocumentTransitionRecovery.test.ts
+  s_b2ece6dfe48478::t_a5b5cb9d78c561 4
+  s_b2ece6dfe48478::t_00f75b14d66523 82-117
+  s_b2ece6dfe48478::t_a5b04f8a27571b 118
+tests/unit/electron/atomicReplaceRealFilesystem.test.ts
+  s_b2ece6dfe48478::t_00f75b14d66523 1-45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c6c5fd44b1ecec41e7a9fab3d4cf8d9cc398c589",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
