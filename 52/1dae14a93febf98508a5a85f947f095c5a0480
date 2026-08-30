@@ -1,0 +1,35 @@
+app/assets/css/main.css
+  s_80a16fecb47a3d::t_8527fb3e0a3f65 233-234
+app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue
+  s_80a16fecb47a3d::t_f53dbc5c84b1a9 13-15,41,45,60,67,169-173
+  s_80a16fecb47a3d::t_c7c1576506a728 61-66,68-70,174-184,211-212
+app/utils/document-viewer/thumbnails/useDocumentThumbnailController.ts
+  s_80a16fecb47a3d::t_56ba2e25509946 381-384
+tests/unit/app/modules/pdf-viewer/components/pdfSidebarBookmarkRetention.test.ts
+  s_80a16fecb47a3d::t_1c2a5559c4369c 166
+app/modules/pdf-viewer/thumbnails/pdfThumbnailDomMetrics.ts
+  s_80a16fecb47a3d::t_56ba2e25509946 12-14
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_80a16fecb47a3d::t_442b64578e4d87 98
+tests/unit/app/modules/workspace-shell/components/sidebarOpenLayoutStability.test.ts
+  s_80a16fecb47a3d::t_02d6b7c4677b98 14,45,64
+tests/unit/app/modules/workspace-shell/components/sidebarShellIntegration.test.ts
+  s_80a16fecb47a3d::t_cf2a1655cd4570 109-122
+  s_80a16fecb47a3d::t_c44432405d9b4f 123-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "521dae14a93febf98508a5a85f947f095c5a0480",
+  "prompts": {},
+  "sessions": {
+    "s_80a16fecb47a3d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "b8cf4569-7ab3-4302-9114-910e3b15040f",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
