@@ -226,18 +226,21 @@ describe('issue 136 CI coverage contracts', () => {
             numPassedTests: 0,
             numFailedTests: 0,
             numPendingTests: 0,
-        })).toThrow(/zero tests/u);
+            testResults: [],
+        })).toThrow(/empty quarantine assertions/u);
         expect(() => assertQuarantineReport({
             numTotalTests: 1,
             numPassedTests: 0,
             numFailedTests: 1,
             numPendingTests: 0,
+            testResults: [{assertionResults: [{status: 'failed'}]}],
         })).toThrow(/failed tests/u);
         expect(() => assertQuarantineReport({
             numTotalTests: 1,
             numPassedTests: 0,
             numFailedTests: 0,
             numPendingTests: 1,
+            testResults: [{assertionResults: [{status: 'pending'}]}],
         })).toThrow(/skipped or pending/u);
         expect(() => assertQuarantineReport({
             numTotalTests: 1,
@@ -258,7 +261,7 @@ describe('issue 136 CI coverage contracts', () => {
             numPassedTests: 1,
             numFailedTests: 0,
             numPendingTests: 0,
-        })).not.toThrow();
+        })).toThrow(/assertion/u);
         expect(() => assertQuarantineReport({
             numTotalTests: 1,
             numPassedTests: 1,
@@ -272,6 +275,26 @@ describe('issue 136 CI coverage contracts', () => {
             numPendingTests: 0,
             testResults: [{assertionResults: [{status: 'pending'}]}],
         })).toThrow(/counter mismatch/u);
+        expect(assertQuarantineReport({
+            numTotalTests: 1,
+            numPassedTests: 1,
+            numFailedTests: 0,
+            numPendingTests: 0,
+            testResults: [{assertionResults: [{status: 'passed'}]}],
+        })).toEqual({
+            failed: 0,
+            passed: 1,
+            pending: 0,
+            todo: 0,
+            total: 1,
+        });
+        expect(() => assertQuarantineReport({
+            numTotalTests: 1,
+            numPassedTests: 1,
+            numFailedTests: 0,
+            numPendingTests: 0,
+            testResults: [{}],
+        })).toThrow(/assertionResults/u);
         expect(() => assertQuarantineReport({
             numTotalTests: -1,
             numPassedTests: 0,

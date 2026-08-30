@@ -57,7 +57,7 @@ function readCounters(report: Record<string, unknown>) {
 function countNestedAssertions(report: Record<string, unknown>) {
     const rawSuites = report.testResults;
     if (rawSuites === undefined) {
-        return null;
+        throw new Error('Quarantine report must contain testResults assertions');
     }
     if (!Array.isArray(rawSuites)) {
         throw new Error('Quarantine report testResults must be an array');
@@ -68,7 +68,7 @@ function countNestedAssertions(report: Record<string, unknown>) {
         }
         const rawAssertions = rawSuite.assertionResults;
         if (rawAssertions === undefined) {
-            return [];
+            throw new Error(`Quarantine report suite ${suiteIndex} must contain assertionResults`);
         }
         if (!Array.isArray(rawAssertions)) {
             throw new Error(`Quarantine report suite ${suiteIndex} assertionResults must be an array`);
@@ -112,52 +112,20 @@ export function summarizeQuarantineReport(report: unknown): IQuarantineSummary {
     }
     const counters = readCounters(report);
     const nested = countNestedAssertions(report);
-    if (nested !== null && nested.total === 0) {
+    if (nested.total === 0) {
         throw new Error('empty quarantine assertions cannot be admitted');
     }
-    const hasNestedAssertions = nested !== null && nested.total > 0;
-    if (hasNestedAssertions) {
-        for (const key of QUARANTINE_COUNTER_KEYS) {
-            const topLevel = counters[key];
-            const nestedKey = COUNTER_TO_SUMMARY_KEY[key];
-            if (topLevel !== undefined && topLevel !== nested[nestedKey]) {
-                throw new Error(
-                    `Quarantine report counter mismatch for ${key}: `
-                    + `top-level ${topLevel}, nested ${nested[nestedKey]}`,
-                );
-            }
+    for (const key of QUARANTINE_COUNTER_KEYS) {
+        const topLevel = counters[key];
+        const nestedKey = COUNTER_TO_SUMMARY_KEY[key];
+        if (topLevel !== undefined && topLevel !== nested[nestedKey]) {
+            throw new Error(
+                `Quarantine report counter mismatch for ${key}: `
+                + `top-level ${topLevel}, nested ${nested[nestedKey]}`,
+            );
         }
-        return nested;
     }
-
-    const total = counters.numTotalTests;
-    if (total === undefined) {
-        if (QUARANTINE_COUNTER_KEYS.some(key => key !== 'numTotalTests' && counters[key] !== undefined)) {
-            throw new Error('Quarantine report counter mismatch: numTotalTests is missing');
-        }
-        return {
-            failed: 0,
-            passed: 0,
-            pending: 0,
-            todo: 0,
-            total: 0,
-        };
-    }
-    const summary = {
-        failed: counters.numFailedTests ?? 0,
-        passed: counters.numPassedTests ?? 0,
-        pending: counters.numPendingTests ?? 0,
-        todo: counters.numTodoTests ?? 0,
-        total,
-    };
-    const categoryTotal = summary.failed + summary.passed + summary.pending + summary.todo;
-    if (categoryTotal !== total) {
-        throw new Error(
-            `Quarantine report counter mismatch: top-level total ${total}, `
-            + `categories ${categoryTotal}`,
-        );
-    }
-    return {...summary};
+    return nested;
 }
 
 export function assertQuarantineReport(report: unknown): IQuarantineSummary {
