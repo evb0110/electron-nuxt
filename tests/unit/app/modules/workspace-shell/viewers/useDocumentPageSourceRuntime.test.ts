@@ -16,7 +16,10 @@ import {
     isSparseDocumentPageMetrics,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
 import {DOCUMENT_PAGE_GUTTER_PX} from '@app/utils/document-viewer/layout/documentPageGutterPx';
-import {isLazyIndexedCollection} from '@app/utils/document-viewer/virtualization/pageVirtualization';
+import {
+    createLazyIndexedCollection,
+    isLazyIndexedCollection,
+} from '@app/utils/document-viewer/virtualization/pageVirtualization';
 
 describe('document page-source ready-edge reconciliation', () => {
     it('preserves the committed navigation target until a trusted page is observed', () => {
@@ -57,6 +60,61 @@ describe('document page-source ready-edge reconciliation', () => {
 });
 
 describe('document page-source layout memory bounds', () => {
+    it('projects a generic lazy page source without invoking array map', () => {
+        const metrics = createLazyIndexedCollection({
+            cacheValues: false,
+            getValue: () => ({
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0 as const,
+            }),
+            length: 1_000_000,
+        });
+        Object.defineProperty(metrics, 'map', {
+            configurable: true,
+            value: () => {
+                throw new Error('generic lazy page metrics must not be mapped');
+            },
+        });
+
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
+            metrics,
+            600,
+            800,
+            1,
+            'custom',
+        );
+        const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
+        const pageTops = resolveDocumentPageTopsBounded(pageHeights);
+        const pageLayouts = resolveDocumentPageLayoutsBounded(
+            displayLayouts,
+            pageTops,
+            true,
+        );
+        const zoomAnchorLayouts = resolveDocumentPageZoomAnchorLayoutsBounded(
+            pageLayouts,
+            pageWidth => Math.max(DOCUMENT_PAGE_GUTTER_PX, (800 - pageWidth) / 2),
+        );
+
+        for (const collection of [
+            displayLayouts,
+            pageHeights,
+            pageTops,
+            pageLayouts,
+            zoomAnchorLayouts,
+        ]) {
+            expect(isLazyIndexedCollection(collection)).toBe(true);
+            expect(Object.keys(collection).filter(key => /^\d+$/u.test(key))).toEqual([]);
+            expect(collection).toHaveLength(1_000_000);
+        }
+        expect(zoomAnchorLayouts[0]).toMatchObject({
+            left: 100,
+            top: 20,
+            width: 600,
+            height: 800,
+        });
+    });
+
     it('keeps sparse million-page display layouts lazy and on-demand', () => {
         const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
             widthPoints: 600,
@@ -103,7 +161,7 @@ describe('document page-source layout memory bounds', () => {
         });
 
         const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
-        const pageTops = resolveDocumentPageTopsBounded(pageHeights, true);
+        const pageTops = resolveDocumentPageTopsBounded(pageHeights);
         const pageLayouts = resolveDocumentPageLayoutsBounded(
             displayLayouts,
             pageTops,
@@ -145,7 +203,6 @@ describe('document page-source layout memory bounds', () => {
             displayLayouts,
             resolveDocumentPageTopsBounded(
                 resolveDocumentPageHeightsBounded(displayLayouts),
-                true,
             ),
             true,
         );

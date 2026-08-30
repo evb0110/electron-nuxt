@@ -14,7 +14,6 @@ import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chas
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
-    isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
@@ -100,7 +99,7 @@ export function resolveDocumentPageDisplayLayoutsBounded(
     manualZoom: number,
     zoomMode: TDocumentPageSourceRuntimeProps['zoomMode'],
 ) {
-    if (!isSparseDocumentPageMetrics(metrics)) {
+    if (!isLazyIndexedCollection(metrics)) {
         return resolveDocumentPageDisplayLayouts({
             availableHeight,
             availableWidth,
@@ -148,9 +147,8 @@ export function resolveDocumentPageHeightsBounded(
 }
 export function resolveDocumentPageTopsBounded(
     heights: TDocumentPageSourceCollection<number>,
-    sparse: boolean,
 ) {
-    if (!sparse) {
+    if (!isLazyIndexedCollection(heights)) {
         let top = DOCUMENT_PAGE_GUTTER_PX;
         return heights.map((height) => {
             const value = top;
@@ -310,7 +308,6 @@ export const useDocumentPageSourceRuntime = (options: {
     const pageHeights = computed(() => resolveDocumentPageHeightsBounded(pageDisplayLayouts.value));
     const pageTops = computed(() => resolveDocumentPageTopsBounded(
         pageHeights.value,
-        isSparseDocumentPageMetrics(pageMetrics.value),
     ));
     const totalHeight = computed(() => Math.max(
         containerHeight.value,
