@@ -10,7 +10,7 @@ import {
     resolve,
 } from 'node:path';
 import {promisify} from 'node:util';
-import type {Page} from 'puppeteer-core';
+import puppeteer, {type Page} from 'puppeteer-core';
 import {
     describe,
     expect,
@@ -273,20 +273,45 @@ async function readRouteEvidence(
 }
 
 async function waitForOpeningPreviewPage(page: Page, pageNumber: number) {
-    await page.waitForFunction((targetPage: number) => {
-        const image = document.querySelector<HTMLImageElement>(
-            '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
-        );
-        const shell = image?.closest<HTMLElement>('[data-document-page-number]') ?? null;
-        return Boolean(
-            image?.complete
-            && image.naturalWidth > 0
-            && Number(shell?.dataset.documentPageNumber ?? 0) === targetPage,
-        );
-    }, {
-        polling: 'raf',
-        timeout: STEP_TIMEOUT_MS,
-    }, pageNumber);
+    const deadline = Date.now() + STEP_TIMEOUT_MS;
+    let lastError: unknown = null;
+
+    while (Date.now() < deadline) {
+        const browser = await puppeteer.connect({
+            browserWSEndpoint: page.browser().wsEndpoint(),
+            defaultViewport: null,
+            protocolTimeout: 15_000,
+        });
+        try {
+            const probePage = (await browser.pages()).find(candidate => candidate.url() === page.url());
+            if (!probePage) {
+                throw new Error(`Electron page target ${page.url()} was unavailable`);
+            }
+            const ready = await probePage.evaluate((targetPage: number) => {
+                const image = document.querySelector<HTMLImageElement>(
+                    '.editor-pane.is-active [data-testid="document-opening-native-preview"]',
+                );
+                const shell = image?.closest<HTMLElement>('[data-document-page-number]') ?? null;
+                return Boolean(
+                    image?.complete
+                    && image.naturalWidth > 0
+                    && Number(shell?.dataset.documentPageNumber ?? 0) === targetPage,
+                );
+            }, pageNumber);
+            if (ready) {
+                return;
+            }
+            lastError = null;
+        } catch (error) {
+            lastError = error;
+        } finally {
+            await browser.disconnect();
+        }
+        await new Promise(resolveDelay => setTimeout(resolveDelay, 1_000));
+    }
+
+    const detail = lastError instanceof Error ? `: ${lastError.message}` : '';
+    throw new Error(`Timed out waiting for native preview page ${String(pageNumber)}${detail}`);
 }
 
 async function proveNativePreviewReachability(
