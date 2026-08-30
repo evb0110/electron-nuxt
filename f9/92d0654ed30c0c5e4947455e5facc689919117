@@ -1,0 +1,24 @@
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useFreeTextResize.test.ts
+  s_b2ece6dfe48478::t_88ccc7027afe30 207-259
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize.ts
+  s_b2ece6dfe48478::t_a93c88779636ab 82-84
+  s_b2ece6dfe48478::t_1554db598da640 56-60,76-80,86,93-94,101-109,111-114,452,455,459
+  s_b2ece6dfe48478::t_b54dc05e193576 81,85
+  s_b2ece6dfe48478::t_3b336cc9e39535 87-90
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f992d0654ed30c0c5e4947455e5facc689919117",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

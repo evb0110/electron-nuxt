@@ -1,0 +1,25 @@
+tests/unit/electron/preloadFileClient.test.ts
+  s_b2ece6dfe48478::t_136c72462f8af0 1544,1549-1550,1555-1556
+  s_b2ece6dfe48478::t_2da869eb4209c9 1516-1517
+  s_b2ece6dfe48478::t_ce935d5bdf9d68 1416-1423
+  s_b2ece6dfe48478::t_a1fa1005f96aad 1412-1415,1424-1425
+  s_b2ece6dfe48478::t_a85c5a8aae0f78 106-126,1411,1426-1515,1518-1539
+  s_b2ece6dfe48478::t_ecc91445fd4967 1540-1543,1545-1548,1551-1554,1557-1564
+  s_b2ece6dfe48478::t_64c024b0b8f446 1565-1566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e1857816b27368afdb298e95b9175f46a2f8befa",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
