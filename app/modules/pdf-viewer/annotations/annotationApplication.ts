@@ -179,8 +179,9 @@ function isPersistedSummary(comment: IAnnotationCommentSummary) {
 }
 
 function isPersistedEditorFreeTextSummary(comment: IAnnotationCommentSummary) {
+    const subtype = comment.subtype?.trim().toLowerCase();
     return comment.source === 'editor'
-        && comment.subtype?.trim().toLowerCase() === 'freetext'
+        && (subtype === 'freetext' || subtype === 'typewriter')
         && Boolean(parsePdfJsAnnotationRef(comment.annotationId));
 }
 

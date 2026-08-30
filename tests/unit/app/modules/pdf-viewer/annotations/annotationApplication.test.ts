@@ -345,6 +345,43 @@ describe('AnnotationApplication', () => {
         });
     });
 
+    it('imports a persisted Typewriter editor into the canonical store', () => {
+        const application = new AnnotationApplication('document');
+
+        application.ingestLegacySummaries([{
+            id: '45R',
+            stableKey: 'src:editor:0:45R',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'visible persisted typewriter',
+            subtype: 'Typewriter',
+            author: null,
+            modifiedAt: null,
+            color: '#ff00aa',
+            uid: 'pdfjs-editor-45R',
+            annotationId: '45R',
+            source: 'editor',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.15,
+            },
+        }]);
+
+        expect(application.store.list()).toHaveLength(1);
+        expect(application.store.list()[0]).toMatchObject({
+            kind: 'sticky-note',
+            text: 'visible persisted typewriter',
+            identity: {
+                pdfRef: '45R',
+                pdfjsUid: 'pdfjs-editor-45R',
+                elementId: '45R',
+            },
+        });
+    });
+
     it('does not admit a transient FreeText editor from its generated id alone', () => {
         const application = new AnnotationApplication('document');
 
