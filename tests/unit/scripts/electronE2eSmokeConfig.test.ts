@@ -109,6 +109,7 @@ const electronE2EDrawShapeTestFiles = [
 ];
 const electronE2ELargePdfTestFiles = [
     'tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts',
+    'tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts',
     'tests/e2e/electron/largePdfNativePreview.e2e.test.ts',
     'tests/e2e/electron/nativePdfSplitPaneLifecycle.e2e.test.ts',
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',

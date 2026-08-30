@@ -892,7 +892,10 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             })],
             pageLabels: {ranges: [expect.objectContaining({prefix: 'A-'})]},
             bookmarks: {items: [expect.objectContaining({title: 'Chapter'})]},
-            shapes: {shapes: [expect.objectContaining({annotationId: '22R'})]},
+            shapes: {shapes: [expect.objectContaining({
+                annotationId: '22R',
+                stableKey: 'ann:0:22R0',
+            })]},
             markup: {overrides: [[
                 '44R',
                 'Underline',
