@@ -1,7 +1,26 @@
 diff --git a/build/pdf.mjs b/build/pdf.mjs
+index 3b08593dd20d37f9679d0ba0f7999ad96d393682..8f13d12c0f1cf1791a614bfd957bee51c1f5eb2b 100644
 --- a/build/pdf.mjs
 +++ b/build/pdf.mjs
-@@ -10934,7 +10934,7 @@
+@@ -5712,9 +5712,16 @@ class AnnotationEditor {
+     } = this;
+     if (toolbarButtons) {
+       for (const [name, tool] of toolbarButtons) {
+-        await this._editToolbar.addButton(name, tool);
++        const editToolbar = this._editToolbar;
++        if (!editToolbar) {
++          return null;
++        }
++        await editToolbar.addButton(name, tool);
+       }
+     }
++    if (!this._editToolbar) {
++      return null;
++    }
+     if (!this.hasComment) {
+       this._editToolbar.addButton("comment", this.addCommentButton());
+     }
+@@ -10934,7 +10941,7 @@ class CanvasGraphics {
        }
      }
    }
@@ -10,7 +29,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      const width = img.width ?? img.displayWidth;
      const height = img.height ?? img.displayHeight;
      const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
-@@ -10944,14 +10944,14 @@
+@@ -10944,14 +10951,14 @@ class CanvasGraphics {
        hs = heightScale,
        pw = width,
        ph = height;
@@ -28,7 +47,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
          nh = Math.ceil(ph / 2);
          hs /= ph / nh;
        }
-@@ -11054,7 +11054,7 @@
+@@ -11054,7 +11061,7 @@ class CanvasGraphics {
      fillCtx.transform(...maskToCanvas);
      let scaledEntry = null;
      if (!scaled) {
@@ -37,7 +56,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
-@@ -13162,7 +13162,7 @@
+@@ -13162,7 +13169,7 @@ class PDFDataTransportStream extends BasePDFStream {
        switch (args.type) {
          case "range":
          case "progressiveRead":
@@ -46,7 +65,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
            break;
          case "progressiveDone":
            this._fullReader?.progressiveDone();
-@@ -13172,7 +13172,7 @@
+@@ -13172,7 +13179,7 @@ class PDFDataTransportStream extends BasePDFStream {
      };
      pdfDataRangeTransport.transportReady(listener);
    }
@@ -55,7 +74,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      const buffer = transport_stream_getArrayBuffer(chunk);
      if (begin === undefined) {
        if (this._fullReader) {
-@@ -13183,7 +13183,7 @@
+@@ -13183,7 +13190,7 @@ class PDFDataTransportStream extends BasePDFStream {
      } else {
        const rangeReader = this._rangeReaders.keys().find(r => r._begin === begin);
        assert(rangeReader, "#onReceiveData - no `PDFDataTransportStreamRangeReader` instance found.");
@@ -64,7 +83,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      }
    }
    getFullReader() {
-@@ -13289,18 +13289,18 @@
+@@ -13289,18 +13296,18 @@ class PDFDataTransportStreamRangeReader extends BasePDFStreamRangeReader {
    onDone = null;
    _begin = -1;
    _done = false;
@@ -86,7 +105,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      } else {
        const capability = this._requests.shift();
        capability.resolve({
-@@ -13309,13 +13309,14 @@
+@@ -13309,13 +13316,14 @@ class PDFDataTransportStreamRangeReader extends BasePDFStreamRangeReader {
        });
        this.#endRequests();
      }
@@ -106,7 +125,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
        return {
          value: chunk,
          done: false
-@@ -14456,7 +14457,7 @@
+@@ -14456,7 +14464,7 @@ class TextLayer {
          Object.assign(this.#styleCache, value.styles);
          this.#processItems(value.items);
          pump();
@@ -115,7 +134,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      };
      this.#reader = this.#textContentSource.getReader();
      TextLayer.#pendingTextLayers.add(this);
-@@ -14529,7 +14530,9 @@
+@@ -14529,7 +14537,9 @@ class TextLayer {
            }
            parent.append(this.#container);
          } else if (item.type === "endMarkedContent") {
@@ -126,7 +145,7 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
          }
          continue;
        }
-@@ -14950,11 +14953,12 @@
+@@ -14950,11 +14960,12 @@ class PDFDataRangeTransport {
        }
      });
    }
@@ -141,17 +160,11 @@ diff --git a/build/pdf.mjs b/build/pdf.mjs
      });
    }
    onDataProgressiveRead(chunk) {
-@@ -26948,4 +26952,4 @@
-
- export { AbortException, AnnotationEditorLayer, AnnotationEditorParamsType, AnnotationEditorType, AnnotationEditorUIManager, AnnotationLayer, AnnotationMode, AnnotationType, CSSConstants, ColorPicker, DOMSVGFactory, DrawLayer, FeatureTest, GlobalWorkerOptions, ImageKind, InvalidPDFException, MathClamp, OPS, OutputScale, PDFDataRangeTransport, PDFDateString, PDFWorker, PasswordResponses, PermissionFlag, PixelsPerInch, RenderingCancelledException, ResponseException, SignatureExtractor, SupportedImageMimeTypes, TextLayer, TextLayerImages, TouchManager, Util, VerbosityLevel, XfaLayer, applyOpacity, build, createValidAbsoluteUrl, fetchData, findContrastColor, getDocument, getFilenameFromUrl, getPdfFilenameFromUrl, getRGB, getRGBA, getUuid, getXfaPageViewport, isDataScheme, isPdfFile, isValidExplicitDest, makeArr, makeMap, makeObj, noContextMenu, normalizeUnicode, renderRichText, setLayerDimensions, shadow, stopEvent, updateUrlHash, version };
-
--//# sourceMappingURL=pdf.mjs.map
-\ No newline at end of file
-+//# sourceMappingURL=pdf.mjs.map
 diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
+index 7d85fb9b157e751bdf05d7a6d3a12d29f161bded..828a14da4c9f01a33793b2f0cbc952a3e777008f 100644
 --- a/build/pdf.worker.mjs
 +++ b/build/pdf.worker.mjs
-@@ -2932,12 +2932,75 @@
+@@ -2932,12 +2932,75 @@ class ChunkedStream extends Stream {
    progressiveDataLength = 0;
    _lastSuccessfulEnsureByteChunk = -1;
    _loadedChunks = new Set();
@@ -163,7 +176,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      this.chunkSize = chunkSize;
      this.numChunks = Math.ceil(length / chunkSize);
      this.manager = manager;
-+  }
+   }
 +  _storeBytes(begin, bytes) {
 +    let sourceOffset = 0;
 +    while (sourceOffset < bytes.length) {
@@ -187,7 +200,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
 +      }
 +      sourceOffset += copyLength;
 +    }
-   }
++  }
 +  _getStoredByte(pos) {
 +    const chunk = Math.floor(pos / this.chunkSize);
 +    const bytes = this._storedChunks.get(chunk);
@@ -228,23 +241,23 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
    getMissingChunks() {
      const chunks = [];
      for (let chunk = 0, n = this.numChunks; chunk < n; ++chunk) {
-@@ -2959,10 +3022,13 @@
+@@ -2959,10 +3022,13 @@ class ChunkedStream extends Stream {
        throw new Error(`Bad begin offset: ${begin}`);
      }
      const end = begin + chunk.byteLength;
 -    if (end % chunkSize !== 0 && end !== this.bytes.length) {
 +    if (end > this.end) {
++      throw new Error(`Bad end offset: ${end}`);
++    }
++    if (end % chunkSize !== 0 && end !== this.end) {
        throw new Error(`Bad end offset: ${end}`);
      }
 -    this.bytes.set(new Uint8Array(chunk), begin);
-+    if (end % chunkSize !== 0 && end !== this.end) {
-+      throw new Error(`Bad end offset: ${end}`);
-+    }
 +    this._storeBytes(begin, new Uint8Array(chunk));
      const beginChunk = Math.floor(begin / chunkSize);
      const endChunk = Math.floor((end - 1) / chunkSize) + 1;
      for (let curChunk = beginChunk; curChunk < endChunk; ++curChunk) {
-@@ -2972,7 +3038,10 @@
+@@ -2972,7 +3038,10 @@ class ChunkedStream extends Stream {
    onReceiveProgressiveData(data) {
      let position = this.progressiveDataLength;
      const beginChunk = Math.floor(position / this.chunkSize);
@@ -256,7 +269,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      position += data.byteLength;
      this.progressiveDataLength = position;
      const endChunk = position >= this.end ? this.numChunks : Math.floor(position / this.chunkSize);
-@@ -3035,10 +3104,11 @@
+@@ -3035,10 +3104,11 @@ class ChunkedStream extends Stream {
      if (pos >= this.progressiveDataLength) {
        this.ensureByte(pos);
      }
@@ -270,7 +283,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      const pos = this.pos;
      const strEnd = this.end;
      if (!length) {
-@@ -3046,7 +3116,7 @@
+@@ -3046,7 +3116,7 @@ class ChunkedStream extends Stream {
          this.ensureRange(pos, strEnd);
        }
        this.pos = strEnd;
@@ -279,7 +292,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      }
      let end = pos + length;
      if (end > strEnd) {
-@@ -3056,7 +3126,7 @@
+@@ -3056,7 +3126,7 @@ class ChunkedStream extends Stream {
        this.ensureRange(pos, end);
      }
      this.pos = end;
@@ -288,13 +301,13 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
    }
    getByteRange(begin, end) {
      if (begin < 0) {
-@@ -3068,8 +3138,18 @@
+@@ -3068,7 +3138,17 @@ class ChunkedStream extends Stream {
      if (end > this.progressiveDataLength) {
        this.ensureRange(begin, end);
      }
 -    return this.bytes.subarray(begin, end);
 +    return this._getStoredRange(begin, end);
-   }
++  }
 +  discardChunksBefore(position) {
 +    const firstChunk = Math.max(0, Math.floor(position / this.chunkSize));
 +    const progressiveChunkCount = Math.ceil(this.progressiveDataLength / this.chunkSize);
@@ -304,11 +317,10 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
 +        this._loadedChunks.delete(chunk);
 +      }
 +    }
-+  }
+   }
    makeSubStream(start, length, dict = null) {
      if (length) {
-       if (start + length > this.progressiveDataLength) {
-@@ -3107,6 +3187,15 @@
+@@ -3107,6 +3187,15 @@ class ChunkedStream extends Stream {
      subStream.dict = dict;
      return subStream;
    }
@@ -324,7 +336,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
    getBaseStreams() {
      return [this];
    }
-@@ -3128,30 +3217,39 @@
+@@ -3128,30 +3217,39 @@ class ChunkedStreamManager {
    }
    async sendRequest(begin, end) {
      const rangeReader = this.pdfStream.getRangeReader(begin, end);
@@ -374,7 +386,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
    }
    requestAllChunks(noFetch = false) {
      if (!noFetch) {
-@@ -3228,6 +3326,7 @@
+@@ -3228,6 +3326,7 @@ class ChunkedStreamManager {
    }
    groupChunks(chunks) {
      const groupedChunks = [];
@@ -382,7 +394,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      let beginChunk = -1;
      let prevChunk = -1;
      for (let i = 0, ii = chunks.length; i < ii; ++i) {
-@@ -3235,7 +3334,10 @@
+@@ -3235,7 +3334,10 @@ class ChunkedStreamManager {
        if (beginChunk < 0) {
          beginChunk = chunk;
        }
@@ -394,7 +406,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
          groupedChunks.push({
            beginChunk,
            endChunk: prevChunk + 1
-@@ -36549,7 +36651,7 @@
+@@ -36549,7 +36651,7 @@ class PartialEvaluator {
        hash.update(`${firstChar}-${lastChar}`);
        if (toUnicode instanceof BaseStream) {
          const stream = toUnicode.stream || toUnicode;
@@ -403,7 +415,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
          hash.update(uint8array);
        } else if (toUnicode instanceof Name) {
          hash.update(toUnicode.name);
-@@ -57265,6 +57367,9 @@
+@@ -57265,6 +57367,9 @@ class XRef {
      }
    }
    indexObjects() {
@@ -413,7 +425,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
      const TAB = 0x9,
        LF = 0xa,
        CR = 0xd,
-@@ -57496,6 +57601,168 @@
+@@ -57496,6 +57601,168 @@ class XRef {
      }
      throw new InvalidPDFException("Invalid PDF structure.");
    }
@@ -582,7 +594,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
    readXRef(recoveryMode = false) {
      const stream = this.stream;
      const startXRefParsedCache = new Set();
-@@ -62635,10 +62902,14 @@
+@@ -62635,10 +62902,14 @@ class WorkerMessageHandler {
              onFailure(reason);
              return;
            }
@@ -600,7 +612,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
          });
        }
        ensureNotTerminated();
-@@ -62650,7 +62921,7 @@
+@@ -62650,7 +62921,7 @@ class WorkerMessageHandler {
          pdfManager = newPdfManager;
          pdfManager.requestLoadedStream(true).then(stream => {
            handler.send("DataLoaded", {
@@ -609,7 +621,8 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
            });
          });
        }).then(pdfManagerReady, onFailure);
-@@ -62756,7 +63042,23 @@
+@@ -62755,8 +63026,24 @@ class WorkerMessageHandler {
+     handler.on("GetMarkInfo", function (data) {
        return pdfManager.ensureCatalog("markInfo");
      });
 +function throwIfRangeSourceMaterializationUnsupported(pdfManager, operation) {
@@ -628,23 +641,21 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
 +  throw error;
 +}
      handler.on("GetData", function (data) {
-+      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
 -      return pdfManager.requestLoadedStream().then(stream => stream.bytes);
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
 +      return pdfManager.requestLoadedStream().then(stream => stream.getByteRange(0, stream.end));
      });
      handler.on("GetAnnotations", function ({
        pageIndex,
-@@ -62880,8 +63167,9 @@
-     handler.on("SaveDocument", async function ({
-       isPureXfa,
-       numPages,
+@@ -62883,6 +63170,7 @@ class WorkerMessageHandler {
        annotationStorage,
        filename
      }) {
 +      throwIfRangeSourceMaterializationUnsupported(pdfManager, "SaveDocument");
        const globalPromises = [pdfManager.requestLoadedStream(), pdfManager.ensureCatalog("acroForm"), pdfManager.ensureCatalog("acroFormRef"), pdfManager.ensureDoc("startXRef"), pdfManager.ensureDoc("xref"), pdfManager.ensureCatalog("structTreeRoot")];
        const changes = new RefSetCache();
-@@ -62954,10 +63225,10 @@
+       const promises = [];
+@@ -62954,10 +63242,10 @@ class WorkerMessageHandler {
        if (isPureXfa) {
          xfaData = refs[0];
          if (!xfaData) {
@@ -657,7 +668,7 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
        }
        const needAppearances = acroFormRef && acroForm instanceof Dict && changes.values().some(ref => ref.needAppearances);
        const xfa = acroForm instanceof Dict && acroForm.get("XFA") || null;
-@@ -62999,7 +63270,7 @@
+@@ -62999,7 +63287,7 @@ class WorkerMessageHandler {
          };
        }
        return incrementalUpdate({
@@ -666,17 +677,29 @@ diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs
          xrefInfo: newXrefInfo,
          changes,
          xref,
-@@ -63130,4 +63401,4 @@
-
- export { WorkerMessageHandler };
-
--//# sourceMappingURL=pdf.worker.mjs.map
-\ No newline at end of file
-+//# sourceMappingURL=pdf.worker.mjs.map
 diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
+index 5559b93393787671a0e2bfacc190fd94b7084fb6..1de651eec72f7e35465d7a3ee5c0e42f5addf9de 100644
 --- a/legacy/build/pdf.mjs
 +++ b/legacy/build/pdf.mjs
-@@ -17569,7 +17569,7 @@
+@@ -12178,9 +12178,16 @@ class AnnotationEditor {
+     } = this;
+     if (toolbarButtons) {
+       for (const [name, tool] of toolbarButtons) {
+-        await this._editToolbar.addButton(name, tool);
++        const editToolbar = this._editToolbar;
++        if (!editToolbar) {
++          return null;
++        }
++        await editToolbar.addButton(name, tool);
+       }
+     }
++    if (!this._editToolbar) {
++      return null;
++    }
+     if (!this.hasComment) {
+       this._editToolbar.addButton("comment", this.addCommentButton());
+     }
+@@ -17569,7 +17576,7 @@ class CanvasGraphics {
        }
      }
    }
@@ -685,7 +708,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      const width = img.width ?? img.displayWidth;
      const height = img.height ?? img.displayHeight;
      const widthScale = Math.max(Math.hypot(inverseTransform[0], inverseTransform[1]), 1);
-@@ -17579,14 +17579,14 @@
+@@ -17579,14 +17586,14 @@ class CanvasGraphics {
        hs = heightScale,
        pw = width,
        ph = height;
@@ -703,7 +726,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
          nh = Math.ceil(ph / 2);
          hs /= ph / nh;
        }
-@@ -17689,7 +17689,7 @@
+@@ -17689,7 +17696,7 @@ class CanvasGraphics {
      fillCtx.transform(...maskToCanvas);
      let scaledEntry = null;
      if (!scaled) {
@@ -712,7 +735,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
        scaled = scaleResult.img;
        scaledEntry = scaleResult.tmpCanvas;
        if (scaled !== maskCanvas.canvas) {
-@@ -19832,7 +19832,7 @@
+@@ -19832,7 +19839,7 @@ class PDFDataTransportStream extends BasePDFStream {
        switch (args.type) {
          case "range":
          case "progressiveRead":
@@ -721,7 +744,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
            break;
          case "progressiveDone":
            this._fullReader?.progressiveDone();
-@@ -19842,7 +19842,7 @@
+@@ -19842,7 +19849,7 @@ class PDFDataTransportStream extends BasePDFStream {
      };
      pdfDataRangeTransport.transportReady(listener);
    }
@@ -730,7 +753,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      const buffer = transport_stream_getArrayBuffer(chunk);
      if (begin === undefined) {
        if (this._fullReader) {
-@@ -19853,7 +19853,7 @@
+@@ -19853,7 +19860,7 @@ class PDFDataTransportStream extends BasePDFStream {
      } else {
        const rangeReader = this._rangeReaders.keys().find(r => r._begin === begin);
        assert(rangeReader, "#onReceiveData - no `PDFDataTransportStreamRangeReader` instance found.");
@@ -739,7 +762,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      }
    }
    getFullReader() {
-@@ -19959,18 +19959,18 @@
+@@ -19959,18 +19966,18 @@ class PDFDataTransportStreamRangeReader extends BasePDFStreamRangeReader {
    onDone = null;
    _begin = -1;
    _done = false;
@@ -761,7 +784,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      } else {
        const capability = this._requests.shift();
        capability.resolve({
-@@ -19979,13 +19979,14 @@
+@@ -19979,13 +19986,14 @@ class PDFDataTransportStreamRangeReader extends BasePDFStreamRangeReader {
        });
        this.#endRequests();
      }
@@ -781,7 +804,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
        return {
          value: chunk,
          done: false
-@@ -21168,7 +21169,7 @@
+@@ -21168,7 +21176,7 @@ class TextLayer {
          Object.assign(this.#styleCache, value.styles);
          this.#processItems(value.items);
          pump();
@@ -790,7 +813,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      };
      this.#reader = this.#textContentSource.getReader();
      TextLayer.#pendingTextLayers.add(this);
-@@ -21241,7 +21242,9 @@
+@@ -21241,7 +21249,9 @@ class TextLayer {
            }
            parent.append(this.#container);
          } else if (item.type === "endMarkedContent") {
@@ -801,7 +824,7 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
          }
          continue;
        }
-@@ -21691,11 +21694,12 @@
+@@ -21691,11 +21701,12 @@ class PDFDataRangeTransport {
        }
      });
    }
@@ -816,17 +839,11 @@ diff --git a/legacy/build/pdf.mjs b/legacy/build/pdf.mjs
      });
    }
    onDataProgressiveRead(chunk) {
-@@ -33802,4 +33806,4 @@
-
- export { AbortException, AnnotationEditorLayer, AnnotationEditorParamsType, AnnotationEditorType, AnnotationEditorUIManager, AnnotationLayer, AnnotationMode, AnnotationType, CSSConstants, ColorPicker, DOMSVGFactory, DrawLayer, FeatureTest, GlobalWorkerOptions, ImageKind, InvalidPDFException, MathClamp, OPS, OutputScale, PDFDataRangeTransport, PDFDateString, PDFWorker, PasswordResponses, PermissionFlag, PixelsPerInch, RenderingCancelledException, ResponseException, SignatureExtractor, SupportedImageMimeTypes, TextLayer, TextLayerImages, TouchManager, Util, VerbosityLevel, XfaLayer, applyOpacity, build, createValidAbsoluteUrl, fetchData, findContrastColor, getDocument, getFilenameFromUrl, getPdfFilenameFromUrl, getRGB, getRGBA, getUuid, getXfaPageViewport, isDataScheme, isPdfFile, isValidExplicitDest, makeArr, makeMap, makeObj, noContextMenu, normalizeUnicode, renderRichText, setLayerDimensions, shadow, stopEvent, updateUrlHash, version };
-
--//# sourceMappingURL=pdf.mjs.map
-\ No newline at end of file
-+//# sourceMappingURL=pdf.mjs.map
 diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
+index 40551cb445b5b7428cd2caf64e5d9d0c1ff4432c..1e6cc0749dcb3cbc56f5930ed370fd3ec888e525 100644
 --- a/legacy/build/pdf.worker.mjs
 +++ b/legacy/build/pdf.worker.mjs
-@@ -8922,12 +8922,75 @@
+@@ -8922,12 +8922,75 @@ class ChunkedStream extends Stream {
    progressiveDataLength = 0;
    _lastSuccessfulEnsureByteChunk = -1;
    _loadedChunks = new Set();
@@ -838,7 +855,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      this.chunkSize = chunkSize;
      this.numChunks = Math.ceil(length / chunkSize);
      this.manager = manager;
-+  }
+   }
 +  _storeBytes(begin, bytes) {
 +    let sourceOffset = 0;
 +    while (sourceOffset < bytes.length) {
@@ -862,7 +879,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
 +      }
 +      sourceOffset += copyLength;
 +    }
-   }
++  }
 +  _getStoredByte(pos) {
 +    const chunk = Math.floor(pos / this.chunkSize);
 +    const bytes = this._storedChunks.get(chunk);
@@ -903,23 +920,23 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
    getMissingChunks() {
      const chunks = [];
      for (let chunk = 0, n = this.numChunks; chunk < n; ++chunk) {
-@@ -8949,10 +9012,13 @@
+@@ -8949,10 +9012,13 @@ class ChunkedStream extends Stream {
        throw new Error(`Bad begin offset: ${begin}`);
      }
      const end = begin + chunk.byteLength;
 -    if (end % chunkSize !== 0 && end !== this.bytes.length) {
 +    if (end > this.end) {
++      throw new Error(`Bad end offset: ${end}`);
++    }
++    if (end % chunkSize !== 0 && end !== this.end) {
        throw new Error(`Bad end offset: ${end}`);
      }
 -    this.bytes.set(new Uint8Array(chunk), begin);
-+    if (end % chunkSize !== 0 && end !== this.end) {
-+      throw new Error(`Bad end offset: ${end}`);
-+    }
 +    this._storeBytes(begin, new Uint8Array(chunk));
      const beginChunk = Math.floor(begin / chunkSize);
      const endChunk = Math.floor((end - 1) / chunkSize) + 1;
      for (let curChunk = beginChunk; curChunk < endChunk; ++curChunk) {
-@@ -8962,7 +9028,10 @@
+@@ -8962,7 +9028,10 @@ class ChunkedStream extends Stream {
    onReceiveProgressiveData(data) {
      let position = this.progressiveDataLength;
      const beginChunk = Math.floor(position / this.chunkSize);
@@ -931,7 +948,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      position += data.byteLength;
      this.progressiveDataLength = position;
      const endChunk = position >= this.end ? this.numChunks : Math.floor(position / this.chunkSize);
-@@ -9025,10 +9094,11 @@
+@@ -9025,10 +9094,11 @@ class ChunkedStream extends Stream {
      if (pos >= this.progressiveDataLength) {
        this.ensureByte(pos);
      }
@@ -945,7 +962,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      const pos = this.pos;
      const strEnd = this.end;
      if (!length) {
-@@ -9036,7 +9106,7 @@
+@@ -9036,7 +9106,7 @@ class ChunkedStream extends Stream {
          this.ensureRange(pos, strEnd);
        }
        this.pos = strEnd;
@@ -954,7 +971,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      }
      let end = pos + length;
      if (end > strEnd) {
-@@ -9046,7 +9116,7 @@
+@@ -9046,7 +9116,7 @@ class ChunkedStream extends Stream {
        this.ensureRange(pos, end);
      }
      this.pos = end;
@@ -963,13 +980,13 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
    }
    getByteRange(begin, end) {
      if (begin < 0) {
-@@ -9058,8 +9128,18 @@
+@@ -9058,7 +9128,17 @@ class ChunkedStream extends Stream {
      if (end > this.progressiveDataLength) {
        this.ensureRange(begin, end);
      }
 -    return this.bytes.subarray(begin, end);
 +    return this._getStoredRange(begin, end);
-   }
++  }
 +  discardChunksBefore(position) {
 +    const firstChunk = Math.max(0, Math.floor(position / this.chunkSize));
 +    const progressiveChunkCount = Math.ceil(this.progressiveDataLength / this.chunkSize);
@@ -979,11 +996,10 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
 +        this._loadedChunks.delete(chunk);
 +      }
 +    }
-+  }
+   }
    makeSubStream(start, length, dict = null) {
      if (length) {
-       if (start + length > this.progressiveDataLength) {
-@@ -9097,6 +9177,15 @@
+@@ -9097,6 +9177,15 @@ class ChunkedStream extends Stream {
      subStream.dict = dict;
      return subStream;
    }
@@ -999,7 +1015,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
    getBaseStreams() {
      return [this];
    }
-@@ -9118,30 +9207,39 @@
+@@ -9118,30 +9207,39 @@ class ChunkedStreamManager {
    }
    async sendRequest(begin, end) {
      const rangeReader = this.pdfStream.getRangeReader(begin, end);
@@ -1049,7 +1065,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
    }
    requestAllChunks(noFetch = false) {
      if (!noFetch) {
-@@ -9218,6 +9316,7 @@
+@@ -9218,6 +9316,7 @@ class ChunkedStreamManager {
    }
    groupChunks(chunks) {
      const groupedChunks = [];
@@ -1057,7 +1073,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      let beginChunk = -1;
      let prevChunk = -1;
      for (let i = 0, ii = chunks.length; i < ii; ++i) {
-@@ -9225,7 +9324,10 @@
+@@ -9225,7 +9324,10 @@ class ChunkedStreamManager {
        if (beginChunk < 0) {
          beginChunk = chunk;
        }
@@ -1069,7 +1085,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
          groupedChunks.push({
            beginChunk,
            endChunk: prevChunk + 1
-@@ -42912,7 +43014,7 @@
+@@ -42912,7 +43014,7 @@ class PartialEvaluator {
        hash.update(`${firstChar}-${lastChar}`);
        if (toUnicode instanceof BaseStream) {
          const stream = toUnicode.stream || toUnicode;
@@ -1078,7 +1094,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
          hash.update(uint8array);
        } else if (toUnicode instanceof Name) {
          hash.update(toUnicode.name);
-@@ -63883,6 +63985,9 @@
+@@ -63883,6 +63985,9 @@ class XRef {
      }
    }
    indexObjects() {
@@ -1088,7 +1104,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
      const TAB = 0x9,
        LF = 0xa,
        CR = 0xd,
-@@ -64114,6 +64219,168 @@
+@@ -64114,6 +64219,168 @@ class XRef {
      }
      throw new InvalidPDFException("Invalid PDF structure.");
    }
@@ -1257,7 +1273,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
    readXRef(recoveryMode = false) {
      const stream = this.stream;
      const startXRefParsedCache = new Set();
-@@ -69339,10 +69606,14 @@
+@@ -69339,10 +69606,14 @@ class WorkerMessageHandler {
              onFailure(reason);
              return;
            }
@@ -1275,7 +1291,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
          });
        }
        ensureNotTerminated();
-@@ -69354,7 +69625,7 @@
+@@ -69354,7 +69625,7 @@ class WorkerMessageHandler {
          pdfManager = newPdfManager;
          pdfManager.requestLoadedStream(true).then(stream => {
            handler.send("DataLoaded", {
@@ -1284,7 +1300,8 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
            });
          });
        }).then(pdfManagerReady, onFailure);
-@@ -69460,7 +69746,23 @@
+@@ -69459,8 +69730,24 @@ class WorkerMessageHandler {
+     handler.on("GetMarkInfo", function (data) {
        return pdfManager.ensureCatalog("markInfo");
      });
 +function throwIfRangeSourceMaterializationUnsupported(pdfManager, operation) {
@@ -1303,23 +1320,21 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
 +  throw error;
 +}
      handler.on("GetData", function (data) {
-+      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
 -      return pdfManager.requestLoadedStream().then(stream => stream.bytes);
++      throwIfRangeSourceMaterializationUnsupported(pdfManager, "GetData");
 +      return pdfManager.requestLoadedStream().then(stream => stream.getByteRange(0, stream.end));
      });
      handler.on("GetAnnotations", function ({
        pageIndex,
-@@ -69584,8 +69870,9 @@
-     handler.on("SaveDocument", async function ({
-       isPureXfa,
-       numPages,
+@@ -69587,6 +69874,7 @@ class WorkerMessageHandler {
        annotationStorage,
        filename
      }) {
 +      throwIfRangeSourceMaterializationUnsupported(pdfManager, "SaveDocument");
        const globalPromises = [pdfManager.requestLoadedStream(), pdfManager.ensureCatalog("acroForm"), pdfManager.ensureCatalog("acroFormRef"), pdfManager.ensureDoc("startXRef"), pdfManager.ensureDoc("xref"), pdfManager.ensureCatalog("structTreeRoot")];
        const changes = new RefSetCache();
-@@ -69658,10 +69929,10 @@
+       const promises = [];
+@@ -69658,10 +69946,10 @@ class WorkerMessageHandler {
        if (isPureXfa) {
          xfaData = refs[0];
          if (!xfaData) {
@@ -1332,7 +1347,7 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
        }
        const needAppearances = acroFormRef && acroForm instanceof Dict && changes.values().some(ref => ref.needAppearances);
        const xfa = acroForm instanceof Dict && acroForm.get("XFA") || null;
-@@ -69703,7 +69974,7 @@
+@@ -69703,7 +69991,7 @@ class WorkerMessageHandler {
          };
        }
        return incrementalUpdate({
@@ -1341,10 +1356,3 @@ diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs
          xrefInfo: newXrefInfo,
          changes,
          xref,
-@@ -69834,4 +70105,4 @@
-
- export { WorkerMessageHandler };
-
--//# sourceMappingURL=pdf.worker.mjs.map
-\ No newline at end of file
-+//# sourceMappingURL=pdf.worker.mjs.map
