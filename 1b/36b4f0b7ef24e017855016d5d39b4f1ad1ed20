@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_b2ece6dfe48478::t_26ea8ce3bf5f1a 184
+  s_b2ece6dfe48478::t_f533e491be6c27 181-183,185-186,386
+tests/unit/app/modules/pdf-viewer/annotations/annotationApplication.test.ts
+  s_b2ece6dfe48478::t_0533c728a6c899 348-375
+  s_b2ece6dfe48478::t_979ab8c9ef62ef 310-347
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1b36b4f0b7ef24e017855016d5d39b4f1ad1ed20",
+  "prompts": {},
+  "sessions": {
+    "s_b2ece6dfe48478": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0492a-2cdc-7f53-b5f4-ffc305655dc6",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
