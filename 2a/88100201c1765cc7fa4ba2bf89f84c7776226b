@@ -1,0 +1,36 @@
+tests/unit/app/modules/pdf-viewer/annotations/annotationEntityEquality.test.ts
+  s_7fe07412ad5143::t_c861caf6183844 201-202
+  s_7fe07412ad5143::t_eb17abd725b766 197-198
+  s_7fe07412ad5143::t_6f5de723446494 191-192,215-224
+  s_7fe07412ad5143::t_ac120aba1f1929 193-196
+  s_7fe07412ad5143::t_188d7c27d10d42 20,203-214,225-243
+  s_7fe07412ad5143::t_6026b85547cc4b 165,168,172-173,177-178
+  s_7fe07412ad5143::t_7afb61f69cec29 130-137,166-167,169-171,174-176,179,268,290-297,305
+  s_7fe07412ad5143::t_c2b7f178341a05 1-19,21-129,138-164,180-190,199-200,244-267,269-289,298-304,306-313
+app/types/annotations.ts
+  s_7fe07412ad5143::t_4b1b834548fa1a 94-98
+  s_7fe07412ad5143::t_6a217af8acd19e 119
+app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts
+  s_7fe07412ad5143::t_a0cf0d14d0ea54 4,7,10-13,21-22,25,29-33,46-47,49-51,55-64,68-70,73-74,81-82,87-89,91-94,163-168,171-174,189,196,230-233,235-264,267-270,272-293,295-303,306-308,310-312,318-329,332-393,395-428,430-442,444,485,488,604-605,612-613,626
+  s_7fe07412ad5143::t_069d375b0b0816 5-6,95-147,149-159
+  s_7fe07412ad5143::t_258317b6fdbba9 148
+  s_7fe07412ad5143::t_eb67183afeeb06 90,271,313-317,394,429
+  s_7fe07412ad5143::t_9d3911b153d82a 294,304-305,309
+  s_7fe07412ad5143::t_7317a4dd8c9da8 330-331
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2a88100201c1765cc7fa4ba2bf89f84c7776226b",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
