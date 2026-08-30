@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/countReadyPdfAnnotationLayerVisuals.ts
+  s_32b865e8b0fa20::t_e8a630497eb183 1-13,15-25
+  s_32b865e8b0fa20::t_d7f5e1506da82e 14
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_32b865e8b0fa20::t_e8a630497eb183 22,612,921
+  s_32b865e8b0fa20::t_e8a4ca746d7361 613,736-737,754-755,924-925
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_32b865e8b0fa20::t_e8a630497eb183 8,440,484
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f97b6ff07e16739f5dbf9db693cb676c0139af7",
+  "prompts": {},
+  "sessions": {
+    "s_32b865e8b0fa20": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-a671-77d1-98cf-bea9b5d96645",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
