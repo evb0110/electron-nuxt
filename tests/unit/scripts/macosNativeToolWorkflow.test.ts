@@ -3,7 +3,6 @@ import {
     chmodSync,
     mkdirSync,
     mkdtempSync,
-    rmSync,
     writeFileSync,
 } from 'node:fs';
 import { execFileSync } from 'node:child_process';
@@ -20,7 +19,7 @@ import {
 import { getNativeSourceMatrixCheckEntries } from '@scripts/nativeResourceManifest';
 
 const platformArchHelperPath = resolve(process.cwd(), 'scripts/release/platform-arch.sh');
-const verifierPath = resolve(process.cwd(), 'scripts/verify-packaged-native-tools.sh');
+const packagedNativeRootSetPath = resolve(process.cwd(), 'scripts/release/packaged-native-root-set.sh');
 const sourceMatrixScriptPath = resolve(process.cwd(), 'scripts/check-native-tools-source-matrix.sh');
 
 async function readProjectFile(path: string) {
@@ -201,104 +200,28 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('Ad-hoc macOS app execution was killed by provenance policy');
     });
 
-    it('deduplicates packaged native roots with an empty array under nounset', async () => {
-        const root = mkdtempSync(join(tmpdir(), 'evb-native-verifier-nounset-'));
-        const releaseDir = join(root, 'release');
-        const resourcesDir = join(releaseDir, 'resources');
-        const binDir = join(root, 'bin');
-        const manifest = [
+    it('deduplicates packaged native roots with an empty array under nounset', () => {
+        const output = execFileSync('/bin/bash', [
+            '--noprofile',
+            '--norc',
+            '-u',
+            '-c',
             [
-                'native',
-                'qpdf',
-                'bin',
-                'dir',
-                'qpdf bin',
-                'qpdf-bin',
-            ],
-            [
-                'native',
-                'qpdf',
-                'lib',
-                'dir',
-                'qpdf lib',
-                'qpdf-lib',
-            ],
-            [
-                'resource',
-                '',
-                'tessdata',
-                'dir',
-                'tessdata',
-                'tessdata',
-            ],
-        ].map(fields => fields.join('\x1f')).join('\n');
+                'source "$1"',
+                'packaged_family_roots=()',
+                'append_packaged_family_root qpdf',
+                'append_packaged_family_root qpdf',
+                'append_packaged_family_root poppler',
+                'printf "%s\\n" "${packaged_family_roots[@]}"',
+            ].join('\n'),
+            'bash',
+            packagedNativeRootSetPath,
+        ], {encoding: 'utf8'});
 
-        mkdirSync(join(resourcesDir, 'qpdf', 'linux-x64', 'bin'), {recursive: true});
-        mkdirSync(join(resourcesDir, 'qpdf', 'linux-x64', 'lib'), {recursive: true});
-        mkdirSync(join(resourcesDir, 'tessdata'), {recursive: true});
-        writeFileSync(join(resourcesDir, 'tessdata', 'eng.traineddata'), 'fixture');
-        mkdirSync(binDir, {recursive: true});
-        writeExecutable(join(binDir, 'node'), [
-            '#!/bin/sh',
-            'case "$*" in',
-            '  *nativeResourceManifestCli.ts*packaged-entries*)',
-            `    printf '%s\\n' '${manifest}'`,
-            '    ;;',
-            '  *)',
-            '    echo "unexpected node invocation: $*" >&2',
-            '    exit 90',
-            '    ;;',
-            'esac',
-            '',
-        ].join('\n'));
-        writeExecutable(join(binDir, 'pnpm'), [
-            '#!/bin/sh',
-            'case "$*" in',
-            '  *printOcrLanguageCodes.ts*--bundled*) printf "eng\\n" ;;',
-            '  *) echo "unexpected pnpm invocation: $*" >&2; exit 91 ;;',
-            'esac',
-            '',
-        ].join('\n'));
-        writeExecutable(join(binDir, 'ldd'), '#!/bin/sh\nexit 0\n');
-
-        try {
-            let output: string;
-            try {
-                output = execFileSync(
-                    '/bin/bash',
-                    [
-                        verifierPath,
-                        'linux',
-                        'x64',
-                        releaseDir,
-                    ],
-                    {
-                        cwd: resolve(process.cwd()),
-                        encoding: 'utf8',
-                        env: {
-                            ...process.env,
-                            PATH: `${binDir}:${process.env.PATH ?? ''}`,
-                        },
-                    },
-                );
-            } catch (error) {
-                const details = typeof error === 'object' && error !== null
-                    ? error as {
-                        stderr?: unknown;
-                        stdout?: unknown;
-                        status?: unknown;
-                    }
-                    : undefined;
-                throw new Error(`packaged native verifier failed (status ${String(details?.status)}): stdout=${String(details?.stdout)} stderr=${String(details?.stderr)}`);
-            }
-
-            expect(output).toContain('Native tool packaging verification passed for linux-x64');
-        } finally {
-            rmSync(root, {
-                force: true,
-                recursive: true,
-            });
-        }
+        expect(output.trim().split('\n')).toEqual([
+            'qpdf',
+            'poppler',
+        ]);
     });
 
     it('keeps packaged unpaper required outside Windows and smoke-tested on macOS', async () => {

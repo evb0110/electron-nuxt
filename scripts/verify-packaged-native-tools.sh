@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/release/platform-arch.sh"
+source "$(dirname "$0")/release/packaged-native-root-set.sh"
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64> [release-dir]"
@@ -72,16 +73,7 @@ echo "Verifying packaged native tools in: $native_tool_root"
 packaged_family_roots=()
 while IFS=$'\037' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
   if [ "$entry_scope" = "native" ]; then
-    already_present=0
-    for existing_root in ${packaged_family_roots[@]+"${packaged_family_roots[@]}"}; do
-      if [ "$existing_root" = "$staged_root" ]; then
-        already_present=1
-        break
-      fi
-    done
-    if [ "$already_present" -eq 0 ]; then
-      packaged_family_roots+=("$staged_root")
-    fi
+    append_packaged_family_root "$staged_root"
   fi
 done < "$release_entries_file"
 
