@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts
+  s_a965f8f2edadb4::t_d2a76392f85337 423-429
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c567cebca7dc012a1efbadca051916bdad55890f",
+  "prompts": {},
+  "sessions": {
+    "s_a965f8f2edadb4": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0503f-8454-7cb1-89f0-5619ed17e22f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
