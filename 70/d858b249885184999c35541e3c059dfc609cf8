@@ -1,0 +1,9 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  ai_agent 239,249-255,276,364,3493,3500,3514,3518,3522,3526,3533,3543
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "70d858b249885184999c35541e3c059dfc609cf8",
+  "prompts": {}
+}
