@@ -10,6 +10,7 @@ const ANNOTATION_VISUAL_LAYER_SELECTOR = [
 
 export function countReadyPdfAnnotationLayerVisuals(
     pageContainer: HTMLElement | null | undefined,
+    options: {includeSnapshotSources?: boolean} = {},
 ) {
     if (!pageContainer || typeof pageContainer.querySelectorAll !== 'function') {
         return 0;
@@ -18,7 +19,8 @@ export function countReadyPdfAnnotationLayerVisuals(
         ANNOTATION_VISUAL_LAYER_SELECTOR,
     )).filter(layer => !layer.classList.contains(pdfLayerVisualSnapshotClass)).reduce(
         (count, layer) => count + Array.from(layer.children).filter(child => (
-            !child.classList.contains(pdfLayerVisualSnapshotSourceClass)
+            options.includeSnapshotSources === true
+            || !child.classList.contains(pdfLayerVisualSnapshotSourceClass)
         )).length,
         0,
     );

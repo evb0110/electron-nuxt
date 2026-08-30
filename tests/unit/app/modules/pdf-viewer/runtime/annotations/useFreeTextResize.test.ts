@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import { effectScope } from 'vue';
 import { useFreeTextResize } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useFreeTextResize';
+import { pdfLayerVisualSnapshotClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { cast } from '@tests/helpers/cast';
 
@@ -115,6 +116,88 @@ describe('useFreeTextResize', () => {
         scope.stop();
 
         expect(document.documentElement.classList.contains('pdf-resizing-nwse')).toBe(false);
+    });
+
+    it('preserves FreeText pixels before Escape closes the live editor layer', () => {
+        vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+        vi.stubGlobal('cancelAnimationFrame', vi.fn());
+        const scope = effectScope();
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        const annotationLayer = document.createElement('div');
+        annotationLayer.className = 'annotationLayer';
+        const editorLayer = document.createElement('div');
+        editorLayer.className = 'annotationEditorLayer';
+        pageContainer.append(annotationLayer, editorLayer);
+        document.body.append(pageContainer);
+        const {
+            div,
+            editor,
+        } = createFreeTextEditor();
+        editorLayer.append(div);
+        const persistedEditor = document.createElement('div');
+        persistedEditor.className = 'freeTextEditor';
+        persistedEditor.textContent = 'persisted';
+        editorLayer.prepend(persistedEditor);
+        div.tabIndex = 0;
+        div.focus();
+
+        scope.run(() => {
+            const resize = useFreeTextResize({
+                getAnnotationUiManager: () => ({}) as never,
+                getNumPages: () => 1,
+                emitAnnotationModified: vi.fn(),
+                emitAnnotationSetting: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            });
+            resize.ensureFreeTextEditorCanResize(editor);
+        });
+        window.addEventListener('keydown', () => editorLayer.replaceChildren(), {once: true});
+
+        window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}));
+
+        const snapshot = pageContainer.querySelector<HTMLElement>(`.${pdfLayerVisualSnapshotClass}`);
+        expect(snapshot?.querySelectorAll('.freeTextEditor')).toHaveLength(2);
+
+        scope.stop();
+        expect(pageContainer.querySelector(`.${pdfLayerVisualSnapshotClass}`)).toBeNull();
+    });
+
+    it('leaves Escape untouched while the user is committing FreeText input', () => {
+        vi.stubGlobal('requestAnimationFrame', vi.fn(() => 1));
+        vi.stubGlobal('cancelAnimationFrame', vi.fn());
+        const scope = effectScope();
+        const pageContainer = document.createElement('div');
+        pageContainer.className = 'page_container';
+        const editorLayer = document.createElement('div');
+        editorLayer.className = 'annotationEditorLayer';
+        pageContainer.append(editorLayer);
+        document.body.append(pageContainer);
+        const {
+            div,
+            editor,
+        } = createFreeTextEditor();
+        editorLayer.append(div);
+        const internal = div.querySelector<HTMLElement>('.internal');
+        internal!.contentEditable = 'true';
+        internal!.tabIndex = 0;
+        internal!.focus();
+
+        scope.run(() => {
+            const resize = useFreeTextResize({
+                getAnnotationUiManager: () => ({}) as never,
+                getNumPages: () => 1,
+                emitAnnotationModified: vi.fn(),
+                emitAnnotationSetting: vi.fn(),
+                scheduleAnnotationCommentsSync: vi.fn(),
+            });
+            resize.ensureFreeTextEditorCanResize(editor);
+        });
+
+        window.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape'}));
+
+        expect(pageContainer.querySelector(`.${pdfLayerVisualSnapshotClass}`)).toBeNull();
+        scope.stop();
     });
 
     it('installs pre-select after an editor receives its DOM later', () => {

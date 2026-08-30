@@ -9,6 +9,7 @@ import {
 } from 'vitest';
 import { hasPdfPageAnnotationVisualContent } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContent';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
+import { countReadyPdfAnnotationLayerVisuals } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/countReadyPdfAnnotationLayerVisuals';
 import { pdfLayerVisualSnapshotActiveClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotActiveClass';
 import { pdfLayerVisualSnapshotClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
 import { pdfLayerVisualSnapshotSourceClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotSourceClass';
@@ -504,5 +505,25 @@ describe('pdfLayerVisualSnapshot', () => {
         page.append(annotationLayer);
 
         expect(hasPdfPageAnnotationVisualContent(page)).toBe(false);
+    });
+
+    it('can count a connected snapshot source toward a replacement visual set', () => {
+        const page = createElement();
+        const annotationLayer = createElement();
+        annotationLayer.classList.add('annotation-layer');
+        const editorLayer = createElement();
+        editorLayer.classList.add('annotation-editor-layer');
+        const survivingEditor = createElement();
+        survivingEditor.classList.add('freeTextEditor', pdfLayerVisualSnapshotSourceClass);
+        editorLayer.append(survivingEditor);
+        for (let index = 0; index < 4; index += 1) {
+            const replacement = createElement();
+            replacement.classList.add('freeTextAnnotation');
+            annotationLayer.append(replacement);
+        }
+        page.append(annotationLayer, editorLayer);
+
+        expect(countReadyPdfAnnotationLayerVisuals(page)).toBe(4);
+        expect(countReadyPdfAnnotationLayerVisuals(page, {includeSnapshotSources: true})).toBe(5);
     });
 });
