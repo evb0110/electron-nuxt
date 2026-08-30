@@ -1311,6 +1311,10 @@ jobs:
         run: pnpm run check:electron:install
 
       - name: Electron E2E large PDF
+        env:
+          # Manual lanes opt in to the local exact fixture explicitly; the
+          # staging script refuses an unnamed profile so absence cannot pass.
+          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
         run: pnpm run test:e2e:electron:large
 
       - name: Upload Electron E2E artifacts

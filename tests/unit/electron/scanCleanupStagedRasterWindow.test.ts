@@ -136,6 +136,45 @@ describe('createStagedRasterWindow', () => {
         expect(harness.controller.residentPages()).toEqual([]);
     });
 
+    it('evicts a released page before a prefetched page the consumer has not read', async () => {
+        const harness = createRecordingWindow([
+            1,
+            2,
+            3,
+            4,
+        ], 2);
+        // Page 1 is read and handed back; page 2 was prefetched behind it and
+        // is the next raster the sidecar will read.
+        await harness.controller.acquire(1);
+        harness.controller.release(1);
+        await harness.controller.acquire(2);
+        harness.controller.release(2);
+        await harness.controller.acquire(3);
+        // Page 3 needs a slot: the released page 1 goes, not the prefetched
+        // page that is still ahead of the reader.
+        expect(harness.unstaged).toEqual([1]);
+        expect(harness.resident.has(3)).toBe(true);
+    });
+
+    it('keeps a prefetched page near the reader resident and overshoots instead', async () => {
+        const harness = createRecordingWindow(Array.from({length: 12}, (_, index) => index + 4), 3);
+        // Reading page 4 and handing it back prefetches page 5, which the
+        // sidecar may already be reading before this window hears about it.
+        await harness.controller.acquire(4);
+        harness.controller.release(4);
+        await harness.controller.acquire(6);
+        expect(harness.resident.has(5)).toBe(true);
+        // Page 7 needs a slot: the released page 4 goes, never the unread
+        // page 5 sitting one step ahead of the reader.
+        await harness.controller.acquire(7);
+        expect(harness.unstaged).toEqual([4]);
+        // With only page 5 left unleased and inside the band, page 8 overshoots
+        // the window by one raster rather than racing the sidecar's read.
+        await harness.controller.acquire(8);
+        expect(harness.unstaged).toEqual([4]);
+        expect(harness.resident.has(5)).toBe(true);
+    });
+
     it('re-renders a released page instead of consuming it', async () => {
         const harness = createRecordingWindow([
             1,

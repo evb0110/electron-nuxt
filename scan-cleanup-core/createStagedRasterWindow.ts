@@ -59,6 +59,14 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
     const held = new Map<number, TStagedRasterState>();
     const external = new Set<number>(dependencies.alreadyStaged ?? []);
     const leased = new Set<number>();
+    /** Pages the consumer has finished reading since their raster was staged. */
+    const released = new Set<number>();
+    const readingIndexByPage = new Map(dependencies.pages.map((pageNumber, index) => [
+        pageNumber,
+        index,
+    ]));
+    /** Reading position: the index of the page the consumer asked for last. */
+    let cursorIndex = -1;
     const inFlight = new Map<number, Promise<void>>();
     const admitted = new Set<number>();
     let peakResident = 0;
@@ -68,12 +76,42 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
     const observeResident = () => {
         peakResident = Math.max(peakResident, held.size);
     };
+    /**
+     * Pick the resident raster the consumer is least likely to read next.
+     *
+     * The sidecar announces a lease and then reads the raster as soon as it
+     * exists on disk, so a page inside the reading horizon can be read before
+     * this window has processed the announcement. Evicting one of those pages
+     * races that read. Released pages are safe, and pages far from the reading
+     * position will be re-rendered on demand; pages within one window of the
+     * cursor are only taken when nothing else is resident.
+     */
+    const evictionCandidates = (exclude: number) => {
+        const candidates = [...held]
+            .filter(([
+                pageNumber,
+                state,
+            ]) => state === 'ready' && pageNumber !== exclude && !leased.has(pageNumber))
+            .map(([pageNumber]) => pageNumber);
+        const indexOf = (pageNumber: number) => readingIndexByPage.get(pageNumber) ?? -1;
+        const distance = (pageNumber: number) => Math.abs(indexOf(pageNumber) - cursorIndex);
+        const releasedCandidates = candidates.filter(pageNumber => released.has(pageNumber));
+        const outsideBand = candidates
+            .filter(pageNumber => !released.has(pageNumber) && distance(pageNumber) > window)
+            .sort((left, right) => distance(right) - distance(left));
+        return [
+            ...releasedCandidates,
+            ...outsideBand,
+        ];
+    };
+    const pickEvictionVictim = (exclude: number) => evictionCandidates(exclude)[0];
     const evictOneUnleasedPage = async (exclude: number) => {
+        const victim = pickEvictionVictim(exclude);
         for (const [
             pageNumber,
             state,
         ] of held) {
-            if (state !== 'ready' || pageNumber === exclude || leased.has(pageNumber)) {
+            if (state !== 'ready' || pageNumber !== victim) {
                 continue;
             }
             // Claim the slot before awaiting so a concurrent lease cannot pick
@@ -112,6 +150,18 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         while (held.size >= window) {
             if (await evictOneUnleasedPage(pageNumber)) {
                 continue;
+            }
+            if (pickEvictionVictim(pageNumber) === undefined) {
+                // Every resident raster is leased, still rendering, or sits
+                // inside the reading band. A render in flight only becomes
+                // another in-band page, and it may be the batch this very call
+                // belongs to, so waiting would deadlock; admit this page and
+                // let the window overshoot by one raster instead.
+                log(
+                    'warn',
+                    `Scan cleanup staged raster window of ${window} is fully leased or in use; page ${pageNumber} exceeds it by one raster`,
+                );
+                break;
             }
             // Every resident raster is either leased or still rendering, so no
             // slot can be freed yet. Waiting for the renders in flight is the
@@ -168,6 +218,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                 throw error;
             }
             held.set(pageNumber, 'ready');
+            released.delete(pageNumber);
             observeResident();
             if (!admitted.has(pageNumber)) {
                 admitted.add(pageNumber);
@@ -204,12 +255,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             const forwardPages = firstIndex < 0
                 ? [pageNumber]
                 : dependencies.pages.slice(firstIndex, firstIndex + window);
-            const evictable = [...held].filter(([
-                candidate,
-                state,
-            ]) => (
-                state === 'ready' && !leased.has(candidate)
-            )).length;
+            const evictable = evictionCandidates(pageNumber).length;
             const capacity = Math.max(1, window - held.size + evictable);
             const batch = forwardPages
                 .filter(candidate => (
@@ -232,6 +278,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
                         throw new Error(`Scan cleanup batch did not publish page ${String(candidate)}`);
                     }
                     held.set(candidate, 'ready');
+                    released.delete(candidate);
                     if (!admitted.has(candidate)) {
                         admitted.add(candidate);
                     }
@@ -265,6 +312,8 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
         /** Pin one page and guarantee its raster is readable. */
         async acquire(pageNumber: number) {
             leased.add(pageNumber);
+            released.delete(pageNumber);
+            cursorIndex = readingIndexByPage.get(pageNumber) ?? cursorIndex;
             await stagePage(pageNumber);
         },
         /**
@@ -274,6 +323,7 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
          */
         release(pageNumber: number) {
             leased.delete(pageNumber);
+            released.add(pageNumber);
             this.prefetchNext();
         },
         /**
@@ -285,8 +335,12 @@ export function createStagedRasterWindow(dependencies: IStagedRasterWindowDepend
             if (closed || prefetching || held.size >= window) {
                 return;
             }
+            // Prefetch runs ahead of the reader, never behind it: a consumed
+            // page that was evicted must not be re-rendered into a slot the
+            // next page in reading order needs.
             const next = dependencies.pages.find(
-                pageNumber => !held.has(pageNumber)
+                (pageNumber, index) => index > cursorIndex
+                    && !held.has(pageNumber)
                     && !external.has(pageNumber)
                     && !inFlight.has(pageNumber),
             );
