@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/runtime/save/nativeShapeMutations.ts
+  s_be8b4e0de7d61d::t_adde02fdd5f612 128-147,166-173,177-181
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_be8b4e0de7d61d::t_adde02fdd5f612 520-607
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_be8b4e0de7d61d::t_adde02fdd5f612 254-287
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e8c4e96fe380440847c75c13ca720aa2724c4629",
+  "prompts": {},
+  "sessions": {
+    "s_be8b4e0de7d61d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a04f85-75d5-77f3-b900-3f7841189a07",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
