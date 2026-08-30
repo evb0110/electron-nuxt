@@ -1,11 +1,8 @@
 import type { Ref } from 'vue';
 import {useResizeObserver} from '@vueuse/core';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { pdfViewerDomClasses } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/pdfViewerDomClasses';
 import { preservePdfResizeCanvasVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot';
-import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
-import { countReadyPdfAnnotationLayerVisuals } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/countReadyPdfAnnotationLayerVisuals';
 import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 import type {
     ICurrentPageSyncOptions,
@@ -90,12 +87,10 @@ interface IResizeLifecycleTransactionController {
 }
 
 interface IActiveResizeVisualSnapshotLease {
-    annotationRelease: (() => void) | null;
     document: unknown;
     holdForMs: number;
     lastCaptureAtMs: number;
     pageContainer: HTMLElement;
-    requiredAnnotationVisualCount: number;
     released: boolean;
     snapshot: IPdfResizeCanvasVisualSnapshot;
 }
@@ -190,17 +185,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
         token: number,
         anchorPage: number | null,
     ) {
-        logPdfRenderTrace('pdf-resize-transaction', {
-            phase: active ? 'active' : 'settled',
-            source,
-            token,
-            anchorPage,
-            transactionId: pendingResizeTransactionId,
-            visibleRange: {
-                start: visibleRange.value.start,
-                end: visibleRange.value.end,
-            },
-        });
         setResizeTransitionVisible?.({
             active,
             source,
@@ -434,14 +418,10 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 activeLease!.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
-            activeLease?.annotationRelease?.();
             activeLease?.snapshot.release();
             activeResizeVisualSnapshots.delete(page);
-            const requiredAnnotationVisualCount = countReadyPdfAnnotationLayerVisuals(pageContainer);
-            const annotationRelease = preservePdfPageAnnotationVisualSnapshot(pageContainer, null);
             const snapshot = preservePdfResizeCanvasVisualSnapshot(pageContainer);
             if (!snapshot) {
-                annotationRelease?.();
                 // A rapid zoom packet can arrive after the renderer has cleared
                 // its source canvas but before the replacement commits. Keep the
                 // previous snapshot for this page instead of exposing the bare
@@ -449,23 +429,19 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 continue;
             }
             if (!pageContainer) {
-                annotationRelease?.();
                 snapshot.release();
                 continue;
             }
             const lease: IActiveResizeVisualSnapshotLease = {
-                annotationRelease,
                 document: pdfDocument.value,
                 holdForMs: normalizedHoldForMs,
                 lastCaptureAtMs: capturedAtMs,
                 pageContainer,
-                requiredAnnotationVisualCount,
                 released: false,
                 snapshot,
             };
             const release = () => {
                 lease.released = true;
-                annotationRelease?.();
                 snapshot.release();
                 if (activeResizeVisualSnapshots.get(page) === lease) {
                     activeResizeVisualSnapshots.delete(page);
@@ -481,8 +457,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                         Date.now() - lease.lastCaptureAtMs >= lease.holdForMs
                         && snapshot.hasReplacementCanvas()
                         && pageContainer.classList.contains(pdfViewerDomClasses.renderedPageContainer)
-                        && countReadyPdfAnnotationLayerVisuals(pageContainer)
-                            >= lease.requiredAnnotationVisualCount
                     )
                 ),
             });
@@ -726,7 +700,6 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
     function cleanupResizeLifecycle() {
         activeResizeVisualSnapshots.forEach((lease) => {
             lease.released = true;
-            lease.annotationRelease?.();
             lease.snapshot.release();
         });
         activeResizeVisualSnapshots.clear();

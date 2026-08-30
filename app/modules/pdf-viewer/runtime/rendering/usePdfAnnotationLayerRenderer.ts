@@ -19,7 +19,6 @@ import { disconnectHighlightCompositeOverlay } from '@app/modules/pdf-viewer/eng
 import { observeHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/observeHighlightCompositeOverlay';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 import { combinePdfLayerVisualSnapshotReleases } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/combinePdfLayerVisualSnapshotReleases';
-import { countReadyPdfAnnotationLayerVisuals } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/countReadyPdfAnnotationLayerVisuals';
 import { shouldHideHiddenEmbeddedAnnotation } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
 import { hasPdfPageDrawLayerVisualContent } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageDrawLayerVisualContent';
@@ -37,7 +36,6 @@ import {
 } from '@app/services/pdfjs/pdfViewerFacade';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { traceAnnotationEditorLayer } from '@app/utils/pdfAnnotationTransitionTrace';
 import { getShellCapability } from '@app/utils/getShellCapability';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
@@ -50,6 +48,7 @@ import type {
 import { createHiddenAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController';
 import { createAnnotationEditorLayerFailureTracker } from '@app/modules/pdf-viewer/runtime/rendering/createAnnotationEditorLayerFailureTracker';
 export type { TAnnotationEditorLayerRenderResult } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
+
 const ANNOTATION_MANAGER_ISOLATION_TIMEOUT_MS = 250;
 const hiddenAnnotationGuardQueues = new WeakMap<
     AnnotationEditorUIManager,
@@ -64,6 +63,7 @@ const parsedPageAnnotations = new WeakMap<
     PDFPageProxy,
     ReturnType<PDFPageProxy['getAnnotations']>
 >();
+
 function getParsedPageAnnotations(pdfPage: PDFPageProxy) {
     const cached = parsedPageAnnotations.get(pdfPage);
     if (cached) {
@@ -77,6 +77,7 @@ function getParsedPageAnnotations(pdfPage: PDFPageProxy) {
     parsedPageAnnotations.set(pdfPage, pending);
     return pending;
 }
+
 export function didRenderAnnotationEditorLayer(result: TAnnotationEditorLayerRenderResult) {
     return result.ok && result.rendered;
 }
@@ -128,9 +129,11 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pause: () => {},
         resume: () => {},
     };
+
     function getAnnotationUiManager() {
         return compatibilityAdapter.wrapUiManager(toValue(deps.annotationUiManager) ?? null);
     }
+
     const {
         clearAnnotationEditorLayerFailure,
         isAnnotationEditorLayerQuarantined,
@@ -337,6 +340,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         ) {
             return null;
         }
+        
         const snapshotRelease = preservePdfPageAnnotationVisualSnapshot(
             pageContainer ?? null,
             annotationEditorLayerDiv ?? null,
@@ -609,15 +613,14 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 reason: 'stale',
             } satisfies TAnnotationEditorLayerRenderResult;
         }
-        let requiredAnnotationVisualCount = countReadyPdfAnnotationLayerVisuals(container);
-        let shouldWaitForDrawLayerVisuals = hasPdfPageDrawLayerVisualContent(container);
+        let shouldWaitForDrawLayerVisuals =
+            hasPdfPageDrawLayerVisualContent(container);
         let snapshotRelease = syncEditorLayersWithCurrentDocument(
             container,
             annotationEditorLayerDiv,
         );
         const renderToken = ++annotationEditorLayerRenderToken;
         annotationEditorLayerPageRenderTokens.set(pageNumber, renderToken);
-        traceAnnotationEditorLayer('render-start', pageNumber, renderToken, annotationEditorLayerDiv, {documentVersion: deps.getDocumentVersion?.() ?? null});
         const isCurrentEditorLayerRender = () => (
             annotationEditorLayerPageRenderTokens.get(pageNumber) === renderToken
         );
@@ -668,6 +671,8 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 }
             }
         }
+        
+
         try {
             const annotationUiManager = getAnnotationUiManager();
             renderUiManager = annotationUiManager;
@@ -680,7 +685,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             }
             if (!annotationUiManager) {
                 hideAnnotationEditorLayer(annotationEditorLayerDiv);
-                traceAnnotationEditorLayer('render-skipped', pageNumber, renderToken, annotationEditorLayerDiv, {reason: 'no-ui-manager'});
+                
                 return {
                     ok: true,
                     rendered: false,
@@ -688,6 +693,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (quarantinedHiddenAnnotationGuards.has(annotationUiManager)) {
+                
                 return {
                     ok: true,
                     rendered: false,
@@ -733,8 +739,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 } satisfies TAnnotationEditorLayerRenderResult;
             }
             if (willReplaceAnnotationEditorLayer(pageNumber, signatures)) {
-                requiredAnnotationVisualCount = Math.max(requiredAnnotationVisualCount,
-                    countReadyPdfAnnotationLayerVisuals(container));
+                
                 shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
                 snapshotRelease = combinePdfLayerVisualSnapshotReleases([
                     snapshotRelease,
@@ -750,9 +755,9 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             );
             const drawLayer = getOrCreateDrawLayer(container, pageNumber);
             renderDrawLayer = drawLayer;
+
             if (!editorLayer) {
-                requiredAnnotationVisualCount = Math.max(requiredAnnotationVisualCount,
-                    countReadyPdfAnnotationLayerVisuals(container));
+                
                 shouldWaitForDrawLayerVisuals ||= hasPdfPageDrawLayerVisualContent(container);
                 snapshotRelease = combinePdfLayerVisualSnapshotReleases([
                     snapshotRelease,
@@ -829,7 +834,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             observeHighlightCompositeOverlay(container);
             scheduleHighlightCompositeRefresh(container, pageNumber, options?.shouldContinue);
             clearAnnotationEditorLayerFailure(pageNumber);
-            traceAnnotationEditorLayer('render-committed', pageNumber, renderToken, annotationEditorLayerDiv);
             return {
                 ok: true,
                 rendered: true,
@@ -857,10 +861,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                     detachTimedOutAnnotationEditorLayer(annotationEditorLayerDiv);
                     hideAnnotationEditorLayer(annotationEditorLayerDiv);
                 }
-                traceAnnotationEditorLayer('render-stale', pageNumber, renderToken, annotationEditorLayerDiv, {
-                    aborted: options?.signal?.aborted === true,
-                    ownsCurrentRender,
-                });
                 if (editorLayerRender) {
                     void editorLayerRender.then(
                         cleanupCapturedEditorLayer,
@@ -910,7 +910,6 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 });
             }
             hideAnnotationEditorLayer(annotationEditorLayerDiv);
-            traceAnnotationEditorLayer('render-failed', pageNumber, renderToken, annotationEditorLayerDiv, {retryable: failure.retryable});
             return {
                 ok: false,
                 reason: 'render-error',
@@ -918,11 +917,12 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 retryable: failure.retryable,
             } satisfies TAnnotationEditorLayerRenderResult;
         } finally {
-            if (shouldWaitForDrawLayerVisuals || requiredAnnotationVisualCount > 0) {
+            
+            if (shouldWaitForDrawLayerVisuals) {
                 schedulePdfLayerVisualSnapshotRelease(snapshotRelease, {
                     maxDelayMs: 1200,
-                    waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(container)
-                        && countReadyPdfAnnotationLayerVisuals(container) >= requiredAnnotationVisualCount,
+                    minFrames: 1,
+                    waitFor: () => hasPdfPageAnnotationVisualContentForSnapshotRelease(container),
                 });
             } else {
                 schedulePdfLayerVisualSnapshotRelease(snapshotRelease);

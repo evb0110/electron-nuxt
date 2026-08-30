@@ -28,15 +28,10 @@ import {
     updatePdfjsAnnotationManagerParams,
 } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
-import { countReadyPdfAnnotationLayerVisuals } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/countReadyPdfAnnotationLayerVisuals';
-import { preservePdfPageAnnotationVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfPageAnnotationVisualSnapshot';
-import { schedulePdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/schedulePdfLayerVisualSnapshotRelease';
 
 const FREE_TEXT_FONT_SIZE_MIN = 8;
 const FREE_TEXT_FONT_SIZE_MAX = 96;
-const FREE_TEXT_ESCAPE_SNAPSHOT_MAX_DELAY_MS = 5_000;
 
 interface IUseFreeTextResizeOptions {
     getAnnotationUiManager: () => AnnotationEditorUIManager | null;
@@ -74,7 +69,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     } = options;
     const resizeCursorCleanupTarget = ref<Window | null>(null);
     const pendingFreeTextResizeSyncFrames = new Set<number>();
-    const pendingEscapeSnapshotReleases = new Set<() => void>();
     let activeResizeCursorClass: string | null = null;
     let disposed = false;
     const resizeStartSnapshots = new WeakMap<IPdfjsEditor, IFreeTextResizeSnapshot>();
@@ -163,57 +157,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
 
     useEventListener(resizeCursorCleanupTarget, 'pointerup', cleanupResizeCursor);
     useEventListener(resizeCursorCleanupTarget, 'blur', cleanupResizeCursor);
-
-    function preserveFreeTextPixelsBeforeEscape(event: KeyboardEvent) {
-        if (event.key !== 'Escape' || event.repeat || typeof document === 'undefined') {
-            return;
-        }
-        const activeElement = document.activeElement;
-        const activeEditable = activeElement instanceof Element
-            ? activeElement.closest<HTMLElement>('[contenteditable="true"]')
-            : null;
-        if (activeEditable?.closest('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)')) {
-            return;
-        }
-        const pageContainers = Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
-            .filter(pageContainer => pageContainer.querySelector(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
-            ));
-        for (const pageContainer of pageContainers) {
-            const requiredVisualCount = countReadyPdfAnnotationLayerVisuals(pageContainer);
-            const snapshotRelease = preservePdfPageAnnotationVisualSnapshot(pageContainer, null);
-            if (!snapshotRelease) {
-                continue;
-            }
-            let released = false;
-            const release = () => {
-                if (released) {
-                    return;
-                }
-                released = true;
-                pendingEscapeSnapshotReleases.delete(release);
-                snapshotRelease();
-            };
-            pendingEscapeSnapshotReleases.add(release);
-            logPdfRenderTrace('freetext-resize', {
-                phase: 'escape-snapshot',
-                pageNumber: pageContainer.dataset.page ?? null,
-                requiredVisualCount,
-            });
-            schedulePdfLayerVisualSnapshotRelease(release, {
-                maxDelayMs: FREE_TEXT_ESCAPE_SNAPSHOT_MAX_DELAY_MS,
-                minFrames: 2,
-                waitFor: () => (
-                    countReadyPdfAnnotationLayerVisuals(pageContainer, {includeSnapshotSources: true}) >= requiredVisualCount
-                ),
-            });
-        }
-    }
-
-    const escapeKeyTarget = computed(() => (
-        typeof window === 'undefined' ? null : window
-    ));
-    useEventListener(escapeKeyTarget, 'keydown', preserveFreeTextPixelsBeforeEscape, {capture: true});
 
     function parseEditorInlineFontSizePx(value: string) {
         const calcMatch = value.match(/calc\(([\d.]+)px\s*\*/);
@@ -484,13 +427,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 if (targetFont === null) {
                     return;
                 }
-                logPdfRenderTrace('freetext-resize', {
-                    phase: 'resizing',
-                    editorIdentity: editorHistoryTarget(editor)?.key ?? null,
-                    width: editor.width ?? null,
-                    height: editor.height ?? null,
-                    targetFont,
-                });
                 if (!resizeStartSnapshots.has(editor)) {
                     resizeStartSnapshots.set(editor, captureResizeSnapshot(
                         editor,
@@ -511,13 +447,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 applyFreeTextInternalFontSize(editor, targetFont);
                 updateFreeTextResizerSize(editor);
                 scheduleFreeTextFontSync(editor, targetFont);
-                logPdfRenderTrace('freetext-resize', {
-                    phase: 'resized',
-                    editorIdentity: editorHistoryTarget(editor)?.key ?? null,
-                    width: editor.width ?? null,
-                    height: editor.height ?? null,
-                    targetFont,
-                });
                 if (before && registerHistoryCommand) {
                     const after = captureResizeSnapshot(editor, targetFont);
                     const target = editorHistoryTarget(editor);
@@ -596,13 +525,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 !disposed
                 && syncInternalFontSize(currentEditor, targetFont)
             ) {
-                logPdfRenderTrace('freetext-resize', {
-                    phase: 'font-committed',
-                    editorIdentity: editorHistoryTarget(currentEditor)?.key ?? null,
-                    width: currentEditor.width ?? null,
-                    height: currentEditor.height ?? null,
-                    targetFont,
-                });
                 emitAnnotationSetting({
                     key: 'textSize',
                     value: targetFont,
@@ -717,7 +639,6 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         disposed = true;
         cancelPendingFreeTextFontSyncs();
         cleanupResizeCursor();
-        pendingEscapeSnapshotReleases.forEach(release => release());
     });
 
     return {

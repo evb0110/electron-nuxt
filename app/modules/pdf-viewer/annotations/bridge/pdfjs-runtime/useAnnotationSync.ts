@@ -28,7 +28,6 @@ import {
 import { toCssColor } from '@app/modules/pdf-viewer/engine/annotation-css-utils/toCssColor';
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
-import { traceAnnotationSync } from '@app/utils/pdfAnnotationTransitionTrace';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import { logPendingAnchorSummary } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/logPendingAnchorSummary';
 import { createAnnotationSyncAutomationBarrier } from '@app/utils/createAnnotationSyncAutomationBarrier';
@@ -164,7 +163,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     const annotationEnrichmentState = ref<IAnnotationEnrichmentState>(PENDING_ANNOTATION_ENRICHMENT_STATE);
     const automationBarrier = createAnnotationSyncAutomationBarrier();
     let syncToken = 0;
-    let documentGeneration = 0;
     let syncRunPromise: Promise<void> | null = null;
     let syncRerunRequested = false;
     const trackedCreatedEditors = new WeakSet<object>();
@@ -298,8 +296,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         // new document can otherwise spend seconds competing with a stale
         // all-page scan before its first canvas appears.
         syncToken += 1;
-        documentGeneration += 1;
-        traceAnnotationSync('document-changed', documentGeneration, documentRevisionToken?.value, syncToken);
         resetPdfAnnotationSnapshot();
         hasAppliedDocumentSnapshot = false;
     });
@@ -344,7 +340,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
         return previewText;
     }
-    function resolveEditorSummarySubtype(editor: IPdfjsEditor, pageIndex: number, markupSubtype: ISyncMarkupSubtype) {
+    function resolveEditorSummarySubtype(
+        editor: IPdfjsEditor,
+        pageIndex: number,
+        markupSubtype: ISyncMarkupSubtype,
+    ) {
         return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
             ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor)
             ?? detectEditorSubtype(editor);
@@ -599,6 +599,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             && matchesPdfSnapshotFence(snapshot, pageCount),
         );
     }
+
     async function getPdfAnnotationSnapshot(
         doc: PDFDocumentProxy,
         pageCount: number,
@@ -618,6 +619,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         ) {
             return pdfAnnotationSnapshot;
         }
+
         const sharedKey = getSharedSnapshotKey(pageCount);
         const shared = readSharedPdfAnnotationSnapshot(sharedKey, doc);
         if (
@@ -903,6 +905,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             applyEmptyAnnotationSyncState(identity, markupSubtype, store);
             return null;
         }
+
         if (annotationNameReadIntent === 'interactive') {
             // A read that is running is neither a completed skip nor a
             // failure. The annotations panel starts this pass the moment it
@@ -911,6 +914,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             // would offer a retry that only restarts the pass already going.
             setAnnotationEnrichmentState(PENDING_ANNOTATION_ENRICHMENT_STATE);
         }
+
         pdfAnnotationIndexLifecycle.cancelAll();
         const localToken = ++syncToken;
         const commentsByKey = new Map<string, IAnnotationCommentSummary>();
@@ -920,7 +924,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             sourceOrder,
             hasPostOpenUserMutation,
         } = collectEditorCommentSummaries(identity, uiManager, commentsByKey);
-        traceAnnotationSync('pass-start', documentGeneration, documentRevisionToken?.value, localToken, sourceOrder, commentsByKey.size);
+
         const pdfSnapshot = await getPdfAnnotationSnapshot(
             doc,
             numPages.value,
@@ -950,7 +954,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             },
         );
         if (!pdfSnapshot || localToken !== syncToken) {
-            traceAnnotationSync('pass-stale', documentGeneration, documentRevisionToken?.value, localToken, undefined, undefined, {currentSyncToken: syncToken});
             return null;
         }
         mergePdfCommentSummaries(
@@ -964,18 +967,17 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         if (localToken !== syncToken) {
             return null;
         }
+
         // The structural inventory may take seconds on a large document. An
         // editor created while that await is in flight was absent from the
         // opening snapshot, so collect the live editor layer once more before
         // deciding whether this pass may become the saved baseline.
-        const {
-            sourceOrder: lateEditorCount,
-            hasPostOpenUserMutation: hasLatePostOpenUserMutation,
-        } = collectEditorCommentSummaries(
+        const {hasPostOpenUserMutation: hasLatePostOpenUserMutation} = collectEditorCommentSummaries(
             identity,
             uiManager,
             commentsByKey,
         );
+
         applyAnnotationSyncState(
             identity,
             markupSubtype,
@@ -986,7 +988,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             hasPostOpenUserMutation || hasLatePostOpenUserMutation,
             pdfSnapshot.completeness,
         );
-        traceAnnotationSync('pass-committed', documentGeneration, documentRevisionToken?.value, localToken, lateEditorCount, commentsByKey.size);
         publishAnnotationEnrichmentState(
             pdfSnapshot.annotationNameReadResult,
             pdfSnapshot.annotationNameSkipReason,
@@ -994,6 +995,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         );
         return pdfSnapshot;
     }
+
     function ensurePdfAnnotationNameReconciliation(
         reason: 'annotations-ui-open' | 'existing-annotation-mutation',
     ): Promise<TPdfAnnotationNameReconciliationResult> {
@@ -1115,7 +1117,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         rememberMarkupSubtypeColors(appliedComments, markupSubtype);
         textMarkupPresentation.notify({kind: 'editors-changed'});
         syncInlineCommentIndicators();
-        traceAnnotationSync('save-flush', documentGeneration, documentRevisionToken?.value, syncToken, commentsByKey.size, appliedComments.length);
         automationBarrier.noteServiced(servicedSeq);
     }
     const {
