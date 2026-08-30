@@ -319,6 +319,25 @@ function isPersistedCleanCommentMarkerAnchor(input: {
         === entity.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '');
 }
 
+function isCanonicalManagedShapeEditorStorage(input: {
+    document: PDFDocumentProxy;
+    keyId: string | null;
+    annotationStore: Pick<AnnotationStore, 'get'> | undefined;
+}) {
+    if (!input.keyId || !input.annotationStore) {
+        return false;
+    }
+    const editor = getAnnotationStorageRawValue(input.document, input.keyId);
+    if (!editor || typeof editor !== 'object') {
+        return false;
+    }
+    const canonicalAnnotationId = getPdfjsEditorFacadeState(editor).canonicalAnnotationId;
+    if (typeof canonicalAnnotationId !== 'string') {
+        return false;
+    }
+    return input.annotationStore.get(asAnnotationId(canonicalAnnotationId))?.kind === 'shape';
+}
+
 function isReplayableFreeTextNoteStorageValue(value: unknown) {
     if (!isRecord(value) || value.deleted === true) {
         return false;
@@ -514,7 +533,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         const replayableEditorNoteIds = new Set<string>();
         const nativeFreeTextEditors = new Map<string, IPdfNativeFreeTextEditor>();
         const serializableRuntimeIdsMappedToPdfRefs = new Set<string>();
-        const deletedEditorOnlyRuntimeIds = new Set<string>();
+        const excludedRuntimeIds = new Set<string>();
         const countedSerializableEntries: Array<[string, unknown]> = [];
         const serializable = storage?.serializable;
         const serializableMap = serializable?.map;
@@ -533,9 +552,14 @@ export function collectLivePdfJsAnnotationChangeIds(
                         value,
                         annotationStore: options.annotationStore,
                     })
+                    || isCanonicalManagedShapeEditorStorage({
+                        document,
+                        keyId,
+                        annotationStore: options.annotationStore,
+                    })
                 ) {
                     if (keyId) {
-                        deletedEditorOnlyRuntimeIds.add(keyId);
+                        excludedRuntimeIds.add(keyId);
                     }
                     return;
                 }
@@ -584,7 +608,7 @@ export function collectLivePdfJsAnnotationChangeIds(
                 if (
                     normalized
                     && !serializableRuntimeIdsMappedToPdfRefs.has(normalized)
-                    && !deletedEditorOnlyRuntimeIds.has(normalized)
+                    && !excludedRuntimeIds.has(normalized)
                 ) {
                     ids.add(normalized);
                 }

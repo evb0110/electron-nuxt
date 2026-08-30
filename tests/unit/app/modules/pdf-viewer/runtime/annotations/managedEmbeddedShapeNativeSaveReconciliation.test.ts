@@ -158,4 +158,49 @@ describe('managed embedded shape native save reconciliation', () => {
         expect(mocks.importPath).not.toHaveBeenCalled();
         expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
     });
+
+    it('does not apply a revision-triggered native import across an active save preparation', async () => {
+        const backgroundImport = Promise.withResolvers<IShapeAnnotation[]>();
+        const savedShapeIndex = Promise.withResolvers<IShapeAnnotation[]>();
+        mocks.importNative
+            .mockResolvedValue([])
+            .mockReturnValueOnce(backgroundImport.promise)
+            .mockReturnValueOnce(savedShapeIndex.promise);
+        const markSaved = vi.fn(() => true);
+        const shapeComposable = createManagedShapeStorePort({
+            isShapeImportBaselineReady: () => true,
+            beginShapeSave: () => ({
+                primePersistedShapes: vi.fn(() => true),
+                rollback: vi.fn(() => true),
+                markSaved,
+            }),
+        });
+        const managedShapes = createManagedShapes(shapeComposable);
+
+        const revisionImport = managedShapes.ensureManagedShapeBaselineReady();
+        await vi.waitFor(() => expect(mocks.importNative).toHaveBeenCalledOnce());
+        const preparationPromise = managedShapes.preparePersistedManagedShapesForSave();
+        await vi.waitFor(() => expect(mocks.importNative).toHaveBeenCalledTimes(2));
+
+        backgroundImport.resolve([]);
+        await expect(Promise.race([
+            revisionImport.then(() => 'settled'),
+            new Promise(resolve => setTimeout(() => resolve('pending'), 20)),
+        ])).resolves.toBe('pending');
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+
+        savedShapeIndex.resolve([]);
+        const preparation = await preparationPromise;
+        expect(preparation).not.toBeNull();
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+
+        preparation!.markSaved();
+        await expect(revisionImport).resolves.toBe(true);
+        expect(markSaved).toHaveBeenCalledOnce();
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+
+        await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBe(true);
+        expect(mocks.importNative).toHaveBeenCalledTimes(2);
+        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+    });
 });

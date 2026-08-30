@@ -248,6 +248,64 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         expect(result.hasUnknownChanges).toBe(false);
     });
 
+    it('does not count canonical managed shape editor storage as live PDF.js work', () => {
+        const editorKey = 'shape-runtime-id';
+        const editor = {};
+        Object.assign(getPdfjsEditorFacadeState(editor), {canonicalAnnotationId: 'shape-1'});
+        const annotationStore = new AnnotationStore();
+        annotationStore.import({
+            kind: 'shape',
+            identity: {
+                id: asAnnotationId('shape-1'),
+                elementId: editorKey,
+            },
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: 1,
+            modifiedAt: 1,
+            author: null,
+            geometry: {
+                id: editorKey,
+                type: 'polyline',
+                pageIndex: 0,
+                x: 0.1,
+                y: 0.2,
+                width: 0.3,
+                height: 0.4,
+                color: '#ff0000',
+                strokeWidth: 2,
+                opacity: 1,
+                source: 'local',
+                points: [
+                    {
+                        x: 0.1,
+                        y: 0.2,
+                    },
+                    {
+                        x: 0.4,
+                        y: 0.6,
+                    },
+                ],
+            },
+        });
+        const document = {annotationStorage: {
+            serializable: {map: new Map([[
+                editorKey,
+                {annotationType: 15},
+            ]])},
+            modifiedIds: {ids: new Set([editorKey])},
+            getRawValue: (key: string) => key === editorKey ? editor : undefined,
+        }} as never;
+
+        const result = collectLivePdfJsAnnotationChangeIds(document, {annotationStore});
+
+        expect(result.ids).toEqual(new Set());
+        expect(result.hasChanges).toBe(false);
+        expect(result.fingerprint).toBe('empty');
+    });
+
     it('marks PDF.js FreeText popup editor storage as replayable note work', () => {
         const serializableMap = new Map([[
             'pdfjs_internal_editor_0',

@@ -145,6 +145,7 @@ export const useManagedEmbeddedPdfShapes = ({
         path: string | null;
         documentKey: string | null;
     }>();
+    const activeShapeSavePreparations = new Set<Promise<void>>();
     const pendingEmbeddedAnnotationRefreshPages = new Set<number>();
     let isEmbeddedAnnotationRefreshScheduled = false;
     let isDeferredHiddenEmbeddedAnnotationDomSyncScheduled = false;
@@ -162,6 +163,11 @@ export const useManagedEmbeddedPdfShapes = ({
     let scheduledPostPaintImport: {
         captured: IPendingPostPaintEmbeddedShapeImport;
         pageNumber: number;
+    } | null = null;
+    let saveReconciledSource: {
+        path: string | null;
+        revision: TDocumentRevisionToken | null;
+        documentKey: string | null;
     } | null = null;
 
     function runAfterInitialVisualPaint(
@@ -246,6 +252,16 @@ export const useManagedEmbeddedPdfShapes = ({
             documentKey: originalPath?.value ?? null,
             path,
         };
+    }
+
+    function hasSaveReconciledBaseline(
+        path: string | null,
+        revision: TDocumentRevisionToken | null,
+    ) {
+        return shapeComposable.isShapeImportBaselineReady()
+            && saveReconciledSource?.path === path
+            && saveReconciledSource.revision === revision
+            && saveReconciledSource.documentKey === (originalPath?.value ?? null);
     }
 
     const managedEmbeddedAnnotationIds = computed(() =>
@@ -474,6 +490,13 @@ export const useManagedEmbeddedPdfShapes = ({
         token: number,
         revision: TDocumentRevisionToken | null,
     ) {
+        while (activeShapeSavePreparations.size > 0) {
+            await Promise.all(activeShapeSavePreparations);
+        }
+        if (isStaleEmbeddedShapeImport(token, path, revision)) {
+            logStaleEmbeddedShapeImport(token, path, revision);
+            return;
+        }
         const currentShapeCountBeforeApply = shapeComposable.getAllShapes().length;
         const applyPlan = shapeComposable.importEmbeddedShapes(importedShapes, currentImportSource(path));
 
@@ -674,6 +697,9 @@ export const useManagedEmbeddedPdfShapes = ({
         const data = sourcePdfData.value;
         const path = workingCopyPath.value;
         const revision = documentRevisionToken.value;
+        if (hasSaveReconciledBaseline(path, revision)) {
+            return true;
+        }
         await ensureEmbeddedShapesImportedForCurrentSource();
         if (disposed) {
             // Disposal says nothing about the shape layer, and a save racing it
@@ -711,6 +737,11 @@ export const useManagedEmbeddedPdfShapes = ({
         const data = sourcePdfData.value;
         const path = workingCopyPath.value;
         if (!data && !path) {
+            pendingPostPaintImport = null;
+            scheduledPostPaintImport = null;
+            return false;
+        }
+        if (hasSaveReconciledBaseline(path, documentRevisionToken.value)) {
             pendingPostPaintImport = null;
             scheduledPostPaintImport = null;
             return false;
@@ -779,6 +810,19 @@ export const useManagedEmbeddedPdfShapes = ({
             || (originalPath?.value ?? null) !== documentKey;
     }
 
+    function retireRevisionTriggeredShapeImportAfterSave() {
+        embeddedShapeImportAbortController?.abort(
+            new DOMException('Managed shape import was superseded by save reconciliation', 'AbortError'),
+        );
+        embeddedShapeImportAbortController = null;
+        embeddedShapeImportToken += 1;
+        pendingEmbeddedShapeImportData = null;
+        pendingEmbeddedShapeImportPath = null;
+        pendingEmbeddedShapeImportRevision = null;
+        pendingPostPaintImport = null;
+        scheduledPostPaintImport = null;
+    }
+
     async function preparePersistedManagedShapesForSave(
         data?: Uint8Array,
     ): Promise<IShapeSavePreparation | null> {
@@ -787,7 +831,47 @@ export const useManagedEmbeddedPdfShapes = ({
         // The store captures the frontier this priming may advance past, so a
         // failed persist rolls the canonical shapes back atomically instead of
         // restoring a locally held snapshot.
-        const preparation = shapeComposable.beginShapeSave(documentRevisionToken.value);
+        const shapeSavePreparation = shapeComposable.beginShapeSave(documentRevisionToken.value);
+        let releasePreparation!: () => void;
+        const preparationBarrier = new Promise<void>((resolve) => { releasePreparation = resolve; });
+        activeShapeSavePreparations.add(preparationBarrier);
+        let preparationReleased = false;
+        const release = () => {
+            if (preparationReleased) {
+                return;
+            }
+            preparationReleased = true;
+            activeShapeSavePreparations.delete(preparationBarrier);
+            releasePreparation();
+        };
+        const preparation: IShapeSavePreparation = {
+            primePersistedShapes: shapes => shapeSavePreparation.primePersistedShapes(shapes),
+            rollback: () => {
+                try {
+                    return shapeSavePreparation.rollback();
+                } finally {
+                    release();
+                }
+            },
+            markSaved: () => {
+                try {
+                    const markedSaved = shapeSavePreparation.markSaved();
+                    if (markedSaved) {
+                        // Do not repeat the save index scan outside the captured
+                        // frontier and dirty PDF.js's saved fingerprint.
+                        saveReconciledSource = {
+                            path: workingCopyPath.value,
+                            revision: documentRevisionToken.value,
+                            documentKey: originalPath?.value ?? null,
+                        };
+                        retireRevisionTriggeredShapeImportAfterSave();
+                    }
+                    return markedSaved;
+                } finally {
+                    release();
+                }
+            },
+        };
         const registration = {
             controller: new AbortController(),
             path,
