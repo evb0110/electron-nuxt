@@ -13,6 +13,7 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
+import {shouldClearPreservedAnnotationSourceDirty} from '@app/modules/workspace-shell/annotations/shouldClearPreservedAnnotationSourceDirty';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
@@ -376,12 +377,11 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     function hasPreservedAnnotationSourceChanges() { return preservedAnnotationSourceDirty.value; }
 
     function reconcilePreservedAnnotationSourceDirty() {
-        if (
-            preservedAnnotationSourceDirty.value
-            && !annotationDirty.value
-            && !hasAnnotationChanges()
-            && getSavedPdfJsAnnotationFingerprint() !== null
-        ) {
+        if (shouldClearPreservedAnnotationSourceDirty({
+            isDirty: preservedAnnotationSourceDirty.value,
+            hasSavedPdfJsFingerprint: getSavedPdfJsAnnotationFingerprint() !== null,
+            hasLivePdfJsChanges: hasLivePdfJsAnnotationChanges(),
+        })) {
             preservedAnnotationSourceDirty.value = false;
         }
     }
