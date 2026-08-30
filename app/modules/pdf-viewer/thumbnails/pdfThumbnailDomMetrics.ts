@@ -9,7 +9,9 @@ export function resolvePdfThumbnailRenderWidth(container: HTMLElement) {
     const thumbnail = container.querySelector<HTMLElement>('.pdf-thumbnail');
     const frame = thumbnail?.querySelector<HTMLElement>('[data-document-thumbnail-frame]') ?? null;
     const renderedFrameWidth = frame?.getBoundingClientRect().width ?? 0;
-    if (Number.isFinite(renderedFrameWidth) && renderedFrameWidth > 0) {
+    // A frame narrower than the floor is a row caught mid-animation, not a real
+    // column width; see useDocumentThumbnailController.measureCssWidth.
+    if (Number.isFinite(renderedFrameWidth) && renderedFrameWidth >= THUMBNAIL_WIDTH) {
         return renderedFrameWidth;
     }
     return resolveThumbnailRenderWidthFromStyles({

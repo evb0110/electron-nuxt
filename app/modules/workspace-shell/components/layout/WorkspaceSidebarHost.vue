@@ -10,7 +10,9 @@
             :aria-hidden="showSidebar ? undefined : 'true'"
             :inert="showSidebar ? undefined : true"
         >
-            <slot name="sidebar" />
+            <div class="sidebar-wrapper__content" :style="sidebarContentStyle">
+                <slot name="sidebar" />
+            </div>
             <div
                 v-show="showSidebar"
                 class="sidebar-resizer"
@@ -36,9 +38,11 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 const {
     isResizingSidebar,
     showSidebar,
+    sidebarContentWidth,
     sidebarWrapperStyle = undefined,
 } = defineProps<{
     showSidebar: boolean;
+    sidebarContentWidth: number;
     sidebarWrapperStyle?: CSSProperties | null;
     isResizingSidebar: boolean;
     resizeAriaLabel: string;
@@ -53,6 +57,17 @@ const sidebarPresentationStyle = computed<CSSProperties>(() => ({
     ...(sidebarWrapperStyle ?? {}),
     width: showSidebar ? sidebarWrapperStyle?.width : '0px',
 }));
+/**
+ * The wrapper animates its own width open and closed. The panel inside jumps
+ * straight to its open width so the tab bar, the thumbnail rail and everything
+ * else lay out once instead of reflowing and re-rasterizing on every frame of
+ * the slide. Collapsing back to zero is delayed by the stylesheet until the
+ * closing slide has finished, which keeps hidden panels from measuring as
+ * visible.
+ */
+const sidebarContentStyle = computed<CSSProperties>(() => (
+    {width: showSidebar ? `${String(sidebarContentWidth)}px` : '0px'}
+));
 
 useResizeObserver(workspaceMainRef, (entries) => {
     const width = entries[0]?.contentRect.width;
@@ -151,6 +166,22 @@ watch(
     transition: width var(--app-transition-reorder);
 }
 
+.sidebar-wrapper__content {
+    display: flex;
+    height: 100%;
+    flex: 0 0 auto;
+    overflow: hidden;
+    transition: width 0s;
+}
+
+.sidebar-wrapper.is-closed .sidebar-wrapper__content {
+    transition: width 0s var(--app-transition-reorder-duration);
+}
+
+.sidebar-wrapper.is-resizing .sidebar-wrapper__content {
+    transition: none;
+}
+
 .sidebar-wrapper.is-closed {
     pointer-events: none;
 }
@@ -177,7 +208,8 @@ watch(
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .sidebar-wrapper {
+    .sidebar-wrapper,
+    .sidebar-wrapper.is-closed .sidebar-wrapper__content {
         transition: none;
     }
 }

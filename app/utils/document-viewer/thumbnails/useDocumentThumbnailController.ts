@@ -378,7 +378,10 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
         const item = root.querySelector<HTMLElement>('.document-thumbnail-list__item');
         const frame = item?.querySelector<HTMLElement>('[data-document-thumbnail-frame]') ?? null;
         const renderedFrameWidth = frame?.getBoundingClientRect().width ?? 0;
-        if (Number.isFinite(renderedFrameWidth) && renderedFrameWidth > 0) {
+        // A frame narrower than the floor is a row caught mid-animation, not a
+        // real column width. Adopting it would pin every item height to that
+        // frame and leave the rail squashed once the width settles.
+        if (Number.isFinite(renderedFrameWidth) && renderedFrameWidth >= MIN_CSS_WIDTH) {
             return renderedFrameWidth;
         }
         return resolveThumbnailRenderWidthFromStyles({

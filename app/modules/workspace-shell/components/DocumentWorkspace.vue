@@ -95,6 +95,7 @@
             v-show="surfaceMode === 'reader' || !scanCleanupWorkspaceMounted"
             :show-sidebar="toolbarShowSidebarForDisplay"
             :sidebar-wrapper-style="sidebarWrapperStyle"
+            :sidebar-content-width="sidebarWidth"
             :is-resizing-sidebar="isResizingSidebar"
             :resize-aria-label="t('sidebar.resize')"
             @resize-start="startSidebarResize"

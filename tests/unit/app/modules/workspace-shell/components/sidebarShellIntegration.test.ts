@@ -106,4 +106,20 @@ describe('shared sidebar shell integration', () => {
         expect(shell).not.toMatch(/\.app-sidebar-shell\s*\{[^}]*border-inline-end:/su);
     });
 
+    it('defers the panel collapse until the closing slide has finished', () => {
+        const sidebarHost = readWorkspaceFile(
+            'app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue',
+        );
+        const tokens = readWorkspaceFile('app/assets/css/main.css');
+
+        expect(tokens).toContain('--app-transition-reorder-duration: 0.2s;');
+        expect(tokens).toContain('--app-transition-reorder: var(--app-transition-reorder-duration) ease;');
+        expect(sidebarHost).toMatch(
+            /\.sidebar-wrapper\.is-closed \.sidebar-wrapper__content\s*\{[^}]*transition: width 0s var\(--app-transition-reorder-duration\);/su,
+        );
+        expect(sidebarHost).toMatch(
+            /\.sidebar-wrapper__content\s*\{[^}]*flex: 0 0 auto;/su,
+        );
+    });
+
 });

@@ -11,6 +11,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
 } from 'vitest';
 import { SIDEBAR } from '@app/constants/pdfLayout';
 import WorkspaceSidebarHost from '@app/modules/workspace-shell/components/layout/WorkspaceSidebarHost.vue';
@@ -41,6 +42,7 @@ function mountHost() {
 describe('sidebar open layout stability', () => {
     it('gives the panel its open width on the first frame of the slide', async () => {
         const view = mountHost();
+        onTestFinished(view.dispose);
         await nextTick();
 
         expect(view.wrapper()?.style.width).toBe('0px');
@@ -55,12 +57,11 @@ describe('sidebar open layout stability', () => {
         // relaying out and re-rasterizing on every frame of the animation.
         expect(view.wrapper()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH + SIDEBAR.RESIZER_WIDTH)}px`);
         expect(view.content()?.style.width).toBe(`${String(SIDEBAR.DEFAULT_WIDTH)}px`);
-
-        view.dispose();
     });
 
     it('collapses the panel back to zero so a closed sidebar cannot measure as visible', async () => {
         const view = mountHost();
+        onTestFinished(view.dispose);
         view.showSidebar.value = true;
         await nextTick();
         view.showSidebar.value = false;
@@ -68,7 +69,5 @@ describe('sidebar open layout stability', () => {
 
         expect(view.content()?.style.width).toBe('0px');
         expect(view.wrapper()?.classList.contains('is-closed')).toBe(true);
-
-        view.dispose();
     });
 });
