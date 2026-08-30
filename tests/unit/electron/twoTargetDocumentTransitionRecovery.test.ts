@@ -1,6 +1,7 @@
 import {
     mkdtemp,
     readFile,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -77,5 +78,42 @@ describe('two-target document transition recovery', () => {
         } = await prepare('drt1:test:next');
         await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-original');
+    });
+
+    it.skipIf(process.platform === 'win32')('leaves a real external replacement in place after a crash', async () => {
+        const {
+            workingCopyPath,
+            originalPath,
+        } = await prepare('drt1:test:old');
+        const originalBackupPath = join(root, 'original.backup.pdf');
+        const {
+            capturePathSaveWitness,
+            OriginalPathSaveConflictError,
+        } = await import('@electron/file-access/originalPathSaveWitness');
+        const witness = await capturePathSaveWitness(originalPath);
+        expect(witness).not.toBeNull();
+        const publishedOriginalSnapshot = witness!.getSnapshotForJournal();
+        await witness!.close();
+        await writeFile(`${workingCopyPath}.evb-two-target-transition.json`, JSON.stringify({
+            version: 1,
+            state: 'original-committed',
+            workingCopyPath,
+            originalPath,
+            originalBackupPath,
+            nextRevisionToken: requireDocumentRevisionToken('drt1:test:next'),
+            publishedOriginalSnapshot,
+        }));
+        const externalPath = join(root, 'external-replacement.pdf');
+        await writeFile(externalPath, 'external-after-crash');
+        await rename(externalPath, originalPath);
+
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath))
+            .rejects
+            .toBeInstanceOf(OriginalPathSaveConflictError);
+        await expect(readFile(originalPath, 'utf8')).resolves.toBe('external-after-crash');
+        await expect(readFile(originalBackupPath, 'utf8')).resolves.toBe('old-original');
+        await expect(readFile(`${workingCopyPath}.evb-two-target-transition.json`, 'utf8'))
+            .resolves
+            .toContain('original-committed');
     });
 });
