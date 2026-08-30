@@ -52,7 +52,9 @@ import {
 import type {Page} from 'puppeteer-core';
 
 const MATRIX_TIMEOUT_MS = 15 * 60_000;
-const PLACED_IMAGE_SAVE_TIMEOUT_MS = 60_000;
+// qpdf validates the 722 MB fixture in roughly 25 seconds per pass. Leave
+// enough room for the native append and its post-save validation as well.
+const PLACED_IMAGE_SAVE_TIMEOUT_MS = 120_000;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
 const MODIFIED_AT = 'D:20260830020000Z';
 const MATRIX_PAGE_INDEX = 24;
@@ -342,6 +344,18 @@ async function readObject(documentPath: string, ref: IAnnotationRef) {
     const {stdout} = await execFileAsync('qpdf', [
         `--show-object=${ref.objectNumber},${ref.generationNumber}`,
         '--raw-stream-data',
+        documentPath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 2 * 1024 * 1024,
+        timeout: 30_000,
+    });
+    return stdout;
+}
+
+async function readObjectDictionary(documentPath: string, ref: IAnnotationRef) {
+    const {stdout} = await execFileAsync('qpdf', [
+        `--show-object=${ref.objectNumber},${ref.generationNumber}`,
         documentPath,
     ], {
         encoding: 'utf8',
@@ -860,6 +874,25 @@ async function openPlacedImageContextMenu(page: Page, stableKey: string) {
         timeout: 30_000,
         visible: true,
     });
+    await page.$eval(selector, element => {
+        element.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+    });
+    await page.waitForFunction((markerSelector: string) => {
+        const marker = document.querySelector<HTMLElement>(markerSelector);
+        if (!marker) {
+            return false;
+        }
+        const rect = marker.getBoundingClientRect();
+        return rect.width > 0
+            && rect.height > 0
+            && rect.bottom > 0
+            && rect.top < window.innerHeight
+            && rect.right > 0
+            && rect.left < window.innerWidth;
+    }, {timeout: 30_000}, selector);
     const marker = await page.$(selector);
     if (!marker) {
         throw new Error(`Placed-image marker was not found for ${stableKey}`);
@@ -922,7 +955,7 @@ async function collectPlacedImageGraphRefs(documentPath: string, stampRef: IAnno
         generationNumber: Number(appearanceMatch[2]),
     };
     add(appearanceRef);
-    const appearanceObject = await readObject(documentPath, appearanceRef);
+    const appearanceObject = await readObjectDictionary(documentPath, appearanceRef);
     for (const match of appearanceObject.matchAll(/\/(?:Im\d+|Image)\s+(\d+)\s+(\d+)\s+R/gu)) {
         add({
             objectNumber: Number(match[1]),

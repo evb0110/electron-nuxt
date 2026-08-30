@@ -115,6 +115,52 @@ describe('useAnnotationMarkerViewModel', () => {
         expect(pageMarkers).toHaveLength(0);
     });
 
+    it('renders markers for app-owned placed-image stamps without note text', () => {
+        const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([
+            createComment({
+                id: 'image-1',
+                stableKey: 'nm:placed-image-app-1',
+                annotationId: '42R',
+                annotationName: 'placed-image-app-1',
+                subtype: 'Stamp',
+                source: 'pdf',
+                hasNote: false,
+                markerRect: {
+                    left: 0.2,
+                    top: 0.3,
+                    width: 0.15,
+                    height: 0.1,
+                },
+            }),
+            createComment({
+                id: 'stamp-1',
+                stableKey: 'nm:third-party-stamp-1',
+                annotationId: '43R',
+                annotationName: 'Approved',
+                subtype: 'Stamp',
+                source: 'pdf',
+                hasNote: false,
+                markerRect: {
+                    left: 0.5,
+                    top: 0.3,
+                    width: 0.15,
+                    height: 0.1,
+                },
+            }),
+        ]);
+
+        const { markersByPage } = useAnnotationMarkerViewModel({
+            viewerContainer: ref<HTMLElement | null>(null),
+            annotationCommentsCache,
+            activeCommentStableKey: ref<string | null>(null),
+            labels,
+        });
+
+        const pageMarkers = markersByPage.value.get(1) ?? [];
+        expect(pageMarkers).toHaveLength(1);
+        expect(pageMarkers[0]?.annotation.stableKey).toBe('nm:placed-image-app-1');
+    });
+
     it('recomputes marker placement when the marker geometry version changes', async () => {
         const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([createComment({
             hasNote: true,

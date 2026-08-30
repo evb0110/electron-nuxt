@@ -66,8 +66,14 @@ function pickPrimaryComment(
     return maxBy(comments, comment => comment.modifiedAt ?? 0)!;
 }
 
+function isAppOwnedPlacedImageComment(comment: IAnnotationCommentSummary) {
+    return comment.source === 'pdf'
+        && comment.subtype?.trim().toLowerCase() === 'stamp'
+        && comment.annotationName?.startsWith('placed-image-') === true;
+}
+
 function isMarkerEligibleComment(comment: IAnnotationCommentSummary) {
-    if (comment.hasNote !== true) {
+    if (comment.hasNote !== true && !isAppOwnedPlacedImageComment(comment)) {
         return false;
     }
 
