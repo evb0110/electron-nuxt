@@ -15,7 +15,7 @@
       "const": "./graduation-policy.schema.json"
     },
     "version": {
-      "const": 3
+      "const": 4
     },
     "lane": {
       "type": "object",
@@ -74,10 +74,25 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
+          "assertionReport",
+          "expiresOn",
+          "issue",
           "path",
           "targetProject"
         ],
         "properties": {
+          "assertionReport": {
+            "type": "string",
+            "pattern": "^tests/e2e/electron/quarantine/.+\\.e2e\\.test\\.ts$"
+          },
+          "expiresOn": {
+            "type": "string",
+            "format": "date"
+          },
+          "issue": {
+            "type": "string",
+            "pattern": "^(#\\d+|https://github\\.com/evb0110/evb-viewer/issues/\\d+)$"
+          },
           "path": {
             "type": "string",
             "pattern": "^tests/e2e/electron/quarantine/.+\\.e2e\\.test\\.ts$"

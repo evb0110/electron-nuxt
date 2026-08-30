@@ -17,6 +17,11 @@ repro, deflake, or harness change.
   static architecture policy gate verifies that every quarantine spec is
   accounted for, while operator-only diagnostics are listed separately and do
   not count as graduation evidence.
+- Every graduation entry names its tracking issue, an expiry date, and the
+  JSON reporter suite that must supply its assertions. The wrapper rejects an
+  expired entry, a suite missing from the report, or a reported suite with no
+  live policy entry. Extending an expiry therefore requires a reviewed policy
+  change tied to the issue, rather than an indefinite quarantine.
 - The quarantine project runs through `scripts/ci/runElectronQuarantine.ts`.
   Its JSON report must contain at least one assertion, and every assertion must
   pass. The wrapper fails on failed, pending, skipped, or todo assertions, and

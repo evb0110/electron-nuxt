@@ -7,7 +7,10 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
-import {join} from 'node:path';
+import {
+    join,
+    resolve,
+} from 'node:path';
 import {
     describe,
     expect,
@@ -19,7 +22,10 @@ import {
     resolveExactPdfFixtureExpectation,
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
-import {assertQuarantineReport} from '@scripts/ci/runElectronQuarantine';
+import {
+    assertQuarantinePolicy,
+    assertQuarantineReport,
+} from '@scripts/ci/runElectronQuarantine';
 
 describe('issue 136 CI coverage contracts', () => {
     it('falls back to a bounded stream when Linux clone staging is unsupported', async () => {
@@ -211,6 +217,20 @@ describe('issue 136 CI coverage contracts', () => {
         });
     });
 
+    it('admits every pinned exact identity only through an explicit runner profile', () => {
+        for (const profile of Object.keys(EXACT_PDF_FIXTURE_MANIFEST)) {
+            expect(resolveExactPdfFixtureExpectation({EVB_EXACT_FIXTURE_PROFILE: profile})).toEqual(EXACT_PDF_FIXTURE_MANIFEST[
+                profile as keyof typeof EXACT_PDF_FIXTURE_MANIFEST
+            ]);
+        }
+    });
+
+    it('reports fixture absence as a fail-closed opt-in boundary', () => {
+        expect(() => resolveExactPdfFixtureExpectation({})).toThrow(
+            /exact fixture opt-in boundary.*EVB_EXACT_FIXTURE_PROFILE/iu,
+        );
+    });
+
     it('rejects arbitrary exact-fixture identity overrides', () => {
         expect(() => resolveExactPdfFixtureExpectation({
             EVB_EXACT_FIXTURE_PROFILE: 'auditedZaliznyak882',
@@ -306,5 +326,71 @@ describe('issue 136 CI coverage contracts', () => {
             numPassedTests: 1,
             numFailedTests: 0,
         })).toThrow(/marked the run as failed/u);
+    });
+
+    it('admits only live, issue-owned quarantine entries with concrete assertion suites', () => {
+        const policy = {tests: [{
+            assertionReport: 'tests/e2e/electron/quarantine/example.e2e.test.ts',
+            expiresOn: '2026-09-30',
+            issue: 'https://github.com/evb0110/evb-viewer/issues/136',
+            path: 'tests/e2e/electron/quarantine/example.e2e.test.ts',
+            targetProject: 'e2e-regression',
+        }]};
+        const report = {
+            numFailedTests: 0,
+            numPassedTests: 1,
+            numPendingTests: 0,
+            numTotalTests: 1,
+            testResults: [{
+                assertionResults: [{status: 'passed'}],
+                name: '/workspace/tests/e2e/electron/quarantine/example.e2e.test.ts',
+            }],
+        };
+
+        expect(assertQuarantinePolicy(policy, report, new Date('2026-08-30T00:00:00Z')))
+            .toEqual({
+                declared: 1,
+                reported: 1,
+            });
+        expect(() => assertQuarantinePolicy({tests: [{
+            ...policy.tests[0],
+            issue: '',
+        }]}, report, new Date('2026-08-30T00:00:00Z'))).toThrow(/issue/u);
+        expect(() => assertQuarantinePolicy(policy, report, new Date('2026-10-01T00:00:00Z')))
+            .toThrow(/expired/u);
+        expect(() => assertQuarantinePolicy({tests: [{
+            ...policy.tests[0],
+            expiresOn: '2026-02-31',
+        }]}, report, new Date('2026-01-01T00:00:00Z'))).toThrow(/expiry date/u);
+        expect(() => assertQuarantinePolicy(policy, {
+            ...report,
+            testResults: [
+                report.testResults[0],
+                report.testResults[0],
+            ],
+        }, new Date('2026-08-30T00:00:00Z'))).toThrow(/more than once/u);
+        expect(() => assertQuarantinePolicy(policy, {
+            ...report,
+            testResults: [{
+                assertionResults: [{status: 'passed'}],
+                name: '/workspace/tests/e2e/electron/quarantine/unreferenced.e2e.test.ts',
+            }],
+        }, new Date('2026-08-30T00:00:00Z'))).toThrow(/unreferenced|missing assertion report/iu);
+    });
+
+    it('keeps every checked-in quarantine entry live and linked to its reporter suite', async () => {
+        const policy = JSON.parse(await readFile(
+            'tests/e2e/electron/quarantine/graduation-policy.json',
+            'utf8',
+        )) as {tests: Array<{assertionReport: string;}>};
+        const report = {testResults: policy.tests.map(entry => ({
+            assertionResults: [{status: 'passed'}],
+            name: resolve(entry.assertionReport),
+        }))};
+
+        expect(assertQuarantinePolicy(policy, report)).toEqual({
+            declared: policy.tests.length,
+            reported: policy.tests.length,
+        });
     });
 });

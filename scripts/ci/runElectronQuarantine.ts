@@ -19,6 +19,11 @@ export interface IQuarantineSummary {
     total: number;
 }
 
+export interface IQuarantinePolicySummary {
+    declared: number;
+    reported: number;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
     return Boolean(value) && typeof value === 'object';
 }
@@ -152,14 +157,114 @@ export function assertQuarantineReport(report: unknown): IQuarantineSummary {
     return summary;
 }
 
+function normalizeReportPath(path: string) {
+    return path.replaceAll('\\', '/');
+}
+
+function readQuarantineReportSuiteNames(report: Record<string, unknown>) {
+    const rawSuites = report.testResults;
+    if (!Array.isArray(rawSuites)) {
+        throw new Error('Quarantine report must contain testResults assertions');
+    }
+    return rawSuites.map((rawSuite, suiteIndex) => {
+        if (!isRecord(rawSuite) || typeof rawSuite.name !== 'string' || rawSuite.name.trim() === '') {
+            throw new Error(`Quarantine report suite ${suiteIndex} has no concrete name`);
+        }
+        return normalizeReportPath(rawSuite.name.trim());
+    });
+}
+
+export function assertQuarantinePolicy(
+    policy: unknown,
+    report: unknown,
+    now = new Date(),
+): IQuarantinePolicySummary {
+    if (!isRecord(policy) || !Array.isArray(policy.tests)) {
+        throw new Error('Electron quarantine policy must contain a tests array');
+    }
+    if (!isRecord(report)) {
+        throw new Error('Quarantine JSON reporter output must be an object');
+    }
+    if (Number.isNaN(now.getTime())) {
+        throw new Error('Quarantine policy evaluation date is invalid');
+    }
+    const today = now.toISOString().slice(0, 10);
+    const declaredReports = new Set<string>();
+    for (const [
+        index,
+        rawEntry,
+    ] of policy.tests.entries()) {
+        if (!isRecord(rawEntry)) {
+            throw new Error(`Quarantine policy entry ${index} must be an object`);
+        }
+        const path = typeof rawEntry.path === 'string' ? normalizeReportPath(rawEntry.path.trim()) : '';
+        const issue = typeof rawEntry.issue === 'string' ? rawEntry.issue.trim() : '';
+        const expiresOn = typeof rawEntry.expiresOn === 'string' ? rawEntry.expiresOn.trim() : '';
+        const assertionReport = typeof rawEntry.assertionReport === 'string'
+            ? normalizeReportPath(rawEntry.assertionReport.trim())
+            : '';
+        if (!path.startsWith('tests/e2e/electron/quarantine/') || !path.endsWith('.e2e.test.ts')) {
+            throw new Error(`Quarantine policy entry ${index} has an invalid path`);
+        }
+        if (!/^(?:#\d+|https:\/\/github\.com\/evb0110\/evb-viewer\/issues\/\d+)$/u.test(issue)) {
+            throw new Error(`Quarantine policy entry ${path} must name its GitHub issue`);
+        }
+        const parsedExpiry = new Date(`${expiresOn}T00:00:00.000Z`);
+        if (
+            !/^\d{4}-\d{2}-\d{2}$/u.test(expiresOn)
+            || Number.isNaN(parsedExpiry.getTime())
+            || parsedExpiry.toISOString().slice(0, 10) !== expiresOn
+        ) {
+            throw new Error(`Quarantine policy entry ${path} must name an expiry date`);
+        }
+        if (expiresOn < today) {
+            throw new Error(`Quarantine policy entry ${path} expired on ${expiresOn}`);
+        }
+        if (assertionReport !== path) {
+            throw new Error(
+                `Quarantine policy entry ${path} must name its concrete assertion report suite`,
+            );
+        }
+        if (declaredReports.has(assertionReport)) {
+            throw new Error(`Quarantine assertion report is declared more than once: ${assertionReport}`);
+        }
+        declaredReports.add(assertionReport);
+    }
+
+    const reportedSuites = readQuarantineReportSuiteNames(report);
+    const matchedReports = new Set<string>();
+    for (const suiteName of reportedSuites) {
+        const matches = [...declaredReports].filter(declared => (
+            suiteName === declared || suiteName.endsWith(`/${declared}`)
+        ));
+        if (matches.length !== 1) {
+            throw new Error(`Quarantine report suite is unreferenced by live policy: ${suiteName}`);
+        }
+        if (matchedReports.has(matches[0]!)) {
+            throw new Error(`Quarantine assertion report suite appeared more than once: ${suiteName}`);
+        }
+        matchedReports.add(matches[0]!);
+    }
+    const missing = [...declaredReports].filter(declared => !matchedReports.has(declared));
+    if (missing.length > 0) {
+        throw new Error(`Quarantine policy entry has no concrete assertion report: ${missing.join(', ')}`);
+    }
+    return {
+        declared: declaredReports.size,
+        reported: reportedSuites.length,
+    };
+}
+
 type TSpawn = typeof spawn;
 
 export async function runElectronQuarantine({
     cwd = process.cwd(),
+    policyPath = 'tests/e2e/electron/quarantine/graduation-policy.json',
     runner = 'scripts/test-electron-e2e-headless.sh',
     spawnImpl = spawn,
 }: {
     cwd?: string;
+    policyPath?: string;
     runner?: string;
     spawnImpl?: TSpawn;
 } = {}) {
@@ -194,7 +299,12 @@ export async function runElectronQuarantine({
         }
         const report = JSON.parse(await readFile(reportPath, 'utf8')) as unknown;
         const summary = assertQuarantineReport(report);
-        process.stdout.write(`Electron quarantine passed: ${JSON.stringify(summary)}\n`);
+        const policy = JSON.parse(await readFile(resolve(cwd, policyPath), 'utf8')) as unknown;
+        const policySummary = assertQuarantinePolicy(policy, report);
+        process.stdout.write(`Electron quarantine passed: ${JSON.stringify({
+            policy: policySummary,
+            tests: summary,
+        })}\n`);
         return summary;
     } finally {
         await rm(reportRoot, {

@@ -1,6 +1,6 @@
 {
   "$schema": "./graduation-policy.schema.json",
-  "version": 3,
+  "version": 4,
   "lane": {
     "events": [
       "workflow_dispatch"
@@ -26,26 +26,44 @@
   ],
   "tests": [
     {
+      "assertionReport": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantAuthFallback.e2e.test.ts",
       "targetProject": "e2e-regression"
     },
     {
+      "assertionReport": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantBookmarksPersistence.e2e.test.ts",
       "targetProject": "e2e-regression"
     },
     {
+      "assertionReport": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/assistantCompletionFinalization.e2e.test.ts",
       "targetProject": "e2e-regression"
     },
     {
+      "assertionReport": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/ocrJourney.e2e.test.ts",
       "targetProject": "e2e-regression"
     },
     {
+      "assertionReport": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/scanCleanupJourney.e2e.test.ts",
       "targetProject": "e2e-regression"
     },
     {
+      "assertionReport": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
+      "expiresOn": "2026-09-30",
+      "issue": "https://github.com/evb0110/evb-viewer/issues/136",
       "path": "tests/e2e/electron/quarantine/scanCleanupLayoutStability.e2e.test.ts",
       "targetProject": "e2e-regression"
     }

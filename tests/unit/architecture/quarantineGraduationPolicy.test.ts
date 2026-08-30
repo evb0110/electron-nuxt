@@ -15,6 +15,9 @@ import {
 } from 'vitest';
 
 interface IQuarantineTestMetadata {
+    assertionReport: string;
+    expiresOn: string;
+    issue: string;
     path: string;
     targetProject: 'e2e-blocking-smoke' | 'e2e-regression';
 }
@@ -67,6 +70,9 @@ function quarantineTestPaths() {
 function parseTestMetadata(value: unknown, index: number): IQuarantineTestMetadata {
     if (
         !isRecord(value)
+        || typeof value.assertionReport !== 'string'
+        || typeof value.expiresOn !== 'string'
+        || typeof value.issue !== 'string'
         || typeof value.path !== 'string'
         || (value.targetProject !== 'e2e-regression' && value.targetProject !== 'e2e-blocking-smoke')
     ) {
@@ -74,6 +80,9 @@ function parseTestMetadata(value: unknown, index: number): IQuarantineTestMetada
     }
 
     return {
+        assertionReport: value.assertionReport,
+        expiresOn: value.expiresOn,
+        issue: value.issue,
         path: value.path,
         targetProject: value.targetProject,
     };
@@ -99,7 +108,7 @@ function parseGraduationPolicy(): IQuarantineGraduationPolicy {
     const value = readJsonRecord(graduationPolicyPath);
     if (
         value.$schema !== './graduation-policy.schema.json'
-        || value.version !== 3
+        || value.version !== 4
         || !isRecord(value.lane)
         || !Array.isArray(value.lane.events)
         || !value.lane.events.every(event => typeof event === 'string')
@@ -161,6 +170,10 @@ describe('Electron E2E quarantine graduation policy', () => {
         expect(new Set(diagnosticPaths).size).toBe(diagnosticPaths.length);
         expect(new Set(declaredPaths).size).toBe(declaredPaths.length);
         expect(declaredPaths).toEqual(actualTestPaths);
+        expect(policy.tests.every(test => test.assertionReport === test.path)).toBe(true);
+        expect(policy.tests.every(test => /^https:\/\/github\.com\/evb0110\/evb-viewer\/issues\/\d+$/u.test(test.issue)))
+            .toBe(true);
+        expect(policy.tests.every(test => /^\d{4}-\d{2}-\d{2}$/u.test(test.expiresOn))).toBe(true);
         expect(diagnosticPaths).toEqual([
             'tests/e2e/electron/quarantine/scanCleanupAppTruthProbe.e2e.test.ts',
             'tests/e2e/electron/quarantine/scanCleanupMatchedCanvas.e2e.test.ts',
@@ -189,6 +202,9 @@ describe('Electron E2E quarantine graduation policy', () => {
             throw new Error('Quarantine graduation schema must define test metadata.');
         }
         expect(items.required).toEqual([
+            'assertionReport',
+            'expiresOn',
+            'issue',
             'path',
             'targetProject',
         ]);

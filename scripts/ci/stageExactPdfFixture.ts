@@ -110,6 +110,8 @@ export const EXACT_PDF_FIXTURE_MANIFEST = Object.freeze({
 
 export const EXACT_FIXTURE_MANIFEST = EXACT_PDF_FIXTURE_MANIFEST;
 
+export const EXACT_FIXTURE_OPT_IN_REQUIRED = 'EXACT_FIXTURE_OPT_IN_REQUIRED';
+
 const DEFAULT_MAX_BYTES = 2_500_000_000;
 const DEFAULT_TIMEOUT_MS = 15 * 60_000;
 const CLONE_UNSUPPORTED_CODES = new Set([
@@ -517,9 +519,14 @@ export function resolveExactPdfFixtureExpectation(
     env: NodeJS.ProcessEnv = process.env,
 ): IExactPdfFixtureExpectation {
     const configuredProfile = env.EVB_EXACT_FIXTURE_PROFILE?.trim();
-    const profileName = configuredProfile === undefined || configuredProfile === ''
-        ? 'localZaliznyak882'
-        : configuredProfile;
+    if (configuredProfile === undefined || configuredProfile === '') {
+        throw Object.assign(new Error(
+            'Exact fixture opt-in boundary: a runner must set EVB_EXACT_FIXTURE_PROFILE '
+            + `to one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}; `
+            + 'fixture absence cannot produce a green exact-fixture lane',
+        ), {code: EXACT_FIXTURE_OPT_IN_REQUIRED});
+    }
+    const profileName = configuredProfile;
     const profile = EXACT_PDF_FIXTURE_MANIFEST[profileName as keyof typeof EXACT_PDF_FIXTURE_MANIFEST];
     if (!profile) {
         throw new Error(

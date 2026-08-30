@@ -317,6 +317,27 @@ describe('validation gate policy', () => {
         expect(related?.args).toContain('unit-electron');
     });
 
+    it('routes exact-fixture and quarantine admission policy through blocking policy tests', () => {
+        const files = [
+            'scripts/ci/stageExactPdfFixture.ts',
+            'scripts/ci/runElectronQuarantine.ts',
+        ];
+        const classification = validationGates.classifyValidationImpacts(files);
+        const plan = validationGates.getValidationPlan({
+            changes: {
+                files,
+                known: true,
+                reason: 'explicit-files',
+            },
+            classification,
+            tier: 'acceptance',
+        });
+        const policyStage = plan.find(stage => stage.id === 'test.unit.full');
+
+        expect(classification.impacts.policy).toBe(true);
+        expect(policyStage?.args).toContain('test:unit');
+    });
+
     it('keeps informational and exhaustive reports in the nightly tier', () => {
         const plan = validationGates.getValidationPlan({
             changes: {
