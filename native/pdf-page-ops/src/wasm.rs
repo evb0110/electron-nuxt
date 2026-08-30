@@ -6,10 +6,10 @@ use std::{cell::RefCell, slice};
 
 use crate::{
     crop_browser_pdf_bytes, delete_browser_pdf_pages, extract_browser_pdf_pages,
-    get_browser_page_geometry_from_bytes, insert_browser_pdf_pages, remove_crop_browser_pdf_bytes,
-    reorder_browser_pdf_pages, rotate_browser_pdf_bytes, CropMargins, PageGeometry,
-    PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
-    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    get_browser_page_geometry_from_bytes, insert_browser_pdf_pages, load_browser_pdf,
+    remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages, rotate_browser_pdf_bytes,
+    serialize_annotation_parse, CropMargins, PageGeometry, PageMutationBytes, PdfRect, Result,
+    PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
@@ -23,9 +23,14 @@ const OP_ROTATE: u32 = 5;
 const OP_CROP: u32 = 6;
 const OP_REMOVE_CROP: u32 = 7;
 const OP_GET_PAGE_GEOMETRY: u32 = 8;
+// Keep this above the decrypt operation reserved by ticket #171. The request
+// frame stays version 1 because parsing needs no additional fields.
+const OP_PARSE_ANNOTATIONS: u32 = 10;
 
 const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
+const RESPONSE_ANNOTATION_PARSE: u32 = 3;
+const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = 8;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
 
 thread_local! {
@@ -172,6 +177,15 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             parsed.data,
             parsed.page_number,
         )?),
+        OP_PARSE_ANNOTATIONS => {
+            let document = load_browser_pdf(parsed.data)?;
+            let bytes = serialize_annotation_parse(
+                &document,
+                "D:19700101000000Z",
+                PAGE_OP_WASM_MAX_OUTPUT_BYTES - ANNOTATION_PARSE_RESPONSE_HEADER_BYTES,
+            )?;
+            encode_annotation_parse(bytes)
+        }
         _ => Err(format!(
             "Unsupported browser page-op WASM operation {}",
             parsed.operation
@@ -319,6 +333,21 @@ fn encode_geometry(geometry: PageGeometry) -> Result<Vec<u8>> {
     Ok(output)
 }
 
+fn encode_annotation_parse(bytes: Vec<u8>) -> Result<Vec<u8>> {
+    let data_len = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
+    let framed_len = ANNOTATION_PARSE_RESPONSE_HEADER_BYTES
+        .checked_add(bytes.len())
+        .ok_or_else(page_op_output_limit)?;
+    if framed_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+        return Err(page_op_output_limit());
+    }
+    let mut output = Vec::with_capacity(framed_len);
+    write_u32_le(&mut output, RESPONSE_ANNOTATION_PARSE);
+    write_u32_le(&mut output, data_len);
+    output.extend_from_slice(&bytes);
+    Ok(output)
+}
+
 fn write_rect(output: &mut Vec<u8>, rect: PdfRect) {
     write_f64_le(output, rect.x1);
     write_f64_le(output, rect.y1);
@@ -365,6 +394,7 @@ fn write_f64_le(output: &mut Vec<u8>, value: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{ANNOTATION_PARSE_FORMAT, ANNOTATION_PARSE_SCHEMA_VERSION};
     use lopdf::{dictionary, Document, Object};
 
     fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
@@ -419,6 +449,13 @@ mod tests {
         write_u32_le(&mut request, data.len() as u32);
         write_u32_le(&mut request, 0);
         write_u32_le(&mut request, 1);
+        request.extend_from_slice(data);
+        request
+    }
+
+    fn annotation_parse_request(data: &[u8]) -> Vec<u8> {
+        let mut request = request_header(0, data.len() as u32, 0);
+        request[8..12].copy_from_slice(&OP_PARSE_ANNOTATIONS.to_le_bytes());
         request.extend_from_slice(data);
         request
     }
@@ -548,5 +585,18 @@ mod tests {
             .expect_err("WASM crop must reject non-finite margins through shared validation");
 
         assert!(error.to_string().contains("Invalid top crop margin"));
+    }
+
+    #[test]
+    fn wasm_annotation_parse_dispatch_returns_the_jsonl_envelope() {
+        let output = run_request(&annotation_parse_request(&test_pdf_bytes())).unwrap();
+        assert_eq!(&output[..4], &RESPONSE_ANNOTATION_PARSE.to_le_bytes());
+        let data_len = u32::from_le_bytes(output[4..8].try_into().unwrap()) as usize;
+        assert_eq!(data_len, output.len() - 8);
+        let payload = String::from_utf8(output[8..].to_vec()).unwrap();
+        let header = payload.lines().next().unwrap();
+        let header = serde_json::from_str::<serde_json::Value>(header).unwrap();
+        assert_eq!(header["format"], ANNOTATION_PARSE_FORMAT);
+        assert_eq!(header["schemaVersion"], ANNOTATION_PARSE_SCHEMA_VERSION);
     }
 }

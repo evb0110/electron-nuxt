@@ -763,10 +763,7 @@ fn set_free_text_editor_fields(
     );
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
     if editor.annotation_id.is_none() {
-        dict.set(
-            "NM",
-            Object::String(encode_pdf_text_string(name), StringFormat::Hexadecimal),
-        );
+        write_annotation_name(dict, name);
     }
     dict.set(
         "Border",

@@ -72,6 +72,14 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
+        Operation::ParseAnnotations { modified_at } => {
+            return write_annotation_parse_path(
+                &config.input_path,
+                &config.output_path,
+                modified_at,
+                config.qpdf_path.as_deref(),
+            )
+        }
         Operation::PageSizes => {
             return write_page_sizes_path(
                 &config.input_path,

@@ -1,4 +1,5 @@
 use super::*;
+use serde::Serialize;
 
 fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
 where
@@ -709,6 +710,9 @@ pub(crate) enum Operation {
         append_in_place: bool,
         identity_bindings_file: Option<PathBuf>,
     },
+    ParseAnnotations {
+        modified_at: String,
+    },
     AnnotationNameIndex,
     EmbeddedShapeIndex,
     PdfConformance,
@@ -863,7 +867,7 @@ pub(crate) struct NoteGeometryUpdate {
     pub(crate) marker_rect: MarkerRect,
 }
 
-#[derive(Clone, Copy, Deserialize)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct MarkerRect {
     pub(crate) left: f64,

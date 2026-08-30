@@ -94,6 +94,15 @@ import {
     releasePdfAnnotationIndexArgs,
 } from '@contracts/pdfAnnotationIndexSchemas';
 import {
+    beginPdfAnnotationParseArgs,
+    cancelPdfAnnotationParseArgs,
+    pdfAnnotationParseCancelResult,
+    pdfAnnotationParseChunkResult,
+    pdfAnnotationParseSessionResult,
+    readPdfAnnotationParseChunkArgs,
+    releasePdfAnnotationParseArgs,
+} from '@contracts/pdfAnnotationParseSchemas';
+import {
     beginPdfEmbeddedShapeIndexArgs,
     cancelPdfEmbeddedShapeIndexArgs,
     pdfEmbeddedShapeIndexCancelResult,
@@ -484,6 +493,39 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
             ...defineIpcMethod(
                 'cancelPdfAnnotationIndex', 'pdf:annotationIndex:cancel', cancelPdfAnnotationIndexArgs,
                 pdfAnnotationIndexCancelResult, 'cancelPdfAnnotationIndex', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        beginPdfAnnotationParse: {
+            ...defineIpcMethod(
+                'beginPdfAnnotationParse', 'pdf:annotationParse:begin', beginPdfAnnotationParseArgs,
+                pdfAnnotationParseSessionResult, 'beginPdfAnnotationParse', 'sender',
+            ),
+            ipc: {
+                args: beginPdfAnnotationParseArgs,
+                result: pdfAnnotationParseSessionResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+            ...electronImplementedOptional,
+        },
+        readPdfAnnotationParseChunk: {
+            ...defineIpcMethod(
+                'readPdfAnnotationParseChunk', 'pdf:annotationParse:readChunk', readPdfAnnotationParseChunkArgs,
+                pdfAnnotationParseChunkResult, 'readPdfAnnotationParseChunk', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        releasePdfAnnotationParse: {
+            ...defineIpcMethod(
+                'releasePdfAnnotationParse', 'pdf:annotationParse:release', releasePdfAnnotationParseArgs,
+                booleanResult, 'releasePdfAnnotationParse', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
+        cancelPdfAnnotationParse: {
+            ...defineIpcMethod(
+                'cancelPdfAnnotationParse', 'pdf:annotationParse:cancel', cancelPdfAnnotationParseArgs,
+                pdfAnnotationParseCancelResult, 'cancelPdfAnnotationParse', 'sender',
             ),
             ...electronImplementedOptional,
         },

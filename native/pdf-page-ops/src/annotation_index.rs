@@ -101,7 +101,7 @@ pub(crate) fn write_annotation_name_index_path(
     write_annotation_name_index(&AppendedRevision::new(&incremental), output_path)
 }
 
-fn annotation_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
+pub(crate) fn annotation_index_paths_alias(input_path: &Path, output_path: &Path) -> Result<bool> {
     if input_path == output_path {
         return Ok(true);
     }

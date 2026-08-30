@@ -47,6 +47,7 @@ import type {
 } from '@contracts/electronApiCommon';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
+import type * as PdfAnnotationParse from '@contracts/pdfAnnotationParseTypes';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 
@@ -101,6 +102,11 @@ export interface IPdfAnnotationIndexChunk {
     done: boolean;
     entries: IPdfAnnotationIndexEntry[];
 }
+
+export {
+    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
+} from '@contracts/pdfAnnotationParseTypes';
+export type * from '@contracts/pdfAnnotationParseTypes';
 
 /** A normalized point returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexPoint {
@@ -893,6 +899,10 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfAnnotationIndexChunk>;
     releasePdfAnnotationIndex?: (sessionId: string) => Promise<boolean>;
     cancelPdfAnnotationIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    beginPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseBegin;
+    readPdfAnnotationParseChunk?: PdfAnnotationParse.TPdfAnnotationParseReadChunk;
+    releasePdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseRelease;
+    cancelPdfAnnotationParse?: PdfAnnotationParse.TPdfAnnotationParseCancel;
     beginPdfEmbeddedShapeIndex?: (
         path: TDocumentRef,
         options: IPdfEmbeddedShapeIndexOptions,
@@ -1111,6 +1121,10 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readPdfAnnotationIndexChunk'
     | 'releasePdfAnnotationIndex'
     | 'cancelPdfAnnotationIndex'
+    | 'beginPdfAnnotationParse'
+    | 'readPdfAnnotationParseChunk'
+    | 'releasePdfAnnotationParse'
+    | 'cancelPdfAnnotationParse'
     | 'beginPdfEmbeddedShapeIndex'
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'

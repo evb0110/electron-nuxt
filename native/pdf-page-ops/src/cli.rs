@@ -172,6 +172,9 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             append_in_place,
             identity_bindings_file,
         },
+        "parse-annotations" => Operation::ParseAnnotations {
+            modified_at: modified_at.ok_or("Missing --modified-at value")?,
+        },
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
         "pdf-conformance" | "conformance" => Operation::PdfConformance,
@@ -298,5 +301,49 @@ mod tests {
         .to_string();
 
         assert!(error.contains("requires --append"));
+    }
+
+    #[test]
+    fn parses_annotation_parse_request_with_modified_at() {
+        let config = parse_args(
+            [
+                "parse-annotations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "annotations.jsonl",
+                "--modified-at",
+                "D:20260830130000Z",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::ParseAnnotations { ref modified_at }
+                if modified_at == "D:20260830130000Z"
+        ));
+    }
+
+    #[test]
+    fn annotation_parse_requires_modified_at() {
+        let error = parse_args(
+            [
+                "parse-annotations",
+                "--input",
+                "input.pdf",
+                "--output",
+                "annotations.jsonl",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("annotation parse should require its deterministic identity timestamp")
+        .to_string();
+
+        assert!(error.contains("Missing --modified-at value"));
     }
 }

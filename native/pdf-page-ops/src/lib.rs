@@ -20,7 +20,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+mod annotation_identity;
 mod annotation_index;
+mod annotation_parse;
 mod annotations;
 mod catalog;
 mod cli;
@@ -61,7 +63,9 @@ fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -
     })
 }
 
+pub(crate) use annotation_identity::*;
 pub(crate) use annotation_index::*;
+pub(crate) use annotation_parse::*;
 pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;

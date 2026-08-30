@@ -1,0 +1,58 @@
+{
+  "format": "evb-pdf-annotation-parse",
+  "schemaVersion": 1,
+  "pageCount": 1,
+  "chunkBytes": 524288,
+  "chunkIndex": 0,
+  "entries": [
+    {
+      "kind": "text-box",
+      "pageIndex": 0,
+      "objectNumber": 17,
+      "generationNumber": 0,
+      "name": "text-box-fixture",
+      "author": "Fixture Author",
+      "createdAt": 1788091200000,
+      "modifiedAt": 1788091260000,
+      "text": "Fixture text box",
+      "rect": {
+        "left": 0.1,
+        "top": 0.2,
+        "width": 0.3,
+        "height": 0.4
+      },
+      "rotation": 90,
+      "fontSize": 12,
+      "color": "#336699"
+    },
+    {
+      "kind": "note",
+      "pageIndex": 0,
+      "objectNumber": 18,
+      "generationNumber": 0,
+      "name": "note-fixture",
+      "author": null,
+      "createdAt": null,
+      "modifiedAt": null,
+      "position": {
+        "left": 0.4,
+        "top": 0.1,
+        "width": 0.1,
+        "height": 0.1
+      },
+      "contents": "Fixture note",
+      "color": "#ff0000",
+      "open": true,
+      "replies": []
+    },
+    {
+      "kind": "foreign",
+      "pageIndex": 0,
+      "objectNumber": 19,
+      "generationNumber": 0,
+      "name": "foreign-fixture",
+      "subtype": "Link",
+      "reason": "Unsupported annotation subtype /Link"
+    }
+  ]
+}

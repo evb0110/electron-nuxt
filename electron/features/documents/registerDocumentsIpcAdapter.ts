@@ -411,6 +411,21 @@ export function registerDocumentsIpcAdapter(
             service.releasePdfAnnotationIndex(context, sessionId),
         cancelPdfAnnotationIndex: (context, sessionId) =>
             service.cancelPdfAnnotationIndex(context, sessionId),
+        // The parser's native CLI and WASM entry are part of #172. The
+        // session host is deliberately deferred to #184, which will replace
+        // these guards with the bounded sidecar implementation.
+        beginPdfAnnotationParse: () => {
+            throw new Error('PDF annotation parse is not available through the Electron host yet');
+        },
+        readPdfAnnotationParseChunk: () => {
+            throw new Error('PDF annotation parse is not available through the Electron host yet');
+        },
+        releasePdfAnnotationParse: () => {
+            throw new Error('PDF annotation parse is not available through the Electron host yet');
+        },
+        cancelPdfAnnotationParse: () => {
+            throw new Error('PDF annotation parse is not available through the Electron host yet');
+        },
         beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
             service.beginPdfEmbeddedShapeIndex(context, filePath, options),
         readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>

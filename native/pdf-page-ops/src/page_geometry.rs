@@ -332,6 +332,66 @@ pub(crate) fn marker_rect_to_pdf_rect(
     ]))
 }
 
+/// Convert a PDF-space annotation rectangle back into the normalized marker
+/// coordinates used by the renderer and mutation protocol. Keep this beside
+/// `marker_rect_to_pdf_rect` so parse and write cannot quietly choose different
+/// rotation conventions.
+pub(crate) fn pdf_rect_to_marker_rect(
+    rect: PdfRect,
+    page_view: PdfRect,
+    page_rotation: i64,
+) -> Result<MarkerRect> {
+    if !rect.x1.is_finite()
+        || !rect.y1.is_finite()
+        || !rect.x2.is_finite()
+        || !rect.y2.is_finite()
+        || rect.width() <= 0.0
+        || rect.height() <= 0.0
+        || !page_view.width().is_finite()
+        || !page_view.height().is_finite()
+        || page_view.width() <= 0.0
+        || page_view.height() <= 0.0
+    {
+        return Err("Invalid PDF rectangle or page view".into());
+    }
+
+    let (left, top, width, height) = match normalize_page_rotation(page_rotation) {
+        90 => (
+            (rect.y1 - page_view.y1) / page_view.height(),
+            (rect.x1 - page_view.x1) / page_view.width(),
+            rect.height() / page_view.height(),
+            rect.width() / page_view.width(),
+        ),
+        180 => (
+            1.0 - (rect.x2 - page_view.x1) / page_view.width(),
+            (rect.y1 - page_view.y1) / page_view.height(),
+            rect.width() / page_view.width(),
+            rect.height() / page_view.height(),
+        ),
+        270 => (
+            1.0 - (rect.y2 - page_view.y1) / page_view.height(),
+            1.0 - (rect.x2 - page_view.x1) / page_view.width(),
+            rect.height() / page_view.height(),
+            rect.width() / page_view.width(),
+        ),
+        _ => (
+            (rect.x1 - page_view.x1) / page_view.width(),
+            1.0 - (rect.y2 - page_view.y1) / page_view.height(),
+            rect.width() / page_view.width(),
+            rect.height() / page_view.height(),
+        ),
+    };
+
+    let marker_rect = MarkerRect {
+        left,
+        top,
+        width,
+        height,
+    };
+    validate_marker_rect(marker_rect)?;
+    Ok(marker_rect)
+}
+
 pub(crate) fn crop_pages_incremental(
     incremental: &mut IncrementalDocument,
     pages: &[u32],

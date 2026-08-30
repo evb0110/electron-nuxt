@@ -6,6 +6,8 @@ import {
     it,
 } from 'vitest';
 import {normalizePdfNativeMutationSet} from '@pdf-core';
+import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
+import {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
 
 describe('native interop golden protocol fixtures', () => {
     it('keeps the TS mutation validator aligned with the Rust sidecar fixture', async () => {
@@ -47,5 +49,44 @@ describe('native interop golden protocol fixtures', () => {
             mimeType: 'image/jpeg',
             pageIndex: 0,
         });
+    });
+
+    it('keeps the TS parse guards aligned with the Rust sidecar fixture', async () => {
+        const fixturePath = resolve(process.cwd(), 'native/protocol-fixtures/pdf-page-ops-parse-annotations.json');
+        const source = await readFile(fixturePath, 'utf8');
+        const fixture = decodePdfAnnotationParseProtocolFixture(JSON.parse(source) as unknown);
+
+        expect(fixture.format).toBe('evb-pdf-annotation-parse');
+        expect(fixture.schemaVersion).toBe(1);
+        expect(fixture.chunkBytes).toBeLessThanOrEqual(PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES);
+        expect(fixture.entries.map(entry => entry.kind)).toEqual([
+            'text-box',
+            'note',
+            'foreign',
+        ]);
+        expect(fixture.entries[0]).toMatchObject({
+            kind: 'text-box',
+            text: 'Fixture text box',
+            createdAt: 1788091200000,
+            modifiedAt: 1788091260000,
+            color: '#336699',
+        });
+        expect(fixture.entries[1]).toMatchObject({
+            kind: 'note',
+            contents: 'Fixture note',
+            color: '#ff0000',
+        });
+        expect(fixture.entries[2]).toMatchObject({
+            kind: 'foreign',
+            subtype: 'Link',
+        });
+
+        const withUnknownField = JSON.parse(source) as Record<string, unknown>;
+        withUnknownField.unexpected = true;
+        expect(() => decodePdfAnnotationParseProtocolFixture(withUnknownField)).toThrow(/unsupported field/iu);
+
+        const oversizedChunk = JSON.parse(source) as Record<string, unknown>;
+        oversizedChunk.chunkBytes = PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES + 1;
+        expect(() => decodePdfAnnotationParseProtocolFixture(oversizedChunk)).toThrow(/chunkBytes/iu);
     });
 });

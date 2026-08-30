@@ -826,7 +826,7 @@ fn read_shape_color(
     read_shape_number_array(document, dict, key)
 }
 
-fn pdf_color_to_hex(color: Option<&[f64]>, fallback: &str) -> String {
+pub(crate) fn pdf_color_to_hex(color: Option<&[f64]>, fallback: &str) -> String {
     let Some(color) = color else {
         return fallback.to_string();
     };
@@ -962,7 +962,7 @@ fn read_shape_dates(dict: &Dictionary) -> (Option<i64>, Option<i64>) {
     (created.or(modified), modified)
 }
 
-fn parse_pdf_date_timestamp(value: &str) -> Option<i64> {
+pub(crate) fn parse_pdf_date_timestamp(value: &str) -> Option<i64> {
     let normalized = value.trim();
     let body = normalized
         .strip_prefix('D')?

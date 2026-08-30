@@ -76,6 +76,8 @@ export {
 export type { IElectronAPI } from '@contracts/electronApi';
 export {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
+    PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
+    PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
 } from '@contracts/electronApiDocuments';
@@ -86,6 +88,20 @@ export type {
     IPdfAnnotationIndexObjectRef,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
+    IPdfAnnotationForeignEntry,
+    IPdfAnnotationHighlightEntry,
+    IPdfAnnotationNoteEntry,
+    IPdfAnnotationNoteReply,
+    IPdfAnnotationParseChunk,
+    IPdfAnnotationParseChunkOptions,
+    IPdfAnnotationParseEntry,
+    IPdfAnnotationParsePoint,
+    IPdfAnnotationParseOptions,
+    IPdfAnnotationParseSession,
+    IPdfAnnotationShapeEntry,
+    IPdfAnnotationStampEntry,
+    IPdfAnnotationStampImageReference,
+    IPdfAnnotationTextBoxEntry,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexEntry,
@@ -93,6 +109,8 @@ export type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
+export {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+export type {IPdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
 
 export {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
