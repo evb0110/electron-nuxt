@@ -850,6 +850,15 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
     let hints_by_ref = index_markup_hints_by_ref(page_hints);
 
     for candidate in candidates {
+        // Deletes run before markup replay in the same incremental revision.
+        // Keep a live editor hint available to create a fresh annotation when
+        // its previous-revision candidate has already become a tombstone.
+        if matches!(
+            incremental.new_document.get_object(candidate.object_id),
+            Ok(Object::Null)
+        ) {
+            continue;
+        }
         if let Some(hint_index) = find_named_markup_hint_for_candidate(
             &AppendedRevision::new(incremental),
             candidate,

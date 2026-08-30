@@ -91,7 +91,6 @@ export function isNativeShapeEligible(shape: IShapeAnnotation, totalPageCount: n
 
 export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShapeAnnotation {
     const nativeShape: IPdfNativeShapeAnnotation = {
-        id: shape.id,
         type: shape.type,
         pageIndex: requirePageIndex(shape.pageIndex),
         x: shape.x,
@@ -125,6 +124,26 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
     return nativeShape;
 }
 
+function omitRetiredPdfRefForShape(
+    shape: IShapeAnnotation,
+    deletedAnnotationIds: Set<string>,
+    deletedStableKeys: Set<string>,
+) {
+    const annotationId = normalizePdfJsAnnotationId(shape.annotationId);
+    const targetsRetiredShape = [
+        annotationId ? deletedAnnotationIds.has(annotationId) : false,
+        shape.stableKey ? deletedStableKeys.has(shape.stableKey) : false,
+    ].some(Boolean);
+    if (!targetsRetiredShape) {
+        return shape;
+    }
+    return {
+        ...shape,
+        annotationId: null,
+        stableKey: null,
+    };
+}
+
 export function buildNativeShapesMutationForSave(opts: {
     shapeStateDirty: boolean;
     rewriteShapeState: boolean;
@@ -143,10 +162,22 @@ export function buildNativeShapesMutationForSave(opts: {
         return null;
     }
 
+    const deletedAnnotationIds = new Set(
+        opts.deletedAnnotationIds.flatMap((annotationId) => {
+            const normalized = normalizePdfJsAnnotationId(annotationId);
+            return normalized ? [normalized] : [];
+        }),
+    );
+    const deletedStableKeys = new Set(opts.deletedStableKeys);
+
     return {
         totalPages: opts.totalPageCount,
         rewriteShapeState: opts.rewriteShapeState,
-        shapes: opts.shapes.map(toNativeShapeAnnotation),
+        shapes: opts.shapes.map(shape => toNativeShapeAnnotation(omitRetiredPdfRefForShape(
+            shape,
+            deletedAnnotationIds,
+            deletedStableKeys,
+        ))),
         deletedAnnotationIds: opts.deletedAnnotationIds,
         deletedStableKeys: opts.deletedStableKeys,
     };

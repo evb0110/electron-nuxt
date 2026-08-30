@@ -223,12 +223,12 @@ describe('native shape builders', () => {
         const nativeShape = toNativeShapeAnnotation(shape);
 
         expect(nativeShape).toEqual(expect.objectContaining({
-            id: 'shape-1',
             type: 'polyline',
             annotationId: '22R',
             stableKey: 'ann:0:22R0',
             pdfSubtype: 'PolyLine',
         }));
+        expect(nativeShape).not.toHaveProperty('id');
         expect(nativeShape.points).toEqual(shape.points);
         expect(nativeShape.points).not.toBe(shape.points);
     });
@@ -250,6 +250,40 @@ describe('native shape builders', () => {
         });
 
         expect(mutation).toBeNull();
+    });
+
+    it('remaps a redrawn Ink shape whose persisted ref was retired by an earlier delete', () => {
+        const mutation = buildNativeShapesMutationForSave({
+            shapeStateDirty: true,
+            rewriteShapeState: true,
+            totalPageCount: 1,
+            shapes: [createShape({
+                type: 'polyline',
+                pdfSubtype: 'Ink',
+                points: [
+                    {
+                        x: 0.1,
+                        y: 0.2,
+                    },
+                    {
+                        x: 0.3,
+                        y: 0.4,
+                    },
+                ],
+            })],
+            deletedAnnotationIds: ['22R0'],
+            deletedStableKeys: ['ann:0:22R0'],
+        });
+
+        expect(mutation).toMatchObject({
+            deletedAnnotationIds: ['22R0'],
+            deletedStableKeys: ['ann:0:22R0'],
+            shapes: [expect.objectContaining({
+                annotationId: null,
+                stableKey: null,
+                pdfSubtype: 'Ink',
+            })],
+        });
     });
 });
 

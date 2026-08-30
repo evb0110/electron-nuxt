@@ -517,6 +517,95 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
     let _ = remove_file(pdf_path);
 }
 
+#[test]
+fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
+    let (mut document, page_id) = create_test_document();
+    let pdf_path = temp_pdf_path("recreate-deleted-managed-markup");
+    let bindings_path = pdf_path.with_extension("bindings.json");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, &original_bytes).unwrap();
+
+    let managed_highlight = |app_annotation_id: &str| NativeMutationsFile {
+        markup: Some(MarkupMutation {
+            overrides: Vec::new(),
+            hints: vec![MarkupSubtypeHint {
+                subtype: "Highlight".to_string(),
+                page_index: 0,
+                marker_rect: MarkerRect {
+                    left: 0.1,
+                    top: 0.5,
+                    width: 0.4,
+                    height: 0.3,
+                },
+                markup_geometry: None,
+                app_annotation_id: Some(app_annotation_id.to_string()),
+                annotation_id: None,
+                color: Some("#ffd400".to_string()),
+                contents: Some(String::new()),
+                id: Some("9R".to_string()),
+                page_markup_index: Some(0),
+                source: Some("editor".to_string()),
+            }],
+        }),
+        ..NativeMutationsFile::default()
+    };
+
+    append_native_mutations_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &managed_highlight("initial-highlight"),
+        "D:20260829120400+04'00'",
+        None,
+        Some(&bindings_path),
+    )
+    .unwrap();
+    let created = Document::load(&pdf_path).unwrap();
+    let markup_id = get_page_annots(&created, page_id).unwrap()[0]
+        .as_reference()
+        .unwrap();
+
+    append_native_mutations_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &NativeMutationsFile {
+            deletes: vec![AnnotationDelete {
+                page_index: 0,
+                object_number: Some(markup_id.0),
+                generation_number: Some(markup_id.1),
+                stable_key: None,
+                created_at: None,
+            }],
+            markup: managed_highlight("recreated-highlight").markup,
+            ..NativeMutationsFile::default()
+        },
+        "D:20260829120500+04'00'",
+        None,
+        Some(&bindings_path),
+    )
+    .expect("managed markup should be recreated under a fresh object ref");
+
+    let recreated = Document::load(&pdf_path).unwrap();
+    let annots = get_page_annots(&recreated, page_id).unwrap();
+    assert_eq!(annots.len(), 1);
+    let recreated_id = annots[0].as_reference().unwrap();
+    assert!(matches!(recreated.get_object(markup_id), Ok(Object::Null)));
+    assert_ne!(recreated_id, markup_id);
+    assert_eq!(
+        recreated
+            .get_dictionary(recreated_id)
+            .unwrap()
+            .get(b"NM")
+            .ok()
+            .and_then(pdf_string_to_text)
+            .as_deref(),
+        Some("evb-markup:9R"),
+    );
+
+    let _ = remove_file(pdf_path);
+    let _ = remove_file(bindings_path);
+}
+
 fn attach_markup_popup(
     document: &mut Document,
     page_id: ObjectId,
