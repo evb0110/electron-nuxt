@@ -1,10 +1,16 @@
 import {
+    mkdir,
     mkdtemp,
     readdir,
     rm,
     writeFile,
 } from 'node:fs/promises';
-import { spawnSync } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+    spawnSync,
+} from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import {
     join,
@@ -15,6 +21,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import { ESLint } from 'eslint';
 
@@ -107,6 +114,64 @@ function runChangedLint(files: string[]) {
         output: `${result.stdout}${result.stderr}`,
         status: result.status,
     };
+}
+
+async function forceKillAndWait(child: ReturnType<typeof spawn>) {
+    if (child.exitCode !== null || child.signalCode !== null) {
+        return;
+    }
+    await new Promise<void>((resolve) => {
+        const onExit = () => resolve();
+        child.once('exit', onExit);
+        if (!child.kill('SIGKILL')) {
+            child.off('exit', onExit);
+            resolve();
+        }
+    });
+}
+
+function readPosixProcessState(pid: number) {
+    if (process.platform === 'linux') {
+        const procStat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+        return procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0);
+    }
+    return execFileSync('ps', [
+        '-p',
+        String(pid),
+        '-o',
+        'stat=',
+    ], {encoding: 'utf8'}).trim().charAt(0);
+}
+
+async function spawnUnreapedZombie() {
+    const parent = spawn('python3', [
+        '-c',
+        'import os,time\npid=os.fork()\nif pid == 0: os._exit(0)\nprint(pid, flush=True)\ntime.sleep(30)',
+    ], {stdio: [
+        'ignore',
+        'pipe',
+        'ignore',
+    ]});
+    try {
+        const zombiePid = await new Promise<number>((resolve, reject) => {
+            parent.stdout?.once('data', chunk => resolve(Number(String(chunk).trim())));
+            parent.once('error', reject);
+            parent.once('exit', (code, signal) => reject(new Error(
+                `zombie parent exited before reporting its child (code ${String(code)}, signal ${String(signal)})`,
+            )));
+        });
+        expect(zombiePid).toBeGreaterThan(0);
+        await vi.waitFor(() => {
+            expect(readPosixProcessState(zombiePid)).toBe('Z');
+        });
+        return {
+            parent,
+            zombiePid,
+        };
+    } catch (error) {
+        await forceKillAndWait(parent);
+        throw error;
+    }
 }
 
 async function createLintConfigRoot() {
@@ -433,6 +498,39 @@ describe('validation gate policy', () => {
             });
             expect(degraded.coordinated).toBe(false);
         } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it.runIf(process.platform !== 'win32')('reclaims a heavy-gate slot held by an unreaped zombie', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-heavy-gate-zombie-'));
+        let zombieFixture: Awaited<ReturnType<typeof spawnUnreapedZombie>> | undefined;
+        try {
+            zombieFixture = await spawnUnreapedZombie();
+            const holdersDir = join(root, 'holders');
+            await mkdir(holdersDir, {recursive: true});
+            await writeFile(join(holdersDir, 'zombie.json'), JSON.stringify({
+                id: 'unreaped-zombie',
+                pid: zombieFixture.zombiePid,
+                weight: 1,
+            }));
+
+            const gate = await validationGates.acquireHeavyGate({
+                capacity: 1,
+                env: {},
+                id: 'after-zombie',
+                root,
+                waitMs: 50,
+            });
+            expect(gate.coordinated).toBe(true);
+            await gate.release();
+        } finally {
+            if (zombieFixture) {
+                await forceKillAndWait(zombieFixture.parent);
+            }
             await rm(root, {
                 force: true,
                 recursive: true,

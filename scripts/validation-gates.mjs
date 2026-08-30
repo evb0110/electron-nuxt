@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The gate owner keeps scheduling, evidence, and impact policy in one inspectable module. */
-import { spawn } from 'node:child_process';
+import {
+    execFileSync,
+    spawn,
+} from 'node:child_process';
 import {
     createHash,
     randomUUID,
@@ -785,10 +788,43 @@ function isPidAlive(pid) {
     }
     try {
         process.kill(pid, 0);
-        return true;
     } catch (error) {
         return error?.code === 'EPERM';
     }
+    if (process.platform === 'win32') {
+        return true;
+    }
+    let state = '';
+    try {
+        if (process.platform === 'linux') {
+            const procStat = readFileSync(`/proc/${String(pid)}/stat`, 'utf8');
+            state = procStat.slice(procStat.lastIndexOf(')') + 1).trimStart().charAt(0);
+        } else {
+            state = execFileSync('ps', [
+                '-p',
+                String(pid),
+                '-o',
+                'stat=',
+            ], {
+                encoding: 'utf8',
+                stdio: [
+                    'ignore',
+                    'pipe',
+                    'ignore',
+                ],
+            }).trim().charAt(0);
+        }
+    } catch {
+        // The process may exit between kill(0) and the state read. Probe again
+        // before treating an unavailable state as a live holder.
+        try {
+            process.kill(pid, 0);
+            return true;
+        } catch (error) {
+            return error?.code === 'EPERM';
+        }
+    }
+    return state !== 'Z' && state !== 'X';
 }
 async function readJson(filePath) {
     try {
