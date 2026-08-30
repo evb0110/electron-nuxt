@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/viewerCore.ts
+  s_3865fe7b20fcc6::t_ecc74d322a70df 1276-1285,1291-1315
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "89769a5a9ba498cba4f9bb62afd561afe1ab8b2f",
+  "prompts": {},
+  "sessions": {
+    "s_3865fe7b20fcc6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0508f-778b-7211-a6cb-37295d830a61",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
