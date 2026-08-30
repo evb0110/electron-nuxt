@@ -22,6 +22,24 @@ export interface IPdfPageLayoutMetrics {
     paddingBottom: number;
 }
 
+export const PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT = 8_388_608;
+
+export function getLayoutPhysicalScrollSegment(
+    layout: IPdfPageLayoutMetrics,
+    anchorTop: number,
+) {
+    const contentHeight = getLayoutContentHeight(layout);
+    if (contentHeight <= PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT) {
+        return null;
+    }
+    const origin = Math.floor(anchorTop / PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT)
+        * PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
+    return {
+        height: Math.min(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT, contentHeight - origin),
+        origin,
+    };
+}
+
 export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: number) {
     return (layout.base.pageWidths[pageIndex] ?? 0) * layout.scale;
 }

@@ -9,7 +9,10 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom';
 import type { IViewportVisibilityResult } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/pdfScrollVisibilityTypes';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
-import { getLayoutPageWidth } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
+import {
+    getLayoutPageWidth,
+    getLayoutPhysicalScrollSegment,
+} from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 import { getPageHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageHeight';
 import { getPageTop } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageTop';
 import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
@@ -413,7 +416,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             if (top === null || pageHeight === null) {
                 return;
             }
-            const nextTop = resolveMarkerScrollTop({
+            const logicalTop = resolveMarkerScrollTop({
                 pageTop: top,
                 pageHeight,
                 containerHeight: container.clientHeight,
@@ -421,6 +424,8 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
                 pageYRatio: options?.pageYRatio,
                 markerRect: options?.markerRect,
             });
+            const segment = getLayoutPhysicalScrollSegment(metrics, top);
+            const nextTop = Math.max(0, logicalTop - (segment?.origin ?? 0));
             const pageIndex = targetPage - 1;
             const nextLeft = resolveMarkerScrollLeft({
                 pageLeft: getLayoutPageLeft(metrics, pageIndex, container.clientWidth),
