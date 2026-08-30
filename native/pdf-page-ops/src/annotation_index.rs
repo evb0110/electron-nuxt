@@ -91,12 +91,10 @@ pub(crate) fn write_annotation_name_index_path(
 
     let incremental = load_annotation_index_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by the annotation index operation",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by the annotation index operation",
+    )?;
 
     write_annotation_name_index(&AppendedRevision::new(&incremental), output_path)
 }

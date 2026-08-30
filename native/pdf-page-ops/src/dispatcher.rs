@@ -94,6 +94,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
+        Operation::Decrypt { password_file } => {
+            return write_decrypted_pdf_path(
+                &config.input_path,
+                &config.output_path,
+                password_file.as_deref(),
+            );
+        }
         Operation::PageGeometry { page_number } => {
             return write_page_geometry_path(
                 &config.input_path,

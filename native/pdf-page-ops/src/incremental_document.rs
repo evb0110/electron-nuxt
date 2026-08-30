@@ -597,7 +597,10 @@ fn hex_value(value: u8) -> Result<u8> {
     }
 }
 
-fn read_terminal_xref(path: &Path, file_len: u64) -> Result<(u64, lopdf::xref::XrefType)> {
+pub(crate) fn read_terminal_xref(
+    path: &Path,
+    file_len: u64,
+) -> Result<(u64, lopdf::xref::XrefType)> {
     let mut file = File::open(path).map_err(io_domain_error)?;
     read_terminal_xref_from_file(&mut file, file_len)
 }

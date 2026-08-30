@@ -43,9 +43,13 @@ type TBrowserPageOpsWasmRequest = {
 }[TBrowserPageOpsWasmRequestType];
 
 const REQUEST_MAGIC = 'EPPO';
-const REQUEST_VERSION = 1;
+// Version 2 appends a trailing u32 password length (and password bytes) after
+// the insertion-data length. No existing operation carries a password; the
+// decrypt operation (OP_DECRYPT = 9 on the Rust side) is wired by the browser
+// decrypt host.
+const REQUEST_VERSION = 2;
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
-const REQUEST_HEADER_BYTES = 4 + (8 * 4) + (4 * 8);
+const REQUEST_HEADER_BYTES = 4 + (8 * 4) + (4 * 8) + 4;
 
 const OP_DELETE_PAGES = 1;
 const OP_EXTRACT_PAGES = 2;
@@ -310,6 +314,9 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     offset = writeF64(view, offset, toWasmF64(margins.right));
     offset = writeU32(view, offset, dataLength);
     offset = writeU32(view, offset, insertionDataLength);
+    // Trailing password length; empty for every operation until the decrypt
+    // host carries a password.
+    offset = writeU32(view, offset, 0);
 
     for (const page of pages) {
         offset = writeU32(view, offset, page);

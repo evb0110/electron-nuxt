@@ -716,6 +716,9 @@ pub(crate) enum Operation {
     AnnotationNameIndex,
     EmbeddedShapeIndex,
     PdfConformance,
+    Decrypt {
+        password_file: Option<PathBuf>,
+    },
     PageGeometry {
         page_number: u32,
     },

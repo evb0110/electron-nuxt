@@ -71,12 +71,10 @@ pub(crate) fn write_page_geometry_path(
     let _validated_input = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
     let incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let geometry = get_page_geometry(&AppendedRevision::new(&incremental), page_number)?;
     let mut output = AtomicOutput::create(output_path)?;
@@ -94,12 +92,10 @@ pub(crate) fn write_crop_pages_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     crop_pages_incremental(&mut incremental, pages, margins)?;
     append_incremental_page_revision(
@@ -119,12 +115,10 @@ pub(crate) fn write_remove_crop_pages_path(
 ) -> Result<()> {
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     remove_crop_from_pages_incremental(&mut incremental, pages)?;
     append_incremental_page_revision(

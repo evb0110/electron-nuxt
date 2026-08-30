@@ -27,6 +27,7 @@ mod annotations;
 mod catalog;
 mod cli;
 mod conformance;
+mod decrypt;
 mod dispatcher;
 mod incremental;
 mod incremental_document;
@@ -70,6 +71,7 @@ pub(crate) use annotations::*;
 pub(crate) use catalog::*;
 pub(crate) use cli::*;
 pub(crate) use conformance::*;
+pub(crate) use decrypt::*;
 pub(crate) use dispatcher::*;
 pub(crate) use incremental::*;
 pub(crate) use incremental_document::*;
@@ -105,6 +107,7 @@ mod tests {
     };
 
     include!("tests/support.rs");
+    include!("tests/decryption.rs");
     include!("tests/crop.rs");
     include!("tests/notes.rs");
     include!("tests/placed_images.rs");

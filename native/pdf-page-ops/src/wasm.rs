@@ -5,15 +5,16 @@ use evb_native_support::{
 use std::{cell::RefCell, slice};
 
 use crate::{
-    crop_browser_pdf_bytes, delete_browser_pdf_pages, extract_browser_pdf_pages,
-    get_browser_page_geometry_from_bytes, insert_browser_pdf_pages, load_browser_pdf,
-    remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages, rotate_browser_pdf_bytes,
-    serialize_annotation_parse, CropMargins, PageGeometry, PageMutationBytes, PdfRect, Result,
-    PAGE_OP_WASM_MAX_OUTPUT_BYTES, PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+    crop_browser_pdf_bytes, decrypt_browser_pdf_bytes, delete_browser_pdf_pages,
+    extract_browser_pdf_pages, get_browser_page_geometry_from_bytes, insert_browser_pdf_pages,
+    load_browser_pdf, remove_crop_browser_pdf_bytes, reorder_browser_pdf_pages,
+    rotate_browser_pdf_bytes, serialize_annotation_parse, CropMargins, PageGeometry,
+    PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
+    PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
-const REQUEST_VERSION: u32 = 1;
+const REQUEST_VERSION: u32 = 2;
 
 const OP_DELETE_PAGES: u32 = 1;
 const OP_EXTRACT_PAGES: u32 = 2;
@@ -23,9 +24,13 @@ const OP_ROTATE: u32 = 5;
 const OP_CROP: u32 = 6;
 const OP_REMOVE_CROP: u32 = 7;
 const OP_GET_PAGE_GEOMETRY: u32 = 8;
-// Keep this above the decrypt operation reserved by ticket #171. The request
-// frame stays version 1 because parsing needs no additional fields.
+// Parsing must stay above the decrypt operation reserved by ticket #171. The
+// request frame is version 2 because decrypt carries a trailing password; op 10
+// simply sends a zero-length password.
+const OP_DECRYPT: u32 = 9;
 const OP_PARSE_ANNOTATIONS: u32 = 10;
+
+const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
 
 const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
@@ -48,6 +53,7 @@ struct ParsedRequest<'a> {
     margins: CropMargins,
     data: &'a [u8],
     insertion_data: &'a [u8],
+    password: &'a [u8],
 }
 
 #[no_mangle]
@@ -177,6 +183,7 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
             parsed.data,
             parsed.page_number,
         )?),
+        OP_DECRYPT => encode_mutation(decrypt_browser_pdf_bytes(parsed.data, parsed.password)?),
         OP_PARSE_ANNOTATIONS => {
             let document = load_browser_pdf(parsed.data)?;
             let bytes = serialize_annotation_parse(
@@ -218,6 +225,13 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     };
     let data_len = read_usize_le(request, &mut offset, "data_len")?;
     let insertion_data_len = read_usize_le(request, &mut offset, "insertion_data_len")?;
+    let password_len = read_usize_le(request, &mut offset, "password_len")?;
+    if password_len > MAX_WASM_PASSWORD_BYTES {
+        return Err(format!(
+            "Page-op WASM password exceeds the {MAX_WASM_PASSWORD_BYTES}-byte ceiling"
+        )
+        .into());
+    }
 
     let page_bytes_len = page_count
         .checked_mul(std::mem::size_of::<u32>())
@@ -225,6 +239,7 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
     let required_remaining = page_bytes_len
         .checked_add(data_len)
         .and_then(|length| length.checked_add(insertion_data_len))
+        .and_then(|length| length.checked_add(password_len))
         .ok_or("Invalid page-op WASM request length")?;
     let actual_remaining = request
         .len()
@@ -249,6 +264,7 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
 
     let data = take_bytes(request, &mut offset, data_len)?;
     let insertion_data = take_bytes(request, &mut offset, insertion_data_len)?;
+    let password = take_bytes(request, &mut offset, password_len)?;
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM request".into());
     }
@@ -262,6 +278,7 @@ fn parse_request(request: &[u8]) -> Result<ParsedRequest<'_>> {
         margins,
         data,
         insertion_data,
+        password,
     })
 }
 
@@ -395,12 +412,24 @@ fn write_f64_le(output: &mut Vec<u8>, value: f64) {
 mod tests {
     use super::*;
     use crate::{ANNOTATION_PARSE_FORMAT, ANNOTATION_PARSE_SCHEMA_VERSION};
-    use lopdf::{dictionary, Document, Object};
+    use lopdf::{
+        dictionary, Document, EncryptionState, EncryptionVersion, Object, Permissions, StringFormat,
+    };
 
     fn request_header(page_count: u32, data_len: u32, insertion_data_len: u32) -> Vec<u8> {
+        request_header_with_password(OP_DELETE_PAGES, page_count, data_len, insertion_data_len, 0)
+    }
+
+    fn request_header_with_password(
+        operation: u32,
+        page_count: u32,
+        data_len: u32,
+        insertion_data_len: u32,
+        password_len: u32,
+    ) -> Vec<u8> {
         let mut request = Vec::new();
         request.extend_from_slice(REQUEST_MAGIC);
-        for value in [REQUEST_VERSION, OP_DELETE_PAGES, page_count, 0, 0, 0] {
+        for value in [REQUEST_VERSION, operation, page_count, 0, 0, 0] {
             write_u32_le(&mut request, value);
         }
         for _ in 0..4 {
@@ -408,6 +437,7 @@ mod tests {
         }
         write_u32_le(&mut request, data_len);
         write_u32_le(&mut request, insertion_data_len);
+        write_u32_le(&mut request, password_len);
         request
     }
 
@@ -447,6 +477,7 @@ mod tests {
             write_f64_le(&mut request, value);
         }
         write_u32_le(&mut request, data.len() as u32);
+        write_u32_le(&mut request, 0);
         write_u32_le(&mut request, 0);
         write_u32_le(&mut request, 1);
         request.extend_from_slice(data);
@@ -598,5 +629,215 @@ mod tests {
         let header = serde_json::from_str::<serde_json::Value>(header).unwrap();
         assert_eq!(header["format"], ANNOTATION_PARSE_FORMAT);
         assert_eq!(header["schemaVersion"], ANNOTATION_PARSE_SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn rejects_a_password_above_the_frame_ceiling() {
+        let mut request =
+            request_header_with_password(OP_DECRYPT, 0, 0, 0, (MAX_WASM_PASSWORD_BYTES + 1) as u32);
+        request.extend(std::iter::repeat_n(0u8, MAX_WASM_PASSWORD_BYTES + 1));
+
+        let error = parse_request(&request)
+            .err()
+            .expect("oversized password must fail");
+
+        assert!(error.to_string().contains("password exceeds"));
+    }
+
+    #[test]
+    fn rejects_a_v1_request_frame() {
+        let mut request = request_header(0, 0, 0);
+        // A version-1 frame predates the trailing password length; restore the
+        // old version byte to prove it is refused.
+        request[4..8].copy_from_slice(&1u32.to_le_bytes());
+
+        let error = parse_request(&request)
+            .err()
+            .expect("version 1 frames must be rejected");
+
+        assert!(error
+            .to_string()
+            .contains("Unsupported page-op WASM request version: 1"));
+    }
+
+    fn encrypt_fixture_bytes(password: &str) -> Vec<u8> {
+        encrypt_fixture_bytes_with_page_count(password, 1)
+    }
+
+    fn encrypt_fixture_bytes_with_page_count(password: &str, page_count: usize) -> Vec<u8> {
+        let mut document = Document::with_version("1.5");
+        document.trailer.set(
+            "ID",
+            Object::Array(vec![
+                Object::String((1u8..=16).collect(), StringFormat::Literal),
+                Object::String(((1..=16u8).rev()).collect(), StringFormat::Literal),
+            ]),
+        );
+        let pages_id = document.new_object_id();
+        let page_ids = (0..page_count)
+            .map(|_| {
+                document.add_object(dictionary! {
+                    "Type" => "Page",
+                    "Parent" => pages_id,
+                    "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+                })
+            })
+            .collect::<Vec<_>>();
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => page_ids.into_iter().map(Object::Reference).collect::<Vec<_>>(),
+                "Count" => page_count as i64,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let encryption_state = EncryptionState::try_from(EncryptionVersion::V2 {
+            document: &document,
+            owner_password: "test-owner",
+            user_password: password,
+            key_length: 128,
+            permissions: Permissions::all(),
+        })
+        .expect("build encryption state");
+        document
+            .encrypt(&encryption_state)
+            .expect("encrypt fixture");
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).expect("serialize fixture");
+        bytes
+    }
+
+    fn decrypt_request(data: &[u8], password: &str) -> Vec<u8> {
+        let mut request = request_header_with_password(
+            OP_DECRYPT,
+            0,
+            data.len() as u32,
+            0,
+            password.len() as u32,
+        );
+        request.extend_from_slice(data);
+        request.extend_from_slice(password.as_bytes());
+        request
+    }
+
+    #[test]
+    fn wasm_decrypt_rewrites_a_user_password_file() {
+        let encrypted = encrypt_fixture_bytes("frame-secret");
+        let request = decrypt_request(&encrypted, "frame-secret");
+
+        let output = run_request(&request).expect("decrypt with the user password");
+
+        let page_count = u32::from_le_bytes(output[4..8].try_into().unwrap());
+        assert_eq!(page_count, 1);
+        let data_len = u32::from_le_bytes(output[8..12].try_into().unwrap()) as usize;
+        assert_eq!(output.len(), 12 + data_len);
+        let decrypted =
+            Document::load_mem_with_options(&output[12..], lopdf::LoadOptions::default())
+                .expect("reload decrypted bytes");
+        assert!(!decrypted.was_encrypted());
+        assert!(!decrypted.is_encrypted());
+    }
+
+    #[test]
+    fn wasm_decrypt_reports_the_actual_page_count_for_a_multi_page_file() {
+        let encrypted = encrypt_fixture_bytes_with_page_count("frame-secret", 3);
+        let request = decrypt_request(&encrypted, "frame-secret");
+
+        let output = run_request(&request).expect("decrypt a multi-page PDF");
+
+        let page_count = u32::from_le_bytes(output[4..8].try_into().unwrap());
+        assert_eq!(page_count, 3);
+        let decrypted =
+            Document::load_mem_with_options(&output[12..], lopdf::LoadOptions::default())
+                .expect("reload decrypted bytes");
+        assert_eq!(decrypted.get_pages().len(), 3);
+    }
+
+    #[test]
+    fn wasm_decrypt_reports_needs_password_for_a_wrong_password() {
+        let encrypted = encrypt_fixture_bytes("frame-secret");
+        let request = decrypt_request(&encrypted, "wrong");
+
+        let error = run_request(&request).expect_err("wrong password must fail");
+
+        assert_eq!(
+            error
+                .downcast_ref::<evb_native_support::NativeError>()
+                .expect("typed native error")
+                .code,
+            NativeErrorCode::NeedsPassword
+        );
+    }
+
+    #[test]
+    fn wasm_decrypt_returns_the_input_unchanged_when_not_encrypted() {
+        let plaintext = test_pdf_bytes();
+        let request = decrypt_request(&plaintext, "");
+
+        let output = run_request(&request).expect("decrypt of a plaintext file");
+
+        let page_count = u32::from_le_bytes(output[4..8].try_into().unwrap());
+        assert_eq!(page_count, 0);
+        assert_eq!(&output[12..], &plaintext[..]);
+    }
+
+    #[test]
+    fn wasm_decrypt_reports_unsupported_filter_for_a_public_key_handler() {
+        let mut document = Document::with_version("1.5");
+        document.trailer.set(
+            "ID",
+            Object::Array(vec![
+                Object::String((1u8..=16).collect(), StringFormat::Literal),
+                Object::String(((1..=16u8).rev()).collect(), StringFormat::Literal),
+            ]),
+        );
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+        });
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let encrypt_dict = dictionary! {
+            "Filter" => "Adobe.PubSec",
+            "V" => 4,
+            "R" => 4,
+            "O" => Object::String(vec![0u8; 32], StringFormat::Literal),
+            "U" => Object::String(vec![0u8; 32], StringFormat::Literal),
+            "P" => -1,
+        };
+        let encrypt_id = document.add_object(encrypt_dict);
+        document
+            .trailer
+            .set("Encrypt", Object::Reference(encrypt_id));
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).expect("serialize fixture");
+
+        let request = decrypt_request(&bytes, "");
+        let error = run_request(&request).expect_err("public-key handler must fail");
+
+        assert_eq!(
+            error
+                .downcast_ref::<evb_native_support::NativeError>()
+                .expect("typed native error")
+                .code,
+            NativeErrorCode::UnsupportedFilter
+        );
     }
 }

@@ -193,6 +193,10 @@ const projectConfig = withNuxt(
         ['electron/features/djvu/main/pdfExport.ts', 1288],
         ['packages/contracts/djvuPlatformFeature.ts', 1328],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
+        // The documents API contract mirrors the native frame, the electron
+        // bridge, and the browser bridge in one file; the #171 decrypt
+        // capability is the growth this budget covers.
+        ['packages/contracts/electronApiDocuments.ts', 1208],
         // The v3 protocol contract is one shared schema with its native
         // counterpart; splitting it would fork the pairing rather than shorten
         // it. The staged Analyze input window and optional Mixed/split evidence

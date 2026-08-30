@@ -15,6 +15,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
     let mut updates_file = None;
     let mut changes_file = None;
     let mut mutations_file = None;
+    let mut password_file = None;
     let mut identity_bindings_file = None;
     let mut instructions_file = None;
     let mut modified_at = None;
@@ -62,6 +63,11 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
                 identity_bindings_file = Some(PathBuf::from(
                     args.next()
                         .ok_or("Missing --identity-bindings-file value")?,
+                ))
+            }
+            "--password-file" => {
+                password_file = Some(PathBuf::from(
+                    args.next().ok_or("Missing --password-file value")?,
                 ))
             }
             "--instructions-file" => {
@@ -133,6 +139,10 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         return Err("--identity-bindings-file is only valid for save-mutations".into());
     }
 
+    if password_file.is_some() && command != "decrypt" {
+        return Err("--password-file is only valid for decrypt".into());
+    }
+
     let operation = match command.as_str() {
         "split-pages" => Operation::SplitPages {
             instructions_file: instructions_file.ok_or("Missing --instructions-file value")?,
@@ -178,6 +188,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
         "annotation-index" | "annotation-name-index" => Operation::AnnotationNameIndex,
         "embedded-shape-index" | "shape-index" => Operation::EmbeddedShapeIndex,
         "pdf-conformance" | "conformance" => Operation::PdfConformance,
+        "decrypt" => Operation::Decrypt { password_file },
         "page-geometry" | "get-page-geometry" => Operation::PageGeometry {
             page_number: page_number.ok_or("Missing --page value")?,
         },
@@ -196,6 +207,55 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_decrypt_request_with_an_optional_password_file() {
+        let config = parse_args(
+            [
+                "decrypt",
+                "--input",
+                "encrypted.pdf",
+                "--output",
+                "decrypted.pdf",
+                "--password-file",
+                "password.txt",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .unwrap();
+
+        assert!(matches!(
+            config.operation,
+            Operation::Decrypt {
+                password_file: Some(_)
+            }
+        ));
+        assert_eq!(config.input_path, PathBuf::from("encrypted.pdf"));
+        assert_eq!(config.output_path, PathBuf::from("decrypted.pdf"));
+    }
+
+    #[test]
+    fn rejects_the_password_file_flag_outside_decrypt() {
+        let error = parse_args(
+            [
+                "page-sizes",
+                "--input",
+                "input.pdf",
+                "--output",
+                "sizes.json",
+                "--password-file",
+                "password.txt",
+            ]
+            .into_iter()
+            .map(String::from),
+        )
+        .err()
+        .expect("password file outside decrypt should be rejected")
+        .to_string();
+
+        assert!(error.contains("--password-file is only valid for decrypt"));
+    }
 
     #[test]
     fn parses_page_geometry_request() {

@@ -48,6 +48,10 @@ import type {
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
 import type * as PdfAnnotationParse from '@contracts/pdfAnnotationParseTypes';
+import type {
+    IPdfDecryptRequest,
+    IPdfDecryptResult,
+} from '@contracts/pdfDecryptSchemas';
 
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 
@@ -107,6 +111,9 @@ export {
     PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES, PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
 } from '@contracts/pdfAnnotationParseTypes';
 export type * from '@contracts/pdfAnnotationParseTypes';
+export type {
+    IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
+} from '@contracts/pdfDecryptSchemas';
 
 /** A normalized point returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexPoint {
@@ -914,6 +921,7 @@ export interface IDocumentsFileCapability {
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
     releasePdfEmbeddedShapeIndex?: (sessionId: string) => Promise<boolean>;
     cancelPdfEmbeddedShapeIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    decryptPdfWorkingCopy?: (path: TDocumentRef, request?: IPdfDecryptRequest) => Promise<IPdfDecryptResult>;
     readFileChunks: (
         path: TDocumentRef,
         options: IDocumentChunkReadOptions,
@@ -1129,6 +1137,7 @@ export interface IDocumentsReadCapability extends Pick<
     | 'readPdfEmbeddedShapeIndexChunk'
     | 'releasePdfEmbeddedShapeIndex'
     | 'cancelPdfEmbeddedShapeIndex'
+    | 'decryptPdfWorkingCopy'
     | 'readFileChunks'
     | 'readTextFile'
     | 'fileExists'

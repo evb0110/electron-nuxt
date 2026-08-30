@@ -430,12 +430,10 @@ pub(crate) fn append_native_mutations_with_qpdf(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -500,12 +498,10 @@ pub(crate) fn append_native_mutations_in_place_with_qpdf(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
 
     let previous_len = incremental.previous_len();
     let previous_last_byte = incremental.previous_last_byte();
@@ -664,12 +660,10 @@ pub(crate) fn write_native_mutations_path(
     if encoded_len <= MAX_ENCODED_PDF_BYTES as u64 {
         let mut document = load_pdf_path(input_path)
             .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-        if document.is_encrypted() {
-            return Err(domain_error(
-                NativeErrorCode::Encrypted,
-                "Encrypted PDFs are not supported by native page ops",
-            ));
-        }
+        assert_plaintext_base(
+            &document,
+            "Encrypted PDFs are not supported by native page ops",
+        )?;
         let mut identity_bindings = Vec::new();
         if identity_bindings_path.is_some() {
             apply_native_mutations_with_bindings(
@@ -702,12 +696,10 @@ pub(crate) fn write_native_mutations_path(
         .map_err(|error| domain_error(NativeErrorCode::Io, error.to_string()))?;
     let mut incremental = load_incremental_pdf_path(input_path, qpdf_path)
         .map_err(|error| classify_pdf_load_error(error, "Failed to parse PDF structure"))?;
-    if incremental.get_prev_documents().is_encrypted() {
-        return Err(domain_error(
-            NativeErrorCode::Encrypted,
-            "Encrypted PDFs are not supported by native page ops",
-        ));
-    }
+    assert_plaintext_base(
+        incremental.get_prev_documents(),
+        "Encrypted PDFs are not supported by native page ops",
+    )?;
     with_staged_incremental_output_for_revision(
         input_path,
         output_path,
