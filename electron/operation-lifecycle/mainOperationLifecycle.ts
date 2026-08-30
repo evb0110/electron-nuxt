@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { createMainOperationShuttingDownError } from '@contracts/mainOperationErrors';
+import { normalizePathForLookup } from '@electron/file-access/workingCopyStore';
 import { createLogger } from '@electron/utils/createLogger';
 import { runDetached } from '@electron/utils/runDetached';
 
@@ -198,10 +199,12 @@ export function cancelMainOperationsForClosingWorkingCopy(
     if (!ownership.isRegistrationCurrent()) {
         return null;
     }
+    const normalizedWorkingCopyPath = normalizePathForLookup(workingCopyPath) || workingCopyPath;
     const canceled: ICanceledMainOperation[] = [];
     for (const operation of operations.values()) {
         if (
-            operation.workingCopyPath !== workingCopyPath
+            operation.workingCopyPath === undefined
+            || (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) !== normalizedWorkingCopyPath
             || !isCancellableForClosingWorkingCopy(operation)
         ) {
             continue;
@@ -224,9 +227,11 @@ export function cancelMainOperationsForClosingWorkingCopy(
 // itself are excluded for the same reason they are excluded from cancellation:
 // they drain, and the drain has already run by the time this is asked.
 export function snapshotCancellableWorkingCopyDependents(workingCopyPath: string): IMainOperationSnapshot[] {
+    const normalizedWorkingCopyPath = normalizePathForLookup(workingCopyPath) || workingCopyPath;
     return [...operations.values()]
         .filter(operation => (
-            operation.workingCopyPath === workingCopyPath
+            operation.workingCopyPath !== undefined
+            && (normalizePathForLookup(operation.workingCopyPath) || operation.workingCopyPath) === normalizedWorkingCopyPath
             && isCancellableForClosingWorkingCopy(operation)
         ))
         .map(toMainOperationSnapshot);

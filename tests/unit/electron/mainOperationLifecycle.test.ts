@@ -222,6 +222,30 @@ describe('mainOperationLifecycle', () => {
         expect(snapshotCancellableWorkingCopyDependents('/tmp/closing.pdf')).toEqual([]);
     });
 
+    it.skipIf(process.platform !== 'darwin')('cancels a dependent when cleanup uses the /private/var alias', () => {
+        const rendererPath = '/var/tmp/evb-issue-123-alias/working.pdf';
+        const canonicalPath = '/private/var/tmp/evb-issue-123-alias/working.pdf';
+        const cancel = vi.fn();
+        const operation = registerMainOperation({
+            kind: 'abortable-work',
+            workingCopyPath: rendererPath,
+            cancel,
+        });
+
+        expect(snapshotCancellableWorkingCopyDependents(canonicalPath).map(entry => entry.id))
+            .toEqual([operation.id]);
+        const canceled = cancelMainOperationsForClosingWorkingCopy(
+            canonicalPath,
+            'Working copy is closing',
+            OWNS_REGISTRATION,
+        );
+
+        expect(canceled?.map(entry => entry.id)).toEqual([operation.id]);
+        expect(operation.signal.aborted).toBe(true);
+        expect(cancel).toHaveBeenCalledWith('Working copy is closing');
+        operation.complete();
+    });
+
     it('cancels nothing once the caller no longer owns the registration it is closing', () => {
         const scanCleanupCancel = vi.fn();
         const scanCleanup = registerMainOperation({

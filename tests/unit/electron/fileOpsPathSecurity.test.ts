@@ -110,7 +110,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
     findWorkingCopyPathByOriginalPath: mocks.findWorkingCopyPathByOriginalPath,
     getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
     getWorkingCopyOriginalPath: mocks.getWorkingCopyOriginalPath,
-    normalizePathForLookup: (path: string) => path.trim(),
+    normalizePathForLookup: (path: string) => path.trim().replace(/^\/var(?=\/)/u, '/private/var'),
     refreshWorkingCopyOriginalFileExpectation: mocks.refreshWorkingCopyOriginalFileExpectation,
     transitionWorkingCopyBackingState: mocks.transitionWorkingCopyBackingState,
     workingCopyAdmissionSnapshotsMatch: (
@@ -1128,6 +1128,43 @@ describe('fileOps path security', () => {
         });
     });
 
+    it('shares and invalidates original-backed range handles across macOS path aliases', async () => {
+        const aliasPath = '/var/folders/evb/lazy.pdf';
+        const canonicalPath = '/private/var/folders/evb/lazy.pdf';
+        const entry = {
+            ...lazyOriginalEntry(),
+            backingState: 'materializing',
+            originalPath: canonicalPath,
+        };
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, _offset: number, length: number) => {
+            buffer.fill(5, 0, length);
+            return {bytesRead: length};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockImplementation((path: string) =>
+            path === aliasPath || path === canonicalPath ? entry : null);
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await handleFileReadRange(readContext, canonicalPath, 0, 2);
+        await handleFileReadRange(readContext, aliasPath, 2, 2);
+        await enqueueWorkingCopyMutation(aliasPath, async () => undefined);
+
+        await waitForSettledQueueTurn();
+
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+        expect(read).toHaveBeenCalledTimes(2);
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({
+            handles: 0,
+            pendingOpens: 0,
+            pathEpochs: 0,
+        });
+    });
+
     it('reopens cached range read handles when file metadata changes', async () => {
         const firstClose = vi.fn(async () => {});
         const secondClose = vi.fn(async () => {});
@@ -1180,6 +1217,32 @@ describe('fileOps path security', () => {
         await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
 
         await waitForSettledQueueTurn();
+        expect(close).toHaveBeenCalledTimes(1);
+        expect(getRangeReadCacheStatsForTests()).toMatchObject({
+            handles: 0,
+            pendingOpens: 0,
+            pathEpochs: 0,
+        });
+    });
+
+    it('invalidates cached range handles across macOS temp path aliases', async () => {
+        const aliasPath = '/var/folders/evb/safe.pdf';
+        const canonicalPath = '/private/var/folders/evb/safe.pdf';
+        const close = vi.fn(async () => {});
+        mocks.resolveAllowedReadPath.mockResolvedValue(canonicalPath);
+        mocks.open.mockResolvedValue({
+            close,
+            read: vi.fn(async (buffer: Buffer) => {
+                buffer.fill(3);
+                return {bytesRead: buffer.byteLength};
+            }),
+        });
+
+        await handleFileReadRange(readContext, canonicalPath, 0, 2);
+        await enqueueWorkingCopyMutation(aliasPath, async () => undefined);
+
+        await waitForSettledQueueTurn();
+
         expect(close).toHaveBeenCalledTimes(1);
         expect(getRangeReadCacheStatsForTests()).toMatchObject({
             handles: 0,
