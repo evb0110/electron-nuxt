@@ -28,6 +28,7 @@ import {reactive} from 'vue';
 import type {
     IScanCleanupDetectionRequest,
     IScanCleanupPreviewRequest,
+    TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
 import {isScanCleanupErrorEnvelope} from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
@@ -6293,6 +6294,113 @@ describe('scan cleanup preview', () => {
             },
         });
         expect(streamed.at(-1)?.results).toHaveLength(totalPages);
+    });
+
+    it('keeps xlarge detection event payloads within the renderer page window', async () => {
+        const dir = await setup();
+        const totalPages = 1_025;
+        const deps = dependencies(dir);
+        const pageSize = (pageNumber: number) => ({
+            ...DOCUMENT_PAGE_SIZES[0]!,
+            pageNumber,
+        });
+        const store: IPdfPageSizeStore = {
+            pageCount: totalPages,
+            getPage: vi.fn(async pageNumber => pageSize(pageNumber)),
+            readRange: vi.fn(async (firstPageNumber, lastPageNumberExclusive) => Array.from(
+                {length: lastPageNumberExclusive - firstPageNumber},
+                (_unused, index) => pageSize(firstPageNumber + index),
+            )),
+            forEachChunk: vi.fn(async onChunk => {
+                for (let firstPageNumber = 1; firstPageNumber <= totalPages; firstPageNumber += 1_024) {
+                    const pages = await store.readRange(
+                        firstPageNumber,
+                        Math.min(totalPages + 1, firstPageNumber + 1_024),
+                    );
+                    await onChunk({
+                        pageCount: totalPages,
+                        chunkIndex: Math.floor((firstPageNumber - 1) / 1_024),
+                        firstPageNumber,
+                        offset: 0,
+                        byteLength: 0,
+                        pages,
+                    });
+                }
+            }),
+            close: vi.fn(async () => undefined),
+        };
+        deps.getPageCount = vi.fn(async () => totalPages);
+        deps.getPageSizeStore = vi.fn(() => store);
+        deps.getPageSizes = vi.fn(async () => {
+            throw new Error('xlarge detection must use the bounded page-size store');
+        });
+        deps.acquireDetectionLease = vi.fn(async () => ({release: vi.fn(() => true)}));
+        const firstBatchPublished = Promise.withResolvers<undefined>();
+        const releaseFirstBatch = Promise.withResolvers<undefined>();
+        deps.runSidecar = vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+            await writeDetectionMetadata(manifestPath);
+            const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{sourcePageIndex: number}>};
+            for (const [
+                index,
+                page,
+            ] of manifest.pages.entries()) {
+                onProgress({
+                    stage: 'page-complete',
+                    completedPages: index + 1,
+                    totalPages: manifest.pages.length,
+                    pageNumber: page.sourcePageIndex + 1,
+                    classification: 'single-uncut-page',
+                    confidence: 0.9,
+                });
+            }
+            if (manifest.pages.length === 1_024) {
+                firstBatchPublished.resolve(undefined);
+                await releaseFirstBatch.promise;
+            }
+        });
+        const service = createScanCleanupPreviewService(deps);
+        const owner = sender();
+        const started = await service.detectAll(owner, detectionRequest);
+        service.subscribeDetectionJob(owner, started.jobId, detectionRequest);
+
+        await firstBatchPublished.promise;
+        try {
+            for (const state of [
+                service.getDetectionJobState(owner, started.jobId, detectionRequest),
+                service.subscribeDetectionJob(owner, started.jobId, detectionRequest),
+            ]) {
+                expect(state?.results.length).toBeLessThanOrEqual(256);
+                expect(state?.results).toEqual(expect.not.arrayContaining([
+                    expect.objectContaining({pagePlanEvidence: expect.anything()}),
+                    expect.objectContaining({sourcePageMetadata: expect.anything()}),
+                    expect.objectContaining({splitDiagnostics: expect.anything()}),
+                ]));
+            }
+        } finally {
+            releaseFirstBatch.resolve(undefined);
+        }
+        await vi.waitFor(() => expect(service.getDetectionJobState(
+            owner,
+            started.jobId,
+            detectionRequest,
+        )?.status).toBe('completed'), {timeout: 30_000});
+        const runningStates = owner.send.mock.calls
+            .filter(([channel]) => channel === SCAN_CLEANUP_PLATFORM_FEATURE.eventChannels.onDetectionJobState)
+            .map(([
+                _channel,
+                state,
+            ]) => state as TScanCleanupDetectionJobState)
+            .filter(state => state.progress.totalUnits === totalPages && state.status === 'running');
+
+        expect(runningStates.length).toBeGreaterThan(0);
+        expect(Math.max(...runningStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
+        expect(runningStates.flatMap(state => state.results)).toEqual(
+            expect.not.arrayContaining([
+                expect.objectContaining({pagePlanEvidence: expect.anything()}),
+                expect.objectContaining({sourcePageMetadata: expect.anything()}),
+                expect.objectContaining({splitDiagnostics: expect.anything()}),
+            ]),
+        );
     });
 
     it('re-detects a changed page over the rasters it already holds, page for page', async () => {

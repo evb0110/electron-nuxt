@@ -3341,6 +3341,7 @@ export interface IScanCleanupPreviewService {
 export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
+    const rendererDetectionResultWindowPages = 256;
     const active = new Map<string, IPreviewEntry>();
     const previewOwnerBindings = new Map<number, IPreviewOwnerBinding>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
@@ -3372,6 +3373,28 @@ export function createScanCleanupPreviewService(
         result.softAlphaForegroundRecommendation,
         result.pagePlanEvidence,
     ]);
+    const rendererDetectionState = (
+        state: TScanCleanupDetectionJobState | null,
+    ): TScanCleanupDetectionJobState | null => {
+        if (
+            state === null
+            || state.progress.totalUnits <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+        ) {
+            return state;
+        }
+        const results = state.results.slice(-rendererDetectionResultWindowPages).map(result => {
+            const projected = {...result};
+            delete projected.outputModeDiagnostics;
+            delete projected.pagePlanEvidence;
+            delete projected.sourcePageMetadata;
+            delete projected.splitDiagnostics;
+            return projected;
+        });
+        return {
+            ...state,
+            results,
+        };
+    };
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,
@@ -3391,11 +3414,11 @@ export function createScanCleanupPreviewService(
                 if (state.status === 'queued' || state.status === 'running' || state.status === 'canceling') {
                     if (state.progress.totalUnits > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
                         // Large runs already publish a bounded batch from core.
-                        // Do not recreate a document-sized page-signature map
-                        // merely to deduplicate records that will be evicted by
-                        // the renderer after its own bounded handoff.
+                        // The renderer needs only the newest classifications it
+                        // can display. Full page plans remain in the file-backed
+                        // result store for persistence and final cleanup.
                         deliveredDetectionResults.delete(deliveryKey);
-                        subscriber.send(channel, state);
+                        subscriber.send(channel, rendererDetectionState(state));
                         return;
                     }
                     const delivered = deliveredDetectionResults.get(deliveryKey)
@@ -4052,11 +4075,15 @@ export function createScanCleanupPreviewService(
             return canceled;
         },
         getDetectionJobState(sender, jobId, owner) {
-            return publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)));
+            return rendererDetectionState(publicDetectionState(
+                detectionJobs.get(jobId, detectionActor(sender, owner)),
+            ));
         },
         subscribeDetectionJob(sender, jobId, owner) {
             return subscribeDetection(sender, jobId, owner)
-                ? publicDetectionState(detectionJobs.get(jobId, detectionActor(sender, owner)))
+                ? rendererDetectionState(publicDetectionState(
+                    detectionJobs.get(jobId, detectionActor(sender, owner)),
+                ))
                 : null;
         },
     };
