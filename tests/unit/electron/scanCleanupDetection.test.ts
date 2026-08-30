@@ -774,6 +774,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                 totalUnits: 2,
                 percent: 0,
                 completedPageNumbers: [1],
+                completedPageNumbersTruncated: true,
             },
             {
                 stage: 'detecting',
@@ -791,6 +792,7 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
                     1,
                     2,
                 ],
+                completedPageNumbersTruncated: true,
             },
             {
                 stage: 'detecting',

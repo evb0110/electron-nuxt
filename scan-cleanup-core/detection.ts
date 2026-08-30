@@ -79,12 +79,34 @@ import {
 } from '@scan-cleanup-core/pageScope';
 import {createFileBackedScanCleanupDetectionResultStore} from '@scan-cleanup-core/fileBackedResultStore';
 import {buildScanCleanupPlacementAnchorSummary} from '@scan-cleanup-core/placementAnchors';
+import {splitContiguousPageRuns} from '@scan-cleanup-core/splitContiguousPageRuns';
+import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
 import {usesScanCleanupInkAlignment} from '@contracts/scanCleanupPageOverrides';
 
 export const DETECTION_DPI = 150;
 export const PREVIEW_DPI = DETECTION_DPI;
 /** Array results remain a deliberate compatibility path for small documents. */
 export const SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
+
+/**
+ * The progress contract accepts a page list only when it is exactly the
+ * completed count or explicitly marked as a bounded prefix. Pages the native
+ * detector processes without a classification count as completed but never
+ * enter the list, and a document-sized list would breach the IPC entry cap,
+ * so the list is capped and flagged whenever it is not the full set.
+ */
+export function completedPageProgress(
+    reportedPageNumbers: ReadonlySet<number>,
+    completedUnits: number,
+): Pick<TScanCleanupProgress, 'completedPageNumbers' | 'completedPageNumbersTruncated'> {
+    const completedPageNumbers = [...reportedPageNumbers].slice(0, SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES);
+    return completedPageNumbers.length === completedUnits
+        ? {completedPageNumbers}
+        : {
+            completedPageNumbers,
+            completedPageNumbersTruncated: true,
+        };
+}
 // Native mode selection, preview, and final rendering share this canonical
 // analysis grid. The separate working raster remains free to follow source DPI.
 const BASE_PREVIEW_MAX_PIXELS = 4_000_000;
@@ -974,18 +996,22 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         await retention.rasterScratchPath(document, pageNumber, DETECTION_DPI),
                     ] as const)));
                     try {
-                        const rendered = await dependencies.renderPageBatch!({
-                            dpi: DETECTION_DPI,
-                            log,
-                            pdftoppmBinary: dependencies.getPdftoppmBinary(),
-                            signal: operationSignal,
-                            sourcePdfPath: request.sourcePdfPath,
-                            targets: pageNumbers.map(pageNumber => ({
-                                limits: rasterLimitsByPage.get(pageNumber)!,
-                                outputPath: scratchPathByPage.get(pageNumber)!,
-                                pageNumber,
-                            })),
-                        });
+                        const rendered = [];
+                        for (const run of splitContiguousPageRuns(pageNumbers)) {
+                            operationSignal.throwIfAborted();
+                            rendered.push(...await dependencies.renderPageBatch!({
+                                dpi: DETECTION_DPI,
+                                log,
+                                pdftoppmBinary: dependencies.getPdftoppmBinary(),
+                                signal: operationSignal,
+                                sourcePdfPath: request.sourcePdfPath,
+                                targets: run.map(pageNumber => ({
+                                    limits: rasterLimitsByPage.get(pageNumber)!,
+                                    outputPath: scratchPathByPage.get(pageNumber)!,
+                                    pageNumber,
+                                })),
+                            }));
+                        }
                         const dimensionsByPage = new Map(rendered.map(result => [
                             result.pageNumber,
                             result,
@@ -1225,7 +1251,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 `Scan cleanup detection reported unknown page ${String(nativeProgress.pageNumber)}`,
                             );
                         }
-                        reportedPageNumbers.add(sourcePageNumber);
+                        if (reportedPageNumbers.size < SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES) {
+                            reportedPageNumbers.add(sourcePageNumber);
+                        }
                         if (nativeProgress.stage === 'page-analyzed') {
                             analyzedPages = Math.max(
                                 analyzedPages,
@@ -1245,7 +1273,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                                 completedUnits: analyzedPages,
                                 totalUnits: totalPages,
                                 percent: totalPages === 0 ? 100 : analyzedPages / totalPages * 100,
-                                completedPageNumbers: [...reportedPageNumbers],
+                                ...completedPageProgress(reportedPageNumbers, analyzedPages),
                             }, documentCanvasSignature());
                             return;
                         }
@@ -1267,7 +1295,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                             completedUnits,
                             totalUnits: totalPages,
                             percent: totalPages === 0 ? 100 : completedUnits / totalPages * 100,
-                            completedPageNumbers: [...reportedPageNumbers],
+                            ...completedPageProgress(reportedPageNumbers, completedUnits),
                         }, documentCanvasSignature(completedUnits >= totalPages));
                     }
                 },

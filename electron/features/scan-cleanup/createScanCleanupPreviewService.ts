@@ -68,6 +68,7 @@ import {
     type IScanCleanupDetectionDependencies,
     type IScanCleanupDetectionRetention,
     type IScanCleanupDocumentRasterPages,
+    completedPageProgress,
 } from '@scan-cleanup-core/detection';
 import {createArrayBackedPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import {
@@ -3470,7 +3471,7 @@ export function createScanCleanupPreviewService(
                         completedUnits: resultCount,
                         totalUnits: pageCount,
                         percent: pageCount === 0 ? 100 : resultCount / pageCount * 100,
-                        completedPageNumbers: results.map(item => item.pageNumber),
+                        ...completedPageProgress(new Set(results.map(item => item.pageNumber)), resultCount),
                     },
                     resultCount,
                     ...(result.resultStoreId === undefined
