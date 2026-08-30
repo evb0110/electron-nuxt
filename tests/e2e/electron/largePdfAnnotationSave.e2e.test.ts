@@ -172,6 +172,24 @@ interface IAgentActionResult extends Record<string, unknown> {
     tabId?: string;
 }
 
+interface IOrdinaryFreeTextCanonicalProjection {
+    annotationId: string | null;
+    annotationName: string | null;
+    pageIndex: number | null;
+    pageNumber: number | null;
+    source: string;
+    stableKey: string;
+    subtype: string | null;
+    text: string;
+}
+
+interface IOrdinaryFreeTextLiveState {
+    canonicalMatches: IOrdinaryFreeTextCanonicalProjection[];
+    editorMatchCount: number;
+    visualMatchCount: number;
+    sidebarMatchCount: number;
+}
+
 interface IAnnotationIndexRead {
     chunkByteLengths: number[];
     entries: IPdfAnnotationIndexEntry[];
@@ -935,6 +953,216 @@ function qpdfStringTokenContainsText(value: string, text: string) {
 function qpdfDictionaryContainsText(value: string, key: string, text: string) {
     const stringValue = readQpdfDictionaryString(value, key);
     return stringValue !== null && qpdfStringTokenContainsText(stringValue, text);
+}
+
+async function readOrdinaryFreeTextLiveState(page: Page, expectedText: string): Promise<IOrdinaryFreeTextLiveState> {
+    await installWorkspaceExposeProbe(page);
+    return page.evaluate((text): IOrdinaryFreeTextLiveState => {
+        const normalize = (value: unknown) => typeof value === 'string'
+            ? value.replace(/[\u200B\uFEFF]/gu, '').trim()
+            : '';
+        const state = (window as IWorkspaceExposeProbeWindow).__evbTestApi
+            ?.readActiveWorkspaceStateValues<{annotationComments?: unknown[]}>(['annotationComments']);
+        const comments = state?.annotationComments;
+        if (!Array.isArray(comments)) {
+            throw new Error(`Ordinary FreeText probe read no canonical annotationComments projection: ${JSON.stringify(state ?? null)}`);
+        }
+        const expected = normalize(text);
+        const canonicalMatches = comments
+            .filter(comment => {
+                if (!comment || typeof comment !== 'object') {
+                    return false;
+                }
+                const record = comment as Record<string, unknown>;
+                return normalize(record.text) === expected
+                    && String(record.subtype ?? '').toLowerCase() === 'freetext';
+            })
+            .map(comment => {
+                const record = comment as Record<string, unknown>;
+                return {
+                    annotationId: typeof record.annotationId === 'string' ? record.annotationId : null,
+                    annotationName: typeof record.annotationName === 'string' ? record.annotationName : null,
+                    pageIndex: typeof record.pageIndex === 'number' ? record.pageIndex : null,
+                    pageNumber: typeof record.pageNumber === 'number' ? record.pageNumber : null,
+                    source: String(record.source ?? ''),
+                    stableKey: String(record.stableKey ?? ''),
+                    subtype: typeof record.subtype === 'string' ? record.subtype : null,
+                    text: typeof record.text === 'string' ? record.text : '',
+                };
+            });
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const editorMatchCount = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+        ) ?? [])
+            .filter(editor => normalize(editor.textContent) === expected)
+            .length;
+        // After a hard restart PDF.js renders persisted FreeText annotations
+        // in the annotation layer. It does not recreate a live editor until
+        // the FreeText tool is activated.
+        const visualMatchCount = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+        ) ?? [])
+            .filter(annotation => normalize(annotation.textContent) === expected)
+            .length;
+        const sidebarMatchCount = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.notes-list .note-item',
+        ) ?? [])
+            .filter(item => normalize(item.querySelector('.note-item-text')?.textContent ?? '').includes(expected))
+            .length;
+        return {
+            canonicalMatches,
+            editorMatchCount,
+            visualMatchCount,
+            sidebarMatchCount,
+        };
+    }, expectedText);
+}
+
+async function readOrdinaryFreeTextDomDiagnostics(page: Page) {
+    return page.evaluate(() => Array.from(document.querySelectorAll<HTMLElement>(
+        '.workspace-host, .workspace-hosts',
+    )).map((host, index) => ({
+        index,
+        id: host.id || null,
+        className: typeof host.className === 'string' ? host.className : null,
+        editors: Array.from(host.querySelectorAll<HTMLElement>('.freeTextEditor')).map(editor => ({
+            id: editor.id || null,
+            className: typeof editor.className === 'string' ? editor.className : null,
+            text: editor.textContent ?? '',
+            page: editor.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
+        })),
+        annotationElements: Array.from(host.querySelectorAll<HTMLElement>(
+            '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+        )).map(annotation => ({
+            className: typeof annotation.className === 'string' ? annotation.className : null,
+            text: annotation.textContent ?? '',
+            page: annotation.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
+        })),
+        sidebarItems: Array.from(host.querySelectorAll<HTMLElement>('.notes-list .note-item')).map(item => ({
+            className: typeof item.className === 'string' ? item.className : null,
+            text: item.textContent ?? '',
+            previewText: item.querySelector('.note-item-text')?.textContent ?? null,
+        })),
+    })));
+}
+
+async function clickSidebarDeleteForText(page: Page, expectedText: string) {
+    await page.waitForFunction((text: string) => {
+        const normalize = (value: unknown) => typeof value === 'string'
+            ? value.replace(/[\u200B\uFEFF]/gu, '').trim()
+            : '';
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = window.getComputedStyle(element);
+            return style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && Number(style.opacity || '1') > 0
+                && rect.width > 0
+                && rect.height > 0;
+        };
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const list = host?.querySelector<HTMLElement>('.notes-list') ?? null;
+        const items = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
+            .filter(isVisible);
+        const expected = normalize(text);
+        const matchingItem = items.find(item => (
+            normalize(item.querySelector('.note-item-text')?.textContent ?? '').includes(expected)
+        ));
+        if (matchingItem) {
+            return true;
+        }
+        if (list) {
+            const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+            if (maxScrollTop > 0) {
+                const nextScrollTop = list.scrollTop >= maxScrollTop
+                    ? 0
+                    : Math.min(maxScrollTop, list.scrollTop + Math.max(list.clientHeight, 1));
+                if (nextScrollTop !== list.scrollTop) {
+                    list.scrollTop = nextScrollTop;
+                    list.dispatchEvent(new Event('scroll', {bubbles: true}));
+                }
+            }
+        }
+        return false;
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, expectedText);
+    const result = await page.evaluate((text: string) => {
+        const normalize = (value: unknown) => typeof value === 'string'
+            ? value.replace(/[\u200B\uFEFF]/gu, '').trim()
+            : '';
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        const expected = normalize(text);
+        const item = Array.from(host?.querySelectorAll<HTMLElement>('.notes-list .note-item') ?? [])
+            .find(candidate => normalize(candidate.querySelector('.note-item-text')?.textContent ?? '').includes(expected));
+        const button = item?.querySelector<HTMLButtonElement>('.note-item-delete') ?? null;
+        if (!item || !button) {
+            return {
+                clicked: false,
+                itemText: item?.textContent ?? null,
+            };
+        }
+        button.click();
+        return {
+            clicked: true,
+            itemText: item.textContent ?? null,
+        };
+    }, expectedText);
+    if (!result.clicked) {
+        throw new Error(`Sidebar delete control was unavailable for ordinary FreeText: ${JSON.stringify(result)}`);
+    }
+}
+
+async function waitForOrdinaryFreeTextState(
+    page: Page,
+    expectedText: string,
+    expected: {
+        canonicalMatchCount: number;
+        editorMatchCount: number;
+        visualMatchCount: number;
+        sidebarMatchCount: number;
+    },
+) {
+    await expect.poll(async () => {
+        const state = await readOrdinaryFreeTextLiveState(page, expectedText);
+        return {
+            canonicalMatchCount: state.canonicalMatches.length,
+            editorMatchCount: state.editorMatchCount,
+            visualMatchCount: state.visualMatchCount,
+            sidebarMatchCount: state.sidebarMatchCount,
+        };
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual(expected);
+    return readOrdinaryFreeTextLiveState(page, expectedText);
+}
+
+async function readBoundedOrdinaryFreeTextMatches(
+    page: Page,
+    filePath: string,
+    expectedText: string,
+    expectedName?: string,
+    expectedPageIndex?: number,
+    indexPath = filePath,
+) {
+    const index = await readBoundedAnnotationIndex(page, indexPath);
+    const candidates = index.entries.filter(entry => (
+        entry.subtype === 'FreeText'
+        && (expectedPageIndex === undefined || entry.pageIndex === expectedPageIndex)
+    ));
+    const matches: Array<{
+        annotation: IPdfAnnotationIndexEntry;
+        annotationObject: string;
+    }> = [];
+    for (const annotation of candidates) {
+        const annotationObject = await readQpdfObject(filePath, annotation);
+        const hasExpectedText = qpdfDictionaryContainsText(annotationObject, 'Contents', expectedText);
+        const hasExpectedName = expectedName !== undefined
+            && qpdfDictionaryContainsText(annotationObject, 'NM', expectedName);
+        if (hasExpectedText || hasExpectedName) {
+            matches.push({
+                annotation,
+                annotationObject,
+            });
+        }
+    }
+    return matches;
 }
 
 async function verifyStickyNoteStructure(
@@ -2756,5 +2984,336 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const twiceSavedNotes = await readPdfNoteContents(fixturePath);
         expect(twiceSavedNotes.filter(note => note.contents === persistedText)).toHaveLength(1);
         expect(twiceSavedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
+    }, LARGE_PDF_TIMEOUT_MS);
+
+    it.runIf(runStickyRestartScenario)('deletes a persisted ordinary FreeText through the sidebar and keeps it absent after restart', async () => {
+        const initialSession = sessionFixture.getSession();
+        if (!initialSession) {
+            return;
+        }
+        const fixtureSourcePath = largePdfFixture.path;
+        if (!fixtureSourcePath) {
+            throw new Error(`Required large PDF fixture is unavailable: ${largePdfFixture.reason}`);
+        }
+        await admitExactZaliznyakFixture(fixtureSourcePath);
+        const initialProcesses = readSessionProcessSnapshot(initialSession.name);
+        const freshSession = await sessionFixture.restart({
+            clean: true,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!freshSession) {
+            throw new Error('Could not start a fresh Electron process for the FreeText sidebar-delete test');
+        }
+        await expectProcessesExited(initialProcesses.pids);
+        const freshProcesses = readSessionProcessSnapshot(freshSession.name);
+        expect(freshProcesses.rootPid).not.toBe(initialProcesses.rootPid);
+
+        const artifactRoot = process.env[LARGE_PDF_ARTIFACT_ROOT_ENV]?.trim() || tmpdir();
+        const restartArtifactDir = mkdtempSync(join(artifactRoot, '.evb-large-pdf-freetext-delete-'));
+        onTestFinished(() => rmSync(restartArtifactDir, {
+            force: true,
+            recursive: true,
+        }));
+        const fixturePath = join(restartArtifactDir, 'saved.pdf');
+        try {
+            copyFileSync(fixtureSourcePath, fixturePath, constants.COPYFILE_FICLONE);
+        } catch {
+            copyFileSync(fixtureSourcePath, fixturePath);
+        }
+        const fixtureRealPath = realpathSync(fixturePath);
+        const text = `large pdf sidebar delete ${Date.now()}`;
+
+        await openPdfInApp(freshSession.page, fixtureRealPath, LARGE_PDF_TIMEOUT_MS);
+        await waitForPdfLoaded(freshSession.page, LARGE_PDF_TIMEOUT_MS);
+        await waitForViewerInteractive(freshSession.page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        expect(await createFreeTextAnnotationWithPointer(
+            freshSession.page,
+            text,
+            {
+                x: 0.42,
+                y: 0.34,
+            },
+        )).toBeGreaterThan(0);
+        await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        let firstSaveEvent: Awaited<ReturnType<typeof saveViaVisibleToolbarWithDeadline>>;
+        try {
+            firstSaveEvent = await saveViaVisibleToolbarWithDeadline(
+                freshSession.page,
+                LARGE_PDF_SAVE_TIMEOUT_MS,
+                fixtureRealPath,
+                {
+                    label: 'large PDF ordinary FreeText sidebar-delete first save',
+                    onTimeout: () => freshSession.stop(),
+                    diagnostics: () => `phase=large-pdf-freetext-sidebar-delete-first-save session=${freshSession.name}`,
+                },
+            );
+        } catch (error) {
+            const liveState = await readOrdinaryFreeTextLiveState(freshSession.page, text)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(freshSession.page)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            throw new Error(`Ordinary FreeText first save failed: ${JSON.stringify({
+                liveState,
+                domDiagnostics,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        expect(realpathSync(String(firstSaveEvent.detail.path))).toBe(fixtureRealPath);
+        const firstSaveIdentity = await readDocumentSaveIdentity(freshSession.page);
+
+        let savedState: IOrdinaryFreeTextLiveState;
+        try {
+            savedState = await waitForOrdinaryFreeTextState(
+                freshSession.page,
+                text,
+                {
+                    // A newly authored PDF.js editor is not a persisted
+                    // canonical comment until the saved bytes are reopened.
+                    // The live editor remains visible, while the sidebar
+                    // projection is populated by the subsequent PDF scan.
+                    canonicalMatchCount: 0,
+                    editorMatchCount: 1,
+                    visualMatchCount: 0,
+                    sidebarMatchCount: 0,
+                },
+            );
+        } catch (error) {
+            const debugState = await collectLargePdfAnnotationDebugState(freshSession.page).catch(() => null);
+            const liveState = await readOrdinaryFreeTextLiveState(freshSession.page, text)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(freshSession.page)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            throw new Error(`Ordinary FreeText did not remain in the canonical/sidebar projection after save: ${JSON.stringify({
+                debugState,
+                liveState,
+                domDiagnostics,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        const firstPersistedMatches = await readBoundedOrdinaryFreeTextMatches(
+            freshSession.page,
+            fixtureRealPath,
+            text,
+            undefined,
+            undefined,
+            firstSaveIdentity.workingCopyPath,
+        );
+        expect(firstPersistedMatches, JSON.stringify({
+            savedState,
+            firstPersistedMatches,
+        })).toHaveLength(1);
+        const firstPersistedMatch = firstPersistedMatches[0];
+        if (!firstPersistedMatch) {
+            throw new Error('Saved ordinary FreeText was not present in the persisted PDF');
+        }
+        const targetPageIndex = firstPersistedMatch.annotation.pageIndex;
+        const targetPageNumber = targetPageIndex + 1;
+        const persistedName = undefined;
+
+        await waitForCrashCheckpointPath(freshSession.name, fixtureRealPath);
+        const firstRestartProcesses = readSessionProcessSnapshot(freshSession.name);
+        const reopenedSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!reopenedSession) {
+            throw new Error('First hard restart did not produce a new Electron process for the FreeText sidebar-delete test');
+        }
+        await expectProcessesExited(firstRestartProcesses.pids);
+        const reopenedProcesses = readSessionProcessSnapshot(reopenedSession.name);
+        expect(reopenedProcesses.rootPid).not.toBe(firstRestartProcesses.rootPid);
+        await waitForRestoredDocument(reopenedSession.page, fixtureRealPath);
+        await expectCleanAnnotationHydration(reopenedSession.page);
+        const reopenedSaveIdentity = await readDocumentSaveIdentity(reopenedSession.page);
+        await scrollViewerToPage(reopenedSession.page, targetPageNumber);
+        await openAnnotationsTab(reopenedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        let restoredState: IOrdinaryFreeTextLiveState;
+        try {
+            restoredState = await waitForOrdinaryFreeTextState(
+                reopenedSession.page,
+                text,
+                {
+                    canonicalMatchCount: 1,
+                    // A reopened persisted FreeText is a PDF.js annotation
+                    // layer element, not an editable FreeText editor.
+                    editorMatchCount: 0,
+                    visualMatchCount: 1,
+                    sidebarMatchCount: 1,
+                },
+            );
+        } catch (error) {
+            const debugState = await collectLargePdfAnnotationDebugState(reopenedSession.page).catch(() => null);
+            const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            throw new Error(`Ordinary FreeText did not rehydrate into the canonical/sidebar projection: ${JSON.stringify({
+                debugState,
+                liveState,
+                domDiagnostics,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        const restoredComment = restoredState.canonicalMatches[0];
+        expect(restoredComment, JSON.stringify(restoredState)).toMatchObject({
+            annotationName: persistedName ?? expect.any(String),
+            source: 'pdf',
+            subtype: 'FreeText',
+            text,
+        });
+
+        try {
+            await clickSidebarDeleteForText(reopenedSession.page, text);
+        } catch (error) {
+            const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            throw new Error(`Ordinary FreeText sidebar delete control was not found: ${JSON.stringify({
+                liveState,
+                domDiagnostics,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        let deletedState: IOrdinaryFreeTextLiveState;
+        try {
+            deletedState = await waitForOrdinaryFreeTextState(
+                reopenedSession.page,
+                text,
+                {
+                    canonicalMatchCount: 0,
+                    editorMatchCount: 0,
+                    visualMatchCount: 0,
+                    sidebarMatchCount: 0,
+                },
+            );
+        } catch (error) {
+            const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
+                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+            throw new Error(`Ordinary FreeText did not disappear from the annotation layer/canonical/sidebar projection: ${JSON.stringify({
+                liveState,
+                domDiagnostics,
+                cause: error instanceof Error ? error.message : String(error),
+            })}`);
+        }
+        expect(deletedState.canonicalMatches).toHaveLength(0);
+        expect(deletedState.editorMatchCount).toBe(0);
+        expect(deletedState.visualMatchCount).toBe(0);
+        expect(deletedState.sidebarMatchCount).toBe(0);
+
+        await expect.poll(async () => {
+            const state = await readWorkspaceStateValues<Record<string, unknown>>(
+                reopenedSession.page,
+                ['dirtyState'],
+            );
+            const dirty = state.dirtyState;
+            return dirty !== null
+                && typeof dirty === 'object'
+                && (dirty as Record<string, unknown>).annotationDirty === true
+                && (dirty as Record<string, unknown>).hasAnnotationChanges === true;
+        }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+
+        // Sidebar deletion is a live edit. The durable file must still contain
+        // the annotation until the subsequent visible save commits it.
+        const beforeDeleteSaveMatches = await readBoundedOrdinaryFreeTextMatches(
+            reopenedSession.page,
+            fixtureRealPath,
+            text,
+            persistedName,
+            targetPageIndex,
+            reopenedSaveIdentity.workingCopyPath,
+        );
+        expect(beforeDeleteSaveMatches, JSON.stringify({
+            beforeDeleteSaveMatches,
+            persistedName,
+            targetPageIndex,
+        })).toHaveLength(1);
+
+        await waitForSaveFrontierReady(reopenedSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        const deleteSaveEvent = await saveViaVisibleToolbarWithDeadline(
+            reopenedSession.page,
+            LARGE_PDF_SAVE_TIMEOUT_MS,
+            fixtureRealPath,
+            {
+                label: 'large PDF ordinary FreeText sidebar-delete second save',
+                onTimeout: () => reopenedSession.stop(),
+                diagnostics: () => `phase=large-pdf-freetext-sidebar-delete-second-save session=${reopenedSession.name}`,
+            },
+        );
+        expect(realpathSync(String(deleteSaveEvent.detail.path))).toBe(fixtureRealPath);
+        await new Promise(resolve => setTimeout(resolve, 750));
+        const visibleToasts = await reopenedSession.page.evaluate(() => Array.from(document.querySelectorAll('.app-toast'))
+            .filter((element) => {
+                const style = window.getComputedStyle(element);
+                return style.display !== 'none' && style.visibility !== 'hidden';
+            })
+            .map(element => element.textContent ?? ''));
+        expect(visibleToasts.some(text => text.includes('Failed to save file')), JSON.stringify({visibleToasts}))
+            .toBe(false);
+        await qpdfCheck(fixtureRealPath);
+        const deletedPersistedMatches = await readBoundedOrdinaryFreeTextMatches(
+            reopenedSession.page,
+            fixtureRealPath,
+            text,
+            persistedName,
+            targetPageIndex,
+            reopenedSaveIdentity.workingCopyPath,
+        );
+        expect(deletedPersistedMatches, JSON.stringify({
+            deletedPersistedMatches,
+            persistedName,
+            targetPageIndex,
+        })).toHaveLength(0);
+
+        await waitForCrashCheckpointPath(reopenedSession.name, fixtureRealPath);
+        const secondRestartProcesses = readSessionProcessSnapshot(reopenedSession.name);
+        const finalSession = await sessionFixture.restart({
+            clean: false,
+            hard: true,
+            keepNuxt: true,
+        });
+        if (!finalSession) {
+            throw new Error('Second hard restart did not produce a new Electron process for the FreeText sidebar-delete test');
+        }
+        await expectProcessesExited(secondRestartProcesses.pids);
+        const finalProcesses = readSessionProcessSnapshot(finalSession.name);
+        expect(finalProcesses.rootPid).not.toBe(secondRestartProcesses.rootPid);
+        await waitForRestoredDocument(finalSession.page, fixtureRealPath);
+        await expectCleanAnnotationHydration(finalSession.page);
+        const finalSaveIdentity = await readDocumentSaveIdentity(finalSession.page);
+        await scrollViewerToPage(finalSession.page, targetPageNumber);
+        await openAnnotationsTab(finalSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
+        const finalState = await waitForOrdinaryFreeTextState(
+            finalSession.page,
+            text,
+            {
+                canonicalMatchCount: 0,
+                editorMatchCount: 0,
+                visualMatchCount: 0,
+                sidebarMatchCount: 0,
+            },
+        );
+        expect(finalState.canonicalMatches).toHaveLength(0);
+        expect(finalState.editorMatchCount).toBe(0);
+        expect(finalState.visualMatchCount).toBe(0);
+        expect(finalState.sidebarMatchCount).toBe(0);
+        const finalPersistedMatches = await readBoundedOrdinaryFreeTextMatches(
+            finalSession.page,
+            fixtureRealPath,
+            text,
+            persistedName,
+            targetPageIndex,
+            finalSaveIdentity.workingCopyPath,
+        );
+        expect(finalPersistedMatches, JSON.stringify({
+            finalPersistedMatches,
+            persistedName,
+            targetPageIndex,
+        })).toHaveLength(0);
     }, LARGE_PDF_TIMEOUT_MS);
 });
