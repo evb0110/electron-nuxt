@@ -50,7 +50,10 @@ vi.mock('@electron/utils/pathValidator', () => ({
     resolveAllowedWritePath: mocks.resolveAllowedWritePath,
 }));
 vi.mock('@electron/file-access/workingCopyCreation', () => ({requireManagedWorkingCopyPath: (path: string) => mocks.requireManagedWorkingCopyPath(path)}));
-vi.mock('@electron/file-access/workingCopyStore', () => ({getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry}));
+vi.mock('@electron/file-access/workingCopyStore', async () => ({
+    ...await vi.importActual<Record<string, unknown>>('@electron/file-access/workingCopyStore'),
+    getWorkingCopyBackingEntry: mocks.getWorkingCopyBackingEntry,
+}));
 vi.mock('@electron/file-access/runWithWorkingCopyReadBacking', () => ({runWithWorkingCopyReadBacking: (...args: unknown[]) => mocks.runWithWorkingCopyReadBacking(...args)}));
 vi.mock('@electron/file-access/workingCopyMaterialization', () => {
     class WorkingCopyMaterializationError extends Error {
