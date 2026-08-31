@@ -1,0 +1,39 @@
+electron/recentFiles.ts
+  s_eb7ba9db0ef355::t_ea4540d9677d6b 213,218-219
+  s_eb7ba9db0ef355::t_072646aca2ddbc 96-104,195,214,222,237
+  s_7fe07412ad5143::t_406bd7bd3a6afb 220
+electron/ocr/worker/tesseractRunner.ts
+  s_eb7ba9db0ef355::t_bbf8a1986e5557 9-12,79,81
+packages/contracts/agentOcr.ts
+  s_eb7ba9db0ef355::t_bbf8a1986e5557 43-45,47
+electron/workspaceCheckpointStore.ts
+  s_eb7ba9db0ef355::t_599fa38a33b42e 743-745,749-751,753
+app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint.ts
+  s_eb7ba9db0ef355::t_702e59dd4987cb 37,60,92-96,102-104,113-115,117
+electron/ocr/contracts.ts
+  s_eb7ba9db0ef355::t_bbf8a1986e5557 15-18,244,246
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "68cfe4d5879c5f84feb5c228d94cf5402ae2a72b",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
