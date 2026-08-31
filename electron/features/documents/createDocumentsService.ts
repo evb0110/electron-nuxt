@@ -59,6 +59,7 @@ import {
 } from '@electron/features/documents/main/documentPdfValidationHandlers';
 import { handleCleanupOcrTemp } from '@electron/features/documents/main/handleCleanupOcrTemp';
 import {
+    handleCancelPdfPrint,
     handleOpenPdfInDefaultAppData,
     handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
@@ -318,6 +319,7 @@ export function createDocumentsService(): IDocumentsService {
         openPdfInDefaultAppPath: (...args: TDocumentsServiceArgs<'openPdfInDefaultAppPath'>) =>
             handleOpenPdfInDefaultAppPath(...args),
         printPdfData: (...args: TDocumentsServiceArgs<'printPdfData'>) => handlePrintPdfData(...args),
+        cancelPdfPrint: (...args: TDocumentsServiceArgs<'cancelPdfPrint'>) => handleCancelPdfPrint(...args),
         printPdfPath: (...args: TDocumentsServiceArgs<'printPdfPath'>) => handlePrintPdfPath(...args),
         writeFile: (...args: TDocumentsServiceArgs<'writeFile'>) => handleFileWrite(...args),
         replaceWorkingCopyFromPath: (...args: TDocumentsServiceArgs<'replaceWorkingCopyFromPath'>) =>

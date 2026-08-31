@@ -1,4 +1,5 @@
 import type {
+    IPdfDataPrintOptions,
     IPdfNativePrintDialogOpenedEvent,
     IPdfPathPrintOptions,
 } from '@contracts/electronApiDocuments';
@@ -60,6 +61,27 @@ export function decodeOptionalPdfPathPrintOptions(
     return value === undefined || value === null
         ? undefined
         : decodePdfPathPrintOptions(value, label);
+}
+
+export function decodePdfDataPrintOptions(
+    value: unknown,
+    label: string,
+): IPdfDataPrintOptions {
+    if (!isRecord(value)) {
+        throw new TypeError(`${label} must be an object`);
+    }
+    return value.requestId === undefined
+        ? {}
+        : {requestId: decodePdfPrintRequestId(value.requestId, `${label}.requestId`)};
+}
+
+export function decodeOptionalPdfDataPrintOptions(
+    value: unknown,
+    label: string,
+): IPdfDataPrintOptions | undefined {
+    return value === undefined || value === null
+        ? undefined
+        : decodePdfDataPrintOptions(value, label);
 }
 
 export function decodePdfNativePrintDialogOpenedEvent(

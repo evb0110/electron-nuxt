@@ -11,6 +11,7 @@ import type {
     IDocumentsWindowCapability,
     IDocumentChunkReadOptions,
     IPdfAnnotationIndexChunkOptions,
+    IPdfDataPrintOptions,
     IWorkingCopyBackingStatus,
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
@@ -20,7 +21,10 @@ import type {
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
-import {decodeOptionalPdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
+import {
+    decodeOptionalPdfDataPrintOptions,
+    decodeOptionalPdfPathPrintOptions,
+} from '@contracts/pdfPathPrintOptions';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
@@ -81,9 +85,9 @@ import {
     assertAbsolutePath,
     assertNonEmptyString,
     assertOptionalAbsolutePath,
+    assertOptionalFileName,
     assertWorkingCopyFileName,
     assertWriteData,
-    MAX_IPC_FILE_NAME_LENGTH,
 } from '@electron/features/documents/preloadShared';
 type TDocumentsPreloadFileClient = Omit<
     IDocumentsFileCapability,
@@ -979,9 +983,7 @@ export function createDocumentsPreloadFileClient(
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.validatePdfData,
                 assertWriteData(data, 'validatePdfData.data'),
-                typeof fileName === 'string'
-                    ? assertNonEmptyString(fileName, 'validatePdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
-                    : undefined,
+                assertOptionalFileName(fileName, 'validatePdfData.fileName'),
             ),
         validatePdfPath: (path, options) =>
             invokePdf(
@@ -993,33 +995,30 @@ export function createDocumentsPreloadFileClient(
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
                 assertWriteData(data, 'openPdfInDefaultAppData.data'),
-                typeof fileName === 'string'
-                    ? assertNonEmptyString(fileName, 'openPdfInDefaultAppData.fileName', MAX_IPC_FILE_NAME_LENGTH)
-                    : undefined,
+                assertOptionalFileName(fileName, 'openPdfInDefaultAppData.fileName'),
             ),
         openPdfInDefaultAppPath: (path, fileName?: string) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
                 assertAbsolutePath(path, 'openPdfInDefaultAppPath.path'),
-                typeof fileName === 'string'
-                    ? assertNonEmptyString(fileName, 'openPdfInDefaultAppPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
-                    : undefined,
+                assertOptionalFileName(fileName, 'openPdfInDefaultAppPath.fileName'),
             ),
-        printPdfData: (data, fileName?: string) =>
+        printPdfData: (data, fileName?: string, options?: IPdfDataPrintOptions) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
                 assertWriteData(data, 'printPdfData.data'),
-                typeof fileName === 'string'
-                    ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
-                    : undefined,
+                assertOptionalFileName(fileName, 'printPdfData.fileName'),
+                decodeOptionalPdfDataPrintOptions(options, 'printPdfData.options'),
             ),
+        cancelPdfPrint: requestId => invokePdf(
+            DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
+            assertNonEmptyString(requestId, 'cancelPdfPrint.requestId', 128),
+        ),
         printPdfPath: (path, fileName?: string, options?: IPdfPathPrintOptions) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
                 assertAbsolutePath(path, 'printPdfPath.path'),
-                typeof fileName === 'string'
-                    ? assertNonEmptyString(fileName, 'printPdfPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
-                    : undefined,
+                assertOptionalFileName(fileName, 'printPdfPath.fileName'),
                 decodeOptionalPdfPathPrintOptions(options, 'printPdfPath.options'),
             ),
         writeFile: (path, data, options) =>

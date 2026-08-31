@@ -56,6 +56,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
 import { pdfRegionSnipKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 interface IProps {
@@ -117,56 +118,12 @@ function cancelSelection() {
     emit('cancel');
 }
 
-let previouslyFocusedElement: HTMLElement | null = null;
-
-function focusOverlay() {
-    if (typeof document !== 'undefined') {
-        const activeElement = document.activeElement;
-        if (activeElement instanceof HTMLElement && activeElement !== overlayRef.value) {
-            previouslyFocusedElement = activeElement;
-        }
-    }
-    void nextTick(() => overlayRef.value?.focus({preventScroll: true}));
-}
-
-function restoreFocus() {
-    const element = previouslyFocusedElement;
-    previouslyFocusedElement = null;
-    if (element?.isConnected) {
-        void nextTick(() => element.focus({preventScroll: true}));
-    }
-}
-
-function handleKeyboardKey(event: KeyboardEvent) {
-    if (!active) {
-        return;
-    }
-    if (event.key === 'Tab') {
-        event.preventDefault();
-        overlayRef.value?.focus({preventScroll: true});
-        return;
-    }
-    if (keyboardController?.handleKeyboardKey(event)) {
-        return;
-    }
-    if (event.key === 'Escape') {
-        event.preventDefault();
-        cancelSelection();
-    }
-}
-
-watch(() => active, (isActive) => {
-    if (isActive) {
-        focusOverlay();
-    } else {
-        restoreFocus();
-    }
-}, {
-    flush: 'post',
-    immediate: true,
+const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
+    isActive: () => active,
+    overlayRef,
+    keyboardController,
+    onCancel: cancelSelection,
 });
-
-onBeforeUnmount(restoreFocus);
 </script>
 
 <style scoped>

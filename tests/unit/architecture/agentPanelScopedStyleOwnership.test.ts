@@ -18,6 +18,7 @@ const PANEL_STYLESHEETS = [
 ];
 
 const CLASS_SELECTOR_PATTERN = /\.([A-Za-z][\w-]*)/gu;
+const STYLE_SOURCE_PATTERN = /<style\b[^>]*\bsrc="\.\/(?<file>[A-Za-z][\w.-]*\.css)"[^>]*>/gu;
 // Static class attributes only. A `:class` binding is an expression, not a list
 // of names, and its tokens are checked where the expression is written.
 const CLASS_ATTRIBUTE_PATTERN = /\sclass="([^"]*)"/gu;
@@ -39,8 +40,15 @@ function collectTemplateClasses(source: string) {
     return used;
 }
 
-function collectOwnStyleClasses(source: string) {
-    return collectClassNames(source.split('<style').slice(1).join('<style'));
+async function collectOwnStyleClasses(source: string) {
+    const referencedStylesheets = [...source.matchAll(STYLE_SOURCE_PATTERN)]
+        .map(match => match.groups!.file!);
+    const externalCss = await Promise.all(referencedStylesheets
+        .map(file => readFile(join(COMPONENTS_DIR, file), 'utf8')));
+    return collectClassNames([
+        source.split('<style').slice(1).join('<style'),
+        ...externalCss,
+    ].join('\n'));
 }
 
 /**
@@ -79,7 +87,7 @@ describe('agent panel scoped style ownership', () => {
         const unstyled: Record<string, string[]> = {};
         for (const file of childComponents) {
             const source = await readFile(join(COMPONENTS_DIR, file), 'utf8');
-            const ownClasses = collectOwnStyleClasses(source);
+            const ownClasses = await collectOwnStyleClasses(source);
             const missing = [...collectTemplateClasses(source)]
                 .filter(token => !ownClasses.has(token) && !globalClasses.has(token))
                 .map(token => (panelClasses.has(token)

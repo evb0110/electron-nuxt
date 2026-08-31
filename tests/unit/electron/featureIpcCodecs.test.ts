@@ -101,6 +101,32 @@ describe('feature IPC codec maps', () => {
         ])).toThrow('options.orientation is invalid');
     });
 
+    it('preserves native data print handoff options when the filename is omitted', () => {
+        const data = Uint8Array.of(1, 2, 3);
+        const options = {requestId: 'print-data-request-1'};
+        const codec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintData];
+
+        expect(codec.decodeArgs([
+            data,
+            undefined,
+            options,
+        ])).toEqual([
+            data,
+            undefined,
+            options,
+        ]);
+        expect(() => codec.decodeArgs([
+            data,
+            'document.pdf',
+            {requestId: ''},
+        ])).toThrow('options.requestId must be a non-empty bounded string');
+
+        const cancelCodec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintCancel];
+        expect(cancelCodec.decodeArgs(['print-data-request-1'])).toEqual(['print-data-request-1']);
+        expect(cancelCodec.decodeResult({canceled: true})).toEqual({canceled: true});
+        expect(() => cancelCodec.decodeArgs([])).toThrow('expected 1 arguments');
+    });
+
     it('validates native print-dialog handoff events', () => {
         const event = DOCUMENT_PDF_PLATFORM_FEATURE.events.onNativePrintDialogOpened;
 

@@ -32,6 +32,7 @@ import type {
     IPdfAnnotationIndexChunkOptions,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
+    IPdfDataPrintOptions,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexOptions,
@@ -215,11 +216,15 @@ export interface IDocumentsService {
         success: boolean;
         error?: string;
     }>;
-    printPdfData: (context: IDocumentsWindowContext, data: Uint8Array, fileName?: string) => Promise<{
+    printPdfData: (context: IDocumentsWindowContext, data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
     }>;
+    cancelPdfPrint: (
+        context: IDocumentsSenderIdContext,
+        requestId: string,
+    ) => Promise<{canceled: boolean}>;
     printPdfPath: (context: IDocumentsWindowContext, filePath: string, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;

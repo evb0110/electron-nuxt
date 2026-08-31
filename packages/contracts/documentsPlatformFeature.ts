@@ -18,8 +18,8 @@ import {
     booleanResult,
     bytesResult,
     cancelOpenBatchArgs,
-    cancelPagePreviewArgs,
-    cancelPagePreviewResult,
+    cancellationResult,
+    cancelRequestArgs,
     cloneStagedNativeMutationArgs,
     commitNativeMutationsArgs,
     createWorkingCopyFromDataArgs,
@@ -63,6 +63,7 @@ import {
     pathArgs,
     pdfDataArgs,
     pdfPathArgs,
+    printPdfDataArgs,
     printPdfPathArgs,
     readFileArgs,
     readFileRangeArgs,
@@ -438,8 +439,8 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         },
         cancelPdfNativePagePreview: {
             ...defineIpcMethod(
-                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelPagePreviewArgs,
-                cancelPagePreviewResult, 'cancelPdfNativePagePreview', 'sender',
+                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelRequestArgs,
+                cancellationResult, 'cancelPdfNativePagePreview', 'sender',
             ),
             ...electronImplementedOptional,
         },
@@ -800,10 +801,17 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
             'openPdfInDefaultAppPath', 'sender',
         ),
         printPdfData: defineIpcMethod(
-            'printPdfData', 'pdf:printData', pdfDataArgs,
+            'printPdfData', 'pdf:printData', printPdfDataArgs,
             s.fromParser(decodePrintResult, () => ({success: true})),
             'printPdfData', 'sender',
         ),
+        cancelPdfPrint: {
+            ...defineIpcMethod(
+                'cancelPdfPrint', 'pdf:print:cancel', cancelRequestArgs,
+                cancellationResult, 'cancelPdfPrint', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
         printPdfPath: defineIpcMethod(
             'printPdfPath', 'pdf:printPath', printPdfPathArgs,
             s.fromParser(decodePrintResult, () => ({success: true})),

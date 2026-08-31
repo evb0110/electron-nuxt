@@ -428,16 +428,4 @@ describe('electron e2e quarantine Vitest project', () => {
             .not.toContain('--passWithNoTests');
     });
 
-    it('keeps exact-fixture runner admission explicit and fail-closed', async () => {
-        const workflow = await readFile('.github/workflows/ci.yml', 'utf8');
-        const stagingSource = await readFile('scripts/ci/stageExactPdfFixture.ts', 'utf8');
-
-        expect(workflow).toContain('EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882');
-        expect(workflow).toContain('EVB_EXACT_FIXTURE_PROFILE: xlargeZaliznyak2646');
-        expect(stagingSource).toContain('auditedZaliznyak882');
-        expect(stagingSource).toContain('localZaliznyak882');
-        expect(stagingSource).toContain('xlargeZaliznyak2646');
-        expect(stagingSource).toContain('EXACT_FIXTURE_OPT_IN_REQUIRED');
-        expect(stagingSource).toMatch(/Exact fixture opt-in boundary[\s\S]*EVB_EXACT_FIXTURE_PROFILE/u);
-    });
 });

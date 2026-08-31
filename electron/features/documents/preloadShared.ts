@@ -32,11 +32,17 @@ function assertWorkingCopyFileName(value: unknown, fieldName: string) {
     return normalized;
 }
 
+function assertOptionalFileName(value: unknown, fieldName: string) {
+    return typeof value === 'string'
+        ? assertNonEmptyString(value, fieldName, MAX_IPC_FILE_NAME_LENGTH)
+        : undefined;
+}
+
 export {
-    MAX_IPC_FILE_NAME_LENGTH,
     assertAbsolutePath,
     assertNonEmptyString,
     assertOptionalAbsolutePath,
+    assertOptionalFileName,
     assertWriteData,
     assertWorkingCopyFileName,
 };

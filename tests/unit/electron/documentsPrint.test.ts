@@ -196,6 +196,7 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 }) }));
 
 const {
+    handleCancelPdfPrint,
     handleOpenPdfInDefaultAppData,
     handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
@@ -335,6 +336,7 @@ describe('documents print', () => {
         expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith(sourcePdfPath, {
             ownerWebContentsId: senderId,
             reason: 'print-external',
+            signal: expect.any(AbortSignal),
         });
         expect(mocks.browserWindowInstances).toHaveLength(1);
         expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({
@@ -713,10 +715,15 @@ describe('documents print', () => {
 
     it('writes temporary PDF bytes before opening the native print dialog', async () => {
         vi.useFakeTimers();
+        const onNativePrintDialogOpened = vi.fn();
         const resultPromise = handlePrintPdfData(
-            windowContext,
+            {
+                ...windowContext,
+                onNativePrintDialogOpened,
+            },
             validPdfBytes,
             'document.pdf',
+            {requestId: 'print-data-request'},
         );
         const result = await settleNativePrint(resultPromise);
 
@@ -726,12 +733,40 @@ describe('documents print', () => {
             Buffer.from(validPdfBytes),
         );
         expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: 'document'}));
+        expect(onNativePrintDialogOpened).toHaveBeenCalledOnce();
+        expect(onNativePrintDialogOpened).toHaveBeenCalledWith('print-data-request');
         expect(mocks.unlink).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
         expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
+    });
+
+    it('cancels a data print before opening the native dialog', async () => {
+        const write = Promise.withResolvers<undefined>();
+        mocks.writeFile.mockImplementationOnce(() => write.promise);
+        const printPromise = handlePrintPdfData(
+            windowContext,
+            validPdfBytes,
+            'document.pdf',
+            {requestId: 'cancel-data-print'},
+        );
+        await vi.waitFor(() => expect(mocks.writeFile).toHaveBeenCalledOnce());
+
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-data-print',
+        )).resolves.toEqual({canceled: true});
+        write.resolve(undefined);
+
+        await expect(printPromise).rejects.toMatchObject({message: 'PDF print canceled'});
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-data-print',
+        )).resolves.toEqual({canceled: false});
     });
 
     it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
@@ -808,6 +843,40 @@ describe('documents print', () => {
         await expect(printPromise).rejects.toMatchObject({message: 'Renderer lifecycle ended'});
         expect(mocks.extractPages).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances).toHaveLength(0);
+    });
+
+    it('cancels a direct path print by its sender-scoped request ID', async () => {
+        const materialization = Promise.withResolvers<undefined>();
+        mocks.ensureWorkingCopyMaterialized.mockImplementationOnce(async (path: string, options: {signal?: AbortSignal}) => {
+            await materialization.promise;
+            options.signal?.throwIfAborted();
+            return {
+                logicalRef: path,
+                physicalWorkingCopyPath: path,
+                sourceFingerprint: '',
+            };
+        });
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+            {
+                viewMode: 'single',
+                orientation: 'auto',
+                requestId: 'cancel-path-print',
+            },
+        );
+        await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
+
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-path-print',
+        )).resolves.toEqual({canceled: true});
+        materialization.resolve(undefined);
+
+        await expect(printPromise).rejects.toMatchObject({message: 'PDF print canceled'});
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.cancelNativeCommandGroup).not.toHaveBeenCalled();
     });
 
     it('cancels selected-page extraction when the renderer ends during qpdf work', async () => {

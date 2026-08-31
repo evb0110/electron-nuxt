@@ -66,6 +66,7 @@ export const DOCUMENTS_CHANNELS = {
     pdfOpenInDefaultAppData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
     pdfOpenInDefaultAppPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
     pdfPrintData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
+    pdfPrintCancel: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
     pdfPrintPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
     fileWrite: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
     fileReplaceWorkingCopyFromPath: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,

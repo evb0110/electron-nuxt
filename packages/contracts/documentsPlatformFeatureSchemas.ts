@@ -45,7 +45,10 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type { TPlatformUnsupportedReason } from '@contracts/platformUnsupported';
-import {decodePdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
+import {
+    decodePdfDataPrintOptions,
+    decodePdfPathPrintOptions,
+} from '@contracts/pdfPathPrintOptions';
 import {runtimeSchema as s} from '@contracts/platformFeature';
 import {
     isFiniteNumber,
@@ -224,27 +227,23 @@ function decodeArgumentArray(value: unknown, minLength: number, maxLength = minL
     }
     return value as unknown[];
 }
-
 function decodeStringValue(value: unknown, fieldName: string) {
     if (typeof value !== 'string') {
         fail(`${fieldName} must be a string`);
     }
     return value;
 }
-
 function decodeOptionalStringValue(value: unknown, fieldName: string) {
     return value === undefined || value === null
         ? undefined
         : decodeStringValue(value, fieldName);
 }
-
 function decodeStringArrayValue(value: unknown, fieldName: string) {
     if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
         fail(`${fieldName} must be an array of strings`);
     }
     return value as string[];
 }
-
 function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
     const decoded = decodeRequiredObject<IPdfOptimizeOptions>(value, 'optimizeOptions');
     if (!isPdfOptimizePreset(decoded.preset)) {
@@ -654,7 +653,7 @@ const pageSizesArgs = documentArgs<'getPdfNativePageSizes'>(
     value => decodeSingleStringArgs<'getPdfNativePageSizes'>(value, 'path'),
     () => ['/tmp/document.pdf'],
 );
-const cancelPagePreviewArgs = documentArgs<'cancelPdfNativePagePreview'>(
+const cancelRequestArgs = documentArgs<'cancelPdfNativePagePreview'>(
     value => decodeSingleStringArgs<'cancelPdfNativePagePreview'>(value, 'requestId'),
     () => ['preview-1'],
 );
@@ -930,6 +929,23 @@ const pdfDataArgs = documentArgs<'validatePdfData'>(
     },
     () => [Uint8Array.of(1)],
 );
+const printPdfDataArgs = documentArgs<'printPdfData'>(
+    (value) => {
+        const args = decodeArgumentArray(value, 1, 3);
+        const data = decodeUint8ArrayValue(args[0], 'data');
+        const fileName = decodeOptionalStringValue(args[1], 'fileName');
+        if (args[2] === undefined) {
+            return appendOptional([data], fileName);
+        }
+        const options = decodePdfDataPrintOptions(args[2], 'options');
+        return [
+            data,
+            fileName,
+            options,
+        ];
+    },
+    () => [Uint8Array.of(1)],
+);
 const pdfPathArgs = documentArgs<'analyzePdfConformance'>(
     value => {
         const args = decodeArgumentArray(value, 1, 2);
@@ -1033,7 +1049,7 @@ const pageSizesResult = documentResult<'getPdfNativePageSizes'>(
         height: 792,
     }],
 );
-const cancelPagePreviewResult = documentResult<'cancelPdfNativePagePreview'>(
+const cancellationResult = documentResult<'cancelPdfNativePagePreview'>(
     (value) => {
         if (!isRecord(value) || typeof value.canceled !== 'boolean') {
             fail('invalid preview cancellation result');
@@ -1104,8 +1120,8 @@ export {
     booleanResult,
     bytesResult,
     cancelOpenBatchArgs,
-    cancelPagePreviewArgs,
-    cancelPagePreviewResult,
+    cancellationResult,
+    cancelRequestArgs,
     commitNativeMutationsArgs,
     cloneStagedNativeMutationArgs,
     createWorkingCopyFromDataArgs,
@@ -1154,6 +1170,7 @@ export {
     pathArgs,
     pdfDataArgs,
     pdfPathArgs,
+    printPdfDataArgs,
     printPdfPathArgs,
     readFileArgs,
     readFileRangeArgs,

@@ -553,6 +553,9 @@ export function createElectronApi(
         openPdfInDefaultAppData: baseDocuments.openPdfInDefaultAppData,
         openPdfInDefaultAppPath: baseDocuments.openPdfInDefaultAppPath,
         printPdfData: baseDocuments.printPdfData,
+        ...(baseDocuments.cancelPdfPrint
+            ? {cancelPdfPrint: baseDocuments.cancelPdfPrint}
+            : {}),
         printPdfPath: baseDocuments.printPdfPath,
         ...(baseDocuments.onNativePrintDialogOpened
             ? {onNativePrintDialogOpened: baseDocuments.onNativePrintDialogOpened}

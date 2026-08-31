@@ -214,6 +214,38 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
     });
 
+    it('validates and forwards native data print handoff options', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => channel === DOCUMENTS_CHANNELS.pdfPrintCancel
+                ? {canceled: true}
+                : {success: true}),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const data = Uint8Array.of(1, 2, 3);
+        const options = {requestId: 'print-data-request-1'};
+
+        await expect(client.printPdfData(data, 'document.pdf', options))
+            .resolves.toEqual({success: true});
+        await expect(client.cancelPdfPrint?.(' print-data-request-1 '))
+            .resolves.toEqual({canceled: true});
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfPrintData,
+            data,
+            'document.pdf',
+            options,
+        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfPrintCancel,
+            'print-data-request-1',
+        );
+        expect(() => client.printPdfData(data, 'document.pdf', {requestId: ''}))
+            .toThrow('printPdfData.options.requestId must be a non-empty bounded string');
+        expect(() => client.cancelPdfPrint?.(''))
+            .toThrow('cancelPdfPrint.requestId must not be empty');
+        expect(ipcRenderer.invoke).toHaveBeenCalledTimes(2);
+    });
+
     it('drops malformed native print-dialog events and removes the subscribed listener', () => {
         const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
         const ipcRenderer = {

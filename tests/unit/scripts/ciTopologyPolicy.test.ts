@@ -34,6 +34,7 @@ type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'in
 
 interface IWorkflowStep {
     'continue-on-error'?: boolean;
+    env?: Record<string, unknown>;
     id?: string;
     if?: string;
     name?: string;
@@ -607,6 +608,7 @@ describe('CI topology policy', () => {
 
     it('keeps expensive PR and release-push checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const jobs = parseWorkflowJobs(workflow);
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
@@ -632,23 +634,22 @@ describe('CI topology policy', () => {
         const nativePdfIntegration = workflowJob(workflow, 'pr_native_pdf_integration');
         expect(nativePdfIntegration).toContain('run: pnpm run build:pdf-page-ops');
         expect(nativePdfIntegration).toContain('run: pnpm exec vitest run --project native-integration');
-        const xlargeAcceptance = workflowJob(workflow, 'pr_xlarge_pdf_acceptance');
-        expect(xlargeAcceptance).toContain('EVB_XLARGE_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-large-2646-pages.pdf');
-        expect(xlargeAcceptance).toContain('EVB_EXACT_FIXTURE_PROFILE: xlargeZaliznyak2646');
-        expect(xlargeAcceptance).toContain('EVB_E2E_XLARGE_PDF_FIXTURE');
-        expect(xlargeAcceptance).toContain('xlargeDocumentAcceptance.e2e.test.ts');
-        expect(xlargeAcceptance).toContain('runs-on: ubuntu-latest');
-        const exactFixture = workflowJob(workflow, 'pr_exact_fixture_save');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-small-882-pages.pdf');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_MAX_BYTES');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_TIMEOUT_MS');
-        expect(exactFixture).toContain('environment: exact-pdf-fixtures');
-        expect(exactFixture).toContain('scripts/ci/stageExactPdfFixture.ts');
-        expect(exactFixture).toContain('EVB_E2E_REQUIRE_EXACT_ZALIZNYAK');
-        expect(exactFixture).toContain('largePdfAnnotationSave.e2e.test.ts');
-        expect(exactFixture).not.toContain('$GITHUB_OUTPUT');
-        expect(exactFixture).not.toContain('continue-on-error: true');
+        expect(Object.keys(jobs)).not.toEqual(expect.arrayContaining([
+            'pr_xlarge_pdf_acceptance',
+            'pr_exact_fixture_save',
+        ]));
+        const requiredJobs = requiredPrPushJobs(jobs);
+        expect(JSON.stringify([...requiredJobs].map(jobName => jobs[jobName]))).not.toMatch(
+            /fixture|ovh|cloud\/files|xlarge/iu,
+        );
+        const parsedJobConfiguration = JSON.stringify(jobs);
+        expect(parsedJobConfiguration).not.toMatch(
+            /exact-pdf-fixtures|ovh\.net|\/api\/cloud\/files|xlargeZaliznyak2646/iu,
+        );
+        const manualLargePdfStep = jobs.nightly_electron_e2e_large_pdf?.steps
+            ?.find(step => step.run === 'pnpm run test:e2e:electron:large');
+        expect(manualLargePdfStep?.env).toEqual({EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882'});
+        expect(manualLargePdfStep?.env?.EVB_EXACT_FIXTURE_PROFILE).not.toContain('${{');
         const blockingSmokeSource = await readProjectFile('tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts');
         expect(blockingSmokeSource).toContain('createLargeScannedFixturePdf');
         expect(blockingSmokeSource).toContain('blocking pressure annotation');
@@ -1064,8 +1065,6 @@ describe('CI topology policy', () => {
             pr_changed_areas: 5, // measured <1m
             pr_electron_blocking_smoke: 30, // measured 4.0m; Electron boot variance
             pr_electron_native_save_reopen: 35, // native mutation plus fresh Electron process
-            pr_exact_fixture_save: 60, // exact fixture staging and save/reopen
-            pr_xlarge_pdf_acceptance: 60, // Linux 2,646-page fixture save/reopen
             pr_landing_quality: 15, // measured ~7m
             pr_native_build_safety: 35, // measured 18.9m cold-cache
             pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture

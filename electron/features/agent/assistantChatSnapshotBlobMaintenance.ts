@@ -1,4 +1,5 @@
 import {
+    type Dirent,
     readdirSync,
     readFileSync,
     rmSync,
@@ -21,6 +22,30 @@ function isSnapshotReference(value: unknown): value is IAssistantChatSnapshotRef
         && value !== null
         && (value as {type?: unknown}).type === 'session-snapshot-ref'
         && typeof (value as {blobFile?: unknown}).blobFile === 'string';
+}
+
+function isMissingPathError(error: unknown) {
+    return isErrnoException(error) && error.code === 'ENOENT';
+}
+
+function isAssistantChatSnapshotLog(entry: Dirent) {
+    return entry.isFile() && entry.name.endsWith('.jsonl');
+}
+
+function isUnreferencedSnapshotBlob(entry: Dirent, references: ReadonlySet<string>) {
+    return entry.isFile() && entry.name.endsWith('.json') && !references.has(entry.name);
+}
+
+function reportSnapshotBlobPruneError(
+    filePath: string,
+    error: unknown,
+    onError?: (message: string, error: unknown) => void,
+) {
+    try {
+        onError?.(`Failed to prune assistant chat snapshot blob "${filePath}"`, error);
+    } catch {
+        // Error reporting cannot stop the remaining housekeeping work.
+    }
 }
 
 function addSnapshotBlobReferences(
@@ -46,20 +71,20 @@ async function collectAssistantChatSnapshotBlobReferences(
         try {
             entries = await readdir(directory, {withFileTypes: true});
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
+            if (isMissingPathError(error)) {
                 continue;
             }
             throw error;
         }
         for (const entry of entries) {
-            if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
+            if (!isAssistantChatSnapshotLog(entry)) {
                 continue;
             }
             const filePath = join(directory, entry.name);
             try {
                 addSnapshotBlobReferences(await readFile(filePath, 'utf8'), parseRecord, references);
             } catch (error) {
-                if (isErrnoException(error) && error.code === 'ENOENT') {
+                if (isMissingPathError(error)) {
                     continue;
                 }
                 throw error;
@@ -79,20 +104,20 @@ function collectAssistantChatSnapshotBlobReferencesSync(
         try {
             entries = readdirSync(directory, {withFileTypes: true});
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
+            if (isMissingPathError(error)) {
                 continue;
             }
             throw error;
         }
         for (const entry of entries) {
-            if (!entry.isFile() || !entry.name.endsWith('.jsonl')) {
+            if (!isAssistantChatSnapshotLog(entry)) {
                 continue;
             }
             const filePath = join(directory, entry.name);
             try {
                 addSnapshotBlobReferences(readFileSync(filePath, 'utf8'), parseRecord, references);
             } catch (error) {
-                if (isErrnoException(error) && error.code === 'ENOENT') {
+                if (isMissingPathError(error)) {
                     continue;
                 }
                 throw error;
@@ -113,26 +138,21 @@ export async function pruneAssistantChatSnapshotBlobs(
     try {
         entries = await readdir(blobsDir, {withFileTypes: true});
     } catch (error) {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
+        if (isMissingPathError(error)) {
             return;
         }
         throw error;
     }
     for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith('.json') || referencedBlobFiles.has(entry.name)) {
+        if (!isUnreferencedSnapshotBlob(entry, referencedBlobFiles)) {
             continue;
         }
         const filePath = join(blobsDir, entry.name);
         try {
             await rm(filePath, {force: true});
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
-                continue;
-            }
-            try {
-                onError?.(`Failed to prune assistant chat snapshot blob "${filePath}"`, error);
-            } catch {
-                // Error reporting cannot stop the remaining housekeeping work.
+            if (!isMissingPathError(error)) {
+                reportSnapshotBlobPruneError(filePath, error, onError);
             }
         }
     }
@@ -149,26 +169,21 @@ export function pruneAssistantChatSnapshotBlobsSync(
     try {
         entries = readdirSync(blobsDir, {withFileTypes: true});
     } catch (error) {
-        if (isErrnoException(error) && error.code === 'ENOENT') {
+        if (isMissingPathError(error)) {
             return;
         }
         throw error;
     }
     for (const entry of entries) {
-        if (!entry.isFile() || !entry.name.endsWith('.json') || referencedBlobFiles.has(entry.name)) {
+        if (!isUnreferencedSnapshotBlob(entry, referencedBlobFiles)) {
             continue;
         }
         const filePath = join(blobsDir, entry.name);
         try {
             rmSync(filePath, {force: true});
         } catch (error) {
-            if (isErrnoException(error) && error.code === 'ENOENT') {
-                continue;
-            }
-            try {
-                onError?.(`Failed to prune assistant chat snapshot blob "${filePath}"`, error);
-            } catch {
-                // Error reporting cannot stop the remaining housekeeping work.
+            if (!isMissingPathError(error)) {
+                reportSnapshotBlobPruneError(filePath, error, onError);
             }
         }
     }

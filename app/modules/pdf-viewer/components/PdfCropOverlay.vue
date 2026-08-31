@@ -33,6 +33,7 @@ import type {
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
 import { pdfCropSelectionKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 const {
@@ -68,53 +69,12 @@ function cancelSelection() {
     emit('cancel');
 }
 
-let previouslyFocusedElement: HTMLElement | null = null;
-
-function focusOverlay() {
-    if (typeof document !== 'undefined') {
-        const activeElement = document.activeElement;
-        if (activeElement instanceof HTMLElement && activeElement !== overlayRef.value) {
-            previouslyFocusedElement = activeElement;
-        }
-    }
-    void nextTick(() => overlayRef.value?.focus({preventScroll: true}));
-}
-
-function restoreFocus() {
-    const element = previouslyFocusedElement;
-    previouslyFocusedElement = null;
-    if (element?.isConnected) {
-        void nextTick(() => element.focus({preventScroll: true}));
-    }
-}
-
-function handleKeyboardKey(event: KeyboardEvent) {
-    if (event.key === 'Tab') {
-        event.preventDefault();
-        overlayRef.value?.focus({preventScroll: true});
-        return;
-    }
-    if (keyboardController?.handleKeyboardKey(event)) {
-        return;
-    }
-    if (event.key === 'Escape') {
-        event.preventDefault();
-        cancelSelection();
-    }
-}
-
-watch(() => active, (isActive) => {
-    if (isActive) {
-        focusOverlay();
-    } else {
-        restoreFocus();
-    }
-}, {
-    flush: 'post',
-    immediate: true,
+const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
+    isActive: () => active,
+    overlayRef,
+    keyboardController,
+    onCancel: cancelSelection,
 });
-
-onBeforeUnmount(restoreFocus);
 </script>
 
 <style scoped>

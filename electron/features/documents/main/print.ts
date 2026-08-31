@@ -18,7 +18,10 @@ import { getErrorMessage } from '@electron/utils/error';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { extractPages } from '@electron/features/page-ops/public';
-import type { IPdfPathPrintOptions } from '@contracts/electronApiDocuments';
+import type {
+    IPdfDataPrintOptions,
+    IPdfPathPrintOptions,
+} from '@contracts/electronApiDocuments';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
     IDocumentsSenderIdContext,
@@ -43,6 +46,7 @@ const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
+const activePdfPrintAborters = new Map<string, (reason: string) => void>();
 
 interface IOpenPdfInDefaultAppResult {
     success: boolean;
@@ -222,27 +226,102 @@ function buildNativePathPrintOptions(
     };
 }
 
+function getPdfPrintAborterKey(senderId: number | undefined, requestId: string) {
+    return `${senderId ?? 'unscoped'}\0${requestId}`;
+}
+
+function abortPrintController(controller: AbortController, reason: string) {
+    if (!controller.signal.aborted) {
+        controller.abort(new Error(reason));
+    }
+}
+
+function registerPdfPrintOperation(
+    context: IDocumentsSenderIdContext,
+    requestId: string | undefined,
+    cancel?: (reason: string) => void,
+) {
+    const requestAbortController = new AbortController();
+    const cancelOperation = (reason: string) => {
+        abortPrintController(requestAbortController, reason);
+        cancel?.(reason);
+    };
+    const mainOperation = registerMainOperation({
+        kind: 'abortable-work',
+        ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
+        cancel: cancelOperation,
+    });
+    const aborterKey = requestId === undefined
+        ? null
+        : getPdfPrintAborterKey(context.senderId, requestId);
+    if (aborterKey !== null) {
+        activePdfPrintAborters.set(aborterKey, cancelOperation);
+    }
+    return {
+        signal: AbortSignal.any([
+            mainOperation.signal,
+            requestAbortController.signal,
+        ]),
+        complete: () => {
+            if (aborterKey !== null && activePdfPrintAborters.get(aborterKey) === cancelOperation) {
+                activePdfPrintAborters.delete(aborterKey);
+            }
+            mainOperation.complete();
+        },
+    };
+}
+
+export function handleCancelPdfPrint(
+    context: IDocumentsSenderIdContext,
+    requestId: string,
+): Promise<{canceled: boolean}> {
+    const abort = activePdfPrintAborters.get(getPdfPrintAborterKey(context.senderId, requestId));
+    if (!abort) {
+        return Promise.resolve({canceled: false});
+    }
+    abort('PDF print canceled');
+    return Promise.resolve({canceled: true});
+}
+
 export async function handlePrintPdfData(
     context: IDocumentsWindowContext,
     data: Uint8Array,
     fileName?: string,
+    options?: IPdfDataPrintOptions,
 ): Promise<IPrintPdfResult> {
     validatePdfBytesForHandoff(data, 'print');
 
     const ownerWindow = context.window ?? undefined;
     const tempFileName = `${PRINT_DATA_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(fileName)}`;
     const tempPath = join(getAppTempDir(), tempFileName);
+    const requestId = options?.requestId;
+    const operation = registerPdfPrintOperation(context, requestId);
     let shouldRetainTempPdf = false;
 
     try {
+        operation.signal.throwIfAborted();
         await writeFile(tempPath, Buffer.from(data));
-        const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {}, fileName);
+        operation.signal.throwIfAborted();
+        const onNativeDialogOpened = requestId === undefined
+            ? undefined
+            : () => context.onNativePrintDialogOpened?.(requestId);
+        const result = await openNativePrintDialogForPath(
+            ownerWindow,
+            tempPath,
+            {},
+            fileName,
+            {
+                ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
+                signal: operation.signal,
+            },
+        );
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);
         }
         return result;
     } finally {
+        operation.complete();
         if (!shouldRetainTempPdf) {
             await cleanupPrintTempPath(tempPath);
         }
@@ -296,32 +375,30 @@ export async function handlePrintPdfPath(
         ? undefined
         : () => context.onNativePrintDialogOpened?.(requestId);
     const normalizedPageNumbers = normalizedOptions.pageNumbers;
-    if (!normalizedPageNumbers) {
-        const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
-        await assertPdfPathWithinSizeLimit(resolvedPath);
-        return openNativePrintDialogForPath(
-            ownerWindow,
-            resolvedPath,
-            buildNativePathPrintOptions(normalizedOptions),
-            _fileName,
-            {...(onNativeDialogOpened ? {onNativeDialogOpened} : {})},
-        );
-    }
-
     const cancelGroup = `print-selected-pages:${randomUUID()}`;
-    const operation = registerMainOperation({
-        kind: 'abortable-work',
-        ...(context.senderId === undefined ? {} : {ownerWebContentsId: context.senderId}),
-        cancel: () => {
-            cancelNativeCommandGroup(cancelGroup);
-        },
-    });
+    const operation = registerPdfPrintOperation(
+        context,
+        requestId,
+        normalizedPageNumbers ? () => cancelNativeCommandGroup(cancelGroup) : undefined,
+    );
     let tempPath: string | null = null;
     let shouldRetainTempPdf = false;
     try {
         const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId, operation.signal);
         await assertPdfPathWithinSizeLimit(resolvedPath);
         operation.signal.throwIfAborted();
+        if (!normalizedPageNumbers) {
+            return await openNativePrintDialogForPath(
+                ownerWindow,
+                resolvedPath,
+                buildNativePathPrintOptions(normalizedOptions),
+                _fileName,
+                {
+                    ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
+                    signal: operation.signal,
+                },
+            );
+        }
         const tempFileName = `${PRINT_PAGE_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
         tempPath = join(getAppTempDir(), tempFileName);
         await extractPages(resolvedPath, tempPath, normalizedPageNumbers, {

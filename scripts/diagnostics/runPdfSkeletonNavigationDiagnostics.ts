@@ -80,6 +80,22 @@ interface INavigationZoomToolbarSnapshot {
 
 interface INavigationEffectiveZoomSnapshot {effectiveZoom?: number;}
 
+function summarizeNavigationArtifacts(
+    samples: INavigationSample[],
+    navLog: IPdfNavLogEntry[],
+    renderTrace: IPdfRenderTraceEntry[],
+) {
+    return {
+        samples,
+        navLog,
+        renderTrace,
+        skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
+        canvasSamples: samples.filter(sample => sample.canvasPages.length > 0),
+        lastSample: samples.at(-1) ?? null,
+        skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+    };
+}
+
 async function setContinuousScrollMode(
     session: IElectronE2ESession,
     continuousScroll: boolean,
@@ -526,13 +542,7 @@ async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
         context.artifacts.writeJson(DIRECT_JUMP_DIAGNOSTIC_OUTPUT_PATH, {
             pdfPath: TARGET_PDF_PATH,
             scenario: `toolbar-enter-page-${targetPage}-after-navigation-zoom-344`,
-            samples,
-            navLog,
-            renderTrace,
-            skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
-            canvasSamples: samples.filter(sample => sample.canvasPages.length > 0),
-            lastSample: samples.at(-1) ?? null,
-            skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+            ...summarizeNavigationArtifacts(samples, navLog, renderTrace),
         });
     }
 
@@ -589,14 +599,8 @@ async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext)
         context.artifacts.writeJson(RAPID_NEXT_TO_LAST_DIAGNOSTIC_OUTPUT_PATH, {
             pdfPath: TARGET_PDF_PATH,
             scenario: `fit-height-rapid-next-1-to-${rapidTargetPage}-then-page-${totalPages}`,
-            samples,
             finalSnapshot,
-            navLog,
-            renderTrace,
-            skeletonSamples: samples.filter(sample => sample.skeletonPages.length > 0),
-            canvasSamples: samples.filter(sample => sample.canvasPages.length > 0),
-            lastSample: samples.at(-1) ?? null,
-            skeletonLogEntries: navLog.filter(entry => entry.message.includes('page skeleton visible')),
+            ...summarizeNavigationArtifacts(samples, navLog, renderTrace),
         });
     }
 

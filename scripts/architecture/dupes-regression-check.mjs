@@ -1,13 +1,24 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+    writeFileSync,
+} from 'node:fs';
 import { resolve } from 'node:path';
+import {
+    createDupesBaseline,
+    decodeDupesBaseline,
+    findNewCloneGroups,
+} from './dupesRegressionPolicy.mjs';
 
 const projectRoot = resolve(import.meta.dirname, '../..');
 const baselinePath = resolve(projectRoot, '.fallow-dupes-baseline.json');
 
-if (!existsSync(baselinePath)) {
+const shouldWriteBaseline = process.argv.slice(2).includes('--write-baseline');
+
+if (!existsSync(baselinePath) && !shouldWriteBaseline) {
     console.error('Duplication baseline missing: .fallow-dupes-baseline.json');
-    console.error('Regenerate with: pnpm exec fallow dupes --production --threshold 10 --save-baseline .fallow-dupes-baseline.json --summary');
+    console.error('Regenerate with: pnpm run fallow:dupes -- --write-baseline');
     process.exit(1);
 }
 
@@ -18,8 +29,6 @@ const raw = execFileSync('pnpm', [
     '--production',
     '--threshold',
     '10',
-    '--baseline',
-    baselinePath,
     '--format',
     'json',
 ], {
@@ -29,7 +38,16 @@ const raw = execFileSync('pnpm', [
 });
 
 const report = JSON.parse(raw);
-const newGroups = report.clone_groups ?? [];
+
+if (shouldWriteBaseline) {
+    const baseline = createDupesBaseline(report);
+    writeFileSync(baselinePath, `${JSON.stringify(baseline, null, 2)}\n`, 'utf8');
+    console.log(`Wrote ${baseline.clone_signatures.length} stable clone signatures to .fallow-dupes-baseline.json.`);
+    process.exit(0);
+}
+
+const baseline = decodeDupesBaseline(JSON.parse(readFileSync(baselinePath, 'utf8')));
+const newGroups = findNewCloneGroups(report, baseline);
 
 if (newGroups.length === 0) {
     console.log('Duplication regression check passed: no new clone groups beyond baseline.');
@@ -43,5 +61,5 @@ for (const group of newGroups) {
     }
     console.error('');
 }
-console.error('Deduplicate the new clones, or if intentional refresh the baseline with: pnpm exec fallow dupes --production --threshold 10 --save-baseline .fallow-dupes-baseline.json --summary');
+console.error('Deduplicate the new clones, or if intentional refresh the baseline with: pnpm run fallow:dupes -- --write-baseline');
 process.exit(1);

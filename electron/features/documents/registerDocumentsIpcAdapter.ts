@@ -152,7 +152,7 @@ function pruneRendererFileOpenTokens(senderId: number, now = Date.now()) {
     }
 }
 
-function registerRendererFileOpenTokenCleanup(event: IpcMainInvokeEvent, senderId: number) {
+function registerDocumentsSenderCleanup(event: Pick<IpcMainInvokeEvent, 'sender'>, senderId: number) {
     if (rendererFileOpenTokenCleanupSenders.has(senderId)) {
         return;
     }
@@ -239,7 +239,7 @@ function registerRendererFileOpenTokens(
         tokens.set(token, {expiresAtMs});
     }
     rendererFileOpenTokens.set(senderId, tokens);
-    registerRendererFileOpenTokenCleanup(event, senderId);
+    registerDocumentsSenderCleanup(event, senderId);
     return true;
 }
 
@@ -501,20 +501,30 @@ export function registerDocumentsIpcAdapter(
             service.openPdfInDefaultAppData(data, fileName),
         openPdfInDefaultAppPath: (context, filePath, fileName) =>
             service.openPdfInDefaultAppPath(context, filePath, fileName),
-        printPdfData: (context, data, fileName) =>
-            service.printPdfData({
-                senderId: context.senderId,
-                window: BrowserWindow.fromWebContents(context.sender),
-            }, data, fileName),
-        printPdfPath: (context, filePath, fileName, options) =>
-            service.printPdfPath({
+        printPdfData: (context, data, fileName, options) => {
+            registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
+            return service.printPdfData({
                 onNativePrintDialogOpened: requestId => context.sender.send(
                     DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
                     {requestId},
                 ),
                 senderId: context.senderId,
                 window: BrowserWindow.fromWebContents(context.sender),
-            }, filePath, fileName, options),
+            }, data, fileName, options);
+        },
+        cancelPdfPrint: (context, requestId) =>
+            service.cancelPdfPrint(context, requestId),
+        printPdfPath: (context, filePath, fileName, options) => {
+            registerDocumentsSenderCleanup({sender: context.sender}, context.senderId);
+            return service.printPdfPath({
+                onNativePrintDialogOpened: requestId => context.sender.send(
+                    DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
+                    {requestId},
+                ),
+                senderId: context.senderId,
+                window: BrowserWindow.fromWebContents(context.sender),
+            }, filePath, fileName, options);
+        },
         getRecentFiles: context => service.getRecentFiles(context),
         removeRecentFile: async (originalPath) => {
             await service.removeRecentFile(originalPath);

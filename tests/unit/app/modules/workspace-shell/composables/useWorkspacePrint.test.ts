@@ -45,6 +45,7 @@ const documentsCapabilityMock = vi.hoisted(() => {
         nativePrintDialogOpenedListener = null;
     });
     return {
+        cancelPdfPrint: vi.fn(),
         emitNativePrintDialogOpened: (event: {requestId: string}) => nativePrintDialogOpenedListener?.(event),
         onNativePrintDialogOpened: vi.fn((listener: (event: {requestId: string}) => void) => {
             nativePrintDialogOpenedListener = listener;
@@ -325,6 +326,7 @@ describe('useWorkspacePrint', () => {
         toastAddMock.mockReturnValue({ id: 'toast-id' });
         documentsCapabilityMock.openPdfInDefaultAppData.mockResolvedValue({ success: false });
         documentsCapabilityMock.openPdfInDefaultAppPath.mockResolvedValue({ success: false });
+        documentsCapabilityMock.cancelPdfPrint.mockResolvedValue({canceled: true});
         documentsCapabilityMock.printPdfData.mockResolvedValue({
             success: false,
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
@@ -1215,6 +1217,140 @@ describe('useWorkspacePrint', () => {
         }
     });
 
+    it('cancels a pending native path print when the workspace scope ends', async () => {
+        let finishPrint!: (result: {
+            success: boolean;
+            canceled: boolean;
+        }) => void;
+        documentsCapabilityMock.printPdfPath.mockImplementation(() => new Promise((resolve) => {
+            finishPrint = resolve;
+        }));
+        documentsCapabilityMock.cancelPdfPrint.mockImplementation(async () => {
+            finishPrint({
+                success: false,
+                canceled: true,
+            });
+            return {canceled: true};
+        });
+        const {
+            scope,
+            state,
+        } = createState({sourcePdf: {
+            kind: 'path',
+            path: '/tmp/cancel-path-print.pdf',
+            size: 689 * 1024 * 1024,
+        }});
+        const printPromise = state.handlePrintDialogSubmit({
+            viewMode: 'facing',
+            orientation: 'landscape',
+        });
+        await flushMicrotasks();
+        const requestId = documentsCapabilityMock.printPdfPath.mock.calls[0]?.[2]?.requestId;
+
+        scope.stop();
+        await printPromise;
+
+        expect(documentsCapabilityMock.cancelPdfPrint).toHaveBeenCalledWith(requestId);
+        expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
+    });
+
+    it('removes data-print preparation feedback when the matching native dialog opens', async () => {
+        let finishPrint!: (result: {success: boolean}) => void;
+        documentsCapabilityMock.printPdfData.mockImplementation(() => new Promise((resolve) => {
+            finishPrint = resolve;
+        }));
+        buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
+        const {
+            scope,
+            state,
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: '/tmp/data-native-dialog.pdf',
+            fileName: 'data-native-dialog.pdf',
+        });
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode: 'facing',
+                orientation: 'landscape',
+            });
+            await flushMicrotasks(12);
+
+            const requestOptions = documentsCapabilityMock.printPdfData.mock.calls[0]?.[2];
+            expect(requestOptions?.requestId).toMatch(/^print-/u);
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({title: 'print.preparing'}));
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            documentsCapabilityMock.emitNativePrintDialogOpened({requestId: 'another-print'});
+            expect(toastRemoveMock).not.toHaveBeenCalled();
+            documentsCapabilityMock.emitNativePrintDialogOpened({requestId: requestOptions?.requestId ?? ''});
+
+            expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            finishPrint({success: true});
+            await printPromise;
+
+            expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
+            expect(state.isPreparingPrint.value).toBe(false);
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('removes the data-print handoff listener when native printing rejects', async () => {
+        documentsCapabilityMock.printPdfData.mockRejectedValue(new Error('native print failed'));
+        const {
+            scope,
+            state,
+        } = createState({sourcePdf: null});
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'facing',
+                orientation: 'landscape',
+            });
+
+            expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
+            expect(state.printError.value).toContain('native print failed');
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('cancels a pending native data print when the workspace scope ends', async () => {
+        let finishPrint!: (result: {
+            success: boolean;
+            canceled: boolean;
+        }) => void;
+        documentsCapabilityMock.printPdfData.mockImplementation(() => new Promise((resolve) => {
+            finishPrint = resolve;
+        }));
+        documentsCapabilityMock.cancelPdfPrint.mockImplementation(async () => {
+            finishPrint({
+                success: false,
+                canceled: true,
+            });
+            return {canceled: true};
+        });
+        const {
+            scope,
+            state,
+        } = createState({sourcePdf: null});
+        const printPromise = state.handlePrintDialogSubmit({
+            viewMode: 'facing',
+            orientation: 'landscape',
+        });
+        await flushMicrotasks(12);
+        const requestId = documentsCapabilityMock.printPdfData.mock.calls[0]?.[2]?.requestId;
+
+        scope.stop();
+        await printPromise;
+
+        expect(documentsCapabilityMock.cancelPdfPrint).toHaveBeenCalledWith(requestId);
+        expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
+    });
+
     it('uses rendered browser printing for the default flow when a working copy path is available', async () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
@@ -1241,7 +1377,11 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
             expect(documentsCapabilityMock.openPdfInDefaultAppPath).not.toHaveBeenCalled();
             expect(documentsCapabilityMock.openPdfInDefaultAppData).not.toHaveBeenCalled();
-            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(7, 8, 9),
+                'desktop.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
+            );
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
 
             await appFrame.frame.waitForListener('load');
@@ -1634,7 +1774,11 @@ describe('useWorkspacePrint', () => {
             await flushMicrotasks(12);
 
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
-            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(7, 8, 9),
+                'fallback.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
+            );
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
 
@@ -1719,13 +1863,18 @@ describe('useWorkspacePrint', () => {
 
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
-            expect(createObjectURLMock).toHaveBeenCalledTimes(1);
-            expect(appFrame.frame.src).toBe('blob:print-pdf');
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(9, 8, 7),
+                'document.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
+            );
+            expect(createObjectURLMock).not.toHaveBeenCalled();
+            expect(appFrame.frame.srcdoc).toBe('<html><body><main data-browser-print-root></main></body></html>');
 
             appFrame.frame.trigger('load');
             await printPromise;
 
-            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
             expect(appFrame.frameWindow.print).toHaveBeenCalledOnce();
             expect(state.printError.value).toBeNull();
         } finally {
@@ -1865,7 +2014,7 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('builds a transformed PDF and prints it through the rendered browser path', async () => {
+    it('builds a transformed PDF and sends it to the native print dialog', async () => {
         documentsCapabilityMock.printPdfData.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
         const appFrame = stubDocumentWithFrame();
@@ -1896,8 +2045,12 @@ describe('useWorkspacePrint', () => {
                     orientation: 'portrait',
                 },
             );
-            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
-            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(7, 8, 9),
+                'document.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
+            );
+            expect(renderPdfPagesForBrowserPrintMock).not.toHaveBeenCalled();
             expect(state.printDialogOpen.value).toBe(false);
             expect(state.printError.value).toBeNull();
         } finally {
@@ -1937,7 +2090,11 @@ describe('useWorkspacePrint', () => {
                     orientation: 'portrait',
                 },
             );
-            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
+                Uint8Array.of(7, 8, 9),
+                'document.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
+            );
             expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
 
             appFrame.frame.trigger('load');
@@ -1954,16 +2111,12 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('falls back to PDF viewer browser printing when rendered browser printing cannot print', async () => {
+    it('does not navigate a hidden frame to a PDF blob when rendered browser printing fails', async () => {
         const renderedFrame = createFakeFrame();
-        const pdfViewerFrame = createFakeFrame();
         renderedFrame.frameWindow.print.mockImplementation(() => {
-            throw new Error('Blocked a frame with origin "http://127.0.0.1:3235" from accessing a cross-origin frame.');
+            throw new Error('Rendered browser printing failed');
         });
-        stubDocumentWithFrames([
-            renderedFrame,
-            pdfViewerFrame,
-        ]);
+        stubDocumentWithFrame(renderedFrame);
         const {
             scope,
             state,
@@ -1980,20 +2133,16 @@ describe('useWorkspacePrint', () => {
 
             expect(renderedFrame.frame.srcdoc).toBe('<html><body><main data-browser-print-root></main></body></html>');
             renderedFrame.frame.trigger('load');
-            await flushMicrotasks(12);
-
-            expect(pdfViewerFrame.frame.src).toBe('blob:print-pdf');
-            pdfViewerFrame.frame.trigger('load');
             await submitPromise;
 
-            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledWith(
-                renderedFrame.frameWindow.document,
+            expect(documentsCapabilityMock.printPdfData).toHaveBeenCalledWith(
                 Uint8Array.of(7, 8, 9),
-                { signal: expect.any(AbortSignal) },
+                'document.pdf',
+                {requestId: expect.stringMatching(/^print-/u)},
             );
-            expect(pdfViewerFrame.frameWindow.print).toHaveBeenCalledTimes(1);
-            expect(state.printDialogOpen.value).toBe(false);
-            expect(state.printError.value).toBeNull();
+            expect(createObjectURLMock).not.toHaveBeenCalled();
+            expect(state.printDialogOpen.value).toBe(true);
+            expect(state.printError.value).toContain('Rendered browser printing failed');
         } finally {
             scope.stop();
         }

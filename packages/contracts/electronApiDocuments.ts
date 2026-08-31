@@ -69,8 +69,8 @@ export interface IPdfPathPrintOptions {
     orientation: TPrintOrientation;
 }
 
+export interface IPdfDataPrintOptions {requestId?: string;}
 export interface IPdfNativePrintDialogOpenedEvent {requestId: string;}
-
 /** A PDF indirect-object reference returned by the native annotation index. */
 export interface IPdfAnnotationIndexObjectRef {
     objectNumber: number;
@@ -939,12 +939,13 @@ export interface IDocumentsFileCapability {
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    printPdfData: (data: Uint8Array, fileName?: string) => Promise<{
+    printPdfData: (data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
+    cancelPdfPrint?: (requestId: string) => Promise<{canceled: boolean}>;
     printPdfPath: (path: TDocumentRef, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
@@ -1144,16 +1145,15 @@ export interface IDocumentsPdfValidationCapability extends Pick<
     | 'validatePdfData'
     | 'validatePdfPath'
 > {}
-
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
     | 'openPdfInDefaultAppData'
     | 'openPdfInDefaultAppPath'
     | 'printPdfData'
+    | 'cancelPdfPrint'
     | 'printPdfPath'
     | 'onNativePrintDialogOpened'
 > {}
-
 export interface IDocumentsPdfPersistenceCapability extends Pick<
     IDocumentsFileCapability,
     | 'savePdfAs'
