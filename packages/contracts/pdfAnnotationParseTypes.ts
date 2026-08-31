@@ -11,6 +11,9 @@ import type {TPageIndex} from '@contracts/pageNumbers';
 
 export const PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES = 512 * 1024;
 export const PDF_ANNOTATION_PARSE_MAX_LINE_BYTES = 4 * 1024 * 1024;
+export const PDF_ANNOTATION_PARSE_MAX_ENTRIES = 100_000;
+
+export interface IPdfSidecarChunkOptions {chunkBytes?: number;}
 
 interface IPdfAnnotationParseIdentityFields {
     pageIndex: TPageIndex;
@@ -116,9 +119,27 @@ export type IPdfAnnotationParseEntry =
     | IPdfAnnotationShapeEntry
     | IPdfAnnotationForeignEntry;
 
-export interface IPdfAnnotationParseOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
+export type TPdfAnnotationParseEntity = Exclude<IPdfAnnotationParseEntry, IPdfAnnotationForeignEntry>;
 
-export interface IPdfAnnotationParseChunkOptions {chunkBytes?: number;}
+/**
+ * The public, one-shot parse result. The streamed session types below remain
+ * an implementation detail of the hosts, while callers receive the same wire
+ * entries split into editable entities and inert foreign records.
+ */
+export interface IPdfAnnotationParseResult {
+    documentRevisionToken: TDocumentRevisionToken;
+    pageCount: number;
+    entities: TPdfAnnotationParseEntity[];
+    foreign: IPdfAnnotationForeignEntry[];
+}
+
+export interface IPdfAnnotationParseOptions {
+    expectedDocumentRevisionToken: TDocumentRevisionToken;
+    /** Renderer-only cancellation; IPC validators strip this before crossing into Electron. */
+    signal?: AbortSignal;
+}
+
+export interface IPdfAnnotationParseChunkOptions extends IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationParseSession {
     sessionId: string;
@@ -148,3 +169,7 @@ export type TPdfAnnotationParseReadChunk = (
 ) => Promise<IPdfAnnotationParseChunk>;
 export type TPdfAnnotationParseRelease = (sessionId: string) => Promise<boolean>;
 export type TPdfAnnotationParseCancel = (sessionId: string) => Promise<{canceled: boolean}>;
+export type TPdfAnnotationParse = (
+    path: TDocumentRef,
+    options: IPdfAnnotationParseOptions,
+) => Promise<IPdfAnnotationParseResult>;

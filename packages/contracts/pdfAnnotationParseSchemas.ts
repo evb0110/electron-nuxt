@@ -6,6 +6,7 @@ import {
 } from '@contracts/annotations';
 import {
     PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
+    PDF_ANNOTATION_PARSE_MAX_ENTRIES,
     PDF_ANNOTATION_PARSE_MAX_LINE_BYTES,
     type IPdfAnnotationForeignEntry,
     type IPdfAnnotationHighlightEntry,
@@ -16,6 +17,7 @@ import {
     type IPdfAnnotationParseEntry,
     type IPdfAnnotationParsePoint,
     type IPdfAnnotationParseOptions,
+    type IPdfAnnotationParseResult,
     type IPdfAnnotationParseSession,
     type IPdfAnnotationShapeEntry,
     type IPdfAnnotationStampEntry,
@@ -458,7 +460,7 @@ function decodeForeign(value: Record<string, unknown>): IPdfAnnotationForeignEnt
     };
 }
 
-function decodeEntry(value: unknown): IPdfAnnotationParseEntry {
+export function decodePdfAnnotationParseEntry(value: unknown): IPdfAnnotationParseEntry {
     const decoded = decodeRequiredObject<Record<string, unknown>>(value, 'annotation parse entry');
     switch (decoded.kind) {
         case 'text-box': return decodeTextBox(decoded);
@@ -513,7 +515,56 @@ export function decodePdfAnnotationParseProtocolFixture(value: unknown): IPdfAnn
         pageCount: decodeSafeIntegerValue(decoded.pageCount, 'annotation parse fixture pageCount'),
         chunkBytes,
         chunkIndex: decodeSafeIntegerValue(decoded.chunkIndex, 'annotation parse fixture chunkIndex'),
-        entries: decoded.entries.map(decodeEntry),
+        entries: decoded.entries.map(decodePdfAnnotationParseEntry),
+    };
+}
+
+export function decodePdfAnnotationParseResult(value: unknown): IPdfAnnotationParseResult {
+    const decoded = decodeRequiredObject<{
+        documentRevisionToken?: unknown;
+        pageCount?: unknown;
+        entities?: unknown;
+        foreign?: unknown;
+    }>(value, 'annotation parse result');
+    rejectUnknownFields(decoded, 'annotation parse result', [
+        'documentRevisionToken',
+        'pageCount',
+        'entities',
+        'foreign',
+    ]);
+    const documentRevisionToken = typeof decoded.documentRevisionToken === 'string'
+        ? parseDocumentRevisionToken(decoded.documentRevisionToken)
+        : null;
+    if (documentRevisionToken === null) {
+        fail('annotation parse result documentRevisionToken is invalid');
+    }
+    const pageCount = decodeSafeIntegerValue(decoded.pageCount, 'annotation parse result pageCount');
+    if (!Array.isArray(decoded.entities)) {
+        fail('annotation parse result entities must be an array');
+    }
+    if (!Array.isArray(decoded.foreign)) {
+        fail('annotation parse result foreign must be an array');
+    }
+    if (decoded.entities.length + decoded.foreign.length > PDF_ANNOTATION_PARSE_MAX_ENTRIES) {
+        fail(`annotation parse result contains more than ${PDF_ANNOTATION_PARSE_MAX_ENTRIES} entries`);
+    }
+    const entities = decoded.entities.map(decodePdfAnnotationParseEntry).map((entry, index) => {
+        if (entry.kind === 'foreign') {
+            fail(`annotation parse result.entities[${index}] must be editable`);
+        }
+        return entry;
+    });
+    const foreign = decoded.foreign.map(decodePdfAnnotationParseEntry).map((entry, index) => {
+        if (entry.kind !== 'foreign') {
+            fail(`annotation parse result.foreign[${index}] must be foreign`);
+        }
+        return entry;
+    });
+    return {
+        documentRevisionToken,
+        pageCount,
+        entities,
+        foreign,
     };
 }
 
@@ -571,6 +622,30 @@ const releasePdfAnnotationParseArgs = documentArgs<'releasePdfAnnotationParse'>(
 const cancelPdfAnnotationParseArgs = documentArgs<'cancelPdfAnnotationParse'>(
     value => [decodeStringValue(decodeArgumentArray(value, 1)[0], 'sessionId')],
     () => ['annotation-parse-1'],
+);
+
+const parsePdfAnnotationsArgs = documentArgs<'parsePdfAnnotations'>(
+    value => {
+        const args = decodeArgumentArray(value, 2);
+        return [
+            decodeStringValue(args[0], 'path'),
+            decodeParseOptions(args[1]),
+        ];
+    },
+    () => [
+        '/tmp/document.pdf',
+        fixtureRevisionOptions,
+    ],
+);
+
+const pdfAnnotationParseResult = documentResult<'parsePdfAnnotations'>(
+    decodePdfAnnotationParseResult,
+    () => ({
+        documentRevisionToken: fixtureRevisionToken,
+        pageCount: 1,
+        entities: [],
+        foreign: [],
+    }),
 );
 
 const pdfAnnotationParseSessionResult = documentResult<'beginPdfAnnotationParse'>(
@@ -637,7 +712,7 @@ const pdfAnnotationParseChunkResult = documentResult<'readPdfAnnotationParseChun
             nextOffset,
             byteLength,
             done: decoded.done,
-            entries: decoded.entries.map(decodeEntry),
+            entries: decoded.entries.map(decodePdfAnnotationParseEntry),
         } satisfies IPdfAnnotationParseChunk;
     },
     () => ({
@@ -664,6 +739,8 @@ export {
     pdfAnnotationParseCancelResult,
     pdfAnnotationParseChunkResult,
     pdfAnnotationParseSessionResult,
+    pdfAnnotationParseResult,
+    parsePdfAnnotationsArgs,
     readPdfAnnotationParseChunkArgs,
     releasePdfAnnotationParseArgs,
 };

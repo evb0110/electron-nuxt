@@ -37,6 +37,7 @@ const browserDjvuCapabilityMock = vi.hoisted(() => ({
     runConversion: vi.fn(),
     getBookmarks: vi.fn(async () => []),
 }));
+const browserAnnotationParseMock = vi.hoisted(() => ({run: vi.fn()}));
 const utifMock = vi.hoisted(() => ({
     decode: vi.fn(() => []),
     decodeImage: vi.fn(),
@@ -70,6 +71,7 @@ vi.mock('@app/platform/browser-api/browserDjvuConversionPipeline', () => ({
     getBrowserDjvuBookmarksForCombine: browserDjvuCapabilityMock.getBookmarks,
     runBrowserDjvuConversion: browserDjvuCapabilityMock.runConversion,
 }));
+vi.mock('@app/platform/browser-api/browserPageOpsWorkerClient', () => ({runBrowserPageOpsWorkerRequest: (...args: unknown[]) => browserAnnotationParseMock.run(...args)}));
 vi.mock('utif', () => {
     const decode = (...args: Parameters<typeof utifMock.decode>) => utifMock.decode(...args);
     const decodeImage = (...args: Parameters<typeof utifMock.decodeImage>) => utifMock.decodeImage(...args);
@@ -233,6 +235,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         browserPdfCombineWorkerMock.cloneInput.mockClear();
         browserPdfCombineWorkerMock.run.mockReset();
         browserDjvuCapabilityMock.runConversion.mockReset();
+        browserAnnotationParseMock.run.mockReset();
         utifMock.decode.mockReset();
         utifMock.decode.mockReturnValue([]);
         utifMock.decodeImage.mockReset();
@@ -257,6 +260,96 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             reason: 'requires-native-backend',
             message: 'Showing files in a folder requires the desktop app.',
         });
+    });
+
+    it('parses a working copy through WASM after checking the browser full-read budget', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'writer-parse.pdf',
+            await createPdfBytes(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+        browserAnnotationParseMock.run.mockResolvedValue({data: new TextEncoder().encode([
+            JSON.stringify({
+                format: 'evb-pdf-annotation-parse',
+                schemaVersion: 1,
+                pageCount: 1,
+                chunkBytes: 4 * 1024 * 1024,
+            }),
+            JSON.stringify({
+                chunkIndex: 0,
+                entries: [{
+                    kind: 'foreign',
+                    pageIndex: 0,
+                    objectNumber: 4,
+                    generationNumber: 0,
+                    name: 'link',
+                    subtype: 'Link',
+                    reason: 'unsupported annotation subtype /Link',
+                }],
+            }),
+        ].join('\n') + '\n')});
+
+        await expect(capability.parsePdfAnnotations(workingRef, revisionOptions)).resolves.toEqual({
+            documentRevisionToken: revisionOptions.expectedDocumentRevisionToken,
+            pageCount: 1,
+            entities: [],
+            foreign: [{
+                kind: 'foreign',
+                pageIndex: 0,
+                objectNumber: 4,
+                generationNumber: 0,
+                name: 'link',
+                subtype: 'Link',
+                reason: 'unsupported annotation subtype /Link',
+            }],
+        });
+        expect(browserAnnotationParseMock.run).toHaveBeenCalledWith(
+            'parseAnnotations',
+            {data: expect.any(Uint8Array)},
+            {
+                dedicated: true,
+                signal: undefined,
+            },
+        );
+    });
+
+    it('rejects an oversized parse before reading the working copy', async () => {
+        const {
+            capability,
+            browserDocumentStore,
+        } = await loadBrowserDocumentsFileCapability();
+        const workingRef = await browserDocumentStore.createStoredDocument(
+            'oversized-parse.pdf',
+            Uint8Array.of(37),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'working',
+            },
+        );
+        const revisionOptions = await getRevisionOptions(browserDocumentStore, workingRef);
+        const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: BROWSER_FULL_READ_LIMIT + 1,
+            modifiedAt: 0,
+        });
+        const readSpy = vi.spyOn(browserDocumentStore, 'read');
+
+        try {
+            await expect(capability.parsePdfAnnotations(workingRef, revisionOptions)).rejects.toThrow(
+                `Parsing PDF annotations is unavailable in the browser for inputs larger than ${BROWSER_FULL_READ_LIMIT / (1024 * 1024)}MB`,
+            );
+            expect(readSpy).not.toHaveBeenCalled();
+        } finally {
+            statSpy.mockRestore();
+            readSpy.mockRestore();
+        }
     });
 
     it('registers browser files for open after ingestion completes', async () => {

@@ -30,7 +30,7 @@ interface IPdfPageOpsWasmExports {
 }
 
 const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
-const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+export const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 
 interface IBrowserPageOpsWasmDecryptRequest {
     data: Uint8Array;
@@ -73,9 +73,11 @@ const OP_CROP = 6;
 const OP_REMOVE_CROP = 7;
 const OP_GET_PAGE_GEOMETRY = 8;
 const OP_DECRYPT = 9;
+const OP_PARSE_ANNOTATIONS = 10;
 
 const RESPONSE_MUTATION = 1;
 const RESPONSE_GEOMETRY = 2;
+const RESPONSE_ANNOTATION_PARSE = 3;
 const MAX_U32 = 0xffff_ffff;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
@@ -238,6 +240,8 @@ function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
             return OP_GET_PAGE_GEOMETRY;
         case 'decrypt':
             return OP_DECRYPT;
+        case 'parseAnnotations':
+            return OP_PARSE_ANNOTATIONS;
     }
 }
 
@@ -254,6 +258,7 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'insertPages':
         case 'getPageGeometry':
         case 'decrypt':
+        case 'parseAnnotations':
             return [];
     }
 }
@@ -464,6 +469,17 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
         return kind === RESPONSE_GEOMETRY
             ? readGeometryResult(output) as IBrowserPageOpsWasmResultMap[K] | null
             : null;
+    }
+
+    if (type === 'parseAnnotations') {
+        if (kind !== RESPONSE_ANNOTATION_PARSE || output.byteLength < 8) {
+            return null;
+        }
+        const dataLength = view.getUint32(4, true);
+        if (dataLength !== output.byteLength - 8) {
+            return null;
+        }
+        return {data: toTransferableUint8Array(output.slice(8))} as IBrowserPageOpsWasmResultMap[K];
     }
 
     return kind === RESPONSE_MUTATION

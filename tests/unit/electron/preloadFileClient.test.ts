@@ -442,6 +442,31 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
+    it('forwards the one-shot annotation parse through the working-copy channel', async () => {
+        const revision = requireDocumentRevisionToken('preload-parse-revision');
+        const parsed = {
+            documentRevisionToken: revision,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        };
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => {
+                expect(channel).toBe(DOCUMENTS_CHANNELS.parsePdfAnnotations);
+                return parsed;
+            }),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+
+        await expect(client.parsePdfAnnotations('/tmp/working.pdf', {expectedDocumentRevisionToken: revision})).resolves.toEqual(parsed);
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.parsePdfAnnotations,
+            '/tmp/working.pdf',
+            {expectedDocumentRevisionToken: revision},
+        );
+    });
+
     it('rejects invalid optimize-as-copy options before invoking IPC', async () => {
         const ipcRenderer = {
             invoke: vi.fn(),

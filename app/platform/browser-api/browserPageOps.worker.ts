@@ -3,6 +3,7 @@ import {
     deletePdfPages,
     extractPdfPages,
     getPageGeometryFromPdfBytes,
+    parsePdfAnnotations,
     insertPdfPages,
     removeCropPdfBytes,
     reorderPdfPages,
@@ -106,6 +107,12 @@ async function handleGetPageGeometryRequest(
     );
 }
 
+async function handleParseAnnotationsRequest(
+    request: IBrowserPageOpsWorkerRequest<'parseAnnotations'>,
+) {
+    return parsePdfAnnotations(request.payload.data);
+}
+
 async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
@@ -126,6 +133,8 @@ async function handleRequest(
             return handleRemoveCropRequest(request);
         case 'getPageGeometry':
             return handleGetPageGeometryRequest(request);
+        case 'parseAnnotations':
+            return handleParseAnnotationsRequest(request);
         default:
             throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
@@ -155,6 +164,19 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 data: data as IBrowserPageOpsWorkerResultMap['getPageGeometry'],
             } satisfies TBrowserPageOpsWorkerResponse;
             self.postMessage(response);
+            return;
+        }
+
+        if (request.type === 'parseAnnotations') {
+            const parseResult = data as IBrowserPageOpsWorkerResultMap['parseAnnotations'];
+            const transferableData = toTransferableUint8Array(parseResult.data);
+            const response = {
+                id: request.id,
+                type: request.type,
+                ok: true,
+                data: {data: transferableData},
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response, [transferableData.buffer]);
             return;
         }
 

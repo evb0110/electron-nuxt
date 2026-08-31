@@ -33,6 +33,7 @@ export const DOCUMENTS_CHANNELS = {
     allowRendererFileOpenBatch: 'dialog:allowRendererFileOpenBatch',
     createWorkingCopyFromData: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
     createWorkingCopyFromPath: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
+    parsePdfAnnotations: DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations,
     savePdfAs: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.savePdfAs,
     savePdfDataAs: 'dialog:savePdfDataAs',
     savePdfDataAsBegin: 'dialog:savePdfDataAs:begin',

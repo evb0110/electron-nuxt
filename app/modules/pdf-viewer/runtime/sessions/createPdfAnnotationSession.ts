@@ -40,7 +40,11 @@ import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/anno
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { collectEditedTextMarkupCanvasSuppressionIds } from '@app/modules/pdf-viewer/annotations/edited-text-markup-canvas-suppression/collectEditedTextMarkupCanvasSuppressionIds';
 import { usePdfViewerAnnotationRuntimeBridge } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge';
-import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import type {
+    IPdfDocumentTransition,
+    TPdfDocumentSession,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import {commitPdfAnnotationParseToStore} from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
 import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -50,6 +54,7 @@ import {
     mintAnnotationId,
     normalizeAnnotationText,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import { groupBy } from 'es-toolkit/array';
 import { useAnnotationIdentity } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationIdentity';
 import { useAnnotationSync } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync';
@@ -263,9 +268,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const annotationCommentModel = usePdfAnnotationCommentModel({
         isAnySaving: options.isAnySaving,
         annotationProjection,
-        ingestSummaries: comments => {
-            annotationApplication.value.replaceFromDocumentSummaries(comments);
-        },
+        // PDF.js remains responsible for static rendering and links. The
+        // writer parse above is the only document ingress into the canonical
+        // store, so summary refreshes only return the current projection.
+        ingestSummaries: () => undefined,
         getShapeAnnotationCommentSummaries: shapeTool.getShapeAnnotationCommentSummaries,
         emitAnnotationComments: options.emitAnnotationComments,
         shouldSuppressSidebarComment: (comment) => {
@@ -437,10 +443,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMarkupSubtype: () => toolState,
         getStore: () => ({
             setAnnotations: comments => {
-                // Store reconciliation is deliberately synchronous. PDF.js and
-                // retry projections only observe the resulting canonical snapshot.
-                return annotationApplication.value.replaceFromDocumentSummaries(comments)
-                    .map(comment => ({...comment}));
+                // Keep the PDF.js summary for its bridge consumers, but never
+                // let that reader become a second canonical store authority.
+                return comments.map(comment => ({...comment}));
             },
             setLinkAnnotations: links => {
                 linkAnnotations.value = links;
@@ -984,16 +989,76 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         flush: 'sync',
         immediate: true,
     });
-    const unsubscribeDocumentTransitions = documentSession.subscribe((transition) => {
+    let writerParseRequest = 0;
+    let writerParseAbortController: AbortController | null = null;
+    function cancelWriterParse() {
+        writerParseRequest += 1;
+        writerParseAbortController?.abort();
+        writerParseAbortController = null;
+    }
+    async function feedStoreFromWriterParse(transition: IPdfDocumentTransition) {
+        const workingCopyPath = options.workingCopyPath.value;
+        const expectedRevisionToken = options.documentRevisionToken.value;
+        if (
+            !workingCopyPath
+            || !expectedRevisionToken
+            || !documentSession.pdfDocument.value
+            || transition.fence.documentRevision !== expectedRevisionToken
+        ) {
+            return;
+        }
+        writerParseAbortController?.abort();
+        const request = ++writerParseRequest;
+        const abortController = new AbortController();
+        writerParseAbortController = abortController;
+        const targetStore = annotationApplication.value.store;
+        const targetStoreMutationEpoch = targetStore.mutationEpoch;
+        try {
+            const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(
+                workingCopyPath,
+                {
+                    expectedDocumentRevisionToken: expectedRevisionToken,
+                    signal: abortController.signal,
+                },
+            );
+            commitPdfAnnotationParseToStore({
+                result,
+                request,
+                currentRequest: writerParseRequest,
+                isTransitionCurrent: () => transition.isCurrent(),
+                targetStore,
+                currentStore: annotationApplication.value.store,
+                targetStoreMutationEpoch,
+                workingCopyPath,
+                currentWorkingCopyPath: options.workingCopyPath.value,
+                expectedRevisionToken,
+                currentRevisionToken: options.documentRevisionToken.value,
+            });
+        } catch (error) {
+            if (!abortController.signal.aborted) {
+                BrowserLogger.warn('annotations', 'Failed to import writer PDF annotations', error);
+            }
+        } finally {
+            if (writerParseAbortController === abortController) {
+                writerParseAbortController = null;
+            }
+        }
+    }
+    const unsubscribeDocumentTransitions = documentSession.subscribe(async (transition) => {
         if (!transition.isCurrent()) {
             return;
         }
         if (transition.phase === 'invalidated') {
+            cancelWriterParse();
             annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
                 clearAnnotationProjectionState();
             }
+            return;
+        }
+        if (transition.phase === 'ready') {
+            await feedStoreFromWriterParse(transition);
             return;
         }
         if (transition.phase === 'restore') {
@@ -1031,7 +1096,17 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         options.clearPendingImagePlacement();
         handleSourceChanged(next, previous);
     });
+    watch(() => [
+        options.workingCopyPath.value,
+        options.documentRevisionToken.value,
+        documentSession.pdfDocument.value,
+    ] as const, (next, previous) => {
+        if (next.some((value, index) => value !== previous[index])) {
+            cancelWriterParse();
+        }
+    }, {flush: 'sync'});
     documentSession.registerDisposable(() => {
+        cancelWriterParse();
         unsubscribeDocumentTransitions();
         detachProjection();
         annotations.inlineIndicators.cleanup();

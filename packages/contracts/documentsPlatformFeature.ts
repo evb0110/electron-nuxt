@@ -96,8 +96,10 @@ import {
 import {
     beginPdfAnnotationParseArgs,
     cancelPdfAnnotationParseArgs,
+    parsePdfAnnotationsArgs,
     pdfAnnotationParseCancelResult,
     pdfAnnotationParseChunkResult,
+    pdfAnnotationParseResult,
     pdfAnnotationParseSessionResult,
     readPdfAnnotationParseChunkArgs,
     releasePdfAnnotationParseArgs,
@@ -350,6 +352,21 @@ export const DOCUMENT_WORKING_COPY_PLATFORM_FEATURE = definePlatformFeature({
             'createWorkingCopyFromPath',
             'sender',
         ),
+        parsePdfAnnotations: {
+            ...defineIpcMethod(
+                'parsePdfAnnotations',
+                'working-copy:parseAnnotations',
+                parsePdfAnnotationsArgs,
+                pdfAnnotationParseResult,
+                'parsePdfAnnotations',
+                'sender',
+            ),
+            ipc: {
+                args: parsePdfAnnotationsArgs,
+                result: pdfAnnotationParseResult,
+                timeoutMs: longNativeIpcTimeoutMs,
+            },
+        },
         cleanupFile: defineIpcMethod(
             'cleanupFile',
             'file:cleanup',

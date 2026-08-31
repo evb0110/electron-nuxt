@@ -49,6 +49,7 @@ interface IBrowserPageOpsWorkerRequestMap {
         data: Uint8Array;
         pageNumber: number;
     };
+    parseAnnotations: {data: Uint8Array;};
 }
 
 interface IBrowserPageOpsWorkerResultMap {
@@ -60,6 +61,7 @@ interface IBrowserPageOpsWorkerResultMap {
     crop: IPageMutationWorkerResult;
     removeCrop: IPageMutationWorkerResult;
     getPageGeometry: IPageGeometry;
+    parseAnnotations: {data: Uint8Array;};
 }
 
 type TBrowserPageOpsWorkerRequestType = keyof IBrowserPageOpsWorkerRequestMap;
@@ -213,6 +215,12 @@ export function parseBrowserPageOpsWorkerRequest(value: unknown): TBrowserPageOp
                     },
                 }
                 : null;
+        case 'parseAnnotations':
+            return {
+                id: value.id,
+                type: value.type,
+                payload: {data},
+            };
         default:
             return null;
     }

@@ -86,6 +86,12 @@ function decodePageMutationWorkerResult(data: unknown): IPageMutationWorkerResul
     };
 }
 
+function decodeAnnotationParseWorkerResult(data: unknown) {
+    return isRecord(data) && data.data instanceof Uint8Array
+        ? {data: data.data}
+        : null;
+}
+
 function decodePdfBox(value: unknown): IPdfBox | null {
     if (!isRecord(value)) {
         return null;
@@ -138,6 +144,10 @@ function decodePageOpsWorkerResult<K extends TBrowserPageOpsWorkerRequestType>(
         return decodePageGeometry(data) as IBrowserPageOpsWorkerResultMap[K] | null;
     }
 
+    if (type === 'parseAnnotations') {
+        return decodeAnnotationParseWorkerResult(data) as IBrowserPageOpsWorkerResultMap[K] | null;
+    }
+
     return decodePageMutationWorkerResult(data) as IBrowserPageOpsWorkerResultMap[K] | null;
 }
 
@@ -145,60 +155,106 @@ export function canUseBrowserPageOpsWorker() {
     return canUseBrowserWorker();
 }
 
-const browserPageOpsWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
-    idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
-    requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
-    createWorker: () => {
-        try {
-            return new Worker(
-                new URL('./browserPageOps.worker.ts', import.meta.url),
-                { type: 'module' },
-            );
-        } catch (error) {
-            throw new BrowserPageOpsWorkerUnavailableError(
-                getErrorMessage(error),
-            );
-        }
-    },
-    createError: event => new BrowserPageOpsWorkerUnavailableError(
-        event.error instanceof Error ? event.error.message : event.message,
-    ),
-    handleMessage: settleBrowserWorkerResult,
-});
+function createBrowserPageOpsWorkerClient() {
+    return new BrowserWorkerClient<IPendingBrowserWorkerRequest>({
+        idleTtlMs: BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS,
+        requestTimeoutMs: BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS,
+        createWorker: () => {
+            try {
+                return new Worker(
+                    new URL('./browserPageOps.worker.ts', import.meta.url),
+                    { type: 'module' },
+                );
+            } catch (error) {
+                throw new BrowserPageOpsWorkerUnavailableError(
+                    getErrorMessage(error),
+                );
+            }
+        },
+        createError: event => new BrowserPageOpsWorkerUnavailableError(
+            event.error instanceof Error ? event.error.message : event.message,
+        ),
+        handleMessage: settleBrowserWorkerResult,
+    });
+}
+
+const browserPageOpsWorkerClient = createBrowserPageOpsWorkerClient();
+// Parsing a document can be much slower than ordinary page operations. Keep
+// that work on its own worker so an opening document cannot starve navigation
+// or rendering requests on the shared page-ops worker.
+const browserAnnotationParseWorkerClient = createBrowserPageOpsWorkerClient();
+
+interface IRunBrowserPageOpsWorkerRequestOptions {
+    signal?: AbortSignal;
+    dedicated?: boolean;
+}
+
+function abortErrorFromSignal(signal: AbortSignal) {
+    return signal.reason instanceof Error
+        ? signal.reason
+        : new Error('Browser page operation request was aborted');
+}
 
 export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWorkerRequestType>(
     type: K,
     payload: IBrowserPageOpsWorkerRequestMap[K],
+    options: IRunBrowserPageOpsWorkerRequestOptions = {},
 ): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    const client = options.dedicated
+        ? browserAnnotationParseWorkerClient
+        : browserPageOpsWorkerClient;
     const request: IBrowserPageOpsWorkerRequest<K> = {
-        id: browserPageOpsWorkerClient.createRequestId(),
+        id: client.createRequestId(),
         type,
         payload,
     };
 
-    const worker = browserPageOpsWorkerClient.getWorker();
+    if (options.signal?.aborted) {
+        throw abortErrorFromSignal(options.signal);
+    }
+    const worker = client.getWorker();
 
     return new Promise<IBrowserPageOpsWorkerResultMap[K]>((resolve, reject) => {
-        browserPageOpsWorkerClient.registerPendingRequest(request.id, {
+        let removeAbortListener: () => void = () => undefined;
+        const rejectRequest = (error: Error) => {
+            removeAbortListener();
+            reject(error);
+        };
+        client.registerPendingRequest(request.id, {
             requestType: type,
             resolveData: (value) => {
                 const decoded = decodePageOpsWorkerResult(type, value);
                 if (!decoded) {
                     return false;
                 }
+                removeAbortListener();
                 resolve(decoded);
                 return true;
             },
-            reject,
+            reject: rejectRequest,
         }, () => new BrowserPageOpsWorkerUnavailableError(
             `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,
         ));
+
+        if (options.signal) {
+            const handleAbort = () => client.cancelPendingRequest(
+                request.id,
+                abortErrorFromSignal(options.signal!),
+                {resetWorker: true},
+            );
+            options.signal.addEventListener('abort', handleAbort, {once: true});
+            removeAbortListener = () => options.signal?.removeEventListener('abort', handleAbort);
+            if (options.signal.aborted) {
+                handleAbort();
+                return;
+            }
+        }
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(request as TBrowserPageOpsWorkerRequest);
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
-            browserPageOpsWorkerClient.cancelPendingRequest(
+            client.cancelPendingRequest(
                 request.id,
                 error instanceof Error ? error : new Error(String(error)),
             );

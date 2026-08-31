@@ -392,6 +392,7 @@ export function createElectronApi(
     const documentWorkingCopy = {
         createWorkingCopyFromData: baseDocuments.createWorkingCopyFromData,
         createWorkingCopyFromPath: baseDocuments.createWorkingCopyFromPath,
+        parsePdfAnnotations: baseDocuments.parsePdfAnnotations,
         cleanupFile: baseDocuments.cleanupFile,
         cleanupOcrTemp: baseDocuments.cleanupOcrTemp,
     } satisfies IDocumentsWorkingCopyCapability;

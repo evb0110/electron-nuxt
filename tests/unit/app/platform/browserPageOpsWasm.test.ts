@@ -22,6 +22,7 @@ import {
 import type { IPageGeometry } from '@contracts/shared';
 import type {IPageMutationWorkerResult} from '@app/platform/browser-api/browserPageOpsWorker.types';
 import type {IBrowserPageOpsWasmFailure} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+import {decodeBrowserPdfAnnotationsOutput} from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import {
     resolvePdfLibCropBox,
     resolvePdfLibMediaBox,
@@ -333,6 +334,33 @@ describe('browser page-ops WASM fast path', () => {
             status: 'failed',
             error: {code: 'needs-password'},
         });
+    });
+
+    it('parses reachable FreeText and Popup entries through the writer WASM operation', async () => {
+        const data = new Uint8Array(await readFile(join(
+            process.cwd(),
+            'tests/fixtures/electron/freetext-lifecycle-test.pdf',
+        )));
+        const wasm = await loadWasmRunner();
+        const result = await wasm.run('parseAnnotations', {data});
+        expect(result).not.toBeNull();
+        if (result === null || 'status' in result) {
+            throw new Error('Expected annotation parse WASM output');
+        }
+
+        const parsed = decodeBrowserPdfAnnotationsOutput(result.data);
+        expect(parsed.pageCount).toBe(1);
+        expect(parsed.entities.map(entity => entity.kind)).toEqual([
+            'note',
+            'text-box',
+            'text-box',
+        ]);
+        expect(parsed.entities.map(entity => entity.name)).toEqual([
+            'lifecycle-note',
+            'lifecycle-text-box-one',
+            'lifecycle-text-box-two',
+        ]);
+        expect(parsed.foreign).toEqual([]);
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {

@@ -1471,6 +1471,51 @@ export async function createBlankFixturePdf(filename: string, pageCount = 1) {
     return filePath;
 }
 
+export async function createLinkOnlyFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const page = doc.addPage([
+        612,
+        792,
+    ]);
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText('Link-only annotation fixture', {
+        font,
+        size: 24,
+        x: 100,
+        y: 650,
+    });
+    const link = doc.context.register(doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Link'),
+        Rect: [
+            100,
+            580,
+            320,
+            610,
+        ],
+        Border: [
+            0,
+            0,
+            1,
+        ],
+        C: [
+            0,
+            0,
+            1,
+        ],
+        A: {
+            S: PDFName.of('URI'),
+            URI: PDFString.of('https://example.com/evb-viewer-link-fixture'),
+        },
+        P: page.ref,
+    }));
+    page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
+    writeFileSync(filePath, await doc.save({useObjectStreams: false}));
+    return filePath;
+}
+
 export async function createManagedInkStrokeFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

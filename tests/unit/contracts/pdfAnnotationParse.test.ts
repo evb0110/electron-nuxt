@@ -5,7 +5,11 @@ import {
 } from 'vitest';
 import {PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES} from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
-import {DOCUMENT_FILES_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
+import {PDF_ANNOTATION_PARSE_MAX_ENTRIES} from '@contracts/pdfAnnotationParseTypes';
+import {
+    DOCUMENT_FILES_PLATFORM_FEATURE,
+    DOCUMENT_WORKING_COPY_PLATFORM_FEATURE,
+} from '@contracts/documentsPlatformFeature';
 
 const token = requireDocumentRevisionToken('drt1:annotation-parse-test');
 const channels = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels;
@@ -346,6 +350,30 @@ describe('PDF annotation parse IPC contracts', () => {
             .toEqual(['annotation-parse-session']);
         expect(codecs[channels.cancelPdfAnnotationParse]!.decodeResult({canceled: true}))
             .toEqual({canceled: true});
+
+        const parseResult = {
+            documentRevisionToken: token,
+            pageCount: 1,
+            entities: [
+                textBox,
+                note,
+                highlight,
+                stamp,
+                shape,
+            ],
+            foreign: [foreign],
+        };
+        const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
+        ]!;
+        expect(workingCopyParseCodec.decodeArgs([
+            '/tmp/document.pdf',
+            {expectedDocumentRevisionToken: token},
+        ])).toEqual([
+            '/tmp/document.pdf',
+            {expectedDocumentRevisionToken: token},
+        ]);
+        expect(workingCopyParseCodec.decodeResult(parseResult)).toEqual(parseResult);
     });
 
     it('rejects missing revisions, invalid entities, and oversized chunks', () => {
@@ -402,5 +430,15 @@ describe('PDF annotation parse IPC contracts', () => {
                 unexpected: true,
             }],
         })).toThrow(/unsupported field/iu);
+
+        const workingCopyParseCodec = DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.ipcCodecs[
+            DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.parsePdfAnnotations
+        ]!;
+        expect(() => workingCopyParseCodec.decodeResult({
+            documentRevisionToken: token,
+            pageCount: 1,
+            entities: new Array(PDF_ANNOTATION_PARSE_MAX_ENTRIES + 1).fill(null),
+            foreign: [],
+        })).toThrow(/more than/iu);
     });
 });

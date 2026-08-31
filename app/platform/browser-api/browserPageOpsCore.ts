@@ -207,6 +207,20 @@ export async function deletePdfPages(
     return toSavedPdfResult(targetPdf);
 }
 
+/** Parse through the writer's WASM implementation. There is no pdf-lib
+ * fallback for annotation import because it would create a second authority
+ * for canonical entities. */
+export async function parsePdfAnnotations(data: Uint8Array) {
+    const wasmResult = await tryRunBrowserPageOpsWithWasm('parseAnnotations', {data});
+    if (wasmResult && !isBrowserPageOpsWasmFailure(wasmResult)) {
+        return wasmResult;
+    }
+    if (isBrowserPageOpsWasmFailure(wasmResult)) {
+        throw new Error(wasmResult.error.message);
+    }
+    throw new Error('PDF annotation parsing is unavailable because the browser WASM page tool could not be loaded');
+}
+
 export async function extractPdfPages(
     data: Uint8Array,
     pages: number[],

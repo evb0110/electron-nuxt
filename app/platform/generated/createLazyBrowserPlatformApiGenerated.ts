@@ -60,6 +60,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentOpenOnOpenDocumentDirectBatchProgressMethod = lazyEvent(pathDescriptors.documentOpen.onOpenDocumentDirectBatchProgress.path);
     const documentWorkingCopyCreateWorkingCopyFromDataMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromData.path);
     const documentWorkingCopyCreateWorkingCopyFromPathMethod = lazyAsync(pathDescriptors.documentWorkingCopy.createWorkingCopyFromPath.path);
+    const documentWorkingCopyParsePdfAnnotationsMethod = lazyAsync(pathDescriptors.documentWorkingCopy.parsePdfAnnotations.path);
     const documentWorkingCopyCleanupFileMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupFile.path);
     const documentWorkingCopyCleanupOcrTempMethod = lazyAsync(pathDescriptors.documentWorkingCopy.cleanupOcrTemp.path);
     const documentFilesReadFileMethod = lazyAsync(pathDescriptors.documentFiles.readFile.path);
@@ -293,6 +294,7 @@ export function createLazyBrowserPlatformApiGenerated({
     documentWorkingCopy: {
         createWorkingCopyFromData: documentWorkingCopyCreateWorkingCopyFromDataMethod,
         createWorkingCopyFromPath: documentWorkingCopyCreateWorkingCopyFromPathMethod,
+        parsePdfAnnotations: documentWorkingCopyParsePdfAnnotationsMethod,
         cleanupFile: documentWorkingCopyCleanupFileMethod,
         cleanupOcrTemp: documentWorkingCopyCleanupOcrTempMethod,
     },

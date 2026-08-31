@@ -12,6 +12,7 @@ import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
     copyProjectFixture,
+    createLinkOnlyFixturePdf,
     createMultiPageTextFixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
 import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
@@ -1321,7 +1322,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     afterAll(async () => {
         const session = sessionFixture.getSession();
         if (!session) {
-            return;
+            throw new Error('Electron E2E session was not initialized for the writer parse proof');
         }
         await disconnectAnnotationUndoBoundaryProbe(session.page);
     });
@@ -1370,6 +1371,36 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         }, { timeout: 8_000 }, typedText);
         const latestText = await latestTextHandle.jsonValue();
         expect(latestText).toContain(typedText);
+    });
+
+    it('opens writer annotations in the canonical sidebar and excludes link annotations', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+
+        const freeTextFixturePath = copyProjectFixture(
+            'freetext-lifecycle-test.pdf',
+            `annotation-lifecycle-${Date.now()}-writer-parse.pdf`,
+        );
+        await openPdfInApp(page, freeTextFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForSidebarAnnotationCount(page, 3);
+        await waitForSidebarAnnotationText(page, 'Reachable lifecycle note');
+        await waitForSidebarAnnotationText(page, 'Reachable text box one');
+        await waitForSidebarAnnotationText(page, 'Reachable text box two');
+
+        const linkFixturePath = await createLinkOnlyFixturePdf(
+            `annotation-lifecycle-${Date.now()}-link-only.pdf`,
+        );
+        await openPdfInApp(page, linkFixturePath);
+        await waitForPdfLoaded(page);
+        await openAnnotationsTab(page);
+        await waitForViewerInteractive(page);
+        await waitForSidebarAnnotationCount(page, 0);
     });
 
     it('shows a placed empty sticky note in the sidebar before text is entered', async () => {

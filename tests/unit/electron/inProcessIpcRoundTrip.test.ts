@@ -88,10 +88,21 @@ describe('in-process preload to validated IPC round trips', () => {
                 originalPath,
                 workingPath: `/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`,
             });
+        const parsePdfAnnotations = vi.fn(async (
+            _context: unknown,
+            _path: string,
+            options: {expectedDocumentRevisionToken: ReturnType<typeof requireDocumentRevisionToken>},
+        ) => ({
+            documentRevisionToken: options.expectedDocumentRevisionToken,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        }));
         const service = cast<IDocumentsService>({
             beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
             createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
             openDocumentDirect,
+            parsePdfAnnotations,
         });
         const harness = createInProcessIpcRoundTripHarness<
             TDocumentsCombinedInvokeMap,
@@ -158,6 +169,28 @@ describe('in-process preload to validated IPC round trips', () => {
             '/tmp/source.pdf',
             undefined,
         );
+        const parseRevision = requireDocumentRevisionToken('round-trip-parse-revision');
+        await expect(harness.client.parsePdfAnnotations(
+            '/tmp/working-copy.pdf',
+            {expectedDocumentRevisionToken: parseRevision},
+        )).resolves.toEqual({
+            documentRevisionToken: parseRevision,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        });
+        expect(parsePdfAnnotations).toHaveBeenCalledWith(
+            expect.objectContaining({senderId: 7}),
+            '/tmp/working-copy.pdf',
+            {expectedDocumentRevisionToken: parseRevision},
+        );
+        expect(harness.invokeCalls).toContainEqual({
+            channel: DOCUMENTS_CHANNELS.parsePdfAnnotations,
+            args: [
+                '/tmp/working-copy.pdf',
+                {expectedDocumentRevisionToken: parseRevision},
+            ],
+        });
         await expect(harness.client.savePdfDataChunks('/tmp/working.pdf', 5, [
             Uint8Array.from([
                 1,

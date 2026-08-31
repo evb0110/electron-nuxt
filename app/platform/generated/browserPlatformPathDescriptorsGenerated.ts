@@ -50,6 +50,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     documentWorkingCopy: {
         createWorkingCopyFromData: {kind: 'async', path: ["documentWorkingCopy","createWorkingCopyFromData"]},
         createWorkingCopyFromPath: {kind: 'async', path: ["documentWorkingCopy","createWorkingCopyFromPath"]},
+        parsePdfAnnotations: {kind: 'async', path: ["documentWorkingCopy","parsePdfAnnotations"]},
         cleanupFile: {kind: 'async', path: ["documentWorkingCopy","cleanupFile"]},
         cleanupOcrTemp: {kind: 'async', path: ["documentWorkingCopy","cleanupOcrTemp"]},
     },

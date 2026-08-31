@@ -52,6 +52,8 @@ import {
     saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
 import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
+import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
@@ -455,6 +457,35 @@ export function createBrowserDocumentsFileCapability(
         },
         async readFile(path) {
             return browserDocumentStore.read(path);
+        },
+        async parsePdfAnnotations(path, options) {
+            await assertBrowserPathWithinFullReadBudget(path, 'Parsing PDF annotations');
+            await browserDocumentStore.assertDocumentRevisionCurrent(
+                path,
+                options.expectedDocumentRevisionToken,
+            );
+            const data = await browserDocumentStore.read(path);
+            await browserDocumentStore.assertDocumentRevisionCurrent(
+                path,
+                options.expectedDocumentRevisionToken,
+            );
+            const wasmResult = await runBrowserPageOpsWorkerRequest(
+                'parseAnnotations',
+                {data},
+                {
+                    dedicated: true,
+                    ...(options.signal ? {signal: options.signal} : {}),
+                },
+            );
+            const parsed = decodeBrowserPdfAnnotationsOutput(wasmResult.data);
+            await browserDocumentStore.assertDocumentRevisionCurrent(
+                path,
+                options.expectedDocumentRevisionToken,
+            );
+            return {
+                documentRevisionToken: options.expectedDocumentRevisionToken,
+                ...parsed,
+            };
         },
         statFile(path) {
             return browserDocumentStore.stat(path);

@@ -59,7 +59,6 @@ export interface IDocumentChunkReadOptions {
     chunkBytes?: number;
     signal?: AbortSignal;
 }
-
 export interface IDocumentChunkReadResult {
     size: number;
     bytesRead: number;
@@ -88,7 +87,7 @@ export interface IPdfAnnotationIndexEntry {
 
 export interface IPdfAnnotationIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfAnnotationIndexChunkOptions {chunkBytes?: number;}
+export interface IPdfAnnotationIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfAnnotationIndexSession {
     sessionId: string;
@@ -114,7 +113,6 @@ export type * from '@contracts/pdfAnnotationParseTypes';
 export type {
     IPdfDecryptRequest, IPdfDecryptResult, TPdfDecryptOutcome,
 } from '@contracts/pdfDecryptSchemas';
-
 /** A normalized point returned by the private embedded-shape index. */
 export interface IPdfEmbeddedShapeIndexPoint {
     x: number;
@@ -154,7 +152,7 @@ export const PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES = 4 * 1024 * 1024;
 
 export interface IPdfEmbeddedShapeIndexOptions {expectedDocumentRevisionToken: TDocumentRevisionToken;}
 
-export interface IPdfEmbeddedShapeIndexChunkOptions {chunkBytes?: number;}
+export interface IPdfEmbeddedShapeIndexChunkOptions extends PdfAnnotationParse.IPdfSidecarChunkOptions {}
 
 export interface IPdfEmbeddedShapeIndexSession {
     sessionId: string;
@@ -887,6 +885,7 @@ export interface IDocumentsFileCapability {
     readFileRange: (path: TDocumentRef, offset: number, length: number) => Promise<Uint8Array>;
     createManagedTempFileHandle?: (path: TDocumentRef) => Promise<IManagedTempFileHandle>;
     releaseManagedTempFileHandle?: (leaseId: string) => Promise<boolean>;
+    parsePdfAnnotations: PdfAnnotationParse.TPdfAnnotationParse;
     getPdfOpeningGeometry?: (path: TDocumentRef) => Promise<IPdfOpeningGeometry | null>;
     getPdfNativePageSizes?: (path: TDocumentRef) => Promise<TPdfNativePageSizes>;
     cancelPdfNativePagePreview?: (requestId: string) => Promise<{ canceled: boolean }>;
@@ -1110,6 +1109,7 @@ export interface IDocumentsWorkingCopyCapability extends Pick<
     IDocumentsFileCapability,
     | 'createWorkingCopyFromData'
     | 'createWorkingCopyFromPath'
+    | 'parsePdfAnnotations'
     | 'cleanupFile'
     | 'cleanupOcrTemp'
 > {}

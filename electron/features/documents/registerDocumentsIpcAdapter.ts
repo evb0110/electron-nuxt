@@ -382,6 +382,8 @@ export function registerDocumentsIpcAdapter(
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
             return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password);
         },
+        parsePdfAnnotations: (context, filePath, options) =>
+            service.parsePdfAnnotations(context, filePath, options),
         cleanupFile: (context, workingPath) =>
             service.cleanupFile(context, workingPath).then(() => undefined),
         cleanupOcrTemp: (context, filePath) =>
@@ -412,21 +414,14 @@ export function registerDocumentsIpcAdapter(
             service.releasePdfAnnotationIndex(context, sessionId),
         cancelPdfAnnotationIndex: (context, sessionId) =>
             service.cancelPdfAnnotationIndex(context, sessionId),
-        // The parser's native CLI and WASM entry are part of #172. The
-        // session host is deliberately deferred to #184, which will replace
-        // these guards with the bounded sidecar implementation.
-        beginPdfAnnotationParse: () => {
-            throw new Error('PDF annotation parse is not available through the Electron host yet');
-        },
-        readPdfAnnotationParseChunk: () => {
-            throw new Error('PDF annotation parse is not available through the Electron host yet');
-        },
-        releasePdfAnnotationParse: () => {
-            throw new Error('PDF annotation parse is not available through the Electron host yet');
-        },
-        cancelPdfAnnotationParse: () => {
-            throw new Error('PDF annotation parse is not available through the Electron host yet');
-        },
+        beginPdfAnnotationParse: (context, filePath, options) =>
+            service.beginPdfAnnotationParse(context, filePath, options),
+        readPdfAnnotationParseChunk: (context, sessionId, offset, options) =>
+            service.readPdfAnnotationParseChunk(context, sessionId, offset, options),
+        releasePdfAnnotationParse: (context, sessionId) =>
+            service.releasePdfAnnotationParse(context, sessionId),
+        cancelPdfAnnotationParse: (context, sessionId) =>
+            service.cancelPdfAnnotationParse(context, sessionId),
         beginPdfEmbeddedShapeIndex: (context, filePath, options) =>
             service.beginPdfEmbeddedShapeIndex(context, filePath, options),
         readPdfEmbeddedShapeIndexChunk: (context, sessionId, offset, options) =>

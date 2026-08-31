@@ -137,6 +137,11 @@ export class AnnotationStore {
         this.#history = history;
     }
 
+    /** Monotonic semantic-state generation for asynchronous document fences. */
+    get mutationEpoch() {
+        return this.#mutationEpoch;
+    }
+
     list(options: {includeDeleted?: boolean} = {}) {
         return Array.from(this.#entities.values())
             .filter(entity => options.includeDeleted === true || !entity.deleted)

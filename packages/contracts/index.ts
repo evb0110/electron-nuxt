@@ -97,11 +97,14 @@ export type {
     IPdfAnnotationParseEntry,
     IPdfAnnotationParsePoint,
     IPdfAnnotationParseOptions,
+    IPdfAnnotationParseResult,
     IPdfAnnotationParseSession,
     IPdfAnnotationShapeEntry,
+    IPdfSidecarChunkOptions,
     IPdfAnnotationStampEntry,
     IPdfAnnotationStampImageReference,
     IPdfAnnotationTextBoxEntry,
+    TPdfAnnotationParseEntity,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexEntry,
@@ -109,7 +112,11 @@ export type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
-export {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+export {
+    decodePdfAnnotationParseEntry,
+    decodePdfAnnotationParseProtocolFixture,
+    decodePdfAnnotationParseResult,
+} from '@contracts/pdfAnnotationParseSchemas';
 export type {IPdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
 export {
     formatPdfJsAnnotationRef,

@@ -31,6 +31,11 @@ import type {
     IPdfAnnotationIndexChunkOptions,
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
+    IPdfAnnotationParseChunk,
+    IPdfAnnotationParseChunkOptions,
+    IPdfAnnotationParseOptions,
+    IPdfAnnotationParseResult,
+    IPdfAnnotationParseSession,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexOptions,
@@ -101,6 +106,11 @@ export interface IDocumentsService {
         originalPath?: string,
         password?: string,
     ) => Promise<string>;
+    parsePdfAnnotations: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfAnnotationParseOptions,
+    ) => Promise<IPdfAnnotationParseResult>;
     savePdfAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
@@ -168,6 +178,25 @@ export interface IDocumentsService {
         sessionId: string,
     ) => Promise<boolean>;
     cancelPdfAnnotationIndex: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<{canceled: boolean}>;
+    beginPdfAnnotationParse: (
+        context: IDocumentsSenderIdContext,
+        filePath: string,
+        options: IPdfAnnotationParseOptions,
+    ) => Promise<IPdfAnnotationParseSession>;
+    readPdfAnnotationParseChunk: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+        offset: number,
+        options?: IPdfAnnotationParseChunkOptions,
+    ) => Promise<IPdfAnnotationParseChunk>;
+    releasePdfAnnotationParse: (
+        context: IDocumentsSenderIdContext,
+        sessionId: string,
+    ) => Promise<boolean>;
+    cancelPdfAnnotationParse: (
         context: IDocumentsSenderIdContext,
         sessionId: string,
     ) => Promise<{canceled: boolean}>;
