@@ -1003,7 +1003,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
 
         const inactiveTabId = await evaluateInPage(session.page, () => {
             const activeTab = document.querySelector<HTMLElement>('.tab-list .tab.is-active[data-tab-id]');
-            const newTabButton = document.querySelector<HTMLButtonElement>('.tab-list .tab-new');
+            const newTabButton = document.querySelector<HTMLButtonElement>('.tab-bar .tab-new');
             newTabButton?.click();
             return activeTab?.dataset.tabId ?? null;
         });
