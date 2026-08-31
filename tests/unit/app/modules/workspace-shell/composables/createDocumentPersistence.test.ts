@@ -134,6 +134,35 @@ const nativeMarkupIdentityBinding = {
     pdfRef: '700 0 R',
 };
 
+const nativeShapeIdentityBinding = {
+    annotationId: 'shape-annotation-1',
+    pdfRef: '701 0 R',
+};
+
+function createMixedNativeMarkupAndShapeMutations(): IPdfNativeMutationSet {
+    return {
+        ...createNativeMarkupMutations(),
+        shapes: {
+            totalPages: 1,
+            rewriteShapeState: true,
+            shapes: [{
+                type: 'rectangle',
+                pageIndex: 0,
+                x: 0.2,
+                y: 0.3,
+                width: 0.2,
+                height: 0.1,
+                color: '#336699',
+                opacity: 0.8,
+                strokeWidth: 2,
+                stableKey: 'shape-annotation-1',
+            }],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        },
+    };
+}
+
 function expectBroadFilePersistenceFacadeNotUsed() {
     expect(mocks.documentsCapability.optimizePdfAsCopy).not.toHaveBeenCalled();
     expect(mocks.documentsCapability.optimizePdfForInteraction).not.toHaveBeenCalled();
@@ -697,6 +726,59 @@ describe('createDocumentPersistence', () => {
             .toHaveBeenCalledWith('staged-native-lease');
     });
 
+    it('commits identity bindings for mixed new markup and shape mutations', async () => {
+        const { persistence } = createPersistenceHarness();
+        const mutations = createMixedNativeMarkupAndShapeMutations();
+        const identityBindings = [
+            nativeMarkupIdentityBinding,
+            nativeShapeIdentityBinding,
+        ];
+        mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+            nativeMutationPostconditionsVerified: true,
+            stagedOutput: {
+                path: '/tmp/staged-native.pdf',
+                size: 3,
+                sha256: 'a'.repeat(64),
+                leaseId: 'staged-native-lease',
+                revision: TEST_DOCUMENT_REVISION_TOKEN,
+            },
+            identityBindings,
+        });
+        mocks.documentFilesCapability.commitStagedPdfNativeMutations.mockResolvedValueOnce({
+            applied: true,
+            validation: {
+                isValid: true,
+                tool: 'native' as const,
+                errors: [],
+                warnings: [],
+            },
+            identityBindings,
+        });
+
+        const result = await persistence.trySavePdfNativeMutations(mutations, {
+            saveMode: 'rewrite',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123456+03\'00\'',
+        });
+
+        expect(result).toMatchObject({
+            success: true,
+            materializedIdentityBindings: identityBindings,
+        });
+        expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
+            '/tmp/old-working.pdf',
+            expect.objectContaining({leaseId: 'staged-native-lease'}),
+            expect.objectContaining({identityBindings}),
+        );
+    });
+
     it('rejects native markup identity drift between staging and commit', async () => {
         const { persistence } = createPersistenceHarness();
         mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy.mockResolvedValueOnce({
@@ -959,6 +1041,37 @@ describe('createDocumentPersistence', () => {
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
+        expectBroadFilePersistenceFacadeNotUsed();
+        expectBroadWorkingCopyFacadeNotUsed();
+    });
+
+    it('does not use legacy note-change saves when a new note needs an identity binding', async () => {
+        const { persistence } = createPersistenceHarness();
+        const freeTextNotes = [{
+            pageIndex: requirePageIndex(0),
+            stableKey: 'freetext-new-identity',
+            text: 'New free text note',
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+        }];
+        Object.assign(mocks.documentFilesCapability, {
+            applyPdfNativeMutationsToWorkingCopy: undefined,
+            commitStagedPdfNativeMutations: undefined,
+            savePdfNativeMutations: undefined,
+        });
+
+        const result = await persistence.trySavePdfNativeMutations({freeTextNotes}, {
+            saveMode: 'incremental',
+            expectedWorkingPath: '/tmp/old-working.pdf',
+            modifiedAt: 'D:20260628123632+03\'00\'',
+        });
+
+        expect(result).toBeNull();
+        expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
     });

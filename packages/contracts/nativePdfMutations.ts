@@ -36,6 +36,7 @@ import {
     isPdfNativeNormalizedRectInsidePageBounds,
 } from '@contracts/nativePdfPageBounds';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import {parsePdfJsAnnotationRef} from '@contracts/pdfAnnotationRefs';
 import { PDF_PAGE_LABEL_STYLE_VALUES } from '@contracts/pdfPageLabels';
 import {
     isOneOf,
@@ -1276,6 +1277,76 @@ export function normalizePdfNativeMutationSet(
     };
     validateNativeMutationCollectionBudget(normalized, label, options);
     return normalized;
+}
+
+function addExpectedNativeIdentityCandidate(
+    ids: Set<string>,
+    candidate: string | null | undefined,
+) {
+    const normalizedCandidate = candidate?.trim();
+    if (!normalizedCandidate) {
+        return;
+    }
+    if (ids.has(normalizedCandidate)) {
+        throw new Error(`Duplicate native annotation identity candidate ${normalizedCandidate}`);
+    }
+    ids.add(normalizedCandidate);
+}
+
+function addNewNativeAnnotationIdentityCandidate(
+    ids: Set<string>,
+    primaryIdentity: string | null | undefined,
+    fallbackIdentity: string | null | undefined,
+    existingAnnotationId: string | null | undefined,
+) {
+    if (parsePdfJsAnnotationRef(existingAnnotationId)) {
+        return;
+    }
+    const normalizedPrimaryIdentity = primaryIdentity?.trim();
+    if (normalizedPrimaryIdentity) {
+        addExpectedNativeIdentityCandidate(ids, normalizedPrimaryIdentity);
+        return;
+    }
+    addExpectedNativeIdentityCandidate(ids, fallbackIdentity?.trim());
+}
+
+function isNewNativeFreeTextNote(
+    note: NonNullable<IPdfNativeMutationSet['freeTextNotes']>[number],
+) {
+    const stableKey = note.stableKey.trim();
+    return !/^(?:ann|nm):/iu.test(stableKey);
+}
+
+/** Return identities the native writer can bind while creating annotations. */
+export function collectExpectedNativeIdentityIds(mutations: IPdfNativeMutationSet): string[] {
+    const ids = new Set<string>();
+    for (const hint of mutations.markup?.hints ?? []) {
+        const annotationId = hint.annotationId?.trim();
+        const appAnnotationId = hint.appAnnotationId?.trim();
+        if (
+            !appAnnotationId
+            || (hint.source !== 'editor' && hint.source !== 'editor-live')
+            || parsePdfJsAnnotationRef(annotationId)
+        ) {
+            continue;
+        }
+        addExpectedNativeIdentityCandidate(ids, appAnnotationId);
+    }
+    for (const note of mutations.freeTextNotes ?? []) {
+        if (isNewNativeFreeTextNote(note)) {
+            addExpectedNativeIdentityCandidate(ids, note.stableKey);
+        }
+    }
+    for (const editor of mutations.textBoxes ?? mutations.freeTextEditors ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, editor.stableKey, null, editor.annotationId);
+    }
+    for (const shape of mutations.shapes?.shapes ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, shape.stableKey, shape.annotationId, shape.annotationId);
+    }
+    for (const image of mutations.placedImages ?? []) {
+        addNewNativeAnnotationIdentityCandidate(ids, image.stableKey, image.annotationId, image.annotationId);
+    }
+    return [...ids];
 }
 
 export type TPdfNativeMutationChunk = IPdfNativeMutationSet & {continuation?: IPdfNativeMutationContinuation;};

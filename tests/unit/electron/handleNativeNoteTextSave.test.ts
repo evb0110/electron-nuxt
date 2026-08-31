@@ -264,6 +264,47 @@ const nativeMarkupIdentityBinding = {
     pdfRef: '84 0 R',
 };
 
+const nativeShapeIdentityBinding = {
+    annotationId: 'shape-identity-1',
+    pdfRef: '85 0 R',
+};
+
+function createUnboundNativeMarkupAndShapeMutation() {
+    return {
+        ...createUnboundNativeMarkupMutation(),
+        shapes: {
+            totalPages: 1,
+            rewriteShapeState: true,
+            shapes: [{
+                type: 'rectangle' as const,
+                pageIndex: 0,
+                x: 0.2,
+                y: 0.3,
+                width: 0.2,
+                height: 0.1,
+                color: '#336699',
+                opacity: 0.8,
+                strokeWidth: 2,
+                stableKey: 'shape-identity-1',
+            }],
+            deletedAnnotationIds: [],
+            deletedStableKeys: [],
+        },
+    };
+}
+
+async function writeEmptyIdentityBindingsIfRequested(args: readonly string[]) {
+    const identityBindingsIndex = args.indexOf('--identity-bindings-file');
+    if (identityBindingsIndex < 0) {
+        return;
+    }
+    const identityBindingsPath = args[identityBindingsIndex + 1];
+    if (!identityBindingsPath) {
+        throw new Error('Missing identity bindings output path');
+    }
+    await writeFile(identityBindingsPath, '[]');
+}
+
 function createOpaqueStagedArtifact(path: string): ITypedStagedArtifact {
     return {
         receiptVersion: 2,
@@ -900,6 +941,7 @@ describe('handleNativeNoteTextSave', () => {
                 expect.stringMatching(/mutations\.json$/u),
                 '--append',
             ]));
+            await writeEmptyIdentityBindingsIfRequested(args);
             await appendFile(tempPath, '\n% native metadata changes');
         });
         const { handleNativePdfMutationsSave } = await import('@electron/features/documents/main/nativePdfMutationSaveHandlers');
@@ -1046,6 +1088,54 @@ describe('handleNativeNoteTextSave', () => {
         );
         expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native markup identity');
         expect(readFileSyncUtf8(latestWorkingPath)).toBe('latest-before');
+    });
+
+    it('requests and returns bindings for mixed new markup and shape mutations', async () => {
+        const {
+            requestedWorkingPath,
+            tempPath,
+        } = createOriginalMutationFixture();
+        mocks.runNativeToolCommand.mockImplementation(async (_binaryPath: string, args: string[]) => {
+            const identityBindingsPath = args[args.indexOf('--identity-bindings-file') + 1];
+            if (!identityBindingsPath) {
+                throw new Error('Missing identity bindings output path');
+            }
+            await Promise.all([
+                appendFile(tempPath, '\n% native mixed identity'),
+                writeFile(identityBindingsPath, JSON.stringify([
+                    nativeMarkupIdentityBinding,
+                    nativeShapeIdentityBinding,
+                ])),
+            ]);
+        });
+        const {handleNativePdfMutationsSave} = await import(
+            '@electron/features/documents/main/nativePdfMutationSaveHandlers'
+        );
+
+        const result = await handleNativePdfMutationsSave(
+            context,
+            requestedWorkingPath,
+            createUnboundNativeMarkupAndShapeMutation(),
+            'D:20260609133855+03\'00\'',
+            revisionOptions,
+        );
+
+        expect(result).toMatchObject({
+            applied: true,
+            identityBindings: [
+                nativeMarkupIdentityBinding,
+                nativeShapeIdentityBinding,
+            ],
+        });
+        expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
+            '/native/evb-pdf-page-ops',
+            expect.arrayContaining([
+                '--identity-bindings-file',
+                expect.stringMatching(/identity-bindings\.json$/u),
+            ]),
+            expect.any(Object),
+        );
+        expect(readFileSyncUtf8(requestedWorkingPath)).toContain('% native mixed identity');
     });
 
     it('refreshes only the requesting working copy when another current copy is queued', async () => {
@@ -1500,6 +1590,7 @@ describe('handleNativeNoteTextSave', () => {
                 throw new Error('Missing mutations file path');
             }
             payloads.push(JSON.parse(readFileSync(payloadPath, 'utf8')) as Record<string, unknown>);
+            await writeEmptyIdentityBindingsIfRequested(args);
             await appendFile(tempPath, '\n% native generic continuation');
         });
         const {handleNativePdfMutationsSave} = await import(
@@ -1568,6 +1659,7 @@ describe('handleNativeNoteTextSave', () => {
                 throw new Error('Missing mutations file path');
             }
             payloads.push(JSON.parse(readFileSync(payloadPath, 'utf8')) as Record<string, unknown>);
+            await writeEmptyIdentityBindingsIfRequested(args);
             await appendFile(tempPath, '\n% native all-family continuation');
         });
         const {handleNativePdfMutationsSave} = await import(

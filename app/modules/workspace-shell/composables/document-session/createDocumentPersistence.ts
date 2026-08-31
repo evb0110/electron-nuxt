@@ -39,11 +39,11 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/adoptPathBackedPersistedState';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import {
-    collectExpectedNativeMarkupIdentityIds,
+    collectExpectedNativeIdentityIds,
     createDocumentMutationRevisionOptions,
     createNativeStagedCommitOptions,
-    haveSameNativeMarkupIdentityBindings,
-    validateNativeMarkupIdentityBindings,
+    haveSameNativeIdentityBindings,
+    validateNativeIdentityBindings,
 } from '@app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit';
 
 interface IPdfPersistPhaseTiming {
@@ -735,7 +735,7 @@ export function createDocumentPersistence(
         const hasBookmarks = mutations.bookmarks !== undefined;
         const hasShapes = mutations.shapes !== undefined;
         const hasMarkup = mutations.markup !== undefined;
-        const expectedNativeMarkupIdentityIds = collectExpectedNativeMarkupIdentityIds(mutations);
+        const expectedNativeIdentityIds = collectExpectedNativeIdentityIds(mutations);
         const placedImages = mutations.placedImages ?? [];
         const hasPlacedImages = placedImages.length > 0;
         if (
@@ -774,6 +774,7 @@ export function createDocumentPersistence(
             && !hasShapes
             && !hasMarkup
             && !hasPlacedImages
+            && expectedNativeIdentityIds.length === 0
             && (geometryUpdates.length > 0 || freeTextNotes.length > 0 || deletes.length > 0)
             && freeTextEditors.length === 0
             && typeof documentFiles.savePdfNoteChanges === 'function'
@@ -883,9 +884,9 @@ export function createDocumentPersistence(
                         }
                         let appliedIdentityBindings: IPdfNativeAnnotationIdentityBinding[];
                         try {
-                            appliedIdentityBindings = validateNativeMarkupIdentityBindings(
+                            appliedIdentityBindings = validateNativeIdentityBindings(
                                 applied.identityBindings,
-                                expectedNativeMarkupIdentityIds,
+                                expectedNativeIdentityIds,
                                 'Native staged identity bindings',
                             );
                             // The native writer validates the projected mutation set against
@@ -943,12 +944,12 @@ export function createDocumentPersistence(
                         if (!committed.applied || !committed.validation?.isValid) {
                             throw new NativeMutationPreExposeError('Targeted native mutation validation failed before commit');
                         }
-                        const committedIdentityBindings = validateNativeMarkupIdentityBindings(
+                        const committedIdentityBindings = validateNativeIdentityBindings(
                             committed.identityBindings,
-                            expectedNativeMarkupIdentityIds,
+                            expectedNativeIdentityIds,
                             'Native committed identity bindings',
                         );
-                        if (!haveSameNativeMarkupIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
+                        if (!haveSameNativeIdentityBindings(appliedIdentityBindings, committedIdentityBindings)) {
                             throw new NativeMutationPreExposeError('Native identity bindings changed between staging and commit');
                         }
                         return committed;
@@ -979,9 +980,9 @@ export function createDocumentPersistence(
                 logRendererTimings('not-applied', {validation: result.validation});
                 return null;
             }
-            const materializedIdentityBindings = validateNativeMarkupIdentityBindings(
+            const materializedIdentityBindings = validateNativeIdentityBindings(
                 result.identityBindings,
-                expectedNativeMarkupIdentityIds,
+                expectedNativeIdentityIds,
                 'Native identity bindings',
             );
             if (result.syncError) {

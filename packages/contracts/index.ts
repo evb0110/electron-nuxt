@@ -111,6 +111,12 @@ export type {
 } from '@contracts/electronApiDocuments';
 export {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
 export type {IPdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+export {
+    formatPdfJsAnnotationRef,
+    normalizePdfJsAnnotationId,
+    parsePdfJsAnnotationRef,
+} from '@contracts/pdfAnnotationRefs';
+export type {IPdfAnnotationRef} from '@contracts/pdfAnnotationRefs';
 export type * from '@contracts/pdfOpenFileResults';
 
 export {
@@ -385,6 +391,7 @@ export type {
 
 export {
     normalizePdfNativeAnnotationIdentityBindings,
+    collectExpectedNativeIdentityIds,
     PDF_NATIVE_DATE_PATTERN,
     PDF_NATIVE_MUTATION_ENUM_VALUES,
     PDF_NATIVE_MUTATION_LIMITS,
