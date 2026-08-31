@@ -744,11 +744,17 @@ describe('xlarge document path architecture', () => {
 
     it('keeps malformed-xref recovery bounded for range-backed documents in both workers', () => {
         const publicWorkerSource = readSource('public/pdf/pdf.worker.min.mjs');
-        expect(publicWorkerSource).toContain('indexObjectsBounded');
-        expect(publicWorkerSource).toContain('discardChunksBefore');
-        expect(publicWorkerSource).not.toContain(
-            'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
-        );
+        const legacyWorkerSource = readSource('node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs');
+        for (const workerSource of [
+            publicWorkerSource,
+            legacyWorkerSource,
+        ]) {
+            expect(workerSource).toContain('indexObjectsBounded');
+            expect(workerSource).toContain('discardChunksBefore');
+            expect(workerSource).not.toContain(
+                'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
+            );
+        }
     });
 
     it('keeps native and worker failures fail-closed for desktop paths', () => {

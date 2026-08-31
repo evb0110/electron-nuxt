@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import {
     copyFile,
@@ -82,11 +83,18 @@ describe('PDF.js provenance attack fixtures', () => {
         ],
         [
             'fifo',
-            async root => execFileSync('mkfifo', [join(root, 'package', 'fifo')]),
+            async root => {
+                if (process.platform !== 'win32') {
+                    execFileSync('mkfifo', [join(root, 'package', 'fifo')]);
+                }
+            },
         ],
     ];
 
     it.each(archiveFixtures)('rejects %s archive entries', async (kind, prepare) => {
+        if (kind === 'fifo' && process.platform === 'win32') {
+            return;
+        }
         const root = await fixtureRoot();
         const archive = join(root, `${kind}.tgz`);
         try {
@@ -132,6 +140,8 @@ describe('PDF.js provenance attack fixtures', () => {
             '/tmp/file.js',
             '\\\\server\\file.js',
             'file:///tmp/file.js',
+            'file:/tmp/file.js',
+            'FILE:///tmp/file.js',
         ].every(absoluteSourceMapPath)).toBe(true);
         expect(absoluteSourceMapPath('webpack://pdf.js/./src/shared/util.js')).toBe(false);
     });
@@ -149,6 +159,20 @@ describe('PDF.js provenance attack fixtures', () => {
             ]);
             const receiptPath = join(vendor, 'provenance.json');
             const receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
+            const verifierSource = await readFile(
+                resolve(process.cwd(), 'scripts/verify-pdfjs-provenance.mjs'),
+            );
+            const verifierSourceSha256 = createHash('sha256').update(verifierSource).digest('hex');
+            expect(receipt.verifier.sourceSha256).toBe(verifierSourceSha256);
+            receipt.verifier.sourceSha256 = '0'.repeat(64);
+            await writeFile(receiptPath, JSON.stringify(receipt));
+            await expect(verify({
+                projectRoot: process.cwd(),
+                archivePath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.tgz'),
+                manifestPath: join(vendor, 'pdfjs-dist-5.7.304-f029c046.files.sha256'),
+                receiptPath,
+            })).rejects.toThrow(/verifier source hash mismatch/u);
+            receipt.verifier.sourceSha256 = verifierSourceSha256;
             receipt.archive.sha256 = '0'.repeat(64);
             await writeFile(receiptPath, JSON.stringify(receipt));
             await expect(verify({

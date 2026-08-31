@@ -125,7 +125,7 @@ export function collectEntryViolations(entries) {
             problems.push(`archive should not ship: ${entry}`);
             continue;
         }
-        if (/\/pdfjs-dist(?:\/|$)/u.test(entry)
+        if (/\/(?:pdfjs-dist|pdfjs-dist-codex-preview)(?:\/|$)/u.test(entry)
             || /(?:^|\/)(?:pdf\.sandbox|pdf\.min)\.mjs$/u.test(entry)
             || /(?:^|\/)(?:pdf_viewer|pdf\.worker)\.mjs\.map$/u.test(entry)
             || /(?:^|\/)image_decoders\//u.test(entry)) {

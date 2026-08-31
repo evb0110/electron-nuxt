@@ -127,7 +127,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'drizzle/**',
                 'packages/**',
                 'public/**',
-                'public/pdf/**',
                 'vendor/**',
                 'scan-cleanup-adapters/**',
                 'scan-cleanup-core/**',
@@ -219,8 +218,6 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'package.json',
                 'pnpm-lock.yaml',
                 'patches/**',
-                'public/pdf/**',
-                'vendor/**',
                 'vitest.config.ts',
                 'vitest.shared.config.ts',
                 // Native save changes also need the controlled pressure save

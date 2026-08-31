@@ -105,7 +105,7 @@ const unsafePath = value => {
         || normalized.split('/').includes('..') || normalized.split('/').some(part => part === '');
 };
 const forbiddenName = value => /(?:^|\/)(?:[^/]+~|\.[^/]+\.swp|[^/]+\.(?:orig|rej|patch|bak))$/u.test(value);
-const absoluteSourceMapPath = value => /^(?:[A-Za-z]:[\\/]|\\\\|\/|file:\/\/)/u.test(value);
+const absoluteSourceMapPath = value => /^(?:[A-Za-z]:[\\/]|\\\\|\/|file:)/iu.test(value);
 const rangeWorkerMarkers = [
     '_storedChunks',
     'discardChunksBefore',

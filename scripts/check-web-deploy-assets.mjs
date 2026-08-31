@@ -43,9 +43,9 @@ export {
 
 const WEB_OUTPUT_FORBIDDEN_PATTERNS = [
     /(?:^|\/)vendor\/(?:pdfjs-dist|pdf\.js|pdfjs-source)(?:\/|$)/u,
-    /(?:^|\/)pdfjs-dist(?:\/|$)/u,
+    /(?:^|\/)pdfjs-dist(?:-codex-preview)?(?:\/|$)/u,
     /\.(?:tgz|tar\.gz|patch|orig|rej|bak)$/iu,
-    /(?:^|\/)(?:[^/]+\.(?:d\.ts|d\.mts)|pdf\.sandbox\.mjs|pdf\.min\.mjs|pdf_viewer\.mjs\.map|pdf\.worker\.mjs\.map)$/iu,
+    /(?:^|\/)(?:[^/]+\.(?:d\.ts|d\.mts)|pdf\.sandbox\.mjs|pdf\.min\.mjs|pdf\.mjs\.map|pdf_viewer\.mjs\.map|pdf\.worker\.mjs\.map)$/iu,
     /(?:^|\/)image_decoders(?:\/|$)/u,
 ];
 

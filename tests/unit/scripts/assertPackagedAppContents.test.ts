@@ -116,6 +116,7 @@ describe('assert-packaged-app-contents', () => {
         const problems = collectEntryViolations([
             '/vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
             '/vendor/pdfjs-dist/package/build/pdf.mjs',
+            '/dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
             '/dist-electron/pdf.d.ts',
             '/dist-electron/pdf.d.mts',
             '/dist-electron/pdf.worker.mjs.map',
@@ -130,6 +131,7 @@ describe('assert-packaged-app-contents', () => {
         expect(problems).toEqual(expect.arrayContaining([
             'forbidden entry present: /vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz',
             'forbidden entry present: /vendor/pdfjs-dist/package/build/pdf.mjs',
+            'complete or alternate PDF.js package content should not ship: /dist-electron/pdfjs-dist-codex-preview/build/pdf.mjs',
             'PDF.js declaration should not ship: /dist-electron/pdf.d.ts',
             'PDF.js declaration should not ship: /dist-electron/pdf.d.mts',
             'source map should not ship: /dist-electron/pdf.worker.mjs.map',
