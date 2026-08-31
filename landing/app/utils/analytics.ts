@@ -66,7 +66,11 @@ function readQueuedAnalyticsRequests(): IQueuedAnalyticsRequest[] {
             if (typeof request !== 'object' || request === null) {
                 return [];
             }
-            const candidate = request as {requestId?: unknown; path?: unknown; payload?: unknown};
+            const candidate = request as {
+                requestId?: unknown;
+                path?: unknown;
+                payload?: unknown;
+            };
             if ((candidate.path !== '/api/analytics/pageView'
                 && candidate.path !== '/api/analytics/download')
                 || typeof candidate.payload !== 'object'
