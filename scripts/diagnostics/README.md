@@ -391,7 +391,7 @@ across platforms instead of assuming a macOS path, and non-finite metrics serial
 Use the blink trace for blank frames, delayed skeletons, or canvas/skeleton flicker:
 
 ```bash
-pnpm run diag:pdf-navigation-blink-trace -- --pdf /path/to/source.pdf --out .devkit/pdf-navigation-blink-trace.json
+pnpm run diag:pdf-navigation-blink-trace -- --scroll-mode continuous --pdf /path/to/source.pdf --out .devkit/pdf-navigation-blink-trace.json
 ```
 
 The PDF defaults to `EVB_DIAGNOSTIC_PDF_PATH`, then
@@ -401,6 +401,11 @@ The PDF defaults to `EVB_DIAGNOSTIC_PDF_PATH`, then
 screenshots; ffmpeg artifacts are optional. The JSON preserves `video.artifactPaths`
 and `summary.frameAnalysis`; `skeletonAfterCanvasObserved` identifies a skeleton seen
 after canvas ownership.
+
+The trace defaults to `--scroll-mode continuous`. Use `--scroll-mode paged`
+to cover non-continuous navigation. Setup fails before the click loop if the
+toolbar state does not match the requested scroll mode, fit-height zoom, and
+single-page layout.
 
 ## Skeleton navigation scenarios
 

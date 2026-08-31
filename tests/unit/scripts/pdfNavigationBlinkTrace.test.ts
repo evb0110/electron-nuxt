@@ -28,6 +28,8 @@ describe('pdf navigation blink trace options', () => {
             'previous',
             '--pre-click-wait-ms',
             '0',
+            '--scroll-mode',
+            'paged',
             '--viewport-device-scale-factor',
             '2',
             '--viewport-height',
@@ -45,6 +47,7 @@ describe('pdf navigation blink trace options', () => {
         expect(options.clickDelayMs).toBe(0);
         expect(options.direction).toBe('previous');
         expect(options.preClickWaitMs).toBe(0);
+        expect(options.scrollMode).toBe('paged');
         expect(options.viewportDeviceScaleFactor).toBe(2);
         expect(options.viewportHeight).toBe(1080);
         expect(options.viewportWidth).toBe(1920);
@@ -52,7 +55,26 @@ describe('pdf navigation blink trace options', () => {
     });
 
     it('uses the checked-in rapid navigation fixture by default', () => {
-        expect(readOptions([]).pdf).toContain('/.devkit/manual-pdf-fixtures/page-jump-source.pdf');
+        const options = readOptions([]);
+
+        expect(options.pdf).toContain('/.devkit/manual-pdf-fixtures/page-jump-source.pdf');
+        expect(options.scrollMode).toBe('continuous');
+    });
+
+    it.each([
+        [
+            'missing',
+            ['--scroll-mode'],
+        ],
+        [
+            'invalid',
+            [
+                '--scroll-mode',
+                'automatic',
+            ],
+        ],
+    ])('rejects a %s scroll mode value', (_label, argv) => {
+        expect(() => readOptions(argv)).toThrow('Invalid --scroll-mode value');
     });
 
     it('enables video when a video directory is provided', () => {

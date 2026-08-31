@@ -20,6 +20,7 @@ import {
     MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX,
 } from '@scripts/diagnostics/assertPdfNavigationBlinkTraceSummary';
 import {
+    type IPdfNavigationBlinkTraceOptions,
     readOptions,
     resolveVideoDirectory,
 } from '@scripts/diagnostics/pdfNavigationBlinkTraceOptions';
@@ -440,17 +441,24 @@ async function waitForActiveDocumentOpenSettled(page: Page) {
     });
 }
 
-async function waitForFitHeightPagedMode(page: Page) {
-    await page.waitForFunction(() => {
+async function waitForFitHeightMode(
+    page: Page,
+    scrollMode: IPdfNavigationBlinkTraceOptions['scrollMode'],
+) {
+    await page.waitForFunction((continuousScroll) => {
         const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
-        return snapshot?.continuousScroll === false
+        return snapshot?.continuousScroll === continuousScroll
             && snapshot.fitMode === 'height'
             && snapshot.viewMode === 'single';
-    }, { timeout: 10_000 });
+    }, { timeout: 10_000 }, scrollMode === 'continuous');
 }
 
-async function configureFitHeightPagedMode(page: Page) {
+async function configureFitHeightMode(
+    page: Page,
+    scrollMode: IPdfNavigationBlinkTraceOptions['scrollMode'],
+) {
     await waitForActiveDocumentOpenSettled(page);
+    const continuousScroll = scrollMode === 'continuous';
 
     let lastSnapshot: unknown = null;
     for (let attempt = 0; attempt < 4; attempt += 1) {
@@ -460,7 +468,7 @@ async function configureFitHeightPagedMode(page: Page) {
         ]}) as { continuousScroll?: boolean } | null;
 
         if (!initialSnapshot) {
-            throw new Error('Unable to configure fit-height paged mode');
+            throw new Error(`Unable to configure fit-height ${scrollMode} mode`);
         }
 
         await callWorkspaceCommand(page, 'handleViewModeSingle', [], {requiredMethods: [
@@ -472,7 +480,7 @@ async function configureFitHeightPagedMode(page: Page) {
             'handleFitHeight',
             'handleToggleContinuousScroll',
         ]}) as { continuousScroll?: boolean } | null;
-        if ((singleModeSnapshot?.continuousScroll ?? initialSnapshot.continuousScroll) === true) {
+        if ((singleModeSnapshot?.continuousScroll ?? initialSnapshot.continuousScroll) !== continuousScroll) {
             await callWorkspaceCommand(page, 'handleToggleContinuousScroll', [], {requiredMethods: [
                 'getToolbarSnapshot',
                 'handleFitHeight',
@@ -482,12 +490,12 @@ async function configureFitHeightPagedMode(page: Page) {
         const fitHeightResult = await callWorkspaceCommand(page, 'handleFitHeight', [], {requiredMethods: ['getToolbarSnapshot']});
 
         if (!fitHeightResult.called) {
-            throw new Error('Unable to configure fit-height paged mode');
+            throw new Error(`Unable to configure fit-height ${scrollMode} mode`);
         }
         await delay(300);
         lastSnapshot = await getWorkspaceToolbarSnapshot(page, {requiredMethods: ['getToolbarSnapshot']});
         try {
-            await waitForFitHeightPagedMode(page);
+            await waitForFitHeightMode(page, scrollMode);
             await delay(500);
             return;
         } catch {
@@ -495,7 +503,7 @@ async function configureFitHeightPagedMode(page: Page) {
         }
     }
 
-    throw new Error(`Unable to settle into fit-height paged mode: ${JSON.stringify(lastSnapshot)}`);
+    throw new Error(`Unable to settle into fit-height ${scrollMode} mode: ${JSON.stringify(lastSnapshot)}`);
 }
 
 async function goToPageViaWorkspace(
@@ -1424,10 +1432,13 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
         run: async (context: IPdfDiagnosticsContext) => {
             const { page } = context;
             await installBlinkSampler(page);
-            await configureFitHeightPagedMode(page);
+            await configureFitHeightMode(page, options.scrollMode);
             await goToStartPage(page, options.startPage);
-            await configureFitHeightPagedMode(page);
+            await configureFitHeightMode(page, options.scrollMode);
             await waitForToolbarPage(page, options.startPage);
+            const observedScrollMode = await page.evaluate(() =>
+                (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === true
+                    ? 'continuous' : 'paged');
             if (options.waitForStartCanvas) {
                 await context.navigation.waitForPageCanvas(options.startPage);
             }
@@ -1474,6 +1485,10 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             }>;
             const payload = {
                 createdAt: new Date().toISOString(),
+                configuration: {
+                    requestedScrollMode: options.scrollMode,
+                    observedScrollMode,
+                },
                 options,
                 trace,
                 navLog,

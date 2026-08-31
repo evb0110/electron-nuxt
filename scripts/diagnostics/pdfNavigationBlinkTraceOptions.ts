@@ -13,6 +13,7 @@ export interface IPdfNavigationBlinkTraceOptions {
     out: string;
     pdf: string;
     preClickWaitMs: number;
+    scrollMode: 'continuous' | 'paged';
     settleMs: number;
     startPage: number;
     video: boolean;
@@ -33,6 +34,7 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
         out: DEFAULT_OUT_PATH,
         pdf: DEFAULT_TARGET_PDF_PATH,
         preClickWaitMs: 500,
+        scrollMode: 'continuous',
         settleMs: 2_000,
         startPage: 1,
         video: false,
@@ -71,6 +73,12 @@ export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTr
             index += 1;
         } else if (arg === '--pre-click-wait-ms' && next) {
             options.preClickWaitMs = readIntegerOption(next, options.preClickWaitMs, 0);
+            index += 1;
+        } else if (arg === '--scroll-mode') {
+            if (next !== 'continuous' && next !== 'paged') {
+                throw new Error(`Invalid --scroll-mode value: ${next ?? '(missing)'}`);
+            }
+            options.scrollMode = next;
             index += 1;
         } else if (arg === '--settle-ms' && next) {
             options.settleMs = readIntegerOption(next, options.settleMs, 0);

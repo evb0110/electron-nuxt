@@ -296,6 +296,104 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
+    it('keeps every committed continuous-scroll page stable until navigation applies', () => {
+        const navigationVisualHandoffTargetPage = ref<number | null>(1);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(2),
+            currentPage: ref(2),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([
+                {
+                    width: 300,
+                    height: 100,
+                },
+                {
+                    width: 300,
+                    height: 120,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 2,
+            }),
+            navigationAnchorPage: ref(1),
+            navigationVisualHandoffTargetPage,
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 0.8 : 0.9,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '240px',
+            height: '80px',
+            '--scale-factor': '0.8',
+        });
+        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+            width: '270px',
+            height: '108px',
+            '--scale-factor': '0.9',
+        });
+
+        navigationVisualHandoffTargetPage.value = null;
+
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
+        });
+        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+            width: '300px',
+            height: '120px',
+            '--scale-factor': '1',
+        });
+    });
+
+    it('prepares an uncommitted continuous-scroll target at the destination scale', () => {
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(2),
+            currentPage: ref(1),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([
+                {
+                    width: 300,
+                    height: 100,
+                },
+                {
+                    width: 300,
+                    height: 120,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(0.8),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            navigationAnchorPage: ref(2),
+            navigationVisualHandoffTargetPage: ref(2),
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : null,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
+        expect(virtualization.getPageScale(2)).toMatchObject({scaleFactor: 0.8});
+    });
+
     it('stages a preceding target as buffered until the outgoing page hands off', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(1);
         const virtualization = usePdfViewerVirtualization({

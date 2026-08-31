@@ -183,7 +183,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     function shouldPreserveCommittedPageGeometry(pageNumber: number) {
-        if (continuousScroll.value || numPages.value <= 0) {
+        if (numPages.value <= 0) {
             return false;
         }
 
@@ -192,6 +192,15 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             : navigationAnchorPage.value;
         if (targetPage === null) {
             return false;
+        }
+
+        // Continuous scroll can show both the outgoing and destination pages.
+        // Keep every already-committed page at its painted size until the
+        // viewport authority releases the handoff and applies the target
+        // scroll position in the same transaction. A newly mounted target has
+        // no committed scale, so it can still prepare at the destination scale.
+        if (continuousScroll.value) {
+            return true;
         }
 
         const targetRow = getPageRowBoundsForViewMode({
