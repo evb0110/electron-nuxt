@@ -92,15 +92,36 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
     if (!isRecord(value)
         || typeof value.requestId !== 'string'
         || value.requestId.length < 1
-        || value.requestId.length > 256
-        || (value.decision !== 'save'
-            && value.decision !== 'discard'
-            && value.decision !== 'cancel')) {
+        || value.requestId.length > 256) {
+        return null;
+    }
+
+    if (
+        value.decision === 'save'
+        || value.decision === 'discard'
+        || value.decision === 'cancel'
+    ) {
+        return {
+            decision: value.decision,
+            requestId: value.requestId,
+        };
+    }
+
+    if (
+        value.status !== 'unavailable'
+        || (
+            value.reason !== 'no-handler'
+            && value.reason !== 'multiple-handlers'
+            && value.reason !== 'handler-error'
+            && value.reason !== 'invalid-decision'
+        )
+    ) {
         return null;
     }
 
     return {
-        decision: value.decision,
         requestId: value.requestId,
+        status: 'unavailable',
+        reason: value.reason,
     };
 }

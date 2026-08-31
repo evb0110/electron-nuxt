@@ -38,7 +38,7 @@ import {
     persistBrowserDocumentChunkGeneration,
 } from '@app/platform/browser/browserDocumentChunkStorage';
 import {
-    readFileHandleBytes,
+    readFileHandleMetadata,
     BrowserDocumentRecordStore,
 } from '@app/platform/browser/browserDocumentRecordStore';
 import {
@@ -201,6 +201,13 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
     }
 
+    private updateFileHandleRef(ref: string, handle: FileSystemFileHandle | null) {
+        this.forgetFileHandleRefs(ref);
+        if (handle) {
+            this.fileHandleRefs.set(handle, ref);
+        }
+    }
+
     private async findExistingFileHandleRef(handle: FileSystemFileHandle) {
         let existingRef: string | null = null;
         for (const [
@@ -342,13 +349,67 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         return ref;
     }
 
+    private async applyFileRegistrationOptions(
+        ref: string,
+        file: File,
+        options: IRegisterFileOptions,
+    ) {
+        const entry = await this.requireEntry(ref);
+        let changed = false;
+        if (options.kind !== undefined && entry.kind !== options.kind) {
+            entry.kind = options.kind;
+            changed = true;
+        }
+        if (options.retention !== undefined && entry.retention !== options.retention) {
+            entry.retention = options.retention;
+            changed = true;
+        }
+        if (options.saveKind !== undefined && entry.saveKind !== options.saveKind) {
+            entry.saveKind = options.saveKind;
+            changed = true;
+        }
+        if (options.sourceRef !== undefined && entry.sourceRef !== options.sourceRef) {
+            entry.sourceRef = options.sourceRef;
+            changed = true;
+        }
+        if (options.saveHandle !== undefined && entry.saveHandle !== options.saveHandle) {
+            entry.saveHandle = options.saveHandle;
+            if (entry.kind === 'source') {
+                entry.sourceWitness = Boolean(options.saveHandle);
+            }
+            changed = true;
+        }
+        this.fileRefs.set(file, ref);
+        if (options.saveHandle !== undefined) {
+            this.updateFileHandleRef(ref, options.saveHandle);
+        }
+        if (changed) {
+            await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
+        }
+    }
+
     public async registerFile(file: File, options: IRegisterFileOptions = {}) {
+        return (await this.registerFileWithOwnership(file, options)).ref;
+    }
+
+    public async registerFileWithOwnership(file: File, options: IRegisterFileOptions = {}) {
         await this.ensureMaintenance();
+        const knownRef = this.fileRefs.get(file);
+        if (knownRef && this.hasLoadedEntry(knownRef)) {
+            await this.applyFileRegistrationOptions(knownRef, file, options);
+            return {
+                ref: knownRef,
+                created: false,
+            };
+        }
         if (options.saveHandle) {
             const existingRef = await this.findExistingPhysicalFileHandleRef(options.saveHandle);
             if (existingRef) {
-                this.fileHandleRefs.set(options.saveHandle, existingRef);
-                return existingRef;
+                await this.applyFileRegistrationOptions(existingRef, file, options);
+                return {
+                    ref: existingRef,
+                    created: false,
+                };
             }
         }
         const ref = createBrowserDocumentRef(file.name);
@@ -356,15 +417,16 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
 
         this.attachEntry(entry);
         this.fileRefs.set(file, ref);
-        if (options.saveHandle) {
-            this.fileHandleRefs.set(options.saveHandle, ref);
-        }
+        this.updateFileHandleRef(ref, options.saveHandle ?? null);
         try {
             await this.consumeFileIntoEntry(entry, file);
         } catch (error) {
             await this.retainFileInMemoryAfterPersistenceFailure(entry, file, error);
         }
-        return ref;
+        return {
+            ref,
+            created: true,
+        };
     }
 
     public async createStoredDocument(
@@ -636,6 +698,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         workingEntry.sourceRef = sourceRef;
         workingEntry.saveName = saveName;
         workingEntry.saveHandle = saveHandle ?? null;
+        this.updateFileHandleRef(workingRef, workingEntry.saveHandle);
         workingEntry.sourceWitness = false;
         delete workingEntry.fileSnapshot;
         if (workingEntry.storageMode === 'handle') {
@@ -663,6 +726,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         entry.saveName = saveName;
         entry.saveKind = saveKind;
         entry.saveHandle = saveHandle ?? null;
+        this.updateFileHandleRef(ref, entry.saveHandle);
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
         await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
     }
@@ -696,7 +760,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             return;
         }
 
-        const {file} = await readFileHandleBytes(entry.saveHandle);
+        const {file} = await readFileHandleMetadata(entry.saveHandle);
         const previousEntryState = captureEntryStorageState(entry);
         try {
             entry.sourceWitness = true;
@@ -745,6 +809,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         const previousToken = updateBrowserDocumentEntryContentToken(entry);
         if (options.saveHandle !== undefined) {
             entry.saveHandle = options.saveHandle;
+            this.updateFileHandleRef(ref, entry.saveHandle);
         }
         entry.sourceWitness = entry.kind === 'source' && Boolean(entry.saveHandle);
         if (options.saveName) {

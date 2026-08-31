@@ -150,7 +150,7 @@ describe('release mirror publisher', () => {
         expect(puts.at(-1)?.input.IfMatch).toBeUndefined();
         expect(puts.at(-1)?.input.CacheControl).toBe('no-cache, no-store, must-revalidate');
         expect(deletions[0]?.input.Delete?.Objects).toEqual([{Key: 'evb-viewer/releases/v1.0.0/asset'}]);
-        expect(client.send).toHaveBeenCalledTimes(15);
+        expect(client.send).toHaveBeenCalledTimes(16);
     });
 
     it('stages immutable release objects without publishing the stable channel', async () => {

@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { MemoryStorage } from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 
 describe('browserSettingsCapability', () => {
     beforeEach(() => {
@@ -120,14 +121,14 @@ describe('browserSettingsCapability', () => {
         const settings = await browserSettingsCapability.get();
 
         expect(settings).toMatchObject({
-            authorName: 'Migrated User',
-            performanceMode: 'low',
+            authorName: 'Divergent Storage User',
+            performanceMode: 'high',
         });
         expect(cookies.has(BROWSER_SETTINGS_COOKIE_KEY)).toBe(false);
         expect(JSON.parse(localStorage.getItem('evb-viewer:browser:settings') ?? 'null'))
             .toMatchObject({
-                authorName: 'Migrated User',
-                performanceMode: 'low',
+                authorName: 'Divergent Storage User',
+                performanceMode: 'high',
             });
     });
 
@@ -148,5 +149,105 @@ describe('browserSettingsCapability', () => {
 
         expect(settings.locale).toBe('en');
         expect(settings.theme).toBe('light');
+    });
+
+    it('preserves a future storage schema and fails closed', async () => {
+        const localStorage = new MemoryStorage();
+        const futureSettings = JSON.stringify({
+            version: 99,
+            authorName: 'Future user',
+            futureSetting: 'keep me',
+        });
+        localStorage.setItem(SETTINGS_STORAGE_KEY, futureSettings);
+        vi.stubGlobal('window', {localStorage});
+
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.get()).rejects.toMatchObject({
+            code: 'unsupported-settings-schema',
+            version: 99,
+        });
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toBe(futureSettings);
+    });
+
+    it('keeps a valid settings cookie when storage migration cannot commit', async () => {
+        const cookies = new Map<string, string>();
+        vi.stubGlobal('window', {localStorage: {
+            getItem: () => {
+                throw new Error('storage unavailable');
+            },
+            setItem: () => {
+                throw new Error('storage unavailable');
+            },
+        }});
+        vi.stubGlobal('document', {
+            get cookie() {
+                return Array.from(cookies.entries())
+                    .map(([
+                        key,
+                        value,
+                    ]) => `${key}=${value}`)
+                    .join('; ');
+            },
+            set cookie(value: string) {
+                const [pair] = value.split(';');
+                const separatorIndex = pair?.indexOf('=') ?? -1;
+                if (!pair || separatorIndex < 0) {
+                    return;
+                }
+                const key = pair.slice(0, separatorIndex);
+                if (value.includes('Max-Age=0')) {
+                    cookies.delete(key);
+                } else {
+                    cookies.set(key, pair.slice(separatorIndex + 1));
+                }
+            },
+        });
+        const {
+            BROWSER_SETTINGS_COOKIE_KEY,
+            serializeBrowserSettingsPayload,
+        } = await import('@app/utils/browserSettingsPersistence');
+        const { DEFAULT_SETTINGS } = await import('@contracts/settings');
+        const serialized = serializeBrowserSettingsPayload({
+            ...DEFAULT_SETTINGS,
+            authorName: 'Cookie user',
+        });
+        cookies.set(BROWSER_SETTINGS_COOKIE_KEY, encodeURIComponent(serialized));
+
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({authorName: 'Cookie user'});
+
+        expect(cookies.get(BROWSER_SETTINGS_COOKIE_KEY)).toBe(encodeURIComponent(serialized));
+    });
+
+    it('merges a durable update made by another settings writer', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await browserSettingsCapability.save({authorName: 'First writer'});
+        const externalSettings = JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null') as Record<string, unknown>;
+        externalSettings.theme = 'dark';
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(externalSettings));
+
+        await browserSettingsCapability.save({assistantPanelEnabled: true});
+
+        expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null')).toMatchObject({
+            authorName: 'First writer',
+            assistantPanelEnabled: true,
+            theme: 'dark',
+        });
+    });
+
+    it('rejects a browser settings write when localStorage refuses it', async () => {
+        vi.stubGlobal('window', {localStorage: {
+            getItem: () => null,
+            setItem: () => {
+                throw new Error('quota exceeded');
+            },
+        }});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.save({authorName: 'Unsaved'})).rejects.toThrow('localStorage');
     });
 });

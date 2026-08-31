@@ -435,8 +435,8 @@ function buildRasterPrintHtml(
     imagePages: IPrintImagePage[],
 ) {
     const escapedTitle = escapeHtml(title);
-    const pagesHtml = imagePages.map(page => `
-        <section class="print-page page-${page.pageNumber}" data-page-number="${page.pageNumber}">
+    const pagesHtml = imagePages.map((page, index) => `
+        <section class="print-page page-${index + 1}" data-page-number="${index + 1}">
             <img src="${escapeHtml(pathToFileURL(page.path).toString())}" alt="">
         </section>
     `).join('');

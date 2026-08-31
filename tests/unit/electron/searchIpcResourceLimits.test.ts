@@ -607,7 +607,9 @@ describe('search IPC worker resource limits', () => {
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber})]);
         await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 170');
-        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+            expect.objectContaining({type: 'shutdown'}),
+        );
     });
 
     it('rejects complete messages with worker pageNumber above known pageCount', async () => {
@@ -636,7 +638,9 @@ describe('search IPC worker resource limits', () => {
         emitWorkerCompleteWithResults(0, requestId, [buildSearchMatch({pageNumber: 999})]);
         await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 172');
-        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+            expect.objectContaining({type: 'shutdown'}),
+        );
     });
 
     it('rejects progress messages with invalid result indices and offsets', async () => {
@@ -675,7 +679,9 @@ describe('search IPC worker resource limits', () => {
         });
         await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 171');
-        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+            expect.objectContaining({type: 'shutdown'}),
+        );
     });
 
     it('rejects progress messages with worker pageNumber above known pageCount', async () => {
@@ -711,7 +717,9 @@ describe('search IPC worker resource limits', () => {
         });
         await expectSearchWorkerProtocolFailure(searchPromise, requestId);
         expect(mocks.logger.warn).toHaveBeenCalledWith('Search worker sent malformed message for sender 173');
-        expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledOnce();
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+            expect.objectContaining({type: 'shutdown'}),
+        );
     });
 
     it('caps oversized worker search results before resolving to the renderer', async () => {
@@ -916,7 +924,9 @@ describe('search IPC worker resource limits', () => {
                     status: 'failed',
                     error: 'Search request timed out after 5000ms',
                 });
-                expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledTimes(1);
+                expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+                    expect.objectContaining({type: 'shutdown'}),
+                );
                 sender.send.mockClear();
             }
 
@@ -1084,7 +1094,9 @@ describe('search IPC worker resource limits', () => {
 
             await vi.advanceTimersByTimeAsync(10_000);
 
-            expect(mocks.workerRecords[0]?.terminate).toHaveBeenCalledTimes(1);
+            expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual(
+                expect.objectContaining({type: 'shutdown'}),
+            );
         } finally {
             vi.useRealTimers();
         }

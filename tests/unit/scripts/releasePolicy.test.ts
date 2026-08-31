@@ -926,7 +926,7 @@ describe('release policy', () => {
             'build:pdf-search',
             'build:scan-cleanup',
             'check:resources:matrix',
-            'check:wasm:portable',
+            'check:wasm:strict',
             'fallow:all',
         ]);
         expect(releaseCriticalTestGate?.owner).toBe('release');
@@ -1638,7 +1638,7 @@ describe('release policy', () => {
         expect(scripts).not.toContain('build:pdf-page-ops');
         expect(scripts).not.toContain('build:pdf-search');
         expect(scripts).not.toContain('build:scan-cleanup');
-        expect(scripts).not.toContain('check:wasm:portable');
+        expect(scripts).not.toContain('check:wasm:strict');
         expect(scripts).not.toContain('test:electron-bundle-static-integrity');
         expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
         expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
@@ -1712,7 +1712,7 @@ describe('release policy', () => {
                 EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
                 EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
             },
-            skipList: 'check:wasm:portable',
+            skipList: 'check:wasm:strict',
             stderr: {write: () => {}},
         })).toThrow('Cannot reuse the all-gates strict build: the skip list removes a strict-build prerequisite');
     });

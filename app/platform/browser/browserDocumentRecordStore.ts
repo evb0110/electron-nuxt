@@ -96,7 +96,7 @@ export async function readFileHandleBytes(
     };
 }
 
-async function readFileHandleMetadata(handle: FileSystemFileHandle) {
+export async function readFileHandleMetadata(handle: FileSystemFileHandle) {
     await ensureFileHandleReadPermission(handle);
     const file = await handle.getFile();
     return {
@@ -526,15 +526,16 @@ export class BrowserDocumentRecordStore {
         }
 
         const resolvedMetadata = await readFileHandleMetadata(entry.saveHandle);
+        const contentToken = await createBrowserFileContentWitness(resolvedMetadata.file);
         if (
             entry.fileSize === resolvedMetadata.size
             && entry.fileLastModified === resolvedMetadata.lastModified
+            && entry.contentToken === contentToken
         ) {
             entry.fileSnapshot = resolvedMetadata.file;
             return;
         }
 
-        const contentToken = await createBrowserFileContentWitness(resolvedMetadata.file);
         const previousToken = createBrowserDocumentRevisionInfo(entry).token;
         entry.fileSize = resolvedMetadata.size;
         entry.fileLastModified = resolvedMetadata.lastModified;
@@ -554,7 +555,11 @@ export class BrowserDocumentRecordStore {
                 }
                 return this.read(entry.sourceRef);
             case 'handle': {
-                if (entry.fileSnapshot) {
+                if (
+                    entry.fileSnapshot
+                    && entry.fileSnapshot.size === entry.fileSize
+                    && entry.fileSnapshot.lastModified === entry.fileLastModified
+                ) {
                     return readFileSnapshotBytes(entry.fileSnapshot);
                 }
                 if (!entry.saveHandle) {
@@ -565,6 +570,8 @@ export class BrowserDocumentRecordStore {
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle);
                 entry.fileSnapshot = file;
+                entry.fileSize = file.size;
+                entry.fileLastModified = file.lastModified;
                 return bytes;
             }
             case 'chunked': {
@@ -594,7 +601,11 @@ export class BrowserDocumentRecordStore {
                 }
                 return this.readRange(entry.sourceRef, start, rangeLength);
             case 'handle': {
-                if (entry.fileSnapshot) {
+                if (
+                    entry.fileSnapshot
+                    && entry.fileSnapshot.size === entry.fileSize
+                    && entry.fileSnapshot.lastModified === entry.fileLastModified
+                ) {
                     return readFileSnapshotBytes(entry.fileSnapshot, start, rangeLength);
                 }
                 if (!entry.saveHandle) {
@@ -605,6 +616,8 @@ export class BrowserDocumentRecordStore {
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle, start, rangeLength);
                 entry.fileSnapshot = file;
+                entry.fileSize = file.size;
+                entry.fileLastModified = file.lastModified;
                 return bytes;
             }
             case 'chunked': {

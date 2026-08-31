@@ -63,6 +63,7 @@ export default defineEventHandler(async (event) => {
         return {
             ok: true,
             persisted: false,
+            retryable: false,
         };
     }
     if (!isTrustedLandingAnalyticsRequest(event)) {
@@ -77,6 +78,7 @@ export default defineEventHandler(async (event) => {
         return {
             ok: true,
             persisted: false,
+            retryable: false,
         };
     }
     const rawBody = await readBoundedLandingAnalyticsJsonBody(
@@ -117,12 +119,14 @@ export default defineEventHandler(async (event) => {
             return {
                 ok: true,
                 persisted: false,
+                retryable: false,
             };
         }
         console.warn('Landing download analytics insert failed', error);
         return {
             ok: false,
             persisted: false,
+            retryable: true,
         };
     }
 

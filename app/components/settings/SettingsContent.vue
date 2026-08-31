@@ -278,6 +278,12 @@ const isAssistantBusy = computed(() => assistantAction.value !== null);
 const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
+
+watch(isLoaded, (loaded) => {
+    if (loaded) {
+        settingsLoadFailed.value = false;
+    }
+});
 let unsubscribeAssistantEvent: (() => void) | null = null;
 let disposed = false;
 const shortcutsDescription = computed(() => isDesktopRuntime.value

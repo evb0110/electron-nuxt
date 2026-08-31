@@ -19,6 +19,7 @@ export const vitestResolveAlias = {
     '@releaseSelection': resolve(projectRoot, 'packages/release-selection'),
     '@scripts': resolve(projectRoot, 'scripts'),
     '@server': resolve(projectRoot, 'server'),
+    '@landing': resolve(projectRoot, 'landing'),
     '@tests': resolve(projectRoot, 'tests'),
     '@root-package': resolve(projectRoot, 'package.json'),
     electron: resolve(projectRoot, 'tests/mocks/electron.ts'),

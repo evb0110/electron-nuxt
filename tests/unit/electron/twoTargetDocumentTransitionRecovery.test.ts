@@ -1,4 +1,5 @@
 import {
+    mkdir,
     mkdtemp,
     readFile,
     rename,
@@ -78,6 +79,33 @@ describe('two-target document transition recovery', () => {
         } = await prepare('drt1:test:next');
         await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(originalPath, 'utf8')).resolves.toBe('new-original');
+    });
+
+    it('fails closed when the two-target journal cannot be read', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-two-target-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        const journalPath = `${workingCopyPath}.evb-two-target-transition.json`;
+        await mkdir(journalPath);
+
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_UNREADABLE',
+            journalPath,
+        });
+    });
+
+    it('fails closed on a truncated two-target journal', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-two-target-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        const journalPath = `${workingCopyPath}.evb-two-target-transition.json`;
+        await writeFile(journalPath, '{"version":1');
+
+        await expect(recoverTwoTargetDocumentTransition(workingCopyPath)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_INVALID',
+            journalPath,
+        });
+        await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
     });
 
     it.skipIf(process.platform === 'win32')('leaves a real external replacement in place after a crash', async () => {

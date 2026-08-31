@@ -18,6 +18,7 @@ import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-reg
 import { createSelectionPointerDragHandlers } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionPointerDragHandlers';
 import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag';
 import {
+    clampKeyboardSelection,
     createKeyboardSelection as createKeyboardSelectionInBounds,
     updateKeyboardSelection as updateKeyboardSelectionInBounds,
 } from '@app/utils/document-viewer/region-geometry/keyboardSelection';
@@ -49,7 +50,7 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
     const isEscapeCancelActive = ref(false);
     let activePageTarget: IPageTarget | null = null;
     let keyboardSelection: IClientRect | null = null;
-    let keyboardOverlayRect: IOverlayRect | null = null;
+    let previousKeyboardPageRect: IClientRect | null = null;
     const escapeKeyTarget = computed(() => (
         isEscapeCancelActive.value && typeof window !== 'undefined'
             ? window
@@ -125,6 +126,20 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         return bestTarget;
     }
 
+    function findPageTargetByNumber(pageNumber: number): IPageTarget | null {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return null;
+        }
+
+        for (const element of container.querySelectorAll<HTMLElement>('.page_container[data-page]')) {
+            if (Number(element.dataset.page) === pageNumber) {
+                return toPageTarget(element, toClientRect(element.getBoundingClientRect()));
+            }
+        }
+        return null;
+    }
+
     function getOverlayRect(): IOverlayRect | null {
         const container = options.viewerContainer.value;
         if (!container) {
@@ -142,18 +157,45 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
     function createKeyboardSelection(pageTarget: IPageTarget, overlayRect: IOverlayRect) {
         const selection = createKeyboardSelectionInBounds(pageTarget.clientRect, MIN_SELECTION_SIZE);
         keyboardSelection = selection;
-        keyboardOverlayRect = overlayRect;
+        previousKeyboardPageRect = pageTarget.clientRect;
         selectionRect.value = toLocalRect(selection, overlayRect);
         return selection;
     }
 
+    function rebaseKeyboardSelection(pageRect: IClientRect) {
+        if (keyboardSelection && previousKeyboardPageRect) {
+            const previousWidth = getRectWidth(previousKeyboardPageRect);
+            const previousHeight = getRectHeight(previousKeyboardPageRect);
+            const nextWidth = getRectWidth(pageRect);
+            const nextHeight = getRectHeight(pageRect);
+            const rebased = previousWidth > 0 && previousHeight > 0 && nextWidth > 0 && nextHeight > 0
+                ? {
+                    left: pageRect.left + (keyboardSelection.left - previousKeyboardPageRect.left) * nextWidth / previousWidth,
+                    right: pageRect.left + (keyboardSelection.right - previousKeyboardPageRect.left) * nextWidth / previousWidth,
+                    top: pageRect.top + (keyboardSelection.top - previousKeyboardPageRect.top) * nextHeight / previousHeight,
+                    bottom: pageRect.top + (keyboardSelection.bottom - previousKeyboardPageRect.top) * nextHeight / previousHeight,
+                }
+                : {
+                    left: keyboardSelection.left + pageRect.left - previousKeyboardPageRect.left,
+                    right: keyboardSelection.right + pageRect.left - previousKeyboardPageRect.left,
+                    top: keyboardSelection.top + pageRect.top - previousKeyboardPageRect.top,
+                    bottom: keyboardSelection.bottom + pageRect.top - previousKeyboardPageRect.top,
+                };
+            keyboardSelection = clampKeyboardSelection(rebased, pageRect);
+        }
+        previousKeyboardPageRect = pageRect;
+    }
+
     function updateKeyboardSelection(event: KeyboardEvent) {
-        const pageTarget = activePageTarget ?? findKeyboardPageTarget();
-        const overlayRect = keyboardOverlayRect ?? getOverlayRect();
+        const pageTarget = activePageTarget
+            ? findPageTargetByNumber(activePageTarget.pageNumber) ?? findKeyboardPageTarget()
+            : findKeyboardPageTarget();
+        const overlayRect = getOverlayRect();
         if (!pageTarget || !overlayRect) {
             return null;
         }
         activePageTarget = pageTarget;
+        rebaseKeyboardSelection(pageTarget.clientRect);
         let selection = keyboardSelection ?? createKeyboardSelection(pageTarget, overlayRect);
         selection = updateKeyboardSelectionInBounds(
             selection,
@@ -162,7 +204,6 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
             MIN_SELECTION_SIZE,
         );
         keyboardSelection = selection;
-        keyboardOverlayRect = overlayRect;
         selectionRect.value = toLocalRect(selection, overlayRect);
         return selection;
     }
@@ -176,7 +217,6 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         dragStartPoint = null;
         activePageTarget = null;
         keyboardSelection = null;
-        keyboardOverlayRect = null;
         selectionRect.value = null;
         state.value = 'idle';
 
@@ -266,22 +306,21 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
     }
 
     function completeKeyboardSelection() {
-        if (!keyboardSelection || !activePageTarget) {
-            const pageTarget = activePageTarget ?? findKeyboardPageTarget();
-            const overlayRect = keyboardOverlayRect ?? getOverlayRect();
-            if (pageTarget && overlayRect) {
-                activePageTarget = pageTarget;
-                createKeyboardSelection(pageTarget, overlayRect);
-            }
-        }
-        if (!keyboardSelection || !activePageTarget) {
+        const pageTarget = activePageTarget
+            ? findPageTargetByNumber(activePageTarget.pageNumber) ?? findKeyboardPageTarget()
+            : findKeyboardPageTarget();
+        const overlayRect = getOverlayRect();
+        if (!pageTarget || !overlayRect) {
             cancelSelection();
             return;
         }
+        activePageTarget = pageTarget;
+        rebaseKeyboardSelection(pageTarget.clientRect);
+        const selection = keyboardSelection ?? createKeyboardSelection(pageTarget, overlayRect);
 
         const pageLocalRect = toLocalRect(
-            keyboardSelection,
-            toOverlayRect(activePageTarget.clientRect),
+            selection,
+            toOverlayRect(pageTarget.clientRect),
         );
         if (pageLocalRect.width < MIN_SELECTION_SIZE || pageLocalRect.height < MIN_SELECTION_SIZE) {
             cancelSelection();
@@ -289,10 +328,10 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         }
 
         resolveSession({
-            pageNumber: activePageTarget.pageNumber,
+            pageNumber: pageTarget.pageNumber,
             pageRect: {
-                width: getRectWidth(activePageTarget.clientRect),
-                height: getRectHeight(activePageTarget.clientRect),
+                width: getRectWidth(pageTarget.clientRect),
+                height: getRectHeight(pageTarget.clientRect),
             },
             pageLocalRect,
         });
@@ -351,7 +390,7 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         dragStartPoint = null;
         activePageTarget = null;
         keyboardSelection = null;
-        keyboardOverlayRect = null;
+        previousKeyboardPageRect = null;
         state.value = 'selecting';
         attachEscapeCancel();
 

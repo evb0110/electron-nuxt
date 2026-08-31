@@ -55,7 +55,7 @@ export interface IAgentOcrRunOptions {
     languages?: string[];
     qualityProfile?: TOcrQualityProfile;
     preprocessingMode?: TOcrPreprocessingMode;
-    pageSegmentationMode?: number;
+    pageSegmentationMode?: TOcrPageSegmentationMode;
     supersessionPolicy?: TOcrTextSupersessionPolicy;
     replaceAllAcknowledged?: boolean;
     open?: boolean;

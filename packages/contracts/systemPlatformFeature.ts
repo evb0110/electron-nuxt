@@ -35,12 +35,22 @@ export interface IShutdownSaveFlushResponse {
 
 export type TWindowCloseDecision = 'save' | 'discard' | 'cancel';
 
+export type TWindowCloseUnavailableReason =
+    | 'no-handler'
+    | 'multiple-handlers'
+    | 'handler-error'
+    | 'invalid-decision';
+
 export interface IWindowCloseRequest {requestId: string;}
 
-export interface IWindowCloseResponse {
+export type IWindowCloseResponse = {
     decision: TWindowCloseDecision;
     requestId: string;
-}
+} | {
+    requestId: string;
+    status: 'unavailable';
+    reason: TWindowCloseUnavailableReason;
+};
 
 export type TWindowCloseRequestHandler = (
     request: IWindowCloseRequest,

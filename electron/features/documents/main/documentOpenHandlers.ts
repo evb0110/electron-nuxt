@@ -74,15 +74,19 @@ export async function collectSupportedFolderPaths(folderPath: string) {
     const directory = await opendir(folderPath);
     for await (const entry of directory) {
         const path = join(folderPath, entry.name);
+        if (!isSupportedOpenPath(path)) {
+            continue;
+        }
         const realPath = await realpath(path).catch(() => null);
-        if (!realPath || !isPathInsideDirectory(realFolderPath, realPath)) {
+        if (
+            !realPath
+            || !isSupportedOpenPath(realPath)
+            || !isPathInsideDirectory(realFolderPath, realPath)
+        ) {
             continue;
         }
         const targetStat = await stat(realPath).catch(() => null);
         if (!targetStat?.isFile()) {
-            continue;
-        }
-        if (!isSupportedOpenPath(path)) {
             continue;
         }
         supportedPaths.push(path);

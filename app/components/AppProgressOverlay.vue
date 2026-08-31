@@ -97,7 +97,10 @@ function getFocusableElements() {
         overlayElement.value?.querySelectorAll<HTMLElement>(
             'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
         ) ?? [],
-    ).filter(element => !element.hasAttribute('disabled') && !element.getAttribute('aria-hidden'));
+    ).filter(element => (
+        !element.hasAttribute('disabled')
+        && element.getAttribute('aria-hidden') !== 'true'
+    ));
 }
 
 function applyModalInert() {

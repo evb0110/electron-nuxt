@@ -3,7 +3,7 @@ use std::{
     borrow::Cow,
     env,
     fs::File,
-    io::{BufReader, Cursor},
+    io::{BufReader, Cursor, Read},
     path::Path,
     sync::{Mutex, OnceLock},
 };
@@ -12,7 +12,8 @@ use evb_native_support::bounded_io::read_open_file_bounded;
 #[cfg(test)]
 use evb_native_support::{NativeError, NativeErrorCode};
 use evb_raster_io::{
-    decode_png, read_png_passthrough, CompressedPng, DecodeLimits, PassthroughLimits, PngColorType,
+    decode_png, decode_png_composited_rgb, read_png_metadata, read_png_passthrough, CompressedPng,
+    DecodeLimits, PassthroughLimits, PngColorType, PngMetadata,
 };
 
 use crate::{
@@ -314,8 +315,22 @@ fn read_png_page_from_reader<R: std::io::Read>(
     max_pixels: u64,
     default_dpi: Option<u32>,
 ) -> Result<ImagePage> {
+    let bytes = read_bounded_reader(reader)?;
+    let metadata = read_png_metadata(
+        bytes.as_slice(),
+        PassthroughLimits {
+            max_pixels,
+            max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
+        },
+    )?;
+    let color_type = metadata.color_type;
+
+    if matches!(color_type, PngColorType::GrayAlpha8 | PngColorType::Rgba8) {
+        return png_composited_flate_page(&bytes, metadata, max_pixels, default_dpi);
+    }
+
     let png = read_png_passthrough(
-        reader,
+        bytes.as_slice(),
         PassthroughLimits {
             max_pixels,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
@@ -323,6 +338,16 @@ fn read_png_page_from_reader<R: std::io::Read>(
     )?;
 
     Ok(png_flate_page(png, default_dpi))
+}
+
+fn read_bounded_reader<R: Read>(reader: R) -> Result<Vec<u8>> {
+    let max_bytes = max_image_input_bytes();
+    let mut bytes = Vec::new();
+    reader.take(max_bytes as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > max_bytes {
+        return Err(format!("Image input exceeds the {max_bytes}-byte safety limit").into());
+    }
+    Ok(bytes)
 }
 
 fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
@@ -350,6 +375,38 @@ fn png_flate_page(png: CompressedPng, default_dpi: Option<u32>) -> ImagePage {
             decode_params,
         },
     }
+}
+
+fn png_composited_flate_page(
+    bytes: &[u8],
+    png: PngMetadata,
+    max_pixels: u64,
+    default_dpi: Option<u32>,
+) -> Result<ImagePage> {
+    let decoded = decode_png_composited_rgb(
+        bytes,
+        DecodeLimits {
+            max_pixels,
+            max_dimension: png.width.max(png.height),
+            max_compressed_bytes: bytes.len(),
+        },
+    )?;
+    let compressed =
+        deflate_up_filtered_slices(decoded.data(), png.width as usize * 3, png.height as usize)?;
+    Ok(ImagePage {
+        width: png.width,
+        height: png.height,
+        dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+        color_space: "DeviceRGB",
+        icc_profile: png.icc_profile,
+        payload: ImagePayload::RawFlate {
+            data: compressed,
+            decode_params: format!(
+                "<< /Predictor 12 /Colors 3 /BitsPerComponent 8 /Columns {} >>",
+                png.width
+            ),
+        },
+    })
 }
 
 fn read_jpeg_page(bytes: Vec<u8>, max_pixels: u64, default_dpi: Option<u32>) -> Result<ImagePage> {
@@ -406,39 +463,54 @@ fn read_png_jpeg_page(
     size_guardrail: Option<JpegSizeGuardrail>,
     use_flate_fallback: bool,
 ) -> Result<ImagePage> {
-    let png = read_png_passthrough(
+    let png = read_png_metadata(
         bytes,
         PassthroughLimits {
             max_pixels,
             max_icc_profile_bytes: MAX_PNG_ICC_PROFILE_BYTES,
         },
     )?;
-    let decoded = decode_png(
-        bytes,
-        DecodeLimits {
-            max_pixels,
-            max_dimension: png.width.max(png.height),
-            max_compressed_bytes: bytes.len(),
-        },
-    )?;
-    let channels = match png.color_type {
-        PngColorType::Gray8 => 1,
-        PngColorType::Rgb8 => 3,
-        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
-            unreachable!("the passthrough reader rejects alpha-bearing PNG color types")
+    let (channels, pixels) = match png.color_type {
+        PngColorType::Gray8 => {
+            let decoded = decode_png(
+                bytes,
+                DecodeLimits {
+                    max_pixels,
+                    max_dimension: png.width.max(png.height),
+                    max_compressed_bytes: bytes.len(),
+                },
+            )?;
+            (1, Cow::Owned(decoded.gray.into_data()))
         }
-    };
-    let pixels = if channels == 1 {
-        decoded.gray.into_data()
-    } else {
-        decoded.rgb.into_data()
+        PngColorType::Rgb8 => {
+            let decoded = decode_png(
+                bytes,
+                DecodeLimits {
+                    max_pixels,
+                    max_dimension: png.width.max(png.height),
+                    max_compressed_bytes: bytes.len(),
+                },
+            )?;
+            (3, Cow::Owned(decoded.rgb.into_data()))
+        }
+        PngColorType::GrayAlpha8 | PngColorType::Rgba8 => {
+            let decoded = decode_png_composited_rgb(
+                bytes,
+                DecodeLimits {
+                    max_pixels,
+                    max_dimension: png.width.max(png.height),
+                    max_compressed_bytes: bytes.len(),
+                },
+            )?;
+            (3, Cow::Owned(decoded.into_data()))
+        }
     };
     let prepared = apply_jpeg_processing(
         PreparedNetpbmPixels {
             width: png.width,
             height: png.height,
             channels,
-            pixels: Cow::Owned(pixels),
+            pixels,
         },
         max_pixels,
         processing,
@@ -447,8 +519,21 @@ fn read_png_jpeg_page(
     let (prepared, quality) =
         encode_with_size_guardrail(prepared, max_pixels, quality, page_size, size_guardrail)?;
     let (data, color_space) = encode_prepared_netpbm_as_jpeg(&prepared, quality)?;
-    if use_flate_fallback && png.idat.len() < data.len() {
-        return Ok(png_flate_page(png, default_dpi));
+    if use_flate_fallback {
+        let flate = encode_prepared_netpbm_as_flate(&prepared)?;
+        if flate.data.len() < data.len() {
+            return Ok(ImagePage {
+                width: prepared.width,
+                height: prepared.height,
+                dpi: png.dpi.or(default_dpi).unwrap_or(DEFAULT_DPI),
+                color_space: flate.color_space,
+                icc_profile: png.icc_profile,
+                payload: ImagePayload::RawFlate {
+                    data: flate.data,
+                    decode_params: flate.decode_params,
+                },
+            });
+        }
     }
     Ok(ImagePage {
         width: prepared.width,

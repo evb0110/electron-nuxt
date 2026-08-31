@@ -218,6 +218,21 @@ describe('buildSearchIndex cancellation', () => {
         expect(mocks.extractTextWithPdfjsWordBoxes).not.toHaveBeenCalled();
     });
 
+    it('keeps extractor failures retryable instead of padding and persisting an empty index', async () => {
+        const { buildSearchIndex } = await import('@electron/search/indexBuilder');
+        const extractorError = new Error('page 2 extractor failed');
+        mocks.extractTextWithPdfjs.mockRejectedValue(new Error('pdfjs unavailable'));
+        mocks.extractTextFromPdf.mockRejectedValue(extractorError);
+
+        await expect(buildSearchIndex('/tmp/file.pdf', [], {
+            documentRevision: DOCUMENT_REVISION,
+            pageCount: 2,
+        })).rejects.toBe(extractorError);
+
+        expect(mocks.writeFile).not.toHaveBeenCalled();
+        expect(mocks.atomicReplace).not.toHaveBeenCalled();
+    });
+
     it('short-circuits missing coverage before scanning a huge page count', async () => {
         const { buildSearchIndex } = await import('@electron/search/indexBuilder');
         const pageCount = 1_000_001;

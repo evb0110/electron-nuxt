@@ -54,6 +54,8 @@ const resolvedStyle = computed(() => {
 const { t } = useTypedI18n();
 const menuElement = ref<HTMLElement | null>(null);
 let previouslyFocusedElement: HTMLElement | null = null;
+let pointerFocusPending = false;
+let pointerFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getMenuItems() {
     return Array.from(
@@ -96,8 +98,35 @@ function handleMenuKeydown(event: KeyboardEvent) {
 
 function containMenuFocus(event: FocusEvent) {
     const target = event.target;
+    if (pointerFocusPending) {
+        pointerFocusPending = false;
+        return;
+    }
     if (visible && target instanceof Node && !menuElement.value?.contains(target)) {
         focusMenuEntry();
+    }
+}
+
+function markPointerFocus() {
+    pointerFocusPending = true;
+    if (pointerFocusResetTimer !== null) {
+        clearTimeout(pointerFocusResetTimer);
+    }
+    pointerFocusResetTimer = setTimeout(() => {
+        pointerFocusPending = false;
+        pointerFocusResetTimer = null;
+    }, 0);
+}
+
+function removeFocusListeners() {
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('focusin', containMenuFocus);
+        document.removeEventListener('pointerdown', markPointerFocus, true);
+    }
+    pointerFocusPending = false;
+    if (pointerFocusResetTimer !== null) {
+        clearTimeout(pointerFocusResetTimer);
+        pointerFocusResetTimer = null;
     }
 }
 
@@ -111,9 +140,7 @@ function restoreFocus() {
 
 watch(() => visible, (isVisible) => {
     if (!isVisible) {
-        if (typeof document !== 'undefined') {
-            document.removeEventListener('focusin', containMenuFocus);
-        }
+        removeFocusListeners();
         restoreFocus();
         return;
     }
@@ -124,6 +151,7 @@ watch(() => visible, (isVisible) => {
             previouslyFocusedElement = activeElement;
         }
         document.addEventListener('focusin', containMenuFocus);
+        document.addEventListener('pointerdown', markPointerFocus, true);
     }
     void nextTick(focusMenuEntry);
 }, {
@@ -132,9 +160,7 @@ watch(() => visible, (isVisible) => {
 });
 
 onBeforeUnmount(() => {
-    if (typeof document !== 'undefined') {
-        document.removeEventListener('focusin', containMenuFocus);
-    }
+    removeFocusListeners();
     restoreFocus();
 });
 </script>

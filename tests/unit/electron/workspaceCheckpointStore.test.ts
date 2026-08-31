@@ -1,4 +1,5 @@
 import {
+    mkdir,
     mkdtemp,
     readdir,
     readFile,
@@ -17,6 +18,7 @@ import {
 } from 'vitest';
 
 import {
+    acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
     saveWorkspaceCheckpoint,
 } from '@electron/workspaceCheckpointStore';
@@ -43,6 +45,7 @@ const state = vi.hoisted(() => ({
     owners: new Map<string, number>(),
     originalPaths: new Map<string, string>(),
     restoredOptions: new Map<string, unknown>(),
+    blockCleanup: vi.fn(),
 }));
 
 vi.mock('electron', () => ({app: {getPath: () => state.userDataPath}}));
@@ -119,6 +122,7 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
         return true;
     },
 }));
+vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
 
 const workingCopyRef = '/tmp/evb-working/draft.pdf';
 const checkpoint = {
@@ -156,6 +160,7 @@ describe('workspace checkpoint store', () => {
         state.owners.clear();
         state.originalPaths.clear();
         state.restoredOptions.clear();
+        state.blockCleanup.mockReset();
     });
 
     afterEach(async () => {
@@ -178,6 +183,8 @@ describe('workspace checkpoint store', () => {
 
         await expect(claimWorkspaceCheckpoint(22)).resolves.toEqual(checkpoint);
         expect(state.owners.get(workingCopyRef)).toBe(22);
+        await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
+        await expect(acknowledgeWorkspaceCheckpoint(22)).resolves.toBe(true);
         await expect(claimWorkspaceCheckpoint(33)).resolves.toBeNull();
     });
 
@@ -235,6 +242,21 @@ describe('workspace checkpoint store', () => {
     it('rejects checkpoints that reference another renderer working copy', async () => {
         state.owners.set(workingCopyRef, 99);
         await expect(saveWorkspaceCheckpoint(checkpoint, 11)).rejects.toThrow('unowned working copy');
+    });
+
+    it('fails closed and preserves the checkpoint when its file cannot be read', async () => {
+        const checkpointPath = join(state.userDataPath, 'workspace-checkpoint.json');
+        await mkdir(checkpointPath);
+
+        await expect(claimWorkspaceCheckpoint(22)).rejects.toMatchObject({
+            name: 'WorkspaceCheckpointReadError',
+            code: 'WORKSPACE_CHECKPOINT_READ_FAILED',
+            checkpointPath,
+        });
+        expect(state.blockCleanup).toHaveBeenCalledWith(
+            `workspace checkpoint read failed at ${checkpointPath}`,
+        );
+        await expect(readdir(state.userDataPath)).resolves.toContain('workspace-checkpoint.json');
     });
 
     it('roundtrips a clean lazy working copy across a full main-process restart', async () => {

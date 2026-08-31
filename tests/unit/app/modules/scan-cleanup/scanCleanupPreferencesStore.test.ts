@@ -24,6 +24,7 @@ import {
     getScanCleanupPreferencesStore,
     loadScanCleanupDocumentSettings,
     resetScanCleanupPreferencesStore,
+    retryScanCleanupPreferences,
     saveScanCleanupDocumentPreferencesInStore,
     whenScanCleanupPreferencesReady,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupPreferencesStore';
@@ -189,6 +190,55 @@ describe('scan cleanup renderer preference store', () => {
             .map(([request]) => request)
             .filter(request => request.settings !== undefined);
         expect(settingsUpdates).toEqual([]);
+    });
+
+    it('sends only changed global fields so concurrent clients can merge them', async () => {
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.readingOrder = 'rtl';
+        await nextTick();
+        flushScanCleanupPreferencesStore();
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {readingOrder: 'rtl'}}));
+    });
+
+    it('keeps a failed global write pending and retries it without another edit', async () => {
+        vi.useFakeTimers();
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const failure = new Error('quota exceeded');
+        capability.value.updateSettings
+            .mockRejectedValueOnce(failure)
+            .mockResolvedValueOnce(createDefaultScanCleanupSettingsFile());
+        getScanCleanupPreferencesStore();
+        await whenScanCleanupPreferencesReady();
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.readingOrder = 'rtl';
+        await nextTick();
+        flushScanCleanupPreferencesStore();
+        await Promise.resolve();
+        expect(capability.value.updateSettings).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1_000);
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledTimes(2));
+        consoleError.mockRestore();
+    });
+
+    it('retains an edit made while initial file-backed hydration is unavailable', async () => {
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const remote = createDefaultScanCleanupSettingsFile();
+        remote.settings.readingOrder = 'ltr';
+        capability.value.getSettings
+            .mockRejectedValueOnce(new Error('temporary read failure'))
+            .mockResolvedValueOnce(remote);
+        getScanCleanupPreferencesStore();
+        await expect(whenScanCleanupPreferencesReady()).rejects.toThrow('temporary read failure');
+
+        const preferences = getScanCleanupPreferencesStore();
+        preferences.readingOrder = 'rtl';
+        await retryScanCleanupPreferences();
+
+        await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {readingOrder: 'rtl'}}));
+        consoleError.mockRestore();
     });
 
     it('does not flush a debounced override patch after document discard', async () => {

@@ -54,7 +54,14 @@ export function attachNativeWindowCloseHandshake(
         }
 
         clearPendingRequest();
-        if (response.decision === 'cancel') {
+        if ('decision' in response) {
+            if (response.decision !== 'save' && response.decision !== 'discard') {
+                return;
+            }
+        } else {
+            options.logger.error(
+                `[window-close] Renderer could not provide a close decision (${response.reason}); keeping the window open (windowId=${window.id})`,
+            );
             return;
         }
 

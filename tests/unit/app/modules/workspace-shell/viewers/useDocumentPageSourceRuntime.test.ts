@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     resolveDocumentPageDisplayLayoutsBounded,
@@ -138,6 +139,40 @@ describe('document page-source layout memory bounds', () => {
             width: 600,
             height: 800,
         });
+    });
+
+    it('estimates sparse page tops without scanning every page metric', () => {
+        const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        if (!isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('expected sparse metrics');
+        }
+        const getMetric = vi.spyOn(metrics, 'get');
+        metrics.setExact(1, {
+            widthPoints: 600,
+            heightPoints: 1_000,
+            rotation: 0,
+        });
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
+            metrics,
+            600,
+            800,
+            1,
+            'custom',
+        );
+        const pageHeights = resolveDocumentPageHeightsBounded(displayLayouts);
+        const pageTops = resolveDocumentPageTopsBounded(pageHeights);
+        const lastPageIndex = 999_999;
+
+        expect(pageTops[lastPageIndex]).toBe(
+            DOCUMENT_PAGE_GUTTER_PX
+            + (1_000 - 800)
+            + lastPageIndex * (800 + DOCUMENT_PAGE_GUTTER_PX),
+        );
+        expect(getMetric.mock.calls.length).toBeLessThan(1_000);
     });
 
     it('keeps every sparse continuous layout collection lazy without mapping the document', () => {

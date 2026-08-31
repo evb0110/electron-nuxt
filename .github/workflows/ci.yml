@@ -972,7 +972,7 @@ jobs:
 
       - name: WASM portable build
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:portable
+        run: pnpm run check:wasm:strict
 
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
@@ -1121,7 +1121,7 @@ jobs:
 
       - name: WASM freshness
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:portable
+        run: pnpm run check:wasm:strict
 
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}

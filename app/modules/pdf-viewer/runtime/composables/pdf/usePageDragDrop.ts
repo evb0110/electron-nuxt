@@ -608,7 +608,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                     continue;
                 }
                 if (!isSupportedPdfInsertFilePath(filePath)) {
-                    await getDocumentWorkingCopyCapability().cleanupFile(filePath)
+                    void getDocumentWorkingCopyCapability().cleanupFile(filePath)
                         .catch(() => undefined);
                     continue;
                 }

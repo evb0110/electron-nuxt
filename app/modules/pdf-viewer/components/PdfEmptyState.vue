@@ -239,7 +239,7 @@
                             </div>
                         </div>
 
-                        <div v-else class="recent-empty">
+                        <div v-else-if="!recentFilesError" class="recent-empty">
                             <UIcon
                                 :name="recentFiles.length === 0 ? 'i-ph-folder-open' : 'i-ph-magnifying-glass'"
                                 class="recent-empty-icon"

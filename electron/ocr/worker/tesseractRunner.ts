@@ -197,12 +197,14 @@ export async function runOcrFileBased(
 
         const requestTermination = () => {
             terminationRequested = true;
-            terminationProven = false;
-            terminationPromise ??= terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS)
-                .then(terminated => {
-                    terminationProven = terminated;
-                    return terminated;
-                }, () => false);
+            if (!terminationPromise) {
+                terminationProven = false;
+                terminationPromise = terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS)
+                    .then(terminated => {
+                        terminationProven = terminated;
+                        return terminated;
+                    }, () => false);
+            }
             return terminationPromise;
         };
 

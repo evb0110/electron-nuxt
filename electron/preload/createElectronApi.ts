@@ -18,6 +18,7 @@ import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type {
     TWindowCloseDecision,
+    TWindowCloseUnavailableReason,
     TWindowCloseRequestHandler,
 } from '@contracts/systemPlatformFeature';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
@@ -355,25 +356,47 @@ export function createElectronApi(
 
         void (async () => {
             const callbacks = Array.from(windowCloseCallbacks);
-            let decision: TWindowCloseDecision = 'cancel';
-
             const callback = callbacks.length === 1 ? callbacks[0] : undefined;
+            let response: {
+                requestId: string;
+                decision?: TWindowCloseDecision;
+                status?: 'unavailable';
+                reason?: TWindowCloseUnavailableReason;
+            };
             if (callback) {
                 try {
                     const candidate = await callback(request);
                     if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
-                        decision = candidate;
+                        response = {
+                            decision: candidate,
+                            requestId: request.requestId,
+                        };
+                    } else {
+                        response = {
+                            requestId: request.requestId,
+                            status: 'unavailable',
+                            reason: 'invalid-decision',
+                        };
                     }
                 } catch (error) {
                     console.warn(`[preload] Window close decision failed: ${getErrorMessage(error)}`);
+                    response = {
+                        requestId: request.requestId,
+                        status: 'unavailable',
+                        reason: 'handler-error',
+                    };
                 }
+            } else {
+                console.warn(`[preload] Window close decision unavailable; callback count: ${callbacks.length}`);
+                response = {
+                    requestId: request.requestId,
+                    status: 'unavailable',
+                    reason: callbacks.length === 0 ? 'no-handler' : 'multiple-handlers',
+                };
             }
 
             try {
-                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.windowCloseResponse, {
-                    decision,
-                    requestId: request.requestId,
-                });
+                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.windowCloseResponse, response);
             } catch (error) {
                 console.warn(`[preload] Window close response failed: ${getErrorMessage(error)}`);
             }

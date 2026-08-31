@@ -144,48 +144,29 @@ function createTiffOrientationMapper(
     width: number,
     height: number,
     orientation: TTiffOrientation,
+    outputWidth: number,
 ) {
     switch (orientation) {
         case 2:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: width - 1 - sourceX,
-                targetY: sourceY,
-            });
+            return (sourceX: number, sourceY: number) => (sourceY * outputWidth + width - 1 - sourceX) * 4;
         case 3:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: width - 1 - sourceX,
-                targetY: height - 1 - sourceY,
-            });
+            return (sourceX: number, sourceY: number) => (
+                ((height - 1 - sourceY) * outputWidth + width - 1 - sourceX) * 4
+            );
         case 4:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: sourceX,
-                targetY: height - 1 - sourceY,
-            });
+            return (sourceX: number, sourceY: number) => ((height - 1 - sourceY) * outputWidth + sourceX) * 4;
         case 5:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: sourceY,
-                targetY: sourceX,
-            });
+            return (sourceX: number, sourceY: number) => (sourceX * outputWidth + sourceY) * 4;
         case 6:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: height - 1 - sourceY,
-                targetY: sourceX,
-            });
+            return (sourceX: number, sourceY: number) => (sourceX * outputWidth + height - 1 - sourceY) * 4;
         case 7:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: height - 1 - sourceY,
-                targetY: width - 1 - sourceX,
-            });
+            return (sourceX: number, sourceY: number) => (
+                ((width - 1 - sourceX) * outputWidth + height - 1 - sourceY) * 4
+            );
         case 8:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: sourceY,
-                targetY: width - 1 - sourceX,
-            });
+            return (sourceX: number, sourceY: number) => ((width - 1 - sourceX) * outputWidth + sourceY) * 4;
         default:
-            return (sourceX: number, sourceY: number) => ({
-                targetX: sourceX,
-                targetY: sourceY,
-            });
+            return (sourceX: number, sourceY: number) => (sourceY * outputWidth + sourceX) * 4;
     }
 }
 
@@ -207,16 +188,15 @@ function transformTiffRgba(
     const outputWidth = swapsDimensions ? height : width;
     const outputHeight = swapsDimensions ? width : height;
     const output = new Uint8Array(outputWidth * outputHeight * 4);
-    const mapTarget = createTiffOrientationMapper(width, height, orientation);
+    const mapTarget = createTiffOrientationMapper(width, height, orientation, outputWidth);
     for (let sourceY = 0; sourceY < height; sourceY += 1) {
         for (let sourceX = 0; sourceX < width; sourceX += 1) {
-            const {
-                targetX,
-                targetY,
-            } = mapTarget(sourceX, sourceY);
             const sourceOffset = (sourceY * width + sourceX) * 4;
-            const targetOffset = (targetY * outputWidth + targetX) * 4;
-            output.set(rgba.subarray(sourceOffset, sourceOffset + 4), targetOffset);
+            const targetOffset = mapTarget(sourceX, sourceY);
+            output[targetOffset] = rgba[sourceOffset]!;
+            output[targetOffset + 1] = rgba[sourceOffset + 1]!;
+            output[targetOffset + 2] = rgba[sourceOffset + 2]!;
+            output[targetOffset + 3] = rgba[sourceOffset + 3]!;
         }
     }
     return {

@@ -157,6 +157,16 @@ function handleNewTab() {
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
 const focusedTabId = ref<string | null>(null);
+
+watch(
+    () => tabs.map(tab => tab.id),
+    (tabIds) => {
+        if (focusedTabId.value !== null && !tabIds.includes(focusedTabId.value)) {
+            focusedTabId.value = null;
+        }
+    },
+    {flush: 'post'},
+);
 const contextMenu = ref<{
     visible: boolean;
     x: number;

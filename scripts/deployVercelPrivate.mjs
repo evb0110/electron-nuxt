@@ -1,6 +1,7 @@
 import {
     cpSync,
     existsSync,
+    lstatSync,
     mkdirSync,
     mkdtempSync,
     readFileSync,
@@ -15,6 +16,8 @@ import {
     pathToFileURL,
 } from 'node:url';
 import {
+    assertCleanTrackedWebDeploySource,
+    getTrackedWebDeploySourcePaths,
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
@@ -132,6 +135,26 @@ function configureLandingBuild(sourceRoot) {
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`, 'utf8');
 }
 
+function copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget) {
+    for (const relativePath of getTrackedWebDeploySourcePaths(projectRoot)) {
+        const sourcePath = path.join(projectRoot, relativePath);
+        if (!shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget)) {
+            continue;
+        }
+
+        const destinationPath = path.join(sourceRoot, relativePath);
+        const sourceStat = lstatSync(sourcePath);
+        if (sourceStat.isSymbolicLink()) {
+            throw new Error(`Tracked web deploy source contains a symbolic link: ${relativePath}`);
+        }
+        if (!sourceStat.isFile()) {
+            throw new Error(`Tracked web deploy source is not a regular file: ${relativePath}`);
+        }
+        mkdirSync(path.dirname(destinationPath), {recursive: true});
+        cpSync(sourcePath, destinationPath, {force: true});
+    }
+}
+
 export function promoteLandingVercelOutput(projectRoot = defaultProjectRoot) {
     const landingOutputRoot = path.join(projectRoot, 'landing', '.vercel', 'output');
     const landingConfigPath = path.join(landingOutputRoot, 'config.json');
@@ -170,15 +193,13 @@ export function preparePrivateDeploySource({
         throw new Error(`Missing ${projectJson}. Run \`vercel link\` in this project first.`);
     }
 
+    assertCleanTrackedWebDeploySource(projectRoot);
+
     const scratchRoot = mkdtempSync(path.join(tmpdir(), 'evb-vercel-private-'));
     const sourceRoot = path.join(scratchRoot, 'source');
 
-    cpSync(projectRoot, sourceRoot, {
-        filter: sourcePath => shouldCopyPrivateDeployPath(sourcePath, projectRoot, deployTarget),
-        force: true,
-        recursive: true,
-        verbatimSymlinks: true,
-    });
+    mkdirSync(sourceRoot, {recursive: true});
+    copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget);
     mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
     sanitizePnpmWorkspace(sourceRoot);
@@ -230,6 +251,85 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = []) {
     ];
 }
 
+export function extractVercelDeploymentUrl(output) {
+    return output.match(/https:\/\/[a-z0-9][a-z0-9.-]*\.vercel\.app(?:\/[^\s"'<>]*)?/iu)?.[0] ?? null;
+}
+
+export function buildVercelRollbackArgs(deploymentUrl) {
+    if (!deploymentUrl) {
+        throw new Error('A deployment URL is required before a production rollback can run.');
+    }
+    return [
+        'rollback',
+        deploymentUrl,
+        '--yes',
+    ];
+}
+
+function parseHttpsAcceptanceUrls(rawValue) {
+    return rawValue
+        .split(',')
+        .map(value => value.trim())
+        .filter(Boolean)
+        .map(value => {
+            const url = new URL(value);
+            if (url.protocol !== 'https:') {
+                throw new Error(`Deploy acceptance URL must use HTTPS: ${value}`);
+            }
+            return url.href;
+        });
+}
+
+async function runDeployAcceptanceChecks({
+    deploymentUrl,
+    deployTarget,
+    env,
+    fetchImpl,
+    sourceRoot,
+    spawnSyncImpl,
+}) {
+    const configuredUrls = env.EVB_DEPLOY_ACCEPTANCE_URL?.trim()
+        ? parseHttpsAcceptanceUrls(env.EVB_DEPLOY_ACCEPTANCE_URL)
+        : [deploymentUrl];
+    if (configuredUrls.length === 0) {
+        throw new Error('Production deploy acceptance requires EVB_DEPLOY_ACCEPTANCE_URL or a Vercel deployment URL.');
+    }
+    if (typeof fetchImpl !== 'function') {
+        throw new Error('Production deploy acceptance requires a fetch implementation.');
+    }
+
+    for (const url of configuredUrls) {
+        const response = await fetchImpl(url, {
+            headers: {accept: 'text/html,application/json'},
+            redirect: 'follow',
+            signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+            throw new Error(`Deploy acceptance URL ${url} responded with HTTP ${response.status}.`);
+        }
+    }
+
+    const acceptanceCommand = env.EVB_DEPLOY_ACCEPTANCE_COMMAND?.trim();
+    if (acceptanceCommand) {
+        const result = spawnSyncImpl(acceptanceCommand, [], {
+            cwd: sourceRoot,
+            env: {
+                ...env,
+                EVB_DEPLOYMENT_URL: deploymentUrl,
+                EVB_DEPLOY_TARGET: deployTarget,
+            },
+            shell: true,
+            stdio: 'inherit',
+        });
+        if (result.error) {
+            throw result.error;
+        }
+        if ((result.status ?? 1) !== 0) {
+            throw new Error(`Deploy acceptance command exited with ${result.status ?? 1}.`);
+        }
+    }
+}
+
 export function quoteWindowsShellArg(arg) {
     // spawnSync with shell:true on Windows concatenates args into a cmd.exe
     // command line. Whitespace splits an unquoted arg, but so do cmd's own
@@ -243,10 +343,13 @@ export function quoteWindowsShellArg(arg) {
     return `"${arg.replace(/"/g, '\\"')}"`;
 }
 
-export function runPrivateVercelDeploy({
+export async function runPrivateVercelDeploy({
     command = process.env.VERCEL_CLI || 'vercel',
     projectRoot = defaultProjectRoot,
     rawArgs = process.argv.slice(2),
+    env = process.env,
+    fetchImpl = globalThis.fetch,
+    spawnSyncImpl = spawnSync,
 } = {}) {
     const {
         deployArgs,
@@ -257,24 +360,89 @@ export function runPrivateVercelDeploy({
         projectRoot,
     });
     const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs);
+    const isProduction = deployArgs.includes('--prod');
 
     try {
         const useShell = process.platform === 'win32';
         const spawnCommand = useShell ? quoteWindowsShellArg(command) : command;
         const spawnArgs = useShell ? commandArgs.map(quoteWindowsShellArg) : commandArgs;
         console.log(`> ${command} ${commandArgs.join(' ')}`);
-        const result = spawnSync(spawnCommand, spawnArgs, {
+        const result = spawnSyncImpl(spawnCommand, spawnArgs, {
             cwd: prepared.sourceRoot,
-            env: process.env,
+            env,
+            encoding: 'utf8',
             shell: useShell,
-            stdio: 'inherit',
+            stdio: [
+                'ignore',
+                'pipe',
+                'pipe',
+            ],
         });
 
         if (result.error) {
             throw result.error;
         }
 
-        return result.status ?? 1;
+        const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+        if (result.stdout) {
+            process.stdout.write(result.stdout);
+        }
+        if (result.stderr) {
+            process.stderr.write(result.stderr);
+        }
+        if ((result.status ?? 1) !== 0) {
+            return result.status ?? 1;
+        }
+        if (!isProduction) {
+            return 0;
+        }
+
+        const deploymentUrl = extractVercelDeploymentUrl(output);
+        if (!deploymentUrl) {
+            throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
+        }
+
+        try {
+            await runDeployAcceptanceChecks({
+                deploymentUrl,
+                deployTarget,
+                env,
+                fetchImpl,
+                sourceRoot: prepared.sourceRoot,
+                spawnSyncImpl,
+            });
+        } catch (error) {
+            let rollbackError;
+            try {
+                const rollbackArgs = buildVercelRollbackArgs(deploymentUrl);
+                const rollbackUseShell = process.platform === 'win32';
+                const rollbackCommand = rollbackUseShell ? quoteWindowsShellArg(command) : command;
+                const rollbackSpawnArgs = rollbackUseShell
+                    ? rollbackArgs.map(quoteWindowsShellArg)
+                    : rollbackArgs;
+                const rollbackResult = spawnSyncImpl(rollbackCommand, rollbackSpawnArgs, {
+                    cwd: prepared.sourceRoot,
+                    env,
+                    shell: rollbackUseShell,
+                    stdio: 'inherit',
+                });
+                if (rollbackResult.error) {
+                    throw rollbackResult.error;
+                }
+                if ((rollbackResult.status ?? 1) !== 0) {
+                    throw new Error(`Vercel rollback exited with ${rollbackResult.status ?? 1}.`);
+                }
+            } catch (rollbackFailure) {
+                rollbackError = rollbackFailure;
+            }
+            const acceptanceMessage = error instanceof Error ? error.message : String(error);
+            const rollbackMessage = rollbackError
+                ? ` Rollback also failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`
+                : ' The failed deployment was rolled back.';
+            throw new Error(`Production deploy acceptance failed: ${acceptanceMessage}.${rollbackMessage}`, {cause: error});
+        }
+
+        return 0;
     } finally {
         prepared.cleanup();
     }
@@ -287,6 +455,6 @@ if (isMain) {
     if (process.argv.includes('--promote-landing-output')) {
         promoteLandingVercelOutput();
     } else {
-        process.exitCode = runPrivateVercelDeploy();
+        process.exitCode = await runPrivateVercelDeploy();
     }
 }

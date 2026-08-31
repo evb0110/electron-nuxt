@@ -3,6 +3,7 @@ import {
     rm,
     writeFile,
 } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import {
@@ -129,5 +130,23 @@ describe('settings single-flight loading', () => {
             theme: 'dark',
         });
         expect(mocks.readFile).toHaveBeenCalledOnce();
+    });
+
+    it('fails closed when an existing settings file cannot be read', async () => {
+        const settingsPath = join(mocks.userDataPath, 'settings.json');
+        const originalContent = JSON.stringify({
+            theme: 'dark',
+            authorName: 'Existing user',
+        });
+        await writeFile(settingsPath, originalContent);
+        const readError = Object.assign(new Error('I/O failure'), {code: 'EIO'});
+        mocks.readFile.mockRejectedValue(readError);
+        const {updateSettings} = await import('@electron/settings');
+
+        await expect(updateSettings(settings => ({
+            ...settings,
+            theme: 'light',
+        }))).rejects.toBe(readError);
+        expect(readFileSync(settingsPath, 'utf-8')).toBe(originalContent);
     });
 });

@@ -289,16 +289,18 @@ export function createBrowserDocumentsFileCapability(
                 return null;
             }
 
-            const sourceRef = await browserDocumentStore.registerFile(picked.file, {
+            const registered = await browserDocumentStore.registerFileWithOwnership(picked.file, {
                 kind: 'source',
                 saveKind: 'pdf',
                 saveHandle: picked.handle ?? null,
             });
 
             try {
-                return await openDocumentPaths([sourceRef]);
+                return await openDocumentPaths([registered.ref]);
             } catch (error) {
-                await cleanupTransientOpenRefs([sourceRef]);
+                if (registered.created) {
+                    await cleanupTransientOpenRefs([registered.ref]);
+                }
                 throw error;
             }
         },

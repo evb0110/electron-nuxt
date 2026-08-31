@@ -23,11 +23,6 @@ on:
         description: Workflow artifact group name for the verified release files.
         required: true
         type: string
-      advisory:
-        description: Report a failed target without failing its calling workflow.
-        required: false
-        default: false
-        type: boolean
       release_environment:
         description: Environment used only for signed public-release builds.
         required: false
@@ -64,7 +59,6 @@ env:
 jobs:
   build:
     name: build (${{ inputs.os }}, ${{ inputs.platform }}, ${{ inputs.arch }})
-    continue-on-error: ${{ inputs.advisory }}
     environment: ${{ inputs.release_environment }}
     env:
       EVB_RELEASE_TARGET_ARCH: ${{ inputs.arch }}
@@ -346,7 +340,7 @@ jobs:
         shell: bash
         # One proof per invariant: this covers the packaged (unpacked) app and
         # stays blocking on both arches; the NSIS journey below covers the
-        # installed app and is advisory on arm64.
+        # installed app on both architectures.
         run: |
           executable="$(find release -type f -path '*/win*-unpacked/EVB Viewer.exe' -print -quit)"
           test -n "$executable"
@@ -355,12 +349,6 @@ jobs:
       - name: Verify installed Windows NSIS journey
         if: runner.os == 'Windows'
         id: nsis_journey
-        # Advisory on win-arm64 only: hosted Windows ARM runners repeatedly
-        # fail this installer journey on extraction races (release runs
-        # #342-#344) even though it tests runner installer behavior, not the
-        # product build. It stays fully blocking on win-x64. Failures still
-        # surface via the warning annotation and diagnostics upload below.
-        continue-on-error: ${{ inputs.arch == 'arm64' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -452,11 +440,6 @@ jobs:
           }
           if (Test-Path $appPath) { throw 'NSIS uninstall left the EVB Viewer executable installed.' }
 
-      - name: Report advisory Windows ARM NSIS journey failure
-        if: runner.os == 'Windows' && inputs.arch == 'arm64' && steps.nsis_journey.outcome == 'failure'
-        shell: bash
-        run: echo "::warning::The advisory Windows ARM64 NSIS installed-app journey failed; the packaged installer artifacts still ship. Inspect the packaged-core-pdf-smoke diagnostics artifact."
-
       - name: Verify packaged macOS arm64 core PDF journey
         if: runner.os == 'macOS' && inputs.arch == 'arm64'
         shell: bash
@@ -539,4 +522,4 @@ jobs:
         id: artifact_status
         if: ${{ always() }}
         shell: bash
-        run: echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+        run: echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' && (runner.os != 'Windows' || steps.nsis_journey.outcome == 'success') }}" >> "$GITHUB_OUTPUT"

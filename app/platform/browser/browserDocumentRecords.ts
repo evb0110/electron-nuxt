@@ -122,7 +122,7 @@ function readPersistedDocumentRequiredFields(
     const fileSize = readRequiredNumber(value.fileSize);
     const fileLastModified = value.fileLastModified === undefined
         ? undefined
-        : readRequiredNumber(value.fileLastModified);
+        : readRequiredNumber(value.fileLastModified) ?? undefined;
     const updatedAt = readRequiredNumber(value.updatedAt);
 
     if (!ref || !fileName || !mimeType || !kind || !data || fileSize === null || updatedAt === null) {

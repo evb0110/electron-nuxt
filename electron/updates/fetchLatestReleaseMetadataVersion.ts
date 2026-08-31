@@ -8,9 +8,11 @@ const METADATA_REQUEST_TIMEOUT_MS = 10_000;
 const RELEASE_COHORT_COOKIE_NAME = 'evb_release_cohort';
 const RELEASE_COHORT_COOKIE_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const RELEASE_COHORT_COOKIE_VALUE_PATTERN = /^[A-Za-z0-9._~-]{1,128}$/u;
+const RELEASE_COHORT_COOKIE_RETRY_DELAY_MS = 30_000;
 
 let releaseCohortCookie: string | null | undefined;
 let releaseCohortCookieLoadPromise: Promise<string | null> | null = null;
+let releaseCohortCookieRetryAt = 0;
 
 interface IReleaseMetadataLogger {warn: (message: string) => void;}
 
@@ -21,6 +23,9 @@ function isValidReleaseCohortCookieValue(value: string | undefined): value is st
 async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMetadataLogger) {
     if (releaseCohortCookie !== undefined) {
         return releaseCohortCookie ?? null;
+    }
+    if (Date.now() < releaseCohortCookieRetryAt) {
+        return null;
     }
     if (releaseCohortCookieLoadPromise) {
         return releaseCohortCookieLoadPromise;
@@ -33,8 +38,10 @@ async function loadReleaseCohortCookie(metadataUrl: string, logger: IReleaseMeta
                 url: metadataUrl,
             });
             releaseCohortCookie = cookies?.find(cookie => isValidReleaseCohortCookieValue(cookie.value))?.value ?? null;
+            releaseCohortCookieRetryAt = 0;
         } catch (error) {
             releaseCohortCookie = undefined;
+            releaseCohortCookieRetryAt = Date.now() + RELEASE_COHORT_COOKIE_RETRY_DELAY_MS;
             logger.warn(`Unable to load release rollout cookie: ${getErrorMessage(error)}`);
         } finally {
             releaseCohortCookieLoadPromise = null;

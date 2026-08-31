@@ -25,6 +25,7 @@ const vitestProjectNames = {
     unitScripts: 'unit-scripts',
     unitPolicy: 'unit-policy',
     unitStaticArchitecture: 'unit-static-architecture',
+    unitLanding: 'unit-landing',
     browserIntegration: 'browser-integration',
     nativeIntegration: 'native-integration',
     electronBundleStaticIntegrity: 'electron-bundle-static-integrity',
@@ -157,12 +158,14 @@ function createUnitTestProject(
         vueComponents = false,
         processCss = false,
         exclude = [],
+        excludeLanding = true,
         setupFiles,
     }: {
         autoImport?: boolean;
         vueComponents?: boolean;
         processCss?: boolean;
         exclude?: string[];
+        excludeLanding?: boolean;
         setupFiles?: string[];
     } = {},
 ) {
@@ -179,7 +182,7 @@ function createUnitTestProject(
             include,
             exclude: [
                 ...electronBundleStaticIntegrityTestFiles,
-                ...landingUnitTestFiles,
+                ...(excludeLanding ? landingUnitTestFiles : []),
                 ...exclude,
             ],
             globals: false,
@@ -297,6 +300,11 @@ export const vitestProjects = [
     createUnitTestProject(
         vitestProjectNames.unitPolicy,
         unitPolicyTestFiles,
+    ),
+    createUnitTestProject(
+        vitestProjectNames.unitLanding,
+        landingUnitTestFiles,
+        {excludeLanding: false},
     ),
     createUnitTestProject(
         vitestProjectNames.unitStaticArchitecture,

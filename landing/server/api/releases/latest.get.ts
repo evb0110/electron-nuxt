@@ -28,6 +28,14 @@ interface IGithubReleaseAsset {
 const RELEASE_COHORT_COOKIE = 'evb_release_cohort';
 const RELEASE_COHORT_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const releaseCatalogLoader = createReleaseCatalogLoader<IGithubRelease[]>();
+const MIRROR_OMITTED_INSTALLER_PATTERNS = [
+    /^EVB-Viewer-.+-x64\.zip$/u,
+    /^EVB-Viewer-.+-arm64-setup\.exe$/u,
+];
+
+function isPublishedToReleaseMirror(assetName: string) {
+    return !MIRROR_OMITTED_INSTALLER_PATTERNS.some(pattern => pattern.test(assetName));
+}
 
 function parseHttpsUrl(value: string): string | null {
     try {
@@ -70,6 +78,7 @@ function toInstallers(release: IGithubRelease, mirrorBaseUrl: string): IReleaseI
         .filter(asset => isInstallerAsset(asset.name) && parseHttpsUrl(asset.browser_download_url))
         .map<IReleaseInstaller>((asset) => {
             const mirrorDownloadUrl = mirrorBaseUrl
+                && isPublishedToReleaseMirror(asset.name)
                 ? `${mirrorBaseUrl}/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`
                 : null;
             return {

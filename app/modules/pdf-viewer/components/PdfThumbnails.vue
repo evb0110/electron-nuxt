@@ -59,8 +59,10 @@
             :text="getThumbnailSelectionLabel(page)"
             :delay-duration="400"
           >
-            <span
-              aria-hidden="true"
+            <button
+              type="button"
+              :aria-pressed="isSelected(page)"
+              :aria-label="getThumbnailSelectionLabel(page)"
               class="pdf-thumbnail-selection-toggle"
               :class="{ 'is-selected': isSelected(page) }"
               @mousedown.stop
@@ -71,7 +73,7 @@
                 name="i-ph-check"
                 class="pdf-thumbnail-selection-icon"
               />
-            </span>
+            </button>
           </AppTooltip>
         </template>
         <span class="pdf-thumbnail-skeleton" aria-hidden="true" />

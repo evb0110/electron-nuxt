@@ -31,6 +31,9 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserFilePickerAdapter', () => ({
+    BrowserFileWriteOutcomeError: class BrowserFileWriteOutcomeError extends Error {
+        public readonly externalWriteCommitted = null;
+    },
     pickSaveTarget: (...args: unknown[]) => filePickerMock.pickSaveTarget(...args),
     saveBytesToPickerOrDownload: (...args: unknown[]) => filePickerMock.saveBytesToPickerOrDownload(...args),
     writeDocumentRefToHandle: (...args: unknown[]) => filePickerMock.writeDocumentRefToHandle(...args),

@@ -276,7 +276,6 @@ async function hasUpdaterMetadataForVersion(version: string) {
     }
 
     const errors: string[] = [];
-    let notFoundCount = 0;
     for (const baseUrl of [
         GITHUB_RELEASE_DOWNLOAD_BASE_URL,
         config.updates.mirrorReleaseBaseUrl,
@@ -288,7 +287,6 @@ async function hasUpdaterMetadataForVersion(version: string) {
                 signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
             });
             if (response.status === 404) {
-                notFoundCount += 1;
                 continue;
             }
             if (!response.ok) {
@@ -303,7 +301,7 @@ async function hasUpdaterMetadataForVersion(version: string) {
     if (errors.length > 0) {
         throw new Error(`Updater feed verification was inconclusive (${errors.join('; ')})`);
     }
-    return notFoundCount === 0;
+    return false;
 }
 
 function validateDownloadedUpdateForInstall(version: string) {
@@ -506,7 +504,12 @@ function setAutoUpdaterListeners() {
 
     const onUpdaterError = (error: unknown) => {
         approvedDownloadAndInstallVersion = null;
-        const message = `Update check failed: ${getErrorMessage(error)}`;
+        const failedOperation = status.phase === 'downloading'
+            ? 'Update download failed'
+            : status.phase === 'downloaded'
+                ? 'Update installation failed'
+                : 'Update check failed';
+        const message = `${failedOperation}: ${getErrorMessage(error)}`;
         logger.error(message);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
@@ -659,7 +662,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
             pendingVersion = null;
             return {
                 shouldCheck: false,
-                targetVersion: null,
+                targetVersion: latestVersion,
                 errorMessage: `Update ${latestVersion} is available, but its ${getUpdaterMetadataAssetName()} feed is not published. Download the release manually.`,
             };
         }
@@ -779,7 +782,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                     updateStatus({
                         phase: 'error',
                         origin,
-                        version: pendingVersion ?? getCurrentVersion(),
+                        version: decision.targetVersion ?? pendingVersion ?? getCurrentVersion(),
                         percent: null,
                         message: decision.errorMessage,
                     });

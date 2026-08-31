@@ -32,6 +32,7 @@
             "@evb/releaseSelection/*": ["./packages/release-selection/*"],
             "@scripts/*": ["./scripts/*"],
             "@server/*": ["./server/*"],
+            "@landing/*": ["./landing/*"],
             "@tests/*": ["./tests/*"]
         }
     }

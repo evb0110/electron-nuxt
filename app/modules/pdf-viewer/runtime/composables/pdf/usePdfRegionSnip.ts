@@ -22,6 +22,7 @@ import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-reg
 import { createSelectionPointerDragHandlers } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionPointerDragHandlers';
 import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag';
 import {
+    clampKeyboardSelection,
     createKeyboardSelection as createKeyboardSelectionInBounds,
     updateKeyboardSelection as updateKeyboardSelectionInBounds,
 } from '@app/utils/document-viewer/region-geometry/keyboardSelection';
@@ -176,11 +177,38 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         return selection;
     }
 
+    function rebaseKeyboardSelection(overlayRect: IOverlayRect) {
+        if (keyboardSelection && keyboardOverlayRect) {
+            const previousOverlayRect = toOverlayClientRect(keyboardOverlayRect);
+            const nextOverlayRect = toOverlayClientRect(overlayRect);
+            const previousWidth = getRectWidth(previousOverlayRect);
+            const previousHeight = getRectHeight(previousOverlayRect);
+            const nextWidth = getRectWidth(nextOverlayRect);
+            const nextHeight = getRectHeight(nextOverlayRect);
+            const rebased = previousWidth > 0 && previousHeight > 0 && nextWidth > 0 && nextHeight > 0
+                ? {
+                    left: nextOverlayRect.left + (keyboardSelection.left - previousOverlayRect.left) * nextWidth / previousWidth,
+                    right: nextOverlayRect.left + (keyboardSelection.right - previousOverlayRect.left) * nextWidth / previousWidth,
+                    top: nextOverlayRect.top + (keyboardSelection.top - previousOverlayRect.top) * nextHeight / previousHeight,
+                    bottom: nextOverlayRect.top + (keyboardSelection.bottom - previousOverlayRect.top) * nextHeight / previousHeight,
+                }
+                : {
+                    left: keyboardSelection.left + nextOverlayRect.left - previousOverlayRect.left,
+                    right: keyboardSelection.right + nextOverlayRect.left - previousOverlayRect.left,
+                    top: keyboardSelection.top + nextOverlayRect.top - previousOverlayRect.top,
+                    bottom: keyboardSelection.bottom + nextOverlayRect.top - previousOverlayRect.top,
+                };
+            keyboardSelection = clampKeyboardSelection(rebased, nextOverlayRect);
+        }
+        keyboardOverlayRect = overlayRect;
+    }
+
     function updateKeyboardSelection(event: KeyboardEvent) {
-        const overlayRect = keyboardOverlayRect ?? getOverlayRect();
+        const overlayRect = getOverlayRect();
         if (!overlayRect) {
             return null;
         }
+        rebaseKeyboardSelection(overlayRect);
         let selection = keyboardSelection ?? createKeyboardSelection(overlayRect);
         selection = updateKeyboardSelectionInBounds(
             selection,
@@ -274,8 +302,9 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         }
         if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
             event.preventDefault();
-            const overlayRect = keyboardOverlayRect ?? getOverlayRect();
+            const overlayRect = getOverlayRect();
             if (overlayRect) {
+                rebaseKeyboardSelection(overlayRect);
                 const selection = keyboardSelection ?? createKeyboardSelection(overlayRect);
                 void completeSelectionRect(selection, overlayRect);
             } else {

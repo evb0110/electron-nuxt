@@ -8,6 +8,7 @@ import {
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 import {
     BROWSER_SETTINGS_COOKIE_KEY,
+    isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
     readBrowserPerformanceModeSnapshot,
     serializeBrowserSettingsPayload,
@@ -23,6 +24,8 @@ function stubBrowserPersistence(options: {
     protocol?: 'http:' | 'https:';
     storageValue?: string;
     throwOnSet?: boolean;
+    localeValue?: string;
+    themeValue?: string;
 } = {}) {
     const storage = new Map<string, string>();
     if (options.storageValue !== undefined) {
@@ -41,9 +44,13 @@ function stubBrowserPersistence(options: {
     vi.stubGlobal('location', {protocol: options.protocol ?? 'http:'});
     vi.stubGlobal('document', {
         get cookie() {
-            return options.cookieValue === undefined
-                ? ''
-                : `${BROWSER_SETTINGS_COOKIE_KEY}=${encodeURIComponent(options.cookieValue)}`;
+            return [
+                options.cookieValue === undefined
+                    ? null
+                    : `${BROWSER_SETTINGS_COOKIE_KEY}=${encodeURIComponent(options.cookieValue)}`,
+                options.localeValue === undefined ? null : `i18n_redirected=${options.localeValue}`,
+                options.themeValue === undefined ? null : `nuxt-color-mode=${options.themeValue}`,
+            ].filter((value): value is string => value !== null).join('; ');
         },
         set cookie(value: string) { cookieWrites.push(value); },
     });
@@ -71,7 +78,32 @@ describe('browserSettingsPersistence performanceMode', () => {
             .toBe('auto');
     });
 
-    it('prefers a valid legacy cookie over divergent local storage and replaces storage', () => {
+    it('migrates an older payload with fields added after its schema version', () => {
+        const olderPayload = JSON.stringify({
+            version: 2,
+            authorName: 'Older user',
+            defaultZoomPreset: '150',
+            defaultViewMode: 'facing',
+            defaultContinuousScroll: false,
+            defaultAnnotationColor: '#123456',
+            optimizePdfOnSaveAs: true,
+        });
+
+        expect(isValidLegacyBrowserSettingsPayload(olderPayload)).toBe(true);
+        expect(parseBrowserSettingsPayload(olderPayload)).toMatchObject({
+            authorName: 'Older user',
+            defaultZoomPreset: '150',
+            defaultViewMode: 'facing',
+            defaultContinuousScroll: false,
+            defaultAnnotationColor: '#123456',
+            optimizePdfOnSaveAs: true,
+            performanceMode: 'auto',
+            uiScale: 'auto',
+            tabMemoryPolicy: 'conservative',
+        });
+    });
+
+    it('preserves committed storage over a stale legacy cookie', () => {
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload({
                 ...DEFAULT_SETTINGS,
@@ -83,10 +115,25 @@ describe('browserSettingsPersistence performanceMode', () => {
             }),
         });
 
-        expect(readBrowserPerformanceModeSnapshot()).toBe('low');
+        expect(readBrowserPerformanceModeSnapshot()).toBe('medium');
         expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
-            .toMatchObject({performanceMode: 'low'});
+            .toMatchObject({performanceMode: 'medium'});
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+    });
+
+    it('does not replace a future storage schema with a legacy cookie', () => {
+        const futureSettings = JSON.stringify({
+            version: DEFAULT_SETTINGS.version + 1,
+            futureSetting: true,
+        });
+        const browser = stubBrowserPersistence({
+            cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
+            storageValue: futureSettings,
+        });
+
+        expect(() => readBrowserPerformanceModeSnapshot()).toThrow('newer than the supported version');
+        expect(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY)).toBe(futureSettings);
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('does not treat valid JSON with the wrong storage shape as canonical', () => {
@@ -122,6 +169,22 @@ describe('browserSettingsPersistence performanceMode', () => {
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
     });
 
+    it('merges locale and theme cookies before the early performance migration commits', () => {
+        const browser = stubBrowserPersistence({
+            cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
+            localeValue: 'ru',
+            themeValue: 'dark',
+        });
+
+        expect(readBrowserPerformanceModeSnapshot()).toBe('auto');
+        expect(JSON.parse(browser.storage.get(BROWSER_SETTINGS_STORAGE_KEY) ?? 'null'))
+            .toMatchObject({
+                locale: 'ru',
+                theme: 'dark',
+            });
+        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+    });
+
     it('adds Secure to legacy cookie expiry only over HTTPS', () => {
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload(DEFAULT_SETTINGS),
@@ -132,7 +195,7 @@ describe('browserSettingsPersistence performanceMode', () => {
         expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry(true)]);
     });
 
-    it('expires the request cookie even when local storage migration fails', () => {
+    it('retains the request cookie when local storage migration fails', () => {
         const browser = stubBrowserPersistence({
             cookieValue: serializeBrowserSettingsPayload({
                 ...DEFAULT_SETTINGS,
@@ -142,7 +205,7 @@ describe('browserSettingsPersistence performanceMode', () => {
         });
 
         expect(readBrowserPerformanceModeSnapshot()).toBe('low');
-        expect(browser.cookieWrites).toEqual([expectedLegacySettingsCookieExpiry()]);
+        expect(browser.cookieWrites).toEqual([]);
     });
 
     it('returns auto when no local or legacy snapshot exists', () => {

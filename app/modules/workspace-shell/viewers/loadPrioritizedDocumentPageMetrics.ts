@@ -332,11 +332,10 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         }
         if (getPriorityPages) {
             const selectedPriorityPage = takePriorityPage();
-            if (selectedPriorityPage === null) {
-                return null;
+            if (selectedPriorityPage !== null) {
+                scheduledMetricCount += 1;
+                return selectedPriorityPage;
             }
-            scheduledMetricCount += 1;
-            return selectedPriorityPage;
         }
         const priorityPage = resolvePriorityPage();
         if (priorityPage !== safeInitialPage && !isUnavailable(priorityPage)) {

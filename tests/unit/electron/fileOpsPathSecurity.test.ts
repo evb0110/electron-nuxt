@@ -976,6 +976,44 @@ describe('fileOps path security', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
+    it('rejects a lazy-original range when the source changes after a full range read', async () => {
+        const entry = lazyOriginalEntry();
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, offset: number) => {
+            buffer.set([
+                4,
+                5,
+            ], offset);
+            return {bytesRead: 2};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockResolvedValueOnce(entry.admissionSnapshot)
+            .mockResolvedValueOnce({
+                size: 123n,
+                mtimeNs: 2_000_000n,
+            });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await expect(
+            handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2),
+        ).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.transitionWorkingCopyBackingState).toHaveBeenCalledWith(
+            '/tmp/electron-test/lazy.pdf',
+            7,
+            'lazy-original',
+            expect.objectContaining({sourceBackingErrorCode: 'SOURCE_BACKING_CHANGED'}),
+        );
+        await clearCachedRangeReadHandlesForTests();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
     it('fails lazy-original reads with a typed unavailable error', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
@@ -1113,7 +1151,7 @@ describe('fileOps path security', () => {
 
         expect(mocks.open).toHaveBeenCalledTimes(1);
         expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
         expect(close).not.toHaveBeenCalled();
 
         await mocks.backingSwapCacheInvalidator?.(

@@ -2,6 +2,7 @@ import {
     mkdtemp,
     mkdir,
     rm,
+    symlink,
     writeFile,
 } from 'fs/promises';
 import { tmpdir } from 'os';
@@ -37,6 +38,26 @@ describe('document folder open limits', () => {
         await expect(collectSupportedFolderPaths(directory)).resolves.toEqual([
             join(directory, 'a.jpg'),
             join(directory, 'b.png'),
+        ]);
+    });
+
+    it('uses natural filename ordering and follows symlinks to regular files', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-open-folder-natural-'));
+        temporaryPaths.push(directory);
+        const target = join(directory, 'target.png');
+        const link = join(directory, 'page-2.png');
+        await Promise.all([
+            writeFile(join(directory, 'page-10.png'), ''),
+            writeFile(join(directory, 'page-1.png'), ''),
+            writeFile(target, ''),
+        ]);
+        await symlink(target, link);
+
+        await expect(collectSupportedFolderPaths(directory)).resolves.toEqual([
+            join(directory, 'page-1.png'),
+            join(directory, 'page-2.png'),
+            join(directory, 'page-10.png'),
+            target,
         ]);
     });
 

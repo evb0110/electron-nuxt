@@ -31,7 +31,7 @@ use evb_native_support::{
     output::{AtomicOutput, ValidatedInputFiles},
     NativeError, NativeErrorCode,
 };
-use evb_raster_io::{decode_png_gray, write_png, DecodeLimits, PixelBuffer};
+use evb_raster_io::{decode_png_gray, write_png, write_png_with_dpi, DecodeLimits, PixelBuffer};
 
 use crate::{
     image::{
@@ -985,6 +985,15 @@ pub fn encode_netpbm_path_as_png(
     output_path: &Path,
     max_pixels: u64,
 ) -> Result<()> {
+    encode_netpbm_path_as_png_with_dpi(input_path, output_path, max_pixels, None)
+}
+
+pub fn encode_netpbm_path_as_png_with_dpi(
+    input_path: &Path,
+    output_path: &Path,
+    max_pixels: u64,
+    dpi: Option<u32>,
+) -> Result<()> {
     let validated_inputs = ValidatedInputFiles::open(&[input_path.to_path_buf()], output_path)?;
     let netpbm = read_netpbm_file(validated_inputs.clone_file(0)?, max_pixels)?;
     let total_pixels = netpbm.width as usize * netpbm.height as usize;
@@ -1017,7 +1026,10 @@ pub fn encode_netpbm_path_as_png(
         _ => unreachable!("the Netpbm parser only returns gray or RGB pixels"),
     };
     let mut output = AtomicOutput::create(output_path)?;
-    write_png(output.file_mut()?, buffer)?;
+    match dpi {
+        Some(dpi) => write_png_with_dpi(output.file_mut()?, buffer, dpi)?,
+        None => write_png(output.file_mut()?, buffer)?,
+    };
     output.publish()?;
     Ok(())
 }

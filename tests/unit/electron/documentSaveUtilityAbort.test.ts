@@ -11,6 +11,7 @@ import {
     runDocumentSaveUtilityProcess,
 } from '@electron/features/documents/main/fingerprintFileWithUtilityProcess';
 import {DOCUMENT_SAVE_SERVICE_NAME} from '@electron/processDeathRecovery';
+import {getUnprovenNativeTerminationDetail} from '@electron/utils/nativeTerminationProof';
 
 const mocks = vi.hoisted(() => ({
     brokerAcquire: vi.fn(),
@@ -55,7 +56,7 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         expect(mocks.fork).not.toHaveBeenCalled();
     });
 
-    it('terminates the utility process group before reporting cancellation', async () => {
+    it('terminates the utility process by direct PID before reporting cancellation', async () => {
         const child = Object.assign(new EventEmitter(), {
             kill: vi.fn(() => true),
             pid: 8123,
@@ -82,8 +83,34 @@ describe('runDocumentSaveUtilityProcess cancellation', () => {
         await expect(result).rejects.toThrow('save canceled while qpdf was running');
         expect(mocks.terminateProcessTree).toHaveBeenCalledWith(8123, expect.objectContaining({
             graceMs: 2_500,
-            preferProcessGroup: process.platform !== 'win32',
+            preferProcessGroup: false,
         }));
+    });
+
+    it('keeps a false termination result on the cancellation failure', async () => {
+        const child = Object.assign(new EventEmitter(), {
+            kill: vi.fn(() => true),
+            pid: 8124,
+            postMessage: vi.fn(),
+        });
+        mocks.fork.mockReturnValueOnce(child);
+        mocks.terminateProcessTree.mockResolvedValueOnce(false);
+        const controller = new AbortController();
+        const result = runDocumentSaveUtilityProcess({
+            cwd: '/tmp',
+            serviceName: DOCUMENT_SAVE_SERVICE_NAME,
+            utilityName: 'Document save utility',
+            timeoutMs: 1_000,
+            request: {type: 'inspect'},
+            signal: controller.signal,
+        });
+
+        child.emit('spawn');
+        controller.abort(new Error('save cancellation'));
+
+        const error = await result.catch(value => value);
+        expect(error).toBeInstanceOf(Error);
+        expect(getUnprovenNativeTerminationDetail(error)).toContain('pid=8124');
     });
 
     it('prices fingerprint admission as one bounded interactive utility slot', async () => {

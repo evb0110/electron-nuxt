@@ -70,6 +70,10 @@ const mocks = vi.hoisted(() => {
     autoUpdater.downloadUpdate = vi.fn();
     autoUpdater.quitAndInstall = vi.fn();
     autoUpdater.setFeedURL = vi.fn();
+    const sessionCookies = {
+        get: vi.fn(async (): Promise<Array<{value: string}>> => []),
+        set: vi.fn(async () => undefined),
+    };
 
     return {
         app: {
@@ -79,6 +83,7 @@ const mocks = vi.hoisted(() => {
         CancellationToken: TestCancellationToken,
         autoUpdater,
         fetch: vi.fn(),
+        session: {defaultSession: {cookies: sessionCookies}},
         loadSettings: vi.fn(async () => ({})),
         markUpdateInstallPending: vi.fn(async () => {}),
         recordPendingUpdateStartup: vi.fn<() => Promise<IMockPendingUpdateStartup | null>>(async () => null),
@@ -100,7 +105,10 @@ const mocks = vi.hoisted(() => {
     };
 });
 
-vi.mock('electron', () => ({app: mocks.app}));
+vi.mock('electron', () => ({
+    app: mocks.app,
+    session: mocks.session,
+}));
 
 vi.mock('electron-updater', () => ({
     CancellationToken: mocks.CancellationToken,
@@ -132,9 +140,13 @@ const originalPlatform = process.platform;
 const originalArch = process.arch;
 const originalWindowsStore = process.windowsStore;
 
-function createMetadataResponse(version: string) {
+function createMetadataResponse(version: string, setCookie?: string) {
+    const headers = new Headers();
+    if (setCookie) {
+        headers.set('set-cookie', setCookie);
+    }
     return {
-        headers: new Headers(),
+        headers,
         ok: true,
         status: 200,
         json: async () => ({release: {tag: version}}),
@@ -198,6 +210,10 @@ describe('updates robustness', () => {
         mocks.autoUpdater.quitAndInstall.mockReset();
         mocks.autoUpdater.setFeedURL.mockReset();
         mocks.fetch.mockReset();
+        mocks.session.defaultSession.cookies.get.mockReset();
+        mocks.session.defaultSession.cookies.set.mockReset();
+        mocks.session.defaultSession.cookies.get.mockResolvedValue([]);
+        mocks.session.defaultSession.cookies.set.mockResolvedValue(undefined);
         mocks.loadSettings.mockReset();
         mocks.markUpdateInstallPending.mockClear();
         mocks.recordPendingUpdateStartup.mockReset();
@@ -253,7 +269,7 @@ describe('updates robustness', () => {
 
         expect(statuses.at(-1)).toMatchObject({
             phase: 'error',
-            message: 'GET https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted] failed',
+            message: 'Update check failed: Release rollout metadata failed (https://updates.example.test/latest: GET https://[redacted]@updates.example.test:8443/latest?channel=[redacted]&token=[redacted]#[redacted] failed)',
         });
     });
 
@@ -272,7 +288,7 @@ describe('updates robustness', () => {
         await flushPromises();
 
         expect(statuses.at(-1)).toMatchObject({
-            message: 'Update 1.1.0 could not be installed; version 1.0.0 was relaunched',
+            message: 'Update installation failed: 1.1.0 could not be installed; version 1.0.0 was relaunched',
             origin: 'manual',
             phase: 'error',
             version: '1.1.0',
@@ -302,6 +318,38 @@ describe('updates robustness', () => {
             phase: 'idle',
             version: '1.0.0',
         });
+    });
+
+    it('retries a transient release cohort cookie read after its backoff expires', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.0.0'));
+        mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
+            mocks.autoUpdater.emit('checking-for-update');
+            mocks.autoUpdater.emit('update-not-available', {version: '1.0.0'});
+        });
+        mocks.session.defaultSession.cookies.get
+            .mockRejectedValueOnce(new Error('session is not ready'))
+            .mockResolvedValueOnce([{value: 'cohort-b'}]);
+
+        const updates = await loadUpdatesModule();
+        updates.initializeUpdates(() => undefined);
+
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+        expect(mocks.session.defaultSession.cookies.get).toHaveBeenCalledOnce();
+
+        await vi.advanceTimersByTimeAsync(29_999);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+        expect(mocks.session.defaultSession.cookies.get).toHaveBeenCalledOnce();
+
+        await vi.advanceTimersByTimeAsync(1);
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.session.defaultSession.cookies.get).toHaveBeenCalledTimes(2);
+        const recoveredRequestInit = mocks.fetch.mock.calls.at(-1)?.[1] as RequestInit | undefined;
+        expect(recoveredRequestInit?.headers).toBeInstanceOf(Headers);
+        expect((recoveredRequestInit?.headers as Headers).get('cookie')).toBe('evb_release_cohort=cohort-b');
     });
 
     it('waits for explicit approval before downloading an available update', async () => {
@@ -517,7 +565,7 @@ describe('updates robustness', () => {
         });
     });
 
-    it('restores the GitHub feed when the rollout endpoint becomes unavailable', async () => {
+    it('fails closed when the rollout endpoint becomes unavailable', async () => {
         mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
@@ -539,15 +587,11 @@ describe('updates robustness', () => {
             url: 'https://github.com/evb0110/evb-viewer/releases/download/v1.1.0',
             useMultipleRangeRequest: false,
         });
-        expect(mocks.autoUpdater.setFeedURL).toHaveBeenNthCalledWith(2, {
-            owner: 'evb0110',
-            provider: 'github',
-            repo: 'evb-viewer',
-        });
-        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(2);
+        expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledTimes(1);
+        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
     });
 
-    it('uses the mirror when the landing page and GitHub are unavailable', async () => {
+    it('does not use the mirror as an alternate release authority', async () => {
         mocks.fetch.mockImplementation(async (url: string, init?: { method?: string }) => {
             if (url === 'https://updates.example.test/latest') {
                 throw new Error('landing blocked');
@@ -573,12 +617,8 @@ describe('updates robustness', () => {
         await updates.triggerManualUpdateCheck();
         await flushPromises();
 
-        expect(mocks.autoUpdater.setFeedURL).toHaveBeenCalledWith({
-            provider: 'generic',
-            url: 'https://mirror.example.test/releases/v1.1.0',
-            useMultipleRangeRequest: false,
-        });
-        expect(mocks.autoUpdater.checkForUpdates).toHaveBeenCalledTimes(1);
+        expect(mocks.autoUpdater.setFeedURL).not.toHaveBeenCalled();
+        expect(mocks.autoUpdater.checkForUpdates).not.toHaveBeenCalled();
     });
 
     it('keeps a cached downloaded update when a newer release has no updater metadata', async () => {
@@ -655,8 +695,9 @@ describe('updates robustness', () => {
         );
         expect(statuses.at(-1)).toMatchObject({
             origin: 'manual',
-            phase: 'no-update',
-            version: '1.0.0',
+            phase: 'error',
+            version: '1.1.0',
+            message: 'Update 1.1.0 is available, but its latest.yml feed is not published. Download the release manually.',
         });
     });
 
@@ -745,7 +786,7 @@ describe('updates robustness', () => {
         expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
         expect(mocks.logger.error).toHaveBeenCalledWith(
-            'Downloaded update validation failed: Downloaded update 1.1.0 is not newer than the running version 1.1.0',
+            'Update installation failed: Downloaded update 1.1.0 is not newer than the running version 1.1.0',
         );
     });
 
@@ -901,6 +942,12 @@ describe('updates robustness', () => {
     });
 
     it('throttles download progress and installs after the approved download completes', async () => {
+        mocks.fetch.mockImplementation(async (_url: string, init?: { method?: string }) => {
+            if (init?.method === 'HEAD') {
+                return createEmptyResponse(200);
+            }
+            return createMetadataResponse('1.1.0');
+        });
         mocks.autoUpdater.checkForUpdates.mockImplementation(async () => {
             mocks.autoUpdater.emit('checking-for-update');
             mocks.autoUpdater.emit('update-available', { version: '1.1.0' });

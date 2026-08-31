@@ -318,6 +318,15 @@ describe('recentFiles persistence', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt recent-files state'));
     });
 
+    it('propagates an existing-store read failure instead of returning an empty recent list', async () => {
+        const storagePath = join(userDataDir, 'recentFiles.json');
+        mkdirSync(storagePath);
+        const recentFiles = await loadRecentFilesModule();
+
+        await expect(recentFiles.getRecentFiles()).rejects.toThrow();
+        expect(readdirSync(storagePath)).toEqual([]);
+    });
+
     it('dedupes persisted recent files by path when rebuilding the cache from disk', async () => {
         const fileA = writeFixture('alpha.pdf');
         const fileB = writeFixture('beta.pdf');
@@ -358,7 +367,7 @@ describe('recentFiles persistence', () => {
         ]);
     });
 
-    it('drops missing files when rebuilding the cache from disk', async () => {
+    it('preserves missing files when rebuilding the cache from disk', async () => {
         const filePath = writeFixture('stale.pdf');
 
         let recentFiles = await loadRecentFilesModule();
@@ -370,12 +379,14 @@ describe('recentFiles persistence', () => {
         recentFiles = await loadRecentFilesModule();
         await recentFiles.initRecentFilesCache();
 
-        expect(recentFiles.getRecentFilesSync()).toEqual([]);
-        expect(await recentFiles.getRecentFiles()).toEqual([]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
+        expect(await recentFiles.getRecentFiles()).toEqual([expect.objectContaining({originalPath: filePath})]);
         expect(JSON.parse(readFileSync(join(userDataDir, 'recentFiles.json'), 'utf-8'))).toEqual({
             version: 1,
-            files: [],
+            files: [expect.objectContaining({originalPath: filePath})],
         });
+        await expect(recentFiles.removeRecentFileIfMissing(filePath)).resolves.toBe(true);
+        expect(recentFiles.getRecentFilesSync()).toEqual([]);
     });
 
     it('does not restore filtered missing files after removing a visible entry', async () => {
@@ -411,15 +422,25 @@ describe('recentFiles persistence', () => {
         await recentFiles.initRecentFilesCache();
         expect(recentFiles.getRecentFilesSync()).toEqual([
             visibleA,
+            missingPath,
             visibleB,
         ]);
 
         await recentFiles.removeRecentFile(visibleA);
 
-        expect(recentFiles.getRecentFilesSync()).toEqual([visibleB]);
-        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([visibleB]);
+        expect(recentFiles.getRecentFilesSync()).toEqual([
+            missingPath,
+            visibleB,
+        ]);
+        expect((await recentFiles.getRecentFiles()).map(file => file.originalPath)).toEqual([
+            missingPath,
+            visibleB,
+        ]);
         const persisted = JSON.parse(readFileSync(storagePath, 'utf-8')) as {files: Array<{originalPath: string}>};
-        expect(persisted.files.map(file => file.originalPath)).toEqual([visibleB]);
+        expect(persisted.files.map(file => file.originalPath)).toEqual([
+            missingPath,
+            visibleB,
+        ]);
     });
 
     it('shares one cold refresh across concurrent getters and cache initialization', async () => {
@@ -586,5 +607,30 @@ describe('recentFiles persistence', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(
             `Recent file path stat timed out; preserving entry (${filePath})`,
         );
+    });
+
+    it('retries a transient ENOENT before removing a recent path', async () => {
+        const filePath = writeFixture('transient-enoent.pdf');
+        const recentFiles = await loadRecentFilesModule();
+        await recentFiles.addRecentFile(filePath);
+
+        let statCalls = 0;
+        mocks.stat.mockImplementation((path: unknown) => {
+            if (path !== filePath) {
+                return Promise.reject(new Error(`Unexpected stat path: ${path}`));
+            }
+            statCalls += 1;
+            if (statCalls === 1) {
+                return Promise.reject(Object.assign(new Error('temporary disappearance'), {code: 'ENOENT'}));
+            }
+            return Promise.resolve({
+                size: 17,
+                mtimeMs: 123,
+            });
+        });
+
+        await expect(recentFiles.initRecentFilesCache()).resolves.toBeUndefined();
+        expect(statCalls).toBe(2);
+        expect(recentFiles.getRecentFilesSync()).toEqual([filePath]);
     });
 });

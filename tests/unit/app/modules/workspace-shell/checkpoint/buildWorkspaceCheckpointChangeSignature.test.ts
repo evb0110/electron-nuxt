@@ -20,6 +20,10 @@ import {
     type IWorkspaceDocumentRecord,
 } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature';
+import {
+    buildWorkspaceCheckpoint,
+    WorkspaceCheckpointCaptureError,
+} from '@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint';
 
 function createTab(id: string, overrides: Partial<ITab> = {}): ITab {
     return {
@@ -209,5 +213,29 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         }];
         const afterTabOrder = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterTabOrder.workspace).not.toBe(before.workspace);
+    });
+});
+
+describe('buildWorkspaceCheckpoint', () => {
+    it('fails closed when a mounted workspace snapshot cannot be captured', () => {
+        const options = createSignatureOptions();
+        const workspace = {} as IWorkspaceExpose;
+        workspace.getAutomationStateSnapshot = () => {
+            throw new Error('snapshot unavailable');
+        };
+        options.workspaceRefs.value = new Map([[
+            'tab-a',
+            workspace,
+        ]]);
+
+        let error: unknown;
+        try {
+            buildWorkspaceCheckpoint(options);
+        } catch (caught) {
+            error = caught;
+        }
+
+        expect(error).toBeInstanceOf(WorkspaceCheckpointCaptureError);
+        expect(error).toHaveProperty('message', expect.stringContaining('tab tab-a'));
     });
 });

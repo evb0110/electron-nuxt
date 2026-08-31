@@ -14,8 +14,9 @@ function hashBytes(bytes: Uint8Array) {
 }
 
 /**
- * Reads small files in full and samples the first and last 64KB of large
- * files, keeping the content witness bounded by the browser memory policy.
+ * Reads small files in full and samples the first, middle, and last 64KB of
+ * large files, keeping the content witness bounded by the browser memory
+ * policy.
  */
 async function readWitnessBytes(file: File) {
     if (file.size <= BROWSER_MAX_FULL_READ_BYTES) {
@@ -24,11 +25,16 @@ async function readWitnessBytes(file: File) {
 
     const sampleSize = Math.min(BROWSER_FILE_WITNESS_SAMPLE_BYTES, file.size);
     const head = new Uint8Array(await file.slice(0, sampleSize).arrayBuffer());
+    const middleStart = Math.max(0, Math.floor(file.size / 2) - Math.floor(sampleSize / 2));
+    const middle = new Uint8Array(
+        await file.slice(middleStart, middleStart + sampleSize).arrayBuffer(),
+    );
     const tailStart = Math.max(0, file.size - sampleSize);
     const tail = new Uint8Array(await file.slice(tailStart, file.size).arrayBuffer());
-    const samples = new Uint8Array(head.byteLength + tail.byteLength);
+    const samples = new Uint8Array(head.byteLength + middle.byteLength + tail.byteLength);
     samples.set(head);
-    samples.set(tail, head.byteLength);
+    samples.set(middle, head.byteLength);
+    samples.set(tail, head.byteLength + middle.byteLength);
     return samples;
 }
 

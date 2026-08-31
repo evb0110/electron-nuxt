@@ -19,7 +19,7 @@ const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'build:pdf-page-ops',
     'build:pdf-search',
     'build:scan-cleanup',
-    'check:wasm:portable',
+    'check:wasm:strict',
 ]);
 
 function environmentForReleaseCheck(env, scriptName) {

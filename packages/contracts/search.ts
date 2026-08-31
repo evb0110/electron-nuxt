@@ -567,6 +567,8 @@ interface IRegexGroupSafety {
 
 interface IClosedRegexGroupSafety extends IRegexGroupSafety {endIndex: number;}
 
+const MAX_REGEX_QUANTIFIERS = 3;
+
 function isRegexQuantifierAt(pattern: string, index: number) {
     const char = pattern[index];
     if (char === '*' || char === '+' || char === '?') {
@@ -585,6 +587,60 @@ function isRegexQuantifierAt(pattern: string, index: number) {
     return /^\{\d*(?:,\d*)?\}$/u.test(pattern.slice(index, closeIndex + 1));
 }
 
+function getRegexQuantifierEnd(pattern: string, index: number) {
+    if (pattern[index] !== '{') {
+        return index;
+    }
+    return pattern.indexOf('}', index + 1);
+}
+
+function getRegexAtomBefore(pattern: string, quantifierIndex: number) {
+    const endIndex = quantifierIndex - 1;
+    if (endIndex < 0) {
+        return null;
+    }
+
+    const end = pattern[endIndex];
+    if (end === ')') {
+        let depth = 0;
+        for (let index = endIndex; index >= 0; index -= 1) {
+            const char = pattern[index];
+            if (char === ')' && pattern[index - 1] !== '\\') {
+                depth += 1;
+            } else if (char === '(' && pattern[index - 1] !== '\\') {
+                depth -= 1;
+                if (depth === 0) {
+                    return {
+                        startIndex: index,
+                        source: pattern.slice(index, quantifierIndex),
+                    };
+                }
+            }
+        }
+        return null;
+    }
+
+    if (end === ']') {
+        for (let index = endIndex - 1; index >= 0; index -= 1) {
+            if (pattern[index] === '[' && pattern[index - 1] !== '\\') {
+                return {
+                    startIndex: index,
+                    source: pattern.slice(index, quantifierIndex),
+                };
+            }
+        }
+        return null;
+    }
+
+    const startIndex = pattern[endIndex - 1] === '\\'
+        ? endIndex - 1
+        : endIndex;
+    return {
+        startIndex,
+        source: pattern.slice(startIndex, quantifierIndex),
+    };
+}
+
 function isUnsafeSearchRegexPattern(pattern: string) {
     if (/\\(?:[1-9]\d*|k<[^>]+>)/u.test(pattern)) {
         return true;
@@ -599,6 +655,11 @@ function isUnsafeSearchRegexPattern(pattern: string) {
     let escaped = false;
     let inCharacterClass = false;
     let quantifierCount = 0;
+    let previousQuantifiedAtom: {
+        startIndex: number;
+        source: string
+    } | null = null;
+    let previousQuantifierEnd = -1;
 
     for (let index = 0; index < pattern.length; index += 1) {
         const char = pattern[index];
@@ -668,9 +729,21 @@ function isUnsafeSearchRegexPattern(pattern: string) {
 
         if (isRegexQuantifierAt(pattern, index)) {
             quantifierCount += 1;
-            if (quantifierCount > 3) {
+            if (quantifierCount > MAX_REGEX_QUANTIFIERS) {
                 return true;
             }
+
+            const atom = getRegexAtomBefore(pattern, index);
+            if (
+                atom
+                && previousQuantifiedAtom
+                && previousQuantifierEnd === atom.startIndex
+            ) {
+                return true;
+            }
+            previousQuantifiedAtom = atom;
+            previousQuantifierEnd = getRegexQuantifierEnd(pattern, index) + 1;
+
             if (lastClosedGroup && lastClosedGroup.endIndex === index - 1) {
                 if (lastClosedGroup.hasAlternation || lastClosedGroup.hasQuantifier) {
                     return true;
@@ -925,7 +998,7 @@ export function* iteratePdfSearchMatches(
 
     let match: RegExpExecArray | null;
     const matchedText = normalizedText?.text ?? text;
-    const regexDeadline = typeof matcherOrQuery === 'string' && options?.useRegex === true
+    const regexDeadline = options?.useRegex === true
         ? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
         : null;
     while (true) {

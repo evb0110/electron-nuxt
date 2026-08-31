@@ -698,8 +698,12 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
         }
 
         processedCount += 1;
+        const wasTruncated = truncated;
+        const previousResultCount = results.length;
+        if (previousResultCount >= SEARCH_RESULT_LIMIT) {
+            truncated = true;
+        }
         if (!truncated && results.length < SEARCH_RESULT_LIMIT) {
-            const previousResultCount = results.length;
             const pageResult = appendPageMatches({
                 context,
                 page,
@@ -708,16 +712,19 @@ function createIndexedPageResultStreamer(context: ISearchRequestContext) {
             });
             globalMatchIndex = pageResult.globalMatchIndex;
             truncated = pageResult.truncated;
-
-            if (results.length !== previousResultCount || truncated) {
-                const resultDelta = results.slice(previousResultCount);
-                sendProgress(context.requestId, processedCount, total, true, {
-                    results: resultDelta,
-                    resultsStartIndex: previousResultCount,
-                    truncated,
-                });
-                return;
+            if (!truncated && results.length >= SEARCH_RESULT_LIMIT && processedCount < total) {
+                truncated = true;
             }
+        }
+
+        if (results.length !== previousResultCount || (!wasTruncated && truncated)) {
+            const resultDelta = results.slice(previousResultCount);
+            sendProgress(context.requestId, processedCount, total, true, {
+                results: resultDelta,
+                resultsStartIndex: previousResultCount,
+                truncated,
+            });
+            return;
         }
 
         sendProgress(context.requestId, processedCount, total);

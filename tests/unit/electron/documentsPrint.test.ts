@@ -272,7 +272,14 @@ describe('documents print', () => {
         mocks.runNativeToolCommand.mockImplementation(async (_command: string, args: string[]) => (
             args[0] === '-jpeg'
                 ? {}
-                : {stdout: `Pages: ${mocks.pdfPageCount}\nPage size: ${mocks.pdfPageSize.width} x ${mocks.pdfPageSize.height} pts\n`}
+                : {stdout: [
+                    `Pages: ${mocks.pdfPageCount}`,
+                    ...Array.from({length: Math.min(mocks.pdfPageCount, 100)}, (_, index) => [
+                        `Page ${index + 1} size: ${mocks.pdfPageSize.width} x ${mocks.pdfPageSize.height} pts`,
+                        `Page ${index + 1} CropBox: 0 0 ${mocks.pdfPageSize.width} ${mocks.pdfPageSize.height}`,
+                        `Page ${index + 1} rot: 0`,
+                    ]).flat(),
+                ].join('\n')}
         ));
         mocks.printHandler.mockImplementation((
             _options: unknown,
@@ -483,7 +490,14 @@ describe('documents print', () => {
         expect(mocks.pdfDocumentLoad).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.objectContaining({
                 commandLabel: 'pdfinfo(print-raster)',
                 maxStdoutBytes: 64 * 1024,
@@ -493,6 +507,7 @@ describe('documents print', () => {
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdftoppm',
             [
+                '-cropbox',
                 '-jpeg',
                 '-r',
                 '180',
@@ -554,7 +569,14 @@ describe('documents print', () => {
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.any(Object),
         );
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(
@@ -589,7 +611,14 @@ describe('documents print', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.any(Object),
         );
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(

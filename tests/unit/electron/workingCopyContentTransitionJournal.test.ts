@@ -51,6 +51,34 @@ describe('workingCopyContentTransitionJournal', () => {
         await expect(recoverWorkingCopyContentTransition(path)).resolves.toBe(false);
     });
 
+    it('fails closed when the transition journal cannot be read', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const journalPath = `${path}.evb-content-transition.json`;
+        await mkdir(journalPath);
+
+        await expect(recoverWorkingCopyContentTransition(path)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_UNREADABLE',
+            journalPath,
+        });
+        await expect(readdir(root)).resolves.toContain('working.pdf.evb-content-transition.json');
+    });
+
+    it('fails closed on a truncated transition journal', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
+        const path = join(root, 'working.pdf');
+        const journalPath = `${path}.evb-content-transition.json`;
+        await writeFile(journalPath, '{"version":1');
+
+        await expect(recoverWorkingCopyContentTransition(path)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_INVALID',
+            journalPath,
+        });
+        await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
+    });
+
     it('rolls back immediately when verify or commit fails', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-content-transition-'));
         const path = join(root, 'working.pdf');

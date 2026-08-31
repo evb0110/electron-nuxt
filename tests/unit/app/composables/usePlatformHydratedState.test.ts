@@ -3,6 +3,7 @@ import {
     describe,
     expect,
     it,
+    onTestFinished,
     vi,
 } from 'vitest';
 import {
@@ -131,5 +132,43 @@ describe('usePlatformHydratedState', () => {
         expect(onLoaded).toHaveBeenCalledWith({theme: 'light'});
 
         scope.stop();
+    });
+
+    it('stops automatic retries at the configured bound and permits an explicit retry', async () => {
+        vi.useFakeTimers();
+        const loadValue = vi.fn().mockRejectedValue(new Error('persistent failure'));
+        let hydrated!: ReturnType<typeof usePlatformHydratedState<string>>;
+        const scope = effectScope();
+        onTestFinished(() => {
+            scope.stop();
+            vi.useRealTimers();
+        });
+
+        scope.run(() => {
+            hydrated = usePlatformHydratedState({
+                key: 'bounded-hydration-retry-test',
+                initialValue: () => 'initial',
+                initialResolved: false,
+                loadValue,
+                shouldRetry: () => true,
+                retryDelayMs: 10,
+                maxAutomaticRetries: 2,
+            });
+        });
+
+        await hydrated.load();
+        expect(loadValue).toHaveBeenCalledTimes(1);
+        expect(hydrated.isResolved.value).toBe(false);
+
+        await vi.advanceTimersByTimeAsync(10);
+        expect(loadValue).toHaveBeenCalledTimes(2);
+        await vi.advanceTimersByTimeAsync(10);
+        expect(loadValue).toHaveBeenCalledTimes(3);
+        expect(hydrated.isResolved.value).toBe(true);
+
+        loadValue.mockResolvedValue('recovered');
+        await expect(hydrated.retryNow()).resolves.toBe('recovered');
+        expect(hydrated.state.value).toBe('recovered');
+        expect(hydrated.isResolved.value).toBe(true);
     });
 });

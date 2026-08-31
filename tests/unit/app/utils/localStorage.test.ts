@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {
+    readLocalStorageItem,
     safeGetLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
@@ -38,6 +39,26 @@ describe('safeGetLocalStorageItem', () => {
         testGlobal.window = {localStorage: {getItem: (key: string) => (key === 'key' ? 'value' : null)}};
 
         expect(safeGetLocalStorageItem('key')).toBe('value');
+    });
+});
+
+describe('readLocalStorageItem', () => {
+    it('distinguishes an absent key from an unavailable storage backend', () => {
+        testGlobal.window = {localStorage: {getItem: () => null}};
+        expect(readLocalStorageItem('missing')).toEqual({status: 'absent'});
+
+        testGlobal.window = {localStorage: {getItem: () => {
+            throw new Error('blocked');
+        }}};
+        expect(readLocalStorageItem('missing')).toMatchObject({status: 'unavailable'});
+    });
+
+    it('returns the stored value without normalizing it', () => {
+        testGlobal.window = {localStorage: {getItem: () => '  value  '}};
+        expect(readLocalStorageItem('key')).toEqual({
+            status: 'present',
+            value: '  value  ',
+        });
     });
 });
 

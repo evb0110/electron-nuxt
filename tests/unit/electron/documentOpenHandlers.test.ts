@@ -7,14 +7,24 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    isSupportedOpenPath: vi.fn((path: string) => path.endsWith('.pdf')),
+    opendir: vi.fn(),
     openInputPaths: vi.fn(async (
         _paths: string[],
         _options?: {signal?: AbortSignal},
         _owner?: unknown,
     ): Promise<unknown> => null),
+    realpath: vi.fn(),
     requireOpenPath: vi.fn((path: string, _owner?: unknown) => path),
+    stat: vi.fn(),
 }));
 
+vi.mock('fs/promises', () => ({
+    opendir: (path: string) => mocks.opendir(path),
+    realpath: (path: string) => mocks.realpath(path),
+    stat: (path: string) => mocks.stat(path),
+}));
+vi.mock('@electron/image/pdfConversion', () => ({isSupportedOpenPath: (path: string) => mocks.isSupportedOpenPath(path)}));
 vi.mock('@electron/features/documents/main/openInputPaths.service', () => ({openInputPaths: (
     paths: string[],
     options?: {signal?: AbortSignal},
@@ -154,5 +164,20 @@ describe('direct batch open cancellation', () => {
 
         expect(options.signal).toBeUndefined();
         expect(handlers.handleCancelOpenDocumentDirectBatch(handlerContext(context), '')).toBe(false);
+    });
+
+    it('rejects a supported-extension symlink whose target extension is unsupported', async () => {
+        const handlers = await import('@electron/features/documents/main/documentOpenHandlers');
+        mocks.opendir.mockResolvedValue((async function* () {
+            yield {name: 'linked.pdf'};
+        })());
+        mocks.realpath
+            .mockResolvedValueOnce('/tmp/source-folder')
+            .mockResolvedValueOnce('/tmp/source-folder/target.txt');
+
+        await expect(handlers.collectSupportedFolderPaths('/tmp/source-folder')).resolves.toEqual([]);
+        expect(mocks.stat).not.toHaveBeenCalled();
+        expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(1, '/tmp/source-folder/linked.pdf');
+        expect(mocks.isSupportedOpenPath).toHaveBeenNthCalledWith(2, '/tmp/source-folder/target.txt');
     });
 });

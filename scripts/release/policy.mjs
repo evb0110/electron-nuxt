@@ -414,7 +414,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                         'build:pdf-search',
                         'build:scan-cleanup',
                         'check:resources:matrix',
-                        'check:wasm:portable',
+                        'check:wasm:strict',
                         'fallow:all',
                     ],
                 },

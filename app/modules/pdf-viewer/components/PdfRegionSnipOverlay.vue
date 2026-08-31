@@ -1,13 +1,20 @@
 <template>
     <div
+        class="snip-live-region sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+    >
+        {{ badgePosition ? copiedLabel : '' }}
+    </div>
+    <div
         v-if="shouldRender"
         ref="overlayRef"
         class="snip-overlay"
         :class="{ 'is-active': active }"
-        :role="active ? 'dialog' : 'status'"
+        :role="active ? 'dialog' : undefined"
         :aria-modal="active ? 'true' : undefined"
-        :aria-label="active ? hintLabel : copiedLabel"
-        :aria-live="active ? 'off' : 'polite'"
+        :aria-label="active ? hintLabel : undefined"
         :tabindex="active ? 0 : -1"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"

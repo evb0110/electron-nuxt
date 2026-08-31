@@ -221,6 +221,9 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
     const settingsPatch = stored.settingsPatch === undefined
         ? undefined
         : decodeScanCleanupGlobalPreferencesPatch(stored.settingsPatch);
+    if (settings !== undefined && settingsPatch !== undefined) {
+        throw new Error('Scan-cleanup settings and settingsPatch cannot be supplied together');
+    }
     if (stored.document === undefined) {
         return {
             ...(settings === undefined ? {} : {settings}),
@@ -382,9 +385,30 @@ export function decodeScanCleanupGlobalPreferencesPatch(value: unknown): IScanCl
     const decoded = decodeScanCleanupGlobalPreferences(stored);
     const patch: IScanCleanupGlobalPreferencePatch = {};
     for (const key of Object.keys(stored) as Array<keyof IScanCleanupGlobalPreferences>) {
+        if (stored[key] === undefined) {
+            throw new Error(`Invalid scan-cleanup global settings patch value: ${key}`);
+        }
+        const decodedField = decodeScanCleanupGlobalPreferences({[key]: stored[key]})[key];
+        if (!areScanCleanupPreferenceValuesEqual(stored[key], decodedField)) {
+            throw new Error(`Invalid scan-cleanup global settings patch value: ${key}`);
+        }
         Object.assign(patch, {[key]: decoded[key]});
     }
     return patch;
+}
+
+function areScanCleanupPreferenceValuesEqual(left: unknown, right: unknown): boolean {
+    if (Object.is(left, right)) {
+        return true;
+    }
+    if (!isRecord(left) || !isRecord(right)) {
+        return false;
+    }
+    const leftKeys = Object.keys(left);
+    const rightKeys = Object.keys(right);
+    return leftKeys.length === rightKeys.length
+        && leftKeys.every(key => Object.hasOwn(right, key)
+            && areScanCleanupPreferenceValuesEqual(left[key], right[key]));
 }
 
 export function assertFiniteScanCleanupPreferences(value: IScanCleanupGlobalPreferences) {

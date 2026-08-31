@@ -204,6 +204,7 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
         } catch (error) {
             const code = isErrnoException(error) ? error.code : undefined;
             if ((code === 'ENOENT' || code === 'ENOTDIR') && attempt === 0) {
+                await new Promise<void>(resolve => setTimeout(resolve, 25));
                 continue;
             }
             if (code === 'ENOENT' || code === 'ENOTDIR') {
@@ -242,7 +243,9 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
         inspection,
     } of inspections) {
         if (inspection.status === 'missing') {
-            removedMissingCount += 1;
+            // ENOENT can mean a temporarily unmounted volume. Keep the entry
+            // until the user explicitly removes it with removeRecentFileIfMissing.
+            checks.push(file);
             continue;
         }
         if (inspection.status === 'unreadable' || inspection.status === 'unavailable') {
@@ -355,7 +358,11 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         // Keep persistence errors outside the corruption-recovery branch. A valid
         // source file must remain the source of truth when its canonical rewrite
         // cannot be committed.
-        await saveRecentFilesData(normalizedData);
+        try {
+            await saveRecentFilesData(normalizedData);
+        } catch (rewriteError) {
+            logger.warn(`Failed to persist canonicalized recent files: ${getErrorMessage(rewriteError)}`);
+        }
     }
     return normalizedData;
 }

@@ -14,14 +14,32 @@ const release = {
     name: 'EVB Viewer v2',
     published_at: '2026-08-19T00:00:00Z',
     html_url: 'https://github.com/evb0110/evb-viewer/releases/tag/v2.0.0',
-    assets: [{
-        id: 1,
-        name: 'EVB-Viewer-2.0.0-x64.exe',
-        browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.exe',
-        size: 1_024,
-        updated_at: '2026-08-19T00:00:00Z',
-        content_type: 'application/octet-stream',
-    }],
+    assets: [
+        {
+            id: 1,
+            name: 'EVB-Viewer-2.0.0-x64.exe',
+            browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.exe',
+            size: 1_024,
+            updated_at: '2026-08-19T00:00:00Z',
+            content_type: 'application/octet-stream',
+        },
+        {
+            id: 2,
+            name: 'EVB-Viewer-2.0.0-x64.zip',
+            browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-x64.zip',
+            size: 2_048,
+            updated_at: '2026-08-19T00:00:00Z',
+            content_type: 'application/zip',
+        },
+        {
+            id: 3,
+            name: 'EVB-Viewer-2.0.0-arm64-setup.exe',
+            browser_download_url: 'https://github.com/evb0110/evb-viewer/releases/download/v2.0.0/EVB-Viewer-2.0.0-arm64-setup.exe',
+            size: 3_072,
+            updated_at: '2026-08-19T00:00:00Z',
+            content_type: 'application/octet-stream',
+        },
+    ],
 };
 
 describe('latest release endpoint policy', () => {
@@ -79,6 +97,14 @@ describe('latest release endpoint policy', () => {
             arch: 'unknown',
             assetId: null,
         });
+        const responseAssets = response.assets as Array<{
+            name: string;
+            mirrorDownloadUrl?: string
+        }>;
+        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.exe'))?.mirrorDownloadUrl)
+            .toBe('https://mirror.example.test/releases/v2.0.0/EVB-Viewer-2.0.0-x64.exe');
+        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('x64.zip'))?.mirrorDownloadUrl).toBeUndefined();
+        expect(responseAssets.find((asset: {name: string}) => asset.name.endsWith('arm64-setup.exe'))?.mirrorDownloadUrl).toBeUndefined();
         expect(fetch).toHaveBeenCalledTimes(1);
     });
 

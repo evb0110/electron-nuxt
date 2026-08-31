@@ -12,7 +12,6 @@
         "../.nuxt/nuxt.d.ts"
     ],
     "exclude": [
-        "./unit/landing/**/*.ts",
         "node_modules"
     ]
 }

@@ -3,6 +3,7 @@
         ref="toolbarRef"
         :class="['toolbar', `toolbar--${variant}`, {'toolbar--has-ocr-action': hasOcrAction}]"
         :data-collapse-tier="collapseTier"
+        role="toolbar"
         :aria-label="t('toolbar.readerToolbar')"
     >
         <div class="toolbar-section toolbar-left">

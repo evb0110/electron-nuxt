@@ -240,16 +240,26 @@ function readBrowserSettingsCookies() {
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
     const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    if (storageSnapshot !== null && isFutureBrowserSettingsPayload(storageSnapshot)) {
+        assertSupportedBrowserSettingsPayload(storageSnapshot);
+    }
     const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
     const cookieSnapshot = readBrowserSettingsCookies();
     const legacyCookie = cookieSnapshot?.rawSettings ?? null;
     if (legacyCookie !== null) {
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(legacyCookie);
         if (isValidLegacyCookie) {
-            const migratedSettings = parseBrowserSettingsPayload(
+            const cookieSettings = parseBrowserSettingsPayload(
                 legacyCookie,
                 cookieSnapshot?.fallbackSettings,
             );
+            const migratedSettings = existingStorageSettings
+                ? sanitizeSettings({
+                    ...cookieSettings,
+                    ...existingStorageSettings,
+                    ...cookieSnapshot?.fallbackSettings,
+                })
+                : cookieSettings;
             const committed = safeSetLocalStorageItem(
                 BROWSER_SETTINGS_STORAGE_KEY,
                 JSON.stringify(migratedSettings),

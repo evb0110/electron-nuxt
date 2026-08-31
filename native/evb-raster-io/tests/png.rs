@@ -1,6 +1,7 @@
 use evb_raster_io::{
-    decode_png, encode_png, encode_png_fast, read_png_dimensions, read_png_passthrough,
-    DecodeLimits, PassthroughLimits, PixelBuffer, PngColorType, RasterError,
+    decode_png, decode_png_composited_rgb, encode_png, encode_png_fast, read_png_dimensions,
+    read_png_metadata, read_png_passthrough, write_png_with_dpi, DecodeLimits, PassthroughLimits,
+    PixelBuffer, PngColorType, RasterError,
 };
 
 const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures");
@@ -43,7 +44,61 @@ fn passthrough_preserves_compressed_data_and_metadata_without_decoding() {
     let corrupt = fixture("corrupt-crc.png");
     assert!(read_png_passthrough(corrupt.as_slice(), PASSTHROUGH).is_err());
     assert!(decode_png(corrupt.as_slice(), DECODE).is_err());
-    assert!(read_png_passthrough(fixture("rgba8.png").as_slice(), PASSTHROUGH).is_err());
+    assert_eq!(
+        read_png_passthrough(fixture("rgba8.png").as_slice(), PASSTHROUGH)
+            .unwrap()
+            .color_type,
+        PngColorType::Rgba8
+    );
+}
+
+#[test]
+fn metadata_reader_preserves_metadata_without_retaining_idat_bytes() {
+    let metadata = read_png_metadata(fixture("rgba8.png").as_slice(), PASSTHROUGH).unwrap();
+    assert_eq!(
+        (metadata.width, metadata.height, metadata.color_type),
+        (2, 2, PngColorType::Rgba8)
+    );
+    assert_eq!(
+        read_png_metadata(fixture("phys.png").as_slice(), PASSTHROUGH)
+            .unwrap()
+            .dpi,
+        Some(300)
+    );
+    assert_eq!(
+        read_png_metadata(fixture("iccp.png").as_slice(), PASSTHROUGH)
+            .unwrap()
+            .icc_profile
+            .unwrap(),
+        fixture("iccp-profile.bin")
+    );
+}
+
+#[test]
+fn composites_alpha_png_onto_white_and_preserves_requested_dpi() {
+    let rgba = decode_png_composited_rgb(fixture("rgba8.png").as_slice(), DECODE).unwrap();
+    assert_eq!(
+        rgba.data(),
+        &[255, 255, 255, 40, 50, 60, 182, 186, 190, 190, 181, 186,]
+    );
+
+    let encoded = write_png_with_dpi(
+        Vec::new(),
+        PixelBuffer::Rgb {
+            width: 2,
+            height: 1,
+            stride: 6,
+            data: &[1, 2, 3, 4, 5, 6],
+        },
+        300,
+    )
+    .unwrap();
+    assert_eq!(
+        read_png_passthrough(encoded.as_slice(), PASSTHROUGH)
+            .unwrap()
+            .dpi,
+        Some(300)
+    );
 }
 
 #[test]

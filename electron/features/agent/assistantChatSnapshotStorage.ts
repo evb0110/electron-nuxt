@@ -101,7 +101,7 @@ function fsyncParentDirectorySync(filePath: string) {
 async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
     await mkdir(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    await writeFile(tempPath, `${JSON.stringify(payload)}\n`, 'utf8');
+    await writeFile(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
     const handle = await open(tempPath, 'r');
     try {
         await handle.sync();
@@ -115,7 +115,7 @@ async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
 function atomicWriteJsonLineFileSync(filePath: string, payload: unknown) {
     mkdirSync(dirname(filePath), {recursive: true});
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, 'utf8');
+    writeFileSync(tempPath, typeof payload === 'string' ? payload : `${JSON.stringify(payload)}\n`, 'utf8');
     let fd: number | null = null;
     try {
         fd = openSync(tempPath, 'r');

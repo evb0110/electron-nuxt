@@ -20,13 +20,15 @@ env:
 jobs:
   build:
     name: appx (${{ matrix.arch }})
-    runs-on: windows-2022
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        arch:
-          - x64
-          - arm64
+        include:
+          - os: windows-2022
+            arch: x64
+          - os: windows-11-arm
+            arch: arm64
 
     steps:
       - name: Checkout
@@ -157,6 +159,48 @@ jobs:
           }
 
           Write-Host "Verified Store package: $($packages[0].Name)"
+
+      - name: Install and launch Microsoft Store AppX smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packagePath = (Get-ChildItem -Path release -Filter "*-store.appx" | Select-Object -First 1).FullName
+          $installedPackage = Add-AppxPackage -Path $packagePath -ForceApplicationShutdown -PassThru
+          try {
+            $package = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction Stop
+            $installedExecutable = Join-Path $package.InstallLocation 'app\EVB Viewer.exe'
+            if (-not (Test-Path $installedExecutable -PathType Leaf)) {
+              throw "Installed Store package executable is missing: $installedExecutable"
+            }
+
+            $appUserModelId = "$($package.Name)!EVBViewer"
+            $launcher = Start-Process -FilePath "shell:AppsFolder\$appUserModelId" -PassThru
+            $launchDeadline = (Get-Date).AddMinutes(2)
+            $launchedProcess = $null
+            while (-not $launchedProcess -and (Get-Date) -lt $launchDeadline) {
+              Start-Sleep -Seconds 2
+              $launchedProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.ExecutablePath -eq $installedExecutable } |
+                Select-Object -First 1
+            }
+            if (-not $launchedProcess) {
+              throw "Store AppX launch did not start $installedExecutable before the deadline."
+            }
+            Stop-Process -Id $launchedProcess.ProcessId -Force -ErrorAction SilentlyContinue
+            pnpm run test:packaged-core-pdf-smoke -- --executable $installedExecutable
+            if ($LASTEXITCODE -ne 0) {
+              throw "Installed Store AppX core-PDF smoke failed with exit code $LASTEXITCODE."
+            }
+          } finally {
+            if ($installedPackage -and $installedPackage.PackageFullName) {
+              Remove-AppxPackage -Package $installedPackage.PackageFullName -ErrorAction Stop
+            } else {
+              $installed = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction SilentlyContinue
+              if ($installed) {
+                Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
+              }
+            }
+          }
 
       - name: Verify packaged native tools in Microsoft Store AppX
         shell: bash

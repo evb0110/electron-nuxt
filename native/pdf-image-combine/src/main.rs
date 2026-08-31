@@ -15,9 +15,9 @@ use evb_native_support::{
     NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
-    combine_tiff_paths, encode_netpbm_path_as_png, probe_netpbm_path, write_pdf, FramePolicy,
-    ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail, PageSpec,
-    PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
+    combine_tiff_paths, encode_netpbm_path_as_png_with_dpi, probe_netpbm_path, write_pdf,
+    FramePolicy, ImageCompression, ImageProcessing, ImageSpec, InputSource, JpegSizeGuardrail,
+    PageSpec, PdfBilevelDecode, PdfBuildOptions, PdfImagePlacement, PdfPageSize, Result,
     DEFAULT_MAX_BILEVEL_PIXELS, DEFAULT_MAX_IMAGE_PIXELS, MAX_WORKER_THREADS,
     PDF_COMBINE_MAX_OUTPUT_BYTES,
 };
@@ -104,7 +104,12 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         if config.input_paths.len() != 1 {
             return Err("PNG output requires exactly one Netpbm input".into());
         }
-        encode_netpbm_path_as_png(&config.input_paths[0], &config.output_path, max_pixels)?;
+        encode_netpbm_path_as_png_with_dpi(
+            &config.input_paths[0],
+            &config.output_path,
+            max_pixels,
+            config.dpi,
+        )?;
         return Ok(());
     }
 
