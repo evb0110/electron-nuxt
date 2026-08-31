@@ -1,0 +1,112 @@
+electron/preload/createElectronApi.ts
+  s_b3eba3f665eb5c::t_96c1a6733e203f 557-559
+electron/features/documents/contract.ts
+  s_b3eba3f665eb5c::t_945ad2d1e95d4d 104
+electron/utils/printHandoff.ts
+  s_b3eba3f665eb5c::t_963e483fc7f1ae 71,652-654,684,725,802-806,864-868
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b3eba3f665eb5c::t_9d09f0c2f74db7 364,834
+packages/contracts/documentsPlatformFeature.ts
+  s_b3eba3f665eb5c::t_945ad2d1e95d4d 87,813-823
+tests/e2e/electron/issue124LifecycleAcceptance.e2e.test.ts
+  s_b3eba3f665eb5c::t_11c87eed282793 431-435,583-587
+tests/unit/electron/documentsPrint.test.ts
+  s_b3eba3f665eb5c::t_a24f1022ae64a7 397-400,402,446,448-451,457,474-475
+  s_b3eba3f665eb5c::t_adb0cb44dcea6d 478-479,487,489
+  s_b3eba3f665eb5c::t_da7209f43be062 743-747,797-801,830-834
+  s_b3eba3f665eb5c::t_902c2949d67311 855-859
+  s_b3eba3f665eb5c::t_deb6918873876c 444-445,447,452-456,458-473,476-477,480-486,488,490-491
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_b3eba3f665eb5c::t_36958a248802f5 963,971
+  s_b3eba3f665eb5c::t_e5eb08f65443f4 966-969
+  s_b3eba3f665eb5c::t_554b42fc253275 48,964-965,974
+tests/unit/electron/featureIpcCodecs.test.ts
+  s_b3eba3f665eb5c::t_64d20d965bccb2 83
+  s_b3eba3f665eb5c::t_1acd5511ee7526 73-80,82,84-100,111-112
+  s_b3eba3f665eb5c::t_39d51960a421b9 101
+  s_b3eba3f665eb5c::t_e8a8528d9bc1ce 107
+  s_b3eba3f665eb5c::t_6439f8df59f2ce 81,102-106,108-110
+tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts
+  s_b3eba3f665eb5c::t_11c87eed282793 379-383
+electron/features/documents/createNativePrintDialogOpenedSubscriber.ts
+  s_b3eba3f665eb5c::t_e8a8528d9bc1ce 1-30
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b3eba3f665eb5c::t_258f50b694327f 627,638
+  s_b3eba3f665eb5c::t_9dc6ac05244eaf 42-62,319,614,677,723,798,862,925,971
+  s_b3eba3f665eb5c::t_e5eb08f65443f4 628-635,890
+  s_b3eba3f665eb5c::t_e8a8528d9bc1ce 1198
+  s_b3eba3f665eb5c::t_adb0cb44dcea6d 639,865-887
+  s_b3eba3f665eb5c::t_cea5fad78cf21b 611-613,615,674-676,678-682,720-722,724,770-771,791-797,799-800,832,837,849,856-861,863-864,922-924,926,938-940,962,964-970,972-973
+  s_b3eba3f665eb5c::t_c1b0f5966fe43f 1175-1197,1199-1217
+tests/unit/electron/preloadFileClient.test.ts
+  s_b3eba3f665eb5c::t_d2ef50c39c9f98 199,214-246
+  s_b3eba3f665eb5c::t_64d20d965bccb2 205
+  s_b3eba3f665eb5c::t_1acd5511ee7526 186-198,200-204,206-212,247-248
+  s_b3eba3f665eb5c::t_39d51960a421b9 213
+electron/features/documents/main/print.ts
+  s_b3eba3f665eb5c::t_d6300cd4a5b367 294-295,297
+  s_b3eba3f665eb5c::t_bbebccde5257a1 307,336-339
+  s_b3eba3f665eb5c::t_9d09f0c2f74db7 185-187,333-334
+  s_b3eba3f665eb5c::t_d471db8d38b70b 290,293,298,302-306,308,331-332,335,340
+  s_b3eba3f665eb5c::t_c51709bd8513f9 2,21,180-184,188-191,198-202,204-223
+  s_b3eba3f665eb5c::t_8926c0adf658ac 192-197,203,296
+  s_19c3ac6d149452::t_35e6601c00cf56 224
+app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue
+  s_b3eba3f665eb5c::t_9d09f0c2f74db7 22,113
+packages/contracts/pdfPathPrintOptions.ts
+  s_b3eba3f665eb5c::t_945ad2d1e95d4d 1-4,7-19,50-52,63-71
+  s_b3eba3f665eb5c::t_554b42fc253275 5-6,20-49,53-62,72
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_b3eba3f665eb5c::t_9d09f0c2f74db7 163,174,355-358
+  s_b3eba3f665eb5c::t_3ae9318e6742b5 280-303
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_b3eba3f665eb5c::t_1bf5c8d643d45a 509,517
+  s_b3eba3f665eb5c::t_8926c0adf658ac 511-514
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_b3eba3f665eb5c::t_3020f0a8284994 18,1016
+  s_b3eba3f665eb5c::t_554b42fc253275 23,1023
+  s_b3eba3f665eb5c::t_e8a8528d9bc1ce 78
+  s_b3eba3f665eb5c::t_b9dd8c2c222e9f 971
+tests/unit/app/modules/pdf-viewer/components/pdfPrintDialogLayoutAvailability.test.ts
+  s_b3eba3f665eb5c::t_fde453a7aeb252 74-76,132-135
+  s_b3eba3f665eb5c::t_beb6a130dfc4a7 1-18,20,26-54,71-73,77-131,136-154
+  s_b3eba3f665eb5c::t_e5eb08f65443f4 19,21-25,55-70
+electron/features/documents/documentsService.ts
+  s_b3eba3f665eb5c::t_f692359a75c664 27,223
+  s_b3eba3f665eb5c::t_8926c0adf658ac 64
+packages/contracts/electronApiDocuments.ts
+  s_b3eba3f665eb5c::t_945ad2d1e95d4d 67,72-73,954-956,1154
+  s_b3eba3f665eb5c::t_db1d416bf33d90 38,65-66,68-71,948
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b3eba3f665eb5c::t_9d09f0c2f74db7 157,700,737-739,1014
+  s_b3eba3f665eb5c::t_8926c0adf658ac 37-42,743-744,792-796,798-808
+  s_b3eba3f665eb5c::t_a337df196b0cec 154-155,797,864-867
+  s_b3eba3f665eb5c::t_8b94278e12b19d 156
+tests/unit/electron/documentsIpcAdapter.test.ts
+  s_b3eba3f665eb5c::t_2ae1d3bee28611 199-205,211-233
+  s_b3eba3f665eb5c::t_08fe876cd3c570 206-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "56cc2c22c0bc123e23c5c3a781fd72c9efc1b5a8",
+  "prompts": {},
+  "sessions": {
+    "s_19c3ac6d149452": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "aad2a208-ebb8-4dc1-a215-c3541db5db30",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b3eba3f665eb5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05717-85ca-7122-bcf1-13656e3d390b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
