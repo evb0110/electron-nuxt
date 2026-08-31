@@ -1,0 +1,40 @@
+electron/features/page-ops/main/cropLocal.ts
+  s_f7d6dcf985d9f6::t_48f2ff0b081386 1
+electron/image/pdfCombineShared.ts
+  s_f7d6dcf985d9f6::t_8ce852d80e26f3 466
+native/pdf-page-ops/src/wasm.rs
+  ai_agent 251-255
+  s_f7d6dcf985d9f6::t_cb290296eb5c86 46,256-257
+  s_f7d6dcf985d9f6::t_41e5a85b0b30bd 354-360,362
+native/evb-native-support/src/pdf_catalog.rs
+  s_f7d6dcf985d9f6::t_76f21bf8146d73 1-2,34,41-44
+  s_f7d6dcf985d9f6::t_c0413c1e3b1899 23,25,31
+  s_f7d6dcf985d9f6::t_506e61a78ab3d6 38-40
+electron/features/page-ops/main/crop.ts
+  s_f7d6dcf985d9f6::t_48f2ff0b081386 351-353,358
+  s_f7d6dcf985d9f6::t_b39fe185c0056b 354-357
+app/platform/browser-api/tryCombineImageInputsWithWasm.ts
+  s_f7d6dcf985d9f6::t_7cff7ba3411dfc 727-738
+app/platform/browser-api/browserPageOps.worker.ts
+  s_f7d6dcf985d9f6::t_84cdf511786e51 11-13,121,127,133
+native/pdf-page-ops/src/catalog.rs
+  s_f7d6dcf985d9f6::t_0c0c490d181df9 314-315,322-323,471-473,480-481,486-489,498-499
+  s_f7d6dcf985d9f6::t_f388a31ffa70b8 312-313,317-321,333-337,475-479,493-497
+  s_f7d6dcf985d9f6::t_369e6fce91f490 72,239-243,383,392-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9ed8858a48ed9f459c738b32cdebef2201e38c14",
+  "prompts": {},
+  "sessions": {
+    "s_f7d6dcf985d9f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05877-01b8-7e53-9663-171e8c26a1a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
