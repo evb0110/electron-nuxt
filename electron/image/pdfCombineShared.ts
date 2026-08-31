@@ -86,7 +86,7 @@ const PNG_SIGNATURE = [
 ] as const;
 const JPEG_START_OF_IMAGE = 0xd8;
 const JPEG_START_OF_SCAN = 0xda;
-const BITMAP_HEADER_PREFIX_BYTES = 64;
+const BITMAP_HEADER_PREFIX_BYTES = 64 * 1024;
 
 function getDefaultResourceLimits(): IPdfCombineResourceLimits {
     return { ...DEFAULT_RESOURCE_LIMITS };
@@ -454,21 +454,12 @@ async function preflightImageInput(
         return frameCount;
     }
 
-    if (shouldFailClosedForBitmapHeader(extension)) {
-        assertKnownBitmapPixelLimit(
-            await readBitmapHeaderPrefix(sourcePath),
-            extension,
-            sourcePath,
-            limits,
-        );
-    } else {
-        assertKnownBitmapPixelLimit(
-            await readBitmapHeaderPrefix(sourcePath),
-            extension,
-            sourcePath,
-            limits,
-        );
-    }
+    assertKnownBitmapPixelLimit(
+        await readBitmapHeaderPrefix(sourcePath),
+        extension,
+        sourcePath,
+        limits,
+    );
     assertPageLimit(currentPageCount + 1, limits);
     return 1;
 }
