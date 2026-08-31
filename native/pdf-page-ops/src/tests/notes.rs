@@ -650,6 +650,98 @@ fn appends_annotation_delete_as_incremental_revision() {
 }
 
 #[test]
+fn deletes_popup_free_text_by_stable_key_when_page_geometry_is_unavailable() {
+    let (mut document, page_id) = create_test_document();
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("MediaBox", vec![0.into(), 0.into(), 1.into()]);
+    assert!(resolve_page_view(&document, page_id).is_err());
+
+    let text_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Text",
+        "Rect" => vec![10.into(), 60.into(), 30.into(), 80.into()],
+        "NM" => Object::string_literal("text-note"),
+        "P" => page_id,
+    });
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![10.into(), 60.into(), 30.into(), 80.into()],
+        "P" => page_id,
+    });
+    let free_text_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![10.into(), 60.into(), 11.into(), 61.into()],
+        "NM" => Object::string_literal("evb-note:missing-geometry"),
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(free_text_id));
+    document.get_dictionary_mut(page_id).unwrap().set(
+        "Annots",
+        vec![
+            Object::Reference(text_id),
+            Object::Reference(free_text_id),
+            Object::Reference(popup_id),
+        ],
+    );
+
+    struct RemovePdfFilesOnDrop([PathBuf; 2]);
+
+    impl Drop for RemovePdfFilesOnDrop {
+        fn drop(&mut self) {
+            for path in &self.0 {
+                let _ = remove_file(path);
+            }
+        }
+    }
+
+    let temp_paths = RemovePdfFilesOnDrop([
+        temp_pdf_path("delete-free-text-missing-geometry-input"),
+        temp_pdf_path("delete-free-text-missing-geometry-output"),
+    ]);
+    let input_path = &temp_paths.0[0];
+    let output_path = &temp_paths.0[1];
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&input_path, &original_bytes).unwrap();
+    write(&output_path, &original_bytes).unwrap();
+
+    append_native_mutations(
+        &input_path,
+        &output_path,
+        &NativeMutationsFile {
+            deletes: vec![AnnotationDelete {
+                page_index: 0,
+                object_number: None,
+                generation_number: None,
+                stable_key: Some("missing-geometry".to_string()),
+                created_at: None,
+            }],
+            ..NativeMutationsFile::default()
+        },
+        "D:20260831130000Z",
+    )
+    .unwrap();
+
+    let loaded = Document::load(&output_path).unwrap();
+    let refs: Vec<ObjectId> = get_page_annots(&loaded, page_id)
+        .unwrap()
+        .iter()
+        .filter_map(|object| object.as_reference().ok())
+        .collect();
+    assert!(refs.contains(&text_id));
+    assert!(!refs.contains(&free_text_id));
+    assert!(!refs.contains(&popup_id));
+}
+
+#[test]
 fn deletes_explicit_annotation_ref_from_its_p_page_when_page_hint_is_stale() {
     let (mut document, _first_page_id, last_page_id) = create_sparse_million_page_document();
     let target_id = document.add_object(dictionary! {
@@ -1207,6 +1299,7 @@ fn geometry_edit_uses_the_save_timestamp_when_converting_a_marker() {
         "Subtype" => "FreeText",
         "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
         "NM" => Object::string_literal("geometry-target"),
+        "DA" => Object::string_literal("/F1 12 Tf"),
         "AP" => dictionary! {"N" => blank_appearance},
         "Popup" => popup_id,
         "P" => page_id,
@@ -1244,6 +1337,18 @@ fn geometry_edit_uses_the_save_timestamp_when_converting_a_marker() {
         pdf_string_to_text(marker.get(b"M").unwrap()),
         Some(modified_at.to_string())
     );
+    assert_eq!(marker.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    assert!(marker.get(b"AP").is_err());
+    assert!(marker.get(b"DA").is_err());
+    let rect = parse_rect(marker.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(rect.width(), 20.0);
+    assert_approximately(rect.height(), 20.0);
+    let popup_rect = parse_rect(
+        document.get_dictionary(popup_id).unwrap().get(b"Rect").unwrap(),
+    )
+    .unwrap();
+    assert_approximately(popup_rect.width(), 20.0);
+    assert_approximately(popup_rect.height(), 20.0);
 }
 
 #[test]

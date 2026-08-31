@@ -1609,6 +1609,57 @@ function readQpdfDictionaryString(value: string, key: string) {
     return null;
 }
 
+function qpdfDictionaryHasKey(value: string, key: string) {
+    let dictionaryDepth = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        const character = value[index];
+        const nextCharacter = value[index + 1];
+        if (character === '<' && nextCharacter === '<') {
+            dictionaryDepth += 1;
+            index += 1;
+            continue;
+        }
+        if (character === '>' && nextCharacter === '>') {
+            dictionaryDepth = Math.max(0, dictionaryDepth - 1);
+            index += 1;
+            continue;
+        }
+        if (character === '(') {
+            const end = findQpdfLiteralStringEnd(value, index);
+            if (end < 0) {
+                return false;
+            }
+            index = end;
+            continue;
+        }
+        if (character === '<') {
+            const end = value.indexOf('>', index + 1);
+            if (end < 0) {
+                return false;
+            }
+            index = end;
+            continue;
+        }
+        if (character !== '/' || dictionaryDepth !== 1) {
+            continue;
+        }
+
+        let nameEnd = index + 1;
+        while (nameEnd < value.length) {
+            const nameCharacter = value[nameEnd] ?? '';
+            if (/\s/u.test(nameCharacter) || '[]()<>/{}/'.includes(nameCharacter)) {
+                break;
+            }
+            nameEnd += 1;
+        }
+        if (value.slice(index + 1, nameEnd) === key) {
+            return true;
+        }
+        index = nameEnd - 1;
+    }
+    return false;
+}
+
 function decodeQpdfLiteralString(value: string) {
     let decoded = '';
     for (let index = 1; index < value.length - 1; index += 1) {
@@ -1951,7 +2002,7 @@ async function verifyStickyNoteStructure(
     const rect = parseRectFromQpdfObject(match.annotationObject);
     // Native sticky notes use the PDF /Text annotation and leave appearance
     // generation to the viewer. They must not carry the legacy blank form.
-    expect(match.annotationObject).not.toMatch(/\/AP(?:\s|$)/u);
+    expect(qpdfDictionaryHasKey(match.annotationObject, 'AP')).toBe(false);
     expect(match.annotationObject).toMatch(/\/Name\s*\/Note(?:\s|$)/u);
     expect(qpdfDictionaryContainsText(match.annotationObject, 'Contents', expectedText)).toBe(true);
     expect(match.annotationObject).toMatch(/\/NM\s*(?:\(|<)/u);

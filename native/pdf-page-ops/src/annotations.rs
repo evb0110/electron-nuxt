@@ -1457,8 +1457,7 @@ pub(crate) fn build_page_annotation_index(
     let mut named_text_notes = Vec::new();
     let mut first_free_text_by_name = HashMap::new();
     let mut named_free_text = Vec::new();
-    let page_view = resolve_page_view(document, page_id)?;
-    let page_rotation = resolve_page_rotation(document, page_id)?;
+    let mut page_geometry = None;
     let mut scanned = 0usize;
     for object in &annots {
         scanned += 1;
@@ -1470,10 +1469,21 @@ pub(crate) fn build_page_annotation_index(
             continue;
         };
         let subtype = annotation_subtype(dictionary);
-        if subtype == "text"
-            || (subtype == "freetext"
-                && is_free_text_note_marker(document, dictionary, page_view, page_rotation))
-        {
+        let marker_form =
+            if subtype == "freetext" && annotation_related_ref(dictionary, b"Popup").is_some() {
+                let geometry = page_geometry.get_or_insert_with(|| {
+                    resolve_page_view(document, page_id).and_then(|page_view| {
+                        resolve_page_rotation(document, page_id)
+                            .map(|page_rotation| (page_view, page_rotation))
+                    })
+                });
+                geometry.as_ref().is_ok_and(|(page_view, page_rotation)| {
+                    is_free_text_note_marker(document, dictionary, *page_view, *page_rotation)
+                })
+            } else {
+                false
+            };
+        if subtype == "text" || marker_form {
             if annotation_related_ref(dictionary, b"IRT").is_some() {
                 continue;
             }
@@ -2221,4 +2231,60 @@ pub(crate) fn set_rgb_color(dict: &mut Dictionary, key: &str, color: Option<&str
         return;
     }
     dict.remove(key.as_bytes());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn indexes_text_and_named_free_text_without_page_geometry() {
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+        });
+        let text_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "NM" => Object::string_literal("text-note"),
+        });
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+        });
+        let free_text_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "NM" => Object::string_literal("named-free-text"),
+            "Popup" => popup_id,
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![Object::Reference(text_id), Object::Reference(free_text_id)],
+        );
+        document.set_object(
+            pages_id,
+            dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![Object::Reference(page_id)],
+                "Count" => 1,
+            },
+        );
+        let catalog_id = document.add_object(dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+
+        let (index, scanned) = build_page_annotation_index(&document, page_id).unwrap();
+
+        assert_eq!(scanned, 2);
+        assert_eq!(index.first_text_note_named("text-note"), Some(text_id));
+        assert_eq!(
+            index.first_free_text_named("named-free-text"),
+            Some(free_text_id)
+        );
+    }
 }
