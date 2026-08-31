@@ -1,0 +1,84 @@
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_7fe07412ad5143::t_cdb83bc3980092 1,19,139,216-221,462-474
+app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate.ts
+  s_7fe07412ad5143::t_cdb83bc3980092 1-80
+packages/i18n-app/messages/ptBr.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1344-1345,1506-1509
+packages/i18n-app/messages/fr.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1344-1345,1506-1509
+tests/unit/app/modules/workspace-shell/composables/file-operations/unencryptedSaveNotice.test.ts
+  s_7fe07412ad5143::t_6e763567de81e6 1-136,157-175,182-192,194-195,197-206,239
+  s_7fe07412ad5143::t_7b075179d08520 137-141,146-156,176,178-181,193
+  s_7fe07412ad5143::t_cdb83bc3980092 177,196
+  s_7fe07412ad5143::t_eb602ded7d05ec 207-238
+  s_7fe07412ad5143::t_59a6d255cd4c7c 142-145
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture.ts
+  s_7fe07412ad5143::t_cdb83bc3980092 37-52,133-142,150,152
+app/modules/workspace-shell/composables/useUnencryptedSaveNotice.ts
+  s_7fe07412ad5143::t_2bc3912cfc17aa 51-59
+  s_7fe07412ad5143::t_051913f271077a 1-50,60-123
+packages/i18n-app/messages/de.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1333-1334,1495-1498
+packages/i18n-app/messages/nl.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1333-1334,1495-1498
+packages/i18n-app/messages/pt.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1344-1345,1506-1509
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_7fe07412ad5143::t_59a6d255cd4c7c 1,369
+packages/i18n-app/messages/it.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1333-1334,1495-1498
+packages/i18n-app/messages/es.ts
+  s_7fe07412ad5143::t_cfd04a2f856b6b 1333-1334,1495-1498
+tests/unit/app/modules/workspace-shell/composables/useUnencryptedSaveNotice.test.ts
+  s_7fe07412ad5143::t_1bbc0fd70123a0 8-11,57-85,90-98,103-104
+  s_7fe07412ad5143::t_af67a52a6fca29 86-89,99-102
+  s_7fe07412ad5143::t_bc1ffca10c8bbb 1-7,12-56,105-106
+app/components/settings/SettingsContent.vue
+  s_7fe07412ad5143::t_522fdbe3ebaf6a 9
+app/components/settings/SettingsGeneralPanel.vue
+  s_7fe07412ad5143::t_0bb9858967f5b8 20-29,103
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_7fe07412ad5143::t_df57b18c60e3b2 132-139,156,166,195,255-270
+app/modules/workspace-shell/components/UnencryptedSaveDialog.vue
+  s_7fe07412ad5143::t_0dc23437eed4a9 1-69
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_7fe07412ad5143::t_419c9c2d68878a 1,75-78,93-94,96-97,950,1113-1128
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_7fe07412ad5143::t_fa431702e21c08 51-52,111-112,192,194
+app/modules/workspace-shell/composables/usePdfFile.ts
+  s_7fe07412ad5143::t_b7862c95339f61 56,213
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_7fe07412ad5143::t_797ac54167f7f5 122,339
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_7fe07412ad5143::t_2af455cb7b23d6 126-127,155,180,203
+electron/settings.ts
+  s_7fe07412ad5143::t_6509e88f1609ba 9,45-61,87,95,99,104,109
+packages/i18n-app/messages/en.ts
+  s_7fe07412ad5143::t_4e134b04c6c871 1333-1334,1495-1498
+packages/i18n-app/messages/ru.ts
+  s_7fe07412ad5143::t_c40282864e9401 1368-1369,1530-1533
+tests/e2e/electron/helpers/fixtures.ts
+  s_7fe07412ad5143::t_2313e39b383d51 21,45,99-103,581-591,1547,1549,1556-1559,1566-1583
+tests/e2e/electron/savePipeline.e2e.test.ts
+  s_7fe07412ad5143::t_2dec34276e14f0 25-27,36-37,92-99,129-164,412-503
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_7fe07412ad5143::t_8d876b6dd3a1b7 134-142,839,1155,1186
+tests/unit/electron/settingsSingleFlight.test.ts
+  s_7fe07412ad5143::t_da24f8efbdba5a 17,32,44-50,61-62,144-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fdab0dd828d6514ae8320001da99b96820c1d85d",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

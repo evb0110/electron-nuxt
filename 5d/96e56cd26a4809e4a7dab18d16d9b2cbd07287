@@ -1,0 +1,30 @@
+tests/unit/contracts/pdfDecryptSchemas.test.ts
+  s_7fe07412ad5143::t_7316474cad36ff 37-41
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_7fe07412ad5143::t_80d04673d017ec 57-60,241-247,268,425,631
+tests/unit/electron/workingCopy.test.ts
+  s_7fe07412ad5143::t_7316474cad36ff 70,91,107-111
+  s_7fe07412ad5143::t_c612926ff34744 105-106
+  s_7fe07412ad5143::t_cc96a4e43d7bf0 69,71-90,92-104,112-116
+electron/file-access/workingCopyCreation.ts
+  s_7fe07412ad5143::t_0a48bb62eec681 125,127-134
+  s_7fe07412ad5143::t_c0353baabd77ea 280
+electron/file-access/workingCopyDecryption.ts
+  s_7fe07412ad5143::t_0a48bb62eec681 23,26,204-206
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5d96e56cd26a4809e4a7dab18d16d9b2cbd07287",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+package.json
+  s_743a0e95169718::t_a5b27d28c48a9a 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5eb104bc8b36c7c812f1965b0c194d06c6b95bb2",
+  "prompts": {},
+  "sessions": {
+    "s_743a0e95169718": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0547f-507d-7693-830f-71e1c5148ddb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

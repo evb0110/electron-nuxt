@@ -1,0 +1,210 @@
+tests/e2e/electron/helpers/fixtures.ts
+  s_7fe07412ad5143::t_b6a1e56e30a01c 1474-1518
+packages/contracts/electronApiDocuments.ts
+  s_7fe07412ad5143::t_5526bd2cbb8689 888,1112
+  s_7fe07412ad5143::t_18b0aa296724eb 90,155
+app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity.ts
+  s_7fe07412ad5143::t_23ba64285a5bab 1-110
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_7fe07412ad5143::t_3e95735ab3e495 55,535
+  s_7fe07412ad5143::t_235b605a7a39ff 450-456,458-461,507,519,527-533
+  s_7fe07412ad5143::t_c588d7456af129 457
+  s_7fe07412ad5143::t_828d362b032620 54,56-63,86
+electron/features/documents/main/pdfAnnotationIndex.ts
+  s_7fe07412ad5143::t_2f989546dd2817 43,45-52,77
+  s_7fe07412ad5143::t_c588d7456af129 413
+  s_7fe07412ad5143::t_3e95735ab3e495 44,492
+  s_7fe07412ad5143::t_422da52be5a2a4 406-412,414-417,464,476,484-490
+tests/unit/electron/inProcessIpcRoundTrip.test.ts
+  s_7fe07412ad5143::t_26d53b65bd56a0 91-100,105,172-193
+app/platform/browser-api/browserPageOpsCore.ts
+  s_7fe07412ad5143::t_3254ce5dab032c 210-223
+electron/features/documents/documentsService.ts
+  s_7fe07412ad5143::t_bbf1f71d10eaa8 34-35,38,184-201
+  s_7fe07412ad5143::t_3a1ca4927d283f 36-37,109-113
+  s_7fe07412ad5143::t_0a172dcfc840f5 202
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_7fe07412ad5143::t_5dff6afebcbbcb 218
+  s_7fe07412ad5143::t_b4c4d53aa009ad 89-94,147-148
+  s_7fe07412ad5143::t_82e315394e3113 149,158-196,201,203-205,207,212-215,219-223,230,234,239-252,257
+  s_a020a49c99c2c5::t_87238b0aa84c77 150
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_7fe07412ad5143::t_01801301ce5136 74
+  s_7fe07412ad5143::t_fa5c65e199712c 238,265-313,322-353
+  s_7fe07412ad5143::t_a6ddb4b96c2d40 314-316,321
+  s_7fe07412ad5143::t_747afc8b65cc80 317-320
+  s_7fe07412ad5143::t_d0340d8f1c3076 354
+  s_eefe66a1a004d9::t_70d43b98f6b403 40
+scripts/generate-freetext-lifecycle-fixture.mjs
+  s_7fe07412ad5143::t_2fe96b5d66b179 1-62,64-125
+  s_7fe07412ad5143::t_b4c4617d065397 63
+app/platform/browser-api/createBrowserDocumentsCapability.ts
+  s_7fe07412ad5143::t_3f40298868cb24 165
+electron/features/documents/contract.ts
+  s_7fe07412ad5143::t_4178109112f2bf 36
+tests/unit/contracts/pdfAnnotationParse.test.ts
+  s_7fe07412ad5143::t_7229c3a5ea75fc 9-12,353-376
+  s_7fe07412ad5143::t_70eb024e9cee6f 8,433-442
+packages/contracts/index.ts
+  s_7fe07412ad5143::t_ef788b9fbef2d6 103
+  s_7fe07412ad5143::t_1958858b58799a 100,107,115-119
+electron/preload/createElectronApi.ts
+  s_7fe07412ad5143::t_aa5424f2c7bb47 395
+electron/features/documents/public.ts
+  s_7fe07412ad5143::t_270898aee666b7 18
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_7fe07412ad5143::t_c5beaf56aefd1d 339-363
+  s_7fe07412ad5143::t_b5824e3b0f5744 25,364-365
+app/platform/browser-api/decodeBrowserPdfAnnotationsOutput.ts
+  s_7fe07412ad5143::t_18b0aa296724eb 84
+  s_7fe07412ad5143::t_8389e6da042fee 10,12-13,80-83
+  s_7fe07412ad5143::t_8fa01b86d1a691 1,3-9,11,14-79,85-117,123-136
+  s_7fe07412ad5143::t_958233986ebcfb 2,118-122
+electron/bootstrap/runInitSequence.ts
+  s_7fe07412ad5143::t_270898aee666b7 114,351,389-392
+  s_7fe07412ad5143::t_eca24a9b6e59f4 393-394
+electron/features/documents/main/pdfSidecarLineIndex.ts
+  s_7fe07412ad5143::t_c588d7456af129 25,90,150-162
+  s_7fe07412ad5143::t_1ea35d6ef5bfdd 1-24,26-82,84-89,91-149,163-190,192-260
+  s_7fe07412ad5143::t_06abf3dd7578de 83
+  s_7fe07412ad5143::t_18b0aa296724eb 191
+electron/features/documents/main/pdfAnnotationParse.ts
+  s_7fe07412ad5143::t_6653b07f6b2da0 1-17,22-95,103-106,113-136,141-334,336-338,340,350-396,398-423,425-478,480-484,490-515,517-575
+  s_7fe07412ad5143::t_ce6671b2dfd268 96-102,107-112,137-140,341-343,345-346,348-349
+  s_7fe07412ad5143::t_c588d7456af129 18-21,339,397,424
+  s_7fe07412ad5143::t_37c9aaa033421b 335,344,347
+  s_7fe07412ad5143::t_bc61d1a8525f8e 485-489
+  s_7fe07412ad5143::t_06a14239d56546 479,516
+electron/features/documents/createPdfAnnotationParsePreloadMethods.ts
+  s_7fe07412ad5143::t_8e24c18a7aa865 25-44,46-65
+  s_7fe07412ad5143::t_4bf9452d0b0d8f 24
+  s_7fe07412ad5143::t_5ad781d7dfba71 13-14
+  s_7fe07412ad5143::t_18b0aa296724eb 15,45
+  s_7fe07412ad5143::t_5bec941c2ff840 10-12
+  s_7fe07412ad5143::t_d287ec6cf406dc 16-18,21-23
+  s_eefe66a1a004d9::t_58dd60f0a943d0 1-9,19-20
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_7fe07412ad5143::t_d50c1960c90af7 76,80,243-244,261
+  s_7fe07412ad5143::t_18b0aa296724eb 33
+  s_7fe07412ad5143::t_b9192a71cd426f 482
+  s_7fe07412ad5143::t_9d4054f849f127 479-481
+  s_7fe07412ad5143::t_0df23f6cea6bb3 483-484
+  s_eefe66a1a004d9::t_9efabd6f5bb4bd 474-478
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_7fe07412ad5143::t_98635d5aacb6c0 47
+  s_7fe07412ad5143::t_630529f84511f1 993-998,1010,1012-1013,1016-1045,1052,1063,1099-1107,1109
+  s_7fe07412ad5143::t_dba9663a9dafc1 1015
+  s_7fe07412ad5143::t_f95a03ad73b798 43-46,999
+  s_7fe07412ad5143::t_faa3df1d6bd071 57
+  s_7fe07412ad5143::t_4abe05e99377eb 992,1000-1009,1011,1014,1046-1047,1060-1062
+  s_7fe07412ad5143::t_80db92a489c2b0 271-274,446-448
+app/modules/pdf-viewer/annotations/domain/annotationStore.ts
+  s_7fe07412ad5143::t_dba9663a9dafc1 140-144
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_7fe07412ad5143::t_4727920a4c2ffc 385-386,417-424
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts
+  s_7fe07412ad5143::t_5dd580d1ec120a 11,13-20,40-97,126-142,145-166,168,170-171
+  s_7fe07412ad5143::t_e94cc75dce2376 167,169
+  s_7fe07412ad5143::t_26581b10cd58d3 143-144
+  s_7fe07412ad5143::t_f385675edc7256 172-173
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_7fe07412ad5143::t_c9192e7472fbdf 55
+  s_7fe07412ad5143::t_747afc8b65cc80 475-476,478
+  s_7fe07412ad5143::t_bbbcb11784d383 477
+  s_7fe07412ad5143::t_f06a0c6e1d000e 461-471,480-488
+  s_7fe07412ad5143::t_a31c22499d89d3 472-474,479
+  s_7fe07412ad5143::t_a293cc01f7fbb3 56
+  s_7fe07412ad5143::t_037a4e48eb5d3b 489
+tests/unit/electron/preloadFileClient.test.ts
+  s_7fe07412ad5143::t_49103be94ad98a 445-469
+packages/contracts/documentsPlatformFeature.ts
+  s_7fe07412ad5143::t_b350bed28225a5 99,102,355-369
+app/platform/browser-api/browserPageOps.worker.ts
+  s_7fe07412ad5143::t_43ef324723c7e4 6,110-115,136-137,170-179
+  s_7fe07412ad5143::t_0dd8c6631a144f 180-182
+packages/contracts/pdfAnnotationParseSchemas.ts
+  s_7fe07412ad5143::t_4d2d643d2c02f9 522,642,715
+  s_7fe07412ad5143::t_4e6ae43fb3ab22 20,463,518,523-546,550-567,627-641,643-649,742-743
+  s_7fe07412ad5143::t_98635d5aacb6c0 9,547-549
+  s_7fe07412ad5143::t_307d8b667c876a 519-521
+  s_7fe07412ad5143::t_519d69c0915c1f 650
+tests/unit/electron/pdfAnnotationParse.test.ts
+  s_7fe07412ad5143::t_116d80cc103980 1-8,13-20,22-240,247-253,279-295,303-310,313-325
+  s_7fe07412ad5143::t_e68e9f286acb2f 241-246
+  s_7fe07412ad5143::t_68a5f9ff7738e1 296-302
+  s_7fe07412ad5143::t_9142768f013216 9-12,255-256
+  s_7fe07412ad5143::t_497249c6c565b3 311-312
+  s_7fe07412ad5143::t_48ac1f8611db52 21,254,257-278
+app/platform/browser-api/browserPageOpsWorker.types.ts
+  s_7fe07412ad5143::t_0cff13bbdbeab6 218-223
+  s_7fe07412ad5143::t_6a9c9ef2e660f0 52,64
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_7fe07412ad5143::t_e735d867ff4264 15,1376-1403
+  s_7fe07412ad5143::t_98635d5aacb6c0 1325
+  s_7fe07412ad5143::t_c42987630f4b5f 1404-1405
+tests/unit/electron/documentsService.test.ts
+  s_7fe07412ad5143::t_dd0b479d55ea4f 9,125
+  s_7fe07412ad5143::t_cf7f68f082b91f 31,47-54,123-124,126-148
+  s_7fe07412ad5143::t_7c3a281c32e993 149
+electron/main.ts
+  s_7fe07412ad5143::t_270898aee666b7 87,613
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_7fe07412ad5143::t_4bbdbd70973d41 665-668,710
+  s_7fe07412ad5143::t_52745ee01bbacb 108-109,651
+  s_7fe07412ad5143::t_ece7d213ca0ced 79-80
+  s_7fe07412ad5143::t_18b0aa296724eb 81,814,837
+  s_7fe07412ad5143::t_01801301ce5136 86
+electron/features/documents/preloadShared.ts
+  s_7fe07412ad5143::t_5ad781d7dfba71 6,9-10,39-77,79-97
+  s_7fe07412ad5143::t_7086d0818312c8 7
+  s_7fe07412ad5143::t_18b0aa296724eb 8,78,98,100-106
+  s_a020a49c99c2c5::t_619943ab3092a6 99
+app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore.ts
+  s_7fe07412ad5143::t_98635d5aacb6c0 1-2,4-48
+  s_7fe07412ad5143::t_5fb3532e2d0137 3
+packages/contracts/pdfAnnotationParseTypes.ts
+  s_7fe07412ad5143::t_8389e6da042fee 136-140
+  s_7fe07412ad5143::t_18b0aa296724eb 16,142
+  s_7fe07412ad5143::t_c588d7456af129 14
+  s_7fe07412ad5143::t_f88cda503b70a1 122,124-135,172-175
+  s_a020a49c99c2c5::t_f0909071d20e37 15,141
+electron/features/documents/createDocumentsService.ts
+  s_7fe07412ad5143::t_1be14a64c9a883 51-56,242-243,273-280
+  s_7fe07412ad5143::t_b90e37bb96f951 50
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_7fe07412ad5143::t_e673fd3db966c9 53
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_7fe07412ad5143::t_d451f3b8bbdf7f 63,297
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fc44d9ae691b1496e39a730bae1862e9337f3d67",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a020a49c99c2c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0567f-c2a9-7121-b191-19eb8be7a25e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eefe66a1a004d9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05636-5e69-7f12-a5b2-bfebb077c6a5",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

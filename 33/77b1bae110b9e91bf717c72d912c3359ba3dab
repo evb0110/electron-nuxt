@@ -1,0 +1,19 @@
+tests/unit/electron/workingCopyDirectory.test.ts
+  s_90243f0be7f87a::t_32ce67597ab3fa 185-192,202,204-208,219-222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3377b1bae110b9e91bf717c72d912c3359ba3dab",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

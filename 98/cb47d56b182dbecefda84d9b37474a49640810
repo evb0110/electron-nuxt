@@ -1,0 +1,89 @@
+scripts/verify-packaged-native-tools.sh
+  s_90243f0be7f87a::t_563b6801357699 76
+  s_90243f0be7f87a::t_397eafb94bfd0a 74-75,77-84
+electron/file-access/pageIdentityStore.ts
+  s_90243f0be7f87a::t_397eafb94bfd0a 651-653
+  s_90243f0be7f87a::t_7227bb6f5ad37b 634,643-650,674,679
+native/pdf-page-ops/src/incremental_document.rs
+  s_90243f0be7f87a::t_a1db8f7f0d94c2 939
+  s_90243f0be7f87a::t_5720b3c2ba7389 466,468-469,472-473,477,767,1040-1043
+  s_90243f0be7f87a::t_6306ca22db4497 268-316,318-319,321,325-329
+  s_90243f0be7f87a::t_daa81a9dba8b98 580-591,631
+  s_90243f0be7f87a::t_d19cb8ad631941 220-221,528-531,600
+  s_90243f0be7f87a::t_4432ab89b07799 598-599
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 592-593,595-597
+  s_90243f0be7f87a::t_3d99d30d31aecb 317,320,322-324
+  s_90243f0be7f87a::t_fb73dd654ac964 153,429-434,601,642,668,728-733
+  s_90243f0be7f87a::t_d1768d082e0655 768,1017-1019,1021-1026,1044-1046
+  s_90243f0be7f87a::t_56a272d198736e 1027-1039
+  s_90243f0be7f87a::t_707cf393bcf4d5 1020
+  s_90243f0be7f87a::t_d67cdfd36c0302 254-258,260,264-267,330,344-345,351-353,355-362,364-373,375-393,395,397-424,426-427,435-456,458-465,467,478-484,486-492,495-498,553-579,602-603,611,619-630,632-641,643-647,661-667,679-682,688-691,697-700,734-735,741-744,763-766
+  s_90243f0be7f87a::t_20ec5deddb9db3 721-727
+  s_90243f0be7f87a::t_c0f2dd351139a8 331,428,594,1015-1016
+scripts/release/build-receipt.mjs
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 44
+tests/unit/scripts/cargoArtifacts.test.ts
+  s_90243f0be7f87a::t_e4865fb246497f 217-218
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 219-228
+  s_90243f0be7f87a::t_438984934c1e11 21,215-216,229
+  s_10a1816c8060a5::t_c9c3c41c94c702 230-231
+tests/unit/electron/documentFileWriteAtomic.test.ts
+  s_90243f0be7f87a::t_e4865fb246497f 69
+  s_90243f0be7f87a::t_3a2ed0c9c35b9c 73-108
+  s_90243f0be7f87a::t_438984934c1e11 10,18-26,28-32,58-68,70-72
+tests/unit/electron/workingCopy.test.ts
+  s_90243f0be7f87a::t_357ae10a348c49 538
+native/pdf-page-ops/tests/error_classification.rs
+  s_90243f0be7f87a::t_b96491f5da1975 175-176
+  s_90243f0be7f87a::t_d5e4e81084f423 173-174,177,179-196,198-209
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 178,197
+  s_10a1816c8060a5::t_74b55c30674df9 171-172
+tests/unit/electron/pageIdentityStore.test.ts
+  s_90243f0be7f87a::t_438984934c1e11 883-897,899,928-930
+  s_90243f0be7f87a::t_e4865fb246497f 898
+  s_90243f0be7f87a::t_ae70a16271e97d 869
+  s_90243f0be7f87a::t_9d99f523ae155b 853-856,873
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 874,882,900-927
+scripts/build-native-tool.mjs
+  s_90243f0be7f87a::t_73c77fbe7bfbcc 152-155
+  s_90243f0be7f87a::t_bb21fb858c1f55 283-287,299,329-330,344,377,382
+  s_90243f0be7f87a::t_397eafb94bfd0a 151,156-159,175-181,186-188
+  s_90243f0be7f87a::t_3a7c8ffa01c78e 160-174
+  s_90243f0be7f87a::t_e4865fb246497f 182-185
+tests/unit/scripts/macosNativeToolWorkflow.test.ts
+  s_90243f0be7f87a::t_10548dc00cf020 285,291-292
+  s_90243f0be7f87a::t_30421969be909d 286-290
+  s_90243f0be7f87a::t_7159f287dee948 302-303
+  s_90243f0be7f87a::t_a8a0a688c50746 6,204-209,234-261,263-264,282,294-301
+  s_90243f0be7f87a::t_df6be5ca42d07d 262
+  s_90243f0be7f87a::t_ae70a16271e97d 23
+  s_90243f0be7f87a::t_dfb01393322495 210-233
+  s_90243f0be7f87a::t_9d99f523ae155b 265-281,283-284,293
+electron/file-access/documentFileWriteAtomic.ts
+  s_90243f0be7f87a::t_397eafb94bfd0a 23,161-165,169-174
+  s_90243f0be7f87a::t_adab18d6151df4 166-168
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "98cb47d56b182dbecefda84d9b37474a49640810",
+  "prompts": {},
+  "sessions": {
+    "s_10a1816c8060a5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0547a-17a4-79a2-88e1-8e8b11ddd932",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

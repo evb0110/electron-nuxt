@@ -1,0 +1,36 @@
+electron/features/agent/assistantChatSnapshotBlobMaintenance.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 39,72
+.fallowrc.json
+  s_eb7ba9db0ef355::t_793b3ab493c001 64
+electron/features/image-export/main/imageExportPathPlanning.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 10,16
+app/platform/browser/browserRecentFilesStore.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 101
+electron/features/agent/assistantChatPersistence.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 109
+electron/workspaceCheckpointStore.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 91
+app/platform/browser/browserDocumentRecordStore.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 73
+app/modules/workspace-shell/composables/useDirtyTabCloseDialog.ts
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 6
+electron/file-access/documentRecoveryJournal.ts
+  s_eb7ba9db0ef355::t_7ad97820588e5d 4
+  s_eb7ba9db0ef355::t_7917c7de4d0bb2 8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7707d436d103646ba6e3ea161b4f2394fc79ed23",
+  "prompts": {},
+  "sessions": {
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,69 @@
+electron/file-access/workingCopyDecryption.ts
+  s_7fe07412ad5143::t_e843b15eb81870 1-204
+electron/features/documents/main/documentOpenHandlers.ts
+  s_7fe07412ad5143::t_e843b15eb81870 41,162,168-170,186-190
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_7fe07412ad5143::t_e843b15eb81870 56,158,257-264,414-416,423,425-426,620-624,626-627
+  s_7fe07412ad5143::t_7219498e1bf23c 417-422,424,625
+  s_7fe07412ad5143::t_9cbf3dfc0d4966 427,628
+electron/file-access/workingCopyCreation.ts
+  s_7fe07412ad5143::t_ab77e1efdecdcd 159
+  s_7fe07412ad5143::t_93a43a21075c35 16,18-22,70-74,108-158,160,181-183,194,209-217,225-227,265-268,275-299
+  s_7fe07412ad5143::t_a25690f723a60f 300
+app/modules/combine/useCombinePdfOperation.ts
+  s_7fe07412ad5143::t_94bec10c1a880a 61-63,94
+docs/adr/0004-pdf-password-open-retry.md
+  s_7fe07412ad5143::t_4f8f62612608cd 1-32
+electron/features/documents/contract.ts
+  s_7fe07412ad5143::t_71b80989dc59e5 54-57
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_7fe07412ad5143::t_b301c6a37b66f0 732-734
+electron/features/documents/documentsService.ts
+  s_7fe07412ad5143::t_2ce8044bffffc7 79-83
+electron/features/documents/main/openInputPaths.service.ts
+  s_7fe07412ad5143::t_3b39d7509a99b6 22,24,54,245-285
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_7fe07412ad5143::t_db395d391e4c1c 372-374
+electron/preload/createElectronApi.ts
+  s_7fe07412ad5143::t_5b9dae1b1c6eae 255,261-263
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_7fe07412ad5143::t_62645ca6fce787 41-48,511-526
+packages/contracts/electronApiDocuments.ts
+  s_7fe07412ad5143::t_29ed3faff867a8 55,372,868
+packages/contracts/index.ts
+  s_7fe07412ad5143::t_66ac3a23a64b98 114
+packages/contracts/pdfDecryptSchemas.ts
+  s_7fe07412ad5143::t_51f5a070e65f16 23-41,49
+packages/contracts/pdfOpenFileResults.ts
+  s_7fe07412ad5143::t_984aa3fdfe94af 1-15
+packages/contracts/pdfOpenFileSchemas.ts
+  s_7fe07412ad5143::t_64fe73c530a904 1-61
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_7fe07412ad5143::t_fc8f8efc37977c 941
+tests/unit/contracts/pdfDecryptSchemas.test.ts
+  s_7fe07412ad5143::t_7f40dc2cf4450f 9,12,34-36
+tests/unit/electron/featureIpcCodecs.test.ts
+  s_7fe07412ad5143::t_017190c6505c1a 17,488-526
+tests/unit/electron/inProcessIpcRoundTrip.test.ts
+  s_7fe07412ad5143::t_1fec9413877dfa 77-90,188,197-238
+tests/unit/electron/openInputPaths.test.ts
+  s_7fe07412ad5143::t_73ebb1957c966c 21-32,48-56,86-87,94,202-264
+tests/unit/electron/workingCopyDecryption.test.ts
+  s_7fe07412ad5143::t_382114f7f537ba 1-174
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "024bc06d3a8a37ff372db5a6db227834cc625097",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

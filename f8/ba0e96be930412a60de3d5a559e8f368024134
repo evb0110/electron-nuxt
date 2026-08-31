@@ -1,0 +1,45 @@
+app/utils/createPluginTranslate.ts
+  s_eb7ba9db0ef355::t_31dbc20f1ae141 1-27
+scripts/build-wasm-tool.mjs
+  s_eb7ba9db0ef355::t_c64ea534c0ba46 5,21-24,120-126
+scripts/wasm-fingerprint.mjs
+  s_eb7ba9db0ef355::t_d4168625cd84ea 1-10,21-60,65-100,105-220
+  s_eb7ba9db0ef355::t_fde693b8593158 11-20,61-64,101-104
+app/plugins/runtimeErrorLogStream.client.ts
+  s_eb7ba9db0ef355::t_31dbc20f1ae141 6-7,12
+tests/unit/scripts/wasmFreshness.test.ts
+  s_eb7ba9db0ef355::t_2462be131ad911 199
+  s_eb7ba9db0ef355::t_bd0e51a2a6b6ac 36-39,82,84-88,93-95
+  s_eb7ba9db0ef355::t_c5d736c3d1f1f6 135-136,146
+  s_eb7ba9db0ef355::t_4499c761bd6780 280-313
+  s_eb7ba9db0ef355::t_2648cf75b148ba 83,89-92,175,212-239
+  s_7fe07412ad5143::t_a2a65f9fd2c603 240
+scripts/check-wasm-freshness.mjs
+  s_eb7ba9db0ef355::t_8be8dc85509c41 13-17,121,141-149,151,155-156,162,164
+app/plugins/rendererErrorGuard.client.ts
+  s_eb7ba9db0ef355::t_31dbc20f1ae141 2-3,5,121-130
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f8ba0e96be930412a60de3d5a559e8f368024134",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

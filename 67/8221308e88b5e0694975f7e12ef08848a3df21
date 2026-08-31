@@ -1,0 +1,488 @@
+app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 611
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_eb7ba9db0ef355::t_b872c1be5587e3 1-8,10-18,23-86,88-101,103,105-123,128-137,142-149,173-178,183-185,194-207,224-253
+  s_eb7ba9db0ef355::t_aa46691e2bad41 19-22,124-127,138-141,179-182,186-193
+  s_eb7ba9db0ef355::t_acfe3d10df47f6 9
+  s_eb7ba9db0ef355::t_9c6f241b6b7993 87,104
+  s_eb7ba9db0ef355::t_d9daed1848a39e 102
+  s_eb7ba9db0ef355::t_b9aeb4fe28f26f 150-169,171-172
+  s_eb7ba9db0ef355::t_11451256053b9a 170
+  s_eb7ba9db0ef355::t_06edfff5222bac 208-223
+scripts/release/policy.mjs
+  s_eb7ba9db0ef355::t_1915625271e5c5 417
+.github/workflows/build-target.yml
+  s_eb7ba9db0ef355::t_33036cdc826b60 343,525
+vitest.shared.config.ts
+  s_eb7ba9db0ef355::t_90fc334fc4426d 308
+  s_eb7ba9db0ef355::t_3f9df2f26bc34d 28,161,168,185,304-307
+tests/unit/app/platform/browserWorkspaceRecoveryStore.test.ts
+  s_eb7ba9db0ef355::t_56b8f57d3d7e81 14,122-139,141-143
+  s_eb7ba9db0ef355::t_1f5f972edcc175 140
+  s_eb7ba9db0ef355::t_0ca42f75ba629d 144-145
+tests/unit/app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.test.ts
+  s_eb7ba9db0ef355::t_6053e909bbd1ef 197-236
+tests/unit/electron/searchIpcResourceLimits.test.ts
+  s_eb7ba9db0ef355::t_b6f400a2be270a 610-612,641-643,682-684,720-722,927-929,1097-1099
+scripts/release/ensure-github-release-assets.mjs
+  s_eb7ba9db0ef355::t_e670212577299e 1-9,12-15,21-23,32-45,68-69,74-80,82-94,97-106,108,112-114,119-126,132-139
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 16-20,107,115-118,127-130
+  s_eb7ba9db0ef355::t_d457f669b4d4a0 10,24,29-31,46-67,73,95-96,109-111,131
+  s_eb7ba9db0ef355::t_6b91d79c3f5704 11,81
+  s_eb7ba9db0ef355::t_ffee49dcc89397 25-28
+  s_eb7ba9db0ef355::t_08e7907c6b8862 70-72
+tests/unit/electron/workspaceCheckpointStore.test.ts
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 125
+  s_eb7ba9db0ef355::t_b2792c7e41b2d3 260-261
+  s_eb7ba9db0ef355::t_750aa8d664f06d 2,48,163,247-259
+  s_eb7ba9db0ef355::t_54ba44c84fd5e0 21,186-187
+scripts/vitestResolveAlias.ts
+  s_eb7ba9db0ef355::t_710a2912006a65 22
+packages/contracts/search.ts
+  s_eb7ba9db0ef355::t_9ab69c066f04ce 744-746,1001
+  s_eb7ba9db0ef355::t_612fb2d2eae7f3 570
+  s_eb7ba9db0ef355::t_a3f4ff88b44777 571,590-643,658-662,732-741
+scripts/release/publish-release-mirror.mjs
+  s_eb7ba9db0ef355::t_667f7baa1b41e2 412-413
+  s_eb7ba9db0ef355::t_172dacc318e10f 125,127,135-136,141-152,384,392-411
+  s_eb7ba9db0ef355::t_6b91d79c3f5704 22
+  s_eb7ba9db0ef355::t_8dc0436c339cb1 126,128-134,137-140,293,318,336-338,340
+  s_eb7ba9db0ef355::t_1bf7f314d655b5 294-305,343,346-349
+electron/updates.ts
+  s_eb7ba9db0ef355::t_95818a3ceacdcf 665,785
+  s_eb7ba9db0ef355::t_18d082d24f7b8f 304,507-512
+tests/unit/electron/twoTargetDocumentTransitionRecovery.test.ts
+  s_eb7ba9db0ef355::t_1ff49a1c9f027b 110
+  s_eb7ba9db0ef355::t_e592e6f7406e03 2,84-109
+app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.ts
+  s_eb7ba9db0ef355::t_95fa7d0bc3bbdf 335-337
+electron/features/documents/main/documentOpenHandlers.ts
+  s_eb7ba9db0ef355::t_605b8df06a08ef 77-79
+  s_eb7ba9db0ef355::t_daf61f97b129af 81-85
+native/evb-raster-io/src/lib.rs
+  s_eb7ba9db0ef355::t_17a88fc9f6e16c 287-298,308,316,384-391
+  s_eb7ba9db0ef355::t_23cfa2a4132d46 49-56,109-121,724,758,780,784,788-792,794,797,802,808-810,821,829-838,892
+  s_eb7ba9db0ef355::t_2d783199bdcb4b 865
+  s_eb7ba9db0ef355::t_ddb52e7524d639 252-253,255-281
+  s_eb7ba9db0ef355::t_65a69f8f755ed9 149-165
+  s_eb7ba9db0ef355::t_95db69e60e850b 254
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip.ts
+  s_eb7ba9db0ef355::t_f394569ff7bf05 25,184-201
+  s_eb7ba9db0ef355::t_c4563b3314a258 180-183,202-205,207,211,305,307
+tests/unit/app/platform/browserFilePickerAdapter.test.ts
+  s_eb7ba9db0ef355::t_1f6daaaf75158b 43
+  s_eb7ba9db0ef355::t_9a1cf78e6ad24a 1-42,48-50,54-60
+  s_eb7ba9db0ef355::t_eb996204859be8 51-53
+  s_eb7ba9db0ef355::t_83b252e861569a 44-47
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection.ts
+  s_eb7ba9db0ef355::t_95818a3ceacdcf 53,160,165-166,185-188,198,318,393
+  s_eb7ba9db0ef355::t_f6ea55dabcdd61 309-313,317,319,322-323,331,333-334
+  s_eb7ba9db0ef355::t_f394569ff7bf05 21,167-184
+  s_eb7ba9db0ef355::t_c5d728dc20347d 129-142,190-193
+tests/unit/electron/settingsSingleFlight.test.ts
+  s_eb7ba9db0ef355::t_4a2b133f0ae054 6
+  s_eb7ba9db0ef355::t_7fbbce7f0e6ec3 134-150
+  s_eb7ba9db0ef355::t_9e7013b1442091 151
+app/components/AppProgressOverlay.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 100-103
+tests/unit/scripts/webDeploySource.test.ts
+  s_eb7ba9db0ef355::t_685e257f6079c6 25-28,35-36,172-173
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 105-108,151-154
+tests/unit/electron/workingCopyContentTransitionJournal.test.ts
+  s_eb7ba9db0ef355::t_e592e6f7406e03 54-80
+  s_7fe07412ad5143::t_14651dfb89e611 81
+tests/unit/electron/settingsQuarantine.test.ts
+  s_eb7ba9db0ef355::t_702472aef4e16d 56-74
+tests/unit/electron/imageExport.test.ts
+  s_eb7ba9db0ef355::t_b4da1056b1f361 1153-1154
+tests/unit/app/platform/settingsCapability.test.ts
+  s_eb7ba9db0ef355::t_5a61a3cee345e5 186-189,218
+  s_eb7ba9db0ef355::t_9e7013b1442091 252
+  s_eb7ba9db0ef355::t_8475710e3c35c7 173-185,190-217,219-222
+  s_eb7ba9db0ef355::t_0de05780d3e958 9,153-172,223-251
+  s_eb7ba9db0ef355::t_b5cc2bd2f562b7 124-125,130-131
+app/modules/pdf-viewer/components/PdfContextMenuBase.vue
+  s_eb7ba9db0ef355::t_40a5f24fd52820 57-58,101-104,110-132,143,154,163
+tests/unit/landing/analytics.test.ts
+  s_eb7ba9db0ef355::t_3f9df2f26bc34d 1-14,16-20,25-31,39-52,80-92,94,99-101
+  s_eb7ba9db0ef355::t_710a2912006a65 15,32,38,93
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 21-24,95-98
+  s_eb7ba9db0ef355::t_04bbb8728c0df1 37
+  s_eb7ba9db0ef355::t_612fb2d2eae7f3 33-36,53-68,73-79
+  s_eb7ba9db0ef355::t_5a61a3cee345e5 69-72
+tests/unit/electron/workspaceCheckpointLatestOnly.test.ts
+  s_eb7ba9db0ef355::t_55fd30a56b5086 283
+  s_eb7ba9db0ef355::t_83b252e861569a 288
+  s_eb7ba9db0ef355::t_92c2d03f4f2813 157,170,189
+electron/platform-ipc/coreContract.ts
+  s_eb7ba9db0ef355::t_06edfff5222bac 95-118,124-125
+tests/unit/electron/window.test.ts
+  s_eb7ba9db0ef355::t_a9dcefa9d6247d 264-265
+  s_eb7ba9db0ef355::t_f59606dabf0770 8,41-42,78-85,157-160,200,250-263
+tests/unit/server/latestReleaseEndpointPolicy.test.ts
+  s_eb7ba9db0ef355::t_ac25a6a7c66e43 17-42,105
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 100-103
+  s_eb7ba9db0ef355::t_e3e90a57d5e52c 104,106-107
+tests/unit/scripts/packageScripts.test.ts
+  s_eb7ba9db0ef355::t_ac0e2d2dcc2d9e 122
+  s_eb7ba9db0ef355::t_de50b9c120e02d 177
+electron/recentFiles.ts
+  s_eb7ba9db0ef355::t_95818a3ceacdcf 246-248
+  s_eb7ba9db0ef355::t_18d082d24f7b8f 207,361-365
+tests/unit/app/modules/scan-cleanup/scanCleanupPreferencesStore.test.ts
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 202,240
+  s_eb7ba9db0ef355::t_7efd8cae45f47a 207,223,227,241
+  s_eb7ba9db0ef355::t_9e7013b1442091 242-243
+  s_eb7ba9db0ef355::t_2212b81dc0edcc 27,195-201,203-206,208-222,224-226,228-239
+package.json
+  s_eb7ba9db0ef355::t_1915625271e5c5 29,123
+  s_eb7ba9db0ef355::t_3f9df2f26bc34d 61,64
+tests/unit/app/modules/workspace-shell/composables/useDirtyTabCloseDialog.test.ts
+  s_eb7ba9db0ef355::t_d7eb515ac2b809 68-87
+scripts/release/build-provenance.mjs
+  s_eb7ba9db0ef355::t_99a0f1b55244e8 3,5,10,30-33,35-56,58-78,87,99,123-134
+  s_eb7ba9db0ef355::t_9e7013b1442091 148
+  s_eb7ba9db0ef355::t_61b442c1c9831b 135-147
+  s_eb7ba9db0ef355::t_0bd97b91bc6715 20-29,34,57
+app/platform/browser/browserDocumentRecords.ts
+  s_eb7ba9db0ef355::t_78a84470999fa0 125
+electron/search/worker.ts
+  s_eb7ba9db0ef355::t_605b8df06a08ef 715-716
+  s_7fe07412ad5143::t_ca95cbae3c5e93 729
+  s_eb7ba9db0ef355::t_c75242685e72e3 702-705,721-728
+  s_eb7ba9db0ef355::t_daf61f97b129af 701,720
+tests/unit/contracts/windowTabsPlatformFeature.test.ts
+  s_eb7ba9db0ef355::t_54ba44c84fd5e0 32,44,62
+tests/unit/electron/recentFiles.test.ts
+  s_eb7ba9db0ef355::t_9e7013b1442091 635
+  s_eb7ba9db0ef355::t_806725c7a82df6 321-329
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 383,386,431-438,440-443
+  s_eb7ba9db0ef355::t_e592e6f7406e03 611-634
+  s_eb7ba9db0ef355::t_34dc142c78dd72 370,382,388-389,425
+electron/features/agent/assistantChatSnapshotStorage.ts
+  s_eb7ba9db0ef355::t_74e6ae3dec2ec8 104,118
+scripts/release/verify-local-checks.mjs
+  s_eb7ba9db0ef355::t_1915625271e5c5 22
+packages/contracts/scanCleanupSettings.ts
+  s_eb7ba9db0ef355::t_605b8df06a08ef 224-226,388-394,400-411
+  s_90243f0be7f87a::t_741ad81d6f50bf 412-413
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_eb7ba9db0ef355::t_515a84ddef0e40 292,299,301-303
+tests/unit/electron/searchWorkerWarmupAndCache.test.ts
+  s_eb7ba9db0ef355::t_c75242685e72e3 462-518,520-521
+  s_eb7ba9db0ef355::t_0c131ea29c5cd2 519
+tests/unit/electron/updates.test.ts
+  s_eb7ba9db0ef355::t_4734fc8a7f9da6 73,75-76,86,143-147,149,213-216
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 108-111
+  s_eb7ba9db0ef355::t_d812871c49c4da 350-352
+  s_eb7ba9db0ef355::t_c75242685e72e3 323-349,353-354
+  s_eb7ba9db0ef355::t_fdde4129c1fa5d 74
+  s_eb7ba9db0ef355::t_108619d2d1a003 272,291,568,590-591,594,620-621,698-700,789,945-950
+app/components/settings/SettingsContent.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 281-286
+packages/contracts/agentOcr.ts
+  s_eb7ba9db0ef355::t_605b8df06a08ef 58
+electron/utils/printHandoff.ts
+  s_eb7ba9db0ef355::t_18d082d24f7b8f 438-439
+scripts/release/releaseTag.mjs
+  s_eb7ba9db0ef355::t_6b91d79c3f5704 1
+native/pdf-image-combine/src/lib.rs
+  s_eb7ba9db0ef355::t_1ccd2d7d5fda67 34,987-995,1029-1032
+scripts/deployVercelPrivate.mjs
+  s_eb7ba9db0ef355::t_224dc3862ca68d 4
+  s_eb7ba9db0ef355::t_9ff731a59f876c 19-20,138-157,196-197,201-202
+  s_eb7ba9db0ef355::t_cb864ae7dea1d5 254-330
+  s_eb7ba9db0ef355::t_9e7013b1442091 331-332,443-444
+  s_eb7ba9db0ef355::t_6ab19e30e59bae 346,350-352,363,370,372-373,386-442,445,458
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 375-379
+tests/unit/app/modules/pdf-viewer/thumbnails/usePdfThumbnailSelection.test.ts
+  s_eb7ba9db0ef355::t_b25da727e2871c 404-407,418-425,438-441,448-454
+  s_eb7ba9db0ef355::t_e122f5ec25d837 22,35
+  s_eb7ba9db0ef355::t_78cd0b78df55da 19,47-48,62-63,83-84,394-403,408-417,426-437,442-447
+  s_eb7ba9db0ef355::t_9e7013b1442091 455-456
+native/pdf-image-combine/src/image.rs
+  s_eb7ba9db0ef355::t_96f4f013a12a8d 318,320,322,324-325,330,343-345,347-352,380-381,383-393,396-409
+  s_eb7ba9db0ef355::t_2d783199bdcb4b 15-16,319,329,331,333,382,466,522-536
+  s_eb7ba9db0ef355::t_cfaf943b05bfd6 6
+  s_7fe07412ad5143::t_42e53c09adebaa 321,323,327
+  s_eb7ba9db0ef355::t_c6f4011a1bfd28 328
+  s_eb7ba9db0ef355::t_95db69e60e850b 346,394-395
+  s_eb7ba9db0ef355::t_38680f9a60b0e5 473-495,497-505,513
+  s_eb7ba9db0ef355::t_f5973deac59351 410-411
+  s_eb7ba9db0ef355::t_572e2beefebc8b 326
+tests/unit/electron/assistantChatSessionStore.test.ts
+  s_eb7ba9db0ef355::t_9810cbbb374479 7
+  s_eb7ba9db0ef355::t_cd579ce16a9be0 2,24-27,96-107,109-110,442-443,445-464,466-482,487-497,503-512
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 108,465,483-486,498-502
+  s_eb7ba9db0ef355::t_74e6ae3dec2ec8 444
+  s_eb7ba9db0ef355::t_9e7013b1442091 513-514
+electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal.ts
+  s_eb7ba9db0ef355::t_5e7e9f1740b770 147,151,153-155,157,159,161,163-165,167,169,191,195
+  s_eb7ba9db0ef355::t_0e0e32dc35727c 196-199
+.github/workflows/release.yml
+  s_eb7ba9db0ef355::t_e670212577299e 507,512,650,927,1003
+  s_eb7ba9db0ef355::t_172dacc318e10f 755,798-800,806
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_eb7ba9db0ef355::t_6053e909bbd1ef 16,333-338,347
+electron/updates/fetchLatestReleaseMetadataVersion.ts
+  s_eb7ba9db0ef355::t_c75242685e72e3 11,15,27-29,41,44
+tests/unit/app/modules/pdf-viewer/components/pdfThumbnailsKeyboardNavigation.test.ts
+  s_eb7ba9db0ef355::t_b3595ce43d34a5 335-339,346
+  s_eb7ba9db0ef355::t_95818a3ceacdcf 344
+  s_eb7ba9db0ef355::t_b25da727e2871c 347
+  s_eb7ba9db0ef355::t_78cd0b78df55da 328-334,342-343,345
+tsconfig.workspace-paths.json
+  s_eb7ba9db0ef355::t_710a2912006a65 35
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_eb7ba9db0ef355::t_66b3c091a21dfe 1-70
+tests/unit/electron/searchIndexBuilderCancellation.test.ts
+  s_eb7ba9db0ef355::t_721a1bc15a8c4e 221-233
+  s_eb7ba9db0ef355::t_d4e49dcc9c47ac 219-220
+electron/preload/createElectronApi.ts
+  s_eb7ba9db0ef355::t_06edfff5222bac 21,360-365,370-379,383-387,391-395,399
+  s_eb7ba9db0ef355::t_18d082d24f7b8f 389-390
+tests/unit/app/platform/browserSaveTargets.test.ts
+  s_eb7ba9db0ef355::t_817e131729934e 34-36
+tests/unit/scripts/releasePolicy.test.ts
+  s_eb7ba9db0ef355::t_c841d37b6a7068 929,1641,1715
+tests/unit/electron/ocrRevisionTransitionRecovery.test.ts
+  s_eb7ba9db0ef355::t_e592e6f7406e03 139-165
+packages/contracts/systemPlatformFeature.ts
+  s_eb7ba9db0ef355::t_06edfff5222bac 38-43,46,49-53
+tests/unit/electron/scanCleanupSettingsStore.test.ts
+  s_eb7ba9db0ef355::t_633b1e7ed13c70 60-74
+tests/unit/app/platform/browserDocumentMaintenance.test.ts
+  s_eb7ba9db0ef355::t_9e7013b1442091 341
+  s_eb7ba9db0ef355::t_c13fa949a0cd05 36
+  s_eb7ba9db0ef355::t_cd4fd3ceaec3c8 42-44
+  s_eb7ba9db0ef355::t_1f5f972edcc175 24-27,29
+  s_eb7ba9db0ef355::t_546b628f80a5fa 67-68
+  s_eb7ba9db0ef355::t_f724806ba96e58 260-297,299
+  s_eb7ba9db0ef355::t_431e21172d0fc3 298,300-340
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_eb7ba9db0ef355::t_57f6273fb112a4 40
+app/platform/browser-api/browserSettingsCapability.ts
+  s_eb7ba9db0ef355::t_0c6052930bdb26 81,84-86,152-154,156-160,182-183,185-189
+  s_eb7ba9db0ef355::t_5a61a3cee345e5 142-145,161-164,170-173,190-193,204
+  s_eb7ba9db0ef355::t_8475710e3c35c7 39-43,111,115-118,123-125,133,151,155,181,184,202-203
+  s_eb7ba9db0ef355::t_b5cc2bd2f562b7 134,140-141,146
+tests/unit/contracts/agentOcr.test.ts
+  s_eb7ba9db0ef355::t_fc8b70c124c98c 7,30-31,81-86
+  s_eb7ba9db0ef355::t_9e7013b1442091 87
+tests/unit/scripts/buildProvenance.test.ts
+  s_eb7ba9db0ef355::t_61b442c1c9831b 85
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 32-36,68,71-82,84
+  s_eb7ba9db0ef355::t_99a0f1b55244e8 23,29-31,37-38,64-67
+  s_eb7ba9db0ef355::t_2f101190145a4d 69-70,83
+  s_eb7ba9db0ef355::t_9e7013b1442091 86
+native/evb-raster-io/tests/png.rs
+  s_eb7ba9db0ef355::t_23cfa2a4132d46 3-4,52-73
+  s_eb7ba9db0ef355::t_5d5d89f9d97172 2,47-51,74-81,83-101
+  s_eb7ba9db0ef355::t_95db69e60e850b 82
+tests/unit/contracts/search.test.ts
+  s_eb7ba9db0ef355::t_775d48ecdca3b9 18
+  s_eb7ba9db0ef355::t_a3f4ff88b44777 375-376,379-381,383-391,393-399
+  s_eb7ba9db0ef355::t_5fd1754dac9082 369-370
+  s_eb7ba9db0ef355::t_612fb2d2eae7f3 377-378,382
+  s_eb7ba9db0ef355::t_51d4eced884a67 392
+tests/unit/app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature.test.ts
+  s_eb7ba9db0ef355::t_750aa8d664f06d 23-26,218-225,230
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 226-229
+  s_eb7ba9db0ef355::t_daf61f97b129af 231-239
+  s_eb7ba9db0ef355::t_9e7013b1442091 240-241
+app/platform/browser/createBrowserFileContentWitness.ts
+  s_eb7ba9db0ef355::t_78a84470999fa0 17-19,28-31,34,36-37
+tests/unit/app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint.test.ts
+  s_eb7ba9db0ef355::t_750aa8d664f06d 28,49,64-72,141-150,152-156,158-163
+  s_eb7ba9db0ef355::t_4ad774c75066b3 140
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 157
+  s_eb7ba9db0ef355::t_9e7013b1442091 151
+app/modules/pdf-viewer/components/PdfThumbnails.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 62-65,76
+app/modules/pdf-viewer/components/PdfRegionSnipOverlay.vue
+  s_7fe07412ad5143::t_097b4fae74c78c 2
+  s_eb7ba9db0ef355::t_daf61f97b129af 15
+  s_eb7ba9db0ef355::t_2e58f3f7f40862 3-9,17
+tests/unit/app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.test.ts
+  s_eb7ba9db0ef355::t_61ec7e62225f5e 150-152
+  s_eb7ba9db0ef355::t_3cbe920ed7ea4e 144,154-158,175
+  s_eb7ba9db0ef355::t_6053e909bbd1ef 5,145-149,153,159-171,173-174
+  s_eb7ba9db0ef355::t_b956bfbf2f5508 176-177
+  s_eb7ba9db0ef355::t_fbfb7183487ad7 172
+tests/unit/electron/documentOpenHandlers.test.ts
+  s_eb7ba9db0ef355::t_ffee49dcc89397 27
+  s_eb7ba9db0ef355::t_fb4a3ce8651882 10-11,17,19,22-26,168-181
+  s_7fe07412ad5143::t_bcf0f9052aa5bc 182
+tests/unit/electron/documentSaveUtilityAbort.test.ts
+  s_eb7ba9db0ef355::t_9e7013b1442091 114-115
+  s_eb7ba9db0ef355::t_5da3d985f9e9b1 109
+  s_eb7ba9db0ef355::t_32f157f43428dd 14,59,86,90-108,110-113
+native/pdf-image-combine/src/main.rs
+  s_eb7ba9db0ef355::t_5cfe58a88e3aa5 107-112
+  s_eb7ba9db0ef355::t_95db69e60e850b 18-20
+app/modules/workspace-shell/components/layout/TabBar.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 160-169
+tests/unit/app/platform/browserRecentFilesStore.test.ts
+  s_eb7ba9db0ef355::t_26bd8b58057d1f 8-11,134-135
+app/platform/browser/browserDocumentRecordStore.ts
+  s_eb7ba9db0ef355::t_95818a3ceacdcf 529,533,573-574,619-620
+  s_eb7ba9db0ef355::t_78a84470999fa0 99,558-562,604-608
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_eb7ba9db0ef355::t_3638b46fd06612 153
+tests/unit/app/utils/browserSettingsPersistence.test.ts
+  s_eb7ba9db0ef355::t_b5cc2bd2f562b7 106,118,120
+  s_eb7ba9db0ef355::t_566dbc3143a196 27-28,47-53,172-180
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 181-184
+  s_eb7ba9db0ef355::t_8475710e3c35c7 124-133,135-138
+  s_eb7ba9db0ef355::t_1af33cd4ec47e3 11,81-103
+  s_eb7ba9db0ef355::t_8a94203de613f9 208
+  s_eb7ba9db0ef355::t_9e7013b1442091 185-187
+  s_eb7ba9db0ef355::t_64497792117b70 198
+  s_eb7ba9db0ef355::t_d474ae73268744 104-105
+  s_eb7ba9db0ef355::t_cd4fd3ceaec3c8 134
+app/utils/browserSettingsPersistence.ts
+  s_eb7ba9db0ef355::t_0c6052930bdb26 252,256-257,260-262
+  s_eb7ba9db0ef355::t_b5cc2bd2f562b7 259
+  s_eb7ba9db0ef355::t_8475710e3c35c7 243-245
+  s_eb7ba9db0ef355::t_b8e9930fd69f7c 258
+tests/unit/app/utils/localStorage.test.ts
+  s_eb7ba9db0ef355::t_e47bfc39db8a7e 9,45-57,62
+  s_eb7ba9db0ef355::t_1fade46e0ed293 63-64
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 58-61
+tests/unit/electron/utils/processTree.test.ts
+  s_eb7ba9db0ef355::t_5cdc5f45b3d766 89-120,125-127
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 121-124
+scripts/check-web-deploy-source.mjs
+  s_eb7ba9db0ef355::t_74a95ebd082a85 274
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 282-285
+  s_eb7ba9db0ef355::t_9ff731a59f876c 6,166-208,215-231,250,255-264,273,276-278
+.github/workflows/store-appx.yml
+  s_eb7ba9db0ef355::t_19342fcb1269b6 23,27-31,163-203
+  s_eb7ba9db0ef355::t_9e7013b1442091 204
+tests/unit/scripts/ensureGithubReleaseAssets.test.ts
+  s_eb7ba9db0ef355::t_d457f669b4d4a0 35,46,51-52,56
+  s_eb7ba9db0ef355::t_e670212577299e 1-13,18-34,36-45,47-48,57-58
+  s_eb7ba9db0ef355::t_fef9f37bd8c98d 14-17,49-50,53-55
+landing/server/api/releases/latest.get.ts
+  s_eb7ba9db0ef355::t_ac25a6a7c66e43 31-38,81
+electron/window/windowCloseHandshake.ts
+  s_eb7ba9db0ef355::t_e36cf6dff31c06 57-61
+  s_eb7ba9db0ef355::t_06edfff5222bac 62-64
+tests/unit/app/modules/workspace-shell/checkpoint/useBrowserWorkspaceRecovery.test.ts
+  s_eb7ba9db0ef355::t_a516ac0cdd5b25 29-32,59,106
+  s_eb7ba9db0ef355::t_6f205246e09ce8 399-404
+  s_eb7ba9db0ef355::t_3ae9b4a0da1176 107-109
+app/modules/pdf-viewer/components/PdfEmptyState.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 242
+.github/workflows/ci.yml
+  s_eb7ba9db0ef355::t_33036cdc826b60 975,1124
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_eb7ba9db0ef355::t_c841d37b6a7068 856,860,954
+  s_eb7ba9db0ef355::t_d836a3c2a78a5c 598,688,1245,1495,1795
+  s_eb7ba9db0ef355::t_b9b7604e6d08ee 821-823
+  s_eb7ba9db0ef355::t_43d6f93db84e43 1126-1127,1247,1253
+landing/server/api/analytics/download.post.ts
+  s_eb7ba9db0ef355::t_f95144b35205d5 66,81,122,129
+tests/unit/app/platform/browserDocumentStore.test.ts
+  s_eb7ba9db0ef355::t_5aa57ce2e090eb 245-280,285-292,297-311
+  s_eb7ba9db0ef355::t_b80b12836fa763 367-370,372-378,911-947,1234-1238,1240-1262
+  s_eb7ba9db0ef355::t_719f5d50425eec 1169-1217
+  s_eb7ba9db0ef355::t_850831b40d974b 115-128,130-141,1218-1219
+  s_eb7ba9db0ef355::t_9e7013b1442091 312,948,1220-1221,1263-1264
+  s_eb7ba9db0ef355::t_0b812c2c36b794 313,949
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 281-284,293-296,371,1239
+  s_eb7ba9db0ef355::t_91bb7018cf89b2 78-114
+  s_eb7ba9db0ef355::t_5a61a3cee345e5 129
+landing/server/api/analytics/pageView.post.ts
+  s_eb7ba9db0ef355::t_f95144b35205d5 50,65,104,111
+app/platform/browser/browserDocumentRepository.ts
+  s_eb7ba9db0ef355::t_515a84ddef0e40 352-382,385-390,392-395,397-404,408-412,426-429
+  s_eb7ba9db0ef355::t_78a84470999fa0 41,763
+  s_eb7ba9db0ef355::t_850831b40d974b 204-210,383-384,420,701,729,812
+tests/unit/app/modules/workspace-shell/composables/useNativeWindowCloseHandshake.test.ts
+  s_eb7ba9db0ef355::t_534b9059139b85 36,45-46,51-53,57-60,171-202
+  s_eb7ba9db0ef355::t_9c6f241b6b7993 79
+  s_eb7ba9db0ef355::t_652911a68845a2 72-74,77,99,218
+  s_eb7ba9db0ef355::t_8db5f63a6bad78 71,75,91
+  s_eb7ba9db0ef355::t_aa46691e2bad41 111-114,130-137,146-149,209-212
+  s_eb7ba9db0ef355::t_3e3c9ce31a4396 30,92,96
+  s_eb7ba9db0ef355::t_766c636ed7c511 82
+  s_eb7ba9db0ef355::t_04bbb8728c0df1 44,47,54
+  s_eb7ba9db0ef355::t_7d1dc13f3c0882 1-15,17-29,31-35,37-43,48-50,55-56,61-69,76,78,80-81,83-90,93-95,97-98,100-110,115-129,138-145,150-170,203-208,213-217,219-220
+  s_eb7ba9db0ef355::t_9b80a165255d41 16,70
+tests/unit/electron/documentsPrint.test.ts
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 275-282,493-500,572-579,614-621
+  s_eb7ba9db0ef355::t_0acefcc76ae8e0 510
+tests/unit/electron/ocrWorkerTesseractRunnerAbort.test.ts
+  s_eb7ba9db0ef355::t_e9cd12f06f1a65 95,100-125
+  s_eb7ba9db0ef355::t_9e7013b1442091 126
+electron/ocr/worker/tesseractRunner.ts
+  s_eb7ba9db0ef355::t_18d082d24f7b8f 200-207
+tests/unit/app/modules/workspace-shell/composables/useAppShellTabLifecycle.test.ts
+  s_eb7ba9db0ef355::t_57f6273fb112a4 36-37
+tests/unit/electron/documentOpenFolderLimits.test.ts
+  s_eb7ba9db0ef355::t_769c73f04fb107 44-53,55-60
+  s_eb7ba9db0ef355::t_17b00db16d5ff0 5,54
+  s_eb7ba9db0ef355::t_9e7013b1442091 61-63
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_eb7ba9db0ef355::t_cdb4e756858e03 230,258-266
+  s_eb7ba9db0ef355::t_9e7013b1442091 272,353,355-356
+  s_eb7ba9db0ef355::t_38c22ee6470e48 14,67,136,140
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 110-135,141-152,299-300,302,308-311,315-318,331-335
+  s_eb7ba9db0ef355::t_7fb494d5ae7cf7 28,30,41,45,47,52,267-271,297-298,303-307,312-314,319-330,336-352,354
+  s_eb7ba9db0ef355::t_63f5541f0efd95 153-154,273
+  s_eb7ba9db0ef355::t_42df10ef9adb83 301
+tests/unit/app/composables/usePlatformHydratedState.test.ts
+  s_eb7ba9db0ef355::t_daf61f97b129af 6,142-145
+  s_eb7ba9db0ef355::t_863f54bd5ea8d9 136-141,146-173
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_eb7ba9db0ef355::t_06edfff5222bac 247,279-288,291,310-319
+  s_7fe07412ad5143::t_1f6bc722a7f3a9 12,321
+  s_eb7ba9db0ef355::t_4de5f50eeb088f 248-266,272-278,289-290,292-309,320
+  s_eb7ba9db0ef355::t_aa46691e2bad41 268-271
+  s_eb7ba9db0ef355::t_68c50b14bab321 13-15,267
+landing/app/utils/analytics.ts
+  s_eb7ba9db0ef355::t_612fb2d2eae7f3 16,24,41-54,65,67-69,74-82,107,176-180
+  s_eb7ba9db0ef355::t_de8eca9381cc3b 66,83
+  s_eb7ba9db0ef355::t_9e7013b1442091 157
+  s_eb7ba9db0ef355::t_f95144b35205d5 15,17-23,25-40,55-64,84-91,94-106,108-156,158-173,175,181-182
+  s_eb7ba9db0ef355::t_6aec2e3a1bda02 70-73
+app/modules/pdf-viewer/components/PdfToolbar.vue
+  s_eb7ba9db0ef355::t_700e3aeeee50ab 6
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_eb7ba9db0ef355::t_d9ec73f4814349 1154
+  s_eb7ba9db0ef355::t_e592e6f7406e03 979-982,987-1016
+  s_eb7ba9db0ef355::t_1c089fd7e6ec5d 983-986
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "678221308e88b5e0694975f7e12ef08848a3df21",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}

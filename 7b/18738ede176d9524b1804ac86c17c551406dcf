@@ -1,0 +1,40 @@
+docs/research/chrome-trust-path-repair-handoff-2026-08-31.md
+  s_84e4f86fdd2766::t_7a9f290181ad10 1-99
+docs/reliability/static-breaking-points-audit-2026-08-31.md
+  s_763801c983557e::t_6cdb272eec181c 1-4,6-221,228-328,331,336-562,569-777
+  s_763801c983557e::t_ce021c81de61f5 5,222-227,329-330,332-335,563-568
+package.json
+  s_90243f0be7f87a::t_0608d7ddc810f5 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7b18738ede176d9524b1804ac86c17c551406dcf",
+  "prompts": {},
+  "sessions": {
+    "s_763801c983557e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05478-c56c-79b0-94ee-b98a8955b88c",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_84e4f86fdd2766": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a056eb-2f71-7e91-ad56-316c9c3b1dd3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    },
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

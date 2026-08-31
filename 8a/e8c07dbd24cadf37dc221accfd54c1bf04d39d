@@ -1,0 +1,21 @@
+app/utils/browserSettingsPersistence.ts
+  s_eb7ba9db0ef355::t_9a3f996b3fb521 140-148,242-243,266-272
+app/platform/browser/createBrowserFileContentWitness.ts
+  s_eb7ba9db0ef355::t_9a3f996b3fb521 8-9,16-19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8ae8c07dbd24cadf37dc221accfd54c1bf04d39d",
+  "prompts": {},
+  "sessions": {
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

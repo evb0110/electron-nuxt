@@ -1,0 +1,28 @@
+.github/actions/setup-release-env/action.yml
+  s_90243f0be7f87a::t_0fc9967c383ccc 84-88
+tests/unit/scripts/windowsArm64BundlePolicy.test.ts
+  s_90243f0be7f87a::t_0fc9967c383ccc 53-60,62-69
+  s_90243f0be7f87a::t_40d50628bf75bb 61
+scripts/bundle-tools-windows.sh
+  s_90243f0be7f87a::t_0fc9967c383ccc 64,73,79-81,93-108
+native/pdf-page-ops/src/incremental_document.rs
+  s_90243f0be7f87a::t_f6035253bfa7e3 20-24,158
+  s_90243f0be7f87a::t_d71ee5ec16fe77 897-903
+  s_90243f0be7f87a::t_ea317c9144c054 896
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "51aecb41eefc79cf374cf7b0e4415f49f117cc00",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

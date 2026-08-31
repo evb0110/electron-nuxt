@@ -1,0 +1,63 @@
+scripts/diagnostics/pdfNavigationBlinkTrace.ts
+  s_a020a49c99c2c5::t_9f5ac1e702f85b 873
+  s_a020a49c99c2c5::t_7b624a01caca16 22-25,27-30,32,47,65-69,866-872,874-954,1188-1189,1308-1312,1345,1363-1367,1417-1423,1449-1450,1453
+scripts/diagnostics/assertPdfNavigationBlinkTraceSummary.ts
+  s_a020a49c99c2c5::t_7b624a01caca16 9-10,17-19,106-119,122
+  s_a020a49c99c2c5::t_061ac7ed2cd0ec 120-121
+tests/unit/app/modules/pdf-viewer/viewportAuthority.test.ts
+  s_a020a49c99c2c5::t_7b624a01caca16 160,174,181-213
+  s_a020a49c99c2c5::t_3589c2e0483a11 214-215
+tests/unit/scripts/pdfNavigationBlinkTrace.test.ts
+  s_a020a49c99c2c5::t_7b624a01caca16 27-28,31-36,46,48-50,313-435
+  s_a020a49c99c2c5::t_186a5fb46f904b 436
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_a020a49c99c2c5::t_7b624a01caca16 414
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_a020a49c99c2c5::t_7b624a01caca16 68,129,190-192,205-212,215-216,235,238-241,286-297,342-357,363,529,556
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_b3eba3f665eb5c::t_512174b2275b6c 43,83-84,99,175-178,194-196,378-384,446,450-465,472,477,578,593-595,687-689,699-704,716-723,1187
+app/modules/pdf-viewer/runtime/viewport/createViewportAuthority.ts
+  s_b3eba3f665eb5c::t_e14785a76899b3 66,254-255
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_b3eba3f665eb5c::t_70dcec850a5fd8 9,338,351-353,590,608-609,643-648,653-657,680-689,696-697,706-717
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_b3eba3f665eb5c::t_e698bf6e17ebd9 236,264-265,284-291,299-356
+app/modules/pdf-viewer/runtime/navigation/createPdfNavigationVisualHandoff.ts
+  s_a020a49c99c2c5::t_87289c49c85d84 1-49
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_d1e2596b00a487::t_858abb8afd28f4 38,108
+scripts/diagnostics/pdfNavigationBlinkTraceOptions.ts
+  s_a020a49c99c2c5::t_4f0bb7c3a4c092 1-120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3bcd6c7636af706e0951e143eeb14aa4907d5b1c",
+  "prompts": {},
+  "sessions": {
+    "s_a020a49c99c2c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0567f-c2a9-7121-b191-19eb8be7a25e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b3eba3f665eb5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05717-85ca-7122-bcf1-13656e3d390b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d1e2596b00a487": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0573a-c63e-7712-bf6f-695ca145a643",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,82 @@
+app/platform/browserDocumentStore.ts
+  s_7fe07412ad5143::t_0d7e6308716c54 14-17
+electron/features/documents/main/managedTempFileHandles.ts
+  s_7fe07412ad5143::t_e1393df71e7af3 551-553
+tests/unit/electron/managedTempFileHandles.test.ts
+  s_7fe07412ad5143::t_9f7a660af5b295 28-29,198-206,212-224
+  s_7fe07412ad5143::t_b0ee796c3352e1 207-211
+  s_7fe07412ad5143::t_83ac6062cc6910 225-226
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_7fe07412ad5143::t_33c5ca2ab7dd55 9,140-149
+packages/contracts/index.ts
+  s_7fe07412ad5143::t_d36d852ab7c128 199,201-202,206,210
+app/platform/browser/browserStagedArtifact.ts
+  s_7fe07412ad5143::t_b0ee796c3352e1 20-23,48-50,68-71
+  s_7fe07412ad5143::t_ed1a99a9da2d93 75-77
+  s_7fe07412ad5143::t_4bddcefa8988cc 25-31,140-141,144-145
+  s_7fe07412ad5143::t_a842ff1308751d 1-19,24,32-47,51-67,72-74,78-139,142-143,146-147
+app/platform/browser/browserDocumentRecordStore.ts
+  s_7fe07412ad5143::t_5345ea792f50dd 352-357
+tests/unit/app/platform/browserStagedArtifact.test.ts
+  s_7fe07412ad5143::t_8c8297d89fb569 3,48-51,68,70-73,114-115
+  s_7fe07412ad5143::t_1ff0fd22f49a55 1-2,4-47,52-60,62-67,69,78-84,99,110-113,151-159,161-187,189-232,292
+  s_7fe07412ad5143::t_1eac3d260564d6 188,286
+  s_7fe07412ad5143::t_6ac6f02d6481a8 61
+  s_7fe07412ad5143::t_ef8d6a854e7b75 261
+  s_7fe07412ad5143::t_ecf5bec20bfb87 272
+  s_7fe07412ad5143::t_0acbca0a6396eb 74-77
+  s_7fe07412ad5143::t_b6e218e3e8bb6e 160,241-252
+  s_7fe07412ad5143::t_c0b31091117a55 233-240,253-260,262-269,273-285,287-291
+  s_7fe07412ad5143::t_7ff8809fc4eaef 85-98,100-109,116-150
+  s_7fe07412ad5143::t_5f201d7e9886d2 270-271
+tests/unit/contracts/stagedArtifacts.test.ts
+  s_7fe07412ad5143::t_d948f34e4fcdf1 140-163
+  s_7fe07412ad5143::t_be5a72a3ca93f6 7,9-10,13,16-17,92-139,164-216
+  s_eb7ba9db0ef355::t_517fe3e972c44a 217
+packages/contracts/stagedArtifacts.ts
+  s_7fe07412ad5143::t_fea622a49c710d 2-4,27-38,84-99,101-137,168,241-250,283-290
+  s_7fe07412ad5143::t_ed1a99a9da2d93 100
+  s_7fe07412ad5143::t_a6bdf1f616b0de 15
+  s_7fe07412ad5143::t_3938b70df62e65 39
+  s_7fe07412ad5143::t_87ce27d81b623b 1
+tests/unit/electron/documentSaveUtilityProtocol.test.ts
+  s_7fe07412ad5143::t_61015cb92fc8df 13-14,309-311,317,319-321,326-332,334-342
+  s_7fe07412ad5143::t_a625f65800b401 316,318,323
+  s_7fe07412ad5143::t_b26f382516081e 312-315,322,324-325,333
+  s_7fe07412ad5143::t_fc666dda426597 343-344
+app/platform/browser/browserDocumentRepository.ts
+  s_7fe07412ad5143::t_07c927448259fe 1,13,15,33,53-56
+  s_7fe07412ad5143::t_5d9f38e60e3f7d 409-412,422-428,433,438-474,479-529,531-570,572-578
+  s_7fe07412ad5143::t_1c9b8188af83e3 25,140-172,174
+  s_7fe07412ad5143::t_5345ea792f50dd 173,408,413-421,571,579-581,588-589
+  s_7fe07412ad5143::t_6eda63e171250e 530
+  s_7fe07412ad5143::t_47d8b9ef1a8cdb 2-5,35
+  s_7fe07412ad5143::t_804f00998ad0f6 48
+  s_7fe07412ad5143::t_a57a04e0230d8f 429,582-587
+  s_7fe07412ad5143::t_c4f2752f8c0e52 430-432,434-437,475-478
+  s_eb7ba9db0ef355::t_722922c9c2a813 175
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b91cd7d039149bb3981275b82c3802d337c59a4e",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

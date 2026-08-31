@@ -1,0 +1,21 @@
+scripts/build-native-tool.mjs
+  s_90243f0be7f87a::t_a49d8ed6f2b3d7 33,42,48-56,230-231,235,269,299-300,314,347,352
+tests/unit/scripts/cargoArtifacts.test.ts
+  s_90243f0be7f87a::t_a49d8ed6f2b3d7 214-231,233-247
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ee217cdd5ece70cd1617256e839e8ce5e006be62",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
