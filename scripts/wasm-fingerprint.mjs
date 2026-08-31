@@ -35,6 +35,7 @@ const IGNORED_DIRECTORY_NAMES = new Set([
     '.git',
     'target',
 ]);
+const IGNORED_FILE_NAMES = new Set(['auto-imports.d.ts']);
 
 function encodeUnsignedLeb128(value) {
     const bytes = [];
@@ -98,6 +99,9 @@ async function collectFiles(sourcePath, relativePath, files) {
         return;
     }
     if (metadata.isFile()) {
+        if (IGNORED_FILE_NAMES.has(path.basename(sourcePath))) {
+            return;
+        }
         files.push({
             path: sourcePath,
             relativePath,

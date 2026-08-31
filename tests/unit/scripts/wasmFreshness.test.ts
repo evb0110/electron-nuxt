@@ -238,6 +238,33 @@ describe('WASM freshness check', () => {
         }
     });
 
+    it('ignores generated Nuxt type declarations under native sources', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-fingerprint-'));
+        const sourceRoot = path.join(tempRoot, 'native', 'scan-cleanup');
+        const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
+
+        try {
+            await mkdir(sourceRoot, {recursive: true});
+            writeFileSync(path.join(sourceRoot, 'source.rs'), 'const VALUE: u8 = 1;\n');
+            const beforeGeneratedTypes = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+            });
+            writeFileSync(path.join(sourceRoot, 'auto-imports.d.ts'), 'declare const generated: true;\n');
+            const afterGeneratedTypes = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+            });
+
+            expect(afterGeneratedTypes).toBe(beforeGeneratedTypes);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('allows byte differences in portable mode while still reporting freshness', async () => {
         const artifact = {
             ...WASM_FRESHNESS_ARTIFACTS[0]!,
