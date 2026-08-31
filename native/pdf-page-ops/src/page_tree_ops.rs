@@ -567,6 +567,7 @@ fn remap_browser_page_labels(
             start_number: label
                 .get(b"St")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_i64().ok())
                 .unwrap_or(1)
                 .clamp(1, MAX_BROWSER_PAGE_LABEL_NUMBER),

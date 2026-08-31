@@ -538,11 +538,6 @@ impl<W: IoWrite> PdfWriter<W> {
         let page_height = page_size
             .map(|size| size.height_points)
             .unwrap_or_else(|| points(page.height, page.dpi));
-        let (media_width, media_height) = if matches!(rotation_degrees, 90 | 270) {
-            (page_height, page_width)
-        } else {
-            (page_width, page_height)
-        };
         let rotation = if rotation_degrees == 0 {
             String::new()
         } else {
@@ -550,10 +545,10 @@ impl<W: IoWrite> PdfWriter<W> {
         };
         let page_body = format!(
             "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 {:.4} {:.4}]{} /Resources << /XObject << /{} {} 0 R >> >> /Contents {} 0 R >>",
-            media_width, media_height, rotation, image_name, image_object, content_object
+            page_width, page_height, rotation, image_name, image_object, content_object
         );
         self.push_object(page_object, page_body.as_bytes())?;
-        self.page_dimensions.push((media_width, media_height));
+        self.page_dimensions.push((page_width, page_height));
         self.push_image_object(image_object, page, icc_object)?;
         if let (Some(object_number), Some(profile)) = (icc_object, page.icc_profile.as_ref()) {
             let components = if page.color_space == "DeviceGray" {
@@ -1762,7 +1757,7 @@ mod tests {
     }
 
     #[test]
-    fn image_rotation_emits_rotate_and_swaps_the_media_box() {
+    fn image_rotation_emits_rotate_without_swapping_the_media_box() {
         let page = ImagePage {
             width: 2,
             height: 2,
@@ -1786,7 +1781,7 @@ mod tests {
                 .unwrap();
             let pdf = String::from_utf8_lossy(&writer.finish().unwrap()).into_owned();
             assert!(pdf.contains(&format!(
-                "/MediaBox [0 0 200.0000 100.0000] /Rotate {rotation}"
+                "/MediaBox [0 0 100.0000 200.0000] /Rotate {rotation}"
             )));
             assert!(pdf.contains("q 100.0000 0 0 200.0000 0 0 cm /Im1 Do Q"));
         }

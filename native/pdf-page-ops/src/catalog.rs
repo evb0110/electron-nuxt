@@ -194,6 +194,7 @@ fn read_outline_items(
         let title = dictionary
             .get(b"Title")
             .ok()
+            .and_then(|value| document.resolved(value).ok())
             .and_then(pdf_string_to_text)
             .unwrap_or_else(|| "Untitled".to_string());
         let destination = dictionary.get(b"Dest").ok().cloned().or_else(|| {
