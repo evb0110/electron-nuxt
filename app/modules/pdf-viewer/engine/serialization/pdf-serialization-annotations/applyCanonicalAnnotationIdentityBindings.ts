@@ -88,30 +88,30 @@ export function applyCanonicalAnnotationIdentityBindings(
         }
         const pageIndex = binding.fields.pageIndex;
         const kind = binding.fields.kind;
-        const identity = binding.fields.identity;
-        if (typeof pageIndex !== 'number' || (kind !== 'sticky-note' && kind !== 'text-markup')) {
+        if (
+            typeof pageIndex !== 'number'
+            || (kind !== 'note' && kind !== 'text-box' && kind !== 'text-markup')
+        ) {
             return;
         }
+        const isMarkup = kind === 'text-markup';
         expected.push({
             id: binding.annotationId,
             appAnnotationId: binding.annotationId,
-            stableKey: `src:editor:${pageIndex}:${binding.annotationId}`,
+            stableKey: `ann:${pageIndex}:editor:${binding.annotationId}`,
             pageIndex,
             pageNumber: pageIndex + 1,
             text: '',
-            ...(kind === 'text-markup' && typeof binding.fields.subtype === 'string'
+            ...(isMarkup && typeof binding.fields.subtype === 'string'
                 ? {subtype: binding.fields.subtype}
                 : {subtype: 'FreeText'}),
             author: null,
             modifiedAt: null,
             color: null,
-            uid: typeof identity === 'object' && identity !== null
-                && typeof Reflect.get(identity, 'pdfjsUid') === 'string'
-                ? Reflect.get(identity, 'pdfjsUid') as string
-                : null,
+            uid: null,
             annotationId: null,
             source: 'editor',
-            hasNote: kind === 'sticky-note',
+            hasNote: kind === 'note',
             markerRect: null,
         });
     });

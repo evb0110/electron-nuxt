@@ -91,7 +91,7 @@ export function createRoundTripNote(
 ): IAnnotationCommentSummary {
     return {
         id: identity,
-        stableKey: `uid:0:${identity}`,
+        stableKey: `ann:0:${identity}`,
         pageIndex: 0,
         pageNumber: 1,
         text,

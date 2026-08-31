@@ -251,7 +251,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
         const canonicalComment = {
             appAnnotationId: 'canonical-note',
             id: 'canonical-note',
-            stableKey: 'src:editor:0:canonical-note' as const,
+            stableKey: 'ann:0:canonical-note' as const,
             pageIndex: 0,
             pageNumber: 1,
             text: '',
@@ -289,7 +289,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
                 scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: (editor, pageIndex, text) => ({
                     id: String(editor.id),
-                    stableKey: `src:editor:${pageIndex}:${String(editor.id)}`,
+                    stableKey: `ann:${pageIndex}:${String(editor.id)}`,
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     text,
@@ -447,7 +447,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: (_editor, pageIndex) => ({
                     id: 'created-editor',
-                    stableKey: `src:editor:${pageIndex}:created-editor`,
+                    stableKey: `ann:${pageIndex}:created-editor`,
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     text: '',
@@ -473,7 +473,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                     comment: {
                         appAnnotationId: 'canonical-highlight',
                         id: 'canonical-highlight',
-                        stableKey: 'src:editor:0:canonical-highlight',
+                        stableKey: 'ann:0:canonical-highlight',
                         pageIndex: 0,
                         pageNumber: 1,
                         text: '',
@@ -597,7 +597,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                 scheduleAnnotationCommentsSync: () => {},
                 toEditorSummary: (_editor, pageIndex) => ({
                     id: 'created-editor',
-                    stableKey: `src:editor:${pageIndex}:created-editor`,
+                    stableKey: `ann:${pageIndex}:created-editor`,
                     pageIndex,
                     pageNumber: pageIndex + 1,
                     text: '',
@@ -625,7 +625,7 @@ describe('useAnnotationHighlight highlightSelectionInternal', () => {
                         comment: {
                             appAnnotationId: 'canonical-highlight',
                             id: 'canonical-highlight',
-                            stableKey: 'src:editor:0:canonical-highlight',
+                            stableKey: 'ann:0:canonical-highlight',
                             pageIndex: 0,
                             pageNumber: 1,
                             text: '',

@@ -84,8 +84,8 @@ describe('usePdfViewerSaveTransaction', () => {
 
     it('serializes the synchronous canonical frontier and CAS-preserves a newer mutation', async () => {
         const application = new AnnotationApplication('save-transaction-document');
-        const created = application.store.createStickyNote({
-            kind: 'sticky-note',
+        const created = application.store.createNote({
+            kind: 'note',
             identity: {id: asAnnotationId('save-transaction-note')},
             pageIndex: 0,
             revision: 0,
@@ -94,14 +94,15 @@ describe('usePdfViewerSaveTransaction', () => {
             createdAt: null,
             modifiedAt: null,
             author: null,
-            text: 'canonical before PDF.js projection',
-            anchor: {
+            contents: 'canonical before PDF.js projection',
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.01,
                 height: 0.01,
             },
             color: '#ffcc00',
+            open: false,
         });
         const events: string[] = [];
         const bytes = new Uint8Array([
@@ -113,7 +114,7 @@ describe('usePdfViewerSaveTransaction', () => {
             annotationApplication: shallowRef(application),
             documentRevisionToken: computed(() => requireDocumentRevisionToken('revision-1')),
             flushAnnotationMutationsForSave: async () => {
-                expect(application.store.get(created.identity.id)).toMatchObject({text: 'canonical before PDF.js projection'});
+                expect(application.store.get(created.identity.id)).toMatchObject({contents: 'canonical before PDF.js projection'});
                 events.push('pdfjs-projection');
             },
             materializePdfJsDocumentForInternalUse: async () => {
@@ -134,11 +135,11 @@ describe('usePdfViewerSaveTransaction', () => {
             ?? result.baseBytes,
         ).toEqual(bytes);
 
-        application.store.setNoteText(created.identity.id, 'newer while serialized bytes publish');
+        application.store.updateNote(created.identity.id, {contents: 'newer while serialized bytes publish'});
         expect(() => result.commitAnnotationSave?.()).toThrow('staleRevisionError');
 
         expect(application.store.get(created.identity.id)).toMatchObject({
-            text: 'newer while serialized bytes publish',
+            contents: 'newer while serialized bytes publish',
             persistedRevision: -1,
         });
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
@@ -174,11 +175,10 @@ describe('usePdfViewerSaveTransaction', () => {
             height: 0.02,
         };
         const application = new AnnotationApplication('persisted-anchor-document');
-        application.store.import({
-            kind: 'sticky-note',
+        application.store.replaceFromDocument([{
+            kind: 'note',
             identity: {
                 id: asAnnotationId('persisted-note'),
-                elementId: editorKey,
                 pdfRef: '12R',
             },
             pageIndex: 0,
@@ -188,10 +188,11 @@ describe('usePdfViewerSaveTransaction', () => {
             createdAt: 1_781_000_000_000,
             modifiedAt: null,
             author: 'Tester',
-            text: 'saved note',
-            anchor: markerRect,
+            contents: 'saved note',
+            position: markerRect,
             color: '#f59e0b',
-        });
+            open: false,
+        }], []);
         const anchorEditor = {};
         Object.assign(getPdfjsEditorFacadeState(anchorEditor), {
             canonicalAnnotationId: 'persisted-note',
@@ -331,11 +332,8 @@ describe('usePdfViewerSaveTransaction', () => {
 
     it('projects a canonical editor FreeText note to bounded native mutations', async () => {
         const note = {
-            kind: 'sticky-note',
-            identity: {
-                id: asAnnotationId('anno_large_pdf_note'),
-                elementId: 'pdfjs_internal_editor_0',
-            },
+            kind: 'text-box',
+            identity: {id: asAnnotationId('anno_large_pdf_note')},
             pageIndex: 6,
             revision: 1,
             persistedRevision: -1,
@@ -344,12 +342,14 @@ describe('usePdfViewerSaveTransaction', () => {
             modifiedAt: null,
             author: 'Tester',
             text: 'Large PDF native note',
-            anchor: {
+            rect: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.2,
                 height: 0.1,
             },
+            rotation: 0,
+            fontSize: 16,
             color: '#ffcc00',
         } as const;
         const getSourcePdfData = vi.fn(async () => new Uint8Array([9]));
@@ -427,12 +427,8 @@ describe('usePdfViewerSaveTransaction', () => {
 
     it('keeps a restored Cyrillic popup note on the bounded native route', async () => {
         const note = {
-            kind: 'sticky-note',
-            identity: {
-                id: asAnnotationId('anno_restored_popup_note'),
-                elementId: 'pdfjs_internal_editor_0',
-                pdfjsUid: 'pdfjs_internal_editor_0',
-            },
+            kind: 'text-box',
+            identity: {id: asAnnotationId('anno_restored_popup_note')},
             pageIndex: 0,
             revision: 1,
             persistedRevision: -1,
@@ -441,41 +437,22 @@ describe('usePdfViewerSaveTransaction', () => {
             modifiedAt: null,
             author: null,
             text: 'фвыафыва',
-            anchor: {
+            rect: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.02,
                 height: 0.02,
             },
+            rotation: 0,
+            fontSize: 16,
             color: '#ffcc00',
         } as const;
         const annotationStorage = {
             serializable: {
-                map: new Map([[
-                    'pdfjs_internal_editor_0',
-                    {
-                        annotationType: 3,
-                        pageIndex: 0,
-                        rect: [
-                            20,
-                            30,
-                            40,
-                            50,
-                        ],
-                        rotation: 0,
-                        color: [
-                            255,
-                            204,
-                            0,
-                        ],
-                        fontSize: 16,
-                        value: 'фвыафыва',
-                        id: null,
-                    },
-                ]]),
+                map: new Map(),
                 hash: 'restored-unicode-popup-note',
             },
-            modifiedIds: {ids: new Set([null])},
+            modifiedIds: {ids: new Set()},
             resetModifiedIds: vi.fn(),
         };
         const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
@@ -934,9 +911,8 @@ describe('usePdfViewerSaveTransaction', () => {
         const deletedHighlight = {
             kind: 'text-markup',
             identity: {
-                id: 'anno_delete_test',
+                id: asAnnotationId('anno_delete_test'),
                 pdfRef: '9R',
-                pdfjsUid: 'pdfjs_internal_editor_0',
             },
             pageIndex: 0,
             revision: 1,
@@ -946,8 +922,8 @@ describe('usePdfViewerSaveTransaction', () => {
             modifiedAt: 1,
             author: null,
             subtype: 'Highlight',
-            text: '',
-            geometry: [{
+            contents: '',
+            quadPoints: [{
                 left: 0.1,
                 top: 0.1,
                 width: 0.2,
@@ -965,7 +941,7 @@ describe('usePdfViewerSaveTransaction', () => {
                 },
                 modifiedIds: {ids: new Set([
                     'anno_delete_test',
-                    'pdfjs_internal_editor_0',
+                    '9R',
                 ])},
                 resetModifiedIds: vi.fn(),
             }}) as never),

@@ -35,7 +35,7 @@ const LARGE_COMMENT_COUNT = 80;
 function createComment(index: number, textLength: number): IAnnotationCommentSummary {
     return {
         id: `comment-${index}`,
-        stableKey: `src:pdf:0:${index}` as const,
+        stableKey: `ann:0:${index}` as const,
         sortIndex: index,
         pageIndex: 0,
         pageNumber: 1,

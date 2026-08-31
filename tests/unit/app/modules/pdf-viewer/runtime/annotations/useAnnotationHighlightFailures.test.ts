@@ -81,7 +81,7 @@ function createPage(pageNumber: number) {
 function summaryFor(id: string, pageIndex: number): IAnnotationCommentSummary {
     return {
         id,
-        stableKey: `src:editor:${pageIndex}:${id}`,
+        stableKey: `ann:${pageIndex}:${id}`,
         pageIndex,
         pageNumber: pageIndex + 1,
         text: '',

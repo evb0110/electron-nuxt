@@ -71,7 +71,7 @@ function createEditorOpenNote(
 ): IAnnotationCommentSummary {
     return {
         ...baseComment,
-        stableKey: 'uid:504:open-note',
+        stableKey: 'ann:504:open-note',
         id: 'open-note',
         source: 'editor',
         annotationId: null,
@@ -378,7 +378,7 @@ describe('usePageAnnotationActions', () => {
                 viewer,
                 actions,
             } = createHarness();
-            const comment = createComment('src:editor:0:transient-note');
+            const comment = createComment('transient-note');
             comment.source = 'editor';
             comment.id = 'transient-note';
             comment.subtype = 'FreeText';
@@ -414,7 +414,7 @@ describe('usePageAnnotationActions', () => {
                 viewer,
                 actions,
             } = createHarness();
-            const comment = createComment('src:editor:0:transient-note');
+            const comment = createComment('transient-note');
             comment.source = 'editor';
             comment.id = 'transient-note';
             comment.subtype = 'FreeText';
@@ -433,7 +433,7 @@ describe('usePageAnnotationActions', () => {
                 ...openedComment,
                 id: 'actual-editor',
                 uid: 'actual-editor',
-                stableKey: 'uid:0:actual-editor',
+                stableKey: 'ann:0:actual-editor',
                 text: 'Saved note text',
                 modifiedAt: Date.now() + 1_000,
             };
@@ -1381,7 +1381,7 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        const comment = createComment('uid:0:pdfjs_internal_editor_0');
+        const comment = createComment('pdfjs_internal_editor_0');
         comment.source = 'editor';
         comment.annotationId = 'pdfjs_internal_editor_0';
         comment.uid = 'pdfjs_internal_editor_0';

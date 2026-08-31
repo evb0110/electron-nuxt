@@ -41,7 +41,7 @@ function createElement(
 function createSummary(overrides: Partial<IAnnotationCommentSummary>): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'ann',
-        stableKey: overrides.stableKey ?? `src:pdf:0:${overrides.id ?? 'ann'}`,
+        stableKey: overrides.stableKey ?? `ann:0:${overrides.id ?? 'ann'}`,
         sortIndex: null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,

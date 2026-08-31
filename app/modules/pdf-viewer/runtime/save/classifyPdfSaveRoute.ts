@@ -99,23 +99,13 @@ export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
 export type TPdfSaveRouteDecision = IPdfSaveNativeRouteDecision | IPdfSaveByteRouteDecision;
 
 function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
-    const source = entity.persistedRevision >= 0
-        && (entity.identity.pdfRef || entity.identity.pdfName)
-        ? 'pdf'
-        : 'editor';
-    // A replayed editor can briefly retain the object ref retired by the
-    // preceding native delete. A managed name identifies that canonical
-    // editor record, so the ref must not be reused as a native target. Keep
-    // ordinary editor aliases intact because they may still be live refs.
-    const retiredEditorPdfRef = source === 'editor'
-        && Boolean(entity.identity.pdfName)
-        && Boolean(entity.identity.pdfRef);
-    const id = entity.identity.elementId
-        ?? entity.identity.pdfjsUid
-        ?? entity.identity.pdfRef
-        ?? entity.identity.id;
-    const annotationId = retiredEditorPdfRef ? null : entity.identity.pdfRef ?? null;
-    const uid = entity.identity.pdfjsUid ?? null;
+    const source = entity.kind === 'shape'
+        ? 'shape' as const
+        : entity.persistedRevision >= 0 && entity.identity.pdfRef
+            ? 'pdf' as const
+            : 'editor' as const;
+    const id = entity.identity.pdfRef ?? entity.identity.id;
+    const annotationId = entity.identity.pdfRef ?? null;
     const common = {
         appAnnotationId: entity.identity.id,
         id,
@@ -123,40 +113,47 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
             id,
             pageIndex: entity.pageIndex,
             source,
-            uid,
             annotationId,
-            ...(entity.identity.pdfName ? {annotationName: entity.identity.pdfName} : {}),
         }),
         pageIndex: entity.pageIndex,
         pageNumber: entity.pageIndex + 1,
         author: entity.author,
         createdAt: entity.createdAt,
         modifiedAt: entity.modifiedAt,
-        uid,
+        uid: null,
         annotationId,
-        ...(entity.identity.pdfName ? {annotationName: entity.identity.pdfName} : {}),
         source,
     } as const;
-    if (entity.kind === 'sticky-note') {
+    if (entity.kind === 'text-box') {
         return {
             ...common,
             text: entity.text,
             subtype: 'FreeText',
             color: entity.color,
+            hasNote: Boolean(entity.text),
+            markerRect: structuredClone(entity.rect),
+        };
+    }
+    if (entity.kind === 'note') {
+        return {
+            ...common,
+            text: entity.contents,
+            subtype: 'Text',
+            color: entity.color,
             hasNote: true,
-            markerRect: structuredClone(entity.anchor),
+            markerRect: structuredClone(entity.position),
         };
     }
     if (entity.kind === 'text-markup') {
         return {
             ...common,
-            text: entity.text,
+            text: entity.contents,
             subtype: entity.subtype,
             color: entity.color,
             opacity: entity.opacity,
-            hasNote: Boolean(entity.text),
-            markerRect: structuredClone(entity.geometry[0] ?? null),
-            markupGeometry: structuredClone(entity.geometry),
+            hasNote: Boolean(entity.contents),
+            markerRect: structuredClone(entity.quadPoints[0] ?? null),
+            markupGeometry: structuredClone(entity.quadPoints),
         };
     }
     if (entity.kind === 'placed-image') {
@@ -172,16 +169,16 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
     return {
         ...common,
         source: 'shape',
-        id: entity.geometry.id,
+        id: entity.identity.id,
         stableKey: computeSummaryStableKey({
-            id: entity.geometry.id,
+            id: entity.identity.id,
             pageIndex: entity.pageIndex,
             source: 'shape',
         }),
         text: '',
-        color: entity.geometry.color,
+        color: entity.strokeColor,
         hasNote: false,
-        markerRect: null,
+        markerRect: structuredClone(entity.rect),
     };
 }
 
@@ -202,12 +199,10 @@ function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnota
     changedEntities.forEach((entity) => {
         [
             entity.identity.id,
-            entity.identity.elementId,
-            entity.identity.pdfjsUid,
             entity.identity.pdfRef,
         ].forEach((candidate) => {
             addReplayableAnnotationId(ids, candidate);
-            if (entity.kind === 'sticky-note') {
+            if (entity.kind === 'note' || entity.kind === 'text-box') {
                 addReplayableAnnotationId(replayableEditorNoteIds, candidate);
             }
         });
@@ -337,8 +332,8 @@ function deriveCanonicalSaveInputs(
             pendingDeletes.push(summary);
             return;
         }
-        if (entity.kind === 'sticky-note' && (entity.identity.pdfRef || entity.identity.pdfName)) {
-            pendingTexts.set(summary.stableKey, entity.text);
+        if ((entity.kind === 'note' || entity.kind === 'text-box') && entity.identity.pdfRef) {
+            pendingTexts.set(summary.stableKey, summary.text);
         }
     });
     const liveAnnotationChanges = resolveLiveAnnotationChanges(
@@ -655,7 +650,9 @@ function buildClassifiedNativeMutationProjection(
         .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
         .map(entitySummary);
     const persistedComments = plan.entities
-        .filter(entity => entity.kind === 'sticky-note' && !entity.deleted && !isActuallyChangedEntity(entity))
+        .filter(entity => (entity.kind === 'note' || entity.kind === 'text-box')
+            && !entity.deleted
+            && !isActuallyChangedEntity(entity))
         .map(entitySummary);
     const noteTextUpdatesResult = replayAllowed && canonical.pendingTexts.size > 0
         ? buildNativeNoteTextUpdatesForSave({

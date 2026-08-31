@@ -137,7 +137,7 @@ function createFakeUiManager(
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'editor-1',
-        stableKey: overrides.stableKey ?? 'src:editor:0:editor-1',
+        stableKey: overrides.stableKey ?? 'ann:0:editor-1',
         sortIndex: overrides.sortIndex ?? null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
@@ -527,7 +527,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const orphan = createComment({
             id: 'missing-id',
             uid: 'missing-id',
-            stableKey: 'src:editor:0:missing-id',
+            stableKey: 'ann:0:missing-id',
         });
 
         const result = await harness.crud.deleteAnnotationComment(orphan);
@@ -554,7 +554,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const staleNote = createComment({
             id: 'stale-note',
             uid: null,
-            stableKey: 'src:editor:0:stale-note',
+            stableKey: 'ann:0:stale-note',
             text: '',
             subtype: 'FreeText',
             hasNote: true,
@@ -578,7 +578,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const unrelated = createComment({
             id: 'kept',
             uid: 'kept',
-            stableKey: 'src:editor:0:kept',
+            stableKey: 'ann:0:kept',
             text: 'keep me',
         });
         const harness = await createHarness({
@@ -590,7 +590,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
         const unknown = createComment({
             id: 'never-existed',
             uid: 'never-existed',
-            stableKey: 'src:editor:0:never-existed',
+            stableKey: 'ann:0:never-existed',
             text: '',
         });
 
@@ -633,7 +633,7 @@ describe('useAnnotationCrud annotation comment interactions', () => {
             annotationId: 'pdf-anno-1',
             uid: null,
             id: 'pdf-anno-1',
-            stableKey: 'src:pdf:0:pdf-anno-1',
+            stableKey: 'ann:0:pdf-anno-1',
         });
 
         await harness.crud.deleteAnnotationComment(pdfComment);

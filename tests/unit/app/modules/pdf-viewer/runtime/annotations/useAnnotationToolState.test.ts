@@ -15,7 +15,10 @@ import {
 } from 'vue';
 import type { ShallowRef } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import type { IAnnotationSettings } from '@app/types/annotations';
+import type {
+    IAnnotationSettings,
+    TMarkupSubtype,
+} from '@app/types/annotations';
 import { cast } from '@tests/helpers/cast';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -788,6 +791,7 @@ describe('useAnnotationToolState', () => {
     it('absorbs pending editor aliases into Store ingestion and the save projection', async () => {
         const useAnnotationToolState = await loadUseAnnotationToolState();
         const application = new AnnotationApplication('markup-alias-document');
+        const canonicalMarkupSubtypes = new Map<string, TMarkupSubtype>();
         const canonicalEditor = {
             id: 'editor-52',
             annotationElementId: '52R0',
@@ -801,16 +805,17 @@ describe('useAnnotationToolState', () => {
         const uiManager = createUiManager({ getEditors: vi.fn(() => [canonicalEditor]) });
         const manager = useAnnotationToolState(createToolStateOptions(uiManager, {
             getEditorIdentity: (editor: { id?: string }) => editor.id ?? 'missing-id',
-            getCanonicalMarkupSubtypes: () => application.store.markupSubtypesByExternalId(),
+            getCanonicalMarkupSubtypes: () => new Map(canonicalMarkupSubtypes),
             recordCanonicalMarkupSubtype: (aliases: readonly string[], subtype: 'Highlight' | 'Underline' | 'StrikeOut' | 'Squiggly') => {
-                application.store.setPendingMarkupSubtype(aliases, subtype);
+                aliases.forEach(alias => canonicalMarkupSubtypes.set(alias, subtype));
             },
-            resolveCanonicalMarkupSubtype: (aliases: readonly string[]) =>
-                application.store.resolveMarkupSubtype(aliases),
+            resolveCanonicalMarkupSubtype: (aliases: readonly string[]) => aliases
+                .map(alias => canonicalMarkupSubtypes.get(alias))
+                .find((subtype): subtype is TMarkupSubtype => subtype !== undefined) ?? null,
             forgetCanonicalMarkupSubtypeIntents: (aliases: readonly string[]) => {
-                application.store.forgetPendingMarkupSubtypes(aliases);
+                aliases.forEach(alias => canonicalMarkupSubtypes.delete(alias));
             },
-            clearCanonicalMarkupSubtypeIntents: () => application.store.clearPendingMarkupSubtypes(),
+            clearCanonicalMarkupSubtypeIntents: () => canonicalMarkupSubtypes.clear(),
             tool: 'underline',
         }));
 
@@ -838,7 +843,7 @@ describe('useAnnotationToolState', () => {
             pageIndex: 0,
             pageNumber: 1,
             text: '',
-            subtype: 'Highlight',
+            subtype: 'Underline',
             author: null,
             modifiedAt: null,
             color: '#ffff00',
@@ -853,7 +858,7 @@ describe('useAnnotationToolState', () => {
                 height: 0.05,
             },
         } as const;
-        application.ingestLegacySummaries([ingestionSummary]);
+        application.replaceFromDocumentSummaries([ingestionSummary]);
 
         const [canonical] = application.store.list();
         expect(canonical).toMatchObject({
@@ -876,15 +881,20 @@ describe('useAnnotationToolState', () => {
         ]));
 
         manager.setEditorMarkupSubtypeOverride(canonicalEditor, 0, 'StrikeOut');
-        application.ingestLegacySummaries([ingestionSummary]);
+        application.replaceFromDocumentSummaries([{
+            ...ingestionSummary,
+            subtype: 'StrikeOut',
+        }]);
         expect(application.store.get(canonical!.identity.id)).toMatchObject({
-            revision: 1,
+            revision: 0,
             subtype: 'StrikeOut',
         });
         expect(new Set(manager.getMarkupSubtypeOverrides().values())).toEqual(new Set(['StrikeOut']));
 
         application.store.delete(canonical!.identity.id);
         manager.forgetMarkupSubtypeOverride('52R0');
+        manager.forgetMarkupSubtypeOverride('editor-52');
+        manager.forgetMarkupSubtypeOverride('52R');
         expect(manager.getMarkupSubtypeOverrides()).toEqual(new Map());
     });
 

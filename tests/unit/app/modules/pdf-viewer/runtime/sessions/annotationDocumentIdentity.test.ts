@@ -61,7 +61,7 @@ function createComment(id: string): IAnnotationCommentSummary {
     return {
         source: 'editor',
         id,
-        stableKey: `uid:0:${id}` as TAnnotationStableKey,
+        stableKey: `ann:0:${id}` as TAnnotationStableKey,
         pageIndex: 0,
         pageNumber: 1,
         text: 'note',
@@ -210,7 +210,7 @@ function mountAnnotationSession(initial: {
             .list()
             .map(entity => entity.identity.id),
         ingest: (id: string) => activeSession.annotationApplication.value
-            .ingestLegacySummaries([createComment(id)]),
+            .replaceFromDocumentSummaries([createComment(id)]),
         syncPlacedImages: (annotationIds: readonly string[]) => activeSession.annotationCommentModel
             .applyFromSync(annotationIds.map(createPlacedImageComment)),
         projectedComments: () => activeSession.annotationApplication.value.listCommentSummaries(),
@@ -297,7 +297,7 @@ describe('annotation document identity', () => {
         expect(harness.storeDocumentKey()).toBe(firstKey);
     });
 
-    it('imports, reprojects, and deletes a placed image through the production session after a hard reopen', async () => {
+    it('leaves placed-image summaries to the canonical parser during a hard reopen', async () => {
         const harness = mountAnnotationSession({
             originalPath: '/documents/original.pdf',
             workingCopyPath: '/managed/working.pdf',
@@ -317,15 +317,8 @@ describe('annotation document identity', () => {
         } as PDFDocumentProxy;
 
         harness.syncPlacedImages(['44R']);
-        const [firstComment] = harness.projectedComments();
-        const [firstId] = harness.canonicalAnnotationIds();
-        expect(firstComment).toMatchObject({
-            appAnnotationId: firstId,
-            annotationId: '44R',
-            annotationName: 'placed-image-session-1',
-            subtype: 'Stamp',
-            hasNote: false,
-        });
+        expect(harness.canonicalAnnotationIds()).toEqual([]);
+        expect(harness.projectedComments()).toEqual([]);
         expect(harness.hasCanonicalChanges()).toBe(false);
 
         harness.pdfDocument.value = firstDocument;
@@ -336,18 +329,9 @@ describe('annotation document identity', () => {
         await nextTick();
 
         harness.syncPlacedImages(['91R']);
-        const [reopenedComment] = harness.projectedComments();
-        expect(harness.canonicalAnnotationIds()).toEqual([firstId]);
-        expect(reopenedComment).toMatchObject({
-            appAnnotationId: firstId,
-            annotationId: '91R',
-            annotationName: 'placed-image-session-1',
-            stableKey: 'nm:placed-image-session-1',
-        });
-        expect(harness.hasCanonicalChanges()).toBe(false);
-
-        expect(harness.deleteEmbeddedAnnotationDeferred(reopenedComment!)).toBe(true);
         expect(harness.canonicalAnnotationIds()).toEqual([]);
+        expect(harness.projectedComments()).toEqual([]);
+        expect(harness.hasCanonicalChanges()).toBe(false);
     });
 
     it('fails closed on duplicate placed-image names through the production comment sync', () => {

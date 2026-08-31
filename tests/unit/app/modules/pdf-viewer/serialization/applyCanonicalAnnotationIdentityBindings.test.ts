@@ -18,7 +18,7 @@ function comment(overrides: Partial<IAnnotationCommentSummary>): IAnnotationComm
     return {
         id: 'editor-1',
         appAnnotationId: 'anno_new_markup',
-        stableKey: 'uid:0:editor-1',
+        stableKey: 'ann:0:editor-1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',

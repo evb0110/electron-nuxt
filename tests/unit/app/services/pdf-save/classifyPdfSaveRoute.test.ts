@@ -11,7 +11,8 @@ import {
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
     AnnotationEntity,
-    IStickyNoteEntity,
+    ITextBoxEntity,
+    INoteEntity,
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
@@ -29,9 +30,9 @@ const MARKER_RECT = {
     height: 0.1,
 };
 
-function embeddedNote(id: string, pdfRef: string): IStickyNoteEntity {
+function embeddedNote(id: string, pdfRef: string): INoteEntity {
     return {
-        kind: 'sticky-note',
+        kind: 'note',
         identity: {
             id: asAnnotationId(id),
             pdfRef,
@@ -43,9 +44,10 @@ function embeddedNote(id: string, pdfRef: string): IStickyNoteEntity {
         createdAt: 1_781_000_000_000,
         modifiedAt: null,
         author: 'Tester',
-        text: `text-${id}`,
-        anchor: MARKER_RECT,
+        contents: `text-${id}`,
+        position: MARKER_RECT,
         color: '#ffcc00',
+        open: false,
     };
 }
 
@@ -59,11 +61,34 @@ function cleanEmbeddedFreeTextNote(id: string, pdfRef: string): AnnotationEntity
 
 function editorNote(id: string): AnnotationEntity {
     return {
-        kind: 'sticky-note',
-        identity: {
-            id: asAnnotationId(id),
-            elementId: 'pdfjs_internal_editor_0',
-        },
+        kind: 'note',
+        identity: {id: asAnnotationId(id)},
+        pageIndex: 0,
+        revision: 1,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: null,
+        author: 'Tester',
+        contents: `text-${id}`,
+        position: MARKER_RECT,
+        color: '#ffcc00',
+        open: false,
+    };
+}
+
+function cleanEditorNote(id: string): AnnotationEntity {
+    return {
+        ...editorNote(id),
+        revision: 0,
+        persistedRevision: 0,
+    };
+}
+
+function editorTextBox(id: string): ITextBoxEntity {
+    return {
+        kind: 'text-box',
+        identity: {id: asAnnotationId(id)},
         pageIndex: 0,
         revision: 1,
         persistedRevision: -1,
@@ -72,14 +97,16 @@ function editorNote(id: string): AnnotationEntity {
         modifiedAt: null,
         author: 'Tester',
         text: `text-${id}`,
-        anchor: MARKER_RECT,
+        rect: MARKER_RECT,
+        rotation: 0,
+        fontSize: 16,
         color: '#ffcc00',
     };
 }
 
-function cleanEditorNote(id: string): AnnotationEntity {
+function cleanEditorTextBox(id: string): ITextBoxEntity {
     return {
-        ...editorNote(id),
+        ...editorTextBox(id),
         revision: 0,
         persistedRevision: 0,
     };
@@ -97,8 +124,8 @@ function editorMarkup(id: string): ITextMarkupEntity {
         modifiedAt: 1,
         author: null,
         subtype: 'Highlight',
-        text: 'marked',
-        geometry: [MARKER_RECT],
+        contents: 'marked',
+        quadPoints: [MARKER_RECT],
         color: '#ffff00',
         opacity: 1,
     };
@@ -107,25 +134,20 @@ function editorMarkup(id: string): ITextMarkupEntity {
 function editorMarkupWithRuntimeIdentity(id: string): AnnotationEntity {
     return {
         ...editorMarkup(id),
-        identity: {
-            id: asAnnotationId(id),
-            elementId: 'pdfjs_internal_editor_0',
-        },
+        identity: {id: asAnnotationId(id)},
     };
 }
 
 function editorMarkupWithPdfAliases(
     id: string,
-    runtimeId = 'pdfjs_internal_editor_2',
-    pdfjsUid = 'pdfjs_markup_uid_2',
+    _runtimeId = 'pdfjs_internal_editor_2',
+    _pdfjsUid = 'pdfjs_markup_uid_2',
     pdfRef = '30R',
 ): AnnotationEntity {
     return {
         ...editorMarkup(id),
         identity: {
             id: asAnnotationId(id),
-            elementId: runtimeId,
-            pdfjsUid,
             pdfRef,
         },
     };
@@ -134,13 +156,12 @@ function editorMarkupWithPdfAliases(
 function deletedMarkup(
     id: string,
     pdfRef: string,
-    elementId?: string,
+    _elementId?: string,
 ): AnnotationEntity {
     return {
         ...editorMarkup(id),
         identity: {
             id: asAnnotationId(id),
-            ...(elementId ? {elementId} : {}),
             pdfRef,
         },
         deleted: true,
@@ -250,12 +271,12 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
 
 describe('classifyPdfSaveRoute annotation routes', () => {
     it('replays pending embedded annotation operations from source bytes', () => {
-        const decision = classifyPdfSaveRoute(planOf([], [editorNote('anno_editor_note')]), capabilities());
+        const decision = classifyPdfSaveRoute(planOf([embeddedNote('anno_editor_note', '19R')]), capabilities());
 
         expect(decision.annotationPlan).toMatchObject({
             route: 'source-replay',
             expectedCost: 'full-document',
-            reason: 'pending-embedded-annotation-operations',
+            reason: 'live-pdfjs-ids-covered-by-embedded-operations',
         });
     });
 
@@ -374,7 +395,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         const markup: AnnotationEntity = {
             ...embeddedMarkup('imported-markup-note', '44R'),
             revision: 1,
-            text: 'Edited imported note',
+            contents: 'Edited imported note',
         };
         const decision = classifyPdfSaveRoute(
             planOf([markup]),
@@ -430,10 +451,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                     shapeStateDirty: false,
                 },
                 liveAnnotationChanges: liveChanges({
-                    ids: new Set([
-                        'anno_new_markup',
-                        'pdfjs_internal_editor_0',
-                    ]),
+                    ids: new Set(['anno_new_markup']),
                     hasChanges: true,
                     fingerprint: 'new-markup',
                 }),
@@ -444,7 +462,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.nativeMutationProjection.hasMarkupMutations).toBe(true);
         expect(decision.nativeMutationProjection.mutations.markup?.hints).toEqual([expect.objectContaining({
-            id: 'pdfjs_internal_editor_0',
+            id: 'anno_new_markup',
             subtype: 'Highlight',
         })]);
     });
@@ -657,8 +675,6 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
                         'anno_new_markup',
-                        'pdfjs_internal_editor_2',
-                        'pdfjs_markup_uid_2',
                         '30R',
                     ]),
                     hasChanges: true,
@@ -688,17 +704,10 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             ...editorMarkupWithRuntimeIdentity('anno_saved_highlight_undo'),
             revision: 0,
             persistedRevision: -1,
-            identity: {
-                id: asAnnotationId('anno_saved_highlight_undo'),
-                elementId: '9R',
-                // A late PDF.js/editor snapshot can put the ref retired by
-                // the preceding delete back on the canonical entity. A
-                // transient replay must create a new object instead of
-                // targeting that now-null ref.
-                pdfRef: '9R0',
-                pdfName: 'evb-markup:pdfjs_internal_editor_0',
-                pdfjsUid: 'pdfjs_saved_highlight_undo',
-            },
+            // A late PDF.js/editor snapshot can put the ref retired by the
+            // preceding delete back on the canonical entity. A transient
+            // replay must create a new object instead of targeting that now-null ref.
+            identity: {id: asAnnotationId('anno_saved_highlight_undo')},
         };
         const decision = classifyPdfSaveRoute(
             planOf([markup]),
@@ -711,11 +720,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                     shapeStateDirty: false,
                 },
                 liveAnnotationChanges: liveChanges({
-                    ids: new Set([
-                        'anno_saved_highlight_undo',
-                        '9R',
-                        'pdfjs_saved_highlight_undo',
-                    ]),
+                    ids: new Set(['anno_saved_highlight_undo']),
                     hasChanges: true,
                     fingerprint: 'saved-highlight-undo',
                 }),
@@ -736,7 +741,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.canonical.comments[0]).toMatchObject({
-            annotationName: 'evb-markup:pdfjs_internal_editor_0',
+            id: 'anno_saved_highlight_undo',
             source: 'editor',
             annotationId: null,
         });
@@ -744,7 +749,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(hints).not.toContainEqual(expect.objectContaining({annotationId: '9R0'}));
         expect(hints).toContainEqual(expect.objectContaining({
             appAnnotationId: 'anno_saved_highlight_undo',
-            id: '9R',
+            id: 'anno_saved_highlight_undo',
             annotationId: null,
             source: 'editor',
         }));
@@ -753,10 +758,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
     it('keeps narrow sticky replayability beside native FreeText and new markup', () => {
         const savedInlineNote = {
             ...cleanEditorNote('anno_saved_inline_note'),
-            identity: {
-                id: asAnnotationId('anno_saved_inline_note'),
-                elementId: 'pdfjs_internal_editor_0',
-            },
+            identity: {id: asAnnotationId('anno_saved_inline_note')},
         };
         const markup = editorMarkupWithPdfAliases(
             'anno_new_markup',
@@ -828,7 +830,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
 
         expect(decision.annotationPlan.route).toBe('pdfjs-materialize');
         expect(decision.annotationPlan.unreplayableLiveAnnotationIds)
-            .not.toContain('pdfjs_internal_editor_0');
+            .toContain('pdfjs_internal_editor_0');
         expect(decision.route).not.toBe('native-append');
         if (decision.route === 'native-append') throw new Error('expected a byte route');
         expect(decision.nativeRejection).toBe('live-pdfjs-annotation-work-not-covered-by-native-mutations');
@@ -838,9 +840,12 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         const deleted = deletedMarkup('anno_deleted', '20R');
         const decision = classifyPdfSaveRoute(
             planOf(
-                [deleted],
                 [
-                    editorNote('anno_editor_note'),
+                    editorTextBox('anno_editor_note'),
+                    deleted,
+                ],
+                [
+                    editorTextBox('anno_editor_note'),
                     embeddedMarkup('anno_markup', '44R'),
                     deleted,
                 ],
@@ -885,7 +890,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.nativeMutationProjection.mutations).toMatchObject({
-            freeTextNotes: [expect.objectContaining({stableKey: 'src:editor:0:pdfjs_internal_editor_0'})],
+            freeTextNotes: [expect.objectContaining({stableKey: 'ann:0:editor:anno_editor_note'})],
             deletes: [expect.objectContaining({
                 objectNumber: 20,
                 generationNumber: 0,
@@ -921,15 +926,14 @@ describe('classifyPdfSaveRoute native-append grant', () => {
     });
 
     it('projects an imported sticky-note move to a native geometry update', () => {
-        const moved: IStickyNoteEntity = {
+        const moved: INoteEntity = {
             ...embeddedNote('anno_moved_text', '12R'),
             identity: {
                 id: asAnnotationId('anno_moved_text'),
-                pdfName: 'evb-pdf-004-text-parent',
                 pdfRef: '12R',
             },
             pageIndex: 1,
-            anchor: {
+            position: {
                 left: 0.6,
                 top: 0.25,
                 width: 0.15,
@@ -965,7 +969,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             objectNumber: 12,
             generationNumber: 0,
             pageIndex: 1,
-            markerRect: moved.anchor,
+            markerRect: moved.position,
         }]});
 
         const unrelatedLiveChange = classifyPdfSaveRoute(
@@ -1050,8 +1054,6 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             ...embeddedNote('anno_saved_note', '12R'),
             identity: {
                 id: asAnnotationId('anno_saved_note'),
-                elementId: 'pdfjs_internal_editor_0',
-                pdfjsUid: 'pdfjs_internal_editor_0',
                 pdfRef: '12R',
             },
         };
@@ -1069,7 +1071,6 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
                         'anno_saved_note',
-                        'pdfjs_internal_editor_0',
                         '12R',
                     ]),
                     replayableEditorNoteIds: new Set(),
@@ -1091,18 +1092,14 @@ describe('classifyPdfSaveRoute native-append grant', () => {
     it('normalizes nested editor aliases captured from the canonical frontier', () => {
         const note: AnnotationEntity = {
             ...editorNote('anno_nested_editor'),
-            identity: {
-                id: asAnnotationId('anno_nested_editor'),
-                elementId: 'editor:0:pdfjs_internal_editor_0',
-            },
+            identity: {id: asAnnotationId('anno_nested_editor')},
         };
 
         const decision = classifyPdfSaveRoute(planOf([note]), capabilities());
 
-        expect(decision.canonical.liveAnnotationChanges.ids).toContain('editor:0:pdfjs_internal_editor_0');
-        expect(decision.canonical.liveAnnotationChanges.ids).toContain('pdfjs_internal_editor_0');
+        expect(decision.canonical.liveAnnotationChanges.ids).toContain('anno_nested_editor');
         expect(decision.canonical.liveAnnotationChanges.replayableEditorNoteIds)
-            .toContain('pdfjs_internal_editor_0');
+            .toContain('anno_nested_editor');
     });
 
     it('does not let a sticky-note text update cover an unrelated live PDF.js identity', () => {
@@ -1139,7 +1136,6 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             ...cleanEmbeddedFreeTextNote('anno_saved', '50R'),
             identity: {
                 id: asAnnotationId('anno_saved'),
-                elementId: 'pdfjs_internal_editor_0',
                 pdfRef: '50R',
             },
         };
@@ -1268,7 +1264,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             text: 'new text',
         };
         const decision = classifyPdfSaveRoute(
-            planOf([editorNote('anno_app')]),
+            planOf([editorTextBox('anno_app')]),
             capabilities({
                 forcePdfjsMaterialize: true,
                 dirtyState: {
@@ -1328,7 +1324,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             ],
         };
         const decision = classifyPdfSaveRoute(
-            planOf([], [cleanEditorNote('anno_saved_inline_note')]),
+            planOf([], [cleanEditorTextBox('anno_saved_inline_note')]),
             capabilities({
                 forcePdfjsMaterialize: true,
                 dirtyState: {
@@ -1340,10 +1336,10 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 },
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
-                        'pdfjs_internal_editor_0',
+                        'anno_saved_inline_note',
                         'pdfjs_internal_editor_1',
                     ]),
-                    replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
+                    replayableEditorNoteIds: new Set(['anno_saved_inline_note']),
                     nativeFreeTextEditors: new Map([[
                         'pdfjs_internal_editor_1',
                         newEditor,
@@ -1362,20 +1358,17 @@ describe('classifyPdfSaveRoute native-append grant', () => {
 
     it('keeps a changed Inline Note and a new FreeText editor on the native route', () => {
         const savedEntity = {
-            ...editorNote('anno_saved'),
+            ...editorTextBox('anno_saved'),
             revision: 1,
             persistedRevision: 1,
         };
         const newEntity = {
-            ...editorNote('anno_new'),
-            identity: {
-                id: asAnnotationId('anno_new'),
-                elementId: 'new-runtime-id',
-            },
+            ...editorTextBox('anno_new'),
+            identity: {id: asAnnotationId('anno_new')},
         };
         const newEditor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),
-            stableKey: 'src:editor:0:new-runtime-id',
+            stableKey: 'ann:0:new-runtime-id',
             text: 'new text',
             rect: [
                 10,
@@ -1407,10 +1400,10 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 },
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
-                        'pdfjs_internal_editor_0',
+                        'anno_saved',
                         'new-runtime-id',
                     ]),
-                    replayableEditorNoteIds: new Set(['pdfjs_internal_editor_0']),
+                    replayableEditorNoteIds: new Set(['anno_saved']),
                     nativeFreeTextEditors: new Map([[
                         'new-runtime-id',
                         newEditor,
@@ -1551,7 +1544,6 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 liveAnnotationChanges: liveChanges({
                     ids: new Set([
                         'anno_deleted',
-                        'pdfjs_internal_editor_0',
                         '12R',
                     ]),
                     hasChanges: true,

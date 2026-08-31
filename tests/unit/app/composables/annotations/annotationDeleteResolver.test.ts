@@ -16,7 +16,7 @@ const identity = {
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'comment-1',
-        stableKey: overrides.stableKey ?? 'src:editor:0:comment-1',
+        stableKey: overrides.stableKey ?? 'ann:0:comment-1',
         sortIndex: overrides.sortIndex ?? null,
         pageIndex: overrides.pageIndex ?? 0,
         pageNumber: overrides.pageNumber ?? 1,
@@ -53,7 +53,7 @@ describe('annotationDeleteResolver', () => {
         });
         const farStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'src:pdf:0:pdf-1',
+            stableKey: 'ann:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',
@@ -81,7 +81,7 @@ describe('annotationDeleteResolver', () => {
         });
         const nearbyStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'src:pdf:0:pdf-1',
+            stableKey: 'ann:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',
@@ -109,7 +109,7 @@ describe('annotationDeleteResolver', () => {
         });
         const farStableCandidate = createComment({
             id: 'pdf-1',
-            stableKey: 'src:pdf:0:pdf-1',
+            stableKey: 'ann:0:pdf-1',
             uid: null,
             annotationId: 'pdf-1',
             source: 'pdf',

@@ -43,7 +43,7 @@ function createComment(index: number): IAnnotationCommentSummary {
         pageIndex: index,
         pageNumber: index + 1,
         source: 'pdf',
-        stableKey: `src:pdf:${index}:comment-${index}`,
+        stableKey: `ann:${index}:comment-${index}`,
         subtype: 'Text',
         text: `Annotation body ${index} that is deliberately long enough to need clipping by the row box rather than grow it.`,
         uid: null,

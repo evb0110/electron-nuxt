@@ -309,14 +309,14 @@ function isPersistedCleanCommentMarkerAnchor(input: {
         return false;
     }
     const entity = input.annotationStore.get(asAnnotationId(editorState.canonicalAnnotationId));
-    return entity?.kind === 'sticky-note'
+    return entity?.kind === 'note'
         && !entity.deleted
         && Boolean(entity.identity.pdfRef)
         && entity.revision === entity.persistedRevision
         && entity.pageIndex === input.value.pageIndex
-        && markerRectsMatch(editorState.pendingAnchorRect, entity.anchor)
+        && markerRectsMatch(editorState.pendingAnchorRect, entity.position)
         && popup.contents.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '')
-        === entity.text.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '');
+        === entity.contents.replace(INVISIBLE_NOTE_PLACEHOLDER_RE, '');
 }
 
 function isCanonicalManagedShapeEditorStorage(input: {

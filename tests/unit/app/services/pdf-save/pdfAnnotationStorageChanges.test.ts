@@ -31,11 +31,10 @@ function createPersistedCommentMarkerAnchorFixture() {
         pendingAnchorRect: MARKER_RECT,
     });
     const annotationStore = new AnnotationStore();
-    annotationStore.import({
-        kind: 'sticky-note',
+    annotationStore.replaceFromDocument([{
+        kind: 'note',
         identity: {
             id: asAnnotationId('note-1'),
-            elementId: editorKey,
             pdfRef: '12R',
         },
         pageIndex: 0,
@@ -45,10 +44,11 @@ function createPersistedCommentMarkerAnchorFixture() {
         createdAt: 1_781_000_000_000,
         modifiedAt: null,
         author: 'Tester',
-        text: 'text-note-1',
-        anchor: MARKER_RECT,
+        contents: 'text-note-1',
+        position: MARKER_RECT,
         color: '#f59e0b',
-    });
+        open: false,
+    }], []);
     const serializedAnchor = {
         annotationType: 3,
         pageIndex: 0,
@@ -253,12 +253,9 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
         const editor = {};
         Object.assign(getPdfjsEditorFacadeState(editor), {canonicalAnnotationId: 'shape-1'});
         const annotationStore = new AnnotationStore();
-        annotationStore.import({
+        annotationStore.replaceFromDocument([{
             kind: 'shape',
-            identity: {
-                id: asAnnotationId('shape-1'),
-                elementId: editorKey,
-            },
+            identity: {id: asAnnotationId('shape-1')},
             pageIndex: 0,
             revision: 0,
             persistedRevision: -1,
@@ -266,30 +263,28 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
             createdAt: 1,
             modifiedAt: 1,
             author: null,
-            geometry: {
-                id: editorKey,
-                type: 'polyline',
-                pageIndex: 0,
-                x: 0.1,
-                y: 0.2,
+            tool: 'draw',
+            rect: {
+                left: 0.1,
+                top: 0.2,
                 width: 0.3,
                 height: 0.4,
-                color: '#ff0000',
-                strokeWidth: 2,
-                opacity: 1,
-                source: 'local',
-                points: [
-                    {
-                        x: 0.1,
-                        y: 0.2,
-                    },
-                    {
-                        x: 0.4,
-                        y: 0.6,
-                    },
-                ],
             },
-        });
+            strokeColor: '#ff0000',
+            strokeWidth: 2,
+            fill: null,
+            opacity: 1,
+            points: [
+                {
+                    x: 0.1,
+                    y: 0.2,
+                },
+                {
+                    x: 0.4,
+                    y: 0.6,
+                },
+            ],
+        }], []);
         const document = {annotationStorage: {
             serializable: {map: new Map([[
                 editorKey,
@@ -377,10 +372,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
 
     it('counts a canonically dirty comment marker anchor as live PDF.js work', () => {
         const fixture = createPersistedCommentMarkerAnchorFixture();
-        fixture.annotationStore.moveAnchor(asAnnotationId('note-1'), {
+        fixture.annotationStore.updateNote(asAnnotationId('note-1'), {position: {
             ...MARKER_RECT,
             left: MARKER_RECT.left + 0.01,
-        });
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(
             fixture.document,

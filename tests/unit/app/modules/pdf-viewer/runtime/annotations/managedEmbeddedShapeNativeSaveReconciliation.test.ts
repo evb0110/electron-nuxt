@@ -98,40 +98,24 @@ afterEach(() => {
 });
 
 describe('managed embedded shape native save reconciliation', () => {
-    it('primes persisted identity from the native index and ignores saved bytes', async () => {
-        const importedShapes = [createNativeShape()];
-        mocks.importNative.mockResolvedValue(importedShapes);
-        const primePersistedShapes = vi.fn(() => true);
-        const rollback = vi.fn(() => true);
-        const shapeComposable = createManagedShapeStorePort({beginShapeSave: () => ({
-            primePersistedShapes,
-            rollback,
-            markSaved: vi.fn(() => true),
-        })});
+    it('defers native saved identity adoption to canonical document parsing', async () => {
+        mocks.importNative.mockResolvedValue([createNativeShape()]);
+        const shapeComposable = createManagedShapeStorePort();
         const managedShapes = createManagedShapes(shapeComposable);
         const savedBytes = new Uint8Array(3 * 1024 * 1024);
 
         await expect(managedShapes.preparePersistedManagedShapesForSave(savedBytes))
-            .resolves.toMatchObject({rollback: expect.any(Function)});
+            .resolves.toBeNull();
 
-        expect(mocks.importNative).toHaveBeenCalledWith(nativePath, {
-            signal: expect.any(AbortSignal),
-            expectedDocumentRevisionToken: revision,
-        });
+        expect(mocks.importNative).not.toHaveBeenCalled();
         expect(mocks.importWorker).not.toHaveBeenCalled();
         expect(mocks.importPath).not.toHaveBeenCalled();
-        expect(primePersistedShapes).toHaveBeenCalledWith(importedShapes);
-        expect(rollback).not.toHaveBeenCalled();
+        expect(shapeComposable.getAllShapes()).toEqual([]);
     });
 
-    it('leaves the shape frontier unprimed when the native index is unavailable', async () => {
-        const rollback = vi.fn(() => true);
+    it('leaves the canonical store untouched when the native index is unavailable', async () => {
         mocks.importNative.mockRejectedValue(new Error('native index unavailable'));
-        const shapeComposable = createManagedShapeStorePort({beginShapeSave: () => ({
-            primePersistedShapes: vi.fn(() => true),
-            rollback,
-            markSaved: vi.fn(() => true),
-        })});
+        const shapeComposable = createManagedShapeStorePort();
         const managedShapes = createManagedShapes(shapeComposable);
 
         await expect(managedShapes.preparePersistedManagedShapesForSave(new Uint8Array([9])))
@@ -139,7 +123,8 @@ describe('managed embedded shape native save reconciliation', () => {
 
         expect(mocks.importWorker).not.toHaveBeenCalled();
         expect(mocks.importPath).not.toHaveBeenCalled();
-        expect(rollback).toHaveBeenCalledOnce();
+        expect(mocks.importNative).not.toHaveBeenCalled();
+        expect(shapeComposable.getAllShapes()).toEqual([]);
     });
 
     it('keeps an open path baseline incomplete instead of falling back to bytes', async () => {
@@ -156,51 +141,26 @@ describe('managed embedded shape native save reconciliation', () => {
         expect(mocks.importNative).toHaveBeenCalledOnce();
         expect(mocks.importWorker).not.toHaveBeenCalled();
         expect(mocks.importPath).not.toHaveBeenCalled();
-        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+        expect(shapeComposable.getAllShapes()).toEqual([]);
     });
 
     it('does not apply a revision-triggered native import across an active save preparation', async () => {
         const backgroundImport = Promise.withResolvers<IShapeAnnotation[]>();
-        const savedShapeIndex = Promise.withResolvers<IShapeAnnotation[]>();
-        mocks.importNative
-            .mockResolvedValue([])
-            .mockReturnValueOnce(backgroundImport.promise)
-            .mockReturnValueOnce(savedShapeIndex.promise);
-        const markSaved = vi.fn(() => true);
-        const shapeComposable = createManagedShapeStorePort({
-            isShapeImportBaselineReady: () => true,
-            beginShapeSave: () => ({
-                primePersistedShapes: vi.fn(() => true),
-                rollback: vi.fn(() => true),
-                markSaved,
-            }),
-        });
+        mocks.importNative.mockReturnValueOnce(backgroundImport.promise).mockResolvedValue([]);
+        const shapeComposable = createManagedShapeStorePort();
         const managedShapes = createManagedShapes(shapeComposable);
 
         const revisionImport = managedShapes.ensureManagedShapeBaselineReady();
         await vi.waitFor(() => expect(mocks.importNative).toHaveBeenCalledOnce());
         const preparationPromise = managedShapes.preparePersistedManagedShapesForSave();
-        await vi.waitFor(() => expect(mocks.importNative).toHaveBeenCalledTimes(2));
+        await expect(preparationPromise).resolves.toBeNull();
 
         backgroundImport.resolve([]);
-        await expect(Promise.race([
-            revisionImport.then(() => 'settled'),
-            new Promise(resolve => setTimeout(() => resolve('pending'), 20)),
-        ])).resolves.toBe('pending');
-        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
-
-        savedShapeIndex.resolve([]);
-        const preparation = await preparationPromise;
-        expect(preparation).not.toBeNull();
-        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
-
-        preparation!.markSaved();
         await expect(revisionImport).resolves.toBe(true);
-        expect(markSaved).toHaveBeenCalledOnce();
-        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+        expect(shapeComposable.getAllShapes()).toEqual([]);
 
         await expect(managedShapes.ensureManagedShapeBaselineReady()).resolves.toBe(true);
-        expect(mocks.importNative).toHaveBeenCalledTimes(2);
-        expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
+        expect(mocks.importNative).toHaveBeenCalledOnce();
+        expect(shapeComposable.getAllShapes()).toEqual([]);
     });
 });

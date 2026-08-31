@@ -60,7 +60,7 @@ describe('parsePdfAnnotationStableKey', () => {
 function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'editor:0:pdfjs_internal_editor_0',
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        stableKey: 'ann:0:pdfjs_internal_editor_0',
         pageIndex: 0,
         pageNumber: 1,
         text: '',
@@ -81,7 +81,7 @@ function createEditorComment(overrides: Partial<IAnnotationCommentSummary> = {})
 function createPdfComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: 'pdf:0:1',
-        stableKey: 'uid:0:1',
+        stableKey: 'ann:0:1',
         pageIndex: 0,
         pageNumber: 1,
         text: '',

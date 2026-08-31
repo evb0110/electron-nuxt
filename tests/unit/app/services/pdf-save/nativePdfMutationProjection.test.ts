@@ -57,7 +57,7 @@ function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnn
 function createEditorFreeTextComment(overrides: Partial<IAnnotationCommentSummary> = {}) {
     return createComment({
         id: 'editor:0:pdfjs_internal_editor_0',
-        stableKey: 'uid:0:pdfjs_internal_editor_0',
+        stableKey: 'ann:0:pdfjs_internal_editor_0',
         text: 'Editor note',
         subtype: 'FreeText',
         annotationId: null,
@@ -114,7 +114,7 @@ describe('native FreeText note builders', () => {
         expect(isReplayableEditorOnlyFreeTextNote(comment)).toBe(true);
         expect(toNativeFreeTextNote(comment)).toEqual({
             pageIndex: 0,
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             text: 'Editor note',
             markerRect: {
                 left: 0.1,
@@ -194,7 +194,7 @@ describe('native note text and delete builders', () => {
             },
             {
                 pageIndex: 0,
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 createdAt: 1781009077123,
             },
         ]);
@@ -412,7 +412,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: 'current-runtime-id',
-                stableKey: 'src:editor:0:current-runtime-id',
+                stableKey: 'ann:0:current-runtime-id',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,
@@ -451,7 +451,7 @@ describe('native markup builders', () => {
             canonicalComments: [createComment({
                 appAnnotationId: 'app-markup-1',
                 id: '9R',
-                stableKey: 'src:editor:0:9R',
+                stableKey: 'ann:0:9R',
                 subtype: 'Highlight',
                 source: 'editor',
                 annotationId: null,

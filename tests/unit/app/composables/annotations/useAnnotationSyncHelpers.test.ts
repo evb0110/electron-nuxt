@@ -13,7 +13,6 @@ import type { IPdfjsEditor } from '@app/types/pdfjs';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
-import {resolvePdfAnnotationCanonicalKind} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/resolvePdfAnnotationCanonicalKind';
 import { buildPopupIndex } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPopupIndex';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { collectPdfAnnotationNamesByPage } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage';
@@ -91,7 +90,7 @@ const computeStableKey = vi.fn((params: {
     uid?: string | null;
     annotationId?: string | null;
     annotationName?: string | null | undefined;
-}) => `src:${params.source}:${params.pageIndex}:${params.id}` as const);
+}) => `ann:${params.pageIndex}:${params.id}` as const);
 
 const resolveKindLabel = vi.fn((subtype: string | null | undefined) => `kind:${subtype ?? 'null'}`);
 
@@ -481,7 +480,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
         expect(summary.uid).toBeNull();
         expect(summary.annotationId).toBe('a-1');
         expect(summary.kindLabel).toBe('kind:Highlight');
-        expect(summary.stableKey).toBe('src:pdf:4:a-1');
+        expect(summary.stableKey).toBe('ann:4:a-1');
     });
 
     it('prefers the PDF annotation /NM name for stable identity', () => {
@@ -586,18 +585,17 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
             hasNote: true,
             annotationId: 'text-1',
         });
-        expect(resolvePdfAnnotationCanonicalKind(summary.subtype, summary.hasNote === true)).toBe('sticky-note');
         expect(summary.markerRect?.left).toBeCloseTo(0.1);
         expect(summary.markerRect?.top).toBeCloseTo(0.2);
         expect(summary.markerRect?.width).toBeCloseTo(0.1);
         expect(summary.markerRect?.height).toBeCloseTo(0.1);
 
         const application = new AnnotationApplication('text-popup');
-        application.ingestLegacySummaries(comments);
+        application.replaceFromDocumentSummaries(comments);
         expect(application.store.list()).toHaveLength(1);
         expect(application.store.list()[0]).toMatchObject({
-            kind: 'sticky-note',
-            text: 'Imported note',
+            kind: 'note',
+            contents: 'Imported note',
             pageIndex: 0,
             identity: {pdfRef: 'text-1'},
         });
@@ -677,26 +675,24 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
             markerRect: expect.objectContaining({width: expect.any(Number)}),
         });
         expect(summary.hasNote).toBe(false);
-        expect(resolvePdfAnnotationCanonicalKind(summary.subtype, summary.hasNote === true)).toBe('sticky-note');
-
         const documentKey = `freetext-${annotation.id}`;
         const application = new AnnotationApplication(documentKey);
-        application.ingestLegacySummaries(comments);
+        application.replaceFromDocumentSummaries(comments);
 
         expect(application.store.list()).toHaveLength(1);
         const [entity] = application.store.list();
         expect(entity).toMatchObject({
-            kind: 'sticky-note',
+            kind: 'text-box',
             text: 'Imported text box',
             pageIndex: 0,
             identity: {pdfRef: annotation.id},
         });
-        application.ingestLegacySummaries(comments);
+        application.replaceFromDocumentSummaries(comments);
         expect(application.store.list()).toHaveLength(1);
         expect(application.store.list()[0]?.identity.id).toBe(entity?.identity.id);
 
         const reopened = new AnnotationApplication(documentKey);
-        reopened.ingestLegacySummaries(comments);
+        reopened.replaceFromDocumentSummaries(comments);
         expect(reopened.store.list()[0]?.identity.id).toBe(entity?.identity.id);
         expect(application.listCommentSummaries()[0]).toMatchObject({
             source: 'pdf',

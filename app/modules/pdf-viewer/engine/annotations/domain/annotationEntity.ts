@@ -167,18 +167,6 @@ export type AnnotationEntity =
     | IPlacedImageEntity
     | IShapeEntity;
 
-export type TAnnotationStyle =
-    | Pick<ITextBoxEntity, 'color'>
-    | Pick<INoteEntity, 'color'>
-    | Pick<ITextMarkupEntity, 'color' | 'opacity'>
-    | Pick<IShapeEntity, 'strokeColor' | 'strokeWidth' | 'fill' | 'opacity'>;
-
-export interface IIdentityBindingEvent {
-    readonly annotationId: AnnotationId;
-    readonly expectedRevision: number;
-    readonly bindings: Omit<IAnnotationIdentity, 'id'>;
-}
-
 export interface ISavedSemanticEntry {
     readonly kind: AnnotationEntity['kind'];
     readonly fingerprint: string;

@@ -184,8 +184,8 @@ function createHighlightEntity(application: AnnotationApplication, boxes: readon
         subtype: 'Highlight',
         // Selection-created markup carries no note text; the selected document
         // text is derived for display and is never serialized as /Contents.
-        text: '',
-        geometry: toSelectionMarkerRects(boxes),
+        contents: '',
+        quadPoints: toSelectionMarkerRects(boxes),
         color: 'rgba(255, 204, 0, 0.4)',
         opacity: 0.4,
         author: null,
@@ -236,7 +236,7 @@ async function runPreexistingMarkupEdit(fixture: Uint8Array) {
     if (!markup) {
         throw new Error('The fixture ingested no text markup');
     }
-    application.store.setStyle(markup.identity.id, {
+    application.store.updateTextMarkup(markup.identity.id, {
         color: '#00ff00',
         opacity: 0.5,
     });
@@ -267,7 +267,7 @@ async function runStackedMarkupEdit() {
         throw new Error(`The fixture ingested ${markups.length} markups, not ${FAILED_MARKUP_COUNT}`);
     }
     markups.forEach((markup) => {
-        application.store.setStyle(markup.identity.id, {
+        application.store.updateTextMarkup(markup.identity.id, {
             color: '#00ff00',
             opacity: 0.5,
         });
@@ -412,7 +412,7 @@ describe('text highlight staged reopen verification', () => {
 
         const error = await captureVerificationFailure(run.application.verifySaveBytes(run.session, withContents));
 
-        expect(error.message).toContain('markup text mismatch (expected empty, reopened 38 chars)');
+        expect(error.message).toContain('markup contents mismatch (expected empty, reopened 38 chars)');
         expect(error.message).not.toContain(secret);
         expect(JSON.stringify(error.diagnostics)).not.toContain(secret);
         const [diagnostic] = error.diagnostics;
@@ -473,8 +473,7 @@ describe('text highlight staged reopen verification', () => {
 
         expect(createHash('sha256').update(await readFile(originalPath)).digest('hex')).toBe(originalDigest);
         expect(run.application.rollbackSave(run.session)).toBe(true);
-        const retryFrontier = run.application.store.beginSave(null);
-        expect(run.application.store.dirtyAt(retryFrontier).map(entity => entity.identity.id))
+        expect(run.application.store.dirtyEntities().map(entity => entity.identity.id))
             .toContain(run.annotationId);
 
         const retrySession = run.application.beginSave(null);
@@ -488,7 +487,7 @@ describe('text highlight staged reopen verification', () => {
             .resolves.toBeUndefined();
         run.application.acknowledgeSave(retrySession);
 
-        expect(run.application.store.dirtyAt(run.application.store.beginSave(null))).toEqual([]);
+        expect(run.application.store.dirtyEntities()).toEqual([]);
         expect(createHash('sha256').update(await readFile(originalPath)).digest('hex')).toBe(originalDigest);
     }, 90_000);
 
@@ -496,7 +495,7 @@ describe('text highlight staged reopen verification', () => {
         const fixture = await createHighlightFixturePdf({existingHighlights: [MULTI_QUAD_HIGHLIGHT]});
         const run = await runPreexistingMarkupEdit(fixture);
 
-        expect(run.entity.geometry).toHaveLength(2);
+        expect(run.entity.quadPoints).toHaveLength(2);
         expect(run.session.plan.expected.map(entity => entity.identity.id)).toEqual([run.entity.identity.id]);
         await expect(run.application.verifySaveBytes(run.session, run.staged)).resolves.toBeUndefined();
     }, 60_000);
@@ -524,7 +523,7 @@ describe('text highlight staged reopen verification', () => {
         });
         const run = await runPreexistingMarkupEdit(fixture);
 
-        expect(run.entity.geometry).toHaveLength(2);
+        expect(run.entity.quadPoints).toHaveLength(2);
         await expect(run.application.verifySaveBytes(run.session, run.staged)).resolves.toBeUndefined();
     }, 60_000);
 
@@ -564,7 +563,7 @@ describe('text highlight staged reopen verification', () => {
 
         // The markup's own /Contents is empty; the note reaches the store
         // through the popup, so the reopen has to resolve it the same way.
-        expect(run.entity.text).toBe('Checked against the Cairo edition.');
+        expect(run.entity.contents).toBe('Checked against the Cairo edition.');
         await expect(run.application.verifySaveBytes(run.session, run.staged)).resolves.toBeUndefined();
     }, 60_000);
 
@@ -581,7 +580,7 @@ describe('text highlight staged reopen verification', () => {
 
         const error = await captureVerificationFailure(run.application.verifySaveBytes(run.session, rewritten));
 
-        expect(error.message).toContain('markup text mismatch');
+        expect(error.message).toContain('markup contents mismatch');
         expect(error.message).not.toContain(note);
         expect(JSON.stringify(error.diagnostics)).not.toContain(note);
     }, 60_000);
@@ -615,7 +614,7 @@ describe('text highlight staged reopen verification', () => {
         // Ingest treats /Contents that merely repeats the highlighted words as
         // derived preview text rather than a note, so the reopen has to reach
         // the same verdict instead of reporting text the save never dropped.
-        expect(run.entity.text).toBe('');
+        expect(run.entity.contents).toBe('');
         await expect(run.application.verifySaveBytes(run.session, run.staged)).resolves.toBeUndefined();
     }, 60_000);
 

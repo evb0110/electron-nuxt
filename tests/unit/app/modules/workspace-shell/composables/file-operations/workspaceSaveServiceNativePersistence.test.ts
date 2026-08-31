@@ -94,7 +94,7 @@ describe('workspaceSaveService native persistence', () => {
             annotationDirty: ref(true),
             canonicalAnnotationComments: shallowRef([createPdfNoteComment({
                 id: 'markup-1',
-                stableKey: 'src:editor:0:markup-1',
+                stableKey: 'ann:0:markup-1',
                 appAnnotationId: 'app-annotation-1',
                 subtype: 'Highlight',
                 text: '',
@@ -690,7 +690,7 @@ describe('workspaceSaveService native persistence', () => {
     });
 
     it('persists a saved PDF.js baseline through one exact editor-only FreeText delete', async () => {
-        const pendingDeletes = [createEditorFreeTextNote()];
+        const pendingDeletes = [createEditorFreeTextNote({appAnnotationId: 'anno_editor_note'})];
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
             outPath: '/tmp/work.pdf',
@@ -716,7 +716,7 @@ describe('workspaceSaveService native persistence', () => {
         expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledOnce();
         expect(trySaveEmbeddedNoteTextUpdates).toHaveBeenCalledWith([], expect.objectContaining({deletes: [{
             pageIndex: 0,
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:editor:anno_editor_note',
             createdAt: 1_781_009_077_000,
         }]}));
         expect(deps.saveDocument).not.toHaveBeenCalled();

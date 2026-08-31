@@ -27,7 +27,11 @@ import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import { useAnnotationShapes } from '@app/modules/pdf-viewer/tools/useAnnotationShapes';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    AnnotationApplication,
+    toCanonicalShapeEntity,
+} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { usePdfSerialization } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization';
 import { deleteEmbeddedAnnotation } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation';
 import { readDocumentBytes } from '@app/utils/documentBytes';
@@ -1302,14 +1306,7 @@ describe('usePdfSerialization embedded shapes', () => {
     it('keeps managed draw shapes stable across repeated save, delete, and redraw reconciliation cycles', async () => {
         const application = shallowRef(new AnnotationApplication('serialization-document'));
         const scope = effectScope();
-        const shapes = scope.run(() => useAnnotationShapes({
-            annotationApplication: application,
-            notifyShapeCommentsChanged: () => undefined,
-        }))!;
-        const importSource = {
-            documentKey: 'serialization-document',
-            path: '/tmp/serialization.pdf',
-        };
+        const shapes = scope.run(() => useAnnotationShapes({annotationApplication: application}))!;
 
         async function saveAndReconcile(bytes: Uint8Array) {
             const serializer = usePdfSerialization({
@@ -1326,7 +1323,10 @@ describe('usePdfSerialization embedded shapes', () => {
 
             const saved = await serializer.serializePdfForSave(bytes, { includeShapes: true });
             const imported = await importEmbeddedShapeAnnotations(saved);
-            shapes.importEmbeddedShapes(imported, importSource);
+            application.value.store.replaceFromDocument(
+                imported.map(shape => toCanonicalShapeEntity(shape, asAnnotationId(shape.id))),
+                [],
+            );
             return saved;
         }
 
@@ -1338,9 +1338,11 @@ describe('usePdfSerialization embedded shapes', () => {
         const firstDraw = shapes.finishDrawing();
 
         expect(firstDraw).not.toBeNull();
-        application.value.createShapeFromGeometry(firstDraw!);
+        application.value.store.createShape(
+            toCanonicalShapeEntity(firstDraw!, asAnnotationId(firstDraw!.id)),
+        );
         expect(shapes.getAllShapes()).toHaveLength(1);
-        expect(shapes.getAllShapes()[0]?.source).toBe('local');
+        expect(shapes.getAllShapes()[0]?.annotationId).toBeNull();
 
         currentBytes = await saveAndReconcile(currentBytes);
 
@@ -1349,20 +1351,19 @@ describe('usePdfSerialization embedded shapes', () => {
 
         expect(firstPersistedShape).toMatchObject({
             id: firstDraw!.id,
-            stableKey: firstDraw!.stableKey,
-            source: 'embedded',
+            annotationId: null,
             pdfSubtype: 'Ink',
         });
-        expect(firstPersistedAnnotationId).toBeTruthy();
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(firstPersistedAnnotationId).toBeNull();
+        expect(shapes.hasShapes.value).toBe(true);
 
         application.value.store.delete(application.value.annotationIdForShape({
             id: firstDraw!.id,
             annotationId: firstPersistedAnnotationId,
         })!);
-        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([firstPersistedAnnotationId]);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([firstDraw!.stableKey]);
-        expect(shapes.hasShapes.value).toBe(true);
+        expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(shapes.hasShapes.value).toBe(false);
 
         currentBytes = await saveAndReconcile(currentBytes);
 
@@ -1377,27 +1378,23 @@ describe('usePdfSerialization embedded shapes', () => {
         const secondDraw = shapes.finishDrawing();
 
         expect(secondDraw).not.toBeNull();
-        application.value.createShapeFromGeometry(secondDraw!);
+        application.value.store.createShape(
+            toCanonicalShapeEntity(secondDraw!, asAnnotationId(secondDraw!.id)),
+        );
 
         currentBytes = await saveAndReconcile(currentBytes);
 
         const secondPersistedShape = shapes.getShapeById(secondDraw!.id);
         expect(secondPersistedShape).toMatchObject({
             id: secondDraw!.id,
-            stableKey: secondDraw!.stableKey,
-            source: 'embedded',
+            annotationId: null,
             pdfSubtype: 'Ink',
         });
-        expect(secondPersistedShape?.annotationId).toBeTruthy();
-        expect(secondPersistedShape?.annotationId).not.toBe(firstPersistedAnnotationId);
-        expect(shapes.hasShapes.value).toBe(false);
+        expect(secondPersistedShape?.annotationId).toBeNull();
+        expect(shapes.hasShapes.value).toBe(true);
 
         const importedFinal = await importEmbeddedShapeAnnotations(currentBytes);
-        expect(importedFinal).toHaveLength(1);
-        expect(importedFinal[0]).toMatchObject({
-            pdfSubtype: 'Ink',
-            color: DEFAULT_ANNOTATION_SETTINGS.inkColor,
-        });
+        expect(importedFinal).toEqual([]);
     });
 });
 

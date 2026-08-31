@@ -18,7 +18,7 @@ import {
 } from 'vue';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import type {IStickyNoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {INoteEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
@@ -39,13 +39,10 @@ afterEach(() => {
     mountedSessions.splice(0).forEach(unmount => unmount());
 });
 
-function stickyNote(id: string): IStickyNoteEntity {
+function note(id: string): INoteEntity {
     return {
-        kind: 'sticky-note',
-        identity: {
-            id: asAnnotationId(id),
-            pdfjsUid: `${id}-editor`,
-        },
+        kind: 'note',
+        identity: {id: asAnnotationId(id)},
         pageIndex: 0,
         revision: 0,
         persistedRevision: -1,
@@ -53,14 +50,15 @@ function stickyNote(id: string): IStickyNoteEntity {
         createdAt: 1,
         modifiedAt: 1,
         author: null,
-        text: '',
-        anchor: {
+        contents: '',
+        position: {
             left: 0.1,
             top: 0.2,
             width: 0.02,
             height: 0.02,
         },
         color: '#ffff00',
+        open: false,
     };
 }
 
@@ -156,7 +154,7 @@ function mountAnnotationSession() {
     return {
         pdfDocument,
         createNote: (id: string) => {
-            activeSession.annotationApplication.value.store.createStickyNote(stickyNote(id));
+            activeSession.annotationApplication.value.store.createNote(note(id));
         },
         canUndo: () => activeSession.appAnnotationHistory.canUndo.value,
         canRedo: () => activeSession.appAnnotationHistory.canRedo.value,

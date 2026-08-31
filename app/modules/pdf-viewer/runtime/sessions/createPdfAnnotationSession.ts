@@ -2,7 +2,6 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import {getEditorsOnPage} from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type { GenericL10n } from 'pdfjs-dist/web/pdf_viewer.mjs';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { useManagedEmbeddedPdfShapes } from '@app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes';
@@ -48,7 +47,6 @@ import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engi
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
-    asAnnotationId,
     mintAnnotationId,
     normalizeAnnotationText,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -261,10 +259,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     };
 
     const annotationProjection = shallowRef<IAnnotationCommentSummary[]>([]);
+    const canonicalMarkupSubtypeHints = new Map<string, TMarkupSubtype>();
     const annotationCommentModel = usePdfAnnotationCommentModel({
         isAnySaving: options.isAnySaving,
         annotationProjection,
-        ingestSummaries: comments => annotationApplication.value.ingestLegacySummaries(comments),
+        ingestSummaries: comments => {
+            annotationApplication.value.replaceFromDocumentSummaries(comments);
+        },
         getShapeAnnotationCommentSummaries: shapeTool.getShapeAnnotationCommentSummaries,
         emitAnnotationComments: options.emitAnnotationComments,
         shouldSuppressSidebarComment: (comment) => {
@@ -328,6 +329,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     function resetAnnotationApplication(documentKey: string) {
         stopAnnotationApplicationProjection();
         canonicalColors = new Map();
+        canonicalMarkupSubtypeHints.clear();
         annotationCommentModel.clearProjection();
         annotationApplication.value = createAnnotationApplication(documentKey);
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
@@ -384,15 +386,17 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getMountedPageNumbers: () => viewport.demand.value.mountedPages,
         getAnnotationPageIndexes: () => annotationCommentsCache.value.map(comment => comment.pageIndex),
         getEditorIdentity: identity.getEditorIdentity,
-        getCanonicalMarkupSubtypes: () => annotationApplication.value.store.markupSubtypesByExternalId(),
-        recordCanonicalMarkupSubtype: (externalIds, subtype) =>
-            annotationApplication.value.store.setPendingMarkupSubtype(externalIds, subtype),
-        resolveCanonicalMarkupSubtype: externalIds =>
-            annotationApplication.value.store.resolveMarkupSubtype(externalIds),
-        forgetCanonicalMarkupSubtypeIntents: externalIds =>
-            annotationApplication.value.store.forgetPendingMarkupSubtypes(externalIds),
-        clearCanonicalMarkupSubtypeIntents: () =>
-            annotationApplication.value.store.clearPendingMarkupSubtypes(),
+        getCanonicalMarkupSubtypes: () => new Map(canonicalMarkupSubtypeHints),
+        recordCanonicalMarkupSubtype: (externalIds, subtype) => {
+            externalIds.forEach(id => canonicalMarkupSubtypeHints.set(id, subtype));
+        },
+        resolveCanonicalMarkupSubtype: externalIds => externalIds
+            .map(id => canonicalMarkupSubtypeHints.get(id))
+            .find((subtype): subtype is TMarkupSubtype => subtype !== undefined) ?? null,
+        forgetCanonicalMarkupSubtypeIntents: externalIds => {
+            externalIds.forEach(id => canonicalMarkupSubtypeHints.delete(id));
+        },
+        clearCanonicalMarkupSubtypeIntents: () => canonicalMarkupSubtypeHints.clear(),
         getFreeTextResize: () => freeTextResize,
         emitAnnotationToolAutoReset: options.emitAnnotationToolAutoReset,
     });
@@ -432,11 +436,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getIdentity: () => identity,
         getMarkupSubtype: () => toolState,
         getStore: () => ({
-            setAnnotations: (comments, syncOptions) => {
+            setAnnotations: comments => {
                 // Store reconciliation is deliberately synchronous. PDF.js and
                 // retry projections only observe the resulting canonical snapshot.
-                annotationApplication.value.reconcileLegacySummaries(comments, syncOptions);
-                return annotationProjection.value.map(comment => ({...comment}));
+                return annotationApplication.value.replaceFromDocumentSummaries(comments)
+                    .map(comment => ({...comment}));
             },
             setLinkAnnotations: links => {
                 linkAnnotations.value = links;
@@ -590,19 +594,18 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             const subtype = input.requestedSubtype
                 ?? toolState.toolToMarkupSubtype[options.annotationTool.value]
                 ?? 'Highlight';
+            const sourceStableKeys = new Map<string, string>();
             const resolvedCandidates = (subtype === 'Highlight' ? [] : input.observedEditors)
                 .filter(candidate => candidate.subtype === subtype)
                 .flatMap((candidate) => {
-                    let annotationId = application.annotationIdForSummary(candidate.summary);
-                    if (!annotationId) {
-                        application.ingestLegacySummaries([candidate.summary]);
-                        annotationId = application.annotationIdForSummary(candidate.summary);
+                    const annotationId = application.annotationIdForSummary(candidate.summary);
+                    if (annotationId) {
+                        sourceStableKeys.set(annotationId, candidate.summary.stableKey);
                     }
                     return annotationId
                         ? [{
                             annotationId,
-                            sourceStableKey: candidate.summary.stableKey,
-                            observedGeometry: candidate.geometry,
+                            observedQuadPoints: candidate.geometry,
                         }]
                         : [];
                 });
@@ -613,8 +616,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 identity: {id: mintAnnotationId()},
                 pageIndex: input.pageIndex,
                 subtype,
-                text: '',
-                geometry: input.geometry,
+                contents: '',
+                quadPoints: input.geometry,
                 color: style.color,
                 opacity: style.opacity,
                 author,
@@ -629,13 +632,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 subtype,
                 comment: canonicalComment(application, projection.created.identity.id),
                 replacements: projection.replacements.flatMap((replacement) => {
-                    const source = resolvedCandidates.find(candidate => (
-                        candidate.annotationId === replacement.annotationId
-                    ));
-                    return source
+                    const sourceStableKey = sourceStableKeys.get(replacement.annotationId);
+                    return sourceStableKey
                         ? [{
-                            ...replacement,
-                            sourceStableKey: source.sourceStableKey,
+                            annotationId: replacement.annotationId,
+                            sourceStableKey,
+                            geometry: replacement.quadPoints,
+                            deleted: replacement.deleted,
                         }]
                         : [];
                 }),
@@ -646,13 +649,14 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             const normalizedAuthor = options.authorName.value?.trim();
             const author = normalizedAuthor?.length ? normalizedAuthor : null;
             const now = Date.now();
-            const created = application.store.createStickyNote({
-                kind: 'sticky-note',
+            const created = application.store.createNote({
+                kind: 'note',
                 identity: {id: mintAnnotationId()},
                 pageIndex: input.pageIndex,
-                text: '',
-                anchor: input.anchor,
+                contents: '',
+                position: input.anchor,
                 color: options.annotationSettings.value?.textColor ?? null,
+                open: false,
                 author,
                 createdAt: now,
                 modifiedAt: now,
@@ -665,24 +669,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 comment: canonicalComment(application, created.identity.id),
             };
         },
-        bindProjectedEditorIdentity: (annotationId: string, summary: IAnnotationCommentSummary) => {
-            const application = annotationApplication.value;
-            const canonicalId = asAnnotationId(annotationId);
-            const entity = application.store.get(canonicalId);
-            if (!entity) {
-                return;
-            }
-            application.store.bindIdentity({
-                annotationId: canonicalId,
-                expectedRevision: entity.revision,
-                bindings: {
-                    ...(summary.annotationId ? {pdfRef: summary.annotationId} : {}),
-                    ...(summary.annotationName ? {pdfName: summary.annotationName} : {}),
-                    ...(summary.uid ? {pdfjsUid: summary.uid} : {}),
-                    ...(summary.id ? {elementId: summary.id} : {}),
-                },
-            });
-        },
+        bindProjectedEditorIdentity: () => undefined,
     };
     const highlight = useAnnotationHighlight({
         viewerContainer: options.viewerContainer,
@@ -757,30 +744,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         highlight,
         crud,
     };
-    function collectRenderedEditorExternalIds() {
-        const manager = annotationUiManager.value;
-        if (!manager) {
-            return new Set<string>();
-        }
-        const presentExternalIds = new Set<string>();
-        const relevantPageIndexes = new Set(
-            annotationApplication.value.store.list({includeDeleted: true})
-                .filter(entity => entity.kind !== 'shape' && entity.kind !== 'placed-image')
-                .map(entity => entity.pageIndex),
-        );
-        for (const pageIndex of relevantPageIndexes) {
-            getEditorsOnPage(manager, pageIndex).forEach((editor) => {
-                if (editor.uid) presentExternalIds.add(editor.uid);
-                if (editor.annotationElementId) presentExternalIds.add(editor.annotationElementId);
-            });
-        }
-        return presentExternalIds;
-    }
-
-    let editorExternalIdsBeforeReplay = new Set<string>();
-    appAnnotationHistory.setBeforeReplayEffect(() => {
-        editorExternalIdsBeforeReplay = collectRenderedEditorExternalIds();
-    });
     let deferredCommentSyncTimer: ReturnType<typeof setTimeout> | null = null;
     appAnnotationHistory.setReplayEffect(() => {
         // A replay retires or restores canonical entities and their PDF.js
@@ -789,17 +752,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         // an undone annotation back from the editor it no longer has, so its
         // outcome is dropped here; the resync below re-reads the settled layer.
         annotations.commentSync.discardInFlightSync();
-        const presentExternalIds = collectRenderedEditorExternalIds();
-        const changedExternalIds = new Set([
-            ...editorExternalIdsBeforeReplay,
-            ...presentExternalIds,
-        ].filter(id => (
-            editorExternalIdsBeforeReplay.has(id) !== presentExternalIds.has(id)
-        )));
-        annotationApplication.value.reconcilePdfjsEditorPresence(
-            presentExternalIds,
-            {changedExternalIds},
-        );
+        // PDF.js editor presence is observed by the bridge. Canonical
+        // entities are reconciled only from a document summary replacement.
         // Layer teardown/rebuild and annotation-storage bookkeeping can finish
         // in the next task. Refresh the richer comment snapshot once that settles.
         if (deferredCommentSyncTimer !== null) {
@@ -814,7 +768,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (deferredCommentSyncTimer !== null) {
             clearTimeout(deferredCommentSyncTimer);
         }
-        appAnnotationHistory.setBeforeReplayEffect(null);
         appAnnotationHistory.setReplayEffect(null);
     });
 
@@ -866,13 +819,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         resolveCanonicalAnnotationId: comment => annotationApplication.value.annotationIdForSummary(comment),
         setCanonicalNoteText: (id, text) => {
             const entity = annotationApplication.value.store.get(id);
-            if (
-                entity
-                && entity.kind !== 'shape'
-                && entity.kind !== 'placed-image'
-                && entity.text !== normalizeAnnotationText(text)
-            ) {
-                annotationApplication.value.store.setNoteText(id, text);
+            if (!entity || entity.kind === 'shape' || entity.kind === 'placed-image') {
+                return;
+            }
+            const normalizedText = normalizeAnnotationText(text);
+            if (entity.kind === 'text-box' && entity.text !== normalizedText) {
+                annotationApplication.value.store.updateTextBox(id, {text: normalizedText});
+            } else if (entity.kind === 'note' && entity.contents !== normalizedText) {
+                annotationApplication.value.store.updateNote(id, {contents: normalizedText});
+            } else if (entity.kind === 'text-markup' && entity.contents !== normalizedText) {
+                annotationApplication.value.store.updateTextMarkup(id, {contents: normalizedText});
             }
         },
         deleteCanonicalAnnotation: id => {
@@ -882,27 +838,38 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
         setCanonicalColor: (id, color) => {
             const entity = annotationApplication.value.store.get(id);
-            if (
-                entity
-                && entity.kind !== 'shape'
-                && entity.kind !== 'placed-image'
-                && entity.color !== color
-            ) {
-                annotationApplication.value.store.setStyle(id, {color});
+            if (!entity || entity.kind === 'shape' || entity.kind === 'placed-image') {
+                return;
+            }
+            if (entity.color === color) {
+                return;
+            }
+            if (entity.kind === 'text-box') {
+                annotationApplication.value.store.updateTextBox(id, {color});
+            } else if (entity.kind === 'note') {
+                annotationApplication.value.store.updateNote(id, {color});
+            } else {
+                annotationApplication.value.store.updateTextMarkup(id, {color});
             }
         },
         moveCanonicalAnchor: (id, rect) => {
             const entity = annotationApplication.value.store.get(id);
+            if (!entity || (entity.kind !== 'note' && entity.kind !== 'text-box')) {
+                return;
+            }
+            const previous = entity.kind === 'note' ? entity.position : entity.rect;
             if (
-                entity?.kind === 'sticky-note'
-                && (
-                    entity.anchor.left !== rect.left
-                    || entity.anchor.top !== rect.top
-                    || entity.anchor.width !== rect.width
-                    || entity.anchor.height !== rect.height
-                )
+                previous.left === rect.left
+                && previous.top === rect.top
+                && previous.width === rect.width
+                && previous.height === rect.height
             ) {
-                annotationApplication.value.store.moveAnchor(id, rect);
+                return;
+            }
+            if (entity.kind === 'note') {
+                annotationApplication.value.store.updateNote(id, {position: rect});
+            } else {
+                annotationApplication.value.store.updateTextBox(id, {rect});
             }
         },
     });
@@ -1113,9 +1080,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 .flatMap(entity => [
                     entity.identity.id,
                     entity.identity.pdfRef,
-                    entity.identity.pdfName,
-                    entity.identity.pdfjsUid,
-                    entity.identity.elementId,
                 ].filter((value): value is string => Boolean(value))),
         )),
         getDeletedPersistedCanonicalAnnotationCount: () => annotationApplication.value.store
@@ -1135,8 +1099,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         managedEmbeddedAnnotationIds: managedEmbeddedPdfShapes.managedEmbeddedAnnotationIds,
         hiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.hiddenEmbeddedAnnotationIds,
         renderHiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
-        adoptPersistedManagedShapesOnNextImport: () => annotationApplication.value.store.adoptPersistedShapesOnNextImport(),
-        clearPendingManagedShapeImportAdoption: () => annotationApplication.value.store.clearPendingShapeImportAdoption(),
+        adoptPersistedManagedShapesOnNextImport: () => undefined,
+        clearPendingManagedShapeImportAdoption: () => undefined,
         ensureManagedShapeBaselineReady: managedEmbeddedPdfShapes.ensureManagedShapeBaselineReady,
         preparePersistedManagedShapesForSave: managedEmbeddedPdfShapes.preparePersistedManagedShapesForSave,
         restorePreparedManagedShapesAfterFailedSave: managedEmbeddedPdfShapes.restorePreparedManagedShapesAfterFailedSave,

@@ -32,13 +32,16 @@ export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams):
     if (annotationName) {
         return `nm:${annotationName}`;
     }
-    if (params.annotationId) {
-        return `ann:${params.pageIndex}:${params.annotationId}`;
-    }
-    if (params.uid) {
-        return `uid:${params.pageIndex}:${params.uid}`;
-    }
-    return `src:${params.source}:${params.pageIndex}:${params.id}`;
+    // The canonical identity has one external binding. Keep summary keys in
+    // the same two-arm shape even while PDF.js still exposes its legacy ids.
+    const annotationId = params.annotationId?.trim();
+    const uid = params.uid?.trim();
+    const externalId = annotationId?.length
+        ? annotationId
+        : uid?.length
+            ? uid
+            : `${params.source}:${params.id}`;
+    return `ann:${params.pageIndex}:${externalId}`;
 }
 
 export function getReplayableFreeTextNoteName(input: {

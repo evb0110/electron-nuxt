@@ -147,42 +147,58 @@ function collectChangedObjectRefs(entities: readonly AnnotationEntity[]) {
     return Object.freeze([...refs]);
 }
 
-const FIELDS = {
-    'sticky-note': [
+const FIELDS: Record<AnnotationEntity['kind'], readonly string[]> = {
+    'text-box': [
         'text',
-        'anchor',
+        'rect',
+        'rotation',
+        'fontSize',
         'color',
         'author',
         'createdAt',
         'modifiedAt',
-        'fidelity',
+    ],
+    note: [
+        'contents',
+        'position',
+        'color',
+        'open',
+        'author',
+        'createdAt',
+        'modifiedAt',
     ],
     'text-markup': [
         'subtype',
-        'text',
-        'geometry',
+        'contents',
+        'quadPoints',
         'color',
         'opacity',
         'author',
         'createdAt',
         'modifiedAt',
-        'fidelity',
     ],
     'placed-image': [
         'rect',
+        'rotation',
+        'image',
         'author',
         'createdAt',
         'modifiedAt',
-        'fidelity',
     ],
     shape: [
-        'geometry',
+        'tool',
+        'rect',
+        'points',
+        'strokes',
+        'strokeColor',
+        'strokeWidth',
+        'fill',
+        'opacity',
         'author',
         'createdAt',
         'modifiedAt',
-        'fidelity',
     ],
-} as const;
+};
 
 function allowedFields(entity: AnnotationEntity) {
     return Object.fromEntries(FIELDS[entity.kind].map(field => [
@@ -217,14 +233,14 @@ export function buildSerializationPlan(
             });
             return;
         }
-        if (entity.kind === 'sticky-note') {
+        if (entity.kind === 'note' || entity.kind === 'text-box') {
             const prepareId = `${prefix}:prepare-free-text`;
             steps.push({
                 id: prepareId,
                 annotationId: entity.identity.id,
                 operation: 'prepare-free-text-appearance',
                 dependsOn: [],
-                fields: {anchor: entity.anchor},
+                fields: {position: entity.kind === 'note' ? entity.position : entity.rect},
             });
             steps.push({
                 id: `${prefix}:contents`,
@@ -484,18 +500,26 @@ export async function verifyAnnotationSave(
             );
         }
         const expectedBindings = expected.identity;
-        if (
-            (expectedBindings.pdfRef && reopened.identity.pdfRef !== expectedBindings.pdfRef)
-            || (expectedBindings.pdfName && reopened.identity.pdfName !== expectedBindings.pdfName)
-            || (expectedBindings.pdfjsUid && reopened.identity.pdfjsUid !== expectedBindings.pdfjsUid)
-        ) {
+        if (expectedBindings.pdfRef && reopened.identity.pdfRef !== expectedBindings.pdfRef) {
             failures.push(`${expected.identity.id}: identity binding mismatch`);
         }
-        if (expected.kind === 'sticky-note' && (reopened.kind !== 'sticky-note' || reopened.text !== expected.text)) {
-            failures.push(`${expected.identity.id}: text mismatch`);
+        if (expected.kind === 'note' && (reopened.kind !== 'note' || reopened.contents !== expected.contents)) {
+            failures.push(`${expected.identity.id}: contents mismatch`);
         }
-        if (expected.kind === 'sticky-note' && reopened.kind === 'sticky-note' && anchorRectDiffers(reopened.anchor, expected.anchor)) {
-            failures.push(`${expected.identity.id}: anchor mismatch`);
+        if (expected.kind === 'note' && reopened.kind === 'note' && anchorRectDiffers(reopened.position, expected.position)) {
+            failures.push(`${expected.identity.id}: position mismatch`);
+        }
+        if (expected.kind === 'text-box') {
+            if (reopened.kind !== 'text-box') {
+                failures.push(`${expected.identity.id}: text-box kind mismatch`);
+            } else {
+                if (reopened.text !== expected.text) {
+                    failures.push(`${expected.identity.id}: text-box contents mismatch`);
+                }
+                if (anchorRectDiffers(reopened.rect, expected.rect)) {
+                    failures.push(`${expected.identity.id}: text-box rect mismatch`);
+                }
+            }
         }
         if (expected.kind === 'text-markup') {
             const diagnostic = verifyTextMarkupFidelity(expected, reopened, failures);
@@ -503,7 +527,7 @@ export async function verifyAnnotationSave(
                 diagnostics.push(diagnostic);
             }
         }
-        if (expected.kind === 'shape' && (reopened.kind !== 'shape' || differs(reopened.geometry, expected.geometry))) {
+        if (expected.kind === 'shape' && (reopened.kind !== 'shape' || differs(reopened.rect, expected.rect))) {
             failures.push(`${expected.identity.id}: shape geometry mismatch`);
         }
     });
@@ -536,9 +560,9 @@ function verifyTextMarkupFidelity(
     failures: string[],
 ): IAnnotationVerificationDiagnostic {
     const failedFields: string[] = [];
-    const expectedGeometry = toCanonicalTextMarkupGeometry(expected.geometry);
+    const expectedGeometry = toCanonicalTextMarkupGeometry(expected.quadPoints);
     const isMarkup = reopened.kind === 'text-markup';
-    const reopenedGeometry = isMarkup ? toCanonicalTextMarkupGeometry(reopened.geometry) : [];
+    const reopenedGeometry = isMarkup ? toCanonicalTextMarkupGeometry(reopened.quadPoints) : [];
     const match = matchCanonicalTextMarkupGeometry(expectedGeometry, reopenedGeometry);
     if (!isMarkup) {
         // The kind/page check above already failed this annotation; recording
@@ -551,10 +575,10 @@ function verifyTextMarkupFidelity(
                 `${expected.identity.id}: markup subtype mismatch (expected ${expected.subtype}, reopened ${reopened.subtype})`,
             );
         }
-        if (reopened.text !== expected.text) {
+        if (reopened.contents !== expected.contents) {
             failedFields.push('text');
             failures.push(
-                `${expected.identity.id}: markup text mismatch (expected ${describeTextPresence(expected.text)}, reopened ${describeTextPresence(reopened.text)})`,
+                `${expected.identity.id}: markup contents mismatch (expected ${describeTextPresence(expected.contents)}, reopened ${describeTextPresence(reopened.contents)})`,
             );
         }
         if (!match.countMatches) {
@@ -576,8 +600,8 @@ function verifyTextMarkupFidelity(
         pageIndex: expected.pageIndex,
         expectedSubtype: expected.subtype,
         reopenedSubtype: isMarkup ? reopened.subtype : null,
-        expectedText: fingerprintAnnotationText(expected.text),
-        reopenedText: fingerprintAnnotationText(isMarkup ? reopened.text : ''),
+        expectedText: fingerprintAnnotationText(expected.contents),
+        reopenedText: fingerprintAnnotationText(isMarkup ? reopened.contents : ''),
         expectedGeometryCount: match.expectedCount,
         reopenedGeometryCount: match.reopenedCount,
         maxCoordinateDelta: match.expectedCount > 0 && match.reopenedCount > 0

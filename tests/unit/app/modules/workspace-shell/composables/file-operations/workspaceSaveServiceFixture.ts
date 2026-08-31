@@ -239,9 +239,6 @@ function canonicalEntityFromSummary(
     const identity = {
         id,
         ...(summary.annotationId ? {pdfRef: summary.annotationId} : {}),
-        ...(summary.annotationName ? {pdfName: summary.annotationName} : {}),
-        ...(summary.uid ? {pdfjsUid: summary.uid} : {}),
-        ...(summary.id ? {elementId: summary.id} : {}),
     };
     const text = pendingTexts.get(summary.stableKey) ?? summary.text;
     const common = {
@@ -264,23 +261,40 @@ function canonicalEntityFromSummary(
             ...common,
             kind: 'text-markup',
             subtype: summary.subtype,
-            text,
-            geometry: summary.markerRect ? [summary.markerRect] : [],
+            contents: text,
+            quadPoints: summary.markerRect ? [summary.markerRect] : [],
             color: summary.color ?? null,
             opacity: summary.opacity ?? null,
         };
     }
+    if (summary.subtype === 'FreeText' || summary.subtype === 'Typewriter') {
+        return {
+            ...common,
+            kind: 'text-box',
+            text,
+            rect: summary.markerRect ?? {
+                left: 0.1,
+                top: 0.1,
+                width: 0.0016,
+                height: 0.0016,
+            },
+            rotation: 0,
+            fontSize: 16,
+            color: summary.color ?? null,
+        };
+    }
     return {
         ...common,
-        kind: 'sticky-note',
-        text,
-        anchor: summary.markerRect ?? {
+        kind: 'note',
+        contents: text,
+        position: summary.markerRect ?? {
             left: 0.1,
             top: 0.1,
             width: 0.0016,
             height: 0.0016,
         },
         color: summary.color ?? null,
+        open: false,
     };
 }
 
@@ -459,7 +473,7 @@ export function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummar
 export function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     return {
         id: overrides.id ?? 'pdfjs_internal_editor_0',
-        stableKey: overrides.stableKey ?? 'uid:0:pdfjs_internal_editor_0',
+        stableKey: overrides.stableKey ?? 'ann:0:pdfjs_internal_editor_0',
         sortIndex: null,
         pageIndex: 0,
         pageNumber: 1,

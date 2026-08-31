@@ -9,9 +9,11 @@ import {
     normalizePdfNativeMutationSet,
     splitPdfNativeMutationSetIntoBoundedChunks,
 } from '@contracts/nativePdfMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
 
-const textBox = {
-    pageIndex: 0,
+const textBox: IPdfNativeTextBoxMutation = {
+    pageIndex: requirePageIndex(0),
     stableKey: 'text-box-1',
     text: 'A text box',
     rect: [
@@ -30,7 +32,7 @@ const textBox = {
     author: 'Ada Lovelace',
     createdAt: 1_780_000_000_000,
     modifiedAt: 1_780_000_060_000,
-} as const;
+};
 
 describe('native PDF text-box mutation contracts', () => {
     it('normalizes canonical and legacy keys to textBoxes without emitting the alias', () => {

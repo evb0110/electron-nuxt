@@ -2467,7 +2467,7 @@ describe('serializePdfEdits free-text note rect application', () => {
             pageIndex: 0,
             id: 'pdfjs_internal_editor_0',
             uid: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: 'pdfjs_internal_editor_0',
             source: 'editor',
             subtype: 'FreeText',
@@ -2535,7 +2535,7 @@ describe('serializePdfEdits free-text note rect application', () => {
                 600,
             ],
             contents: 'existing embedded note',
-            name: 'evb-note:uid:0:pdfjs_internal_editor_0',
+            name: 'evb-note:ann:0:pdfjs_internal_editor_0',
         }]);
         const existingRef = noteRefs[0]!;
 
@@ -2559,7 +2559,7 @@ describe('serializePdfEdits free-text note rect application', () => {
                 pageIndex: 0,
                 id: 'pdfjs_internal_editor_0',
                 uid: 'pdfjs_internal_editor_0',
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 annotationId: null,
                 source: 'editor',
                 subtype: 'Typewriter',
@@ -2598,7 +2598,7 @@ describe('serializePdfEdits free-text note rect application', () => {
                 600,
             ],
             contents: 'legacy embedded note',
-            name: 'evb-note:uid:0:pdfjs_internal_editor_0',
+            name: 'evb-note:ann:0:pdfjs_internal_editor_0',
         }]);
 
         const payload = createEmptyPayload();
@@ -2606,7 +2606,7 @@ describe('serializePdfEdits free-text note rect application', () => {
             pageIndex: 0,
             id: 'pdfjs_internal_editor_0',
             uid: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: null,
             source: 'editor',
             subtype: 'Typewriter',
@@ -2633,7 +2633,7 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(freeTextRefs).toHaveLength(2);
         expect(contents).toContain('legacy embedded note');
         expect(contents).toContain('fresh editor note');
-        expect(names).toContain('evb-note:uid:0:pdfjs_internal_editor_0:created:1780531944655');
+        expect(names).toContain('evb-note:ann:0:pdfjs_internal_editor_0:created:1780531944655');
     });
 
     it('creates multiple new FreeText popup notes on the same page without overwriting earlier notes', async () => {
@@ -2650,7 +2650,7 @@ describe('serializePdfEdits free-text note rect application', () => {
                 pageIndex: 0,
                 id: 'pdfjs_internal_editor_0',
                 uid: 'pdfjs_internal_editor_0',
-                stableKey: 'uid:0:pdfjs_internal_editor_0',
+                stableKey: 'ann:0:pdfjs_internal_editor_0',
                 annotationId: 'pdfjs_internal_editor_0',
                 source: 'editor',
                 subtype: 'FreeText',
@@ -2667,7 +2667,7 @@ describe('serializePdfEdits free-text note rect application', () => {
                 pageIndex: 0,
                 id: 'pdfjs_internal_editor_1',
                 uid: 'pdfjs_internal_editor_1',
-                stableKey: 'uid:0:pdfjs_internal_editor_1',
+                stableKey: 'ann:0:pdfjs_internal_editor_1',
                 annotationId: 'pdfjs_internal_editor_1',
                 source: 'editor',
                 subtype: 'FreeText',
@@ -2768,7 +2768,7 @@ describe('serializePdfEdits free-text note rect application', () => {
             pageIndex: 0,
             id: 'pdfjs_internal_editor_0',
             uid: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: 'pdfjs_internal_editor_0',
             source: 'editor',
             subtype: 'FreeText',
@@ -2797,7 +2797,7 @@ describe('serializePdfEdits free-text note rect application', () => {
         expect(popupRefs).toHaveLength(1);
 
         const freeTextDict = getAnnotDict(saved, freeTextRefs[0]!);
-        expect(getPdfStringValue(freeTextDict?.get(PDFName.of('NM')))).toBe('evb-note:uid:0:pdfjs_internal_editor_0');
+        expect(getPdfStringValue(freeTextDict?.get(PDFName.of('NM')))).toBe('evb-note:ann:0:pdfjs_internal_editor_0');
         expect(getPdfDictContents(freeTextDict ?? null)).toBe('large file note');
         expect(freeTextDict?.get(PDFName.of('Popup'))).toBe(popupRefs[0]);
     });
@@ -2814,7 +2814,7 @@ describe('serializePdfEdits free-text note rect application', () => {
             pageIndex: 0,
             id: 'pdfjs_internal_editor_0',
             uid: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             annotationId: 'pdfjs_internal_editor_0',
             source: 'editor',
             subtype: 'FreeText',

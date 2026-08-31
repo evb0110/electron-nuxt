@@ -395,8 +395,8 @@ describe('createPrintableSourceDataResolver', () => {
     it('opens the print frontier only after the in-flight save acknowledges, and materializes the acknowledged source', async () => {
         const controller = createWorkspaceDocumentController({tabId: 'tab-print'});
         const application = new AnnotationApplication('print-frontier-document');
-        const note = application.store.createStickyNote({
-            kind: 'sticky-note',
+        const note = application.store.createNote({
+            kind: 'note',
             identity: {id: asAnnotationId('print-frontier-note')},
             pageIndex: 0,
             revision: 0,
@@ -405,14 +405,15 @@ describe('createPrintableSourceDataResolver', () => {
             createdAt: null,
             modifiedAt: null,
             author: null,
-            text: 'unsaved note the print must not race',
-            anchor: {
+            contents: 'unsaved note the print must not race',
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.01,
                 height: 0.01,
             },
             color: '#ffcc00',
+            open: false,
         });
         const unsavedSourceBytes = Uint8Array.of(1, 1, 1);
         const savedSourceBytes = Uint8Array.of(2, 2, 2);

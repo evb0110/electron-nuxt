@@ -154,7 +154,7 @@ const computeStableKey = vi.fn((params: {
     pageIndex: number;
     id: string;
     source: 'editor' | 'pdf' | 'shape';
-}) => `src:${params.source}:${params.pageIndex}:${params.id}` as const);
+}) => `ann:${params.pageIndex}:${params.source}:${params.id}` as const);
 
 const summaryDeps = {
     computeStableKey,

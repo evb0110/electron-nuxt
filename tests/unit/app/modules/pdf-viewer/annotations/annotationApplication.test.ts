@@ -5,10 +5,15 @@ import {
     it,
     vi,
 } from 'vitest';
-import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    AnnotationApplication,
+    toCanonicalShapeEntity,
+} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import {
     asAnnotationId,
-    type IStickyNoteEntity,
+    type INoteEntity,
+    type IPlacedImageEntity,
+    type ITextBoxEntity,
     type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
@@ -47,13 +52,10 @@ vi.mock('pdfjs-dist/legacy/build/pdf.mjs', () => ({
     },
 }));
 
-function note(overrides: Partial<IStickyNoteEntity> = {}): IStickyNoteEntity {
+function note(overrides: Partial<INoteEntity> = {}): INoteEntity {
     return {
-        kind: 'sticky-note',
-        identity: {
-            id: asAnnotationId('anno_test'),
-            pdfName: 'evb:anno_test',
-        },
+        kind: 'note',
+        identity: {id: asAnnotationId('anno_test')},
         pageIndex: 0,
         revision: 0,
         persistedRevision: -1,
@@ -61,14 +63,15 @@ function note(overrides: Partial<IStickyNoteEntity> = {}): IStickyNoteEntity {
         createdAt: 1,
         modifiedAt: 1,
         author: 'Tester',
-        text: 'original',
-        anchor: {
+        contents: 'original',
+        position: {
             left: 0.1,
             top: 0.2,
             width: 0.02,
             height: 0.02,
         },
         color: '#ffff00',
+        open: false,
         ...overrides,
     };
 }
@@ -106,8 +109,8 @@ function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEnti
         modifiedAt: 1,
         author: 'Tester',
         subtype: 'Underline',
-        text: '',
-        geometry: [{
+        contents: '',
+        quadPoints: [{
             left: 0.1,
             top: 0.2,
             width: 0.4,
@@ -119,30 +122,57 @@ function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEnti
     };
 }
 
-function placedImageSummary(
-    overrides: Partial<IAnnotationCommentSummary> = {},
-): IAnnotationCommentSummary {
+function textBox(overrides: Partial<ITextBoxEntity> = {}): ITextBoxEntity {
     return {
-        source: 'pdf',
-        id: '44R',
-        stableKey: 'nm:placed-image-app-1',
+        kind: 'text-box',
+        identity: {id: asAnnotationId('text-box-test')},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: 1,
+        modifiedAt: 1,
+        author: 'Tester',
+        text: 'saved text',
+        rect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.3,
+            height: 0.15,
+        },
+        rotation: 0,
+        fontSize: 10,
+        color: '#ff00aa',
+        ...overrides,
+    };
+}
+
+function placedImage(overrides: Partial<IPlacedImageEntity> = {}): IPlacedImageEntity {
+    return {
+        kind: 'placed-image',
+        identity: {
+            id: asAnnotationId('placed-image-app-1'),
+            pdfRef: '44R',
+        },
         pageIndex: 2,
-        pageNumber: 3,
-        text: '',
-        subtype: 'Stamp',
-        author: null,
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
         createdAt: null,
         modifiedAt: null,
-        color: null,
-        uid: null,
-        annotationId: '44R',
-        annotationName: 'placed-image-app-1',
-        hasNote: false,
-        markerRect: {
+        author: null,
+        rect: {
             left: 0.1,
             top: 0.2,
             width: 0.3,
             height: 0.4,
+        },
+        rotation: 0,
+        image: {
+            objectNumber: 44,
+            generationNumber: 0,
+            byteLength: 16,
+            sha256: 'a'.repeat(64),
         },
         ...overrides,
     };
@@ -203,57 +233,16 @@ describe('AnnotationApplication', () => {
             .toBeLessThan(pdfjsMocks.getDocument.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER);
     });
 
-    it('reconciles PDF.js editor undo and redo without adopting a new saved baseline', () => {
+    it('projects a canonical placed image and preserves its PDF reference across reopen', () => {
         const application = new AnnotationApplication('document');
-        const annotationId = asAnnotationId('persisted-note');
-        application.store.import(note({
-            identity: {
-                id: annotationId,
-                pdfjsUid: 'pdfjs-editor-1',
-            },
-            persistedRevision: 0,
-        }));
-        application.store.delete(annotationId);
-        const savedDelete = application.store.beginSave();
-        application.store.acknowledgeSave(savedDelete);
-        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
-
-        application.reconcilePdfjsEditorPresence(new Set(['pdfjs-editor-1']));
-
-        expect(application.store.get(annotationId)?.deleted).toBe(false);
-        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
-
-        const transientId = asAnnotationId('transient-note');
-        application.store.import(note({identity: {
-            id: transientId,
-            pdfjsUid: 'pdfjs-editor-2',
-        }}));
-        application.reconcilePdfjsEditorPresence(
-            new Set(['pdfjs-editor-1']),
-            {changedExternalIds: new Set(['pdfjs-editor-2'])},
-        );
-        expect(application.store.get(transientId)?.deleted).toBe(true);
-        application.reconcilePdfjsEditorPresence(new Set([
-            'pdfjs-editor-1',
-            'pdfjs-editor-2',
-        ]));
-        expect(application.store.get(transientId)?.deleted).toBe(false);
-    });
-
-    it('imports an app-owned no-note Stamp as a placed image and preserves its NM across reopen', () => {
-        const application = new AnnotationApplication('document');
-        const imported = placedImageSummary();
-
-        application.ingestLegacySummaries([imported]);
+        const imported = placedImage();
+        application.store.replaceFromDocument([imported], []);
 
         const [entity] = application.store.list();
         expect(entity).toMatchObject({
             kind: 'placed-image',
             pageIndex: 2,
-            identity: {
-                pdfName: 'placed-image-app-1',
-                pdfRef: '44R',
-            },
+            identity: {pdfRef: '44R'},
         });
 
         const [projected] = application.listCommentSummaries();
@@ -261,28 +250,26 @@ describe('AnnotationApplication', () => {
             source: 'pdf',
             appAnnotationId: entity?.identity.id,
             annotationId: '44R',
-            annotationName: 'placed-image-app-1',
+            annotationName: null,
             subtype: 'Stamp',
             hasNote: false,
-            markerRect: imported.markerRect,
+            markerRect: imported.rect,
         });
-        expect(application.projectSummaries([{
-            ...projected!,
-            hasNote: true,
-        }])[0]?.hasNote).toBe(false);
 
         const reopened = new AnnotationApplication('document');
-        const reopenedSummary = placedImageSummary({
-            id: '91R',
-            annotationId: '91R',
-            markerRect: {
+        const reopenedImage = placedImage({
+            identity: {
+                id: imported.identity.id,
+                pdfRef: '91R',
+            },
+            rect: {
                 left: 0.2,
                 top: 0.3,
                 width: 0.4,
                 height: 0.5,
             },
         });
-        reopened.ingestLegacySummaries([reopenedSummary]);
+        reopened.store.replaceFromDocument([reopenedImage], []);
 
         const [reopenedEntity] = reopened.store.list();
         if (!reopenedEntity || reopenedEntity.kind !== 'placed-image') {
@@ -290,29 +277,24 @@ describe('AnnotationApplication', () => {
         }
         expect(reopenedEntity.identity.id).toBe(entity?.identity.id);
         expect(reopenedEntity?.identity.pdfRef).toBe('91R');
-        expect(reopenedEntity.rect).toEqual(reopenedSummary.markerRect);
-        expect(reopened.annotationIdForSummary(reopenedSummary))
-            .toBe(reopenedEntity?.identity.id);
+        expect(reopenedEntity.rect).toEqual(reopenedImage.rect);
         expect(reopened.store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
     it('keeps sticky-note projection note-bearing', () => {
         const application = new AnnotationApplication('document');
-        application.store.import(note());
+        application.store.createNote(note());
         const [summary] = application.listCommentSummaries();
 
-        expect(application.projectSummaries([{
-            ...summary!,
-            hasNote: false,
-        }])[0]?.hasNote).toBe(true);
+        expect(summary?.hasNote).toBe(true);
     });
 
     it('imports a persisted non-point FreeText editor into the canonical store', () => {
         const application = new AnnotationApplication('document');
 
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             id: '44R',
-            stableKey: 'src:editor:0:44R',
+            stableKey: 'ann:0:44R',
             pageIndex: 0,
             pageNumber: 1,
             text: 'visible imported text',
@@ -334,14 +316,10 @@ describe('AnnotationApplication', () => {
 
         expect(application.store.list()).toHaveLength(1);
         expect(application.store.list()[0]).toMatchObject({
-            kind: 'sticky-note',
+            kind: 'text-box',
             text: 'visible imported text',
             pageIndex: 0,
-            identity: {
-                pdfRef: '44R',
-                pdfjsUid: 'pdfjs-editor-44R',
-                elementId: '44R',
-            },
+            identity: {pdfRef: '44R'},
         });
     });
 
@@ -354,7 +332,7 @@ describe('AnnotationApplication', () => {
             height: 0.15,
         };
 
-        application.ingestLegacySummaries([
+        application.replaceFromDocumentSummaries([
             {
                 id: '42R',
                 stableKey: 'nm:imported-freetext',
@@ -374,7 +352,7 @@ describe('AnnotationApplication', () => {
             },
             {
                 id: '42R0',
-                stableKey: 'src:editor:0:42R0',
+                stableKey: 'ann:0:42R0',
                 pageIndex: 0,
                 pageNumber: 1,
                 text: 'visible imported text from Contents',
@@ -407,12 +385,12 @@ describe('AnnotationApplication', () => {
         const reopened = new AnnotationApplication('document');
         const reopenedPdfSummary = {...summary!};
         delete reopenedPdfSummary.appAnnotationId;
-        reopened.ingestLegacySummaries([
+        reopened.replaceFromDocumentSummaries([
             reopenedPdfSummary,
             {
                 ...reopenedPdfSummary,
                 id: '42R0',
-                stableKey: 'src:editor:0:42R0',
+                stableKey: 'ann:0:42R0',
                 source: 'editor',
                 uid: 'pdfjs-editor-42R0',
                 annotationId: '42R0',
@@ -426,9 +404,9 @@ describe('AnnotationApplication', () => {
     it('imports a persisted Typewriter editor into the canonical store', () => {
         const application = new AnnotationApplication('document');
 
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             id: '45R',
-            stableKey: 'src:editor:0:45R',
+            stableKey: 'ann:0:45R',
             pageIndex: 0,
             pageNumber: 1,
             text: 'visible persisted typewriter',
@@ -450,22 +428,18 @@ describe('AnnotationApplication', () => {
 
         expect(application.store.list()).toHaveLength(1);
         expect(application.store.list()[0]).toMatchObject({
-            kind: 'sticky-note',
+            kind: 'text-box',
             text: 'visible persisted typewriter',
-            identity: {
-                pdfRef: '45R',
-                pdfjsUid: 'pdfjs-editor-45R',
-                elementId: '45R',
-            },
+            identity: {pdfRef: '45R'},
         });
     });
 
     it('does not admit a transient FreeText editor from its generated id alone', () => {
         const application = new AnnotationApplication('document');
 
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             id: 'pdfjs_internal_editor_0',
-            stableKey: 'src:editor:0:pdfjs_internal_editor_0',
+            stableKey: 'ann:0:pdfjs_internal_editor_0',
             pageIndex: 0,
             pageNumber: 1,
             text: '',
@@ -488,105 +462,49 @@ describe('AnnotationApplication', () => {
         expect(application.store.list()).toHaveLength(0);
     });
 
-    it('fails closed when one PDF snapshot repeats a placed-image NM', () => {
+    it('leaves Stamp summaries to the canonical parser until image metadata is available', () => {
         const application = new AnnotationApplication('document');
-
-        application.ingestLegacySummaries([
-            placedImageSummary(),
-            placedImageSummary({
-                id: '45R',
-                annotationId: '45R',
-            }),
-        ]);
-
-        expect(application.store.list()).toEqual([]);
-        expect(application.listCommentSummaries()).toEqual([]);
-        expect(application.legacyIdentityConflicts.size).toBe(2);
-    });
-
-    it('ignores third-party Stamp summaries without the app-owned placed-image NM prefix', () => {
-        const application = new AnnotationApplication('document');
-
-        application.ingestLegacySummaries([placedImageSummary({
-            annotationName: 'Approved',
-            stableKey: 'nm:Approved',
-        })]);
-
-        expect(application.store.list()).toEqual([]);
-    });
-
-    it('fails closed when a placed-image ref disagrees with its imported NM', () => {
-        const application = new AnnotationApplication('document');
-        application.ingestLegacySummaries([placedImageSummary()]);
-        const [projected] = application.listCommentSummaries();
-
-        expect(application.annotationIdForSummary({
-            ...projected!,
-            id: '99R',
-            annotationId: '99R',
-        })).toBeNull();
-    });
-
-    it('does not rebind a retired PDF ref from a restored editor summary', () => {
-        const application = new AnnotationApplication('document');
-        const annotationId = asAnnotationId('saved-highlight-undo');
-        application.store.import(textMarkup({
-            identity: {
-                id: annotationId,
-                pdfRef: '12R0',
-                pdfjsUid: 'highlight-editor-1',
-            },
-            persistedRevision: 0,
-        }));
-
-        application.store.delete(annotationId);
-        application.store.acknowledgeSave(application.store.beginSave());
-        expect(application.store.get(annotationId)).toMatchObject({
-            deleted: true,
-            identity: {id: annotationId},
-            persistedRevision: -1,
-        });
-
-        expect(application.store.undo()).toBe(true);
-        expect(application.store.get(annotationId)).toMatchObject({
-            deleted: false,
-            identity: {id: annotationId},
-            persistedRevision: -1,
-        });
-        expect(application.store.get(annotationId)?.identity).not.toHaveProperty('pdfRef');
-
-        application.ingestLegacySummaries([{
-            ...application.listCommentSummaries()[0]!,
-            source: 'editor',
-            annotationId: '12R0',
-        }]);
-
-        expect(application.store.get(annotationId)?.identity).not.toHaveProperty('pdfRef');
-
-        application.ingestLegacySummaries([{
-            ...application.listCommentSummaries()[0]!,
+        const stamp: IAnnotationCommentSummary = {
             source: 'pdf',
-            annotationId: '13R0',
-        }]);
+            id: '44R',
+            stableKey: 'nm:placed-image-app-1',
+            pageIndex: 2,
+            pageNumber: 3,
+            text: '',
+            subtype: 'Stamp',
+            author: null,
+            createdAt: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: '44R',
+            annotationName: 'placed-image-app-1',
+            hasNote: false,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+        };
 
-        expect(application.store.get(annotationId)?.identity.pdfRef).toBe('13R0');
+        application.replaceFromDocumentSummaries([stamp]);
+
+        expect(application.store.list()).toEqual([]);
     });
 
     it('projects a redone saved annotation as persisted, with its saved ref', () => {
         const application = new AnnotationApplication('document');
         const annotationId = asAnnotationId('anno_saved_highlight');
         application.store.createTextMarkup(textMarkup({
-            identity: {
-                id: annotationId,
-                pdfjsUid: 'editor-uid-1',
-            },
+            identity: {id: annotationId},
             subtype: 'Highlight',
             persistedRevision: -1,
         }));
-        application.store.acknowledgeSave(application.store.beginSave(), new Map([[
+        application.store.markPersisted(application.store.beginSave(), [{
             annotationId,
-            '31R',
-        ]]));
+            pdfRef: '31R',
+        }]);
         const [saved] = application.listCommentSummaries();
 
         expect(application.store.undo()).toBe(true);
@@ -614,11 +532,7 @@ describe('AnnotationApplication', () => {
         const application = new AnnotationApplication('document');
         application.store.createTextMarkup({
             kind: 'text-markup',
-            identity: {
-                id: asAnnotationId('anno_new_markup'),
-                elementId: 'pdfjs_internal_editor_17',
-                pdfjsUid: 'editor-uid-before-save',
-            },
+            identity: {id: asAnnotationId('anno_new_markup')},
             pageIndex: 0,
             revision: 0,
             persistedRevision: -1,
@@ -627,8 +541,8 @@ describe('AnnotationApplication', () => {
             modifiedAt: null,
             author: null,
             subtype: 'Highlight',
-            text: '',
-            geometry: [{
+            contents: '',
+            quadPoints: [{
                 left: 0.1,
                 top: 0.2,
                 width: 0.3,
@@ -670,11 +584,7 @@ describe('AnnotationApplication', () => {
         const application = new AnnotationApplication('document');
         application.store.createTextMarkup({
             kind: 'text-markup',
-            identity: {
-                id: asAnnotationId('anno_new_markup'),
-                elementId: 'pdfjs_internal_editor_17',
-                pdfjsUid: 'editor-uid-before-save',
-            },
+            identity: {id: asAnnotationId('anno_new_markup')},
             pageIndex: 0,
             revision: 0,
             persistedRevision: -1,
@@ -683,8 +593,8 @@ describe('AnnotationApplication', () => {
             modifiedAt: null,
             author: null,
             subtype: 'Highlight',
-            text: '',
-            geometry: [{
+            contents: '',
+            quadPoints: [{
                 left: 0.1,
                 top: 0.2,
                 width: 0.3,
@@ -725,7 +635,10 @@ describe('AnnotationApplication', () => {
             session,
             new Uint8Array([1]),
         )).resolves.toBeUndefined();
-        application.acknowledgeSave(session);
+        application.store.markPersisted(session.frontier, [{
+            annotationId: 'anno_new_markup',
+            pdfRef: '9R',
+        }]);
         expect(application.store.get(asAnnotationId('anno_new_markup'))).toEqual(expect.objectContaining({
             identity: expect.objectContaining({pdfRef: '9R'}),
             persistedRevision: 0,
@@ -737,10 +650,7 @@ describe('AnnotationApplication', () => {
         const application = new AnnotationApplication('document');
         const annotationId = asAnnotationId('anno_native_markup');
         application.store.createTextMarkup(textMarkup({
-            identity: {
-                id: annotationId,
-                elementId: 'pdfjs_internal_editor_native_markup',
-            },
+            identity: {id: annotationId},
             persistedRevision: -1,
         }));
 
@@ -778,7 +688,7 @@ describe('AnnotationApplication', () => {
                 pdfRef: '21R',
             },
             persistedRevision: -1,
-            geometry: [
+            quadPoints: [
                 {
                     left: 0.1,
                     top: 0.2,
@@ -842,20 +752,17 @@ describe('AnnotationApplication', () => {
     it('semantically verifies and binds a newly appended native FreeText note when PDF.js omits its annotation name', async () => {
         const application = new AnnotationApplication('document');
         const editorNote = note({
-            identity: {
-                id: asAnnotationId('anno_native_note'),
-                elementId: 'pdfjs_internal_editor_0',
-            },
+            identity: {id: asAnnotationId('anno_native_note')},
             createdAt: 1_781_000_000_000,
-            anchor: {
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.0016,
                 height: 0.0016,
             },
-            text: 'Native note text',
+            contents: 'Native note text',
         });
-        application.store.createStickyNote(editorNote);
+        application.store.createNote(editorNote);
         pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
             destroy: pdfjsMocks.destroy,
             getPage: vi.fn(async () => ({
@@ -886,26 +793,26 @@ describe('AnnotationApplication', () => {
             {preexistingPdfAnnotationRefs: []},
         )).resolves.toBeUndefined();
         expect(session.materializedPdfRefs.get(asAnnotationId('anno_native_note'))).toBe('42R');
-        application.acknowledgeSave(session);
+        application.store.markPersisted(session.frontier, [{
+            annotationId: editorNote.identity.id,
+            pdfRef: '42R',
+        }]);
         expect(application.store.get(asAnnotationId('anno_native_note')))
             .toEqual(expect.objectContaining({identity: expect.objectContaining({pdfRef: '42R'})}));
     });
 
     it('does not adopt a semantically identical pre-existing FreeText note as a new native append', async () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note({
-            identity: {
-                id: asAnnotationId('anno_native_note'),
-                elementId: 'pdfjs_internal_editor_0',
-            },
+        application.store.createNote(note({
+            identity: {id: asAnnotationId('anno_native_note')},
             createdAt: 1_781_000_000_000,
-            anchor: {
+            position: {
                 left: 0.1,
                 top: 0.2,
                 width: 0.0016,
                 height: 0.0016,
             },
-            text: 'Native note text',
+            contents: 'Native note text',
         }));
         pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
             destroy: pdfjsMocks.destroy,
@@ -939,9 +846,9 @@ describe('AnnotationApplication', () => {
 
     it('rejects a save when an edit advances the global frontier during verification', async () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note());
+        application.store.createNote(note());
         const session = application.beginSave();
-        application.store.setNoteText(asAnnotationId('anno_test'), 'newer');
+        application.store.updateNote(asAnnotationId('anno_test'), {contents: 'newer'});
 
         await expect(application.verifyAndAcknowledgeSave(
             session,
@@ -953,20 +860,20 @@ describe('AnnotationApplication', () => {
         expect(current).toMatchObject({
             revision: 1,
             persistedRevision: -1,
-            text: 'newer',
+            contents: 'newer',
         });
         expect(application.beginSave().plan.expected).toMatchObject([{
             revision: 1,
-            text: 'newer',
+            contents: 'newer',
         }]);
     });
 
     it('verifies deletion of an annotation from a removed trailing page without opening that page', async () => {
         const application = new AnnotationApplication('document');
-        application.store.import(note({
+        application.store.replaceFromDocument([note({
             pageIndex: 1,
             persistedRevision: 0,
-        }));
+        })], []);
         application.store.delete(asAnnotationId('anno_test'));
         const getPage = vi.fn();
         pdfjsMocks.getDocument.mockReturnValue({promise: Promise.resolve({
@@ -984,17 +891,17 @@ describe('AnnotationApplication', () => {
 
     it('normalizes adapter-only liveness sentinels and preserves tombstones through history', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note());
-        application.store.setNoteText(asAnnotationId('anno_test'), '\u200Bhello\uFEFF');
+        application.store.createNote(note());
+        application.store.updateNote(asAnnotationId('anno_test'), {contents: '\u200Bhello\uFEFF'});
         application.store.delete(asAnnotationId('anno_test'));
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({
             deleted: true,
-            text: 'hello',
+            contents: 'hello',
         });
         expect(application.store.undo()).toBe(true);
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({
             deleted: false,
-            text: 'hello',
+            contents: 'hello',
         });
         expect(application.store.redo()).toBe(true);
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({deleted: true});
@@ -1003,7 +910,7 @@ describe('AnnotationApplication', () => {
     it('replaces overlapping markup in one observable and undoable Store command', () => {
         const application = new AnnotationApplication('document');
         const existing = textMarkup();
-        application.store.import(existing);
+        application.store.replaceFromDocument([existing], []);
         let emissions = 0;
         application.store.subscribe(() => {
             emissions += 1;
@@ -1015,8 +922,8 @@ describe('AnnotationApplication', () => {
             identity: {id: asAnnotationId('new-underline')},
             pageIndex: 0,
             subtype: 'Underline',
-            text: '',
-            geometry: [{
+            contents: '',
+            quadPoints: [{
                 left: 0.2,
                 top: 0.2,
                 width: 0.1,
@@ -1032,7 +939,7 @@ describe('AnnotationApplication', () => {
             deleted: false,
         }, [{
             annotationId: existing.identity.id,
-            observedGeometry: existing.geometry,
+            observedQuadPoints: existing.quadPoints,
         }]);
 
         expect(emissions).toBe(1);
@@ -1041,15 +948,15 @@ describe('AnnotationApplication', () => {
             annotationId: existing.identity.id,
             deleted: false,
         });
-        expect(projection.replacements[0]?.geometry).toHaveLength(2);
-        expect(projection.replacements[0]?.geometry[0]).toEqual({
+        expect(projection.replacements[0]?.quadPoints).toHaveLength(2);
+        expect(projection.replacements[0]?.quadPoints[0]).toEqual({
             left: 0.1,
             top: 0.2,
             width: 0.1,
             height: 0.03,
         });
-        expect(projection.replacements[0]?.geometry[1]?.left).toBeCloseTo(0.3);
-        expect(projection.replacements[0]?.geometry[1]?.width).toBeCloseTo(0.2);
+        expect(projection.replacements[0]?.quadPoints[1]?.left).toBeCloseTo(0.3);
+        expect(projection.replacements[0]?.quadPoints[1]?.width).toBeCloseTo(0.2);
         expect(application.store.list()).toHaveLength(2);
 
         expect(application.store.undo()).toBe(true);
@@ -1065,8 +972,8 @@ describe('AnnotationApplication', () => {
             identity: {id: asAnnotationId('new-highlight')},
             pageIndex: 0,
             subtype: 'Highlight',
-            text: '',
-            geometry: [{
+            contents: '',
+            quadPoints: [{
                 left: 0.1,
                 top: 0.2,
                 width: 0.2,
@@ -1084,7 +991,7 @@ describe('AnnotationApplication', () => {
         const summary = {
             appAnnotationId: projection.created.identity.id,
             id: 'editor-1',
-            stableKey: 'src:editor:0:editor-1' as const,
+            stableKey: 'ann:0:editor-1' as const,
             pageIndex: 0,
             pageNumber: 1,
             text: '',
@@ -1096,18 +1003,10 @@ describe('AnnotationApplication', () => {
             annotationId: null,
             source: 'editor' as const,
             hasNote: false,
-            markerRect: projection.created.geometry[0]!,
+            markerRect: projection.created.quadPoints[0]!,
         };
 
-        application.store.bindIdentity({
-            annotationId: projection.created.identity.id,
-            expectedRevision: projection.created.revision,
-            bindings: {
-                pdfjsUid: summary.uid!,
-                elementId: summary.id,
-            },
-        });
-        application.ingestLegacySummaries([summary]);
+        application.replaceFromDocumentSummaries([summary]);
 
         expect(application.store.list()).toHaveLength(1);
         expect(application.annotationIdForSummary(summary)).toBe(projection.created.identity.id);
@@ -1115,9 +1014,9 @@ describe('AnnotationApplication', () => {
 
     it('keeps a locally created note saveable after its own read model is ingested again', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note({identity: {id: asAnnotationId('anno_local_note')}}));
+        application.store.createNote(note({identity: {id: asAnnotationId('anno_local_note')}}));
 
-        application.ingestLegacySummaries(application.listCommentSummaries());
+        application.replaceFromDocumentSummaries(application.listCommentSummaries());
 
         expect(application.store.list()).toHaveLength(1);
         expect(() => application.beginSave()).not.toThrow();
@@ -1125,20 +1024,98 @@ describe('AnnotationApplication', () => {
 
     it('rejects reopen results with stale text or geometry', async () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note());
+        application.store.createNote(note());
         const session = application.beginSave();
-        await expect(application.verifyAndAcknowledgeSave(session, new Uint8Array([1]), {reopen: async () => [note({text: 'stale'})]})).rejects.toThrow('text mismatch');
+        await expect(application.verifyAndAcknowledgeSave(session, new Uint8Array([1]), {reopen: async () => [note({contents: 'stale'})]})).rejects.toThrow('contents mismatch');
+    });
+
+    it('rejects reopen results with stale text-box contents or geometry', async () => {
+        const application = new AnnotationApplication('document');
+        const expected = application.store.createTextBox(textBox());
+        const session = application.beginSave();
+        const staleTextBox = textBox({
+            identity: expected.identity,
+            text: 'stale text',
+            rect: {
+                left: 0.11,
+                top: 0.2,
+                width: 0.3,
+                height: 0.15,
+            },
+        });
+        const staleGeometryTextBox = textBox({
+            identity: expected.identity,
+            rect: {
+                left: 0.11,
+                top: 0.2,
+                width: 0.3,
+                height: 0.15,
+            },
+        });
+        await expect(application.verifyAndAcknowledgeSave(session, new Uint8Array([1]), {reopen: async () => [staleTextBox]})).rejects.toThrow('text-box contents mismatch');
+        await expect(application.verifyAndAcknowledgeSave(session, new Uint8Array([1]), {reopen: async () => [staleGeometryTextBox]})).rejects.toThrow('text-box rect mismatch');
+    });
+
+    it('keeps summary-adapter omissions until the canonical parser can replace them', () => {
+        const application = new AnnotationApplication('document');
+        const shapeEntity = toCanonicalShapeEntity(shape({annotationId: '12R'}), asAnnotationId('shape-summary-preserved'));
+        const imageEntity = placedImage();
+        const foreign = {
+            pageIndex: 0,
+            subtype: 'Widget',
+            name: null,
+            objectNumber: 91,
+            generationNumber: 0,
+            reason: 'not app-owned',
+        };
+        application.store.replaceFromDocument(
+            [
+                shapeEntity,
+                imageEntity,
+            ],
+            [foreign],
+        );
+
+        application.replaceFromDocumentSummaries([{
+            id: 'note-1',
+            stableKey: 'ann:0:note-1',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'summary note',
+            subtype: 'Text',
+            author: null,
+            modifiedAt: null,
+            color: null,
+            uid: null,
+            annotationId: null,
+            source: 'pdf',
+            hasNote: true,
+            markerRect: {
+                left: 0.2,
+                top: 0.3,
+                width: 0.02,
+                height: 0.02,
+            },
+        }]);
+
+        expect(application.store.get(shapeEntity.identity.id)).toMatchObject({kind: 'shape'});
+        expect(application.store.get(imageEntity.identity.id)).toMatchObject({kind: 'placed-image'});
+        expect(application.store.foreign).toEqual([foreign]);
+        expect(application.store.list()).toHaveLength(3);
     });
 
     it('publishes shape undo and redo to subscribers from the single canonical history command', () => {
         const application = new AnnotationApplication('document');
         const projected: IShapeAnnotation[][] = [];
         application.store.subscribe(() => {
-            projected.push(application.store.listShapes().map(entity => entity.geometry));
+            projected.push(application.store.list()
+                .filter((entity): entity is Extract<typeof entity, {kind: 'shape'}> => entity.kind === 'shape')
+                .map(entity => application.toLegacyShape(entity)));
         });
 
-        application.createShapeFromGeometry(shape());
-        const annotationId = application.annotationIdForShape(shape());
+        const created = toCanonicalShapeEntity(shape(), asAnnotationId('shape-1'));
+        application.store.createShape(created);
+        const annotationId = created.identity.id;
 
         expect(annotationId).not.toBeNull();
         expect(projected.at(-1)).toHaveLength(1);
@@ -1152,9 +1129,10 @@ describe('AnnotationApplication', () => {
 
     it('remaps surviving annotation and shape identities through a page-tree delta', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note({pageIndex: 0}));
-        application.createShapeFromGeometry(shape({pageIndex: 2}));
-        const shapeId = application.annotationIdForShape(shape({pageIndex: 2}));
+        application.store.createNote(note({pageIndex: 0}));
+        const createdShape = toCanonicalShapeEntity(shape({pageIndex: 2}), asAnnotationId('shape-1'));
+        application.store.createShape(createdShape);
+        const shapeId = createdShape.identity.id;
 
         application.remapPages({
             previousPageCount: 3,
@@ -1167,7 +1145,12 @@ describe('AnnotationApplication', () => {
         expect(application.store.get(asAnnotationId('anno_test'))).toMatchObject({deleted: true});
         expect(application.store.get(shapeId!)).toMatchObject({
             pageIndex: 0,
-            geometry: {pageIndex: 0},
+            rect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
         });
     });
 });

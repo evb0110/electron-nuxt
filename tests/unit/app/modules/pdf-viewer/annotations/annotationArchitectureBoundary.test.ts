@@ -282,16 +282,15 @@ describe('annotation architecture boundaries', () => {
         // The shape read model projects the store; it owns no second map,
         // tombstone set, saved baseline or save snapshot of its own.
         expect(shapeReadModel).not.toMatch(/deletedEmbedded\w+\s*=\s*ref|baselineSignature|ShapeStateSnapshot/);
-        expect(shapeReadModel).toMatch(/annotationApplication\.value\.store\.listShapes/);
+        expect(shapeReadModel).toMatch(/annotationApplication\.value\.store\.list\(/);
         // Managed embedded shapes hold no import baseline or save snapshot either.
         expect(shapeProjection).not.toMatch(/hasEmbeddedShapeImportBaseline|lastEmbeddedShapeImport|ShapeStateSnapshot/);
-        expect(shapeProjection).toMatch(/beginShapeSave\b/);
-        // Only the store decides an import mode: the application boundary
-        // derives canonical ids and forwards the scan as proposals.
-        expect(application).not.toMatch(/#hasShapeImportBaseline|#adoptSelfSavedShapesOnNextImport|#shapeImportSource|planShapeImport/);
-        expect(application).toMatch(/#shapeImportProposals/);
-        expect(store).toMatch(/#hasShapeImportBaseline[\s\S]*planShapeImport/);
-        expect(shapeCommands).toMatch(/createShapeFromGeometry|replaceShapeGeometry|previewShapeGeometry/);
+        expect(shapeProjection).not.toMatch(/beginShapeSave\b/);
+        // Canonical entities enter through the application/store boundary;
+        // the rendering projection has no import baseline of its own.
+        expect(application).toContain('replaceFromDocumentSummaries');
+        expect(store).not.toMatch(/#hasShapeImportBaseline|planShapeImport/);
+        expect(shapeCommands).toMatch(/store\.createShape|toCanonicalShapeEntity/);
         expect(shapeCommands).not.toContain('usePdfShapeHistory');
         expect(shapeContext).toMatch(/finishDrawingDraft|onShapePreviewed/);
     });
@@ -412,10 +411,10 @@ describe('annotation architecture boundaries', () => {
         );
 
         expect(session).toContain('application.store.applyTextMarkupSelection');
-        expect(session).toContain('application.store.createStickyNote');
-        expect(session).toContain('application.store.bindIdentity');
+        expect(session).toContain('application.store.createNote');
+        expect(session).not.toContain('application.store.bindIdentity');
         expect(application).not.toContain('store.applyTextMarkupSelection');
-        expect(application).not.toContain('store.createStickyNote');
+        expect(application).not.toContain('store.createNote');
         expect(highlightBridge).not.toMatch(/\bstore\.|getAnnotationCommands|canonicalSubtype/);
         expect(highlightBridge).toMatch(/useEventListener\([\s\S]*'selectionchange'/);
         expect(highlightBridge).toMatch(/useEventListener\([\s\S]*'pointerup'/);

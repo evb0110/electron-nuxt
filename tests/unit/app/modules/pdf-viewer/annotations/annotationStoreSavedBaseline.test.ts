@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import {
     asAnnotationId,
-    type IStickyNoteEntity,
+    type INoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -14,9 +14,9 @@ import type {
     TAnnotationStableKey,
 } from '@app/types/annotations';
 
-function importPersistedHighlight(store: AnnotationStore) {
+function persistedHighlight() {
     const annotationId = asAnnotationId('persisted-highlight');
-    store.import({
+    return {
         kind: 'text-markup',
         identity: {
             id: annotationId,
@@ -30,8 +30,8 @@ function importPersistedHighlight(store: AnnotationStore) {
         modifiedAt: null,
         author: null,
         subtype: 'Highlight',
-        text: '',
-        geometry: [{
+        contents: '',
+        quadPoints: [{
             left: 0.1,
             top: 0.2,
             width: 0.3,
@@ -39,13 +39,19 @@ function importPersistedHighlight(store: AnnotationStore) {
         }],
         color: '#ffff00',
         opacity: 1,
-    });
+    } as const;
+}
+
+function importPersistedHighlight(store: AnnotationStore) {
+    const entity = persistedHighlight();
+    store.replaceFromDocument([entity], []);
+    const annotationId = entity.identity.id;
     return annotationId;
 }
 
-function stickyNote(id: string, text: string): IStickyNoteEntity {
+function note(id: string, contents: string): INoteEntity {
     return {
-        kind: 'sticky-note',
+        kind: 'note',
         identity: {id: asAnnotationId(id)},
         pageIndex: 0,
         revision: 0,
@@ -54,31 +60,25 @@ function stickyNote(id: string, text: string): IStickyNoteEntity {
         createdAt: 1_781_000_000_000,
         modifiedAt: null,
         author: null,
-        text,
-        anchor: {
+        contents,
+        position: {
             left: 0.1,
             top: 0.2,
             width: 0.01,
             height: 0.01,
         },
         color: '#ffcc00',
+        open: false,
     };
 }
 
 describe('AnnotationStore saved semantic baseline', () => {
     it('keeps a save frontier current across external identity reconciliation', () => {
         const store = new AnnotationStore();
-        const annotationId = importPersistedHighlight(store);
+        importPersistedHighlight(store);
         const frontier = store.beginSave();
 
-        store.bindIdentity({
-            annotationId,
-            expectedRevision: 0,
-            bindings: {
-                pdfRef: '12R0',
-                pdfName: 'canonical-highlight',
-            },
-        });
+        store.replaceFromDocument([persistedHighlight()], []);
 
         expect(() => store.assertSaveFrontierCurrent(frontier)).not.toThrow();
     });
@@ -88,7 +88,7 @@ describe('AnnotationStore saved semantic baseline', () => {
         const annotationId = importPersistedHighlight(store);
         const frontier = store.beginSave();
 
-        store.setStyle(annotationId, {color: '#00ff00'});
+        store.updateTextMarkup(annotationId, {color: '#00ff00'});
 
         expect(() => store.assertSaveFrontierCurrent(frontier)).toThrow(
             'staleRevisionError: annotations changed after the save frontier was captured',
@@ -108,7 +108,7 @@ describe('AnnotationStore saved semantic baseline', () => {
         const application = new AnnotationApplication('document');
         const frontier = application.beginSave();
 
-        application.store.createStickyNote(stickyNote(
+        application.store.createNote(note(
             'created-after-save-started',
             'created after save started',
         ));
@@ -126,10 +126,10 @@ describe('AnnotationStore saved semantic baseline', () => {
             width: 0.3,
             height: 0.04,
         };
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             source: 'editor',
             id: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0' as TAnnotationStableKey,
+            stableKey: 'ann:0:pdfjs_internal_editor_0' as TAnnotationStableKey,
             pageIndex: 0,
             pageNumber: 1,
             text: '',
@@ -146,7 +146,8 @@ describe('AnnotationStore saved semantic baseline', () => {
         }]);
         const canonicalId = application.store.list()[0]!.identity.id;
 
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
+            appAnnotationId: canonicalId,
             source: 'pdf',
             id: '12R0',
             stableKey: 'ann:0:12R0' as TAnnotationStableKey,
@@ -166,13 +167,10 @@ describe('AnnotationStore saved semantic baseline', () => {
         }]);
 
         expect(application.store.list()).toHaveLength(1);
-        expect(application.store.get(canonicalId)?.identity).toEqual(expect.objectContaining({
-            pdfName: canonicalId,
-            pdfRef: '12R0',
-        }));
+        expect(application.store.get(canonicalId)?.identity).toEqual(expect.objectContaining({pdfRef: '12R'}));
     });
 
-    it('adopts a complete initial editor snapshot even when PDF.js omits its persistent ref', () => {
+    it('treats an editor snapshot without a persistent ref as a clean parse result', () => {
         const application = new AnnotationApplication('document');
         const summary: IAnnotationCommentSummary = {
             source: 'editor',
@@ -198,11 +196,12 @@ describe('AnnotationStore saved semantic baseline', () => {
             },
         };
 
-        application.reconcileLegacySummaries([summary], {adoptAsSavedBaseline: true});
+        application.replaceFromDocumentSummaries([summary]);
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
 
-        application.reconcileLegacySummaries([]);
-        expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
+        application.replaceFromDocumentSummaries([]);
+        expect(application.store.list()).toEqual([]);
+        expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
     it('does not tombstone an unsaved annotation when a degraded snapshot omits editors', () => {
@@ -229,39 +228,44 @@ describe('AnnotationStore saved semantic baseline', () => {
             },
         };
 
-        application.reconcileLegacySummaries([summary]);
-        application.reconcileLegacySummaries([], {reconcileMissingTransient: false});
+        application.replaceFromDocumentSummaries([summary]);
+        const [entity] = application.store.list();
+        if (!entity || entity.kind !== 'note') {
+            throw new Error('Expected the editor summary to enter as a note');
+        }
+        application.store.updateNote(entity.identity.id, {contents: 'edited draft'});
+        application.replaceFromDocumentSummaries([]);
 
         expect(application.store.list()).toEqual([expect.objectContaining({
             deleted: false,
-            text: 'draft',
+            contents: 'edited draft',
         })]);
     });
 
     it('does not adopt an unsaved canonical note when the initial authoritative snapshot arrives late', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(stickyNote(
+        application.store.createNote(note(
             'created-before-initial-sync',
             'Created before initial PDF.js sync',
         ));
 
-        application.reconcileLegacySummaries([], {adoptAsSavedBaseline: true});
+        application.replaceFromDocumentSummaries([]);
 
         const session = application.beginSave();
         expect(session.plan.expected).toEqual([expect.objectContaining({
-            kind: 'sticky-note',
-            text: 'Created before initial PDF.js sync',
+            kind: 'note',
+            contents: 'Created before initial PDF.js sync',
         })]);
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(true);
     });
 
     it('adopts only persisted snapshot entities when an unsaved canonical note predates initial sync', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(stickyNote(
+        application.store.createNote(note(
             'unsaved-canonical-note',
             'Unsaved canonical note',
         ));
-        application.reconcileLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             source: 'pdf',
             id: '13271R',
             stableKey: 'ann:0:13271R' as TAnnotationStableKey,
@@ -283,11 +287,11 @@ describe('AnnotationStore saved semantic baseline', () => {
                 width: 0.01,
                 height: 0.01,
             },
-        }], {adoptAsSavedBaseline: true});
+        }]);
 
         expect(application.beginSave().plan.expected).toEqual([expect.objectContaining({
-            kind: 'sticky-note',
-            text: 'Unsaved canonical note',
+            kind: 'note',
+            contents: 'Unsaved canonical note',
         })]);
     });
 
@@ -296,7 +300,7 @@ describe('AnnotationStore saved semantic baseline', () => {
         const summary: IAnnotationCommentSummary = {
             source: 'editor',
             id: 'pdfjs_internal_editor_0',
-            stableKey: 'uid:0:pdfjs_internal_editor_0' as TAnnotationStableKey,
+            stableKey: 'ann:0:pdfjs_internal_editor_0' as TAnnotationStableKey,
             pageIndex: 0,
             pageNumber: 1,
             text: 'agent-created note',
@@ -318,20 +322,25 @@ describe('AnnotationStore saved semantic baseline', () => {
 
         // Open-note/agent ingress owns this entity before PDF.js has ever
         // included it in a complete editor snapshot.
-        application.ingestLegacySummaries([summary]);
-        application.reconcileLegacySummaries([]);
+        application.replaceFromDocumentSummaries([summary]);
+        const [entity] = application.store.list();
+        if (!entity || entity.kind !== 'note') {
+            throw new Error('Expected the note summary to enter as a note');
+        }
+        application.store.updateNote(entity.identity.id, {contents: 'edited agent-created note'});
+        application.replaceFromDocumentSummaries([]);
 
         expect(application.store.list()).toEqual([expect.objectContaining({
             deleted: false,
-            text: 'agent-created note',
+            contents: 'edited agent-created note',
         })]);
         expect(application.beginSave().plan.expected).toEqual([expect.objectContaining({
             deleted: false,
-            text: 'agent-created note',
+            contents: 'edited agent-created note',
         })]);
     });
 
-    it('tombstones an unsaved annotation when an authoritative editor snapshot removes it', () => {
+    it('retains a dirty annotation when an authoritative editor snapshot omits it', () => {
         const application = new AnnotationApplication('document');
         const summary: IAnnotationCommentSummary = {
             source: 'editor',
@@ -355,16 +364,24 @@ describe('AnnotationStore saved semantic baseline', () => {
             },
         };
 
-        application.reconcileLegacySummaries([summary]);
-        application.reconcileLegacySummaries([]);
+        application.replaceFromDocumentSummaries([summary]);
+        const [entity] = application.store.list();
+        if (!entity || entity.kind !== 'note') {
+            throw new Error('Expected the editor summary to enter as a note');
+        }
+        application.store.updateNote(entity.identity.id, {contents: 'edited draft'});
+        application.replaceFromDocumentSummaries([]);
 
-        expect(application.store.list({includeDeleted: true})).toEqual([expect.objectContaining({deleted: true})]);
+        expect(application.store.list({includeDeleted: true})).toEqual([expect.objectContaining({
+            deleted: false,
+            contents: 'edited draft',
+        })]);
     });
 
     it('treats an editor projection with a real PDF ref as persisted on reopen', () => {
         const application = new AnnotationApplication('document');
 
-        application.ingestLegacySummaries([{
+        application.replaceFromDocumentSummaries([{
             source: 'editor',
             id: 'pdfjs-editor-1',
             stableKey: 'ann:0:12R0' as TAnnotationStableKey,
@@ -398,7 +415,7 @@ describe('AnnotationStore saved semantic baseline', () => {
         importPersistedHighlight(store);
 
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
-        expect(store.dirtyAt(store.beginSave())).toEqual([]);
+        expect(store.dirtyEntities()).toEqual([]);
     });
 
     it('tracks a canonical embedded deletion independently of PDF.js storage', () => {
@@ -409,7 +426,7 @@ describe('AnnotationStore saved semantic baseline', () => {
 
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
         expect(store.countDirtyPersistedDeletions()).toBe(1);
-        expect(store.dirtyAt(store.beginSave())).toEqual([expect.objectContaining({
+        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
             deleted: true,
             identity: expect.objectContaining({id: annotationId}),
         })]);
@@ -418,7 +435,7 @@ describe('AnnotationStore saved semantic baseline', () => {
     it('adopts committed page remaps without adopting unrelated unsaved edits', () => {
         const store = new AnnotationStore();
         const annotationId = importPersistedHighlight(store);
-        store.setStyle(annotationId, {color: '#ff0000'});
+        store.updateTextMarkup(annotationId, {color: '#ff0000'});
 
         store.remapPages({
             previousPageCount: 2,
@@ -432,7 +449,7 @@ describe('AnnotationStore saved semantic baseline', () => {
             pageIndex: 1,
             color: '#ff0000',
         });
-        expect(store.dirtyAt(store.beginSave())).toEqual([expect.objectContaining({
+        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
             pageIndex: 1,
             color: '#ff0000',
         })]);
@@ -474,13 +491,13 @@ describe('AnnotationStore saved semantic baseline', () => {
         store.delete(annotationId);
         const deletionFrontier = store.beginSave();
 
-        store.acknowledgeSave(deletionFrontier);
+        store.markPersisted(deletionFrontier, []);
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
         expect(store.countDirtyPersistedDeletions()).toBe(0);
 
         expect(store.undo()).toBe(true);
         expect(store.hasChangesSinceSavedBaseline()).toBe(true);
-        expect(store.dirtyAt(store.beginSave())).toEqual([expect.objectContaining({
+        expect(store.dirtyEntities()).toEqual([expect.objectContaining({
             deleted: false,
             identity: expect.objectContaining({id: annotationId}),
         })]);
@@ -505,10 +522,10 @@ describe('AnnotationApplication deleted embedded annotation ids', () => {
 
     it('ignores a deleted annotation that the file never contained', () => {
         const application = new AnnotationApplication('document');
-        const note = stickyNote('local-note', 'draft');
-        application.store.createStickyNote(note);
+        const localNote = note('local-note', 'draft');
+        application.store.createNote(localNote);
 
-        application.store.delete(note.identity.id);
+        application.store.delete(localNote.identity.id);
         expect(application.deletedEmbeddedAnnotationIds()).toEqual(new Set());
     });
 });

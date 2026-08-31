@@ -288,7 +288,7 @@ export async function ingestFixtureAnnotations(
             comments,
             links,
         );
-        application.ingestLegacySummaries(comments);
+        application.replaceFromDocumentSummaries(comments);
         return comments;
     });
 }
