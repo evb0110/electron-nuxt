@@ -1,0 +1,212 @@
+electron/search/nativeSearch.ts
+  s_0c01a6f00338cf::t_49fecca805c19e 11,45
+app/platform/browser-api/browserPageOpsWorker.types.ts
+  s_0c01a6f00338cf::t_17d92454f64d10 16-46,84-86,99-101,164-173,300-301,312,332-335
+  s_0c01a6f00338cf::t_062d931c4a5631 190-194,205,207-211,222,224-228,240,242-246,263,265-269,281,283-287,298,302-311,313-322
+tests/unit/app/platform/browserPdfImageCombineWasm.test.ts
+  s_0c01a6f00338cf::t_dc7afd9321d8d6 456
+  s_0c01a6f00338cf::t_e1a9d38beeb705 355-395,400-403,409-455,457-459,521
+  s_0c01a6f00338cf::t_062d931c4a5631 396-399,404-408
+native/pdf-page-ops/src/dispatcher.rs
+  s_0c01a6f00338cf::t_7c0bc9157b93fa 97-103
+native/pdf-page-ops/src/types.rs
+  s_0c01a6f00338cf::t_7c0bc9157b93fa 727
+electron/djvu/buildOptimizedPdf.ts
+  s_0c01a6f00338cf::t_111913b3e491d5 2,15,34-38
+electron/ocr/worker/pdfAssembler.ts
+  s_0c01a6f00338cf::t_7e25cdba3ac37c 264-265
+native/pdf-page-ops/src/page_tree_ops.rs
+  s_0c01a6f00338cf::t_47306ab845937f 425-455,458-460,469-579,587-605,608-613
+  s_0c01a6f00338cf::t_4f90ee9d163e3d 456-457,461-468
+  s_0c01a6f00338cf::t_fb20392b078fc3 606-607
+  s_0c01a6f00338cf::t_db9a88a2ac0689 580-586
+app/platform/browser-api/browserPdfCombine.worker.ts
+  s_0c01a6f00338cf::t_c7bb37c907d6e3 6-8,26,31,33,41,43-48,50-54,66-69,71,94,102-103,109-110,113,121-123,125-128,131-133,139-148,150-158,160-161,165-168,180-188,199-207,209-219,225-227,242,274,276-278,283,288-289,291,309,314
+  s_0c01a6f00338cf::t_491dc87a4e5981 101
+  s_0c01a6f00338cf::t_2bc0e66455b5d1 114-120,189-192,220-224
+  s_0c01a6f00338cf::t_c175a4ae29d7be 20-23,107,228-229,231-241,243-273,275
+  s_0c01a6f00338cf::t_a285085938ccbf 149,169-179
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_0c01a6f00338cf::t_062d931c4a5631 367-370
+  s_0c01a6f00338cf::t_a7c4d7a51127a2 613,650
+  s_0c01a6f00338cf::t_5e0f1caca2a338 2-3,66,69,81-83,88,90-92
+  s_0c01a6f00338cf::t_38fad958bcad2c 35
+  s_0c01a6f00338cf::t_f9491c16845526 535-612,614-618,646-649,651-658
+  s_0c01a6f00338cf::t_2e12439e6c3a32 256-261,279-281,287-292,338-366,371-382,384-390
+packages/pdf-core/pdfPageBoxes.ts
+  s_0c01a6f00338cf::t_7e25cdba3ac37c 16-18
+app/platform/browser-api/tryCombineImageInputsWithWasm.ts
+  s_0c01a6f00338cf::t_4a730273a58919 8,504-508
+  s_0c01a6f00338cf::t_e77700bc6a7af8 318-433,450-451,455-457,466,484-490
+  s_0c01a6f00338cf::t_319941f77ee233 697
+  s_0c01a6f00338cf::t_bc06d07806f85b 222,270-272
+  s_0c01a6f00338cf::t_d93e4ac789f32f 603-612,614-619,633-639
+  s_0c01a6f00338cf::t_a780e7a14b8f4a 41,55,57-62
+app/platform/browser-api/browserPageOpsCore.ts
+  s_0c01a6f00338cf::t_d1d0024c480d05 27
+  s_0c01a6f00338cf::t_9a7de5db2fd08c 16-25,34,36,39,43,48,51-55,58,62,67,70,74,79,82,87,93,96,101,107,110,116-122,125,129,134,137,141,170
+  s_0c01a6f00338cf::t_e1aa795de08beb 6-10,15,26,28-30,32-33,35,146-147,149-155,157-163,165-169
+  s_0c01a6f00338cf::t_2bc0e66455b5d1 44-47,63-66,75-78,88-92,102-106,130-133,142-145
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_0c01a6f00338cf::t_f936297fe8a25a 600-601,606,615-616
+  s_0c01a6f00338cf::t_d61ea05673515d 443,448,453,459,466,472-492
+  s_0c01a6f00338cf::t_7ad993aa039e55 554-570,581-592,597-599,617-621,627,629,631,638,640,642
+  s_0c01a6f00338cf::t_062d931c4a5631 444-447,449-452,454-458,460-465,467-471,571-580,593-596,602-605,607-614
+native/pdf-image-combine/src/lib.rs
+  s_0c01a6f00338cf::t_a23b4b9949616d 1137-1144,1147-1150
+  s_0c01a6f00338cf::t_eb2d1f00edd5ba 1195-1197
+  s_0c01a6f00338cf::t_c6bde01c82ce3c 1228,1730,1749
+  s_0c01a6f00338cf::t_900c530b9e95ac 1134,1154-1194,1198-1201
+  s_0c01a6f00338cf::t_9da94571e08e50 1135-1136,1145-1146,1151-1153
+  s_0c01a6f00338cf::t_4d55bb28b87893 58,128,168,174,264-267,282-283,326-340,342-355,358-359,362-363,394,432-438,443-444,465-471,474-475,548,564,573,579
+electron/image/pdfCombineShared.ts
+  s_0c01a6f00338cf::t_f1fd56b12e7909 2,5,7,13-15,18-19,425,431,435-437,446-454,457-470,472-473,476-477,482-490,492-498,500,502-504,507-508,511-513,515,518-535,540,543-545,550-551,554-559,581-582,584-586,590-592,594-601,603-607
+  s_0c01a6f00338cf::t_491dc87a4e5981 480,491,514,575-580
+  s_0c01a6f00338cf::t_2bc0e66455b5d1 11,438-445,536-539,546-549
+tests/unit/electron/bundleIntegrity.test.ts
+  s_0c01a6f00338cf::t_3e4f793f998676 85-86
+native/pdf-page-ops/src/conformance.rs
+  s_0c01a6f00338cf::t_c478d8f1d9aef6 9-14,68,72-74,81,94-116
+packages/pdf-core/pdfPrintLayout.ts
+  s_0c01a6f00338cf::t_7e25cdba3ac37c 261-262
+electron/search/extractTextWithPdfjs.ts
+  s_0c01a6f00338cf::t_fcd92cece96ac8 31,35
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_0c01a6f00338cf::t_ea022853bf9d4c 304-307
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_0c01a6f00338cf::t_fe0985ae9814a4 604,723,845,928
+  s_0c01a6f00338cf::t_062d931c4a5631 69
+native/evb-native-support/src/lib.rs
+  s_0c01a6f00338cf::t_005e5deb2f8546 8
+native/pdf-image-combine/src/main.rs
+  s_0c01a6f00338cf::t_7d036359e1ba65 18-20
+  s_0c01a6f00338cf::t_c6bde01c82ce3c 174,900
+  s_0c01a6f00338cf::t_3090207d176559 1353-1377,1383-1391
+  s_0c01a6f00338cf::t_8dc4143aaf9c66 156,159-164,185-186,217-218
+  s_0c01a6f00338cf::t_9383c97c8f6099 116-117,143-144
+  s_0c01a6f00338cf::t_a23b4b9949616d 21
+  s_0c01a6f00338cf::t_58611778de65b8 300-301,312-315,651-652,660-663
+  s_0c01a6f00338cf::t_c40426bf7db50e 727-728,775-776,878-879
+  s_0c01a6f00338cf::t_eaee6c60e50fc5 1378-1382
+native/evb-native-support/src/pdf_catalog.rs
+  s_0c01a6f00338cf::t_005e5deb2f8546 1-2,7-262
+  s_0c01a6f00338cf::t_28efcc5f48a8de 3-6
+electron/search/worker/searchMatch.ts
+  s_0c01a6f00338cf::t_49fecca805c19e 5,9
+app/platform/browser-api/browserPageOps.worker.ts
+  s_0c01a6f00338cf::t_25141bfa892f40 24-32,37,39-44,138-155,178-183,229,231-233,236
+  s_0c01a6f00338cf::t_4a730273a58919 33-36
+  s_0c01a6f00338cf::t_a7c4d7a51127a2 230,235
+  s_0c01a6f00338cf::t_4d302f25c21ae3 14
+  s_0c01a6f00338cf::t_062d931c4a5631 38
+  s_0c01a6f00338cf::t_6f941fc68cf110 234
+native/pdf-page-ops/src/wasm.rs
+  s_0c01a6f00338cf::t_a26bb82a19e7be 1088
+  s_0c01a6f00338cf::t_45ceb957584e77 19-21,23,39-44,52,66,76,221-223,225-236,245-256,410-414,416,418-423,437-441,486,496-544,631-640
+  s_0c01a6f00338cf::t_8586b9d1059f56 12
+  s_0c01a6f00338cf::t_0b5e7225f362f0 22
+  s_0c01a6f00338cf::t_69344eddad0623 807-819,1058,1060-1062,1065-1073,1076-1078,1081-1087,1089-1091,1094
+  s_0c01a6f00338cf::t_c36f5209bb4c94 1063-1064,1074-1075,1079-1080
+  s_0c01a6f00338cf::t_2c8db91bbc2d0a 56
+  s_0c01a6f00338cf::t_8df28338e58bbd 1092-1093
+  s_0c01a6f00338cf::t_a5412e918c3b5c 725-728,730-743,1051-1053,1055-1057
+app/platform/browser-api/browserPdfCombineWorker.types.ts
+  s_0c01a6f00338cf::t_062d931c4a5631 329-332
+  s_0c01a6f00338cf::t_7b71050da1dcb9 6-10,42,249-328,333-334,346,350,398-399
+  s_0c01a6f00338cf::t_77ae1ddaf47a94 30,186-193,203,231-232
+electron/search/extractTextFromPdf.ts
+  s_0c01a6f00338cf::t_0cdca834396d0d 15
+native/pdf-image-combine/src/wasm.rs
+  s_0c01a6f00338cf::t_3d8374e5949982 178,182-187,191,234-237,241-264,266-279,281-305,308-343,345-364,367-392
+  s_0c01a6f00338cf::t_bc2e6e916c2fd5 216-217
+  s_0c01a6f00338cf::t_314d9307be246e 280,344
+  s_0c01a6f00338cf::t_fcb80cde7c462f 265
+  s_0c01a6f00338cf::t_679aa012f6c686 458,473-477,495
+  s_0c01a6f00338cf::t_58e892d2f6fcc8 607,611-614
+  s_0c01a6f00338cf::t_09923c12c8d9b6 229-233
+  s_0c01a6f00338cf::t_b6c621352174c9 22
+  s_0c01a6f00338cf::t_c768bba36f9bd1 708,751-768,840-869,907-950
+  s_0c01a6f00338cf::t_a23b4b9949616d 238-240,306-307,365-366
+  s_0c01a6f00338cf::t_c6bde01c82ce3c 445
+  s_0c01a6f00338cf::t_93b1a3396707d5 608-610
+  s_0c01a6f00338cf::t_5a4ced6935d1b8 2-5,29-31
+electron/image/pdfConversion.ts
+  s_0c01a6f00338cf::t_2bc0e66455b5d1 2,15
+  s_0c01a6f00338cf::t_94f60f21ce6620 571-573,576-580,595-602
+native/pdf-page-ops/src/cli.rs
+  s_0c01a6f00338cf::t_7c0bc9157b93fa 196
+app/platform/browser-api/browserPdfValidation.ts
+  s_0c01a6f00338cf::t_ed30fdd8f6671f 61-68,78,82-83
+electron/features/page-ops/main/cropLocal.ts
+  s_0c01a6f00338cf::t_58a81d8edf7837 11-18,34,47,56
+electron/features/image-export/main/combinePagesIntoMultiPageTiffLocal.ts
+  s_0c01a6f00338cf::t_fcd92cece96ac8 15-16
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_0c01a6f00338cf::t_062d931c4a5631 192-195
+  s_0c01a6f00338cf::t_a7c4d7a51127a2 205
+  s_0c01a6f00338cf::t_cb48617a0eb099 43
+  s_0c01a6f00338cf::t_66ac7a99e23cca 2-5,63-82,120-191,196-204,265-270
+tests/unit/app/platform/browserWorkerRequestParsers.test.ts
+  s_0c01a6f00338cf::t_062d931c4a5631 283-289,313-319,323-329
+  s_0c01a6f00338cf::t_49d707e4978ef6 240,292-312,320-322,330-335
+  s_0c01a6f00338cf::t_a505e26aa5f36b 241-282,290-291
+tests/unit/electron/djvuBuildOptimizedPdfNative.test.ts
+  s_0c01a6f00338cf::t_c3f5802033f1e2 14,69,73-76
+native/pdf-page-ops/src/tests/page_tree_ops.rs
+  s_0c01a6f00338cf::t_b4296830755023 345-352
+  s_0c01a6f00338cf::t_2e91c4800a4109 233-344,353-365
+native/pdf-image-combine/src/pdf.rs
+  s_0c01a6f00338cf::t_69ffdaf5eee142 6,9-10,384-385,401-405,417-425,429-446,451-455,460,463-467,472,478-486,496-506,514,516,541-550,552-553,556
+  s_0c01a6f00338cf::t_a23b4b9949616d 7-8,388-389,447-450,871-872,879,918,924,1328,1347,1851
+  s_0c01a6f00338cf::t_bb91634ef39064 415,476,489,1283
+  s_0c01a6f00338cf::t_17cdbe2430a6c3 1262
+  s_0c01a6f00338cf::t_4b78c08f18cb1a 1265
+  s_0c01a6f00338cf::t_b6f016fdf3fca4 1846-1849
+  s_0c01a6f00338cf::t_90a2f41cbf3291 621,678,742,788,816-821
+  s_0c01a6f00338cf::t_d9047c733fca70 1765-1793,1802-1845,1850,1852-1888
+  s_0c01a6f00338cf::t_ee8f26e352b0b4 1794-1801
+  s_0c01a6f00338cf::t_fcb80cde7c462f 1340
+  s_0c01a6f00338cf::t_98d78a4420850e 866-870,873-878,880-917,919-923,925-960
+  s_0c01a6f00338cf::t_46786abedd3f25 1231-1261,1263-1264,1266-1282,1284-1327,1329-1339,1341-1346,1348-1380,1393-1398
+app/platform/browser-api/createCombinedPdfFromPaths.ts
+  s_0c01a6f00338cf::t_a3842a6f154d2a 20
+  s_0c01a6f00338cf::t_20a955a43dd10b 216,296-302,304-309,312,321-342,349
+  s_0c01a6f00338cf::t_2bc0e66455b5d1 343-346
+tests/unit/electron/pdfCombineSharedNative.test.ts
+  s_0c01a6f00338cf::t_330e0dd4109107 268-269,274-279
+  s_0c01a6f00338cf::t_763529e1bdeeb4 9,28-30,73-75,91,94,96,159,196
+  s_0c01a6f00338cf::t_062d931c4a5631 255-258,270-273
+  s_0c01a6f00338cf::t_ac2bbf53b5cf03 110-113,163-165,168
+electron/search/worker.ts
+  s_0c01a6f00338cf::t_49fecca805c19e 31,43
+native/pdf-page-ops/src/tests/catalog.rs
+  s_0c01a6f00338cf::t_005dff1923bf2f 723-724
+  s_0c01a6f00338cf::t_4e71b417ae3cd4 702-722,725-753
+native/pdf-image-combine/tests/provenance.rs
+  s_0c01a6f00338cf::t_c6bde01c82ce3c 89
+tests/unit/electron/pageCrop.test.ts
+  s_0c01a6f00338cf::t_c7f0c62737c81e 380,383,388,394,397
+  s_0c01a6f00338cf::t_fe0985ae9814a4 100,257,282,308,319,333
+native/pdf-page-ops/src/catalog.rs
+  s_0c01a6f00338cf::t_5fa113c5f64d77 2-246,249-251,253,256-257,259,261-374,376-454
+  s_0c01a6f00338cf::t_8c1af490d7c95e 248
+  s_0c01a6f00338cf::t_8beb01e062adb5 247,252,254-255,258,260
+native/pdf-image-combine/tests/page_spec_cli_streaming.rs
+  s_0c01a6f00338cf::t_c6bde01c82ce3c 554
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "76282b074e2122e26dbbe36880a00a57e2268bc9",
+  "prompts": {},
+  "sessions": {
+    "s_0c01a6f00338cf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0570c-dc6b-7d03-9f00-57e46f324bbc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
