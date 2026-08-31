@@ -1,0 +1,116 @@
+scripts/release/policy.mjs
+  s_922d451c806cd3::t_43d4475b4d1bc5 130-131,207-208,222-223,320-321,336-337,349-350,377,402
+nuxt.config.ts
+  s_922d451c806cd3::t_0f9b18dadfacc9 8,531
+public/pdf/.pdfjs-version
+  s_922d451c806cd3::t_93e1637a023b08 1
+tests/unit/scripts/packageScripts.test.ts
+  s_922d451c806cd3::t_762d26ac0a8316 176
+tests/unit/electron/pdfCanvasFidelity.test.ts
+  s_922d451c806cd3::t_7a2beb4ec334b6 31
+  s_922d451c806cd3::t_fc52fbd4849ca1 26-28
+scripts/verify-pdfjs-provenance.mjs
+  s_922d451c806cd3::t_91d21cf585baf0 317-319,321-323,325-330,333-338,341
+  s_922d451c806cd3::t_735fa466a61d6d 3-9,11-16,23-26,28-29,34-35,47-62,81-84,87-94,123,127-128,139-142,163-166,192-200,224-232,246-250,304-307
+  s_922d451c806cd3::t_0d0afecf1793a5 1-2,10,17,19-22,27,30-33,36-37,46,63,80,95-107,116-118,120,122,129-134,137-138,143,145-150,156-157,159-162,167-169,172-176,178-179,185-191,201-213,217-218,222-223,233-237,242-245,251-253,255,263-264,266-273,285-288,303,308-312,348-358
+  s_922d451c806cd3::t_8c9bbf0441c615 108,289
+  s_922d451c806cd3::t_904fe2fbd013bc 320,324,331-332,339-340
+  s_922d451c806cd3::t_bffeae819eb14b 238-241
+  s_922d451c806cd3::t_2bd1c50577e3bb 181-184
+  s_922d451c806cd3::t_7642882da23284 290-293,297-298
+  s_922d451c806cd3::t_aa2035851e3920 294-296
+  s_922d451c806cd3::t_9f15a439f13104 135-136
+  s_922d451c806cd3::t_506fe518a0a747 109-115,119,121,124-126,144,177,256-262,280-284,302,314
+  s_922d451c806cd3::t_5bdf3b6a260fae 64-79,85-86,180,265,299-301
+  s_922d451c806cd3::t_f9a246c09d0fd9 18,219-221,313,315-316
+  s_922d451c806cd3::t_da8265ff79f72d 214-216
+  s_922d451c806cd3::t_c2a058439fc3b9 158,254
+  s_922d451c806cd3::t_b724b024068dbc 38-45,170-171
+  s_922d451c806cd3::t_156da58d1f9678 151-155,274-279,342-347
+tests/unit/scripts/assertPackagedAppContents.test.ts
+  s_922d451c806cd3::t_b724b024068dbc 120,122,134
+  s_922d451c806cd3::t_aa3d97c7f08889 113-118,127-130,141-143
+  s_922d451c806cd3::t_c883a613bc31b5 133
+  s_922d451c806cd3::t_f8dae65a3f3003 131-132
+  s_922d451c806cd3::t_3cfef1885a0f65 135-136
+  s_922d451c806cd3::t_5ccb506b09ac88 119,121,123-126,137-140
+tests/unit/scripts/webDeployAssets.test.ts
+  s_922d451c806cd3::t_b724b024068dbc 120-121,124,126
+  s_922d451c806cd3::t_c1fe8d9717c5b7 113
+  s_922d451c806cd3::t_5bdf3b6a260fae 33
+  s_922d451c806cd3::t_2bd1c50577e3bb 130-133
+  s_922d451c806cd3::t_52c74eb0954a0d 52,108-112,114-115,117-119,122-123,125,127-129,134-135
+  s_922d451c806cd3::t_c894de2688e65a 116
+docs/adr/0002-pdfjs-renders-rust-writes-evb-edits.md
+  s_922d451c806cd3::t_fffedaf2a6ffeb 94-101
+package.json
+  s_922d451c806cd3::t_7ebbf3c5601124 170
+  s_922d451c806cd3::t_47c557eb4ed05f 46
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_922d451c806cd3::t_762d26ac0a8316 359-360
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_922d451c806cd3::t_d80c95f69b6cbd 735,737-738
+tests/unit/scripts/webDeploySource.test.ts
+  s_922d451c806cd3::t_e260c1d24a2576 129-134
+scripts/check-web-deploy-source.mjs
+  s_922d451c806cd3::t_0f9b18dadfacc9 62,77-78,149
+.vercelignore
+  s_922d451c806cd3::t_0f9b18dadfacc9 65-67
+.github/workflows/ci.yml
+  s_922d451c806cd3::t_53d1307dade010 187
+  s_922d451c806cd3::t_82dc8dff7b2b97 180
+  s_922d451c806cd3::t_43d4475b4d1bc5 19-20
+public/pdf/pdf.worker.min.mjs
+  s_922d451c806cd3::t_93e1637a023b08 24-27,30-32,34-39,41,43-48,50-51,53-58,60-61,64,66-67,70,75,78-79,81-82
+THIRD_PARTY_NOTICES.md
+  s_922d451c806cd3::t_fffedaf2a6ffeb 7
+scripts/lib/pdfjs-package-path.mjs
+  s_922d451c806cd3::t_cdce537ddbfebc 49
+  s_922d451c806cd3::t_faf36af8206bb6 1-2,31,36,51-55
+  s_922d451c806cd3::t_735fa466a61d6d 3-7,9-29,46-48
+  s_922d451c806cd3::t_e4939a2500d295 8,30,32-35,37-45,50
+scripts/check-web-deploy-assets.mjs
+  s_922d451c806cd3::t_b724b024068dbc 48
+  s_922d451c806cd3::t_52c74eb0954a0d 2,44,46-47,49-70,223-228
+  s_922d451c806cd3::t_c894de2688e65a 45
+public/pdf/wasm/README.md
+  s_922d451c806cd3::t_93e1637a023b08 1-11
+tests/unit/scripts/pdfjsProvenance.test.ts
+  s_922d451c806cd3::t_a38931a91a1d86 4,78-85
+  s_922d451c806cd3::t_0ed1c50f728621 62,87-89
+  s_922d451c806cd3::t_6c4c96110b6ed3 77
+  s_922d451c806cd3::t_735fa466a61d6d 2-3,5-11,14-17,19-23,28-33,71-76,86,95-109,113-116,130-135,154-159,161-164
+  s_922d451c806cd3::t_e260c1d24a2576 13,24-27,36-41,43-44,46-52,55-56,166-167
+  s_922d451c806cd3::t_409cb83bd857e5 61,70
+  s_922d451c806cd3::t_18823489e6e710 122,125-126
+  s_922d451c806cd3::t_9f15a439f13104 136-139,141-143,145-153
+  s_922d451c806cd3::t_4dedf1c824c827 123-124
+  s_922d451c806cd3::t_f9da9ead724e77 1,12,18,34-35,42,54,57-60,63-69,90-94,110-112,117-121,127-129,140,144,160,165
+  s_922d451c806cd3::t_d4110af1001ab0 45
+  s_922d451c806cd3::t_cdce537ddbfebc 53
+docs/css-load-bearing-classes.md
+  s_922d451c806cd3::t_fffedaf2a6ffeb 65-71
+  s_922d451c806cd3::t_1517597caeeabd 50
+tests/unit/electron/bundleIntegrity.test.ts
+  s_922d451c806cd3::t_97cffaef95cabe 352-357
+scripts/release/assert-packaged-app-contents.mjs
+  s_922d451c806cd3::t_5ccb506b09ac88 128-129,131,135-137
+  s_922d451c806cd3::t_b724b024068dbc 116-119,130
+  s_922d451c806cd3::t_aa3d97c7f08889 41,124-127,132-134,138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c53dada5c742decc96dab54a9cb18f706081e9e4",
+  "prompts": {},
+  "sessions": {
+    "s_922d451c806cd3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a057bc-38e7-7373-86e1-f2fb3d4fb17e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
