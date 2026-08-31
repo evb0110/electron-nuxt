@@ -77,6 +77,18 @@ describe('browser worker entrypoints', {timeout: 20_000}, () => {
             0x50,
             0x4e,
             0x47,
+            0x0d,
+            0x0a,
+            0x1a,
+            0x0a,
+            0x00,
+            0x00,
+            0x00,
+            0x0d,
+            0x49,
+            0x48,
+            0x44,
+            0x52,
         ], 0);
         new DataView(validPngHeader.buffer).setUint32(16, 1);
         new DataView(validPngHeader.buffer).setUint32(20, 1);
