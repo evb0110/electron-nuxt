@@ -5,6 +5,7 @@ import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
+import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
 
 const requireFromConfig = createRequire(import.meta.url);
 
@@ -527,7 +528,7 @@ export default defineNuxtConfig({
                     codeSplitting: {groups: [
                         {
                             name: 'vendor-pdfjs',
-                            test: /node_modules[\\/]pdfjs-dist[\\/]/,
+                            test: isPdfjsPackageId,
                         },
                         {
                             name: 'vendor-pdf-lib',

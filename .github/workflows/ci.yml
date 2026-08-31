@@ -16,6 +16,8 @@ on:
       - '.github/workflows/ci.yml'
       - 'package.json'
       - 'pnpm-lock.yaml'
+      - 'vendor/**'
+      - 'public/pdf/**'
       - 'pnpm-workspace.yaml'
       - '**/package.json'
       - '**/pnpm-workspace.yaml'
@@ -175,12 +177,14 @@ jobs:
           pnpm run copy:pdfjs
           git diff --exit-code -- \
             app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            public/pdf \
             app/platform/generated \
             native/evb-native-support/src/generated_native_tool_protocols.rs \
             public/pdfjs/images \
             scripts/release/generated-release-targets.cjs
           test -z "$(git ls-files --others --exclude-standard -- \
             app/assets/css/vendor/pdfjs-viewer-sanitized.css \
+            public/pdf \
             app/platform/generated \
             native/evb-native-support/src/generated_native_tool_protocols.rs \
             public/pdfjs/images \

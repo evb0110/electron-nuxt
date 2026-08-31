@@ -356,6 +356,8 @@ describe('CI topology policy', () => {
             '.github/workflows/ci.yml',
             'package.json',
             'pnpm-lock.yaml',
+            'vendor/**',
+            'public/pdf/**',
             'pnpm-workspace.yaml',
             '**/package.json',
             '**/pnpm-workspace.yaml',

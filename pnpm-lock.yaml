@@ -92,11 +92,6 @@ overrides:
   vue: 3.5.41
   ws: 8.21.0
 
-patchedDependencies:
-  pdfjs-dist@5.7.284:
-    hash: 19f80a317495c22de6a1e25fb0b0dc5669d21ad43419d71a37280b039f7c5081
-    path: patches/pdfjs-dist@5.7.284.patch
-
 importers:
 
   .:
@@ -213,8 +208,8 @@ importers:
         specifier: ^1.17.1
         version: 1.17.1
       pdfjs-dist:
-        specifier: 5.7.284
-        version: 5.7.284(patch_hash=19f80a317495c22de6a1e25fb0b0dc5669d21ad43419d71a37280b039f7c5081)
+        specifier: file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz
+        version: file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz
       pdfjs-dist-codex-preview:
         specifier: npm:pdfjs-dist@5.4.296
         version: pdfjs-dist@5.4.296
@@ -6960,8 +6955,9 @@ packages:
     resolution: {integrity: sha512-DlOzet0HO7OEnmUmB6wWGJrrdvbyJKftI1bhMitK7O2N8W2gc757yyYBbINy9IDafXAV9wmKr9t7xsTaNKRG5Q==}
     engines: {node: '>=20.16.0 || >=22.3.0'}
 
-  pdfjs-dist@5.7.284:
-    resolution: {integrity: sha512-h4EdYQczmGhbOlqc3PPZwxevn7ApdWPbovAuWXOB/DjIyigSnwfy2oze7c6mRcSr9XgLp3eN3EeL4DyySTPMFw==}
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz:
+    resolution: {integrity: sha512-VXGgpPHORsP8Cc01T2NIcWG9akuc+I6AgYvcjliTbuozIfZa1UioBp+fEac9zsSGp6trQ0eC2SJk0za56l8ltw==, tarball: file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz}
+    version: 5.7.304
     engines: {node: '>=22.13.0 || >=24'}
 
   pe-library@0.4.1:
@@ -17106,7 +17102,7 @@ snapshots:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 
-  pdfjs-dist@5.7.284(patch_hash=19f80a317495c22de6a1e25fb0b0dc5669d21ad43419d71a37280b039f7c5081):
+  pdfjs-dist@file:vendor/pdfjs-dist/pdfjs-dist-5.7.304-f029c046.tgz:
     optionalDependencies:
       '@napi-rs/canvas': 0.1.100
 

@@ -731,26 +731,11 @@ describe('xlarge document path architecture', () => {
     });
 
     it('keeps both PDF.js workers sparse for path-backed multi-gigabyte documents', () => {
-        const pdfjsPatch = readSource('patches/pdfjs-dist@5.7.284.patch');
         const assetCopySource = readSource('scripts/copy-pdfjs-assets.mjs');
+        const provenance = readSource('vendor/pdfjs-dist/provenance.json');
 
-        expect(pdfjsPatch).toContain('diff --git a/build/pdf.worker.mjs b/build/pdf.worker.mjs');
-        expect(pdfjsPatch).toContain(
-            'diff --git a/legacy/build/pdf.worker.mjs b/legacy/build/pdf.worker.mjs',
-        );
-        expect(pdfjsPatch.match(/^\+ {2}_storedChunks = new Map\(\);$/gmu)).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}super\(new Uint8Array\(0\), 0, 0, null\);$/gmu),
-        ).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}this\._storeBytes\(begin, new Uint8Array\(chunk\)\);$/gmu),
-        ).toHaveLength(2);
-        expect(
-            pdfjsPatch.match(/^\+ {4}const byte = this\._getStoredByte\(pos\);$/gmu),
-        ).toHaveLength(2);
-        expect(pdfjsPatch).not.toContain(
-            '+    this.pos++;\n+    return this._getStoredByte(pos);',
-        );
+        expect(provenance).toContain('f029c04600ed3d851491c0d70eafe7caa1557d36');
+        expect(provenance).toContain('forbiddenStreamBytesWorkerMaterializations');
         expect(assetCopySource).toContain('join(root, \'build\', \'pdf.worker.mjs\')');
         expect(assetCopySource).not.toContain(
             'join(root, \'build\', \'pdf.worker.min.mjs\')',
@@ -758,35 +743,7 @@ describe('xlarge document path architecture', () => {
     });
 
     it('keeps malformed-xref recovery bounded for range-backed documents in both workers', () => {
-        const pdfjsPatch = readSource('patches/pdfjs-dist@5.7.284.patch');
         const publicWorkerSource = readSource('public/pdf/pdf.worker.min.mjs');
-        const workerPaths = [
-            'build/pdf.worker.mjs',
-            'legacy/build/pdf.worker.mjs',
-        ] as const;
-        for (const workerPath of workerPaths) {
-            const workerDiffStart = pdfjsPatch.indexOf(
-                `diff --git a/${workerPath} b/${workerPath}`,
-            );
-            const nextDiffStart = pdfjsPatch.indexOf(
-                '\ndiff --git ',
-                workerDiffStart + 1,
-            );
-            const workerPatch = pdfjsPatch.slice(
-                workerDiffStart,
-                nextDiffStart === -1 ? undefined : nextDiffStart,
-            );
-
-            expect(workerDiffStart).toBeGreaterThanOrEqual(0);
-            expect(workerPatch).toContain('+  indexObjectsBounded() {');
-            expect(workerPatch).toContain('+    const SCAN_WINDOW_BYTES = 1024 * 1024;');
-            expect(workerPatch).toContain('+      const buffer = stream.getByteRange(windowBegin, windowEnd);');
-            expect(workerPatch).toContain('+        stream.discardChunksBefore(windowEnd - HEADER_OVERLAP_BYTES);');
-            expect(workerPatch).not.toContain(
-                'PDF.js xref recovery is disabled for range-backed documents above 16 MiB',
-            );
-        }
-
         expect(publicWorkerSource).toContain('indexObjectsBounded');
         expect(publicWorkerSource).toContain('discardChunksBefore');
         expect(publicWorkerSource).not.toContain(
