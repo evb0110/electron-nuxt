@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_1a240502a5189c::t_b140cd95d453ef 16,361-364,734-736
+  s_1a240502a5189c::t_eefed30dd9be54 52-55
+  s_1a240502a5189c::t_6c2d808fabcdee 102
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_1a240502a5189c::t_6c2d808fabcdee 42-43,86,594,626-648,733,737-739,742-745
+  s_1a240502a5189c::t_d8aa68848b0174 734-736,740-741
+  s_1a240502a5189c::t_eefed30dd9be54 85
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b484944cb79329f1a1930b34ae14549af18d685e",
+  "prompts": {},
+  "sessions": {
+    "s_1a240502a5189c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05834-9917-7250-8a0b-4cc20dd0d733",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

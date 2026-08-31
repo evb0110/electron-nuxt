@@ -1,0 +1,38 @@
+scripts/verify-pdfjs-provenance.mjs
+  s_1d05be16af2bd6::t_b509379682d949 108
+scripts/release/assert-packaged-app-contents.mjs
+  s_1d05be16af2bd6::t_b509379682d949 128
+tests/unit/scripts/pdfjsProvenance.test.ts
+  s_1d05be16af2bd6::t_b509379682d949 86-90,95-97,143-144
+  s_1d05be16af2bd6::t_623112702a9b46 165-167,169-175
+  s_1d05be16af2bd6::t_8f99613c235563 168
+  s_1d05be16af2bd6::t_0e32527b328bff 1,162-164
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_1d05be16af2bd6::t_b509379682d949 747,752-757
+  s_1d05be16af2bd6::t_e0b0de4a9af374 748-751
+tests/unit/scripts/assertPackagedAppContents.test.ts
+  s_1d05be16af2bd6::t_0e32527b328bff 119,134
+scripts/check-web-deploy-assets.mjs
+  s_1d05be16af2bd6::t_b509379682d949 46,48
+vendor/pdfjs-dist/provenance.json
+  ai_agent 74
+tests/unit/scripts/webDeployAssets.test.ts
+  s_1d05be16af2bd6::t_468dea13de085d 113,117,131
+  s_1d05be16af2bd6::t_b509379682d949 123,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "32475cdac3f193e8b619e3db66f5dc604c11931a",
+  "prompts": {},
+  "sessions": {
+    "s_1d05be16af2bd6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05837-8b6f-7432-b851-709b765e10bb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
