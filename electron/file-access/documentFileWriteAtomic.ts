@@ -251,9 +251,19 @@ export async function publishImmutableFileAtomic(
 
     try {
         assertNoSymlinkPathSegments(resolvedTargetPath);
-        await options.assertDestinationCurrent?.();
-        await rename(temporaryPath, resolvedTargetPath);
-        await fsyncDirectoryBestEffort(directoryPath);
+        if (process.platform === 'win32') {
+            await atomicReplace(temporaryPath, resolvedTargetPath, {
+                durable: false,
+                markMutationCommitStarted: false,
+                ...(options.assertDestinationCurrent === undefined
+                    ? {}
+                    : {assertDestinationCurrent: options.assertDestinationCurrent}),
+            });
+        } else {
+            await options.assertDestinationCurrent?.();
+            await rename(temporaryPath, resolvedTargetPath);
+            await fsyncDirectoryBestEffort(directoryPath);
+        }
     } catch (error) {
         await unlink(temporaryPath).catch(() => undefined);
         throw error;

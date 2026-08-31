@@ -13,7 +13,11 @@ import {
     it,
     vi,
 } from 'vitest';
-import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
+import * as atomicReplaceModule from '@electron/utils/atomicReplace';
+import {
+    copyFileAtomic,
+    publishImmutableFileAtomic,
+} from '@electron/file-access/documentFileWriteAtomic';
 
 const originalPlatform = process.platform;
 
@@ -26,6 +30,7 @@ function setPlatform(platform: NodeJS.Platform) {
 
 describe('documentFileWriteAtomic', () => {
     afterEach(() => {
+        vi.restoreAllMocks();
         setPlatform(originalPlatform);
         delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
     });
@@ -99,6 +104,35 @@ describe('documentFileWriteAtomic', () => {
             expect(assertDestinationCurrent).toHaveBeenCalledOnce();
             expect(readFileSync(targetPath, 'utf8')).toBe('old bytes');
             expect(readFileSync(sourcePath, 'utf8')).toBe('new bytes');
+        } finally {
+            rmSync(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('uses backup-first replacement for an immutable Windows publication', async () => {
+        const tempRoot = mkdtempSync(join(tmpdir(), 'evb-atomic-publish-windows-'));
+        const sourcePath = join(tempRoot, 'source.pdf');
+        const targetPath = join(tempRoot, 'target.pdf');
+        writeFileSync(sourcePath, 'new bytes');
+        writeFileSync(targetPath, 'old bytes');
+        setPlatform('win32');
+        const atomicReplaceSpy = vi.spyOn(atomicReplaceModule, 'atomicReplace');
+
+        try {
+            await expect(publishImmutableFileAtomic(sourcePath, targetPath)).resolves.toBeUndefined();
+
+            expect(atomicReplaceSpy).toHaveBeenCalledWith(
+                expect.stringContaining('.target.pdf.'),
+                targetPath,
+                expect.objectContaining({
+                    durable: false,
+                    markMutationCommitStarted: false,
+                }),
+            );
+            expect(readFileSync(targetPath, 'utf8')).toBe('new bytes');
         } finally {
             rmSync(tempRoot, {
                 force: true,
