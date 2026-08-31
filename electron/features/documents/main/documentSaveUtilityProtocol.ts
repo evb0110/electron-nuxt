@@ -6,6 +6,7 @@ import {
 import { isRecord } from '@contracts/runtimeGuards';
 import {
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 
@@ -136,6 +137,16 @@ export function getDocumentSaveUtilityReusePlan(
     request: IDocumentSaveUtilityCommitRequest,
 ): IDocumentSaveUtilityReusePlan {
     const artifact = request.stagedArtifact;
+    if (artifact && isBrowserStoreFileIdentity(artifact.fileIdentity)) {
+        return {
+            fingerprint: false,
+            tailCheck: false,
+            qpdfCheck: false,
+            nativeIncrementalCheck: false,
+            changedObjectRefsCheck: false,
+            fileSync: false,
+        };
+    }
     const receiptReuseEnabled = process.platform !== 'win32'
         && artifact?.receiptVersion === 1
         && artifact?.fileIdentity.platform === 'posix';

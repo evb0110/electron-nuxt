@@ -11,3 +11,7 @@ export {
     getBrowserDocumentFileName,
     isBrowserDocumentRef,
 } from '@app/platform/browser/browserDocumentRefs';
+export {
+    commitBrowserStoreStagedArtifact,
+    createBrowserStoreStagedArtifact,
+} from '@app/platform/browser/browserStagedArtifact';

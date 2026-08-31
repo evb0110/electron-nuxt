@@ -1,4 +1,8 @@
-import { BROWSER_DOCUMENT_CHUNK_SIZE } from '@app/platform/browser/browserDocumentConstants';
+import {
+    BROWSER_DOCUMENT_CHUNK_SIZE,
+    DOCUMENT_CHUNKS_STORE,
+    DOCUMENTS_STORE,
+} from '@app/platform/browser/browserDocumentConstants';
 import {
     cloneBytes,
     normalizePersistedWriteBytes,
@@ -6,7 +10,9 @@ import {
 } from '@app/platform/browser/browserDocumentBytes';
 import {
     createBrowserDocumentEntry,
+    createEntryFromPersistedRecord,
     createPersistedBrowserDocumentRecord,
+    toPersistedDocumentRecord,
 } from '@app/platform/browser/browserDocumentRecords';
 import { createBrowserDocumentRef } from '@app/platform/browser/browserDocumentRefs';
 import {
@@ -16,6 +22,7 @@ import {
 } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type {
     IBrowserDocumentEntry,
+    IBrowserPersistedDocumentRecord,
     ICreateStoredDocumentOptions,
     IRegisterFileOptions,
     IWriteDocumentOptions,
@@ -23,7 +30,9 @@ import type {
 import {
     deleteRecord,
     persistRecord,
+    runObjectStoresTransaction,
 } from '@app/platform/browser/browserDocumentIdb';
+import { createChunkKey } from '@app/platform/browser/browserDocumentChunks';
 import {
     assertBrowserDocumentChunkGenerationComplete,
     clearBrowserDocumentExternalChunkStorage,
@@ -36,11 +45,15 @@ import {
 } from '@app/platform/browser/browserDocumentChunkStorage';
 import {
     createBrowserDocumentContentToken,
+    createBrowserDocumentRevisionInfo,
     updateBrowserDocumentEntryContentToken,
 } from '@app/platform/browser/browserDocumentRevision';
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import { BrowserDocumentRecordStore } from '@app/platform/browser/browserDocumentRecordStore';
-import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRevisionToken,
+    type TDocumentRevisionToken,
+} from '@contracts/documentRevision';
 
 export interface IBrowserDocumentMutation {
     write(
@@ -121,6 +134,42 @@ function restoreEntryStorageState(
         entry.contentRevision = state.contentRevision;
     } else {
         delete entry.contentRevision;
+    }
+}
+
+interface IBrowserStagedCommitResult {
+    targetEntry: IBrowserDocumentEntry;
+    previousTargetRevisionToken: TDocumentRevisionToken;
+}
+
+function getPersistedDocumentRevisionToken(
+    record: IBrowserPersistedDocumentRecord,
+    sourceRecord: IBrowserPersistedDocumentRecord | null,
+) {
+    const revisionRecord = record.storageMode === 'source-proxy'
+        ? sourceRecord
+        : record;
+    if (!revisionRecord) {
+        return null;
+    }
+
+    return createBrowserDocumentRevisionInfo(
+        createEntryFromPersistedRecord(revisionRecord),
+        record.ref,
+    ).token;
+}
+
+function queuePersistedChunkDeletes(
+    store: IDBObjectStore,
+    record: IBrowserPersistedDocumentRecord,
+) {
+    const chunkCount = record.chunkCount ?? 0;
+    if (record.storageMode !== 'chunked' || chunkCount <= 0) {
+        return;
+    }
+
+    for (let index = 0; index < chunkCount; index += 1) {
+        store.delete(createChunkKey(record.ref, index, record.chunkGeneration));
     }
 }
 
@@ -354,6 +403,188 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         options: IWriteDocumentOptions = {},
     ) {
         return this.runRefMutation(ref, async () => this.writeUnlocked(ref, data, options));
+    }
+
+    /**
+     * Promotes a staged browser record in one IndexedDB transaction. The
+     * revision checks and both record mutations share the transaction, so a
+     * concurrent tab cannot replace the staged bytes between validation and
+     * cleanup.
+     */
+    public async commitStagedDocument(
+        stagedRef: string,
+        targetRef: string,
+        data: Uint8Array,
+        expectedStagedRevisionToken: TDocumentRevisionToken,
+        expectedTargetRevisionToken: TDocumentRevisionToken,
+    ) {
+        const committedBytes = data.slice();
+        if (parseDocumentRevisionToken(expectedStagedRevisionToken) === null) {
+            throw new Error('Browser staged commit requires a staged document revision token');
+        }
+        if (parseDocumentRevisionToken(expectedTargetRevisionToken) === null) {
+            throw new Error('Browser staged commit requires a target document revision token');
+        }
+
+        const committed = await this.runRefMutationMany([
+            stagedRef,
+            targetRef,
+        ], async () => {
+            const result = await runObjectStoresTransaction<IBrowserStagedCommitResult | false>(
+                [
+                    DOCUMENTS_STORE,
+                    DOCUMENT_CHUNKS_STORE,
+                ],
+                'readwrite',
+                (transaction, setResult) => {
+                    const documents = transaction.objectStore(DOCUMENTS_STORE);
+                    const chunks = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+                    const rawRecords = new Map<string, unknown>();
+                    let stagedRead = false;
+                    let targetRead = false;
+                    let sourceReadsScheduled = false;
+                    let settled = false;
+
+                    const finish = (value: IBrowserStagedCommitResult | false) => {
+                        if (settled) {
+                            return;
+                        }
+                        settled = true;
+                        setResult(value);
+                    };
+                    const loadSourceRecordsAndCommit = () => {
+                        if (!stagedRead || !targetRead || settled) {
+                            return;
+                        }
+
+                        const stagedRecord = toPersistedDocumentRecord(rawRecords.get(stagedRef));
+                        const targetRecord = toPersistedDocumentRecord(rawRecords.get(targetRef));
+                        if (!stagedRecord || !targetRecord) {
+                            finish(false);
+                            return;
+                        }
+                        if (
+                            stagedRecord.ref !== stagedRef
+                            || targetRecord.ref !== targetRef
+                            || stagedRef === targetRef
+                        ) {
+                            finish(false);
+                            return;
+                        }
+
+                        const sourceRefs = [
+                            stagedRecord,
+                            targetRecord,
+                        ]
+                            .filter((record) => record.storageMode === 'source-proxy' && record.sourceRef)
+                            .map((record) => record.sourceRef as string)
+                            .filter((ref, index, refs) => refs.indexOf(ref) === index);
+                        if (!sourceReadsScheduled) {
+                            sourceReadsScheduled = true;
+                            for (const sourceRef of sourceRefs) {
+                                if (rawRecords.has(sourceRef)) {
+                                    continue;
+                                }
+                                const sourceRequest = documents.get(sourceRef) as IDBRequest<unknown>;
+                                sourceRequest.onsuccess = () => {
+                                    rawRecords.set(sourceRef, sourceRequest.result);
+                                    loadSourceRecordsAndCommit();
+                                };
+                                sourceRequest.onerror = () => finish(false);
+                            }
+                        }
+                        if (sourceRefs.some((sourceRef) => !rawRecords.has(sourceRef))) {
+                            return;
+                        }
+
+                        const stagedSourceRecord = stagedRecord.storageMode === 'source-proxy'
+                            ? toPersistedDocumentRecord(rawRecords.get(stagedRecord.sourceRef ?? ''))
+                            : null;
+                        const targetSourceRecord = targetRecord.storageMode === 'source-proxy'
+                            ? toPersistedDocumentRecord(rawRecords.get(targetRecord.sourceRef ?? ''))
+                            : null;
+                        const stagedRevisionToken = getPersistedDocumentRevisionToken(
+                            stagedRecord,
+                            stagedSourceRecord,
+                        );
+                        const targetRevisionToken = getPersistedDocumentRevisionToken(
+                            targetRecord,
+                            targetSourceRecord,
+                        );
+                        if (
+                            stagedRevisionToken !== expectedStagedRevisionToken
+                            || targetRevisionToken !== expectedTargetRevisionToken
+                            || stagedRecord.fileSize !== committedBytes.byteLength
+                        ) {
+                            finish(false);
+                            return;
+                        }
+
+                        const targetEntry = createEntryFromPersistedRecord(targetRecord);
+                        const previousTargetRevisionToken = expectedTargetRevisionToken;
+                        targetEntry.storageMode = 'inline';
+                        targetEntry.chunkCount = 0;
+                        targetEntry.chunkSize = BROWSER_DOCUMENT_CHUNK_SIZE;
+                        targetEntry.fileSize = committedBytes.byteLength;
+                        targetEntry.updatedAt = Date.now();
+                        targetEntry.data = committedBytes;
+                        delete targetEntry.chunkGeneration;
+                        updateBrowserDocumentEntryContentToken(targetEntry);
+
+                        queuePersistedChunkDeletes(chunks, targetRecord);
+                        queuePersistedChunkDeletes(chunks, stagedRecord);
+                        documents.put(createPersistedBrowserDocumentRecord(
+                            targetEntry,
+                            targetEntry.data,
+                            false,
+                        ));
+                        documents.delete(stagedRef);
+                        finish({
+                            targetEntry,
+                            previousTargetRevisionToken,
+                        });
+                    };
+
+                    const stagedRequest = documents.get(stagedRef) as IDBRequest<unknown>;
+                    stagedRequest.onsuccess = () => {
+                        rawRecords.set(stagedRef, stagedRequest.result);
+                        stagedRead = true;
+                        loadSourceRecordsAndCommit();
+                    };
+                    stagedRequest.onerror = () => finish(false);
+
+                    const targetRequest = documents.get(targetRef) as IDBRequest<unknown>;
+                    targetRequest.onsuccess = () => {
+                        rawRecords.set(targetRef, targetRequest.result);
+                        targetRead = true;
+                        loadSourceRecordsAndCommit();
+                    };
+                    targetRequest.onerror = () => finish(false);
+                },
+            );
+
+            if (result === null) {
+                throw new Error('IndexedDB browser staged commit did not commit');
+            }
+            if (result === false) {
+                throw new Error('Browser staged artifact content or revision changed during commit');
+            }
+
+            this.attachEntry(result.targetEntry);
+            this.dropLoadedEntry(stagedRef);
+            this.emitRevisionChangeForEntry(
+                result.targetEntry,
+                result.previousTargetRevisionToken,
+                'write',
+            );
+            return true;
+        });
+        if (committed) {
+            // Remove a stale recent-file entry after releasing the document
+            // locks. The recent-file cleanup can inspect this same ref.
+            await this.removeRecentFile(stagedRef);
+        }
+        return committed;
     }
 
     public async writeForBootstrap(

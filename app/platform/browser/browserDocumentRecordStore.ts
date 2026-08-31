@@ -349,6 +349,12 @@ export class BrowserDocumentRecordStore {
     }
 
     private async removeUnlocked(ref: string) {
+        await this.removeDocumentRecordUnlocked(ref);
+        await this.removeRecentFile(ref);
+    }
+
+    /** Removes a document record while its caller owns the mutation queue. */
+    protected async removeDocumentRecordUnlocked(ref: string) {
         await this.ensureMaintenance();
         const entry = await this.ensureEntry(ref);
         if (entry) {
@@ -357,7 +363,6 @@ export class BrowserDocumentRecordStore {
         }
         this.dropLoadedEntry(ref);
         await deleteRecord(ref);
-        await this.removeRecentFile(ref);
     }
 
     public unload(ref: string) {

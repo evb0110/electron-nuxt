@@ -196,13 +196,18 @@ export type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 export {
+    createBrowserStoreFileIdentity,
     decodeTypedStagedArtifact,
+    isBrowserStoreFileIdentity,
+    isBrowserStoreStagedArtifact,
     isTypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
 export type {
+    IBrowserStoreFileIdentity,
     IStagedArtifactValidations,
     ITypedStagedArtifact,
     TArtifactFileIdentity,
+    TBrowserStoreStagedArtifact,
 } from '@contracts/stagedArtifacts';
 export {
     isDocumentRevisionInfo,
