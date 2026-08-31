@@ -256,13 +256,6 @@ async function loadCoreWithWasm() {
     };
 }
 
-async function loadPdfLibCore() {
-    vi.resetModules();
-    vi.unstubAllGlobals();
-    vi.stubGlobal('WebAssembly', undefined);
-    return import('@app/platform/browser-api/browserPageOpsCore');
-}
-
 describe('browser page-ops WASM fast path', () => {
     beforeEach(() => {
         vi.resetModules();
@@ -447,39 +440,57 @@ describe('browser page-ops WASM fast path', () => {
             {signal: expect.any(AbortSignal)},
         );
 
-        const pdfLibCore = await loadPdfLibCore();
-        const pdfLibDelete = await pdfLibCore.deletePdfPages(basePdf, [2]);
-        const pdfLibExtract = await pdfLibCore.extractPdfPages(basePdf, [
-            3,
-            1,
-        ]);
-        const pdfLibReorder = await pdfLibCore.reorderPdfPages(basePdf, [
-            3,
-            1,
-            2,
-        ]);
-        const pdfLibInsert = await pdfLibCore.insertPdfPages(basePdf, insertionPdf, 1);
-        const pdfLibRotate = await pdfLibCore.rotatePdfBytes(basePdf, [
-            1,
-            3,
-        ], 90);
-        const pdfLibCrop = await pdfLibCore.cropPdfBytes(basePdf, [1], {
-            top: 4,
-            bottom: 6,
-            left: 8,
-            right: 10,
+        expect((await summarizePdf(wasmDelete.data)).map(page => page.mediaBox.width))
+            .toEqual([
+                200,
+                400,
+            ]);
+        expect((await summarizePdf(wasmExtract.data)).map(page => page.mediaBox.width))
+            .toEqual([
+                400,
+                200,
+            ]);
+        expect((await summarizePdf(wasmReorder.data)).map(page => page.mediaBox.width))
+            .toEqual([
+                400,
+                200,
+                300,
+            ]);
+        expect((await summarizePdf(wasmInsert.data)).map(page => page.mediaBox.width))
+            .toEqual([
+                200,
+                500,
+                300,
+                400,
+            ]);
+        expect((await summarizePdf(wasmRotate.data)).map(page => page.rotation))
+            .toEqual([
+                90,
+                90,
+                90,
+            ]);
+        expect((await summarizePdf(wasmCrop.data))[0]?.cropBox).toEqual({
+            x: 8,
+            y: 6,
+            width: 182,
+            height: 90,
         });
-        const pdfLibRemoveCrop = await pdfLibCore.removeCropPdfBytes(basePdf, [2]);
-        const pdfLibGeometry = await pdfLibCore.getPageGeometryFromPdfBytes(basePdf, 2);
-
-        expect(await summarizePdf(wasmDelete.data)).toEqual(await summarizePdf(pdfLibDelete.data));
-        expect(await summarizePdf(wasmExtract.data)).toEqual(await summarizePdf(pdfLibExtract.data));
-        expect(await summarizePdf(wasmReorder.data)).toEqual(await summarizePdf(pdfLibReorder.data));
-        expect(await summarizePdf(wasmInsert.data)).toEqual(await summarizePdf(pdfLibInsert.data));
-        expect(await summarizePdf(wasmRotate.data)).toEqual(await summarizePdf(pdfLibRotate.data));
-        expect(await summarizePdf(wasmCrop.data)).toEqual(await summarizePdf(pdfLibCrop.data));
-        expect(await summarizePdf(wasmRemoveCrop.data)).toEqual(await summarizePdf(pdfLibRemoveCrop.data));
-        expect(wasmGeometry).toEqual(pdfLibGeometry);
+        expect((await summarizePdf(wasmRemoveCrop.data))[1]?.cropBox).toBeNull();
+        expect(wasmGeometry).toEqual({
+            mediaBox: {
+                x: 0,
+                y: 0,
+                width: 300,
+                height: 120,
+            },
+            cropBox: {
+                x: 10,
+                y: 12,
+                width: 270,
+                height: 80,
+            },
+            rotation: 90,
+        });
     });
 
     it('preserves outlines and remaps page labels across browser page operations', async () => {
@@ -540,28 +551,95 @@ describe('browser page-ops WASM fast path', () => {
         }
     });
 
-    it('leaves non-integer runtime page fields to the pdf-lib fallback validation', async () => {
+    it('reads catalog and conformance and merges N documents through EPPO v3', async () => {
+        const sourcePdf = await createMetadataPdf();
+        const secondPdf = await createPdf({pageWidths: [500]});
+        const wasm = await loadWasmRunner();
+
+        const catalogResult = await wasm.run('readCatalog', {data: sourcePdf});
+        expect(catalogResult).toEqual({
+            bookmarks: [{
+                title: 'Page three',
+                pageIndex: 2,
+                namedDest: null,
+                bold: false,
+                italic: false,
+                color: null,
+                items: [],
+            }],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'D',
+                    start: 1,
+                },
+                {
+                    pageIndex: 1,
+                    style: 'R',
+                    start: 1,
+                },
+            ],
+        });
+
+        const conformanceResult = await wasm.run('conformance', {data: sourcePdf});
+        expect(conformanceResult).toEqual({
+            isSigned: false,
+            isEncrypted: false,
+            isTagged: false,
+            hasAcroForm: false,
+            hasXfa: false,
+        });
+
+        const mergedResult = await wasm.run('mergePages', {documents: [
+            sourcePdf,
+            secondPdf,
+        ]});
+        assertSuccessfulWasmMutation(mergedResult);
+        expect(mergedResult.pageCount).toBe(4);
+        const merged = await PDFDocument.load(mergedResult.data);
+        const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
+        expect(mergedCatalog).toMatchObject({
+            bookmarks: [{
+                title: 'Page three',
+                pageIndex: 2,
+            }],
+            pageLabels: [
+                {
+                    pageIndex: 0,
+                    style: 'D',
+                },
+                {
+                    pageIndex: 1,
+                    style: 'R',
+                },
+            ],
+        });
+        expect(readOutlineDestination(merged).objectNumber)
+            .toBe(merged.getPage(2).ref.objectNumber);
+    });
+
+    it('fails closed when core receives non-integer runtime page fields', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
         const insertionPdf = await createPdf({pageWidths: [300]});
         const core = await loadCoreWithWasm();
 
         await expect(core.deletePdfPages(basePdf, [1.5]))
-            .rejects.toThrow('deletePages: invalid page number 1.5');
+            .rejects.toThrow('Invalid page-op WASM integer field');
         await expect(core.insertPdfPages(basePdf, insertionPdf, 1.5))
-            .rejects.toThrow('Invalid afterPage');
+            .rejects.toThrow('Invalid page-op WASM integer field');
         await expect(core.getPageGeometryFromPdfBytes(basePdf, 1.5))
-            .rejects.toThrow();
+            .rejects.toThrow('Invalid page-op WASM integer field');
         expect(core.fetchMock).toHaveBeenCalledWith(
             'https://viewer.test/wasm/evb-pdf-page-ops.wasm',
             {signal: expect.any(AbortSignal)},
         );
     });
 
-    it('rejects browser fallback delete-all before saving a zero-page PDF', async () => {
+    it('rejects delete-all through native page-ops WASM before saving a zero-page PDF', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
-        const pdfLibCore = await loadPdfLibCore();
+        const core = await loadCoreWithWasm();
 
-        await expect(pdfLibCore.deletePdfPages(basePdf, [1]))
+        await expect(core.deletePdfPages(basePdf, [1]))
             .rejects.toThrow('deletePages: cannot delete every page');
     });
 

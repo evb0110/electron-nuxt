@@ -193,6 +193,7 @@ pub(crate) fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Confi
             page_number: page_number.ok_or("Missing --page value")?,
         },
         "page-sizes" => Operation::PageSizes,
+        "read-catalog" => Operation::ReadCatalog,
         _ => return Err(format!("Unknown command: {command}").into()),
     };
 

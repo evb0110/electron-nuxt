@@ -11,6 +11,7 @@ import {
 } from '@app/platform/browser-api/browserPageOpsCore';
 import type {
     IBrowserPageOpsWorkerRequest,
+    IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
@@ -20,6 +21,27 @@ import {
     parseBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getErrorMessage } from '@app/utils/error';
+import {
+    isBrowserPageOpsWasmFailure,
+    tryRunBrowserPageOpsWithWasm,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
+
+async function runBrowserPageOpsWasmOnly<K extends keyof IBrowserPageOpsWorkerResultMap>(
+    type: K,
+    payload: IBrowserPageOpsWorkerRequestMap[K],
+): Promise<IBrowserPageOpsWorkerResultMap[K]> {
+    const result = await tryRunBrowserPageOpsWithWasm(
+        type as never,
+        payload as never,
+    );
+    if (result !== null && !isBrowserPageOpsWasmFailure(result)) {
+        return result;
+    }
+    if (isBrowserPageOpsWasmFailure(result)) {
+        throw new Error(result.error.message);
+    }
+    throw new Error(`PDF ${type} is unavailable because browser WASM could not be loaded`);
+}
 
 function toTransferableUint8Array(data: Uint8Array) {
     if (
@@ -113,6 +135,24 @@ async function handleParseAnnotationsRequest(
     return parsePdfAnnotations(request.payload.data);
 }
 
+async function handleReadCatalogRequest(
+    request: IBrowserPageOpsWorkerRequest<'readCatalog'>,
+) {
+    return runBrowserPageOpsWasmOnly('readCatalog', request.payload);
+}
+
+async function handleConformanceRequest(
+    request: IBrowserPageOpsWorkerRequest<'conformance'>,
+) {
+    return runBrowserPageOpsWasmOnly('conformance', request.payload);
+}
+
+async function handleMergePagesRequest(
+    request: IBrowserPageOpsWorkerRequest<'mergePages'>,
+) {
+    return runBrowserPageOpsWasmOnly('mergePages', request.payload);
+}
+
 async function handleRequest(
     request: TBrowserPageOpsWorkerRequest,
 ) {
@@ -135,6 +175,12 @@ async function handleRequest(
             return handleGetPageGeometryRequest(request);
         case 'parseAnnotations':
             return handleParseAnnotationsRequest(request);
+        case 'readCatalog':
+            return handleReadCatalogRequest(request);
+        case 'conformance':
+            return handleConformanceRequest(request);
+        case 'mergePages':
+            return handleMergePagesRequest(request);
         default:
             throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
@@ -177,6 +223,28 @@ self.addEventListener('message', async (event: MessageEvent<unknown>) => {
                 data: {data: transferableData},
             } satisfies TBrowserPageOpsWorkerResponse;
             self.postMessage(response, [transferableData.buffer]);
+            return;
+        }
+
+        if (request.type === 'readCatalog') {
+            const response = {
+                id: request.id,
+                type: 'readCatalog',
+                ok: true,
+                data: data as IBrowserPageOpsWorkerResultMap['readCatalog'],
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response);
+            return;
+        }
+
+        if (request.type === 'conformance') {
+            const response = {
+                id: request.id,
+                type: 'conformance',
+                ok: true,
+                data: data as IBrowserPageOpsWorkerResultMap['conformance'],
+            } satisfies TBrowserPageOpsWorkerResponse;
+            self.postMessage(response);
             return;
         }
 

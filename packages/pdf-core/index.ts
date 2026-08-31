@@ -8,7 +8,6 @@ export {
     hasPdfSignatureMarkersInPdfText,
     PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
-export { loadPdfStructure } from '@pdf-core/loadPdfStructure';
 export type {
     IPdfPageBox,
     TPdfRect,
@@ -40,8 +39,6 @@ export {
 } from '@pdf-core/safePdfLookup';
 export { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 export {
-    applyCombinedPdfPageLabels,
-    inspectPdfCombineCatalog,
     offsetPdfCombineBookmarks,
     PDF_COMBINE_CATALOG_POLICY,
 } from '@pdf-core/pdfCombineCatalog';

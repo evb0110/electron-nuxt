@@ -199,38 +199,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Remove the whole-document load when identity binding moves to the path-backed annotation index.',
     },
     {
-        module: 'electron/image/pdfConversion.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES, 512 MiB per-input compatibility cap',
-        reason:
-      'The image-to-PDF compatibility combine path loads a temporary PDF in memory.',
-        removalCondition:
-      'Remove the load when the path-backed native combine route owns this conversion.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier: 'maxInputBytes, 512 MiB default legacy cap',
-        reason:
-      'The JS combine route loads an input PDF while image inputs use separate bounded image reads.',
-        removalCondition:
-      'Remove the load when PDF inputs stay path-backed through native combine.',
-    },
-    {
-        module: 'electron/features/page-ops/main/cropLocal.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 2,
-        maximumBytesClassifier:
-      'PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES, 16 MiB compatibility fallback after native failure',
-        reason:
-      'The local crop fallback loads the working copy only after the native operation declines a small input.',
-        removalCondition:
-      'Remove both loads when native crop returns a typed capability error and no JS fallback remains.',
-    },
-    {
         module: 'packages/pdf-core/pdfPrintLayout.ts',
         primitive: 'PDFDocument.load',
         occurrences: 2,
@@ -240,17 +208,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Print layout helpers load complete source and output byte arrays in the shared PDF core.',
         removalCondition:
       'Remove both loads when print layout work is path-backed or limited to explicitly small input.',
-    },
-    {
-        module: 'packages/pdf-core/loadPdfStructure.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, structural in-memory utility',
-        reason:
-      'Structural inspection accepts bytes directly and does not classify path size at this layer.',
-        removalCondition:
-      'Remove the whole-document load when structural inspection consumes bounded qpdf/native results.',
     },
     {
         module:
@@ -277,38 +234,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Remove saveDocument from desktop path saves when native append owns the path output.',
     },
     {
-        module: 'electron/image/pdfConversion.ts',
-        primitive: 'fs.readFile',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF_COMBINE_SMALL_MEMORY_MAX_INPUT_BYTES, 512 MiB per-input compatibility cap',
-        reason:
-      'The compatibility combine path reads a temporary PDF into a whole byte array.',
-        removalCondition:
-      'Remove the read when the path-backed native combine route owns this conversion.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
-        primitive: 'fs.readFile',
-        occurrences: 1,
-        maximumBytesClassifier: 'maxInputBytes, 512 MiB default legacy cap',
-        reason:
-      'The JS combine route reads a PDF input; image reads in the same module are classified separately.',
-        removalCondition:
-      'Remove the PDF read when PDF inputs remain on the native path-backed combine route.',
-    },
-    {
-        module: 'electron/features/page-ops/main/cropLocal.ts',
-        primitive: 'fs.readFile',
-        occurrences: 2,
-        maximumBytesClassifier:
-      'PAGE_OPS_LOCAL_FALLBACK_MAX_BYTES, 16 MiB compatibility fallback after native failure',
-        reason:
-      'The local crop fallback reads the working copy only after the native operation declines a small input.',
-        removalCondition:
-      'Remove both reads when native crop returns a typed capability error and no JS fallback remains.',
-    },
-    {
         module: 'electron/image/tryCreatePdfWithNativeImageCombiner.ts',
         primitive: 'fs.readFile',
         occurrences: 1,
@@ -333,11 +258,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
 ];
 
 const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
-    {
-        module: 'electron/djvu/buildOptimizedPdf.ts',
-        pattern: /const fileData = await readFile\(imagePaths\[i\]!\)/u,
-        reason: 'Raster image input, not a document PDF.',
-    },
     {
         module: 'electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts',
         pattern: /const data = await readFile\(path\);/u,
@@ -377,14 +297,14 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
     },
     {
         module: 'electron/image/pdfCombineShared.ts',
-        pattern: /const originalBytes = await readFile\(sourcePath\)/u,
-        reason: 'Image input in the PDF combine module, not a document PDF.',
-    },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
         pattern:
       /const tiffBytes = new Uint8Array\(await readFile\(sourcePath\)\)/u,
         reason: 'TIFF image input in the PDF combine module, not a document PDF.',
+    },
+    {
+        module: 'electron/image/pdfCombineShared.ts',
+        pattern: /new Uint8Array\(await readFile\(sourcePath\)\)/u,
+        reason: 'Image input in the PDF combine module, not a document PDF.',
     },
 ];
 

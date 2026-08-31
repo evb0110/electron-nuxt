@@ -11,9 +11,11 @@ import {
 import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
+} from '@pdf-core/pdfCombineCatalog';
+import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
+import {
     offsetPdfCombineBookmarks,
     PDF_COMBINE_CATALOG_POLICY,
-    writePdfBookmarkOutlines,
 } from '@pdf-core';
 
 describe('PDF combine catalog policy', () => {

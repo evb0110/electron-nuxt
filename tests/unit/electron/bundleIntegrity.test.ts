@@ -82,10 +82,8 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
         'getPageGeometryLocal',
     ],
     'pdf-combine': [
-        'readImageDpi',
-        'pixelsToPdfPoints',
-        'readTiffFrameDpi',
-        '.0254',
+        'tryCreatePdfFromInputPathsNative',
+        'tryCreatePdfWithNativeImageCombiner',
     ],
     'pdf-conformance': ['analyzePdfConformanceFileDirect'],
     search: [
@@ -142,7 +140,6 @@ const PRELOAD_FORBIDDEN_INPUT_SUBSTRINGS = [
     '/node_modules/pako/',
     '/node_modules/@pdf-lib/upng/',
     '/node_modules/@pdf-lib/standard-fonts/',
-    '/packages/pdf-core/loadPdfStructure.ts',
     '/packages/pdf-core/iterateDecodedTiffFrames.ts',
 ];
 

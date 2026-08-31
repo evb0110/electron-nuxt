@@ -1,3 +1,4 @@
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import {
     PDFArray,
     PDFDict,
@@ -9,7 +10,6 @@ import {
     type PDFDocument,
     type PDFObject,
 } from 'pdf-lib';
-import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 export const PDF_COMBINE_CATALOG_POLICY = Object.freeze({
     pages: 'preserve',
@@ -29,95 +29,13 @@ export interface IPdfCombinePageLabelRange {
     start?: number;
 }
 
-function textValue(value: PDFObject | undefined) {
-    return value instanceof PDFString || value instanceof PDFHexString ? value.decodeText() : undefined;
-}
+const textValue = (value: PDFObject | undefined) => value instanceof PDFString || value instanceof PDFHexString
+    ? value.decodeText()
+    : undefined;
 
-function nameValue(value: PDFObject | undefined) {
-    return value instanceof PDFName ? value.asString().replace(/^\//u, '') : undefined;
-}
-
-function refKey(value: PDFObject | undefined) {
-    return value instanceof PDFRef ? `${value.objectNumber}:${value.generationNumber}` : null;
-}
-
-function collectNumberTreeEntries(
-    document: PDFDocument,
-    node: PDFDict,
-    output: Array<[number, PDFDict]>,
-    visited = new WeakSet<PDFDict>(),
-) {
-    if (visited.has(node)) {
-        return;
-    }
-    visited.add(node);
-    const nums = node.lookupMaybe(PDFName.of('Nums'), PDFArray);
-    if (nums) {
-        for (let index = 0; index + 1 < nums.size(); index += 2) {
-            const key = nums.lookup(index, PDFNumber);
-            const value = nums.lookup(index + 1, PDFDict);
-            output.push([
-                key.asNumber(),
-                value,
-            ]);
-        }
-    }
-    const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
-    if (kids) {
-        for (let index = 0; index < kids.size(); index += 1) {
-            collectNumberTreeEntries(document, kids.lookup(index, PDFDict), output, visited);
-        }
-    }
-}
-
-function findNamedDestination(document: PDFDocument, name: string): PDFObject | undefined {
-    const directDests = document.catalog.lookupMaybe(PDFName.of('Dests'), PDFDict);
-    const direct = directDests?.get(PDFName.of(name));
-    if (direct) {
-        return direct instanceof PDFRef ? document.context.lookup(direct) : direct;
-    }
-    const names = document.catalog.lookupMaybe(PDFName.of('Names'), PDFDict);
-    const root = names?.lookupMaybe(PDFName.of('Dests'), PDFDict);
-    const visited = new WeakSet<PDFDict>();
-    const visit = (node: PDFDict): PDFObject | undefined => {
-        if (visited.has(node)) {
-            return undefined;
-        }
-        visited.add(node);
-        const entries = node.lookupMaybe(PDFName.of('Names'), PDFArray);
-        if (entries) {
-            for (let index = 0; index + 1 < entries.size(); index += 2) {
-                const candidate = textValue(entries.lookup(index));
-                if (candidate === name) {
-                    return entries.lookup(index + 1);
-                }
-            }
-        }
-        const kids = node.lookupMaybe(PDFName.of('Kids'), PDFArray);
-        if (kids) {
-            for (let index = 0; index < kids.size(); index += 1) {
-                const found = visit(kids.lookup(index, PDFDict));
-                if (found) {
-                    return found;
-                }
-            }
-        }
-        return undefined;
-    };
-    return root ? visit(root) : undefined;
-}
-
-function destinationPageIndex(document: PDFDocument, value: PDFObject | undefined, pageRefs: Map<string, number>): number | null {
-    let destination = value;
-    const named = textValue(destination) ?? nameValue(destination);
-    if (named) destination = findNamedDestination(document, named);
-    if (destination instanceof PDFDict) destination = destination.get(PDFName.of('D'));
-    if (destination instanceof PDFRef) destination = document.context.lookup(destination);
-    if (!(destination instanceof PDFArray) || destination.size() === 0) {
-        return null;
-    }
-    return pageRefs.get(refKey(destination.get(0)) ?? '') ?? null;
-}
+const refKey = (value: PDFObject | undefined) => value instanceof PDFRef
+    ? `${value.objectNumber}:${value.generationNumber}`
+    : null;
 
 function readOutlineItems(
     document: PDFDocument,
@@ -129,14 +47,18 @@ function readOutlineItems(
     let current = first;
     while (current) {
         const dict = current instanceof PDFRef ? document.context.lookup(current, PDFDict) : current;
-        if (!(dict instanceof PDFDict)) break;
-        if (visited.has(dict)) break;
+        if (!(dict instanceof PDFDict) || visited.has(dict)) break;
         visited.add(dict);
-        const title = textValue(dict.get(PDFName.of('Title'))) ?? 'Untitled';
-        const pageIndex = destinationPageIndex(document, dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')), pageRefs);
+        let destination = dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D'));
+        if (destination instanceof PDFRef) destination = document.context.lookup(destination);
+        if (destination instanceof PDFDict) destination = destination.get(PDFName.of('D'));
+        if (destination instanceof PDFRef) destination = document.context.lookup(destination);
+        const pageIndex = destination instanceof PDFArray
+            ? pageRefs.get(refKey(destination.get(0)) ?? '') ?? null
+            : null;
         const flags = dict.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
         output.push({
-            title,
+            title: textValue(dict.get(PDFName.of('Title'))) ?? 'Untitled',
             pageIndex,
             namedDest: null,
             bold: (flags & 2) !== 0,
@@ -150,37 +72,34 @@ function readOutlineItems(
 }
 
 export function inspectPdfCombineCatalog(document: PDFDocument) {
-    if (!(document as {catalog?: PDFDict}).catalog) {
-        return {
-            bookmarks: [],
-            pageLabels: [],
-        };
-    }
     const names = document.catalog.lookupMaybe(PDFName.of('Names'), PDFDict);
     if (document.catalog.has(PDFName.of('AcroForm'))) throw new Error('PDF combine does not support source forms');
     if (document.catalog.has(PDFName.of('AF')) || names?.has(PDFName.of('EmbeddedFiles'))) throw new Error('PDF combine does not support source attachments');
     if (names?.has(PDFName.of('JavaScript'))) throw new Error('PDF combine does not support source JavaScript');
-
     const pageRefs = new Map(document.getPages().map((page, index) => [
         refKey(page.ref)!,
         index,
     ]));
-    const outlinesRoot = document.catalog.lookupMaybe(PDFName.of('Outlines'), PDFDict);
-    const bookmarks = outlinesRoot
-        ? readOutlineItems(document, outlinesRoot.get(PDFName.of('First')), pageRefs)
-        : [];
-    const entries: Array<[number, PDFDict]> = [];
+    const outlines = document.catalog.lookupMaybe(PDFName.of('Outlines'), PDFDict);
+    const bookmarks = outlines ? readOutlineItems(document, outlines.get(PDFName.of('First')), pageRefs) : [];
     const labels = document.catalog.lookupMaybe(PDFName.of('PageLabels'), PDFDict);
-    if (labels) collectNumberTreeEntries(document, labels, entries);
-    const pageLabels = entries.sort((left, right) => left[0] - right[0]).map(([
-        pageIndex,
-        dict,
-    ]) => ({
-        pageIndex,
-        ...(nameValue(dict.get(PDFName.of('S'))) ? {style: nameValue(dict.get(PDFName.of('S')))!} : {}),
-        ...(textValue(dict.get(PDFName.of('P'))) !== undefined ? {prefix: textValue(dict.get(PDFName.of('P')))!} : {}),
-        ...(dict.lookupMaybe(PDFName.of('St'), PDFNumber) ? {start: dict.lookup(PDFName.of('St'), PDFNumber).asNumber()} : {}),
-    }));
+    const nums = labels?.lookupMaybe(PDFName.of('Nums'), PDFArray);
+    const pageLabels: IPdfCombinePageLabelRange[] = [];
+    if (nums) {
+        for (let index = 0; index + 1 < nums.size(); index += 2) {
+            const pageIndex = nums.lookup(index, PDFNumber).asNumber();
+            const dict = nums.lookup(index + 1, PDFDict);
+            const style = dict.lookupMaybe(PDFName.of('S'), PDFName)?.asString().replace(/^\//u, '');
+            const prefix = textValue(dict.get(PDFName.of('P')));
+            const start = dict.lookupMaybe(PDFName.of('St'), PDFNumber)?.asNumber();
+            pageLabels.push({
+                pageIndex,
+                ...(style ? {style} : {}),
+                ...(prefix !== undefined ? {prefix} : {}),
+                ...(start !== undefined ? {start} : {}),
+            });
+        }
+    }
     return {
         bookmarks,
         pageLabels,
@@ -202,7 +121,10 @@ export function applyCombinedPdfPageLabels(document: PDFDocument, ranges: readon
     document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: document.context.obj(nums)}));
 }
 
-export function offsetPdfCombineBookmarks(bookmarks: readonly IPdfBookmarkEntry[], pageOffset: number): IPdfBookmarkEntry[] {
+export function offsetPdfCombineBookmarks(
+    bookmarks: readonly IPdfBookmarkEntry[],
+    pageOffset: number,
+): IPdfBookmarkEntry[] {
     return bookmarks.map(bookmark => ({
         ...bookmark,
         pageIndex: bookmark.pageIndex === null ? null : bookmark.pageIndex + pageOffset,

@@ -555,11 +555,13 @@ fn remap_browser_page_labels(
             prefix: label
                 .get(b"P")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_str().ok())
                 .map(|value| value.to_vec()),
             style: label
                 .get(b"S")
                 .ok()
+                .and_then(|value| source.resolved(value).ok())
                 .and_then(|value| value.as_name().ok())
                 .map(|value| value.to_vec()),
             start_number: label

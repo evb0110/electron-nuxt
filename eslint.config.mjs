@@ -105,7 +105,6 @@ const projectConfig = withNuxt(
                         group: [
                             '@i18n-core/*',
                             '@i18n-app/*',
-                            '@pdf-core/*',
                             '@releaseSelection/*',
                         ],
                         message: 'Import shared packages via their root entrypoint to keep package APIs slim.',

@@ -1,4 +1,5 @@
 use super::*;
+pub(crate) use evb_native_support::pdf_catalog::{BookmarkEntry, PageLabelRange};
 use serde::Serialize;
 
 fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -724,6 +725,7 @@ pub(crate) enum Operation {
         page_number: u32,
     },
     PageSizes,
+    ReadCatalog,
 }
 
 #[derive(Deserialize)]
@@ -932,37 +934,11 @@ pub(crate) struct PageLabelsMutation {
     pub(crate) ranges: Vec<PageLabelRange>,
 }
 
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct PageLabelRange {
-    pub(crate) start_page: u32,
-    pub(crate) style: Option<String>,
-    pub(crate) prefix: String,
-    pub(crate) start_number: u32,
-}
-
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct BookmarksMutation {
     pub(crate) total_pages: u32,
     pub(crate) untitled_label: String,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_bookmark_items")]
-    pub(crate) items: Vec<BookmarkEntry>,
-}
-
-#[derive(Clone, Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct BookmarkEntry {
-    pub(crate) title: String,
-    pub(crate) page_index: Option<u32>,
-    pub(crate) page_y_ratio: Option<f64>,
-    pub(crate) named_dest: Option<String>,
-    #[serde(default)]
-    pub(crate) bold: bool,
-    #[serde(default)]
-    pub(crate) italic: bool,
-    pub(crate) color: Option<String>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_bookmark_items")]
     pub(crate) items: Vec<BookmarkEntry>,

@@ -1,4 +1,6 @@
 import type {
+    IBrowserPdfCombineCatalog,
+    IBrowserPdfConformanceFacts,
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
@@ -30,7 +32,7 @@ interface IPdfPageOpsWasmExports {
 }
 
 const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
-export const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
+const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 
 interface IBrowserPageOpsWasmDecryptRequest {
     data: Uint8Array;
@@ -61,8 +63,10 @@ const REQUEST_MAGIC = 'EPPO';
 // decrypt operation (OP_DECRYPT = 9 on the Rust side) is wired by the browser
 // decrypt host.
 const REQUEST_VERSION = 2;
+const REQUEST_VERSION_DOCUMENT_LIST = 3;
 const WASM_PATH = '/wasm/evb-pdf-page-ops.wasm';
 const REQUEST_HEADER_BYTES = 4 + (8 * 4) + (4 * 8) + 4;
+const DOCUMENT_LIST_HEADER_BYTES = 4 + (3 * 4);
 
 const OP_DELETE_PAGES = 1;
 const OP_EXTRACT_PAGES = 2;
@@ -74,11 +78,18 @@ const OP_REMOVE_CROP = 7;
 const OP_GET_PAGE_GEOMETRY = 8;
 const OP_DECRYPT = 9;
 const OP_PARSE_ANNOTATIONS = 10;
+const OP_READ_CATALOG = 12;
+const OP_CONFORMANCE = 13;
+const OP_MERGE_PAGES = 14;
 
 const RESPONSE_MUTATION = 1;
 const RESPONSE_GEOMETRY = 2;
 const RESPONSE_ANNOTATION_PARSE = 3;
+const RESPONSE_JSON = 5;
 const MAX_U32 = 0xffff_ffff;
+const MAX_DOCUMENTS = 500;
+const MAX_BOOKMARK_DEPTH = 256;
+const MAX_BOOKMARK_ITEMS = 100_000;
 
 let wasmExportsPromise: Promise<IPdfPageOpsWasmExports | null> | null = null;
 
@@ -242,6 +253,12 @@ function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
             return OP_DECRYPT;
         case 'parseAnnotations':
             return OP_PARSE_ANNOTATIONS;
+        case 'readCatalog':
+            return OP_READ_CATALOG;
+        case 'conformance':
+            return OP_CONFORMANCE;
+        case 'mergePages':
+            return OP_MERGE_PAGES;
     }
 }
 
@@ -259,12 +276,20 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'getPageGeometry':
         case 'decrypt':
         case 'parseAnnotations':
+        case 'readCatalog':
+        case 'conformance':
+        case 'mergePages':
             return [];
     }
 }
 
 function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
-    return request.payload.data;
+    switch (request.type) {
+        case 'mergePages':
+            return new Uint8Array();
+        default:
+            return request.payload.data;
+    }
 }
 
 function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
@@ -310,7 +335,59 @@ function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
     return request.payload.margins;
 }
 
+function getDocumentList(request: TBrowserPageOpsWasmRequest): Uint8Array[] | null {
+    switch (request.type) {
+        case 'readCatalog':
+        case 'conformance':
+            return [request.payload.data];
+        case 'mergePages':
+            return request.payload.documents;
+        default:
+            return null;
+    }
+}
+
+function buildDocumentListWasmRequest(request: TBrowserPageOpsWasmRequest) {
+    const documents = getDocumentList(request);
+    if (documents === null || documents.length === 0 || documents.length > MAX_DOCUMENTS) {
+        throw new Error('Invalid page-op WASM document list');
+    }
+    const encodedLengths = documents.map(document => toWasmU32(document.byteLength));
+    const payloadLength = encodedLengths.reduce(
+        (total, length) => total + 4 + length,
+        DOCUMENT_LIST_HEADER_BYTES,
+    );
+    const output: Uint8Array<ArrayBuffer> = new Uint8Array(payloadLength);
+    const view = new DataView(output.buffer);
+    let offset = 0;
+    offset = writeMagic(output, offset);
+    offset = writeU32(view, offset, REQUEST_VERSION_DOCUMENT_LIST);
+    offset = writeU32(view, offset, getOperationCode(request.type));
+    offset = writeU32(view, offset, documents.length);
+    for (const [
+        index,
+        document,
+    ] of documents.entries()) {
+        const length = encodedLengths[index]!;
+        offset = writeU32(view, offset, length);
+        output.set(document, offset);
+        offset += length;
+    }
+    return {
+        data: output,
+        passwordOffset: 0,
+        passwordLength: 0,
+    };
+}
+
 function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
+    if (
+        request.type === 'readCatalog'
+        || request.type === 'conformance'
+        || request.type === 'mergePages'
+    ) {
+        return buildDocumentListWasmRequest(request);
+    }
     const data = getRequestData(request);
     const insertionData = getInsertionData(request);
     const password = getPassword(request);
@@ -455,6 +532,90 @@ function readGeometryResult(output: Uint8Array) {
     };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isOptionalNonNegativeInteger(value: unknown) {
+    return value === undefined
+        || (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0);
+}
+
+function isCatalogBookmark(
+    value: unknown,
+    depth: number,
+    state: {count: number},
+): value is IBrowserPdfCombineCatalog['bookmarks'][number] {
+    if (!isRecord(value) || depth >= MAX_BOOKMARK_DEPTH || state.count >= MAX_BOOKMARK_ITEMS) {
+        return false;
+    }
+    if (
+        typeof value.title !== 'string'
+        || (value.pageIndex !== null && !isOptionalNonNegativeInteger(value.pageIndex))
+        || (value.namedDest !== null && typeof value.namedDest !== 'string')
+        || typeof value.bold !== 'boolean'
+        || typeof value.italic !== 'boolean'
+        || (value.color !== null && typeof value.color !== 'string')
+        || (value.pageYRatio !== undefined
+            && value.pageYRatio !== null
+            && (typeof value.pageYRatio !== 'number' || !Number.isFinite(value.pageYRatio)))
+        || !Array.isArray(value.items)
+        || value.items.length > MAX_BOOKMARK_ITEMS
+    ) {
+        return false;
+    }
+    state.count += 1;
+    return value.items.every(item => isCatalogBookmark(item, depth + 1, state));
+}
+
+function isPdfCombineCatalog(value: unknown): value is IBrowserPdfCombineCatalog {
+    if (!isRecord(value) || !Array.isArray(value.bookmarks) || !Array.isArray(value.pageLabels)) {
+        return false;
+    }
+    if (value.bookmarks.length > MAX_BOOKMARK_ITEMS || value.pageLabels.length > 2048) {
+        return false;
+    }
+    const state = {count: 0};
+    if (!value.bookmarks.every(bookmark => isCatalogBookmark(bookmark, 0, state))) {
+        return false;
+    }
+    return value.pageLabels.every(range => {
+        if (!isRecord(range)) {
+            return false;
+        }
+        return isOptionalNonNegativeInteger(range.pageIndex)
+            && typeof range.pageIndex === 'number'
+            && (range.style === undefined || typeof range.style === 'string')
+            && (range.prefix === undefined || typeof range.prefix === 'string')
+            && (range.start === undefined || (typeof range.start === 'number' && Number.isSafeInteger(range.start) && range.start >= 0));
+    });
+}
+
+function isPdfConformanceFacts(value: unknown): value is IBrowserPdfConformanceFacts {
+    return isRecord(value)
+        && typeof value.isSigned === 'boolean'
+        && typeof value.isEncrypted === 'boolean'
+        && typeof value.isTagged === 'boolean'
+        && typeof value.hasAcroForm === 'boolean'
+        && typeof value.hasXfa === 'boolean';
+}
+
+function readJsonResult(output: Uint8Array) {
+    if (output.byteLength < 8) {
+        return null;
+    }
+    const view = new DataView(output.buffer, output.byteOffset, output.byteLength);
+    const dataLength = view.getUint32(4, true);
+    if (dataLength !== output.byteLength - 8) {
+        return null;
+    }
+    try {
+        return JSON.parse(new TextDecoder().decode(output.slice(8))) as unknown;
+    } catch {
+        return null;
+    }
+}
+
 function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     output: Uint8Array,
@@ -480,6 +641,21 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             return null;
         }
         return {data: toTransferableUint8Array(output.slice(8))} as IBrowserPageOpsWasmResultMap[K];
+    }
+
+    if (type === 'readCatalog' || type === 'conformance') {
+        if (kind !== RESPONSE_JSON) {
+            return null;
+        }
+        const value: unknown = readJsonResult(output);
+        if (type === 'readCatalog') {
+            return isPdfCombineCatalog(value)
+                ? value as IBrowserPageOpsWasmResultMap[K]
+                : null;
+        }
+        return isPdfConformanceFacts(value)
+            ? value as IBrowserPageOpsWasmResultMap[K]
+            : null;
     }
 
     return kind === RESPONSE_MUTATION

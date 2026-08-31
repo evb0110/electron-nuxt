@@ -2,8 +2,10 @@ use evb_native_support::{
     wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
     NativeErrorCode, NativeErrorEnvelope,
 };
+use lopdf::{dictionary, Dictionary, Object};
 use std::{cell::RefCell, slice};
 
+use crate::pdf_conformance_facts;
 use crate::{
     append_native_mutations_to_bytes, crop_browser_pdf_bytes, decrypt_browser_pdf_bytes,
     delete_browser_pdf_pages, extract_browser_pdf_pages, get_browser_page_geometry_from_bytes,
@@ -12,6 +14,10 @@ use crate::{
     serialize_annotation_parse, CropMargins, NativeMutationBytesResult, PageGeometry,
     PageMutationBytes, PdfRect, Result, PAGE_OP_WASM_MAX_OUTPUT_BYTES,
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
+};
+use crate::{
+    build_browser_page_subset_pdf, read_pdf_combine_catalog, save_document_to_bytes,
+    PageCloneSource, PdfObjectSource,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
@@ -31,6 +37,10 @@ const OP_GET_PAGE_GEOMETRY: u32 = 8;
 const OP_DECRYPT: u32 = 9;
 const OP_PARSE_ANNOTATIONS: u32 = 10;
 const OP_SAVE_MUTATIONS: u32 = 11;
+const OP_READ_CATALOG: u32 = 12;
+const OP_CONFORMANCE: u32 = 13;
+const OP_MERGE_PAGES: u32 = 14;
+const REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
 
 const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
 
@@ -38,6 +48,7 @@ const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
 const RESPONSE_ANNOTATION_PARSE: u32 = 3;
 const RESPONSE_NATIVE_MUTATIONS: u32 = 4;
+const RESPONSE_JSON: u32 = 5;
 const ANNOTATION_PARSE_RESPONSE_HEADER_BYTES: usize = 8;
 const NATIVE_MUTATION_RESPONSE_HEADER_BYTES: usize = 20;
 const MAX_REQUEST_BYTES: usize = 256 * 1024 * 1024;
@@ -161,6 +172,12 @@ fn clear_last_result() {
 }
 
 fn run_request(request: &[u8]) -> Result<Vec<u8>> {
+    if request.len() >= 8
+        && &request[..4] == REQUEST_MAGIC
+        && u32::from_le_bytes(request[4..8].try_into().unwrap()) == REQUEST_VERSION_DOCUMENT_LIST
+    {
+        return run_document_list_request(request);
+    }
     let parsed = parse_request(request)?;
     match parsed.operation {
         OP_DELETE_PAGES => encode_mutation(delete_browser_pdf_pages(parsed.data, &parsed.pages)?),
@@ -209,6 +226,87 @@ fn run_request(request: &[u8]) -> Result<Vec<u8>> {
         )
         .into()),
     }
+}
+
+fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
+    let mut offset = 0;
+    if take_bytes(request, &mut offset, 4)? != REQUEST_MAGIC {
+        return Err("Invalid page-op WASM document-list magic".into());
+    }
+    let version = read_u32_le(request, &mut offset)?;
+    if version != REQUEST_VERSION_DOCUMENT_LIST {
+        return Err("Unsupported page-op WASM document-list version".into());
+    }
+    let operation = read_u32_le(request, &mut offset)?;
+    let count = read_usize_le(request, &mut offset, "document count")?;
+    if count == 0 || count > 500 {
+        return Err("Invalid page-op WASM document count".into());
+    }
+    let mut documents = Vec::with_capacity(count);
+    for _ in 0..count {
+        let len = read_usize_le(request, &mut offset, "document length")?;
+        documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
+    }
+    if offset != request.len() {
+        return Err("Trailing bytes in page-op WASM document-list request".into());
+    }
+    match operation {
+        OP_READ_CATALOG => encode_json_bytes(serde_json::to_vec(&read_pdf_combine_catalog(
+            &documents[0],
+        )?)?),
+        OP_CONFORMANCE => {
+            encode_json_bytes(serde_json::to_vec(&pdf_conformance_facts(&documents[0])?)?)
+        }
+        OP_MERGE_PAGES => {
+            let sources = documents.iter().collect::<Vec<_>>();
+            let mut sequence = Vec::new();
+            for (document_index, document) in documents.iter().enumerate() {
+                sequence.extend(document.get_pages().values().copied().map(|page_id| {
+                    PageCloneSource {
+                        document_index,
+                        page_id,
+                    }
+                }));
+            }
+            let merged = build_browser_page_subset_pdf(&sources, &sequence)?;
+            let mut output = load_browser_pdf(&merged.data)?;
+            let source_catalog = read_pdf_combine_catalog(&documents[0])?;
+            let catalog_id = output.root_id()?;
+            let catalog = output.get_dictionary_mut(catalog_id)?;
+            let mut nums = Vec::with_capacity(source_catalog.page_labels.len() * 2);
+            for range in source_catalog.page_labels {
+                nums.push(Object::Integer(i64::from(range.page_index)));
+                let mut label = Dictionary::new();
+                if let Some(style) = range.style {
+                    label.set("S", Object::Name(style.into_bytes()));
+                }
+                if let Some(prefix) = range.prefix {
+                    label.set("P", Object::string_literal(prefix));
+                }
+                if let Some(start) = range.start {
+                    label.set("St", Object::Integer(i64::from(start)));
+                }
+                nums.push(Object::Dictionary(label));
+            }
+            if !nums.is_empty() {
+                catalog.set("PageLabels", dictionary! {"Nums" => nums});
+            }
+            encode_mutation(PageMutationBytes {
+                page_count: merged.page_count,
+                data: save_document_to_bytes(&mut output)?,
+            })
+        }
+        _ => Err(format!("Unsupported page-op WASM document-list operation {operation}").into()),
+    }
+}
+
+fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
+    let length = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
+    let mut output = Vec::with_capacity(bytes.len() + 8);
+    write_u32_le(&mut output, RESPONSE_JSON);
+    write_u32_le(&mut output, length);
+    output.extend_from_slice(&bytes);
+    Ok(output)
 }
 
 fn parse_wasm_mutation_payload(payload: &[u8]) -> Result<(crate::NativeMutationsFile, String)> {

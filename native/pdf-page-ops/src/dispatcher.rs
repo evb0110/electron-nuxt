@@ -109,6 +109,13 @@ pub(crate) fn mutate_pdf(config: Config) -> Result<()> {
                 config.qpdf_path.as_deref(),
             )
         }
+        Operation::ReadCatalog => {
+            return write_pdf_combine_catalog_path(
+                &config.input_path,
+                &config.output_path,
+                config.qpdf_path.as_deref(),
+            )
+        }
         _ => {}
     }
 

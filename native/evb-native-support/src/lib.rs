@@ -5,6 +5,7 @@ use thiserror::Error;
 pub mod bounded_io;
 pub mod generated_native_tool_protocols;
 pub mod output;
+pub mod pdf_catalog;
 pub mod wasm_request_allocation;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
