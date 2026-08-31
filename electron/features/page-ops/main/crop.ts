@@ -21,7 +21,6 @@ import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
     cropPagesLocal,
-    getPageGeometryLocal,
     removeCropFromPagesLocal,
 } from '@electron/features/page-ops/main/cropLocal';
 import { assertPageOpsLocalFallbackAllowed } from '@electron/features/page-ops/main/nativeCrop';
@@ -349,7 +348,13 @@ export async function getPageGeometry(
             throw error;
         }
         await assertPageOpsLocalFallbackAllowed(materializedPath, 'get-page-geometry', signal);
-        log.warn(`Crop worker unavailable, falling back to in-process page geometry: ${getErrorMessage(error)}`);
-        return getPageGeometryLocal(materializedPath, pageNumber, signal);
+        throw new PdfPageOpsCapabilityError(
+            'native-failure',
+            `Native page geometry and the crop worker were unavailable: ${getErrorMessage(error)}`,
+            {
+                operation: 'get-page-geometry',
+                cause: error,
+            },
+        );
     }
 }

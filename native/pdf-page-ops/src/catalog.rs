@@ -69,6 +69,7 @@ struct RawPdfCombineBookmarkEntry {
     items: Vec<RawPdfCombineBookmarkEntry>,
     bold: bool,
     italic: bool,
+    color: Option<String>,
 }
 
 /// Reads the subset of a source catalog that the PDF combine paths preserve.
@@ -235,6 +236,11 @@ fn read_outline_items(
             )?,
             bold: flags & 2 != 0,
             italic: flags & 1 != 0,
+            color: dictionary
+                .get(b"C")
+                .ok()
+                .and_then(|value| document.resolved(value).ok())
+                .and_then(pdf_color_to_hex),
         });
         current = next;
     }
@@ -303,9 +309,18 @@ fn find_named_destination_in_tree(
     if depth >= CATALOG_WALK_DEPTH_LIMIT || !state.enter(node_object) {
         return Ok(None);
     }
-    let node = resolve_catalog_dictionary(document, node_object, "destination name tree")?;
+    let Ok(node) = resolve_catalog_dictionary(document, node_object, "destination name tree")
+    else {
+        return Ok(None);
+    };
     if let Ok(entries_object) = node.get(b"Names") {
-        let entries = document.resolved(entries_object)?.as_array()?;
+        let Some(entries) = document
+            .resolved(entries_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(None);
+        };
         for pair in entries.chunks_exact(2) {
             if pdf_name_or_string(&pair[0]).as_deref() == Some(name) {
                 return Ok(Some(pair[1].clone()));
@@ -315,7 +330,13 @@ fn find_named_destination_in_tree(
     let Ok(kids_object) = node.get(b"Kids") else {
         return Ok(None);
     };
-    let kids = document.resolved(kids_object)?.as_array()?;
+    let Some(kids) = document
+        .resolved(kids_object)
+        .ok()
+        .and_then(|value| value.as_array().ok())
+    else {
+        return Ok(None);
+    };
     for kid in kids {
         if let Some(found) = find_named_destination_in_tree(document, kid, name, depth + 1, state)?
         {
@@ -359,13 +380,33 @@ fn finalize_bookmark(
         named_dest: None,
         bold: bookmark.bold,
         italic: bookmark.italic,
-        color: None,
+        color: bookmark.color,
         items: bookmark
             .items
             .into_iter()
             .map(|item| finalize_bookmark(item, page_indices))
             .collect(),
     }
+}
+
+fn pdf_color_to_hex(value: &Object) -> Option<String> {
+    let values = value.as_array().ok()?;
+    if values.len() != 3 {
+        return None;
+    }
+    let channels = values
+        .iter()
+        .map(|value| value.as_float().ok())
+        .collect::<Option<Vec<_>>>()?;
+    if channels.iter().any(|channel| !channel.is_finite()) {
+        return None;
+    }
+    Some(format!(
+        "#{:02x}{:02x}{:02x}",
+        (channels[0].clamp(0.0, 1.0) * 255.0).round() as u8,
+        (channels[1].clamp(0.0, 1.0) * 255.0).round() as u8,
+        (channels[2].clamp(0.0, 1.0) * 255.0).round() as u8,
+    ))
 }
 
 fn read_page_label_ranges(
@@ -427,18 +468,35 @@ fn read_number_tree(
     {
         return Ok(());
     }
-    let node = resolve_catalog_dictionary(document, node_object, "PageLabels")?;
+    let Ok(node) = resolve_catalog_dictionary(document, node_object, "PageLabels") else {
+        return Ok(());
+    };
     if let Ok(nums_object) = node.get(b"Nums") {
-        let nums = document.resolved(nums_object)?.as_array()?;
+        let Some(nums) = document
+            .resolved(nums_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(());
+        };
         for pair in nums.chunks_exact(2) {
             if output.len() >= CATALOG_WALK_NODE_LIMIT {
                 break;
             }
-            output.push((pair[0].as_i64()?, pair[1].clone()));
+            let Ok(start_page) = pair[0].as_i64() else {
+                continue;
+            };
+            output.push((start_page, pair[1].clone()));
         }
     }
     if let Ok(kids_object) = node.get(b"Kids") {
-        let kids = document.resolved(kids_object)?.as_array()?;
+        let Some(kids) = document
+            .resolved(kids_object)
+            .ok()
+            .and_then(|value| value.as_array().ok())
+        else {
+            return Ok(());
+        };
         for kid in kids {
             read_number_tree(document, kid, depth + 1, state, output)?;
             if output.len() >= CATALOG_WALK_NODE_LIMIT {

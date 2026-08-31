@@ -1,3 +1,5 @@
+use crate::bounded_io::deserialize_bounded_vec;
+use serde::de::Deserializer;
 use serde::{Deserialize, Serialize};
 
 pub const MAX_BOOKMARK_ITEMS: usize = 5_000;
@@ -18,15 +20,28 @@ pub struct PageLabelRange {
 pub struct BookmarkEntry {
     pub title: String,
     pub page_index: Option<u32>,
+    #[serde(default)]
     pub page_y_ratio: Option<f64>,
+    #[serde(default)]
     pub named_dest: Option<String>,
     #[serde(default)]
     pub bold: bool,
     #[serde(default)]
     pub italic: bool,
+    #[serde(default)]
     pub color: Option<String>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
     pub items: Vec<BookmarkEntry>,
+}
+
+fn deserialize_bounded_bookmark_items<'de, D>(
+    deserializer: D,
+) -> Result<Vec<BookmarkEntry>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, BookmarkEntry, MAX_BOOKMARK_ITEMS>(deserializer)
 }
 
 pub fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {

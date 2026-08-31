@@ -43,6 +43,7 @@ const OP_MERGE_PAGES: u32 = 14;
 const REQUEST_VERSION_DOCUMENT_LIST: u32 = 3;
 
 const MAX_WASM_PASSWORD_BYTES: usize = 4 * 1024;
+const MAX_DOCUMENT_LIST_PAGES: usize = 500;
 
 const RESPONSE_MUTATION: u32 = 1;
 const RESPONSE_GEOMETRY: u32 = 2;
@@ -247,6 +248,14 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
         let len = read_usize_le(request, &mut offset, "document length")?;
         documents.push(load_browser_pdf(take_bytes(request, &mut offset, len)?)?);
     }
+    let total_pages = documents.iter().try_fold(0usize, |total, document| {
+        total
+            .checked_add(document.get_pages().len())
+            .ok_or("Browser page-op document page count overflow")
+    })?;
+    if total_pages > MAX_DOCUMENT_LIST_PAGES {
+        return Err("Browser page-op document list exceeds the 500-page limit".into());
+    }
     if offset != request.len() {
         return Err("Trailing bytes in page-op WASM document-list request".into());
     }
@@ -342,8 +351,15 @@ fn offset_wasm_bookmark(
 }
 
 fn encode_json_bytes(bytes: Vec<u8>) -> Result<Vec<u8>> {
+    let output_len = bytes
+        .len()
+        .checked_add(8)
+        .ok_or_else(page_op_output_limit)?;
+    if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+        return Err(page_op_output_limit());
+    }
     let length = u32::try_from(bytes.len()).map_err(|_| page_op_output_limit())?;
-    let mut output = Vec::with_capacity(bytes.len() + 8);
+    let mut output = Vec::with_capacity(output_len);
     write_u32_le(&mut output, RESPONSE_JSON);
     write_u32_le(&mut output, length);
     output.extend_from_slice(&bytes);

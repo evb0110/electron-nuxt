@@ -8,10 +8,12 @@ import {
     removeCropPdfBytes,
     reorderPdfPages,
     rotatePdfBytes,
+    readPdfCatalog,
+    readPdfConformance,
+    mergePdfPages,
 } from '@app/platform/browser-api/browserPageOpsCore';
 import type {
     IBrowserPageOpsWorkerRequest,
-    IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerResponse,
@@ -21,28 +23,6 @@ import {
     parseBrowserPageOpsWorkerRequest,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { getErrorMessage } from '@app/utils/error';
-import {
-    isBrowserPageOpsWasmFailure,
-    tryRunBrowserPageOpsWithWasm,
-} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
-
-async function runBrowserPageOpsWasmOnly<K extends keyof IBrowserPageOpsWorkerResultMap>(
-    type: K,
-    payload: IBrowserPageOpsWorkerRequestMap[K],
-): Promise<IBrowserPageOpsWorkerResultMap[K]> {
-    const result = await tryRunBrowserPageOpsWithWasm(
-        type as never,
-        payload as never,
-    );
-    if (result !== null && !isBrowserPageOpsWasmFailure(result)) {
-        return result;
-    }
-    if (isBrowserPageOpsWasmFailure(result)) {
-        throw new Error(result.error.message);
-    }
-    throw new Error(`PDF ${type} is unavailable because browser WASM could not be loaded`);
-}
-
 function toTransferableUint8Array(data: Uint8Array) {
     if (
         data.byteOffset === 0
@@ -138,19 +118,19 @@ async function handleParseAnnotationsRequest(
 async function handleReadCatalogRequest(
     request: IBrowserPageOpsWorkerRequest<'readCatalog'>,
 ) {
-    return runBrowserPageOpsWasmOnly('readCatalog', request.payload);
+    return readPdfCatalog(request.payload.data);
 }
 
 async function handleConformanceRequest(
     request: IBrowserPageOpsWorkerRequest<'conformance'>,
 ) {
-    return runBrowserPageOpsWasmOnly('conformance', request.payload);
+    return readPdfConformance(request.payload.data);
 }
 
 async function handleMergePagesRequest(
     request: IBrowserPageOpsWorkerRequest<'mergePages'>,
 ) {
-    return runBrowserPageOpsWasmOnly('mergePages', request.payload);
+    return mergePdfPages(request.payload.documents);
 }
 
 async function handleRequest(

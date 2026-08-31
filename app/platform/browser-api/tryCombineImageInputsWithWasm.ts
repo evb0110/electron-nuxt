@@ -724,7 +724,18 @@ export async function tryCombineImageInputsWithWasm(
         return {status: 'unsupported'};
     }
 
-    const estimatedRequestLength = getWasmRequestLength(inputs, options);
+    let estimatedRequestLength: number;
+    try {
+        estimatedRequestLength = getWasmRequestLength(inputs, options);
+    } catch (error) {
+        return {
+            status: 'fatal',
+            error: {
+                code: 'invalid-request',
+                message: error instanceof Error ? error.message : 'Invalid image combine WASM request',
+            },
+        };
+    }
     if (
         !Number.isSafeInteger(estimatedRequestLength)
         || estimatedRequestLength <= 0

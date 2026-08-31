@@ -1,7 +1,4 @@
-import type {
-    ICropMargins,
-    IPageGeometry,
-} from '@contracts/shared';
+import type { ICropMargins } from '@contracts/shared';
 import { normalizeCropMargins } from '@contracts/shared';
 import {
     tryCropPagesWithNativePageOps,
@@ -45,13 +42,4 @@ export async function removeCropFromPagesLocal(
 
     await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'remove-crop', signal);
     throwNativePageOperationDeclined('remove-crop');
-}
-
-export async function getPageGeometryLocal(
-    workingCopyPath: string,
-    pageNumber: number,
-    signal?: AbortSignal,
-): Promise<IPageGeometry> {
-    await assertPageOpsLocalFallbackAllowed(workingCopyPath, 'get-page-geometry', signal);
-    throwNativePageOperationDeclined('get-page-geometry');
 }

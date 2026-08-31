@@ -463,7 +463,7 @@ async function preflightImageInput(
         );
     } else {
         assertKnownBitmapPixelLimit(
-            new Uint8Array(await readFile(sourcePath)),
+            await readBitmapHeaderPrefix(sourcePath),
             extension,
             sourcePath,
             limits,

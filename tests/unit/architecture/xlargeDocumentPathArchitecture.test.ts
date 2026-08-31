@@ -301,11 +301,6 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
       /const tiffBytes = new Uint8Array\(await readFile\(sourcePath\)\)/u,
         reason: 'TIFF image input in the PDF combine module, not a document PDF.',
     },
-    {
-        module: 'electron/image/pdfCombineShared.ts',
-        pattern: /new Uint8Array\(await readFile\(sourcePath\)\)/u,
-        reason: 'Image input in the PDF combine module, not a document PDF.',
-    },
 ];
 
 const KNOWN_ARRAY_BUFFER_EXCEPTIONS: readonly IKnownNonDocumentRead[] = [
