@@ -88,7 +88,7 @@ let claimedWorkspaceCheckpointPath: string | null = null;
 const discardedCheckpointOwnerGenerations = new Map<number, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
 
-export class WorkspaceCheckpointReadError extends Error {
+class WorkspaceCheckpointReadError extends Error {
     public readonly code = 'WORKSPACE_CHECKPOINT_READ_FAILED' as const;
     public readonly checkpointPath: string;
     public override readonly cause: unknown;

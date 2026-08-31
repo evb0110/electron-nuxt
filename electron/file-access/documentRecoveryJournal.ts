@@ -1,11 +1,11 @@
 import {readFile} from 'node:fs/promises';
 import {isErrnoException} from '@contracts/runtimeGuards';
 
-export type TDocumentRecoveryJournalErrorCode =
+type TDocumentRecoveryJournalErrorCode =
     | 'DOCUMENT_RECOVERY_JOURNAL_UNREADABLE'
     | 'DOCUMENT_RECOVERY_JOURNAL_INVALID';
 
-export class DocumentRecoveryJournalError extends Error {
+class DocumentRecoveryJournalError extends Error {
     public readonly code: TDocumentRecoveryJournalErrorCode;
     public readonly journalPath: string;
     public override readonly cause: unknown;

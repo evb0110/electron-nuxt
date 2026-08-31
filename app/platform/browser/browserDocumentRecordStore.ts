@@ -70,7 +70,7 @@ async function ensureFileHandleReadPermission(handle: FileSystemFileHandle) {
     }
 }
 
-export async function readFileHandleBytes(
+async function readFileHandleBytes(
     handle: FileSystemFileHandle,
     offset?: number,
     length?: number,

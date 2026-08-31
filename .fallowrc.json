@@ -61,6 +61,7 @@
         "@intlify/message-compiler",
         "@intlify/shared",
         "@intlify/utils",
+        "@landing/app",
         "@vue/compiler-core",
         "@vue/compiler-ssr",
         "@vue/devtools-api",

@@ -3,7 +3,7 @@ import type { ITab } from '@app/types/tabs';
 
 interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
-export type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
+type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
 export type TDirtyCloseDialogMode = 'tab' | 'window';
 
 interface IDirtyTabCloseTarget {

@@ -98,7 +98,7 @@ export function tryReadRecentFilesFromStorage() {
     }
 }
 
-export function hasRecentFilesStorageSnapshot() {
+function hasRecentFilesStorageSnapshot() {
     const result = readLocalStorageItem(BROWSER_RECENT_FILES_STORAGE_KEY);
     if (result.status === 'unavailable') {
         throw new BrowserRecentFilesStorageUnavailableError(result.error);

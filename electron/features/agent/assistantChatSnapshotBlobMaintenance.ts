@@ -36,7 +36,7 @@ function addSnapshotBlobReferences(
     }
 }
 
-export async function collectAssistantChatSnapshotBlobReferences(
+async function collectAssistantChatSnapshotBlobReferences(
     directories: readonly string[],
     parseRecord: (line: string) => unknown,
 ) {
@@ -69,7 +69,7 @@ export async function collectAssistantChatSnapshotBlobReferences(
     return references;
 }
 
-export function collectAssistantChatSnapshotBlobReferencesSync(
+function collectAssistantChatSnapshotBlobReferencesSync(
     directories: readonly string[],
     parseRecord: (line: string) => unknown,
 ) {

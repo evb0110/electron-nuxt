@@ -7,13 +7,13 @@ import {
 } from 'path';
 import { range } from 'es-toolkit/math';
 
-export const MAX_PATH_COMPONENT_BYTES = 255;
+const MAX_PATH_COMPONENT_BYTES = 255;
 
 function getUtf8ByteLength(value: string) {
     return Buffer.byteLength(value, 'utf8');
 }
 
-export function truncateUtf8PathComponent(value: string, maxBytes = MAX_PATH_COMPONENT_BYTES) {
+function truncateUtf8PathComponent(value: string, maxBytes = MAX_PATH_COMPONENT_BYTES) {
     if (maxBytes < 0) {
         throw new Error('Path component byte budget must not be negative');
     }

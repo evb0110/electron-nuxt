@@ -106,7 +106,7 @@ interface IAssistantChatPersistenceSession {
     lastError?: string;
 }
 
-export type TPersistedAssistantChatRecord =
+type TPersistedAssistantChatRecord =
     | {
         schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
         type: 'session-snapshot';
