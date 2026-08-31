@@ -1,0 +1,347 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b3eba3f665eb5c::t_d2fdd0c5ee5ef4 17
+  s_b3eba3f665eb5c::t_1f0ee60063803b 633,638,640,645-680,874-889,902,907
+  s_b3eba3f665eb5c::t_da4e135ccfd2c3 18,2138-2162
+  s_b3eba3f665eb5c::t_de5c54934e066a 1299,1337-1340,1373-1376
+  s_b3eba3f665eb5c::t_af938869e5fe68 2054-2091,2099-2102,2163-2167,2186,2189
+  s_b3eba3f665eb5c::t_927c818ee177d4 2169-2174,2178,2187-2188,2201-2210
+  s_b3eba3f665eb5c::t_a2f6adfe637849 281-283
+  s_b3eba3f665eb5c::t_11dd34ec8d9238 2168
+packages/contracts/workspaceCheckpoint.ts
+  s_b3eba3f665eb5c::t_7e819f99823d0a 53-58
+  s_b3eba3f665eb5c::t_3f7414882b9284 4,24,168-174,198
+  s_b3eba3f665eb5c::t_0689a1d09962fb 180-181
+tests/unit/app/modules/pdf-viewer/composables/usePdfScale.test.ts
+  s_b3eba3f665eb5c::t_7e819f99823d0a 15-18
+  s_b3eba3f665eb5c::t_6dbad26fabcaa3 38,47,68
+  s_b3eba3f665eb5c::t_7ee22fb209138d 111-123
+electron/utils/getPrintRuntimePlatform.ts
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 1-3
+scripts/verify-packaged-native-tools.sh
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 536
+native/macos-pdf-print-dialog/main.swift
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 1-18,21-34
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 19-20
+packages/contracts/documentsPlatformFeature.ts
+  s_b3eba3f665eb5c::t_9ed13bd9882c4c 928-929
+electron/processDeathRecovery.ts
+  s_b3eba3f665eb5c::t_7f7628fd0b4efc 27,32
+app/modules/workspace-shell/composables/useMenuSync.ts
+  s_b3eba3f665eb5c::t_733ec4d7b4e763 96-97
+electron/features/documents/main/pdfPrintLayoutUtilityProcess.ts
+  s_b3eba3f665eb5c::t_d2fdd0c5ee5ef4 6-7
+  s_b3eba3f665eb5c::t_7f7628fd0b4efc 1-5,8-59
+packages/i18n-app/messages/es.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 969-970
+packages/i18n-app/messages/fr.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 970-971
+app/modules/workspace-shell/tabs/createTabViewSessionState.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 17
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 98
+scripts/release/generated-release-targets.cjs
+  s_b3eba3f665eb5c::t_9994b431f001d0 218-243,412-414
+  s_b3eba3f665eb5c::t_5a08dc6d046fae 217
+scripts/build-electron.mjs
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 26-29
+packages/i18n-app/messages/de.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 969-970
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_b3eba3f665eb5c::t_860e1843330de4 14,506,579
+app/modules/workspace-shell/expose/workspaceExposeDescriptors.ts
+  s_b3eba3f665eb5c::t_ea41a23d4f0163 445-473
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_b3eba3f665eb5c::t_baf5bc416b96ce 66,172,272
+app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics.ts
+  s_b3eba3f665eb5c::t_1447ba44afea60 2,59-78,204,207-210,213,228,240,280,392,399,412,421,423,447,450,459
+  s_b3eba3f665eb5c::t_ed058c7ee5668f 436
+  s_b3eba3f665eb5c::t_d1c48e24078866 219
+scripts/build-macos-pdf-print-dialog.sh
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 1-20
+scripts/generateElectronBuilderResources.ts
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 50-53,82-87
+electron/menu.ts
+  s_b3eba3f665eb5c::t_733ec4d7b4e763 74-75,623-634
+  s_b3eba3f665eb5c::t_6893d6f37435e1 907-908
+  s_b3eba3f665eb5c::t_d19384ac7ac094 635
+app/types/workspaceExpose.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 17,59,82,102,143,199-201
+electron/features/documents/main/buildPrintablePdfPath.ts
+  s_b3eba3f665eb5c::t_7f7628fd0b4efc 1-11,13-15,18,20-25,27,54-62,64-136
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 16-17,32,35,63
+  s_b3eba3f665eb5c::t_851942cd6f7f59 12,19,26,28-31,33-34,36-53
+packages/contracts/electronApiDocuments.ts
+  s_b3eba3f665eb5c::t_504265a05990e6 37,809-810,845-846
+tests/unit/electron/pdfPrintLayoutUtilityProtocol.test.ts
+  s_b3eba3f665eb5c::t_8e7e332cb37813 37-56
+  s_b3eba3f665eb5c::t_d876ba5d3fcf23 1-15,21-25,31-36,142-167,200-203
+  s_b3eba3f665eb5c::t_bd79eecb4f6a95 57-66
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 132-141
+  s_b3eba3f665eb5c::t_dfa442f1ed5fe0 16-20,26-30,67-131,168-199
+app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator.ts
+  s_b3eba3f665eb5c::t_795661a39e7a89 7,38,69,685-687,698-702
+  s_b3eba3f665eb5c::t_7e819f99823d0a 668-670,695-697
+  s_b3eba3f665eb5c::t_1a281c7e7d163e 671-674
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_b3eba3f665eb5c::t_9df7a67e1c9b06 126-127
+electron/features/documents/main/pdfPrintLayoutUtilityProtocol.ts
+  s_b3eba3f665eb5c::t_84f62bffcced75 1-4
+  s_b3eba3f665eb5c::t_7f7628fd0b4efc 5-6,15-42,53-55,57-67,69-101
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 45
+  s_b3eba3f665eb5c::t_bd79eecb4f6a95 7-14,56
+  s_b3eba3f665eb5c::t_b89c08178de951 43-44,46-52,68
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_b3eba3f665eb5c::t_1f5871d2721d3d 70
+  s_b3eba3f665eb5c::t_65684db265f511 211-228
+app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes.ts
+  s_b3eba3f665eb5c::t_9474e47b31338a 20,48
+packages/i18n-app/messages/ru.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 976-977
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_b3eba3f665eb5c::t_1637f825011d77 22,28,78,98
+electron/utils/resolveMacOsPdfPrintDialogBinary.ts
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 1-50
+tests/unit/electron/menuPerWindowState.test.ts
+  s_b3eba3f665eb5c::t_5be335ff5c370d 434-443,446-450,453-460
+  s_b3eba3f665eb5c::t_1a281c7e7d163e 451-452
+  s_b3eba3f665eb5c::t_af63738ecef776 444-445
+packages/electron-worker-bundles/electronWorkerBundles.js
+  s_b3eba3f665eb5c::t_d92e90c5a3b41d 2,31-34
+  s_b3eba3f665eb5c::t_a458dc63366476 35-37
+tests/e2e/electron/macOsPrintAcceptance.e2e.test.ts
+  s_b3eba3f665eb5c::t_2ddee8d6d8a663 260,271,454,461,464,514
+  s_b3eba3f665eb5c::t_9ae6456f8166ae 294-297,320-333,335-337,339-348
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 259,267,269,287-293,298,305-307,317-319,349,439,515-533
+  s_b3eba3f665eb5c::t_2671c5bf902d49 484-489
+  s_b3eba3f665eb5c::t_f38ad1e0a2eb3d 31-34,75-81,88,91,453,455-460,462-463,465-483,490-513
+  s_b3eba3f665eb5c::t_6d9f8f153d1b3b 89-90
+  s_b3eba3f665eb5c::t_9fda80ad0d5e3a 534-535
+packages/contracts/shared.ts
+  s_b3eba3f665eb5c::t_504265a05990e6 75-76
+  s_b3eba3f665eb5c::t_d2fdd0c5ee5ef4 78-79
+app/modules/workspace-shell/viewers/workspaceViewerAdapters.ts
+  s_b3eba3f665eb5c::t_b9efb60eedfeaf 37,58
+app/types/pdfContracts.ts
+  s_b3eba3f665eb5c::t_fa6b7e27b811ea 4
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_b3eba3f665eb5c::t_2d2a56d3f85c89 233-254,256-258
+  s_b3eba3f665eb5c::t_1a281c7e7d163e 255
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfScale.ts
+  s_b3eba3f665eb5c::t_7e819f99823d0a 7-10
+  s_b3eba3f665eb5c::t_6dbad26fabcaa3 33,79,92,155
+app/utils/pdfViewRotation.ts
+  s_b3eba3f665eb5c::t_b9efb60eedfeaf 1-2,9-29
+  s_b3eba3f665eb5c::t_7e819f99823d0a 3-8
+tests/unit/electron/documentsPrint.test.ts
+  s_b3eba3f665eb5c::t_71851e5571a774 195
+  s_b3eba3f665eb5c::t_a44e5475574df6 871-881,889-890
+  s_b3eba3f665eb5c::t_a788dc48892b99 10,13,97-104,168,230-246,265-273,366-367
+  s_b3eba3f665eb5c::t_45d92d88e6a85e 414-420,428,430-438
+  s_b3eba3f665eb5c::t_ad1a2ad6f92856 944,946-962,968-970
+  s_b3eba3f665eb5c::t_98ba2594388068 22
+  s_b3eba3f665eb5c::t_d1b423a8a413da 368,1205-1214
+  s_b3eba3f665eb5c::t_c162528940e8fd 488-500,533,554-564,566-582,585-587,590-592,600-601,603-613,615-631
+  s_b3eba3f665eb5c::t_94140499e44f4f 105,194,423-427
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 94,196,260,412-413,487,535,565,614,870,888,945,967,1094,1204
+  s_b3eba3f665eb5c::t_91f4019940aa52 365
+  s_b3eba3f665eb5c::t_bd79eecb4f6a95 441-443,445-453
+  s_b3eba3f665eb5c::t_aa7155aa7bf1e7 503-530
+  s_b3eba3f665eb5c::t_6f93b5476e4137 636-641,643,650-654
+  s_b3eba3f665eb5c::t_ce5d917b60267c 439
+  s_b3eba3f665eb5c::t_f13e47cb7e6745 501
+scripts/nativeResourceManifest.ts
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 34,243-251
+  s_b3eba3f665eb5c::t_c5238c4480c37d 252
+app/modules/pdf-viewer/engine/pdf-rerender-protocol/pdfRerenderProtocol.ts
+  s_b3eba3f665eb5c::t_795661a39e7a89 14,106-109
+  s_b3eba3f665eb5c::t_1209f680dca4b4 110-111
+tests/unit/app/modules/pdf-viewer/rerenderStrategy.test.ts
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 98-103
+tests/unit/electron/workingCopyMutationQueue.test.ts
+  s_b3eba3f665eb5c::t_3361937e7cf0bb 201
+  s_b3eba3f665eb5c::t_978531c7c8c0a1 161-164,185-188
+  s_b3eba3f665eb5c::t_8e7e332cb37813 167,191-195
+  s_b3eba3f665eb5c::t_d2deb375275a1a 159-160,165-166,168-184,189-190,196-200,203-210
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 39,42,202
+tests/unit/app/modules/workspace-shell/composables/useShellWorkspaceToolbar.test.ts
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 175,196
+tests/unit/app/modules/workspace-shell/composables/useTabSessionStore.test.ts
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 76
+tests/unit/scripts/buildArtifactGeneration.test.ts
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 127
+  s_b3eba3f665eb5c::t_0b9bf3ccfbdf4a 132-139
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b3eba3f665eb5c::t_e46b05b6127f4f 709-717,737,811-814
+  s_b3eba3f665eb5c::t_1498880cb8b46f 20,606-609
+  s_b3eba3f665eb5c::t_d2fdd0c5ee5ef4 21
+  s_b3eba3f665eb5c::t_6ff24ad0509e71 168-176,724
+packages/i18n-app/messages/en.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 969-970
+app/modules/workspace-shell/state/workspaceDocumentRecord.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 159,199,267
+tests/unit/electron/macosPdfPrintDialog.test.ts
+  s_b3eba3f665eb5c::t_d876ba5d3fcf23 1-17,21-23,25-26,32-45,47-71,73-83,85-113,117-119,122-162,171-172
+  s_b3eba3f665eb5c::t_67cb6c15c1ebea 24
+  s_b3eba3f665eb5c::t_bd79eecb4f6a95 114-116,120-121,163-170
+  s_b3eba3f665eb5c::t_dfa442f1ed5fe0 18-20
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 27-31,46,72,84
+tests/unit/scripts/macosPdfPrintDialogCli.test.ts
+  s_b3eba3f665eb5c::t_d056f89b76a9c8 1-67
+app/modules/workspace-shell/tabs/tabSessionStoreTypes.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 3,32-33
+tests/unit/electron/atomicReplace.test.ts
+  s_b3eba3f665eb5c::t_c11862a21e3b5d 248-262
+scan-cleanup-core/createPagePlanResolver.ts
+  s_b3eba3f665eb5c::t_9c09c57caca504 62-63
+tests/unit/architecture/nativeToolSmokeSourcePolicy.test.ts
+  s_b3eba3f665eb5c::t_84f62bffcced75 57-59
+  s_b3eba3f665eb5c::t_bde1f55850ffe7 56
+tests/unit/scripts/afterPackExtraResources.test.ts
+  s_b3eba3f665eb5c::t_783129dcb181ea 337-346
+  s_b3eba3f665eb5c::t_b7bd0e7e5f4e63 336
+.fallowrc.json
+  s_b3eba3f665eb5c::t_0cb1a1ba165b1a 23
+electron/file-access/workingCopyMutationQueue.ts
+  s_b3eba3f665eb5c::t_db7fd5db54e596 211-215
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 32,51,62,67,71,207
+  s_b3eba3f665eb5c::t_5783b123179e1f 63,65-66,68-70,72-74,76,208-210
+  s_b3eba3f665eb5c::t_13dff64fdd9abd 59-61
+  s_b3eba3f665eb5c::t_ec97907428ddd3 31,33,50,52-58,64,75,77-78
+scripts/check-native-tools-source-matrix.sh
+  s_b3eba3f665eb5c::t_0b9bf3ccfbdf4a 91-92
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_b3eba3f665eb5c::t_b9efb60eedfeaf 4,140,192
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_b3eba3f665eb5c::t_d965088a300fdb 50
+  s_b3eba3f665eb5c::t_27b1d6db392b4e 21,91,250,356,536-553
+app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel.ts
+  s_b3eba3f665eb5c::t_fa6b7e27b811ea 7,62
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics.ts
+  s_b3eba3f665eb5c::t_f7b8983fce499a 4-7,19,33
+electron-builder.yml
+  s_b3eba3f665eb5c::t_d92e90c5a3b41d 24
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_b3eba3f665eb5c::t_336acab617c7f0 196,1065
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_b3eba3f665eb5c::t_f7b8983fce499a 12
+  s_b3eba3f665eb5c::t_3d177e9ea7c55b 100,138,197
+  s_b3eba3f665eb5c::t_400acc362be631 25,62
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_b3eba3f665eb5c::t_f7b8983fce499a 7-10,152
+  s_b3eba3f665eb5c::t_400acc362be631 57,122,139
+electron/features/documents/main/print.ts
+  s_b3eba3f665eb5c::t_d2fdd0c5ee5ef4 25
+  s_b3eba3f665eb5c::t_871d79a7c522be 42,48,109-110,372-373,378-380,388-418,423,440
+  s_b3eba3f665eb5c::t_c7456a95f5b7dd 215-220
+tests/unit/electron/scanCleanupPipeline.test.ts
+  s_b3eba3f665eb5c::t_b32da5c0f8be40 958,963
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 969,974,977
+  s_b3eba3f665eb5c::t_00ec48d89e687a 950-957,959-962,964-968,970-973,975,978-979
+  s_b3eba3f665eb5c::t_c433765b09604e 976
+tests/unit/scripts/nativeResourceManifest.test.ts
+  s_b3eba3f665eb5c::t_944cd2efd93e2b 84-101
+  s_b3eba3f665eb5c::t_0b9bf3ccfbdf4a 123
+electron/features/documents/main/documentFileReadHandlers.ts
+  s_b3eba3f665eb5c::t_8e7e332cb37813 334-338,346
+  s_b3eba3f665eb5c::t_fb723546444059 264,268,270-277,284,681-684,688,693
+  s_b3eba3f665eb5c::t_4fad589c3f70f6 10-12,58,75-79,83,180-184,189-200,202-207,210-223,295-324,418
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 47,325-333,339-345,347-359,678,685
+  s_b3eba3f665eb5c::t_104a853f3de024 363-366
+  s_b3eba3f665eb5c::t_0e7d07d383848a 680,686-687,689-690,694-697
+  s_b3eba3f665eb5c::t_96a887eed8fe52 679
+  s_b3eba3f665eb5c::t_ba7b1522ba8f57 675-677
+  s_b3eba3f665eb5c::t_0e734ad42cda88 9
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b3eba3f665eb5c::t_a6efdd6cb8fa12 99,126,156,210,408,844
+  s_b3eba3f665eb5c::t_187e419d865939 7
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_b3eba3f665eb5c::t_56421a443870be 71
+  s_b3eba3f665eb5c::t_200aa03d061a21 9,338,374,462
+  s_b3eba3f665eb5c::t_dbe4351257a465 108,594,989
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_b3eba3f665eb5c::t_dfa6603647bf84 7,486-492,546-552
+tests/unit/electron/processDeathRecovery.test.ts
+  s_b3eba3f665eb5c::t_4b5617541e12d9 12,130-145,162-165
+scripts/afterPack.cjs
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 106-108
+packages/i18n-app/messages/pt.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 970-971
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_b3eba3f665eb5c::t_dfa6603647bf84 475
+app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types.ts
+  s_b3eba3f665eb5c::t_fa6b7e27b811ea 16,43
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_b3eba3f665eb5c::t_9df7a67e1c9b06 123-124,373-374
+tests/unit/app/composables/pdfPageLayout.test.ts
+  s_b3eba3f665eb5c::t_1a281c7e7d163e 262-265,271-274,277-284,292-303
+  s_b3eba3f665eb5c::t_fc5a0d60859f25 21,231-261,266-270,275-276,285-291,304-306
+  s_b3eba3f665eb5c::t_812cc8873a6f71 307
+tests/unit/app/modules/pdf-viewer/composables/usePdfCanvasRenderer.test.ts
+  s_b3eba3f665eb5c::t_3b95d34a6e250b 265,268-279
+  s_b3eba3f665eb5c::t_2ebad9a84fb525 266-267
+packages/i18n-app/messages/it.ts
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 969-970
+packages/electron-worker-bundles/electronWorkerBundles.d.ts
+  s_b3eba3f665eb5c::t_0fa5443af5d1b0 4
+tests/unit/scripts/macosNativeToolWorkflow.test.ts
+  s_b3eba3f665eb5c::t_0b9bf3ccfbdf4a 403
+packages/i18n-app/messages/nl.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 969-970
+app/platform/browser-api/documentsMenuCapability.ts
+  s_b3eba3f665eb5c::t_9ed13bd9882c4c 54-55
+app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes.ts
+  s_b3eba3f665eb5c::t_795661a39e7a89 8,67
+tests/unit/contracts/workspaceCheckpoint.test.ts
+  s_b3eba3f665eb5c::t_d2af345635e4ee 72-82,111-115
+  s_b3eba3f665eb5c::t_1a281c7e7d163e 66-71
+  s_b3eba3f665eb5c::t_121862efeb004d 116-117
+scripts/release/native-tool-smoke-policy.mjs
+  s_b3eba3f665eb5c::t_85b351ed3b6c8d 27-30
+packages/i18n-app/messages/ptBr.ts
+  s_b3eba3f665eb5c::t_923545883a7aa5 970-971
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread.ts
+  s_b3eba3f665eb5c::t_f7b8983fce499a 3,16
+  s_b3eba3f665eb5c::t_0d514244569a61 45
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_b3eba3f665eb5c::t_3f7414882b9284 80-82
+electron/utils/openMacOsPdfPrintDialog.ts
+  s_b3eba3f665eb5c::t_67cb6c15c1ebea 1-39
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer.ts
+  s_b3eba3f665eb5c::t_56421a443870be 13-14,72,77,254-260
+  s_b3eba3f665eb5c::t_7e819f99823d0a 80
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_b3eba3f665eb5c::t_9ed13bd9882c4c 149,201
+  s_b3eba3f665eb5c::t_d04ed77b33cb6a 192-193,195-198,200
+  s_b3eba3f665eb5c::t_dbe4351257a465 194,199
+  s_b3eba3f665eb5c::t_95b6af29998ded 202
+tests/unit/electron/fileOpsPathSecurity.test.ts
+  s_b3eba3f665eb5c::t_739465304c01f1 1290-1342,1455
+  s_b3eba3f665eb5c::t_349177276872d2 1403,1409,1420,1439-1442,1446,1453-1454
+  s_b3eba3f665eb5c::t_8e7e332cb37813 1465-1468
+  s_b3eba3f665eb5c::t_bd79eecb4f6a95 1457-1464,1469-1495
+  s_b3eba3f665eb5c::t_e60f2b7674bef1 1266-1289
+  s_b3eba3f665eb5c::t_705f7a48e6d0dd 1456
+app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpointChangeSignature.ts
+  s_b3eba3f665eb5c::t_b43424c430e04c 70
+electron/utils/printHandoff.ts
+  s_b3eba3f665eb5c::t_7589c600c4c244 4,724-739,841-843,845-861
+  s_b3eba3f665eb5c::t_27a3cfb7a908db 30,844,895
+  s_b3eba3f665eb5c::t_67cb6c15c1ebea 29
+  s_b3eba3f665eb5c::t_a8140f98cef107 647,684
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3eb4f1534a10a0f1942e387513f5c45fb36a9043",
+  "prompts": {},
+  "sessions": {
+    "s_b3eba3f665eb5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05717-85ca-7122-bcf1-13656e3d390b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
