@@ -1,0 +1,26 @@
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.test.ts
+  s_90243f0be7f87a::t_53316fb9182423 1029
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_90243f0be7f87a::t_5331c21b57d14a 369,425
+tests/unit/app/modules/pdf-viewer/runtime/annotations/managedEmbeddedShapeSavePriming.test.ts
+  s_90243f0be7f87a::t_5331c21b57d14a 454,481
+app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts
+  s_90243f0be7f87a::t_cf4168d0f9d55d 714
+  s_90243f0be7f87a::t_5331c21b57d14a 715
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "16fd2cba59ef50a7af8c0fc2bcdb5258ad123038",
+  "prompts": {},
+  "sessions": {
+    "s_90243f0be7f87a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05417-6423-72d0-b202-16b96f09fe9a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
