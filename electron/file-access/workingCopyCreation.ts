@@ -122,8 +122,16 @@ async function decryptPdfWorkingCopy(
         };
     }
     if (useWriter) {
-        return measureWorkingCopyPhase(timings, 'decrypt', () =>
+        const result = await measureWorkingCopyPhase(timings, 'decrypt', () =>
             decryptWorkingCopyWithWriter(workingPath, password, signal));
+        if (result.outcome === 'needs-password' || result.outcome === 'unsupported') {
+            throw new PdfDecryptAttemptError(
+                result.outcome === 'needs-password'
+                    ? 'needs-password'
+                    : 'unsupported-encryption',
+            );
+        }
+        return result;
     }
     const decrypted = await measureWorkingCopyPhase(timings, 'decrypt', () =>
         decryptPdfFileIfNeeded(workingPath));
@@ -138,17 +146,6 @@ async function decryptPdfWorkingCopy(
             wasEncrypted: false,
             revision: null,
         };
-}
-
-function throwOnPdfDecryptFailure(outcome: TWorkingCopyDecryptionResult) {
-    if (outcome.outcome !== 'needs-password' && outcome.outcome !== 'unsupported') {
-        return;
-    }
-    throw new PdfDecryptAttemptError(
-        outcome.outcome === 'needs-password'
-            ? 'needs-password'
-            : 'unsupported-encryption',
-    );
 }
 
 async function createWorkingCopyWithOutcomeInternal(
@@ -180,7 +177,6 @@ async function createWorkingCopyWithOutcomeInternal(
             if (isPdf) {
                 const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
                 encrypted = decryption.wasEncrypted;
-                throwOnPdfDecryptFailure(decryption);
             }
             backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
         } else {
@@ -214,7 +210,6 @@ async function createWorkingCopyWithOutcomeInternal(
                             useWriter,
                         );
                         encrypted = decryption.wasEncrypted;
-                        throwOnPdfDecryptFailure(decryption);
                     }
                     backingState = 'eager';
                 } else {
@@ -224,7 +219,6 @@ async function createWorkingCopyWithOutcomeInternal(
                 if (isPdf) {
                     const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
                     encrypted = decryption.wasEncrypted;
-                    throwOnPdfDecryptFailure(decryption);
                 }
                 backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
             }
@@ -283,7 +277,7 @@ export async function createWorkingCopyWithOutcome(
         ownerWebContentsId,
         password,
         signal,
-        password !== undefined,
+        true,
     );
 }
 

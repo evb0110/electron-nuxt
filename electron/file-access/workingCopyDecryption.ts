@@ -20,8 +20,10 @@ import {
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
+import { createLogger } from '@electron/utils/createLogger';
 
 const DECRYPT_TIMEOUT_MS = 2 * 60 * 1000;
+const logger = createLogger('working-copy-decryption');
 
 export type TWorkingCopyDecryptionResult =
     | {
@@ -199,6 +201,8 @@ export async function decryptWorkingCopyWithWriter(
         await rm(scratchPath, {
             recursive: true,
             force: true,
-        }).catch(() => undefined);
+        }).catch(error => {
+            logger.warn(`Failed to cleanup PDF decrypt scratch directory "${scratchPath}": ${getErrorMessage(error)}`);
+        });
     }
 }

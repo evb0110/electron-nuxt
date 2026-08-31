@@ -66,6 +66,54 @@ describe('workingCopy', () => {
         });
     });
 
+    it('uses the native writer for an unprovided password on protected PDFs', async () => {
+        const previousCloneResult = process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+        const writer = vi.fn(async () => ({
+            outcome: 'needs-password' as const,
+            wasEncrypted: true as const,
+            revision: null,
+        }));
+        vi.doMock('@electron/file-access/workingCopyDecryption', () => ({
+            decryptWorkingCopyWithWriter: writer,
+            PdfDecryptAttemptError: class PdfDecryptAttemptError extends Error {
+                readonly outcome: 'needs-password' | 'unsupported-encryption';
+
+                constructor(outcome: 'needs-password' | 'unsupported-encryption') {
+                    super(outcome);
+                    this.name = 'PdfDecryptAttemptError';
+                    this.outcome = outcome;
+                }
+            },
+        }));
+        vi.resetModules();
+
+        try {
+            process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'success';
+            const {isPdfFileEncrypted} = await import('@electron/utils/decryptPdfFileIfNeeded');
+            vi.mocked(isPdfFileEncrypted).mockResolvedValue(true);
+            const {createWorkingCopyWithOutcome} = await import('@electron/file-access/workingCopyCreation');
+            const {allowOpenPath} = await import('@electron/file-access/openPathCapabilities');
+            const originalPath = join(tempRoot, 'protected.pdf');
+            writeFileSync(originalPath, Buffer.from('%PDF-1.7\n/Encrypt 1 0 R\n'));
+            const trustedOriginalPath = allowOpenPath(originalPath);
+            expect(trustedOriginalPath).not.toBeNull();
+
+            await expect(createWorkingCopyWithOutcome(trustedOriginalPath!, 7))
+                .rejects.toMatchObject({outcome: 'needs-password'});
+            expect(writer).toHaveBeenCalledWith(expect.any(String), undefined, undefined);
+        } finally {
+            const {isPdfFileEncrypted} = await import('@electron/utils/decryptPdfFileIfNeeded');
+            vi.mocked(isPdfFileEncrypted).mockResolvedValue(false);
+            if (previousCloneResult === undefined) {
+                delete process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT;
+            } else {
+                process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = previousCloneResult;
+            }
+            vi.doUnmock('@electron/file-access/workingCopyDecryption');
+            vi.resetModules();
+        }
+    });
+
     it('publishes unsupported durable PDFs as lazy without copying or fingerprinting', async () => {
         process.env.EVB_TEST_FORCE_WORKING_COPY_CLONE_RESULT = 'unsupported';
         process.env.EVB_WORKING_COPY_MATERIALIZATION_MODE = 'lazy';

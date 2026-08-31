@@ -34,6 +34,11 @@ describe('pdf decrypt outcome guard', () => {
         expect(isPdfDecryptPassword('x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES))).toBe(true);
         expect(isPdfDecryptPassword('x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1))).toBe(false);
         expect(isPdfDecryptRequest({password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)})).toBe(false);
+        const maxMultibytePassword = `${'🔒'.repeat(1023)}€`;
+        expect(new TextEncoder().encode(maxMultibytePassword)).toHaveLength(
+            PDF_DECRYPT_PASSWORD_MAX_BYTES,
+        );
+        expect(isPdfDecryptPassword(maxMultibytePassword)).toBe(true);
         expect(isPdfDecryptRequest({password: 3})).toBe(false);
         expect(isPdfDecryptRequest(null)).toBe(false);
     });
