@@ -70,7 +70,7 @@ pub(crate) fn validate_appended_revision_postconditions(
 /// Compare a rewritten annotation with its source while ignoring keys owned
 /// by the mutation. This is used by conversion tests and is intentionally
 /// small enough to reuse for other annotation migrations.
-#[allow(dead_code)]
+#[cfg(test)]
 pub(crate) fn assert_unowned_keys_unchanged(
     before: &Dictionary,
     after: &Dictionary,

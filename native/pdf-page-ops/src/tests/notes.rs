@@ -952,6 +952,23 @@ fn canonical_notes_input_also_writes_a_text_annotation() {
         })
         .collect::<Vec<_>>();
     assert_eq!(note_refs.len(), 1);
+    let note = loaded.get_dictionary(note_refs[0]).unwrap();
+    assert_eq!(
+        pdf_string_to_text(note.get(b"Contents").unwrap()).as_deref(),
+        Some("canonical text")
+    );
+    assert_eq!(
+        pdf_string_to_text(note.get(b"NM").unwrap()).as_deref(),
+        Some("evb-note:canonical-note")
+    );
+    assert_eq!(
+        pdf_string_to_text(note.get(b"T").unwrap()).as_deref(),
+        Some("Canonical author")
+    );
+    assert_eq!(note.get(b"Name").unwrap().as_name().unwrap(), b"Note");
+    let rect = parse_rect(note.get(b"Rect").unwrap()).unwrap();
+    assert_approximately(rect.width(), 20.0);
+    assert_approximately(rect.height(), 20.0);
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
@@ -1026,6 +1043,7 @@ fn first_edit_converts_only_the_target_marker_and_preserves_its_payload() {
             ],
         );
 
+    let target_before = document.get_dictionary(target_id).unwrap().clone();
     let untouched_before = document.get_object(untouched_id).unwrap().clone();
     let input_path = temp_pdf_path("marker-conversion-input");
     let output_path = temp_pdf_path("marker-conversion-output");
@@ -1052,15 +1070,22 @@ fn first_edit_converts_only_the_target_marker_and_preserves_its_payload() {
     let loaded = Document::load(&output_path).unwrap();
     let target = loaded.get_dictionary(target_id).unwrap();
     assert_eq!(annotation_subtype(target), "text");
-    assert_eq!(
-        pdf_string_to_text(target.get(b"NM").unwrap()).as_deref(),
-        Some("legacy-target")
-    );
-    assert_eq!(
-        pdf_string_to_text(target.get(b"UnknownKey").unwrap()).as_deref(),
-        Some("keep me")
-    );
-    assert_eq!(target.get(b"IRT").unwrap().as_reference().unwrap(), (900, 0));
+    assert_unowned_keys_unchanged(
+        &target_before,
+        target,
+        &[
+            b"Subtype",
+            b"Name",
+            b"F",
+            b"Rect",
+            b"CreationDate",
+            b"AP",
+            b"DA",
+            b"Contents",
+            b"M",
+        ],
+    )
+    .unwrap();
     assert!(target.get(b"AP").is_err());
     assert!(target.get(b"DA").is_err());
     assert_eq!(
@@ -1158,6 +1183,158 @@ fn editing_a_marker_through_its_popup_converts_the_parent_note() {
 
     let _ = remove_file(input_path);
     let _ = remove_file(output_path);
+}
+
+#[test]
+fn geometry_edit_uses_the_save_timestamp_when_converting_a_marker() {
+    let (mut document, page_id) = create_test_document();
+    let blank_appearance = document.add_object(Stream::new(
+        dictionary! {
+            "Type" => "XObject",
+            "Subtype" => "Form",
+            "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+        },
+        Vec::new(),
+    ));
+    let popup_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "Popup",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "Parent" => (0, 0),
+    });
+    let marker_id = document.add_object(dictionary! {
+        "Type" => "Annot",
+        "Subtype" => "FreeText",
+        "Rect" => vec![20.into(), 60.into(), 21.into(), 61.into()],
+        "NM" => Object::string_literal("geometry-target"),
+        "AP" => dictionary! {"N" => blank_appearance},
+        "Popup" => popup_id,
+        "P" => page_id,
+    });
+    document
+        .get_dictionary_mut(popup_id)
+        .unwrap()
+        .set("Parent", Object::Reference(marker_id));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(marker_id), Object::Reference(popup_id)]);
+
+    let modified_at = "D:20260831124000Z";
+    update_note_geometry(
+        &mut document,
+        &[NoteGeometryUpdate {
+            object_number: marker_id.0,
+            generation_number: marker_id.1,
+            page_index: 0,
+            marker_rect: MarkerRect {
+                left: 0.1,
+                top: 0.2,
+                width: 0.001,
+                height: 0.001,
+            },
+        }],
+        modified_at,
+    )
+    .unwrap();
+
+    let marker = document.get_dictionary(marker_id).unwrap();
+    assert_eq!(annotation_subtype(marker), "text");
+    assert_eq!(
+        pdf_string_to_text(marker.get(b"M").unwrap()),
+        Some(modified_at.to_string())
+    );
+}
+
+#[test]
+fn text_edit_keeps_a_marker_when_the_note_icon_does_not_fit() {
+    let build_document = || {
+        let (mut document, page_id) = create_test_document();
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("MediaBox", vec![0.into(), 0.into(), 10.into(), 10.into()]);
+        let blank_appearance = document.add_object(Stream::new(
+            dictionary! {
+                "Type" => "XObject",
+                "Subtype" => "Form",
+                "BBox" => vec![0.into(), 0.into(), 0.into(), 0.into()],
+            },
+            Vec::new(),
+        ));
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "Rect" => vec![1.into(), 8.into(), 1.1.into(), 8.1.into()],
+        });
+        let marker_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "FreeText",
+            "Rect" => vec![1.into(), 8.into(), 1.1.into(), 8.1.into()],
+            "NM" => Object::string_literal("tiny-marker"),
+            "Contents" => Object::string_literal("old text"),
+            "AP" => dictionary! {"N" => blank_appearance},
+            "Popup" => popup_id,
+            "P" => page_id,
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", Object::Reference(marker_id));
+        document
+            .get_dictionary_mut(page_id)
+            .unwrap()
+            .set("Annots", vec![Object::Reference(marker_id), Object::Reference(popup_id)]);
+        (document, marker_id, popup_id)
+    };
+
+    let modified_at = "D:20260831124500Z";
+    let (mut document, marker_id, popup_id) = build_document();
+    assert!(update_annotation_text_by_ref(&mut document, marker_id, "edited", modified_at).unwrap());
+    assert_eq!(
+        annotation_subtype(document.get_dictionary(marker_id).unwrap()),
+        "freetext"
+    );
+    assert_eq!(
+        string_bytes(&document, marker_id, b"Contents"),
+        encode_pdf_text_string("edited")
+    );
+    assert_eq!(
+        string_bytes(&document, popup_id, b"Contents"),
+        encode_pdf_text_string("edited")
+    );
+
+    let (document, marker_id, popup_id) = build_document();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    assert!(update_annotation_text_incremental_by_ref(
+        &mut incremental,
+        marker_id,
+        "edited",
+        modified_at,
+    )
+    .unwrap());
+    let revision = AppendedRevision::new(&incremental);
+    assert_eq!(annotation_subtype(revision.dictionary(marker_id).unwrap()), "freetext");
+    assert_eq!(
+        revision
+            .dictionary(marker_id)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        encode_pdf_text_string("edited").as_slice()
+    );
+    assert_eq!(
+        revision
+            .dictionary(popup_id)
+            .unwrap()
+            .get(b"Contents")
+            .unwrap()
+            .as_str()
+            .unwrap(),
+        encode_pdf_text_string("edited").as_slice()
+    );
 }
 
 #[test]

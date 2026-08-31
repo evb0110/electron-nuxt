@@ -184,6 +184,7 @@ fn append_missing_annotation_refs_to_page(
 pub(crate) fn update_note_geometry(
     document: &mut Document,
     updates: &[NoteGeometryUpdate],
+    modified_at: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
@@ -227,7 +228,7 @@ pub(crate) fn update_note_geometry(
 
         if marker_form {
             let target_dict = document.get_dictionary_mut(target.annotation_id)?;
-            convert_free_text_marker_to_text(target_dict, pdf_rect, "D:19700101000000Z");
+            convert_free_text_marker_to_text(target_dict, pdf_rect, modified_at);
         }
 
         {
@@ -317,6 +318,7 @@ fn append_missing_annotation_refs_to_page_incremental(
 pub(crate) fn update_note_geometry_incremental(
     incremental: &mut IncrementalDocument,
     updates: &[NoteGeometryUpdate],
+    modified_at: &str,
 ) -> Result<()> {
     if updates.is_empty() {
         return Ok(());
@@ -367,7 +369,7 @@ pub(crate) fn update_note_geometry_incremental(
             let target_dict = incremental
                 .new_document
                 .get_dictionary_mut(target.annotation_id)?;
-            convert_free_text_marker_to_text(target_dict, pdf_rect, "D:19700101000000Z");
+            convert_free_text_marker_to_text(target_dict, pdf_rect, modified_at);
         }
 
         {
@@ -1135,14 +1137,14 @@ pub(crate) fn build_text_note_annotation_dict(
 pub(crate) fn convert_free_text_marker_to_text(
     dict: &mut Dictionary,
     pdf_rect: PdfRect,
-    fallback_modified_at: &str,
+    modified_at: &str,
 ) {
     let creation_date = dict
         .get(b"CreationDate")
         .ok()
         .and_then(pdf_string_to_text)
         .or_else(|| dict.get(b"M").ok().and_then(pdf_string_to_text))
-        .unwrap_or_else(|| fallback_modified_at.to_string());
+        .unwrap_or_else(|| modified_at.to_string());
     dict.set("Subtype", Object::Name(b"Text".to_vec()));
     dict.set("Name", Object::Name(b"Note".to_vec()));
     dict.set("F", Object::Integer(4));
@@ -1151,6 +1153,7 @@ pub(crate) fn convert_free_text_marker_to_text(
         "CreationDate",
         Object::string_literal(creation_date.into_bytes()),
     );
+    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
     dict.remove(b"AP");
     dict.remove(b"DA");
 }
@@ -1947,17 +1950,18 @@ pub(crate) fn update_annotation_text_by_ref(
                 page_rotation,
             );
             if marker_form {
-                let pdf_rect = text_note_pdf_rect_from_existing(
+                if let Ok(pdf_rect) = text_note_pdf_rect_from_existing(
                     document,
                     document.get_dictionary(target.annotation_id)?,
                     page_view,
                     page_rotation,
-                )?;
-                convert_free_text_marker_to_text(
-                    document.get_dictionary_mut(target.annotation_id)?,
-                    pdf_rect,
-                    modified_at,
-                );
+                ) {
+                    convert_free_text_marker_to_text(
+                        document.get_dictionary_mut(target.annotation_id)?,
+                        pdf_rect,
+                        modified_at,
+                    );
+                }
             }
         }
     }
@@ -2003,22 +2007,23 @@ pub(crate) fn update_annotation_text_incremental_by_ref(
                 page_rotation,
             );
             if marker_form {
-                let pdf_rect = text_note_pdf_rect_from_existing(
+                if let Ok(pdf_rect) = text_note_pdf_rect_from_existing(
                     incremental.get_prev_documents(),
                     incremental
                         .get_prev_documents()
                         .get_dictionary(target.annotation_id)?,
                     page_view,
                     page_rotation,
-                )?;
-                incremental.opt_clone_object_to_new_document(target.annotation_id)?;
-                convert_free_text_marker_to_text(
-                    incremental
-                        .new_document
-                        .get_dictionary_mut(target.annotation_id)?,
-                    pdf_rect,
-                    modified_at,
-                );
+                ) {
+                    incremental.opt_clone_object_to_new_document(target.annotation_id)?;
+                    convert_free_text_marker_to_text(
+                        incremental
+                            .new_document
+                            .get_dictionary_mut(target.annotation_id)?,
+                        pdf_rect,
+                        modified_at,
+                    );
+                }
             }
         }
     }

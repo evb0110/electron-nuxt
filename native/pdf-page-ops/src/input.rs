@@ -819,17 +819,7 @@ fn validate_note_changes_text_budget(changes: &NoteChangesFile) -> Result<()> {
     for update in &changes.updates {
         consume_text_bytes(&mut total, &update.text)?;
     }
-    for note in &changes.notes {
-        consume_text_bytes(&mut total, &note.stable_key)?;
-        consume_text_bytes(&mut total, &note.text)?;
-        for value in [note.author.as_deref(), note.color.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            consume_text_bytes(&mut total, value)?;
-        }
-    }
-    for note in &changes.free_text_notes {
+    for note in changes.notes.iter().chain(changes.free_text_notes.iter()) {
         consume_text_bytes(&mut total, &note.stable_key)?;
         consume_text_bytes(&mut total, &note.text)?;
         for value in [note.author.as_deref(), note.color.as_deref()]
@@ -866,17 +856,11 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
     for update in &mutations.updates {
         consume_text_bytes(&mut total, &update.text)?;
     }
-    for note in &mutations.notes {
-        consume_text_bytes(&mut total, &note.stable_key)?;
-        consume_text_bytes(&mut total, &note.text)?;
-        for value in [note.author.as_deref(), note.color.as_deref()]
-            .into_iter()
-            .flatten()
-        {
-            consume_text_bytes(&mut total, value)?;
-        }
-    }
-    for note in &mutations.free_text_notes {
+    for note in mutations
+        .notes
+        .iter()
+        .chain(mutations.free_text_notes.iter())
+    {
         consume_text_bytes(&mut total, &note.stable_key)?;
         consume_text_bytes(&mut total, &note.text)?;
         for value in [note.author.as_deref(), note.color.as_deref()]
