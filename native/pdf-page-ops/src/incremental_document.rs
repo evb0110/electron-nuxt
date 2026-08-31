@@ -17,6 +17,11 @@ const MAX_QPDF_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
 const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
+// Keep this argument set compatible with the oldest qpdf shipped by the
+// supported Linux packaging image. qpdf 10 rejects the newer
+// --decode-level/--json-stream-data options; the JSON object section already
+// omits stream bytes in the qpdf 10 and qpdf 12 formats we parse below.
+const QPDF_STRUCTURE_ARGS: &[&str] = &["--suppress-recovery", "--json", "--"];
 
 #[derive(Debug, Clone)]
 pub(crate) struct IncrementalDocument {
@@ -150,7 +155,7 @@ pub(crate) fn load_qpdf_structural_incremental_pdf(
     let structure_output = create_private_temp_file(&temp.structure)?;
     let diagnostic_output = create_private_temp_file(&temp.diagnostics)?;
     let mut child = Command::new(qpdf_path)
-        .args(["--suppress-recovery", "--json", "--decode-level=none", "--"])
+        .args(QPDF_STRUCTURE_ARGS)
         .arg(path)
         .stdout(Stdio::from(structure_output))
         .stderr(Stdio::from(diagnostic_output))
@@ -885,6 +890,14 @@ mod tests {
         assert_eq!(
             qpdf_string_object("b:00ff").unwrap(),
             Object::String(vec![0, 255], StringFormat::Hexadecimal)
+        );
+    }
+
+    #[test]
+    fn uses_structural_qpdf_arguments_supported_by_qpdf_ten_and_newer() {
+        assert_eq!(
+            QPDF_STRUCTURE_ARGS,
+            &["--suppress-recovery", "--json", "--"]
         );
     }
 
