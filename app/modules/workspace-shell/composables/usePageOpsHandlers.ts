@@ -29,6 +29,7 @@ import {
 import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runDetached } from '@app/utils/asyncGuard';
+import { getDocumentWorkingCopyCapability } from '@app/utils/platformDocuments';
 
 type TPageSelectionInput = number[] | TPageSelection;
 const PAGE_OPERATION_RANGE_LIMIT = 100_000;
@@ -114,7 +115,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     } = deps;
 
     function runPageOperationDetached(label: string, task: () => Promise<unknown>) {
-        runDetached(task, {
+        return runDetached(task, {
             category: 'user-visible-operation',
             scope: 'page-operations',
             message: `Failed to ${label}`,
@@ -358,13 +359,13 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     function handlePageContextMenuDelete() {
         const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
-        runPageOperationDetached('delete PDF pages', () => pageOpsDeleteAndClearSelection(pages, totalPages.value));
+        void runPageOperationDetached('delete PDF pages', () => pageOpsDeleteAndClearSelection(pages, totalPages.value));
     }
 
     function handlePageContextMenuExtract() {
         const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
-        runPageOperationDetached('extract PDF pages', () => pageOpsExtractWithDjvuGuard(pages));
+        void runPageOperationDetached('extract PDF pages', () => pageOpsExtractWithDjvuGuard(pages));
     }
 
     function handlePageContextMenuExport() {
@@ -402,13 +403,13 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
     function handlePageContextMenuRotateCw() {
         const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
-        runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 90));
+        void runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 90));
     }
 
     function handlePageContextMenuRotateCcw() {
         const pages = pageContextMenu.value.selection ?? pageContextMenu.value.pages;
         closePageContextMenu();
-        runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 270));
+        void runPageOperationDetached('rotate PDF pages', () => handlePageRotate(pages, 270));
     }
 
     function handlePageContextMenuInsertBefore() {
@@ -417,7 +418,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (clickedPage === undefined) {
             return;
         }
-        runPageOperationDetached(
+        void runPageOperationDetached(
             'insert PDF pages',
             () => pageOpsInsertAndClearSelection(totalPages.value, clickedPage - 1),
         );
@@ -429,7 +430,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         if (clickedPage === undefined) {
             return;
         }
-        runPageOperationDetached(
+        void runPageOperationDetached(
             'insert PDF pages',
             () => pageOpsInsertAndClearSelection(totalPages.value, clickedPage),
         );
@@ -439,13 +440,18 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         afterPage: number;
         filePaths: TDocumentRef[];
     }) {
+        const cleanupDroppedFiles = async () => {
+            await Promise.allSettled(payload.filePaths.map(path => (
+                getDocumentWorkingCopyCapability().cleanupFile(path)
+            )));
+        };
         if (isPdfPageOperationBlocked()) {
-            return;
+            return cleanupDroppedFiles();
         }
-        runPageOperationDetached(
+        return runPageOperationDetached(
             'insert PDF files',
             () => pageOpsInsertFileAndClearSelection(totalPages.value, payload.afterPage, payload.filePaths),
-        );
+        ).then(cleanupDroppedFiles);
     }
 
     function handlePageContextMenuSelectAll() {

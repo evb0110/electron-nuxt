@@ -17,6 +17,7 @@ import {
     clearBrowserWorkspaceRecovery,
     loadBrowserWorkspaceRecovery,
     saveBrowserWorkspaceRecovery,
+    touchBrowserWorkspaceRecovery,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getBrowserWindowRecoveryOwnerId } from '@app/platform/browserWindowTabs';
@@ -35,12 +36,14 @@ interface IUseBrowserWorkspaceRecoveryOptions {
 
 const RECOVERY_DEBOUNCE_MS = 750;
 const RECOVERY_RETRY_MS = 2_000;
+const RECOVERY_HEARTBEAT_MS = 10_000;
 
 export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecoveryOptions) => {
     let activeOwnerId: string | null = null;
     let generation: number | null = null;
     let fenced = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
     let inFlight: Promise<void> | null = null;
     let disposed = false;
     let checkpointRevision = 0;
@@ -52,6 +55,74 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     const tabMutationRevisions = new Map<string, number>();
     const persistedTabMutationRevisions = new Map<string, number>();
     const attemptedTabMutationRevisions = new Map<string, number>();
+
+    function stopHeartbeat() {
+        if (heartbeatTimer) {
+            clearTimeout(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+    }
+
+    function scheduleHeartbeat(delay = RECOVERY_HEARTBEAT_MS) {
+        if (
+            heartbeatTimer
+            || disposed
+            || fenced
+            || !options.enabled.value
+            || !activeOwnerId
+            || generation === null
+        ) {
+            return;
+        }
+        heartbeatTimer = setTimeout(() => {
+            heartbeatTimer = null;
+            void heartbeatRecoveryLease();
+        }, delay);
+    }
+
+    async function heartbeatRecoveryLease() {
+        const ownerId = activeOwnerId;
+        const expectedGeneration = generation;
+        if (
+            !ownerId
+            || expectedGeneration === null
+            || disposed
+            || fenced
+            || !options.enabled.value
+        ) {
+            return;
+        }
+
+        try {
+            const outcome = await touchBrowserWorkspaceRecovery(ownerId, expectedGeneration);
+            if (outcome.saved) {
+                generation = outcome.generation;
+            } else if (activeOwnerId === ownerId && generation === expectedGeneration) {
+                fenced = true;
+                stopHeartbeat();
+                BrowserLogger.warn(
+                    'workspace-recovery',
+                    `Recovery lease disappeared or changed while heartbeating owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
+                );
+                return;
+            }
+        } catch (error) {
+            // A temporary IndexedDB failure should not make this context discard
+            // its only recovery copy. Retry the heartbeat and let the owner
+            // claim CAS decide whether the lease was actually lost.
+            BrowserLogger.warn('workspace-recovery', 'Failed to heartbeat browser recovery snapshot', error);
+        } finally {
+            if (
+                activeOwnerId === ownerId
+                && generation === expectedGeneration
+                && !fenced
+                && !disposed
+                && options.enabled.value
+            ) {
+                scheduleHeartbeat();
+            }
+        }
+    }
 
     function hasDirtyTabs() {
         return options.tabs.value.some(tab => tab.isDirty);
@@ -129,6 +200,7 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
             return;
         }
         if (ownerId !== activeOwnerId) {
+            stopHeartbeat();
             activeOwnerId = ownerId;
             generation = null;
             fenced = false;
@@ -151,10 +223,12 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                         `Recovery lease changed while clearing owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
                     );
                     fenced = true;
+                    stopHeartbeat();
                     return;
                 }
                 await cleanupSnapshots(previous.snapshotRefs);
             }
+            stopHeartbeat();
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -298,9 +372,11 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
                     `Recovery lease changed while saving owner ${ownerId} at generation ${String(expectedGeneration)}; fencing stale writer`,
                 );
                 fenced = true;
+                stopHeartbeat();
                 await cleanupSnapshots(createdRefs);
                 return;
             }
+            scheduleHeartbeat();
             persistedCheckpointRevision = Math.max(
                 persistedCheckpointRevision,
                 capturedCheckpointRevision,
@@ -420,12 +496,15 @@ export const useBrowserWorkspaceRecovery = (options: IUseBrowserWorkspaceRecover
     useEventListener(targetDocument, 'visibilitychange', () => {
         if (document.visibilityState === 'hidden') {
             drain();
+            return;
         }
+        void heartbeatRecoveryLease();
     });
 
     onBeforeUnmount(() => {
         disposed = true;
         stop();
+        stopHeartbeat();
         if (timer) clearTimeout(timer);
     });
 };

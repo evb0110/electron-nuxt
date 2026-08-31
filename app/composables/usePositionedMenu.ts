@@ -125,6 +125,14 @@ export const usePositionedMenu = <TMenuState extends IPositionedMenuState>(
             dismissMenu();
         }
     }, { capture: true });
+    useEventListener(windowTarget, 'keydown', (event) => {
+        if (!(event instanceof KeyboardEvent) || event.key !== 'Escape' || !menu.value.visible) {
+            return;
+        }
+        // Let composables with an Escape side effect observe the original
+        // event before the shared menu state closes.
+        queueMicrotask(dismissMenu);
+    });
 
     return {
         menu,

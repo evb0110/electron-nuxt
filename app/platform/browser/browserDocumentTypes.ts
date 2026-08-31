@@ -15,26 +15,36 @@ export interface IBrowserPersistedDocumentRecord {
     sourceRef?: string;
     data: Uint8Array;
     fileSize: number;
+    fileLastModified?: number | undefined;
     updatedAt: number;
     contentToken?: string;
     contentRevision?: number;
     saveName?: string;
     saveKind?: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
+    sourceWitness?: boolean;
     storageMode?: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;
     chunkGeneration?: string;
+    pendingChunkGeneration?: string;
+    pendingChunkCount?: number;
+    pendingChunkSize?: number;
+    pendingFileSize?: number;
+    pendingChunkUpdatedAt?: number;
 }
 
 export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     /** Volatile runtime state: persistence failed, so unloading would lose the document. */
     memoryOnly?: boolean;
+    /** Volatile immutable File snapshot used for consistent browser range reads. */
+    fileSnapshot?: File;
     pendingLoad: Promise<void> | null;
     retention: 'durable' | 'transient';
     saveName?: string;
     saveKind: 'pdf' | 'docx' | 'generic';
     saveHandle?: FileSystemFileHandle | null;
+    sourceWitness?: boolean;
     storageMode: TBrowserDocumentStorageMode;
     chunkCount: number;
     chunkSize: number;
@@ -43,6 +53,7 @@ export interface IBrowserDocumentEntry extends IBrowserPersistedDocumentRecord {
     pendingChunkCount?: number;
     pendingChunkSize?: number;
     pendingFileSize?: number;
+    pendingChunkUpdatedAt?: number;
 }
 
 export interface IRegisterFileOptions {
@@ -95,10 +106,12 @@ export interface IBrowserDocumentEntryInput {
     sourceRef?: string;
     data: Uint8Array;
     fileSize: number;
+    fileLastModified?: number | undefined;
     contentToken?: string;
     contentRevision?: number;
     saveKind: IBrowserDocumentEntry['saveKind'];
     saveHandle: FileSystemFileHandle | null;
+    sourceWitness?: boolean;
     storageMode: TBrowserDocumentStorageMode;
     chunkCount?: number;
     chunkSize?: number;

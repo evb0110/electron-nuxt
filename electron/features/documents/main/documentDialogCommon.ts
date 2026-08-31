@@ -54,16 +54,21 @@ async function withSingleActiveDialogForSender<T>(senderId: number, callback: ()
 function normalizeSaveDefaultPath(defaultPath: string, extension: string) {
     const suffix = `.${extension}`;
     const rawName = basename(defaultPath || `document${suffix}`);
-    const sanitizedName = Array.from(rawName)
+    const filteredName = Array.from(rawName)
         .filter((character) => {
             const codePoint = character.codePointAt(0) ?? 0;
             return codePoint > 31 && codePoint !== 127;
         })
-        .join('')
-        .trim() || `document${suffix}`;
-    const baseName = extname(sanitizedName).toLowerCase() === suffix
-        ? sanitizedName.slice(0, -suffix.length)
-        : sanitizedName;
+        .join('');
+    const sanitizedName = filteredName.trim().length > 0
+        ? filteredName
+        : `document${suffix}`;
+    const extensionProbeName = sanitizedName.replace(/\s+$/u, '');
+    const hasRequestedExtension = extname(extensionProbeName).toLowerCase() === suffix;
+    const normalizedName = hasRequestedExtension ? extensionProbeName : sanitizedName;
+    const baseName = hasRequestedExtension
+        ? normalizedName.slice(0, -suffix.length)
+        : normalizedName;
     const maxBaseLength = Math.max(1, IPC_FILENAME_MAX_LENGTH - suffix.length);
     return `${truncateForIpc(baseName, maxBaseLength)}${suffix}`;
 }
@@ -111,7 +116,8 @@ export async function showSaveDialogWithExtension(
     }
 
     const extension = `.${options.extension}`;
-    return extname(result.filePath).toLowerCase() === extension
+    const extensionProbePath = result.filePath.replace(/\s+$/u, '');
+    return extname(extensionProbePath).toLowerCase() === extension
         ? result.filePath
         : `${result.filePath}${extension}`;
 }

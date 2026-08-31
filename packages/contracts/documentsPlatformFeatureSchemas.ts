@@ -353,7 +353,9 @@ function decodeDocumentSaveResult(value: unknown): TDocumentSaveResult {
     if (
         !isOneOf(documentSaveFailureReasons, value.reason)
         || (value.message !== undefined && typeof value.message !== 'string')
-        || (value.externalWriteCommitted !== undefined && typeof value.externalWriteCommitted !== 'boolean')
+        || (value.externalWriteCommitted !== undefined
+            && value.externalWriteCommitted !== null
+            && typeof value.externalWriteCommitted !== 'boolean')
         || (value.workingCopySyncRequired !== undefined && typeof value.workingCopySyncRequired !== 'boolean')
     ) {
         fail('invalid document save failure result');

@@ -390,7 +390,7 @@ function schedulePostReadyRecentGeometryWarmup(
                 throw error;
             }
         })();
-        guardStartupWarmup(warmup, 'Recent opening geometry warmup failed');
+        guardStartupWarmup(warmup, t('errors.runtime.recentGeometryWarmupTitle'));
         return warmup;
     });
 }
@@ -507,8 +507,6 @@ onMounted(async () => {
     } catch (error) {
         BrowserLogger.error('loader', 'App bootstrap failed', error);
         setFatalRuntimeError('startup', error, 'app-bootstrap');
-    } finally {
-        dispatchAppReady();
     }
 });
 </script>

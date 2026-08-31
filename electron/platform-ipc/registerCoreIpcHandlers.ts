@@ -27,6 +27,7 @@ import {
     CORE_IPC_SEND_CHANNELS,
 } from '@electron/platform-ipc/coreContract';
 import {
+    acknowledgeWorkspaceCheckpoint,
     claimWorkspaceCheckpoint,
     discardWorkspaceCheckpoint,
     resumeWorkspaceCheckpoint,
@@ -43,6 +44,7 @@ export interface ICoreIpcHandlerOptions {
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
     CORE_IPC_CHANNELS.rendererReady,
     CORE_IPC_SEND_CHANNELS.rendererLog,
+    CORE_IPC_SEND_CHANNELS.windowCloseResponse,
 ]);
 
 function buildTabTransferTargetLabels(sourceWindowId: number): IWindowTabTargetWindow[] {
@@ -124,6 +126,9 @@ export function registerCoreIpcHandlers(
                 ].filter((path): path is string => path !== null)), sender);
             }
             return checkpoint;
+        },
+        acknowledgeWorkspaceCheckpoint: async ({senderId}) => {
+            await acknowledgeWorkspaceCheckpoint(senderId);
         },
         requestWindowTabTransfer: async ({sender}, request) => {
             const sourceWindow = BrowserWindow.fromWebContents(sender);

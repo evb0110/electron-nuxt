@@ -210,14 +210,14 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         viewMode,
         handleGoToPage: options.handleGoToPage,
         handleSave: () => {
-            runDetached(handleSave, {
+            void runDetached(handleSave, {
                 category: 'user-visible-operation',
                 scope: 'workspace',
                 message: 'Failed to save document',
             });
         },
         handlePrint: () => {
-            runDetached(async () => options.handlePrint(), {
+            void runDetached(async () => options.handlePrint(), {
                 category: 'user-visible-operation',
                 scope: 'workspace',
                 message: 'Failed to print document',
@@ -232,7 +232,7 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         if (!pdfViewerRef.value || isDjvuMode.value) {
             return;
         }
-        runDetached(() => pdfViewerRef.value!.captureRegionToClipboard(), {
+        void runDetached(() => pdfViewerRef.value!.captureRegionToClipboard(), {
             category: 'user-visible-operation',
             scope: 'workspace',
             message: 'Failed to capture PDF region',

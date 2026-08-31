@@ -89,7 +89,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
         cleanedUp = true;
         cleanupDebugLogSubscription();
-        window.removeEventListener('beforeunload', onBeforeUnload);
+        window.removeEventListener('pagehide', onPageHide);
         if (nuxtApp.vueApp.unmount === guardedUnmount) {
             nuxtApp.vueApp.unmount = originalUnmount;
         }
@@ -101,12 +101,14 @@ export default defineNuxtPlugin((nuxtApp) => {
         cleanup();
         originalUnmount();
     }
-    function onBeforeUnload() {
-        cleanup();
+    function onPageHide(event: PageTransitionEvent) {
+        if (!event.persisted) {
+            cleanup();
+        }
     }
 
     windowWithState.__evbRuntimeErrorLogStreamState = {cleanup};
-    window.addEventListener('beforeunload', onBeforeUnload, { once: true });
+    window.addEventListener('pagehide', onPageHide);
     nuxtApp.vueApp.unmount = guardedUnmount;
 
     nuxtApp.hook('app:mounted', () => {

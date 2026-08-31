@@ -284,6 +284,7 @@ export const SEARCH_REQUEST_ID_MAX_LENGTH = 128;
 export const SEARCH_PDF_PATH_MAX_LENGTH = 4_096;
 export const SEARCH_QUERY_MAX_LENGTH = 2_048;
 export const SEARCH_REGEX_QUERY_MAX_LENGTH = 512;
+export const SEARCH_REGEX_MAX_EXECUTION_MS = 250;
 export const SEARCH_DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 8_192;
 
 export type TSearchablePageTextSeparator = 'none' | 'space' | 'line';
@@ -524,6 +525,15 @@ export function escapeSearchRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+export class SearchRegexLimitError extends Error {
+    readonly code = 'SEARCH_REGEX_LIMIT';
+
+    constructor(message: string) {
+        super(message);
+        this.name = 'SearchRegexLimitError';
+    }
+}
+
 const SEARCH_WORD_CHARACTER_CLASS = '\\p{L}\\p{N}\\p{M}_\'’';
 const SEARCH_CJK_SCRIPT_PATTERN = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
 
@@ -588,6 +598,7 @@ function isUnsafeSearchRegexPattern(pattern: string) {
     let lastClosedGroup: IClosedRegexGroupSafety | null = null;
     let escaped = false;
     let inCharacterClass = false;
+    let quantifierCount = 0;
 
     for (let index = 0; index < pattern.length; index += 1) {
         const char = pattern[index];
@@ -656,6 +667,10 @@ function isUnsafeSearchRegexPattern(pattern: string) {
         }
 
         if (isRegexQuantifierAt(pattern, index)) {
+            quantifierCount += 1;
+            if (quantifierCount > 3) {
+                return true;
+            }
             if (lastClosedGroup && lastClosedGroup.endIndex === index - 1) {
                 if (lastClosedGroup.hasAlternation || lastClosedGroup.hasQuantifier) {
                     return true;
@@ -689,7 +704,7 @@ export function assertSafePdfSearchRegex(
     }
 
     if (isUnsafeSearchRegexPattern(query)) {
-        throw new Error('Invalid search regex: pattern is too complex for document search');
+        throw new SearchRegexLimitError('Invalid search regex: pattern is too complex for document search');
     }
 }
 
@@ -910,7 +925,19 @@ export function* iteratePdfSearchMatches(
 
     let match: RegExpExecArray | null;
     const matchedText = normalizedText?.text ?? text;
-    while ((match = matcher.exec(matchedText)) !== null) {
+    const regexDeadline = typeof matcherOrQuery === 'string' && options?.useRegex === true
+        ? Date.now() + SEARCH_REGEX_MAX_EXECUTION_MS
+        : null;
+    while (true) {
+        if (regexDeadline !== null && Date.now() >= regexDeadline) {
+            throw new SearchRegexLimitError(
+                `Search regex exceeded the ${SEARCH_REGEX_MAX_EXECUTION_MS}ms page budget`,
+            );
+        }
+        match = matcher.exec(matchedText);
+        if (match === null) {
+            break;
+        }
         const value = match[0] ?? '';
         if (value.length === 0) {
             matcher.lastIndex += 1;

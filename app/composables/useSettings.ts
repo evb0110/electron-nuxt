@@ -83,6 +83,7 @@ export const useSettings = () => {
     const {
         state: settings,
         isResolved: isLoaded,
+        error: settingsLoadError,
         load: loadSettingsState,
     } = usePlatformHydratedState<ISettingsData>({
         key: 'settings',
@@ -102,7 +103,15 @@ export const useSettings = () => {
     });
 
     async function load() {
-        await loadSettingsState();
+        return loadSettingsState();
+    }
+
+    async function loadOrThrow() {
+        const loadedSettings = await loadSettingsState();
+        if (loadedSettings === null) {
+            throw new Error(settingsLoadError.value ?? 'Settings could not be loaded.');
+        }
+        return loadedSettings;
     }
 
     function getSettingsPersistenceQueue() {
@@ -171,6 +180,8 @@ export const useSettings = () => {
         hasCookieSnapshot: hasSettingsCookieSnapshot,
         isSettingsSavePendingRetry,
         load,
+        loadOrThrow,
+        settingsLoadError,
         save,
         settingsSaveError,
         settingsSaveStatus,

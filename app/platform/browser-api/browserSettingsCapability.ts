@@ -15,7 +15,7 @@ import {
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import {
-    safeGetLocalStorageItem,
+    readLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
 import {
@@ -24,6 +24,7 @@ import {
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
+    assertSupportedBrowserSettingsPayload,
     isValidBrowserSettingsStoragePayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
@@ -36,7 +37,9 @@ let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 
 function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
-    safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+    if (!safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))) {
+        throw new Error('Failed to persist browser settings to localStorage');
+    }
 }
 
 function readBrowserSettingsCookies() {
@@ -71,19 +74,34 @@ function readBrowserSettingsCookies() {
 }
 
 function readBrowserSettingsFromStorage() {
-    const rawSettings = safeGetLocalStorageItem(SETTINGS_STORAGE_KEY);
-    if (!rawSettings) {
+    const result = readLocalStorageItem(SETTINGS_STORAGE_KEY);
+    if (result.status === 'unavailable') {
+        throw result.error;
+    }
+    if (result.status === 'absent') {
         return null;
     }
 
-    try {
-        if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
-            return null;
-        }
-        return sanitizeSettings(JSON.parse(rawSettings));
-    } catch {
+    const rawSettings = result.value;
+    assertSupportedBrowserSettingsPayload(rawSettings);
+    if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
         return null;
     }
+    return sanitizeSettings(JSON.parse(rawSettings));
+}
+
+function readLatestBrowserSettingsForSave() {
+    const persistedSettings = readBrowserSettingsFromStorage();
+    if (persistedSettings) {
+        return persistedSettings;
+    }
+
+    if (browserSettingsLoaded) {
+        return settingsState;
+    }
+
+    return readAndMigrateBrowserSettings()
+        ?? { ...DEFAULT_SETTINGS };
 }
 
 function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData) {
@@ -102,6 +120,7 @@ function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData) {
 function readAndMigrateBrowserSettings() {
     const cookieSnapshot = readBrowserSettingsCookies();
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
+        assertSupportedBrowserSettingsPayload(cookieSnapshot.rawSettings);
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
         if (isValidLegacyCookie) {
             const legacySettings = parseBrowserSettingsPayload(
@@ -133,28 +152,28 @@ function readAndMigrateBrowserSettings() {
 
 export const browserSettingsCapability: ISettingsCapability = {
     get() {
-        if (!browserSettingsLoaded) {
-            settingsState = readAndMigrateBrowserSettings()
-                ?? { ...DEFAULT_SETTINGS };
-            browserSettingsLoaded = true;
-            writeBrowserSettingsBootstrapCookies(settingsState);
-        }
-        return Promise.resolve(sanitizeSettings(settingsState));
+        return Promise.resolve().then(() => {
+            if (!browserSettingsLoaded) {
+                settingsState = readAndMigrateBrowserSettings()
+                    ?? { ...DEFAULT_SETTINGS };
+                writeBrowserSettingsBootstrapCookies(settingsState);
+                browserSettingsLoaded = true;
+            }
+            return sanitizeSettings(settingsState);
+        });
     },
     save(settings) {
-        const currentSettings = browserSettingsLoaded
-            ? settingsState
-            : readAndMigrateBrowserSettings()
-                ?? { ...DEFAULT_SETTINGS };
-        const nextSettings = sanitizeSettings({
-            ...currentSettings,
-            ...settings,
+        return Promise.resolve().then(() => {
+            const currentSettings = readLatestBrowserSettingsForSave();
+            const nextSettings = sanitizeSettings({
+                ...currentSettings,
+                ...settings,
+            });
+            writeBrowserSettingsToStorage(nextSettings);
+            writeBrowserSettingsBootstrapCookies(nextSettings);
+            settingsState = nextSettings;
+            browserSettingsLoaded = true;
         });
-        settingsState = nextSettings;
-        browserSettingsLoaded = true;
-        writeBrowserSettingsToStorage(nextSettings);
-        writeBrowserSettingsBootstrapCookies(nextSettings);
-        return Promise.resolve(undefined);
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
         return Promise.resolve([]);

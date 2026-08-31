@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menü',
+        'readerToolbar': 'Dokument-Symbolleiste',
         'openPdf': 'Datei öffnen',
         'save': 'Speichern',
         'saveAs': 'Speichern unter…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Dokumentregisterkarten',
         'newTab': 'Neuer Tab',
         'unsavedChanges': 'Ungespeicherte Änderungen',
         'closeTab': 'Tab schließen',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'Vorbereitung {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tab mit ungespeicherten Änderungen schließen?',
         'confirmCloseDirtyDescription': '"{name}" enthält ungespeicherte Änderungen. Änderungen werden beim Schließen verworfen.',
+        'confirmCloseWindowDirtyTitle': 'Fenster mit ungespeicherten Änderungen schließen?',
+        'confirmCloseWindowDirtyDescription': 'Es gibt ungespeicherte Änderungen. Vor dem Schließen speichern, verwerfen oder abbrechen.',
+        'discardChanges': 'Änderungen verwerfen',
         'transferErrors': {
             'noTargetPane': 'Im Zielfenster ist kein Zielfeld verfügbar.',
             'noTargetTab': 'Im Zielfenster ist kein Ziel-Tab verfügbar.',
@@ -1176,6 +1181,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Seitenaktionen',
+        'outlineMenu': 'Lesezeichenaktionen',
+        'annotationMenu': 'Anmerkungsaktionen',
         'openPopUpNote': 'Popup-Notiz öffnen',
         'copyTextToClipboard': 'Text in Zwischenablage kopieren',
         'copySelectionToClipboard': 'Auswahl in Zwischenablage kopieren',
@@ -1547,11 +1555,13 @@ export default {
             'loadDescription': 'Versuchen Sie, den Arbeitsbereich erneut zu laden.',
             'loadDescriptionWithMessage': 'Versuchen Sie, den Arbeitsbereich erneut zu laden. ({message})',
         },
+        'settings': {'load': 'Einstellungen konnten nicht geladen werden'},
         'runtime': {
             'title': 'Etwas ist schiefgelaufen',
             'description': 'Die App ist auf einen unerwarteten Fehler gestoßen und funktioniert möglicherweise erst nach einem Neuladen wieder korrekt.',
             'startupTitle': 'App-Start fehlgeschlagen',
             'startupDescription': 'Die App konnte nicht vollständig gestartet werden. Laden Sie sie neu und versuchen Sie es erneut.',
+            'recentGeometryWarmupTitle': 'Vorschau der zuletzt verwendeten Dateien nicht verfügbar',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'App neu laden',
             'copy': 'Details kopieren',

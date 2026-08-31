@@ -20,6 +20,9 @@ export interface ITiffImageDescriptor {
     width: number;
     height: number;
     dataLength: number;
+    /** Pixels per inch written to XResolution/YResolution. */
+    dpiX?: number;
+    dpiY?: number;
 }
 
 export const TIFF_TYPE_BYTES: Record<number, number> = {
@@ -32,6 +35,8 @@ export const TIFF_TYPE_BYTES: Record<number, number> = {
 };
 
 export function buildTiffImageIfd(page: ITiffImageDescriptor, dataOffset: number) {
+    const dpiX = Number.isFinite(page.dpiX) && page.dpiX! > 0 ? page.dpiX! : 72;
+    const dpiY = Number.isFinite(page.dpiY) && page.dpiY! > 0 ? page.dpiY! : dpiX;
     return {
         t256: [page.width],
         t257: [page.height],
@@ -47,12 +52,12 @@ export function buildTiffImageIfd(page: ITiffImageDescriptor, dataOffset: number
         t277: [4],
         t278: [page.height],
         t279: [page.dataLength],
-        t282: [1],
-        t283: [1],
+        t282: [dpiX],
+        t283: [dpiY],
         t284: [1],
         t286: [0],
         t287: [0],
-        t296: [1],
+        t296: [2],
         t305: ['EVB Viewer'],
         t338: [1],
     };

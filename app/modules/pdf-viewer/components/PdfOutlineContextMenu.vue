@@ -6,11 +6,13 @@
         variant="panel"
         min-width="var(--app-context-menu-preferred-width)"
         z-index="var(--app-pdf-annotation-style-popover-z-index)"
+        :accessible-label="t('contextMenu.outlineMenu')"
     >
         <template v-if="bookmark">
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="editBookmark(bookmark.id)"
             >
                 {{ t('bookmarks.editBookmark') }}
@@ -18,6 +20,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="addSiblingAbove(bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingAbove') }}
@@ -25,6 +28,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="addSiblingBelow(bookmark.id)"
             >
                 {{ t('bookmarks.addSiblingBelow') }}
@@ -32,6 +36,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="addChild(bookmark.id)"
             >
                 {{ t('bookmarks.addChild') }}
@@ -94,6 +99,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
+                role="menuitem"
                 @click="removeBookmark(bookmark.id)"
             >
                 {{ removeLabel }}

@@ -22,7 +22,10 @@ import {
     promoteStagedFiles,
 } from '@electron/features/image-export/main/export';
 import { tryCombinePagesWithNativeTiffCombiner } from '@electron/features/image-export/main/tryCombinePagesWithNativeTiffCombiner';
-import { resolveOutputPathConflicts } from '@electron/features/image-export/main/imageExportPathPlanning';
+import {
+    buildOutputPathWithSuffix,
+    resolveOutputPathConflicts,
+} from '@electron/features/image-export/main/imageExportPathPlanning';
 import { makeSiblingTempPath } from '@electron/utils/atomicReplace';
 import { abortErrorFromSignal } from '@electron/utils/abort';
 import { mainJobBroker } from '@electron/resources/jobBroker';
@@ -103,6 +106,7 @@ async function assertDjvuExportPageRasterBudget(
     signal?: AbortSignal,
 ) {
     const requestedPages = pages ? new Set(pages) : null;
+    const pageDpiByNumber = new Map<number, number>();
     const windowOptions = {
         ...(signal ? {signal} : {}),
         ...(pages ? {pageNumbers: pages} : {}),
@@ -118,6 +122,9 @@ async function assertDjvuExportPageRasterBudget(
                 throw new Error(`DjVu page ${page} dimensions are unavailable`);
             }
             assertDjvuPageRasterBudget(page, size);
+            if (Number.isFinite(size.dpi) && size.dpi > 0) {
+                pageDpiByNumber.set(page, size.dpi);
+            }
             requestedPages?.delete(page);
         }
     }
@@ -125,28 +132,23 @@ async function assertDjvuExportPageRasterBudget(
     if (missingPage !== undefined) {
         throw new Error(`DjVu page ${missingPage} dimensions are unavailable`);
     }
+    return pageDpiByNumber;
 }
 
 function buildPngOutputPath(templatePath: string, page: number, outputCount: number) {
-    const outputDirectory = dirname(templatePath);
-    const extension = extname(templatePath);
-    const stem = basename(templatePath, extension);
-    if (outputCount === 1) {
-        return join(outputDirectory, `${stem}.png`);
-    }
-    return join(outputDirectory, `${stem}-page-${String(page).padStart(3, '0')}.png`);
+    const outputExtension = '.png';
+    const outputStem = basename(templatePath, extname(templatePath));
+    const pngTemplatePath = join(dirname(templatePath), `${outputStem}${outputExtension}`);
+    return buildOutputPathWithSuffix(
+        pngTemplatePath,
+        outputCount === 1 ? '' : `-page-${String(page).padStart(3, '0')}`,
+    );
 }
 
 function buildDjvuTiffOutputPath(templatePath: string, partNumber: number, splitOutput: boolean) {
-    if (!splitOutput) {
-        return templatePath;
-    }
-    const outputDirectory = dirname(templatePath);
-    const extension = extname(templatePath) || '.tiff';
-    const stem = basename(templatePath, extension);
-    return join(
-        outputDirectory,
-        `${stem}-part-${String(partNumber).padStart(3, '0')}${extension}`,
+    return buildOutputPathWithSuffix(
+        templatePath,
+        splitOutput ? `-part-${String(partNumber).padStart(3, '0')}` : '',
     );
 }
 
@@ -156,6 +158,7 @@ async function renderDjvuPngPages(
     pageCount: number,
     pages: readonly number[] | null,
     options: IDjvuImageExportOptions,
+    pageDpiByNumber: ReadonlyMap<number, number>,
 ) {
     return usingDjvuScratch(options, 'djvu-image-export-', async tempDirectory => {
         let stagedBytes = 0;
@@ -184,6 +187,13 @@ async function renderDjvuPngPages(
             let outputIndex = 0;
             for (const page of iterateExportPages(pageCount, pages)) {
                 throwIfAborted(options.signal);
+                const plannedOutputPath = buildPngOutputPath(
+                    outputTemplatePath,
+                    page,
+                    totalPages,
+                );
+                const outputPath = resolveOutputPathConflicts([plannedOutputPath], false)[0];
+                if (!outputPath) throw new Error('DjVu image export target is missing');
                 const brokerLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-image-export:${djvuPath}`,
                     kind: 'djvu-image-export-page',
@@ -219,14 +229,13 @@ async function renderDjvuPngPages(
                         throw new Error('DjVu PNG page exceeds the staged-byte limit');
                     }
                     stagedBytes += render.fileSize;
-                    return convertRenderedPpmToPng(ppmPath, options.signal, options.cancelGroup);
+                    return convertRenderedPpmToPng(
+                        ppmPath,
+                        options.signal,
+                        options.cancelGroup,
+                        pageDpiByNumber.get(page),
+                    );
                 })().finally(() => brokerLease.release());
-                const outputPath = buildPngOutputPath(
-                    outputTemplatePath,
-                    page,
-                    totalPages,
-                );
-                if (!outputPath) throw new Error('DjVu image export target is missing');
                 await mkdir(dirname(outputPath), {recursive: true});
                 const targetExisted = await stat(outputPath).then(() => true).catch(() => false);
                 const sibling = makeSiblingTempPath(outputPath);
@@ -272,13 +281,13 @@ export async function exportDjvuPagesAsPng(
         pageCount,
         pages,
     } = await resolvePages(djvuPath, options.pageNumbers, options.signal);
-    await assertDjvuExportPageRasterBudget(
+    const pageDpiByNumber = await assertDjvuExportPageRasterBudget(
         djvuPath,
         pageCount,
         pages,
         options.signal,
     );
-    return renderDjvuPngPages(djvuPath, outputTemplatePath, pageCount, pages, options);
+    return renderDjvuPngPages(djvuPath, outputTemplatePath, pageCount, pages, options, pageDpiByNumber);
 }
 
 export async function exportDjvuAsMultiPageTiff(
@@ -290,7 +299,7 @@ export async function exportDjvuAsMultiPageTiff(
         pageCount,
         pages,
     } = await resolvePages(djvuPath, options.pageNumbers, options.signal);
-    await assertDjvuExportPageRasterBudget(
+    const pageDpiByNumber = await assertDjvuExportPageRasterBudget(
         djvuPath,
         pageCount,
         pages,
@@ -298,25 +307,28 @@ export async function exportDjvuAsMultiPageTiff(
     );
     return usingDjvuScratch(options, 'djvu-tiff-export-', async tempDirectory => {
         const pagePaths: string[] = [];
+        let batchDpi: number | undefined;
         let stagedBytes = 0;
         let outputPart = 0;
-        const totalPages = getExportPageCount(pageCount, pages);
-        const splitOutput = totalPages > DJVU_TIFF_BATCH_MAX_PAGES;
-        const outputPaths: string[] = [];
+        const exportPages = [...iterateExportPages(pageCount, pages)];
+        const totalPages = exportPages.length;
+        const hasMixedPageDpi = new Set(exportPages.map(page => pageDpiByNumber.get(page) ?? null)).size > 1;
+        const splitOutput = totalPages > DJVU_TIFF_BATCH_MAX_PAGES || hasMixedPageDpi;
         const targetPath = /\.tiff?$/iu.test(outputPath) ? outputPath : `${outputPath}.tiff`;
+        const stagedGroups: Array<{stagedPath: string}> = [];
         const combineBatch = async () => {
             if (pagePaths.length === 0) {
                 return;
             }
             const batchPaths = pagePaths.splice(0);
+            const currentBatchDpi = batchDpi;
+            batchDpi = undefined;
             stagedBytes = 0;
             try {
-                const plannedPath = buildDjvuTiffOutputPath(targetPath, outputPart + 1, splitOutput);
-                const targetPathForBatch = resolveOutputPathConflicts([plannedPath], !splitOutput)[0];
-                if (!targetPathForBatch) {
-                    throw new Error('Multi-page TIFF export target path is missing');
-                }
-                const stagedPath = makeSiblingTempPath(targetPathForBatch);
+                const stagedPath = join(
+                    tempDirectory,
+                    `combined-part-${String(outputPart + 1).padStart(3, '0')}.tiff`,
+                );
                 const combineLease = await mainJobBroker.acquire({
                     ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                     kind: 'djvu-tiff-combine',
@@ -335,6 +347,7 @@ export async function exportDjvuAsMultiPageTiff(
                         batchPaths,
                         stagedPath,
                         options.signal,
+                        currentBatchDpi,
                     );
                 } finally {
                     combineLease.release();
@@ -343,17 +356,7 @@ export async function exportDjvuAsMultiPageTiff(
                     await rm(stagedPath, {force: true}).catch(() => undefined);
                     throw new Error('Native TIFF output service is unavailable for DjVu export');
                 }
-                const targetExisted = await stat(targetPathForBatch).then(() => true).catch(() => false);
-                try {
-                    await promoteStagedFiles([{
-                        stagedPath,
-                        targetPath: targetPathForBatch,
-                        targetExisted,
-                    }], options.signal);
-                } finally {
-                    await rm(stagedPath, {force: true}).catch(() => undefined);
-                }
-                outputPaths.push(targetPathForBatch);
+                stagedGroups.push({stagedPath});
                 outputPart += 1;
             } finally {
                 await Promise.all(batchPaths.map(batchPath => rm(batchPath, {force: true}).catch(() => undefined)));
@@ -361,8 +364,12 @@ export async function exportDjvuAsMultiPageTiff(
         };
 
         let processedPages = 0;
-        for (const page of iterateExportPages(pageCount, pages)) {
+        for (const page of exportPages) {
             throwIfAborted(options.signal);
+            const pageDpi = pageDpiByNumber.get(page);
+            if (pagePaths.length > 0 && pageDpi !== batchDpi) {
+                await combineBatch();
+            }
             const brokerLease = await mainJobBroker.acquire({
                 ownerId: options.cancelGroup ?? `djvu-tiff-export:${djvuPath}`,
                 kind: 'djvu-tiff-render-page',
@@ -395,6 +402,7 @@ export async function exportDjvuAsMultiPageTiff(
             }
             stagedBytes += render.fileSize;
             pagePaths.push(ppmPath);
+            batchDpi ??= pageDpi;
             processedPages += 1;
             options.onProgress?.({
                 phase: 'rendering',
@@ -404,6 +412,31 @@ export async function exportDjvuAsMultiPageTiff(
             });
         }
         await combineBatch();
+        const outputPaths = resolveOutputPathConflicts(
+            stagedGroups.map((_, index) => buildDjvuTiffOutputPath(targetPath, index + 1, splitOutput)),
+            false,
+        );
+        const stagedFiles = stagedGroups.map(({stagedPath}, index) => {
+            const targetOutputPath = outputPaths[index];
+            if (!targetOutputPath) {
+                throw new Error('Multi-page TIFF export target path is missing');
+            }
+            return {
+                stagedPath,
+                targetPath: targetOutputPath,
+                targetExisted: false,
+            };
+        });
+        let promoted = false;
+        try {
+            throwIfAborted(options.signal);
+            await promoteStagedFiles(stagedFiles, options.signal);
+            promoted = true;
+        } finally {
+            if (!promoted) {
+                await Promise.all(stagedGroups.map(({stagedPath}) => rm(stagedPath, {force: true}).catch(() => undefined)));
+            }
+        }
         options.onProgress?.({
             phase: 'combining',
             processed: outputPaths.length,

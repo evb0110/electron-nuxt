@@ -123,7 +123,7 @@ async function mutateBrowserWorkspaceRecovery(
         id: string,
         current: IBrowserWorkspaceRecoverySnapshot | null,
         currentGeneration: number,
-    ) => number,
+    ) => number | null,
 ) {
     if (!isValidOwnerId(ownerId) || !Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0) {
         throw new TypeError('Browser recovery owner and generation must be valid.');
@@ -144,9 +144,17 @@ async function mutateBrowserWorkspaceRecovery(
                     });
                     return;
                 }
+                const nextGeneration = mutate(store, id, current, currentGeneration);
+                if (nextGeneration === null) {
+                    setResult({
+                        saved: false,
+                        generation: currentGeneration,
+                    });
+                    return;
+                }
                 setResult({
                     saved: true,
-                    generation: mutate(store, id, current, currentGeneration),
+                    generation: nextGeneration,
                 });
             };
         },
@@ -185,6 +193,30 @@ export async function clearBrowserWorkspaceRecovery(
     return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, current) => {
         if (current) store.delete(id);
         return 0;
+    });
+}
+
+export async function touchBrowserWorkspaceRecovery(
+    ownerId: string,
+    expectedGeneration: number,
+): Promise<TBrowserWorkspaceRecoveryMutationResult> {
+    if (!isValidOwnerId(ownerId) || !Number.isSafeInteger(expectedGeneration) || expectedGeneration <= 0) {
+        throw new TypeError('Browser recovery heartbeat owner and generation must be valid.');
+    }
+
+    return mutateBrowserWorkspaceRecovery(ownerId, expectedGeneration, (store, id, current) => {
+        if (!current) {
+            return null;
+        }
+        store.put({
+            id,
+            ownerId: current.ownerId,
+            generation: current.generation,
+            checkpoint: current.checkpoint,
+            snapshotRefs: current.snapshotRefs,
+            updatedAt: Date.now(),
+        } satisfies IBrowserWorkspaceRecoveryRecord);
+        return current.generation;
     });
 }
 

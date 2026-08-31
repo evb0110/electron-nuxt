@@ -106,18 +106,18 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     let loadingDocument = false;
     let documentLoadGeneration = 0;
 
-    function flushDocumentPersistence() {
+    function flushDocumentPersistence(): Promise<void> {
         if (persistenceTimer !== null) {
             clearTimeout(persistenceTimer);
             persistenceTimer = null;
         }
         const pending = pendingPersistence;
-        pendingPersistence = null;
         if (!pending) {
-            return;
+            return Promise.resolve();
         }
         if (!isScanCleanupDocumentPersistenceTokenCurrent(pending.token)) {
-            return;
+            pendingPersistence = null;
+            return Promise.resolve();
         }
         const {
             sourceSha256,
@@ -125,7 +125,24 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             token: _token,
             ...patch
         } = pending;
-        saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch);
+        pendingPersistence = null;
+        return Promise.resolve(saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, patch))
+            .catch((error) => {
+                if (pendingPersistence === null) {
+                    pendingPersistence = pending;
+                } else if (
+                    pendingPersistence.sourceSha256 === pending.sourceSha256
+                    && pendingPersistence.legacyDocumentKey === pending.legacyDocumentKey
+                ) {
+                    const newerPending = pendingPersistence;
+                    pendingPersistence = {
+                        ...pending,
+                        ...newerPending,
+                        token: newerPending.token,
+                    };
+                }
+                throw error;
+            });
     }
 
     function scheduleDocumentPersistence(
@@ -134,7 +151,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         patch: IScanCleanupDocumentPreferencePatch,
     ) {
         if (!sourceSha256 && !legacyDocumentKey) {
-            flushDocumentPersistence();
+            void flushDocumentPersistence().catch(() => undefined);
             return;
         }
         if (
@@ -143,7 +160,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             || (pendingPersistence !== null
                 && !isScanCleanupDocumentPersistenceTokenCurrent(pendingPersistence.token))
         ) {
-            flushDocumentPersistence();
+            void flushDocumentPersistence().catch(() => undefined);
         }
         pendingPersistence ??= {
             sourceSha256: sourceSha256 ?? null,
@@ -156,21 +173,25 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
         if (patch.outputMode !== undefined) pendingPersistence.outputMode = patch.outputMode;
         if (patch.resetOverrides === true) pendingPersistence.resetOverrides = true;
         if (persistenceTimer !== null) clearTimeout(persistenceTimer);
-        persistenceTimer = setTimeout(flushDocumentPersistence, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
+        persistenceTimer = setTimeout(() => {
+            void flushDocumentPersistence().catch(() => undefined);
+        }, SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS);
     }
 
-    function flushPersistence() {
-        flushDocumentPersistence();
-        flushScanCleanupPreferencesStore();
+    async function flushPersistence() {
+        await flushDocumentPersistence();
+        await flushScanCleanupPreferencesStore();
     }
 
-    const handleWindowLifecycle = () => flushPersistence();
+    const handleWindowLifecycle = () => {
+        void flushPersistence().catch(() => undefined);
+    };
     if (typeof window !== 'undefined') {
         window.addEventListener('beforeunload', handleWindowLifecycle);
         window.addEventListener('pagehide', handleWindowLifecycle);
     }
     tryOnScopeDispose(() => {
-        flushPersistence();
+        void flushPersistence().catch(() => undefined);
         if (typeof window !== 'undefined') {
             window.removeEventListener('beforeunload', handleWindowLifecycle);
             window.removeEventListener('pagehide', handleWindowLifecycle);
@@ -347,7 +368,11 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
             ? DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE
             : persistedOutputMode;
         if (persistedOutputMode === 'mixed') {
-            saveScanCleanupDocumentPreferencesInStore(sourceSha256, legacyDocumentKey, {outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE});
+            void Promise.resolve(saveScanCleanupDocumentPreferencesInStore(
+                sourceSha256,
+                legacyDocumentKey,
+                {outputMode: DEFAULT_SCAN_CLEANUP_DOCUMENT_OUTPUT_MODE},
+            )).catch(() => undefined);
         }
         Object.assign(values.marginsMm, snapshot.marginsMm
             ?? preferences.marginsMm);
@@ -363,7 +388,7 @@ export const useScanCleanupDocumentSettings = (options: IUseScanCleanupDocumentS
     function loadDocumentSettingsForCurrentSource() {
         const generation = ++documentLoadGeneration;
         const lifecycleKey = options.documentLifecycleKey.value;
-        flushPersistence();
+        void flushPersistence().catch(() => undefined);
         const currentSourceSha256 = sourceSha256.value;
         const currentLegacyDocumentKey = legacyDocumentKey.value;
         loadingDocument = true;

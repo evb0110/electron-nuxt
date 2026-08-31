@@ -95,6 +95,7 @@ export function clearPendingBrowserDocumentChunkMetadata(
     delete entry.pendingChunkCount;
     delete entry.pendingChunkSize;
     delete entry.pendingFileSize;
+    delete entry.pendingChunkUpdatedAt;
 }
 
 export async function deleteBrowserDocumentChunks(

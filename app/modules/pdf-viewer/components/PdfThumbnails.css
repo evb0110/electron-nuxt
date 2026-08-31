@@ -15,6 +15,10 @@
   border: 1px solid var(--ui-border);
   border-radius: var(--app-radius-xs);
   background: var(--ui-bg);
+  padding: 0;
+  font: inherit;
+  line-height: 1;
+  appearance: none;
   box-shadow: var(--app-document-page-shadow);
   color: var(--ui-primary);
   opacity: 0;
@@ -34,6 +38,12 @@
 .pdf-thumbnail-selection-toggle:hover {
   border-color: var(--ui-primary);
   background: var(--app-sidebar-control-hover-bg);
+}
+
+.pdf-thumbnail-selection-toggle:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--app-toolbar-focus-ring);
+  outline-offset: 2px;
 }
 
 .pdf-thumbnail-selection-toggle.is-selected {

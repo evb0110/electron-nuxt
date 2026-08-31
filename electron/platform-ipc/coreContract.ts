@@ -1,5 +1,9 @@
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import {isRecord} from '@contracts/runtimeGuards';
+import type {
+    IWindowCloseRequest,
+    IWindowCloseResponse,
+} from '@contracts/systemPlatformFeature';
 
 export const CORE_IPC_CHANNELS = {rendererReady: 'app:rendererReady'} as const;
 
@@ -7,17 +11,20 @@ export const CORE_IPC_EVENT_CHANNELS = {
     menuCheckForUpdates: 'menu:checkForUpdates',
     debugLog: 'debug:log',
     shutdownSaveFlushRequest: 'shutdown:saveFlushRequest',
+    windowCloseRequest: 'window:closeRequest',
 } as const;
 
 export const CORE_IPC_SEND_CHANNELS = {
     rendererLog: 'renderer:log',
     shutdownSaveFlushResult: 'shutdown:saveFlushResult',
+    windowCloseResponse: 'window:closeResponse',
 } as const;
 
 export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates]: undefined;
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest]: IShutdownSaveFlushRequest;
+    [CORE_IPC_EVENT_CHANNELS.windowCloseRequest]: IWindowCloseRequest;
 }
 
 export interface IShutdownSaveFlushRequest { requestId: string; }
@@ -67,5 +74,33 @@ export function decodeShutdownSaveFlushResult(value: unknown): IShutdownSaveFlus
         ...(dirtyWorkingCopyPaths === undefined ? {} : {dirtyWorkingCopyPaths}),
         ...(flushedWorkingCopyPaths === undefined ? {} : {flushedWorkingCopyPaths}),
         ...(typeof value.error === 'string' ? {error: value.error} : {}),
+    };
+}
+
+export function decodeWindowCloseRequest(value: unknown): IWindowCloseRequest | null {
+    if (!isRecord(value)
+        || typeof value.requestId !== 'string'
+        || value.requestId.length < 1
+        || value.requestId.length > 256) {
+        return null;
+    }
+
+    return {requestId: value.requestId};
+}
+
+export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse | null {
+    if (!isRecord(value)
+        || typeof value.requestId !== 'string'
+        || value.requestId.length < 1
+        || value.requestId.length > 256
+        || (value.decision !== 'save'
+            && value.decision !== 'discard'
+            && value.decision !== 'cancel')) {
+        return null;
+    }
+
+    return {
+        decision: value.decision,
+        requestId: value.requestId,
     };
 }

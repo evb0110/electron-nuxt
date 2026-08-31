@@ -76,7 +76,7 @@ interface IFilteredRecentFiles {
 }
 
 interface IPathInspectionResult {
-    status: 'exists' | 'missing' | 'unreadable';
+    status: 'exists' | 'missing' | 'unreadable' | 'unavailable';
     size?: number;
     modifiedAt?: number;
 }
@@ -92,6 +92,15 @@ class RecentFileStatTimeoutError extends Error {
         this.timeoutMs = timeoutMs;
     }
 }
+
+const TRANSIENT_RECENT_FILE_STAT_ERROR_CODES = new Set([
+    'EAGAIN',
+    'EBUSY',
+    'EINTR',
+    'EMFILE',
+    'ENFILE',
+    'ETIMEDOUT',
+]);
 
 function getStoragePath() {
     return join(app.getPath('userData'), 'recentFiles.json');
@@ -184,26 +193,37 @@ async function statWithTimeout(filePath: string) {
 }
 
 async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
-    try {
-        const fileStat = await statWithTimeout(filePath);
-        return {
-            status: 'exists',
-            size: fileStat.size,
-            modifiedAt: Math.trunc(fileStat.mtimeMs),
-        };
-    } catch (error) {
-        const code = isErrnoException(error) ? error.code : undefined;
-        if (code === 'ENOENT' || code === 'ENOTDIR') {
-            return {status: 'missing'};
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+            const fileStat = await statWithTimeout(filePath);
+            return {
+                status: 'exists',
+                size: fileStat.size,
+                modifiedAt: Math.trunc(fileStat.mtimeMs),
+            };
+        } catch (error) {
+            const code = isErrnoException(error) ? error.code : undefined;
+            if ((code === 'ENOENT' || code === 'ENOTDIR') && attempt === 0) {
+                continue;
+            }
+            if (code === 'ENOENT' || code === 'ENOTDIR') {
+                return {status: 'missing'};
+            }
+            const timedOut = error instanceof RecentFileStatTimeoutError;
+            const unavailable = timedOut
+                || (typeof code === 'string' && TRANSIENT_RECENT_FILE_STAT_ERROR_CODES.has(code));
+            logger.warn(
+                timedOut
+                    ? `Recent file path stat timed out; preserving entry (${filePath})`
+                    : unavailable
+                        ? `Recent file path temporarily unavailable; preserving entry (${filePath})`
+                        : `Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`,
+            );
+            return {status: unavailable ? 'unavailable' : 'unreadable'};
         }
-        const timedOut = error instanceof RecentFileStatTimeoutError;
-        logger.warn(
-            timedOut
-                ? `Recent file path stat timed out; preserving entry (${filePath})`
-                : `Recent file path unreadable; preserving entry (${filePath}): ${getErrorMessage(error)}`,
-        );
-        return {status: 'unreadable'};
     }
+
+    return {status: 'missing'};
 }
 
 async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecentFiles> {
@@ -225,7 +245,7 @@ async function filterExistingFiles(files: IRecentFile[]): Promise<IFilteredRecen
             removedMissingCount += 1;
             continue;
         }
-        if (inspection.status === 'unreadable') {
+        if (inspection.status === 'unreadable' || inspection.status === 'unavailable') {
             unreadableCount += 1;
         }
         checks.push(inspection.status === 'exists'
@@ -309,18 +329,13 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
             return bootstrapData ?? emptyRecentFilesData();
         }
         logger.error(`Failed to read recent files: ${getErrorMessage(err)}`);
-        return emptyRecentFilesData();
+        throw err;
     }
 
+    let normalizedData: IRecentFilesData;
     try {
         const parsed: unknown = JSON.parse(content);
-        const normalizedData = normalizeRecentFilesData(parsed);
-        const canonicalized = canonicalizePersistedRecentFiles(normalizedData.files);
-        if (canonicalized.changed) {
-            normalizedData.files = canonicalized.files;
-            await saveRecentFilesData(normalizedData);
-        }
-        return normalizedData;
+        normalizedData = normalizeRecentFilesData(parsed);
     } catch (err) {
         logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
         const emptyData = emptyRecentFilesData();
@@ -333,6 +348,16 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         }
         return emptyData;
     }
+
+    const canonicalized = canonicalizePersistedRecentFiles(normalizedData.files);
+    if (canonicalized.changed) {
+        normalizedData.files = canonicalized.files;
+        // Keep persistence errors outside the corruption-recovery branch. A valid
+        // source file must remain the source of truth when its canonical rewrite
+        // cannot be committed.
+        await saveRecentFilesData(normalizedData);
+    }
+    return normalizedData;
 }
 
 async function saveRecentFilesData(data: IRecentFilesData) {

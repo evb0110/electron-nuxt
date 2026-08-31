@@ -745,7 +745,8 @@ export interface IDocumentSaveFailureResult {
     ok: false;
     reason: TDocumentSaveFailureReason;
     message?: string;
-    externalWriteCommitted?: boolean;
+    /** null means a timed-out browser writer may still commit later. */
+    externalWriteCommitted?: boolean | null;
     workingCopySyncRequired?: boolean;
     validation?: IPdfValidationResult | null;
 }

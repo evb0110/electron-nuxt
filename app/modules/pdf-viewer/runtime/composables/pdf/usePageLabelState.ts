@@ -9,6 +9,7 @@ import {
     getPageLabelWindow,
     materializePageLabelsForCompatibility,
     normalizePageLabelRanges,
+    PAGE_LABEL_DENSE_READ_MAX_PAGES,
     PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES,
     type IDocumentPageLabelModel,
 } from '@app/utils/document-viewer/pageLabels';
@@ -96,16 +97,20 @@ export const usePageLabelState = (deps: {
 
         try {
             let labels: string[] | null = null;
-            try {
-                const raw = await doc.getPageLabels();
-                labels = raw && raw.length === doc.numPages ? raw : null;
-            } catch (error) {
-                BrowserLogger.debug(
-                    'page-labels',
-                    'Failed to read page labels from PDF document',
-                    error,
-                );
-                labels = null;
+            if (doc.numPages <= PAGE_LABEL_DENSE_READ_MAX_PAGES) {
+                try {
+                    const raw = await doc.getPageLabels();
+                    labels = raw && raw.length === doc.numPages ? raw : null;
+                } catch (error) {
+                    BrowserLogger.debug(
+                        'page-labels',
+                        'Failed to read page labels from PDF document',
+                        error,
+                    );
+                    labels = null;
+                }
+            } else {
+                BrowserLogger.debug('page-labels', 'Skipped dense PDF.js page-label read', {pageCount: doc.numPages});
             }
 
             if (!isCurrentSync()) {

@@ -59,6 +59,10 @@ const legacyMethodPaths = [
         'onShutdownSaveFlushRequest',
     ],
     [
+        'system',
+        'onWindowCloseRequest',
+    ],
+    [
         'updates',
         'onMenuCheckForUpdates',
     ],

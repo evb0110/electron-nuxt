@@ -82,7 +82,13 @@ function readAssistantChatSessionMaxEntries() {
 }
 
 function readAssistantChatSessionTtlMs() {
-    return readBoundedIntegerEnv('EVB_ASSISTANT_CHAT_SESSION_TTL_MS', 60 * 60 * 1000, 60_000);
+    // Session retention is bounded by maxEntries, not by wall-clock inactivity.
+    // A backgrounded window must not turn a visible conversation into a new one.
+    const configured = process.env.EVB_ASSISTANT_CHAT_SESSION_TTL_MS;
+    if (configured === undefined || configured.trim() === '') {
+        return Number.POSITIVE_INFINITY;
+    }
+    return readBoundedIntegerEnv('EVB_ASSISTANT_CHAT_SESSION_TTL_MS', Number.POSITIVE_INFINITY, 60_000);
 }
 
 export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefined) {
@@ -258,7 +264,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             key,
             session,
         ] of chatSessions.entries()) {
-            if (isEvictableChatSession(session) && now - session.lastAccessedAtMs > ttlMs) {
+            if (isEvictableChatSession(session) && Number.isFinite(ttlMs) && now - session.lastAccessedAtMs > ttlMs) {
                 deleteSession(key, 'expired');
             }
         }

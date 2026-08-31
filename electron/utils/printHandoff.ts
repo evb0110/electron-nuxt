@@ -79,7 +79,7 @@ interface IPdfPageSize {
 
 interface IPdfPrintLayout {
     pageCount: number;
-    firstPageSize: IPdfPageSize;
+    pageSizes: IPdfPageSize[];
 }
 
 interface IPrintImagePage {
@@ -246,20 +246,82 @@ function parsePdfInfoPageCount(stdout: string) {
     return Number.isSafeInteger(pageCount) && pageCount > 0 ? pageCount : null;
 }
 
-function parsePdfInfoFirstPageSize(stdout: string) {
-    const match = stdout.match(/^Page size:\s*([\d.]+)\s+x\s+([\d.]+)\s+pts(?:\s|$)/imu);
-    if (!match) {
+function parsePdfInfoPageSizes(stdout: string, pageCount: number) {
+    const pageSizes = new Array<IPdfPageSize | null>(pageCount).fill(null);
+    const rotations = new Map<number, number>();
+    const pageSizePattern = /^Page(?:\s+(\d+))?\s+size:\s*([\d.]+)\s+x\s+([\d.]+)\s+pts(?:\s|$)/gimu;
+    for (const match of stdout.matchAll(pageSizePattern)) {
+        const pageNumber = Number.parseInt(match[1] ?? '1', 10);
+        const width = Number.parseFloat(match[2] ?? '');
+        const height = Number.parseFloat(match[3] ?? '');
+        if (
+            !Number.isSafeInteger(pageNumber)
+            || pageNumber < 1
+            || pageNumber > pageCount
+            || !Number.isFinite(width)
+            || !Number.isFinite(height)
+            || width <= 0
+            || height <= 0
+        ) {
+            continue;
+        }
+        pageSizes[pageNumber - 1] = {
+            width,
+            height,
+        };
+    }
+
+    const cropBoxPattern = /^Page\s+(\d+)\s+CropBox:\s*(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)\s+(-?[\d.]+)(?:\s|$)/gimu;
+    for (const match of stdout.matchAll(cropBoxPattern)) {
+        const pageNumber = Number.parseInt(match[1] ?? '', 10);
+        const left = Number.parseFloat(match[2] ?? '');
+        const bottom = Number.parseFloat(match[3] ?? '');
+        const right = Number.parseFloat(match[4] ?? '');
+        const top = Number.parseFloat(match[5] ?? '');
+        if (
+            !Number.isSafeInteger(pageNumber)
+            || pageNumber < 1
+            || pageNumber > pageCount
+            || ![
+                left,
+                bottom,
+                right,
+                top,
+            ].every(Number.isFinite)
+            || right <= left
+            || top <= bottom
+        ) {
+            continue;
+        }
+        pageSizes[pageNumber - 1] = {
+            width: right - left,
+            height: top - bottom,
+        };
+    }
+
+    const rotationPattern = /^Page\s+(\d+)\s+rot:\s*(-?\d+)/gimu;
+    for (const match of stdout.matchAll(rotationPattern)) {
+        const pageNumber = Number.parseInt(match[1] ?? '', 10);
+        const rotation = Number.parseInt(match[2] ?? '', 10);
+        if (Number.isSafeInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount && Number.isFinite(rotation)) {
+            rotations.set(pageNumber - 1, ((rotation % 360) + 360) % 360);
+        }
+    }
+
+    if (pageSizes.some(pageSize => pageSize === null)) {
         return null;
     }
-    const width = Number.parseFloat(match[1] ?? '');
-    const height = Number.parseFloat(match[2] ?? '');
-    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-        return null;
-    }
-    return {
-        width,
-        height,
-    };
+
+    return pageSizes.map((pageSize, index) => {
+        const rotation = rotations.get(index) ?? 0;
+        if (rotation === 90 || rotation === 270) {
+            return {
+                width: pageSize!.height,
+                height: pageSize!.width,
+            };
+        }
+        return pageSize!;
+    });
 }
 
 async function readPdfPrintLayout(path: string, signal?: AbortSignal): Promise<IPdfPrintLayout> {
@@ -276,16 +338,25 @@ async function readPdfPrintLayout(path: string, signal?: AbortSignal): Promise<I
         commandOptions.env = popplerEnv;
     }
 
-    const result = await runNativeToolCommand(paths.pdfinfo, [path], commandOptions);
+    const result = await runNativeToolCommand(paths.pdfinfo, [
+        '-box',
+        '-f',
+        '1',
+        '-l',
+        String(PRINT_RASTER_MAX_PAGES),
+        path,
+    ], commandOptions);
     const pageCount = parsePdfInfoPageCount(result.stdout ?? '');
-    const firstPageSize = parsePdfInfoFirstPageSize(result.stdout ?? '');
-    if (pageCount === null || firstPageSize === null) {
+    const pageSizes = pageCount === null || pageCount > PRINT_RASTER_MAX_PAGES
+        ? []
+        : parsePdfInfoPageSizes(result.stdout ?? '', pageCount);
+    if (pageCount === null || (pageCount <= PRINT_RASTER_MAX_PAGES && pageSizes === null)) {
         throw new Error('pdfinfo did not return printable PDF metadata');
     }
 
     return {
         pageCount,
-        firstPageSize,
+        pageSizes: pageSizes ?? [],
     };
 }
 
@@ -326,6 +397,7 @@ async function renderPdfPrintImages(
         }
 
         await runNativeToolCommand(paths.pdftoppm, [
+            '-cropbox',
             '-jpeg',
             '-r',
             String(PRINT_RASTER_DPI),
@@ -362,13 +434,17 @@ function buildRasterPrintHtml(
     layout: IPdfPrintLayout,
     imagePages: IPrintImagePage[],
 ) {
-    const pageWidth = Math.max(1, layout.firstPageSize.width);
-    const pageHeight = Math.max(1, layout.firstPageSize.height);
     const escapedTitle = escapeHtml(title);
     const pagesHtml = imagePages.map(page => `
-        <section class="print-page" data-page-number="${page.pageNumber}">
+        <section class="print-page page-${page.pageNumber}" data-page-number="${page.pageNumber}">
             <img src="${escapeHtml(pathToFileURL(page.path).toString())}" alt="">
         </section>
+    `).join('');
+    const pageRules = layout.pageSizes.map((pageSize, index) => `
+        @page page-${index + 1} {
+            size: ${Math.max(1, pageSize.width).toFixed(2)}pt ${Math.max(1, pageSize.height).toFixed(2)}pt;
+            margin: 0;
+        }
     `).join('');
 
     return `<!doctype html>
@@ -377,10 +453,7 @@ function buildRasterPrintHtml(
     <meta charset="utf-8">
     <title>${escapedTitle}</title>
     <style>
-        @page {
-            size: ${pageWidth.toFixed(2)}pt ${pageHeight.toFixed(2)}pt;
-            margin: 0;
-        }
+        ${pageRules}
         html,
         body {
             margin: 0;
@@ -389,14 +462,19 @@ function buildRasterPrintHtml(
         }
         .print-page {
             box-sizing: border-box;
-            width: ${pageWidth.toFixed(2)}pt;
-            height: ${pageHeight.toFixed(2)}pt;
             margin: 0;
             overflow: hidden;
             break-after: page;
             page-break-after: always;
             background: #fff;
         }
+        ${layout.pageSizes.map((pageSize, index) => `
+        .page-${index + 1} {
+            width: ${Math.max(1, pageSize.width).toFixed(2)}pt;
+            height: ${Math.max(1, pageSize.height).toFixed(2)}pt;
+            page: page-${index + 1};
+        }
+        `).join('')}
         .print-page:last-child {
             break-after: auto;
             page-break-after: auto;
@@ -456,14 +534,18 @@ async function createRasterPrintHtmlPath(path: string, documentTitle: string, si
             });
             return null;
         }
-        const pagePixels = Math.ceil(layout.firstPageSize.width * PRINT_RASTER_DPI / 72)
-            * Math.ceil(layout.firstPageSize.height * PRINT_RASTER_DPI / 72);
-        if (pagePixels * layout.pageCount > PRINT_RASTER_MAX_TOTAL_PIXELS) {
-            await rm(workDir, {
-                force: true,
-                recursive: true,
-            });
-            return null;
+        let totalPixels = 0;
+        for (const pageSize of layout.pageSizes) {
+            const pagePixels = Math.ceil(pageSize.width * PRINT_RASTER_DPI / 72)
+                * Math.ceil(pageSize.height * PRINT_RASTER_DPI / 72);
+            if (!Number.isSafeInteger(pagePixels) || pagePixels <= 0 || totalPixels > PRINT_RASTER_MAX_TOTAL_PIXELS - pagePixels) {
+                await rm(workDir, {
+                    force: true,
+                    recursive: true,
+                });
+                return null;
+            }
+            totalPixels += pagePixels;
         }
         throwIfPrintHandoffAborted(signal);
         const imagePages = await renderPdfPrintImages(path, layout, workDir, signal);

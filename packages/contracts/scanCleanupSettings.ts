@@ -109,8 +109,11 @@ export interface IScanCleanupDocumentPreferencePatch {
     resetOverrides?: boolean;
 }
 
+export type IScanCleanupGlobalPreferencePatch = Partial<IScanCleanupGlobalPreferences>;
+
 export interface IScanCleanupSettingsUpdateRequest {
     settings?: IScanCleanupGlobalPreferences;
+    settingsPatch?: IScanCleanupGlobalPreferencePatch;
     document?: {
         sourceSha256: string;
         legacyDocumentKey?: string | null;
@@ -215,8 +218,14 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
     const settings = stored.settings === undefined
         ? undefined
         : decodeScanCleanupGlobalPreferences(stored.settings);
+    const settingsPatch = stored.settingsPatch === undefined
+        ? undefined
+        : decodeScanCleanupGlobalPreferencesPatch(stored.settingsPatch);
     if (stored.document === undefined) {
-        return settings === undefined ? {} : {settings};
+        return {
+            ...(settings === undefined ? {} : {settings}),
+            ...(settingsPatch === undefined ? {} : {settingsPatch}),
+        };
     }
     const documentValue = scanCleanupPreferenceRecord(stored.document);
     if (!documentValue) {
@@ -231,6 +240,7 @@ export function decodeScanCleanupSettingsUpdateRequest(value: unknown): IScanCle
         : decodeNullablePath(documentValue.legacyDocumentKey, 'legacy document key');
     return {
         ...(settings === undefined ? {} : {settings}),
+        ...(settingsPatch === undefined ? {} : {settingsPatch}),
         document: {
             sourceSha256: sourceSha256.toLowerCase(),
             ...(legacyDocumentKey === undefined ? {} : {legacyDocumentKey}),
@@ -356,6 +366,25 @@ export function decodeScanCleanupGlobalPreferences(
             ? stored.firstRunGuidanceDismissed
             : defaults.firstRunGuidanceDismissed,
     };
+}
+
+export function decodeScanCleanupGlobalPreferencesPatch(value: unknown): IScanCleanupGlobalPreferencePatch {
+    const stored = scanCleanupPreferenceRecord(value);
+    if (!stored) {
+        throw new Error('Invalid scan-cleanup global settings patch');
+    }
+    const allowedKeys = new Set(Object.keys(DEFAULT_SCAN_CLEANUP_PREFERENCES));
+    for (const key of Object.keys(stored)) {
+        if (!allowedKeys.has(key)) {
+            throw new Error(`Invalid scan-cleanup global settings patch field: ${key}`);
+        }
+    }
+    const decoded = decodeScanCleanupGlobalPreferences(stored);
+    const patch: IScanCleanupGlobalPreferencePatch = {};
+    for (const key of Object.keys(stored) as Array<keyof IScanCleanupGlobalPreferences>) {
+        Object.assign(patch, {[key]: decoded[key]});
+    }
+    return patch;
 }
 
 export function assertFiniteScanCleanupPreferences(value: IScanCleanupGlobalPreferences) {

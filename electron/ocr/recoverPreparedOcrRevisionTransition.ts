@@ -1,7 +1,6 @@
 import {
     cp,
     lstat,
-    readFile,
     readdir,
     rename,
     rm,
@@ -20,6 +19,10 @@ import {
     getOcrCatalogV4PreparedDescriptorPath,
     rollbackPreparedOcrCatalogV4,
 } from '@electron/ocr/worker/indexWriterV4';
+import {
+    invalidDocumentRecoveryJournal,
+    readDocumentRecoveryJournal,
+} from '@electron/file-access/documentRecoveryJournal';
 
 const OCR_ROOT_MANIFEST_FILENAME = 'manifest.json';
 
@@ -88,19 +91,19 @@ async function restorePreparedRootManifest(
     await copyFileAtomic(backupPath, manifestPath);
 }
 
-function parseJson(raw: string): unknown {
-    const parsed: unknown = JSON.parse(raw);
-    return parsed;
-}
-
 /** Recovers a crash-interrupted OCR apply to the pre-transition bytes/catalog. */
 export async function recoverPreparedOcrRevisionTransition(workingCopyPath: string) {
     const journalPath = `${workingCopyPath}.ocr-transition.json`;
-    const journal: unknown = await readFile(journalPath, 'utf8')
-        .then(parseJson)
-        .catch(() => null);
-    if (!isRecord(journal) || journal.version !== 1 || journal.state !== 'prepared') {
+    const journal = await readDocumentRecoveryJournal(journalPath);
+    if (journal === undefined) {
         return false;
+    }
+    if (!isRecord(journal) || journal.version !== 1 || journal.state !== 'prepared') {
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid OCR revision transition recovery journal',
+        );
     }
     if (
         typeof journal.workingCopyPath !== 'string'
@@ -120,13 +123,21 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
             && journal.catalogApplyMode !== 'rename'
         )
     ) {
-        throw new Error('Invalid OCR revision transition recovery journal');
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid OCR revision transition recovery journal',
+        );
     }
     const catalogBackupExisted = journal.catalogBackupExisted !== false;
     const isV4Prepared = journal.catalogKind === 'v4-root'
         || typeof journal.descriptorPath === 'string';
     if (isV4Prepared && typeof journal.descriptorPath !== 'string') {
-        throw new Error('Invalid OCR v4 revision transition recovery journal');
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid OCR v4 revision transition recovery journal',
+        );
     }
     if (
         isV4Prepared
@@ -135,10 +146,18 @@ export async function recoverPreparedOcrRevisionTransition(workingCopyPath: stri
             || getOcrCatalogV4PreparedDescriptorPath(journal.resultPath) !== journal.descriptorPath
         )
     ) {
-        throw new Error('Invalid OCR v4 revision transition recovery journal');
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid OCR v4 revision transition recovery journal',
+        );
     }
     if (!isV4Prepared && typeof journal.catalogBackupPath !== 'string') {
-        throw new Error('Invalid OCR revision transition recovery journal');
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid OCR revision transition recovery journal',
+        );
     }
 
     const currentRevision = await readWorkingCopyRevisionSidecar(workingCopyPath);

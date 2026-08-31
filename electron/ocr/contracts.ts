@@ -12,6 +12,10 @@ import type {
     TOcrErrorCode,
     TOcrQualityProfile,
 } from '@contracts/electronApiOcr';
+import {
+    AGENT_OCR_PAGE_SEGMENTATION_MODES,
+    isSupportedPageSegmentationMode,
+} from '@contracts/agentOcr';
 
 interface IOcrCreateSearchablePdfPayload {
     sourcePdfPath: string;
@@ -27,7 +31,6 @@ const MAX_SELECTION_RANGES = 100_000;
 const MAX_EXPLICIT_PAGE_REQUESTS = 100_000;
 const MAX_REQUEST_ID_LENGTH = 128;
 const MAX_ERROR_DETAILS_LENGTH = 512;
-const MAX_TESSERACT_PSM = 13;
 const OCR_QUALITY_PROFILES = [
     'balanced',
     'accurate',
@@ -238,8 +241,10 @@ function asOptionalPageSegmentationMode(value: unknown, fieldName: string) {
     if (value === null || value === undefined) {
         return undefined;
     }
-    if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0 || value > MAX_TESSERACT_PSM) {
-        throw new OcrPayloadValidationError(`${fieldName} must be an integer between 0 and ${MAX_TESSERACT_PSM}`);
+    if (!isSupportedPageSegmentationMode(value)) {
+        throw new OcrPayloadValidationError(
+            `${fieldName} must be one of the output-capable Tesseract modes: ${AGENT_OCR_PAGE_SEGMENTATION_MODES.join(', ')}`,
+        );
     }
     return value;
 }

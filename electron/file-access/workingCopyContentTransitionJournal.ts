@@ -28,6 +28,10 @@ import {
 import {createLogger} from '@electron/utils/createLogger';
 import {getErrorMessage} from '@electron/utils/error';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
+import {
+    invalidDocumentRecoveryJournal,
+    readDocumentRecoveryJournal,
+} from '@electron/file-access/documentRecoveryJournal';
 
 const log = createLogger('workingCopyContentTransitionJournal');
 
@@ -366,12 +370,13 @@ export async function completeWorkingCopyContentTransition(
  */
 export async function recoverWorkingCopyContentTransition(workingCopyPath: string) {
     const journalPath = journalPathFor(workingCopyPath);
-    const value: unknown = await readFile(journalPath, 'utf8')
-        .then(raw => JSON.parse(raw) as unknown)
-        .catch(() => null);
+    const value = await readDocumentRecoveryJournal(journalPath);
+    if (value === undefined) {
+        return false;
+    }
     const journal = parseJournal(value);
     if (!journal) {
-        return false;
+        throw invalidDocumentRecoveryJournal(journalPath);
     }
     if (journal.workingCopyPath !== workingCopyPath) {
         throw new Error('Working-copy content transition journal targets another document');

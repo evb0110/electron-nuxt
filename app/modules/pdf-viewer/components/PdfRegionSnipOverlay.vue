@@ -1,14 +1,21 @@
 <template>
     <div
         v-if="shouldRender"
+        ref="overlayRef"
         class="snip-overlay"
         :class="{ 'is-active': active }"
+        :role="active ? 'dialog' : 'status'"
+        :aria-modal="active ? 'true' : undefined"
+        :aria-label="active ? hintLabel : copiedLabel"
+        :aria-live="active ? 'off' : 'polite'"
+        :tabindex="active ? 0 : -1"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointercancel="cancelSelection"
         @contextmenu="handleContextMenu"
         @wheel="handleWheel"
+        @keydown="handleKeyboardKey"
     >
         <div
             v-if="selectionRect"
@@ -40,6 +47,7 @@ import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
+import { pdfRegionSnipKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
@@ -64,6 +72,8 @@ const {
     copiedLabel,
 } = defineProps<IProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
+const overlayRef = ref<HTMLElement | null>(null);
+const keyboardController = inject(pdfRegionSnipKeyboardKey, null);
 
 const {
     handlePointerDown,
@@ -99,6 +109,57 @@ const badgeStyle = computed<CSSProperties>(() => {
 function cancelSelection() {
     emit('cancel');
 }
+
+let previouslyFocusedElement: HTMLElement | null = null;
+
+function focusOverlay() {
+    if (typeof document !== 'undefined') {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && activeElement !== overlayRef.value) {
+            previouslyFocusedElement = activeElement;
+        }
+    }
+    void nextTick(() => overlayRef.value?.focus({preventScroll: true}));
+}
+
+function restoreFocus() {
+    const element = previouslyFocusedElement;
+    previouslyFocusedElement = null;
+    if (element?.isConnected) {
+        void nextTick(() => element.focus({preventScroll: true}));
+    }
+}
+
+function handleKeyboardKey(event: KeyboardEvent) {
+    if (!active) {
+        return;
+    }
+    if (event.key === 'Tab') {
+        event.preventDefault();
+        overlayRef.value?.focus({preventScroll: true});
+        return;
+    }
+    if (keyboardController?.handleKeyboardKey(event)) {
+        return;
+    }
+    if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelSelection();
+    }
+}
+
+watch(() => active, (isActive) => {
+    if (isActive) {
+        focusOverlay();
+    } else {
+        restoreFocus();
+    }
+}, {
+    flush: 'post',
+    immediate: true,
+});
+
+onBeforeUnmount(restoreFocus);
 </script>
 
 <style scoped>
@@ -114,6 +175,11 @@ function cancelSelection() {
 .snip-overlay.is-active {
     pointer-events: auto;
     cursor: crosshair;
+}
+
+.snip-overlay:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: -2px;
 }
 
 .snip-selection,

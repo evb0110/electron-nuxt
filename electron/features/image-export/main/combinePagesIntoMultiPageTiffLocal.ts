@@ -27,10 +27,18 @@ interface ITiffPageRgba {
     rgba: Uint8Array;
 }
 
-interface ILocalTiffPageDescriptor extends ITiffImageDescriptor { path: string }
+type TTiffOrientation = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
+interface ILocalTiffPageDescriptor extends ITiffImageDescriptor {
+    orientation: TTiffOrientation;
+    path: string;
+    sourceHeight: number;
+    sourceWidth: number;
+}
 
 interface ICombinePagesIntoMultiPageTiffLocalOptions {
     deleteSourcePages?: boolean;
+    defaultDpi?: number;
     signal?: AbortSignal;
 }
 
@@ -93,6 +101,131 @@ function resolveTiffDimension(ifd: IUtifFrame, candidates: Array<string | number
     return null;
 }
 
+function resolveTiffNumber(value: unknown): number | null {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+    if (Array.isArray(value)) {
+        if (value.length >= 2 && typeof value[0] === 'number' && typeof value[1] === 'number' && value[1] !== 0) {
+            return value[0] / value[1];
+        }
+        return resolveTiffNumber(value[0]);
+    }
+    if (ArrayBuffer.isView(value) && isIndexedArrayBufferView(value) && value.length > 0) {
+        return resolveTiffNumber(value[0]);
+    }
+    return null;
+}
+
+function resolveTiffOrientation(ifd: IUtifFrame): TTiffOrientation {
+    const value = resolveTiffNumber((ifd as Record<string | number, unknown>).t274);
+    return value === 2 || value === 3 || value === 4 || value === 5 || value === 6 || value === 7 || value === 8
+        ? value
+        : 1;
+}
+
+function resolveTiffDpi(ifd: IUtifFrame, defaultDpi: number) {
+    const record = ifd as Record<string | number, unknown>;
+    const unit = resolveTiffNumber(record.t296) ?? 2;
+    const unitMultiplier = unit === 3 ? 2.54 : unit === 2 ? 1 : 0;
+    const dpiX = (resolveTiffNumber(record.t282) ?? 0) * unitMultiplier;
+    const dpiY = (resolveTiffNumber(record.t283) ?? 0) * unitMultiplier;
+    return {
+        dpiX: dpiX > 0 ? dpiX : defaultDpi,
+        dpiY: dpiY > 0 ? dpiY : defaultDpi,
+    };
+}
+
+function swapsTiffOrientationDimensions(orientation: TTiffOrientation) {
+    return orientation >= 5;
+}
+
+function createTiffOrientationMapper(
+    width: number,
+    height: number,
+    orientation: TTiffOrientation,
+) {
+    switch (orientation) {
+        case 2:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: width - 1 - sourceX,
+                targetY: sourceY,
+            });
+        case 3:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: width - 1 - sourceX,
+                targetY: height - 1 - sourceY,
+            });
+        case 4:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: sourceX,
+                targetY: height - 1 - sourceY,
+            });
+        case 5:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: sourceY,
+                targetY: sourceX,
+            });
+        case 6:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: height - 1 - sourceY,
+                targetY: sourceX,
+            });
+        case 7:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: height - 1 - sourceY,
+                targetY: width - 1 - sourceX,
+            });
+        case 8:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: sourceY,
+                targetY: width - 1 - sourceX,
+            });
+        default:
+            return (sourceX: number, sourceY: number) => ({
+                targetX: sourceX,
+                targetY: sourceY,
+            });
+    }
+}
+
+function transformTiffRgba(
+    rgba: Uint8Array,
+    width: number,
+    height: number,
+    orientation: TTiffOrientation,
+) {
+    if (orientation === 1) {
+        return {
+            width,
+            height,
+            rgba,
+        };
+    }
+
+    const swapsDimensions = swapsTiffOrientationDimensions(orientation);
+    const outputWidth = swapsDimensions ? height : width;
+    const outputHeight = swapsDimensions ? width : height;
+    const output = new Uint8Array(outputWidth * outputHeight * 4);
+    const mapTarget = createTiffOrientationMapper(width, height, orientation);
+    for (let sourceY = 0; sourceY < height; sourceY += 1) {
+        for (let sourceX = 0; sourceX < width; sourceX += 1) {
+            const {
+                targetX,
+                targetY,
+            } = mapTarget(sourceX, sourceY);
+            const sourceOffset = (sourceY * width + sourceX) * 4;
+            const targetOffset = (targetY * outputWidth + targetX) * 4;
+            output.set(rgba.subarray(sourceOffset, sourceOffset + 4), targetOffset);
+        }
+    }
+    return {
+        width: outputWidth,
+        height: outputHeight,
+        rgba: output,
+    };
+}
+
 function readTiffDimensions(ifd: IUtifFrame) {
     const width = resolveTiffDimension(ifd, [
         'width',
@@ -117,7 +250,7 @@ function readTiffDimensions(ifd: IUtifFrame) {
     };
 }
 
-function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {
+function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array, defaultDpi: number) {
     const ifds = UTIF.decode(tiffBytes);
 
     for (const ifd of ifds) {
@@ -126,7 +259,13 @@ function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {
             continue;
         }
 
-        return dimensions;
+        const orientation = resolveTiffOrientation(ifd);
+        const resolution = resolveTiffDpi(ifd, defaultDpi);
+        return {
+            ...dimensions,
+            ...resolution,
+            orientation,
+        };
     }
 
     throw new Error('Failed to decode TIFF page metadata');
@@ -134,8 +273,7 @@ function decodeSinglePageTiffMetadata(tiffBytes: Uint8Array) {
 
 function decodeSinglePageTiffRgba(
     tiffBytes: Uint8Array,
-    expectedWidth: number,
-    expectedHeight: number,
+    page: ILocalTiffPageDescriptor,
 ): ITiffPageRgba {
     const ifds = UTIF.decode(tiffBytes);
 
@@ -145,22 +283,18 @@ function decodeSinglePageTiffRgba(
             continue;
         }
 
-        if (dimensions.width !== expectedWidth || dimensions.height !== expectedHeight) {
+        if (dimensions.width !== page.sourceWidth || dimensions.height !== page.sourceHeight) {
             continue;
         }
 
         UTIF.decodeImage(tiffBytes, ifd);
 
         const rgba = UTIF.toRGBA8(ifd);
-        if (!rgba || rgba.length !== expectedWidth * expectedHeight * 4) {
+        if (!rgba || rgba.length !== page.sourceWidth * page.sourceHeight * 4) {
             continue;
         }
 
-        return {
-            width: expectedWidth,
-            height: expectedHeight,
-            rgba,
-        };
+        return transformTiffRgba(rgba, page.sourceWidth, page.sourceHeight, page.orientation);
     }
 
     throw new Error('Failed to decode TIFF page data');
@@ -251,19 +385,25 @@ export function splitTiffPageDescriptorsForClassicLimit<TPage extends ITiffImage
     return groups;
 }
 
-export async function readTiffPageDescriptors(pagePaths: string[], signal?: AbortSignal) {
+export async function readTiffPageDescriptors(pagePaths: string[], signal?: AbortSignal, defaultDpi = 72) {
     const pages: ILocalTiffPageDescriptor[] = [];
 
     for (const pagePath of pagePaths) {
         throwIfAborted(signal);
         const tiffBytes = await readFile(pagePath);
         throwIfAborted(signal);
-        const metadata = decodeSinglePageTiffMetadata(tiffBytes);
+        const metadata = decodeSinglePageTiffMetadata(tiffBytes, defaultDpi);
+        const swapsDimensions = swapsTiffOrientationDimensions(metadata.orientation);
         pages.push({
             path: pagePath,
-            width: metadata.width,
-            height: metadata.height,
+            width: swapsDimensions ? metadata.height : metadata.width,
+            height: swapsDimensions ? metadata.width : metadata.height,
             dataLength: metadata.width * metadata.height * 4,
+            dpiX: swapsDimensions ? metadata.dpiY : metadata.dpiX,
+            dpiY: swapsDimensions ? metadata.dpiX : metadata.dpiY,
+            orientation: metadata.orientation,
+            sourceWidth: metadata.width,
+            sourceHeight: metadata.height,
         });
     }
 
@@ -308,12 +448,13 @@ export async function combinePagesIntoMultiPageTiffLocal(
     options: ICombinePagesIntoMultiPageTiffLocalOptions | AbortSignal = {},
 ) {
     const signal = options instanceof AbortSignal ? options : options.signal;
+    const defaultDpi = options instanceof AbortSignal ? 72 : options.defaultDpi ?? 72;
     const deleteSourcePages = !(options instanceof AbortSignal) && options.deleteSourcePages === true;
     if (pagePaths.length === 0) {
         throw new Error('No pages available for TIFF export');
     }
     throwIfAborted(signal);
-    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal)) {
+    if (await tryCombinePagesWithNativeTiffCombiner(pagePaths, outputPath, signal, defaultDpi)) {
         if (deleteSourcePages) {
             await removeSourcePages(pagePaths);
         }
@@ -321,7 +462,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
     }
 
     throwIfAborted(signal);
-    const pages = await readTiffPageDescriptors(pagePaths, signal);
+    const pages = await readTiffPageDescriptors(pagePaths, signal, defaultDpi);
     throwIfAborted(signal);
     const totalByteLength = estimateMultiPageTiffByteLength(pages);
     if (totalByteLength > CLASSIC_TIFF_MAX_BYTE_LENGTH) {
@@ -355,11 +496,7 @@ export async function combinePagesIntoMultiPageTiffLocal(
             throwIfAborted(signal);
             const tiffBytes = await readFile(page.path);
             throwIfAborted(signal);
-            const decoded = decodeSinglePageTiffRgba(
-                tiffBytes,
-                page.width,
-                page.height,
-            );
+            const decoded = decodeSinglePageTiffRgba(tiffBytes, page);
 
             if (decoded.rgba.length !== page.dataLength) {
                 throw new Error('Decoded TIFF page size did not match computed descriptor size');

@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menu',
+        'readerToolbar': 'Barra de ferramentas do documento',
         'openPdf': 'Abrir Ficheiro',
         'save': 'Guardar',
         'saveAs': 'Guardar Como…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Separadores de documentos',
         'newTab': 'Novo Separador',
         'unsavedChanges': 'Alterações por guardar',
         'closeTab': 'Fechar separador',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'A preparar {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar separador com alterações por guardar?',
         'confirmCloseDirtyDescription': '"{name}" tem alterações por guardar. As alterações serão descartadas ao fechar.',
+        'confirmCloseWindowDirtyTitle': 'Fechar janela com alterações por guardar?',
+        'confirmCloseWindowDirtyDescription': 'Existem alterações por guardar. Guarde-as antes de fechar a janela, descarte-as ou cancele.',
+        'discardChanges': 'Descartar alterações',
         'transferErrors': {
             'noTargetPane': 'Nenhum painel de destino está disponível na janela de destino.',
             'noTargetTab': 'Nenhum separador de destino está disponível na janela de destino.',
@@ -1180,6 +1185,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Ações da página',
+        'outlineMenu': 'Ações do marcador',
+        'annotationMenu': 'Ações da anotação',
         'openPopUpNote': 'Abrir Nota Pop-up',
         'copyTextToClipboard': 'Copiar Texto para a Área de Transferência',
         'copySelectionToClipboard': 'Copiar Seleção para a Área de Transferência',
@@ -1558,11 +1566,13 @@ export default {
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
         },
+        'settings': {'load': 'Não foi possível carregar as definições'},
         'runtime': {
             'title': 'Algo correu mal',
             'description': 'A aplicação encontrou um erro inesperado e pode não funcionar corretamente até ser recarregada.',
             'startupTitle': 'Falha ao iniciar a aplicação',
             'startupDescription': 'A aplicação não conseguiu concluir a inicialização. Recarregue-a e tente novamente.',
+            'recentGeometryWarmupTitle': 'Pré-visualização dos ficheiros recentes indisponível',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Recarregar aplicação',
             'copy': 'Copiar detalhes',

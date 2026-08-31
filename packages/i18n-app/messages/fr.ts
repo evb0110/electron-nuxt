@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menu',
+        'readerToolbar': 'Barre d’outils du document',
         'openPdf': 'Ouvrir un fichier',
         'save': 'Enregistrer',
         'saveAs': 'Enregistrer sous…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Onglets de documents',
         'newTab': 'Nouvel onglet',
         'unsavedChanges': 'Modifications non enregistrées',
         'closeTab': 'Fermer l’onglet',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'Préparation {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fermer l’onglet avec des modifications non enregistrées ?',
         'confirmCloseDirtyDescription': '"{name}" contient des modifications non enregistrées. Les modifications seront abandonnées à la fermeture.',
+        'confirmCloseWindowDirtyTitle': 'Fermer la fenêtre avec des modifications non enregistrées ?',
+        'confirmCloseWindowDirtyDescription': 'Des modifications ne sont pas enregistrées. Enregistrez-les avant de fermer la fenêtre, abandonnez-les ou annulez.',
+        'discardChanges': 'Abandonner les modifications',
         'transferErrors': {
             'noTargetPane': 'Aucun panneau cible n’est disponible dans la fenêtre de destination.',
             'noTargetTab': 'Aucun onglet cible n’est disponible dans la fenêtre de destination.',
@@ -1180,6 +1185,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Actions de page',
+        'outlineMenu': 'Actions de signet',
+        'annotationMenu': 'Actions d’annotation',
         'openPopUpNote': 'Ouvrir la note contextuelle',
         'copyTextToClipboard': 'Copier le texte dans le presse-papiers',
         'copySelectionToClipboard': 'Copier la sélection dans le presse-papiers',
@@ -1558,11 +1566,13 @@ export default {
             'loadDescription': 'Essayez de recharger l’espace de travail.',
             'loadDescriptionWithMessage': 'Essayez de recharger l’espace de travail. ({message})',
         },
+        'settings': {'load': 'Impossible de charger les paramètres'},
         'runtime': {
             'title': 'Une erreur est survenue',
             'description': 'L’application a rencontré une erreur inattendue et peut ne pas fonctionner correctement tant qu’elle n’est pas rechargée.',
             'startupTitle': 'Le démarrage de l’application a échoué',
             'startupDescription': 'L’application n’a pas pu terminer son démarrage. Rechargez-la puis réessayez.',
+            'recentGeometryWarmupTitle': 'Aperçu des fichiers récents indisponible',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Recharger l’application',
             'copy': 'Copier les détails',

@@ -3,15 +3,19 @@ import {
     rm,
     writeFile,
 } from 'fs/promises';
-import { existsSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
 import {
     DEFAULT_SETTINGS,
+    assertSupportedSettingsSchema,
     sanitizeSettings,
+    UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
-import { isRecord } from '@contracts/runtimeGuards';
+import {
+    isErrnoException,
+    isRecord,
+} from '@contracts/runtimeGuards';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -65,21 +69,26 @@ async function writeSettingsAtomically(storagePath: string, settings: ISettingsD
 }
 
 async function readSettingsFromStorage(storagePath: string) {
-    if (!existsSync(storagePath)) {
-        return sanitizeSettings(DEFAULT_SETTINGS);
-    }
-
     let content: string;
     try {
         content = await readFile(storagePath, 'utf-8');
     } catch (err) {
+        if (isErrnoException(err) && err.code === 'ENOENT') {
+            return sanitizeSettings(DEFAULT_SETTINGS);
+        }
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
-        return sanitizeSettings(DEFAULT_SETTINGS);
+        throw err;
     }
 
     try {
-        return sanitizeSettings(parseSettingsPayload(content));
+        const parsed = parseSettingsPayload(content);
+        assertSupportedSettingsSchema(parsed);
+        return sanitizeSettings(parsed);
     } catch (err) {
+        if (err instanceof UnsupportedSettingsSchemaError) {
+            logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
+            throw err;
+        }
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         try {
             const quarantinePath = await quarantineCorruptFile(storagePath);

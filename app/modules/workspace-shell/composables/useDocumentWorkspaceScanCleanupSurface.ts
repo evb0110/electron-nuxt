@@ -58,7 +58,10 @@ export const useDocumentWorkspaceScanCleanupSurface = (
 
     function discardScanCleanupState() {
         surface.discardScanCleanupSessionState();
-        discardScanCleanupDocumentState(options.readDocumentKey(), options.readSourceSha256?.() ?? null);
+        void discardScanCleanupDocumentState(
+            options.readDocumentKey(),
+            options.readSourceSha256?.() ?? null,
+        ).catch(() => undefined);
     }
 
     // Scan Cleanup edits a document; it cannot outlive one. The final tab keeps
@@ -90,11 +93,11 @@ export const useDocumentWorkspaceScanCleanupSurface = (
         // Leaving the panel is not closing the source document. Reset the
         // ephemeral view/preferences while retaining completed authoritative
         // detection for a same-identity reopen.
-        discardScanCleanupDocumentState(
+        void discardScanCleanupDocumentState(
             options.readDocumentKey(),
             options.readSourceSha256?.() ?? null,
             {discardDetection: false},
-        );
+        ).catch(() => undefined);
     }
 
     return {

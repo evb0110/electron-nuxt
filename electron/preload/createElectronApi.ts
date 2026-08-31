@@ -16,6 +16,10 @@ import type {
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type {
+    TWindowCloseDecision,
+    TWindowCloseRequestHandler,
+} from '@contracts/systemPlatformFeature';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
@@ -57,6 +61,7 @@ import {
     type ICoreEventMap,
     type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
+    decodeWindowCloseRequest,
 } from '@electron/platform-ipc/coreContract';
 
 const preloadStartupStart = Date.now();
@@ -177,6 +182,7 @@ export function createElectronApi(
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
     }>();
+    const windowCloseCallbacks = new Set<TWindowCloseRequestHandler>();
     const pendingRendererFileOpenAllows = new Map<string, {
         token: string;
         promise: Promise<boolean>;
@@ -338,6 +344,39 @@ export function createElectronApi(
                     : errors.length > 0 ? {error: errors.join('; ')} : {}),
             };
             ipcRenderer.send(CORE_IPC_SEND_CHANNELS.shutdownSaveFlushResult, response);
+        })();
+    });
+
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, (_event, payload: unknown) => {
+        const request = decodeWindowCloseRequest(payload);
+        if (!request) {
+            return;
+        }
+
+        void (async () => {
+            const callbacks = Array.from(windowCloseCallbacks);
+            let decision: TWindowCloseDecision = 'cancel';
+
+            const callback = callbacks.length === 1 ? callbacks[0] : undefined;
+            if (callback) {
+                try {
+                    const candidate = await callback(request);
+                    if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
+                        decision = candidate;
+                    }
+                } catch (error) {
+                    console.warn(`[preload] Window close decision failed: ${getErrorMessage(error)}`);
+                }
+            }
+
+            try {
+                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.windowCloseResponse, {
+                    decision,
+                    requestId: request.requestId,
+                });
+            } catch (error) {
+                console.warn(`[preload] Window close response failed: ${getErrorMessage(error)}`);
+            }
         })();
     });
 
@@ -531,6 +570,12 @@ export function createElectronApi(
                 shutdownSaveFlushCallbacks.add(callback);
                 return () => {
                     shutdownSaveFlushCallbacks.delete(callback);
+                };
+            },
+            onWindowCloseRequest: (callback) => {
+                windowCloseCallbacks.add(callback);
+                return () => {
+                    windowCloseCallbacks.delete(callback);
                 };
             },
         },

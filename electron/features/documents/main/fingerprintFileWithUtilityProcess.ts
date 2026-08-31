@@ -9,6 +9,7 @@ import {decodeDocumentSaveUtilityResult} from '@electron/features/documents/main
 import {abortErrorFromSignal} from '@electron/utils/abort';
 import {DOCUMENT_FINGERPRINT_SERVICE_NAME} from '@electron/processDeathRecovery';
 import {terminateProcessTree} from '@electron/utils/processTree';
+import {markUnprovenNativeTermination} from '@electron/utils/nativeTerminationProof';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ADMISSION_TIMEOUT_MS = 15_000;
@@ -42,12 +43,14 @@ export async function runDocumentSaveUtilityProcess(options: {
         const stopChild = async () => {
             const pid = child.pid;
             if (pid === undefined) {
-                return;
+                return true;
             }
-            await terminateProcessTree(pid, {
+            return terminateProcessTree(pid, {
                 graceMs: 2_500,
                 isTargetAlive: () => child.pid !== undefined,
-                preferProcessGroup: process.platform !== 'win32',
+                // utilityProcess.fork does not create a detached POSIX process
+                // group. A group probe can therefore miss this live child.
+                preferProcessGroup: false,
             });
         };
         const finish = async (error?: Error, result?: {
@@ -60,7 +63,18 @@ export async function runDocumentSaveUtilityProcess(options: {
             settled = true;
             clearTimeout(timeout);
             options.signal?.removeEventListener('abort', abort);
-            await stopChild();
+            const terminated = await stopChild();
+            if (!terminated) {
+                if (!error && result) {
+                    resolve(result);
+                    return;
+                }
+                reject(markUnprovenNativeTermination(
+                    error ?? new Error(`${options.utilityName} process did not terminate cleanly.`),
+                    `${options.utilityName} process (pid=${child.pid ?? 'unknown'}) was not proven dead`,
+                ));
+                return;
+            }
             if (error) reject(error); else resolve(result!);
         };
         const abort = () => {

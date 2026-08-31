@@ -1,10 +1,16 @@
 import { dialog } from 'electron';
-import { opendir } from 'fs/promises';
+import {
+    opendir,
+    realpath,
+    stat,
+} from 'fs/promises';
 import {
     basename,
+    isAbsolute,
     join,
+    relative,
+    sep,
 } from 'path';
-import { sortBy } from 'es-toolkit/array';
 import {
     type ICreatePdfFromInputPathsProgress,
     isSupportedOpenPath,
@@ -49,15 +55,33 @@ const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
  * request another window started.
  */
 const activeDirectBatchRequests = new Map<string, AbortController>();
+const folderEntryCollator = new Intl.Collator(undefined, {
+    numeric: true,
+    sensitivity: 'base',
+});
+
+function isPathInsideDirectory(directoryPath: string, candidatePath: string) {
+    const relativePath = relative(directoryPath, candidatePath);
+    return relativePath !== ''
+        && relativePath !== '..'
+        && !relativePath.startsWith(`..${sep}`)
+        && !isAbsolute(relativePath);
+}
 
 export async function collectSupportedFolderPaths(folderPath: string) {
     const supportedPaths: string[] = [];
+    const realFolderPath = await realpath(folderPath);
     const directory = await opendir(folderPath);
     for await (const entry of directory) {
-        if (!entry.isFile()) {
+        const path = join(folderPath, entry.name);
+        const realPath = await realpath(path).catch(() => null);
+        if (!realPath || !isPathInsideDirectory(realFolderPath, realPath)) {
             continue;
         }
-        const path = join(folderPath, entry.name);
+        const targetStat = await stat(realPath).catch(() => null);
+        if (!targetStat?.isFile()) {
+            continue;
+        }
         if (!isSupportedOpenPath(path)) {
             continue;
         }
@@ -66,13 +90,16 @@ export async function collectSupportedFolderPaths(folderPath: string) {
             throw new Error(`Open batch exceeds maximum size (${MAX_DIRECT_OPEN_BATCH_PATHS})`);
         }
     }
-    return sortBy(
-        supportedPaths.map(path => ({
+    return supportedPaths
+        .map(path => ({
             path,
             name: basename(path),
-        })),
-        ['name'],
-    ).map(entry => entry.path);
+        }))
+        .sort((left, right) => (
+            folderEntryCollator.compare(left.name, right.name)
+            || left.name.localeCompare(right.name)
+        ))
+        .map(entry => entry.path);
 }
 
 function getDirectBatchRequestKey(senderId: number, requestId: string) {

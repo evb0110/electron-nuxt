@@ -147,12 +147,14 @@ export default {
         'cropHint': 'Выделите область обрезки. Нажмите Esc для отмены.',
         'fullscreen': 'Полноэкранный режим',
         'appMenu': 'Меню',
+        'readerToolbar': 'Панель инструментов документа',
     },
     'notifications': {
         'docxSavedTitle': 'DOCX сохранён',
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Вкладки документов',
         'newTab': 'Новая вкладка',
         'unsavedChanges': 'Несохранённые изменения',
         'closeTab': 'Закрыть вкладку',
@@ -162,6 +164,9 @@ export default {
         'preparingBatch': 'Подготовка {processed}/{total}',
         'confirmCloseDirtyTitle': 'Закрыть вкладку с несохранёнными изменениями?',
         'confirmCloseDirtyDescription': 'В "{name}" есть несохранённые изменения. При закрытии изменения будут отброшены.',
+        'confirmCloseWindowDirtyTitle': 'Закрыть окно с несохранёнными изменениями?',
+        'confirmCloseWindowDirtyDescription': 'Есть несохранённые изменения. Сохраните их перед закрытием окна, отбросьте или отмените.',
+        'discardChanges': 'Отбросить изменения',
         'transferErrors': {
             'noTargetPane': 'В окне назначения нет доступной целевой панели.',
             'noTargetTab': 'В окне назначения нет доступной целевой вкладки.',
@@ -1197,6 +1202,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Действия со страницей',
+        'outlineMenu': 'Действия с закладкой',
+        'annotationMenu': 'Действия с аннотацией',
         'openPopUpNote': 'Открыть заметку',
         'copyTextToClipboard': 'Копировать в буфер',
         'copySelectionToClipboard': 'Копировать выделение в буфер',
@@ -1582,11 +1590,13 @@ export default {
             'loadDescription': 'Попробуйте загрузить рабочую область снова.',
             'loadDescriptionWithMessage': 'Попробуйте загрузить рабочую область снова. ({message})',
         },
+        'settings': {'load': 'Не удалось загрузить настройки'},
         'runtime': {
             'title': 'Что-то пошло не так',
             'description': 'В приложении произошла неожиданная ошибка, и оно может работать некорректно, пока вы его не перезагрузите.',
             'startupTitle': 'Не удалось запустить приложение',
             'startupDescription': 'Приложению не удалось завершить запуск. Перезагрузите его и попробуйте снова.',
+            'recentGeometryWarmupTitle': 'Предпросмотр последних файлов недоступен',
             'electronPlatformContract': 'Мост desktop-версии устарел или несовместим. Перезапустите приложение, чтобы загрузить текущий preload-контракт.',
             'reload': 'Перезагрузить приложение',
             'copy': 'Копировать подробности',

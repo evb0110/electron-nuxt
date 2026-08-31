@@ -14,6 +14,7 @@ import {
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
 const ELECTRON_RECENT_FILES_RETRY_DELAY_MS = 750;
+const ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES = 5;
 
 export const useRecentFiles = () => {
     const { t } = useTypedI18n();
@@ -61,6 +62,7 @@ export const useRecentFiles = () => {
         isResolved,
         error,
         load: loadRecentFilesState,
+        retryNow: retryRecentFilesState,
         clearRetryTimer,
     } = usePlatformHydratedState<IRecentFile[]>({
         key: 'recentFiles',
@@ -76,6 +78,7 @@ export const useRecentFiles = () => {
             return shouldPreferElectronRuntime.value;
         },
         retryDelayMs: ELECTRON_RECENT_FILES_RETRY_DELAY_MS,
+        maxAutomaticRetries: ELECTRON_RECENT_FILES_MAX_AUTOMATIC_RETRIES,
         markResolvedOnError() {
             return !shouldPreferElectronRuntime.value;
         },
@@ -83,6 +86,10 @@ export const useRecentFiles = () => {
 
     async function loadRecentFiles() {
         await loadRecentFilesState();
+    }
+
+    async function retryRecentFiles() {
+        await retryRecentFilesState();
     }
 
     async function openRecentFile(file: IRecentFile) {
@@ -148,6 +155,7 @@ export const useRecentFiles = () => {
         hasUsableInitialSnapshot,
         error,
         loadRecentFiles,
+        retryRecentFiles,
         openRecentFile,
         removeRecentFile,
         removeRecentFileIfMissing,

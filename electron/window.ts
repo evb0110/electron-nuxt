@@ -2,6 +2,7 @@ import {
     BrowserWindow,
     app,
     dialog,
+    ipcMain,
 } from 'electron';
 import {
     dirname,
@@ -22,6 +23,7 @@ import {
     registerAppWindow,
 } from '@electron/window/registry';
 import { attachShowLifecycle } from '@electron/window/attachShowLifecycle';
+import { attachNativeWindowCloseHandshake } from '@electron/window/windowCloseHandshake';
 import {
     encodeHostResourceProfileArgument,
     getHostResourceProfileSnapshot,
@@ -62,6 +64,11 @@ function logWindowStartup(phase: string, details?: Record<string, unknown>) {
 }
 
 let createMainWindowPromise: Promise<BrowserWindow> | null = null;
+let shouldBypassNativeWindowClose = () => false;
+
+export function configureNativeWindowCloseHandshake(options: {shouldBypass: () => boolean}) {
+    shouldBypassNativeWindowClose = options.shouldBypass;
+}
 
 interface ICreateAppWindowOptions {
     setAsMain?: boolean;
@@ -351,6 +358,11 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
     });
 
     registerAppWindow(window, {...(options.setAsMain === undefined ? {} : { setAsMain: options.setAsMain })});
+    attachNativeWindowCloseHandshake(window, {
+        ipcMain,
+        logger,
+        shouldBypass: () => shouldBypassNativeWindowClose(),
+    });
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     const shouldShowStartupPlaceholder = options.showStartupPlaceholder ?? !shouldWaitForInitialRendererReady;

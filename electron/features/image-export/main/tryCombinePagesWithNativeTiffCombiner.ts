@@ -33,7 +33,12 @@ function isNativeTiffCombineDisabled() {
         || (process.env.VITEST === 'true' && process.env[NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV] !== '1');
 }
 
-export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[], outputPath: string, signal?: AbortSignal) {
+export async function tryCombinePagesWithNativeTiffCombiner(
+    pagePaths: string[],
+    outputPath: string,
+    signal?: AbortSignal,
+    dpi?: number,
+) {
     if (isNativeTiffCombineDisabled() || pagePaths.length === 0) {
         return false;
     }
@@ -59,7 +64,7 @@ export async function tryCombinePagesWithNativeTiffCombiner(pagePaths: string[],
     try {
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         await writeFile(inputsPath, createNativeInputsFileContents(pagePaths), 'utf8');
-        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal);
+        const ok = await runNativeTiffCombine(binaryPath, tempOutputPath, inputsPath, signal, dpi);
         if (!ok || !existsSync(tempOutputPath)) {
             const testFailure = createNativeFallbackTestError(
                 NATIVE_TIFF_COMBINE_TEST_ENABLE_ENV,
@@ -102,16 +107,26 @@ function createNativeInputsFileContents(pagePaths: string[]) {
     return `${pagePaths.join('\n')}\n`;
 }
 
-async function runNativeTiffCombine(binaryPath: string, outputPath: string, inputsPath: string, signal?: AbortSignal) {
+async function runNativeTiffCombine(
+    binaryPath: string,
+    outputPath: string,
+    inputsPath: string,
+    signal?: AbortSignal,
+    dpi?: number,
+) {
     try {
-        await runNativeCommand(binaryPath, [
+        const args = [
             '--output',
             outputPath,
             '--format',
             'tiff',
             '--inputs-file',
             inputsPath,
-        ], {
+        ];
+        if (typeof dpi === 'number' && Number.isFinite(dpi) && dpi > 0) {
+            args.push('--dpi', String(Math.round(dpi)));
+        }
+        await runNativeCommand(binaryPath, args, {
             timeoutMs: NATIVE_TIFF_COMBINE_TIMEOUT_MS,
             commandLabel: 'evb-pdf-image-combine(tiff)',
             maxStdoutBytes: 1024,

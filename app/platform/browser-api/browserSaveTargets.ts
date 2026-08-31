@@ -11,6 +11,7 @@ import { buildPdfSaveTypes } from '@app/platform/browser-api/browserFileAccepts'
 import { ensurePdfExtension } from '@app/platform/browser-api/browserFileName';
 import { buildBrowserByteLimitError } from '@app/platform/browser-api/browserPlatformHelpers';
 import {
+    BrowserFileWriteOutcomeError,
     pickSaveTarget,
     saveBytesToPickerOrDownload,
     writeDocumentRefToHandle,
@@ -18,9 +19,12 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 
 export class BrowserExternalSaveSyncRequiredError extends Error {
-    public constructor(cause: unknown) {
+    public readonly externalWriteCommitted: boolean | null;
+
+    public constructor(cause: unknown, externalWriteCommitted: boolean | null = true) {
         super(`Saved the browser document externally, but failed to refresh local save bookkeeping: ${getErrorMessage(cause)}`);
         this.name = 'BrowserExternalSaveSyncRequiredError';
+        this.externalWriteCommitted = externalWriteCommitted;
     }
 }
 
@@ -68,7 +72,7 @@ export async function saveWorkingBytesToSource(
     if (pickedTarget.canceled) {
         return false;
     }
-    let externalWriteCommitted = false;
+    let externalWriteCommitted: boolean | null = false;
 
     try {
         return await browserDocumentStore.runDocumentMutationWithSource(
@@ -124,8 +128,11 @@ export async function saveWorkingBytesToSource(
             },
         );
     } catch (error) {
-        if (externalWriteCommitted) {
-            throw new BrowserExternalSaveSyncRequiredError(error);
+        if (error instanceof BrowserFileWriteOutcomeError) {
+            externalWriteCommitted = error.externalWriteCommitted;
+        }
+        if (externalWriteCommitted !== false) {
+            throw new BrowserExternalSaveSyncRequiredError(error, externalWriteCommitted);
         }
         throw error;
     }
@@ -162,7 +169,7 @@ export async function saveWorkingBytesToSourceStructured(
                 ok: false,
                 reason: 'working-copy-sync-required',
                 message: error.message,
-                externalWriteCommitted: true,
+                externalWriteCommitted: error.externalWriteCommitted,
                 workingCopySyncRequired: true,
                 validation: null,
             };

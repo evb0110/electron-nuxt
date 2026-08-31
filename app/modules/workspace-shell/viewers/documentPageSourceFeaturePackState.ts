@@ -22,6 +22,10 @@ import { createDjvuPageSource } from '@app/utils/document-viewer/source/createDj
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import { DOCUMENT_PAGE_GUTTER_PX } from '@app/utils/document-viewer/layout/documentPageGutterPx';
 import type { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
+
+/** Keep background DjVu metric work within the visible and render-priority window. */
+const DOCUMENT_SOURCE_BACKGROUND_METRIC_HYDRATION_MAX_PAGES = 128;
+
 export interface IDocumentPageSourceFence {
     readonly loadGeneration: number;
     readonly openSurfaceGeneration: number | null;
@@ -222,6 +226,7 @@ export async function openDocumentPageSource(
         measureViewport: () => void;
         publishPageMetrics: (metrics: TDocumentPageMetricsCollection) => void;
         readCurrentPage: () => number;
+        getPriorityPages: () => readonly number[];
         readPageMetric: (pageNumber: number) => IDocumentPageMetrics | undefined;
         readPolicy: () => {
             continuousScroll: boolean;
@@ -400,6 +405,8 @@ export async function openDocumentPageSource(
                         nextSource.pageCount,
                         Math.trunc(context.readCurrentPage()),
                     )),
+                    getPriorityPages: context.getPriorityPages,
+                    maxHydratedPages: DOCUMENT_SOURCE_BACKGROUND_METRIC_HYDRATION_MAX_PAGES,
                     loadMetric: (pageNumber, signal) => context.ensureExactPageMetric(
                         nextSource,
                         transition.fence.loadGeneration,

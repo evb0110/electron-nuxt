@@ -101,6 +101,7 @@ export const useAppShellTabLifecycle = (
     } = options;
 
     const { reportRuntimeError } = useRuntimeErrorReports();
+    const { t } = useTypedI18n();
     const activeTabTransitions: Ref<number> = ref(0);
     let tabTransitionQueue: Promise<void> = Promise.resolve();
 
@@ -113,7 +114,7 @@ export const useAppShellTabLifecycle = (
         };
         BrowserLogger.error('toolbar-transition', 'Tab transition failed', details);
         reportRuntimeError({
-            title: 'Tab transition failed',
+            title: t('errors.runtime.title'),
             source: 'toolbar-transition',
             error: details,
         });

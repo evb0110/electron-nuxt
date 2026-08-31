@@ -54,10 +54,24 @@ export function isFileSystemAccessDeniedError(error: unknown) {
 }
 
 function createBrowserFileWriteTimeoutError(phase: string) {
-    return new Error(
+    const error = new Error(
         `Browser file save did not finish while waiting for ${phase}. `
         + 'If Chrome is showing a file permission prompt, choose Save changes or Cancel and try again.',
     );
+    error.name = 'BrowserFileWriteTimeoutError';
+    return error;
+}
+
+export class BrowserFileWriteOutcomeError extends Error {
+    public readonly externalWriteCommitted: boolean | null;
+    public override readonly cause: unknown;
+
+    public constructor(cause: unknown, externalWriteCommitted: boolean | null) {
+        super(normalizeBrowserFileHandleError(cause).message);
+        this.name = 'BrowserFileWriteOutcomeError';
+        this.externalWriteCommitted = externalWriteCommitted;
+        this.cause = cause;
+    }
 }
 
 function createBrowserFileWritePermissionError() {
@@ -92,11 +106,46 @@ async function runBrowserFileHandlePhase<T>(
 async function abortBrowserFileWritable(
     writable: FileSystemWritableFileStream,
 ) {
-    await runBrowserFileHandlePhase(
-        'aborting file writer',
-        BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-        () => writable.abort(),
-    ).catch(() => undefined);
+    try {
+        await runBrowserFileHandlePhase(
+            'aborting file writer',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.abort(),
+        );
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function abortAfterBrowserFileWriteError(
+    writable: FileSystemWritableFileStream,
+    error: unknown,
+) {
+    if (await abortBrowserFileWritable(writable)) {
+        throw normalizeBrowserFileHandleError(error);
+    }
+    throw new BrowserFileWriteOutcomeError(error, null);
+}
+
+async function closeBrowserFileWritable(
+    writable: FileSystemWritableFileStream,
+) {
+    try {
+        await runBrowserFileHandlePhase(
+            'closing file writer',
+            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
+            () => writable.close(),
+        );
+    } catch (error) {
+        if (await abortBrowserFileWritable(writable)) {
+            throw normalizeBrowserFileHandleError(error);
+        }
+        // close() may still resolve after its deadline. The caller must not
+        // report "no write" unless abort() completed, because that late close
+        // can publish the file after the save request has returned.
+        throw new BrowserFileWriteOutcomeError(error, null);
+    }
 }
 
 async function ensureFileHandleWritePermission(handle: FileSystemFileHandle) {
@@ -365,14 +414,9 @@ async function saveBlobToPickerOrDownload(
                 );
                 throwIfAborted(options.signal);
             } catch (error) {
-                await abortBrowserFileWritable(writable);
-                throw normalizeBrowserFileHandleError(error);
+                await abortAfterBrowserFileWriteError(writable, error);
             }
-            await runBrowserFileHandlePhase(
-                'closing file writer',
-                BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-                () => writable.close(),
-            );
+            await closeBrowserFileWritable(writable);
             throwIfAborted(options.signal);
             return {
                 canceled: false,
@@ -517,8 +561,6 @@ export async function writeBytesToHandle(
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
         () => handle.createWritable(),
     );
-    let closeError: unknown = null;
-
     try {
         throwIfAborted(signal);
         await runBrowserFileHandlePhase(
@@ -528,23 +570,10 @@ export async function writeBytesToHandle(
         );
         throwIfAborted(signal);
     } catch (error) {
-        await abortBrowserFileWritable(writable);
-        throw normalizeBrowserFileHandleError(error);
+        await abortAfterBrowserFileWriteError(writable, error);
     }
 
-    try {
-        await runBrowserFileHandlePhase(
-            'closing file writer',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.close(),
-        );
-    } catch (error) {
-        closeError = error;
-    }
-
-    if (closeError) {
-        throw normalizeBrowserFileHandleError(closeError);
-    }
+    await closeBrowserFileWritable(writable);
 }
 
 export async function writeDocumentRefToHandle(
@@ -557,8 +586,6 @@ export async function writeDocumentRefToHandle(
         BROWSER_FILE_HANDLE_PERMISSION_TIMEOUT_MS,
         () => handle.createWritable(),
     );
-    let closeError: unknown = null;
-
     try {
         const { size } = await browserDocumentStore.stat(ref);
         for (let offset = 0; offset < size; offset += BROWSER_DOCUMENT_CHUNK_SIZE) {
@@ -577,21 +604,8 @@ export async function writeDocumentRefToHandle(
             }
         }
     } catch (error) {
-        await abortBrowserFileWritable(writable);
-        throw normalizeBrowserFileHandleError(error);
+        await abortAfterBrowserFileWriteError(writable, error);
     }
 
-    try {
-        await runBrowserFileHandlePhase(
-            'closing file writer',
-            BROWSER_FILE_HANDLE_WRITE_PHASE_TIMEOUT_MS,
-            () => writable.close(),
-        );
-    } catch (error) {
-        closeError = error;
-    }
-
-    if (closeError) {
-        throw normalizeBrowserFileHandleError(closeError);
-    }
+    await closeBrowserFileWritable(writable);
 }

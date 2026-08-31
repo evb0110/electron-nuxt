@@ -14,7 +14,7 @@ import {
  * reach that store too — the browser repository alone only covers the legacy
  * localStorage entry.
  */
-export function discardScanCleanupDocumentState(
+export async function discardScanCleanupDocumentState(
     documentKey: string | null | undefined,
     sourceSha256?: string | null,
     options: {discardDetection?: boolean} = {},
@@ -36,7 +36,7 @@ export function discardScanCleanupDocumentState(
         resetScanCleanupDocumentOverrides(documentKey);
     }
     if (sourceSha256) {
-        saveScanCleanupDocumentPreferencesInStore(
+        await saveScanCleanupDocumentPreferencesInStore(
             sourceSha256,
             documentKey ?? null,
             {resetOverrides: true},

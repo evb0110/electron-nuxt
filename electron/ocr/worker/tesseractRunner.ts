@@ -6,6 +6,10 @@ import {
 } from 'fs/promises';
 import type { IOcrWord } from '@contracts/shared';
 import type { IOcrSearchablePdfOptions } from '@contracts/electronApiOcr';
+import {
+    AGENT_OCR_PAGE_SEGMENTATION_MODES,
+    isSupportedPageSegmentationMode,
+} from '@contracts/agentOcr';
 import { isGreekOcrLanguage } from '@contracts/ocrLanguages';
 import type { IOcrFileResult } from '@electron/ocr/worker/types';
 import { resolveTesseractLanguageConfig } from '@electron/ocr/resolveTesseractLanguageConfig';
@@ -72,6 +76,11 @@ export function shouldNormalizeGreekMicroSign(languages: readonly string[]) {
 function buildTesseractProfileArgs(options: IOcrSearchablePdfOptions | undefined) {
     const args: string[] = [];
     if (typeof options?.pageSegmentationMode === 'number') {
+        if (!isSupportedPageSegmentationMode(options.pageSegmentationMode)) {
+            throw new Error(
+                `Tesseract page segmentation mode must be one of: ${AGENT_OCR_PAGE_SEGMENTATION_MODES.join(', ')}`,
+            );
+        }
         args.push('--psm', String(options.pageSegmentationMode));
     }
     if (options?.qualityProfile === 'poor-scan') {
@@ -182,11 +191,18 @@ export async function runOcrFileBased(
             forceFinalizeHandle: null as NodeJS.Timeout | null,
         };
         let abortHandler: (() => void) | null = null;
-        let terminationPromise: Promise<void> | null = null;
+        let terminationPromise: Promise<boolean> | null = null;
+        let terminationRequested = false;
+        let terminationProven = true;
 
         const requestTermination = () => {
+            terminationRequested = true;
+            terminationProven = false;
             terminationPromise ??= terminateDetachedChildProcess(proc, FILE_BASED_OCR_KILL_GRACE_MS)
-                .then(() => undefined);
+                .then(terminated => {
+                    terminationProven = terminated;
+                    return terminated;
+                }, () => false);
             return terminationPromise;
         };
 
@@ -203,14 +219,24 @@ export async function runOcrFileBased(
             ]);
         };
 
-        const finalizeFailureAfterCleanup = async (error: string) => {
-            await cleanupTempOutputs();
-            finalize({
+        const getTerminationUnprovenDetail = () => terminationRequested && !terminationProven
+            ? `Tesseract process tree for ${imagePath} was not proven dead`
+            : undefined;
+
+        const createFailureResult = (error: string): IOcrFileResult => {
+            const terminationUnproven = getTerminationUnprovenDetail();
+            return {
                 success: false,
                 pageData: null,
                 pdfPath: null,
                 error,
-            });
+                ...(terminationUnproven === undefined ? {} : {terminationUnproven}),
+            };
+        };
+
+        const finalizeFailureAfterCleanup = async (error: string) => {
+            await cleanupTempOutputs();
+            finalize(createFailureResult(error));
         };
 
         const scheduleForceFinalizeAfterTermination = (error: string) => {
@@ -219,12 +245,7 @@ export async function runOcrFileBased(
             }
             handles.forceFinalizeHandle = setTimeout(async () => {
                 await cleanupTempOutputs();
-                finalize({
-                    success: false,
-                    pageData: null,
-                    pdfPath: null,
-                    error,
-                });
+                finalize(createFailureResult(error));
             }, FILE_BASED_OCR_KILL_GRACE_MS + 1_000);
             handles.forceFinalizeHandle.unref?.();
         };

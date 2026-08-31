@@ -3,6 +3,17 @@ interface IStorageLike {
     setItem?: (key: string, value: string) => void;
 }
 
+export type TLocalStorageReadResult =
+    | {
+        status: 'present';
+        value: string
+    }
+    | {status: 'absent'}
+    | {
+        status: 'unavailable';
+        error: Error
+    };
+
 function getLocalStorageSafe(): IStorageLike | null {
     if (typeof window === 'undefined') {
         return null;
@@ -11,17 +22,34 @@ function getLocalStorageSafe(): IStorageLike | null {
     return storage ?? null;
 }
 
-export function safeGetLocalStorageItem(key: string) {
+export function readLocalStorageItem(key: string): TLocalStorageReadResult {
     const storage = getLocalStorageSafe();
     if (!storage || typeof storage.getItem !== 'function') {
-        return null;
+        return {
+            status: 'unavailable',
+            error: new Error('localStorage is unavailable'),
+        };
     }
 
     try {
-        return storage.getItem(key);
-    } catch {
-        return null;
+        const value = storage.getItem(key);
+        return value === null
+            ? {status: 'absent'}
+            : {
+                status: 'present',
+                value,
+            };
+    } catch (error) {
+        return {
+            status: 'unavailable',
+            error: error instanceof Error ? error : new Error(String(error)),
+        };
     }
+}
+
+export function safeGetLocalStorageItem(key: string) {
+    const result = readLocalStorageItem(key);
+    return result.status === 'present' ? result.value : null;
 }
 
 export function safeSetLocalStorageItem(key: string, value: string) {

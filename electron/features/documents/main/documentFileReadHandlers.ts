@@ -542,9 +542,7 @@ async function readOriginalBackingRange(
     } finally {
         await lease?.release();
     }
-    if (bytesRead < length) {
-        await assertOriginalBackingSnapshot(backing);
-    }
+    await assertOriginalBackingSnapshot(backing);
     return new Uint8Array(buffer.subarray(0, bytesRead));
 }
 

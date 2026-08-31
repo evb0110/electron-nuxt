@@ -645,6 +645,10 @@ function appendPageMatches(
 
     for (const pageMatch of pageMatches) {
         throwIfCancelled(context.requestId, context.signal);
+        if (results.length >= SEARCH_RESULT_LIMIT) {
+            truncated = true;
+            break;
+        }
         const startOffset = pageMatch.startOffset;
         const endOffset = pageMatch.endOffset;
         const words = collectSearchMatchWords(page, startOffset, endOffset);
@@ -665,10 +669,6 @@ function appendPageMatches(
         pageMatchIndex += 1;
         globalMatchIndex += 1;
 
-        if (results.length >= SEARCH_RESULT_LIMIT) {
-            truncated = true;
-            break;
-        }
     }
 
     return {

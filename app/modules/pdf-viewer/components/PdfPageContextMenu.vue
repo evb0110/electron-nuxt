@@ -5,6 +5,7 @@
         :style="style"
         variant="grid"
         min-width="var(--app-context-menu-preferred-width)"
+        :accessible-label="t('contextMenu.pageMenu')"
     >
         <p class="pdf-context-menu__section-title">
             {{ menuTitle }}
@@ -13,6 +14,7 @@
         <button
             type="button"
             class="pdf-context-menu__action pdf-context-menu__action--danger"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onDeletePages"
         >
@@ -23,6 +25,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onExtractPages"
         >
@@ -33,6 +36,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onExportPages"
         >
@@ -45,6 +49,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onRotateCw"
         >
@@ -55,6 +60,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onRotateCcw"
         >
@@ -67,6 +73,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onInsertBefore"
         >
@@ -77,6 +84,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="isOperationInProgress || isDjvuMode"
             @click="onInsertAfter"
         >
@@ -89,6 +97,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             @click="onSelectAll"
         >
             {{ t('pageOps.selectAll') }}
@@ -97,6 +106,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             @click="onInvertSelection"
         >
             {{ t('pageOps.invertSelection') }}

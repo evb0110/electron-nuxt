@@ -115,15 +115,16 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
 
     const { reportRuntimeError } = useRuntimeErrorReports();
+    const { t } = useTypedI18n();
     const windowWithState = window as TRendererErrorGuardWindow;
     if (windowWithState.__evbRendererErrorGuardState) {
         return;
     }
 
-    const report = (message: string, details: Record<string, unknown>) => {
-        BrowserLogger.error('renderer-guard', message, details);
+    const report = (logMessage: string, details: Record<string, unknown>) => {
+        BrowserLogger.error('renderer-guard', logMessage, details);
         reportRuntimeError({
-            title: message,
+            title: t('errors.runtime.title'),
             source: 'renderer-guard',
             error: details,
         });
@@ -131,7 +132,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
     const previousHandler = nuxtApp.vueApp.config.errorHandler;
     const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
-        report('Unhandled Vue error', {
+        report('Vue renderer error', {
             info,
             component: getComponentName(instance),
             error: serializeError(error),
@@ -162,7 +163,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Unhandled window error', {
+        report('Window error', {
             message: event.message,
             filename: event.filename,
             lineno: event.lineno,
@@ -184,7 +185,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Unhandled promise rejection in renderer', { reason: serializeError(event.reason) });
+        report('Unhandled promise rejection', { reason: serializeError(event.reason) });
     };
 
     const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);

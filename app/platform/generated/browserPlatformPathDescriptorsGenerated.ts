@@ -11,6 +11,7 @@ export const browserPlatformPathDescriptorsGenerated = {
     },
     system: {
         onShutdownSaveFlushRequest: {kind: 'event', path: ["system","onShutdownSaveFlushRequest"]},
+        onWindowCloseRequest: {kind: 'event', path: ["system","onWindowCloseRequest"]},
     },
     windowTabs: {
         notifyRendererReady: {kind: 'void', path: ["windowTabs","notifyRendererReady"]},
@@ -24,6 +25,7 @@ export const browserPlatformPathDescriptorsGenerated = {
         discardWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","discardWorkspaceCheckpoint"]},
         resumeWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","resumeWorkspaceCheckpoint"]},
         claimWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","claimWorkspaceCheckpoint"]},
+        acknowledgeWorkspaceCheckpoint: {kind: 'async', path: ["windowTabs","acknowledgeWorkspaceCheckpoint"]},
         onIncomingTransfer: {kind: 'event', path: ["windowTabs","onIncomingTransfer"]},
         onWindowAction: {kind: 'event', path: ["windowTabs","onWindowAction"]},
         onMenuNewTab: {kind: 'event', path: ["windowTabs","onMenuNewTab"]},

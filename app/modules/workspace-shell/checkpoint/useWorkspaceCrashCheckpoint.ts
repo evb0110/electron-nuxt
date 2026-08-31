@@ -34,10 +34,15 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     let disposed = false;
     const deviceTier = resolveDocumentSavePerformanceTier(getPerformanceProfile().tier);
     const debounceMs = deviceTier === 'low' ? 1_500 : 500;
+    const captureRetryDelayMs = 1_000;
+    const maxCaptureRetryDelayMs = 30_000;
+    const maxCaptureRetryAttempts = 5;
+    let captureRetryAttempt = 0;
 
     async function drainCheckpointWrites(initialCheckpoint: IWorkspaceCheckpoint) {
         let checkpoint: IWorkspaceCheckpoint | null = initialCheckpoint;
         let firstError: unknown;
+        let retryCount = 0;
         await waitForDesktopPlatformBridge({shouldWait: true});
         while (checkpoint && !disposed) {
             if (!options.enabled.value) {
@@ -46,11 +51,23 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             }
             try {
                 await getWindowTabsCapability().saveWorkspaceCheckpoint(checkpoint);
+                firstError = undefined;
             } catch (error) {
                 firstError ??= error;
+                if (pendingLatest) {
+                    checkpoint = pendingLatest;
+                    pendingLatest = null;
+                    retryCount = 0;
+                    continue;
+                }
+                if (retryCount < 1) {
+                    retryCount += 1;
+                    continue;
+                }
             }
             checkpoint = pendingLatest;
             pendingLatest = null;
+            retryCount = 0;
         }
         if (firstError !== undefined) {
             throw firstError instanceof Error
@@ -82,14 +99,44 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         });
     }
 
-    function scheduleCheckpoint() {
+    function hasDirtyTabs() {
+        return options.tabs?.value?.some(tab => tab.isDirty) ?? false;
+    }
+
+    function scheduleCheckpoint(delayMs = debounceMs, onlyIfDirty = false) {
         if (timer) {
             clearTimeout(timer);
         }
         timer = setTimeout(() => {
             timer = null;
-            persistCheckpoint(buildWorkspaceCheckpoint(options));
-        }, debounceMs);
+            if (!hasDirtyTabs()) {
+                captureRetryAttempt = 0;
+            }
+            if (onlyIfDirty && !hasDirtyTabs()) {
+                return;
+            }
+            try {
+                const checkpoint = buildWorkspaceCheckpoint(options);
+                captureRetryAttempt = 0;
+                persistCheckpoint(checkpoint);
+            } catch (error) {
+                guardAsync(Promise.reject(error), {
+                    category: 'background-diagnostic',
+                    scope: 'workspace-checkpoint',
+                    message: 'Failed to capture crash recovery checkpoint',
+                });
+                if (!disposed && options.enabled.value && hasDirtyTabs()) {
+                    if (captureRetryAttempt < maxCaptureRetryAttempts) {
+                        const retryDelayMs = Math.min(
+                            captureRetryDelayMs * (2 ** captureRetryAttempt),
+                            maxCaptureRetryDelayMs,
+                        );
+                        captureRetryAttempt += 1;
+                        scheduleCheckpoint(retryDelayMs, true);
+                    }
+                }
+            }
+        }, delayMs);
     }
 
     const stop = watch(
@@ -98,7 +145,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         () => options.enabled.value
             ? buildWorkspaceCheckpointChangeSignature(options).workspace
             : null,
-        scheduleCheckpoint,
+        () => scheduleCheckpoint(),
         {immediate: true},
     );
 
@@ -110,5 +157,6 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
             clearTimeout(timer);
             timer = null;
         }
+        captureRetryAttempt = 0;
     });
 };

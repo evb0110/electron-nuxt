@@ -504,8 +504,6 @@ export function createAssistantRuntimeLifecycle(options: IAssistantRuntimeLifecy
             throw new Error('Codex did not return an assistant thread.');
         }
         session.providerThreadId = response.thread.id;
-        session.turnOwner = supersedeAssistantTurn(session.turnOwner);
-        session.scopeBinding = null;
         options.sessionStore.setActiveSession(session);
         options.providerRuntime.runtimeState = 'ready';
         options.publishCodexState(session.scope, session);

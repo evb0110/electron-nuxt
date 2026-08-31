@@ -14,6 +14,7 @@ import { createDocumentViewportWritePort } from '@app/utils/document-viewer/chas
 import {
     createColdOpenProvisionalDocumentPageMetrics,
     createProvisionalDocumentPageMetrics,
+    isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
     type TDocumentPageMetricsCollection,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
@@ -66,7 +67,46 @@ const DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE = 256;
 const DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS = 32;
 export const DOCUMENT_SOURCE_INACTIVE_LEASE_GRACE_MS = 1_500;
 
-type TDocumentPageSourceCollection<T> = T[] | ILazyIndexedCollection<T>;
+interface IDocumentPageSourceCollectionMetadata<T> {
+    readonly estimateValue?: (index: number) => T | undefined;
+    readonly getKnownIndices?: () => readonly number[];
+}
+type TDocumentPageSourceLazyCollection<T> = ILazyIndexedCollection<T> & IDocumentPageSourceCollectionMetadata<T>;
+type TDocumentPageSourceCollection<T> = T[] | TDocumentPageSourceLazyCollection<T>;
+
+function readDocumentPageSourceCollectionMetadata<T>(
+    collection: TDocumentPageSourceCollection<T>,
+) {
+    if (!isLazyIndexedCollection(collection)) {
+        return {} as IDocumentPageSourceCollectionMetadata<T>;
+    }
+    const lazyCollection = collection;
+    return {
+        ...(lazyCollection.estimateValue ? {estimateValue: lazyCollection.estimateValue} : {}),
+        ...(lazyCollection.getKnownIndices ? {getKnownIndices: lazyCollection.getKnownIndices} : {}),
+    } satisfies IDocumentPageSourceCollectionMetadata<T>;
+}
+
+function attachDocumentPageSourceCollectionMetadata<T>(
+    collection: ILazyIndexedCollection<T>,
+    metadata: IDocumentPageSourceCollectionMetadata<T>,
+) {
+    if (metadata.estimateValue) {
+        Object.defineProperty(collection, 'estimateValue', {
+            configurable: false,
+            enumerable: false,
+            value: metadata.estimateValue,
+        });
+    }
+    if (metadata.getKnownIndices) {
+        Object.defineProperty(collection, 'getKnownIndices', {
+            configurable: false,
+            enumerable: false,
+            value: metadata.getKnownIndices,
+        });
+    }
+    return collection as TDocumentPageSourceLazyCollection<T>;
+}
 
 function resolveDocumentPageDisplayLayout(
     metric: IDocumentPageMetrics,
@@ -111,7 +151,8 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             zoomMode,
         });
     }
-    return createLazyIndexedCollection({
+    const sparseMetrics = isSparseDocumentPageMetrics(metrics) ? metrics : null;
+    const displayLayouts = createLazyIndexedCollection({
         cacheValues: false,
         chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
         getValue: index => resolveDocumentPageDisplayLayout(
@@ -124,18 +165,38 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         length: metrics.length,
         maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
     });
+    if (!sparseMetrics) {
+        return displayLayouts as TDocumentPageSourceLazyCollection<IDocumentPageDisplayLayout>;
+    }
+    return attachDocumentPageSourceCollectionMetadata(displayLayouts, {
+        estimateValue: index => resolveDocumentPageDisplayLayout(
+            sparseMetrics.getEstimated(index + 1),
+            availableHeight,
+            availableWidth,
+            manualZoom,
+            zoomMode,
+        ),
+        getKnownIndices: () => sparseMetrics.getExactPageNumbers().map(pageNumber => pageNumber - 1),
+    });
 }
 function mapDocumentPageSourceCollectionBounded<T, U>(
     collection: TDocumentPageSourceCollection<T>,
     mapValue: (value: T, index: number) => U,
 ): TDocumentPageSourceCollection<U> {
     if (isLazyIndexedCollection(collection)) {
-        return createLazyIndexedCollection({
+        const metadata = readDocumentPageSourceCollectionMetadata(collection);
+        const mapped = createLazyIndexedCollection({
             cacheValues: true,
             chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
             getValue: index => mapValue(collection.get(index) as T, index),
             length: collection.length,
             maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
+        });
+        return attachDocumentPageSourceCollectionMetadata(mapped, {
+            ...(metadata.estimateValue
+                ? {estimateValue: index => mapValue(metadata.estimateValue!(index) as T, index)}
+                : {}),
+            ...(metadata.getKnownIndices ? {getKnownIndices: metadata.getKnownIndices} : {}),
         });
     }
     return collection.map((value, index) => mapValue(value, index));
@@ -154,6 +215,41 @@ export function resolveDocumentPageTopsBounded(
             const value = top;
             top += height + DOCUMENT_PAGE_GUTTER_PX;
             return value;
+        });
+    }
+    const metadata = readDocumentPageSourceCollectionMetadata(heights);
+    if (metadata.estimateValue) {
+        const estimatedHeight = Math.max(0, metadata.estimateValue(0) ?? 0);
+        let knownIndices: number[] = [];
+        let knownIndexCount = -1;
+        const resolveKnownIndices = () => {
+            const nextKnownIndices = metadata.getKnownIndices?.() ?? [];
+            if (nextKnownIndices.length !== knownIndexCount) {
+                knownIndices = [...nextKnownIndices]
+                    .filter(index => Number.isSafeInteger(index) && index >= 0 && index < heights.length)
+                    .sort((left, right) => left - right);
+                knownIndexCount = nextKnownIndices.length;
+            }
+            return knownIndices;
+        };
+        const resolvePageTop = (index: number) => {
+            let top = DOCUMENT_PAGE_GUTTER_PX + index * (estimatedHeight + DOCUMENT_PAGE_GUTTER_PX);
+            for (const knownIndex of resolveKnownIndices()) {
+                if (knownIndex >= index) {
+                    break;
+                }
+                const exactHeight = Math.max(0, heights[knownIndex] ?? estimatedHeight);
+                const knownEstimatedHeight = Math.max(0, metadata.estimateValue!(knownIndex) ?? estimatedHeight);
+                top += exactHeight - knownEstimatedHeight;
+            }
+            return top;
+        };
+        return createLazyIndexedCollection({
+            cacheValues: false,
+            chunkSize: DOCUMENT_SOURCE_LAYOUT_CHUNK_SIZE,
+            getValue: resolvePageTop,
+            length: heights.length,
+            maxCachedChunks: DOCUMENT_SOURCE_LAYOUT_MAX_CACHED_CHUNKS,
         });
     }
     const prefixTops = new Map<number, number>([[
@@ -862,6 +958,15 @@ export const useDocumentPageSourceRuntime = (options: {
                 pageMetrics.value = metrics;
             },
             readCurrentPage: () => chassisAuthority?.currentPage.value ?? props.value.currentPage,
+            getPriorityPages: () => {
+                const demand = renderDemand.value;
+                return [...new Set([
+                    ...demand.visiblePages,
+                    ...demand.bufferPages,
+                    ...demand.residentPages,
+                    props.value.currentPage,
+                ])];
+            },
             readPageMetric: pageNumber => pageMetrics.value[pageNumber - 1],
             readPolicy: () => ({
                 continuousScroll: props.value.continuousScroll,

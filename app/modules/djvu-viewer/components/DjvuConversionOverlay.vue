@@ -3,6 +3,7 @@
         :open="isConverting"
         :title="overlayTitle"
         :value="percent"
+        modal
         :cancel-label="t('common.cancel')"
         @cancel="emit('cancel')"
     />

@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menu',
+        'readerToolbar': 'Barra de ferramentas do documento',
         'openPdf': 'Abrir Arquivo',
         'save': 'Salvar',
         'saveAs': 'Salvar Como…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Abas de documentos',
         'newTab': 'Nova Aba',
         'unsavedChanges': 'Alterações não salvas',
         'closeTab': 'Fechar aba',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'Preparando {processed}/{total}',
         'confirmCloseDirtyTitle': 'Fechar aba com alterações não salvas?',
         'confirmCloseDirtyDescription': '"{name}" tem alterações não salvas. As alterações serão descartadas ao fechar.',
+        'confirmCloseWindowDirtyTitle': 'Fechar janela com alterações não salvas?',
+        'confirmCloseWindowDirtyDescription': 'Há alterações não salvas. Salve-as antes de fechar a janela, descarte-as ou cancele.',
+        'discardChanges': 'Descartar alterações',
         'transferErrors': {
             'noTargetPane': 'Nenhum painel de destino está disponível na janela de destino.',
             'noTargetTab': 'Nenhuma aba de destino está disponível na janela de destino.',
@@ -1180,6 +1185,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Ações da página',
+        'outlineMenu': 'Ações do marcador',
+        'annotationMenu': 'Ações da anotação',
         'openPopUpNote': 'Abrir Nota Pop-up',
         'copyTextToClipboard': 'Copiar Texto para a Área de Transferência',
         'copySelectionToClipboard': 'Copiar Seleção para a Área de Transferência',
@@ -1558,11 +1566,13 @@ export default {
             'loadDescription': 'Tente carregar a área de trabalho novamente.',
             'loadDescriptionWithMessage': 'Tente carregar a área de trabalho novamente. ({message})',
         },
+        'settings': {'load': 'Não foi possível carregar as configurações'},
         'runtime': {
             'title': 'Algo deu errado',
             'description': 'O aplicativo encontrou um erro inesperado e pode não funcionar corretamente até ser recarregado.',
             'startupTitle': 'Falha ao iniciar o aplicativo',
             'startupDescription': 'O aplicativo não conseguiu concluir a inicialização. Recarregue e tente novamente.',
+            'recentGeometryWarmupTitle': 'Pré-visualização dos arquivos recentes indisponível',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Recarregar aplicativo',
             'copy': 'Copiar detalhes',

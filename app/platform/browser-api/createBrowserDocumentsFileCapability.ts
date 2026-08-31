@@ -32,6 +32,7 @@ import {
     validateBrowserPdfPath,
 } from '@app/platform/browser-api/browserPdfValidation';
 import {
+    BrowserFileWriteOutcomeError,
     isFileSystemAccessDeniedError,
     pickFiles,
     pickSaveTarget,
@@ -129,7 +130,7 @@ export function createBrowserDocumentsFileCapability(
         }
         await commitCallbacks?.assertBeforeCommit?.();
 
-        let externalWriteCommitted = false;
+        let externalWriteCommitted: boolean | null = false;
         let savedSourceRef: string | null;
         try {
             savedSourceRef = await browserDocumentStore.runDocumentMutationWithSource(
@@ -229,8 +230,11 @@ export function createBrowserDocumentsFileCapability(
                 },
             );
         } catch (error) {
-            if (externalWriteCommitted) {
-                throw new BrowserExternalSaveSyncRequiredError(error);
+            if (error instanceof BrowserFileWriteOutcomeError) {
+                externalWriteCommitted = error.externalWriteCommitted;
+            }
+            if (externalWriteCommitted !== false) {
+                throw new BrowserExternalSaveSyncRequiredError(error, externalWriteCommitted);
             }
             throw error;
         }

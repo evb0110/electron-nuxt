@@ -1,7 +1,4 @@
-import {
-    readFile,
-    rm,
-} from 'node:fs/promises';
+import {rm} from 'node:fs/promises';
 import {isRecord} from '@contracts/runtimeGuards';
 import {copyFileAtomic} from '@electron/file-access/documentFileWriteAtomic';
 import {readWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -11,12 +8,16 @@ import {
     type IOriginalPathSaveJournalSnapshot,
     OriginalPathSaveConflictError,
 } from '@electron/file-access/originalPathSaveWitness';
+import {
+    invalidDocumentRecoveryJournal,
+    readDocumentRecoveryJournal,
+} from '@electron/file-access/documentRecoveryJournal';
 
 function journalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-two-target-transition.json`;
 }
 
-function parseJournalSnapshot(value: unknown) {
+function parseJournalSnapshot(value: unknown, journalPath: string) {
     if (value === undefined) {
         return undefined;
     }
@@ -33,18 +34,27 @@ function parseJournalSnapshot(value: unknown) {
             'size',
         ].some(name => typeof (value as Record<string, unknown>)[name] !== 'string')
     ) {
-        throw new Error('Invalid two-target document transition journal');
+        throw invalidDocumentRecoveryJournal(
+            journalPath,
+            undefined,
+            'Invalid two-target document transition journal',
+        );
     }
     return value as IOriginalPathSaveJournalSnapshot;
 }
 
 export async function recoverTwoTargetDocumentTransition(workingCopyPath: string) {
     const path = journalPath(workingCopyPath);
-    const value: unknown = await readFile(path, 'utf8')
-        .then(raw => JSON.parse(raw) as unknown)
-        .catch(() => null);
-    if (!isRecord(value)) {
+    const value = await readDocumentRecoveryJournal(path);
+    if (value === undefined) {
         return false;
+    }
+    if (!isRecord(value)) {
+        throw invalidDocumentRecoveryJournal(
+            path,
+            undefined,
+            'Invalid two-target document transition journal',
+        );
     }
     if (
         value.version !== 1
@@ -54,10 +64,10 @@ export async function recoverTwoTargetDocumentTransition(workingCopyPath: string
         || typeof value.originalBackupPath !== 'string'
         || typeof value.nextRevisionToken !== 'string'
     ) {
-        throw new Error('Invalid two-target document transition journal');
+        throw invalidDocumentRecoveryJournal(path);
     }
-    const preparedOriginalSnapshot = parseJournalSnapshot(value.preparedOriginalSnapshot);
-    const publishedOriginalSnapshot = parseJournalSnapshot(value.publishedOriginalSnapshot);
+    const preparedOriginalSnapshot = parseJournalSnapshot(value.preparedOriginalSnapshot, path);
+    const publishedOriginalSnapshot = parseJournalSnapshot(value.publishedOriginalSnapshot, path);
     const revision = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (revision?.token !== value.nextRevisionToken) {
         const expectedOriginalSnapshot = value.state === 'prepared'

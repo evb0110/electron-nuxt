@@ -29,16 +29,23 @@ export function createPersistedBrowserDocumentRecord(
         ...(entry.sourceRef ? { sourceRef: entry.sourceRef } : {}),
         data: cloneData ? cloneBytes(data) : data,
         fileSize: entry.fileSize,
+        ...(entry.fileLastModified !== undefined ? {fileLastModified: entry.fileLastModified} : {}),
         updatedAt: entry.updatedAt,
         ...(entry.contentToken ? { contentToken: entry.contentToken } : {}),
         contentRevision: getBrowserDocumentEntryContentRevision(entry),
         ...(entry.saveName ? { saveName: entry.saveName } : {}),
         saveKind: entry.saveKind,
         saveHandle: entry.saveHandle ?? null,
+        ...(entry.sourceWitness ? {sourceWitness: true} : {}),
         storageMode: entry.storageMode,
         chunkCount: entry.chunkCount,
         chunkSize: entry.chunkSize,
         ...(entry.chunkGeneration ? { chunkGeneration: entry.chunkGeneration } : {}),
+        ...(entry.pendingChunkGeneration ? { pendingChunkGeneration: entry.pendingChunkGeneration } : {}),
+        ...(entry.pendingChunkCount !== undefined ? { pendingChunkCount: entry.pendingChunkCount } : {}),
+        ...(entry.pendingChunkSize !== undefined ? { pendingChunkSize: entry.pendingChunkSize } : {}),
+        ...(entry.pendingFileSize !== undefined ? { pendingFileSize: entry.pendingFileSize } : {}),
+        ...(entry.pendingChunkUpdatedAt !== undefined ? { pendingChunkUpdatedAt: entry.pendingChunkUpdatedAt } : {}),
     };
 }
 
@@ -58,12 +65,18 @@ interface IPersistedSaveTarget {
     saveName?: string;
     saveKind?: IBrowserDocumentEntry['saveKind'];
     saveHandle?: FileSystemFileHandle | null;
+    sourceWitness?: boolean;
 }
 
 interface IPersistedChunkLayout {
     chunkCount?: number;
     chunkSize?: number;
     chunkGeneration?: string;
+    pendingChunkGeneration?: string;
+    pendingChunkCount?: number;
+    pendingChunkSize?: number;
+    pendingFileSize?: number;
+    pendingChunkUpdatedAt?: number;
 }
 
 function normalizeStorageMode(value: unknown): TBrowserDocumentStorageMode {
@@ -107,6 +120,9 @@ function readPersistedDocumentRequiredFields(
     const kind = normalizePersistedKind(value.kind);
     const data = normalizePersistedBytes(value.data);
     const fileSize = readRequiredNumber(value.fileSize);
+    const fileLastModified = value.fileLastModified === undefined
+        ? undefined
+        : readRequiredNumber(value.fileLastModified);
     const updatedAt = readRequiredNumber(value.updatedAt);
 
     if (!ref || !fileName || !mimeType || !kind || !data || fileSize === null || updatedAt === null) {
@@ -120,6 +136,7 @@ function readPersistedDocumentRequiredFields(
         kind,
         data,
         fileSize,
+        ...(fileLastModified === undefined ? {} : {fileLastModified}),
         updatedAt,
     };
 }
@@ -157,11 +174,13 @@ function normalizePersistedSaveTarget(
     const saveHandle = 'saveHandle' in value
         ? normalizePersistedSaveHandle(value.saveHandle)
         : undefined;
+    const sourceWitness = value.sourceWitness === true;
 
     return {
         ...(saveName ? { saveName } : {}),
         ...(saveKind ? { saveKind } : {}),
         ...(saveHandle !== undefined ? { saveHandle } : {}),
+        ...(sourceWitness ? { sourceWitness: true } : {}),
     };
 }
 
@@ -184,11 +203,44 @@ function normalizePersistedChunkLayout(
         typeof value.chunkGeneration === 'string' && value.chunkGeneration.length > 0
             ? value.chunkGeneration
             : undefined;
+    const pendingChunkGeneration =
+        typeof value.pendingChunkGeneration === 'string' && value.pendingChunkGeneration.length > 0
+            ? value.pendingChunkGeneration
+            : undefined;
+    const pendingChunkCount =
+        typeof value.pendingChunkCount === 'number'
+        && Number.isSafeInteger(value.pendingChunkCount)
+        && value.pendingChunkCount >= 0
+            ? value.pendingChunkCount
+            : undefined;
+    const pendingChunkSize =
+        typeof value.pendingChunkSize === 'number'
+        && Number.isSafeInteger(value.pendingChunkSize)
+        && value.pendingChunkSize > 0
+            ? value.pendingChunkSize
+            : undefined;
+    const pendingFileSize =
+        typeof value.pendingFileSize === 'number'
+        && Number.isSafeInteger(value.pendingFileSize)
+        && value.pendingFileSize >= 0
+            ? value.pendingFileSize
+            : undefined;
+    const pendingChunkUpdatedAt =
+        typeof value.pendingChunkUpdatedAt === 'number'
+        && Number.isFinite(value.pendingChunkUpdatedAt)
+        && value.pendingChunkUpdatedAt >= 0
+            ? value.pendingChunkUpdatedAt
+            : undefined;
 
     return {
         ...(chunkCount !== undefined ? { chunkCount } : {}),
         ...(chunkSize !== undefined ? { chunkSize } : {}),
         ...(chunkGeneration ? { chunkGeneration } : {}),
+        ...(pendingChunkGeneration ? { pendingChunkGeneration } : {}),
+        ...(pendingChunkCount !== undefined ? { pendingChunkCount } : {}),
+        ...(pendingChunkSize !== undefined ? { pendingChunkSize } : {}),
+        ...(pendingFileSize !== undefined ? { pendingFileSize } : {}),
+        ...(pendingChunkUpdatedAt !== undefined ? { pendingChunkUpdatedAt } : {}),
     };
 }
 
@@ -257,6 +309,7 @@ export function createEntryFromPersistedRecord(
         saveName: record.saveName ?? record.fileName,
         saveKind: record.saveKind ?? defaultSaveKindForFileName(record.fileName),
         saveHandle: record.saveHandle ?? null,
+        ...(record.sourceWitness ? { sourceWitness: true } : {}),
         storageMode: record.storageMode ?? 'inline',
         chunkCount: record.chunkCount ?? 0,
         chunkSize: record.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,
@@ -348,6 +401,7 @@ export function createBrowserDocumentEntry(
         ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
         data: input.data,
         fileSize: input.fileSize,
+        ...(input.fileLastModified === undefined ? {} : {fileLastModified: input.fileLastModified}),
         updatedAt: Date.now(),
         ...(input.contentToken ? { contentToken: input.contentToken } : {}),
         contentRevision: input.contentRevision ?? 1,
@@ -355,6 +409,7 @@ export function createBrowserDocumentEntry(
         saveName: input.fileName,
         saveKind: input.saveKind,
         saveHandle: input.saveHandle,
+        ...(input.sourceWitness ? { sourceWitness: true } : {}),
         storageMode: input.storageMode,
         chunkCount: input.chunkCount ?? 0,
         chunkSize: input.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE,

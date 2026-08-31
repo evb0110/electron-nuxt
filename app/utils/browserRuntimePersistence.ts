@@ -40,7 +40,10 @@ export function migrateLegacyBrowserInstallHintCookie() {
         return false;
     }
 
-    safeSetLocalStorageItem(BROWSER_INSTALL_HINT_STORAGE_KEY, 'true');
+    const committed = safeSetLocalStorageItem(BROWSER_INSTALL_HINT_STORAGE_KEY, 'true');
+    if (!committed) {
+        return false;
+    }
     try {
         document.cookie = `${BROWSER_INSTALL_HINT_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${getSecureCookieAttribute()}`;
     } catch {

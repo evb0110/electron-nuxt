@@ -14,8 +14,18 @@ const ASSISTANT_PANEL = {
 
 const ASSISTANT_PANEL_WIDTH_STORAGE_KEY = 'evb-viewer:assistant:panel-width';
 
+function normalizePanelWidth(value: unknown) {
+    return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : ASSISTANT_PANEL.DEFAULT_WIDTH;
+}
+
 export const useAssistantPanelResize = () => {
     const persistedPanelWidth = useLocalStorage(ASSISTANT_PANEL_WIDTH_STORAGE_KEY, ASSISTANT_PANEL.DEFAULT_WIDTH);
+    const initialPanelWidth = normalizePanelWidth(persistedPanelWidth.value);
+    if (persistedPanelWidth.value !== initialPanelWidth) {
+        persistedPanelWidth.value = initialPanelWidth;
+    }
     const panelWidth = useClamp(
         persistedPanelWidth,
         ASSISTANT_PANEL.MIN_WIDTH,
@@ -27,7 +37,7 @@ export const useAssistantPanelResize = () => {
     let resizeStartWidth = 0;
 
     function applyClampedWidth(width: number) {
-        panelWidth.value = Math.round(width);
+        panelWidth.value = Math.round(normalizePanelWidth(width));
     }
 
     function handlePanelResize(event: PointerEvent) {

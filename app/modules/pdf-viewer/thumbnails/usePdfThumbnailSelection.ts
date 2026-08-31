@@ -2,6 +2,16 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import {
+    buildPageMoveOrder,
+    buildPageMoveRangesOrder,
+    createPageMoveRange,
+    createPageMoveRanges,
+    isPageMoveOperationNoOp,
+    iteratePageSelectionRanges,
+    mapPageNumberAfterPageMove,
+} from '@contracts/pageNumbers';
+import type { TPageMoveOperation } from '@contracts/pageNumbers';
 import { useMultiSelection } from '@app/composables/useMultiSelection';
 import {
     arePageNumberListsEqual,
@@ -60,6 +70,8 @@ interface IUsePdfThumbnailSelectionOptions {
         selection: TPageSelection;
     }) => void;
     onGoToPage: (page: number) => void;
+    onMove?: ((move: TPageMoveOperation) => void) | undefined;
+    onReorder?: (newOrder: number[]) => void;
     onSelectionRefused?: (reason: IPdfThumbnailSelectionRefusal) => void;
     onSelectedPagesChange?: (pages: number[]) => void;
     onPageSelectionChange?: ((selection: TPageSelection) => void) | undefined;
@@ -80,6 +92,8 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         markUserInteraction,
         onContextMenu,
         onGoToPage,
+        onMove,
+        onReorder,
         onSelectionRefused = () => {},
         onSelectedPagesChange = () => {},
         onPageSelectionChange,
@@ -387,16 +401,100 @@ export const usePdfThumbnailSelection = (options: IUsePdfThumbnailSelectionOptio
         return key === 'Enter' || key === ' ' || key === 'Spacebar';
     }
 
+    function resolveKeyboardMoveRanges(basePage: number) {
+        const selection = getPageSelection();
+        const selectionCount = pageSelectionCount(selection);
+        if (selectionCount > LEGACY_SELECTION_MATERIALIZATION_LIMIT) {
+            return [{
+                startPage: basePage,
+                endPage: basePage,
+            }];
+        }
+
+        const ranges = [...iteratePageSelectionRanges(selection)];
+        return ranges.length > 0 && isPageSelected(selection, basePage)
+            ? ranges
+            : [{
+                startPage: basePage,
+                endPage: basePage,
+            }];
+    }
+
+    function moveFocusedPagesByKeyboard(event: KeyboardEvent, direction: -1 | 1) {
+        if (!onMove && !onReorder) {
+            return false;
+        }
+
+        const focusedPage = rovingFocusPage.value;
+        if (focusedPage === null || totalPages.value <= 0) {
+            return false;
+        }
+
+        const ranges = resolveKeyboardMoveRanges(focusedPage);
+        const firstRange = ranges[0];
+        const lastRange = ranges.at(-1);
+        if (!firstRange || !lastRange) {
+            return false;
+        }
+
+        const insertAt = direction < 0
+            ? firstRange.startPage - 2
+            : lastRange.endPage + 1;
+        const move = createPageMoveRanges(
+            totalPages.value,
+            ranges,
+            Math.min(Math.max(0, insertAt), totalPages.value),
+        );
+        if (isPageMoveOperationNoOp(move)) {
+            return false;
+        }
+
+        event.preventDefault();
+        markUserInteraction('keyboard-reorder');
+        const operation: TPageMoveOperation = move.ranges.length === 1
+            ? createPageMoveRange(
+                move.pageCount,
+                move.ranges[0]!.startPage,
+                move.ranges[0]!.endPage,
+                move.insertAt,
+            )
+            : move;
+        if (onMove) {
+            onMove(operation);
+        } else if (onReorder) {
+            onReorder('ranges' in operation
+                ? buildPageMoveRangesOrder(operation)
+                : buildPageMoveOrder(operation));
+        }
+
+        const nextFocusPage = mapPageNumberAfterPageMove(focusedPage, operation);
+        void nextTick(() => focusThumbnailPage(clampPage(nextFocusPage)));
+        return true;
+    }
+
     function handleContainerKeyDown(event: KeyboardEvent) {
         if (
-            event.altKey
-            || event.metaKey
-            || event.ctrlKey
-            || totalPages.value <= 0
+            totalPages.value <= 0
             || isDragging.value
             || isExternalDragOver.value
             || isNestedRowControl(event.target)
         ) {
+            return;
+        }
+
+        if (
+            event.altKey
+            && !event.shiftKey
+            && !event.metaKey
+            && !event.ctrlKey
+        ) {
+            const direction = resolveArrowDirection(event.key);
+            if (direction !== 0 && moveFocusedPagesByKeyboard(event, direction < 0 ? -1 : 1)) {
+                return;
+            }
+        }
+
+        if (event.altKey || event.metaKey || event.ctrlKey) {
             return;
         }
 

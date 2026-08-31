@@ -99,6 +99,28 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     agentMcpEnabled: false,
 };
 
+export class UnsupportedSettingsSchemaError extends Error {
+    readonly code = 'unsupported-settings-schema' as const;
+    readonly version: number;
+
+    constructor(version: number) {
+        super(`Settings schema version ${version} is newer than the supported version ${DEFAULT_SETTINGS.version}`);
+        this.name = 'UnsupportedSettingsSchemaError';
+        this.version = version;
+    }
+}
+
+export function assertSupportedSettingsSchema(raw: unknown): asserts raw is unknown {
+    if (!isRecord(raw)) {
+        return;
+    }
+
+    const version = raw.version;
+    if (typeof version === 'number' && Number.isFinite(version) && version > DEFAULT_SETTINGS.version) {
+        throw new UnsupportedSettingsSchemaError(version);
+    }
+}
+
 const SUPPORTED_LOCALES = new Set<string>(LOCALE_CODES);
 
 function isLocale(locale: string): locale is TLocale {

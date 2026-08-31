@@ -21,7 +21,10 @@ import {
     useEventListener,
     useIntervalFn,
 } from '@vueuse/core';
-import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentPickerCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
 
@@ -601,7 +604,12 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             }
 
             for (const filePath of filePaths) {
-                if (!filePath || seen.has(filePath) || !isSupportedPdfInsertFilePath(filePath)) {
+                if (!filePath || seen.has(filePath)) {
+                    continue;
+                }
+                if (!isSupportedPdfInsertFilePath(filePath)) {
+                    await getDocumentWorkingCopyCapability().cleanupFile(filePath)
+                        .catch(() => undefined);
                     continue;
                 }
 
