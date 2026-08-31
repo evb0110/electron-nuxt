@@ -39,6 +39,8 @@ import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentO
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { toPdfDateString } from '@app/utils/pdfDate';
+import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import type {
     TWorkspaceFailureSurface,
@@ -79,6 +81,8 @@ import {
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
+
+type TSingleWriterSaveTransaction = IPdfViewerSaveTransactionResult & {replaceFromDocument?: (result: IPdfAnnotationParseResult) => void};
 
 export interface IWorkspaceSaveDependencies {
     status: {
@@ -587,7 +591,7 @@ async function executeNativeMutationSave(
                 planOnly: true,
             },
         ),
-    );
+    ) as TSingleWriterSaveTransaction;
     const nativePathBacked = requiresNativePathBackedSave(plan);
     const projection = saveTransaction.nativeMutationProjection;
     const executeFallback = () => executeSerializedBytesSave(
@@ -617,6 +621,29 @@ async function executeNativeMutationSave(
             );
         }
         return executeFallback();
+    }
+
+    if (Object.keys(projection.mutations).length === 0) {
+        saveTransaction.commitAnnotationSave?.();
+        return {
+            status: 'saved',
+            persisted: {
+                success: true,
+                outPath: plan.target.expectedWorkingPath ?? null,
+                saveMode: getSaveMode(plan),
+                didSaveAs: false,
+            },
+            serializedChanges: false,
+            reloadWaiter: null,
+            completion: {
+                allowAnnotationSaveStateRefresh: false,
+                allowBookmarksSaveStateRefresh: false,
+                allowPageLabelsSaveStateRefresh: false,
+                markShapeStateSaved: false,
+                preserveLivePdfjsSession: true,
+                resetAnnotationStorage: false,
+            },
+        };
     }
 
     let persisted: IPdfPersistResult | null;
@@ -703,6 +730,19 @@ async function executeNativeMutationSave(
         }
     }
     saveTransaction.commitAnnotationSave?.();
+
+    const expectedWorkingPath = plan.target.expectedWorkingPath;
+    const expectedRevisionToken = plan.target.expectedRevisionToken;
+    if (saveTransaction.replaceFromDocument && expectedWorkingPath && expectedRevisionToken) {
+        const parsed = await timedSavePhase(
+            'parse-committed-pdf-annotations',
+            () => getDocumentWorkingCopyCapability().parsePdfAnnotations(
+                expectedWorkingPath,
+                {expectedDocumentRevisionToken: expectedRevisionToken},
+            ),
+        );
+        saveTransaction.replaceFromDocument(parsed);
+    }
     const preparedShapeState = preparedShapeStateSnapshot;
     preparedShapeStateSnapshot = null;
 

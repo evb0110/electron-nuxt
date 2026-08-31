@@ -13,6 +13,7 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
+import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
@@ -48,6 +49,10 @@ import type {
     AnnotationApplication,
     IAnnotationSaveVerificationOptions,
 } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import {
+    mapPdfAnnotationParseEntity,
+    mapPdfAnnotationParseForeign,
+} from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -94,6 +99,7 @@ interface IUsePdfViewerSaveTransactionOptions {
         ): Promise<void>;
         assertCurrent?(): Promise<void> | void;
         recordMaterializedIdentityBinding?(binding: ICanonicalAnnotationIdentityBinding): void;
+        replaceFromDocument?(result: IPdfAnnotationParseResult): void;
         commit(): void;
     };
 }
@@ -352,6 +358,10 @@ export const usePdfViewerSaveTransaction = (
             recordMaterializedIdentityBinding: (binding: ICanonicalAnnotationIdentityBinding) =>
                 application.recordMaterializedIdentityBinding(session, binding.annotationId, binding.pdfRef),
             commit: () => application.acknowledgeSave(session, input.documentRevisionToken),
+            replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
+                result.entities.map(mapPdfAnnotationParseEntity),
+                result.foreign.map(mapPdfAnnotationParseForeign),
+            ),
         };
     }
 
@@ -721,6 +731,9 @@ export const usePdfViewerSaveTransaction = (
                     throw staleTargetError('PDF.js annotations changed after the save frontier was captured');
                 }
             },
+            ...(canonicalSave?.replaceFromDocument
+                ? {replaceFromDocument: canonicalSave.replaceFromDocument}
+                : {}),
         };
         // Routing is decided exactly once, here; every projector below consumes the result.
         const decision: TPdfSaveRouteDecision = classifyPdfSaveRoute(globalSerializationPlan, {
@@ -807,9 +820,6 @@ export const usePdfViewerSaveTransaction = (
             const nativeMutationProjection = decision.nativeMutationProjection;
             if (decision.replayableAnnotationMutationsAllowed && decision.annotationRoute.route !== 'source-replay') {
                 throw new Error(`Native annotation replay was granted on the ${decision.annotationRoute.route} route`);
-            }
-            if (Object.keys(nativeMutationProjection.mutations).length === 0) {
-                throw new Error('Native append was granted without a mutation program');
             }
             if (
                 !decision.replayableAnnotationMutationsAllowed
