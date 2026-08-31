@@ -193,6 +193,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         zoomMode,
         fitMode,
         viewMode,
+        viewRotation,
         currentPage,
         totalPages,
         pdfDocument,
@@ -335,7 +336,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         applyAnnotationComments: applyAnnotationCommentsFromSession,
         applyAnnotationInventory,
     } = annotationSession;
-
     const pendingEmbeddedAnnotationDeleteCount = computed(() => {
         void annotationComments.value;
         return pdfViewerRef.value?.getDeletedPersistedCanonicalAnnotationCount?.() ?? 0;
@@ -361,7 +361,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
     });
     const preservedAnnotationSourceDirty = ref(false);
-
     function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
         applyAnnotationCommentsFromSession(comments);
     }
@@ -1063,6 +1062,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             djvuViewerRef: sidebarSearch.djvuViewerRef,
             sourcePdfData: pdfData,
             viewMode,
+            viewRotation,
             workingCopyPath,
             originalPath,
             documentRevisionToken,

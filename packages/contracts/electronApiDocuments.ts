@@ -34,6 +34,7 @@ import {
 } from '@contracts/runtimeGuards';
 import type {
     IRecentFile,
+    TPdfViewRotation,
     TPdfViewMode,
     TPrintOrientation,
 } from '@contracts/shared';
@@ -48,27 +49,22 @@ import type {
 } from '@contracts/electronApiCommon';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {INativeErrorEnvelope} from '@contracts/nativeErrors';
-
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
-
 export interface IDocumentChunkReadOptions {
     chunkBytes?: number;
     signal?: AbortSignal;
 }
-
 export interface IDocumentChunkReadResult {
     size: number;
     bytesRead: number;
     chunks: number;
 }
-
 export interface IPdfPathPrintOptions {
     pageNumbers?: number[];
     requestId?: string;
     viewMode: TPdfViewMode;
     orientation: TPrintOrientation;
 }
-
 export interface IPdfDataPrintOptions {requestId?: string;}
 export interface IPdfNativePrintDialogOpenedEvent {requestId: string;}
 /** A PDF indirect-object reference returned by the native annotation index. */
@@ -810,6 +806,8 @@ export interface IApplicationMenuDocumentState {
     continuousScroll?: boolean;
     supportsViewMode?: boolean;
     viewMode?: TPdfViewMode;
+    supportsViewRotation?: boolean;
+    viewRotation?: TPdfViewRotation;
     isActualSizeActive?: boolean;
     isFitWidthActive?: boolean;
     isFitHeightActive?: boolean;
@@ -844,6 +842,8 @@ export interface IDocumentsMenuCapability {
     onMenuViewModeSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacing: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacingFirstSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewRotationCw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewRotationCcw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuToggleAssistant: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuUndo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRedo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;

@@ -28,7 +28,10 @@ import {
     readExactPdfFixtureIdentity,
     validateExactPdfFixtureIdentity,
 } from '@scripts/ci/stageExactPdfFixture';
-import {resolveLargePdfFixtureAvailability} from '@tests/e2e/electron/helpers/fixtures';
+import {
+    createMultiPageTextFixturePdf,
+    resolveLargePdfFixtureAvailability,
+} from '@tests/e2e/electron/helpers/fixtures';
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
@@ -69,9 +72,20 @@ const acceptanceDescribe = acceptanceEnabled ? describe : describe.skip;
 const acceptanceDir = resolve(process.cwd(), '.devkit', 'tmp', `macos-print-acceptance-${Date.now()}`);
 const renderedFirstPagePrefix = join(acceptanceDir, 'printed-first-page');
 const renderedFirstPagePath = `${renderedFirstPagePrefix}.png`;
+const printLayoutSmokeDir = resolve(process.cwd(), '.devkit', 'tmp', `macos-print-layout-smoke-${Date.now()}`);
+const printLayoutSmokeOutputPath = join(printLayoutSmokeDir, 'facing-first-single-output.pdf');
+const printLayoutSmokeDescribe = process.platform === 'darwin' ? describe : describe.skip;
+const printLayoutSmokeSessionEnv = {
+    EVB_PRINT_DIALOG_TEST_MODE: 'print-to-pdf',
+    EVB_PRINT_DIALOG_TEST_OUTPUT_PATH: printLayoutSmokeOutputPath,
+};
 
 afterAll(() => {
     rmSync(acceptanceDir, {
+        force: true,
+        recursive: true,
+    });
+    rmSync(printLayoutSmokeDir, {
         force: true,
         recursive: true,
     });
@@ -242,19 +256,19 @@ function resolveBundledQpdfPath() {
     return path;
 }
 
-async function renderFirstPdfPage(pdfPath: string) {
-    mkdirSync(acceptanceDir, {recursive: true});
+async function renderPdfPage(pdfPath: string, pageNumber: number, outputPrefix = renderedFirstPagePrefix) {
+    mkdirSync(dirname(outputPrefix), {recursive: true});
     await execFileAsync(resolveBundledPdftoppmPath(), [
         '-png',
         '-singlefile',
         '-r',
         String(PRINT_VALIDATION_DPI),
         '-f',
-        '1',
+        String(pageNumber),
         '-l',
-        '1',
+        String(pageNumber),
         pdfPath,
-        renderedFirstPagePrefix,
+        outputPrefix,
     ], {
         maxBuffer: 128 * 1024,
         timeout: 30_000,
@@ -270,14 +284,27 @@ interface IPrintRasterMetrics {
     distinctColorBuckets: number;
 }
 
-function inspectPrintedPageRaster(pngPath: string): IPrintRasterMetrics {
+interface IPrintRasterRegion {
+    startXRatio: number;
+    endXRatio: number;
+}
+
+function inspectPrintedPageRaster(
+    pngPath: string,
+    region: IPrintRasterRegion = {
+        startXRatio: 0,
+        endXRatio: 1,
+    },
+): IPrintRasterMetrics {
     const image = decode(readFileSync(pngPath));
     const channelCount = Math.floor(image.data.length / (image.width * image.height));
     if (channelCount < 3) {
         throw new Error(`Printed page PNG has fewer than three color channels: ${channelCount}`);
     }
 
-    const totalPixels = image.width * image.height;
+    const startX = Math.max(0, Math.min(image.width, Math.floor(image.width * region.startXRatio)));
+    const endX = Math.max(startX, Math.min(image.width, Math.ceil(image.width * region.endXRatio)));
+    const totalPixels = (endX - startX) * image.height;
     let nonWhitePixels = 0;
     let substantialLightPixels = 0;
     let luminanceMinimum = 255;
@@ -287,37 +314,40 @@ function inspectPrintedPageRaster(pngPath: string): IPrintRasterMetrics {
     let sampleCount = 0;
     const distinctColorBuckets = new Set<number>();
 
-    for (let offset = 0; offset < image.data.length; offset += channelCount) {
-        const alpha = channelCount >= 4 ? image.data[offset + 3] ?? 255 : 255;
-        const red = image.data[offset] ?? 255;
-        const green = image.data[offset + 1] ?? 255;
-        const blue = image.data[offset + 2] ?? 255;
-        if (
-            alpha > 8
-            && (
-                red < 245
-                || green < 245
-                || blue < 245
-            )
-        ) {
-            nonWhitePixels += 1;
-        }
+    for (let y = 0; y < image.height; y += 1) {
+        for (let x = startX; x < endX; x += 1) {
+            const offset = (y * image.width + x) * channelCount;
+            const alpha = channelCount >= 4 ? image.data[offset + 3] ?? 255 : 255;
+            const red = image.data[offset] ?? 255;
+            const green = image.data[offset + 1] ?? 255;
+            const blue = image.data[offset + 2] ?? 255;
+            if (
+                alpha > 8
+                && (
+                    red < 245
+                    || green < 245
+                    || blue < 245
+                )
+            ) {
+                nonWhitePixels += 1;
+            }
 
-        if (alpha <= 8) {
-            continue;
-        }
+            if (alpha <= 8) {
+                continue;
+            }
 
-        const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
-        if (luminance >= 220) {
-            substantialLightPixels += 1;
+            const luminance = (red * 0.2126) + (green * 0.7152) + (blue * 0.0722);
+            if (luminance >= 220) {
+                substantialLightPixels += 1;
+            }
+            luminanceMinimum = Math.min(luminanceMinimum, luminance);
+            luminanceMaximum = Math.max(luminanceMaximum, luminance);
+            sampleCount += 1;
+            const delta = luminance - luminanceMean;
+            luminanceMean += delta / sampleCount;
+            luminanceM2 += delta * (luminance - luminanceMean);
+            distinctColorBuckets.add((red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4));
         }
-        luminanceMinimum = Math.min(luminanceMinimum, luminance);
-        luminanceMaximum = Math.max(luminanceMaximum, luminance);
-        sampleCount += 1;
-        const delta = luminance - luminanceMean;
-        luminanceMean += delta / sampleCount;
-        luminanceM2 += delta * (luminance - luminanceMean);
-        distinctColorBuckets.add((red >> 4) << 8 | (green >> 4) << 4 | (blue >> 4));
     }
 
     return {
@@ -406,7 +436,7 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
         });
         expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(1);
 
-        await renderFirstPdfPage(outputPath);
+        await renderPdfPage(outputPath, 1);
         const rasterMetrics = inspectPrintedPageRaster(renderedFirstPagePath);
         expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
         expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
@@ -418,5 +448,88 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
             || rasterMetrics.luminanceVariance > MIN_PRINT_LUMINANCE_RANGE
             || rasterMetrics.distinctColorBuckets >= MIN_PRINT_DISTINCT_COLOR_BUCKETS,
         ).toBe(true);
+    }, PRINT_ACCEPTANCE_TIMEOUT_MS);
+});
+
+printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () => {
+    const sessionFixture = createVisibleWindowElectronE2ESessionFixture({
+        sessionName: () => `e2e-macos-print-layout-smoke-${Date.now()}`,
+        extraEnv: printLayoutSmokeSessionEnv,
+        timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
+    });
+
+    it('composes four pages as three facing-first-single sheets before native handoff', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            throw new Error('Electron session is unavailable for the macOS print composition smoke');
+        }
+
+        rmSync(printLayoutSmokeOutputPath, {force: true});
+        mkdirSync(printLayoutSmokeDir, {recursive: true});
+        onTestFinished(() => rmSync(printLayoutSmokeOutputPath, {force: true}));
+
+        const sourcePath = await createMultiPageTextFixturePdf(
+            'macos-print-layout-four-pages.pdf',
+            4,
+        );
+        await openPdfInApp(session.page, sourcePath, PRINT_ACCEPTANCE_TIMEOUT_MS);
+        const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
+        const printResult = await session.page.evaluate(async (path: string) => {
+            const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
+            if (!printPdfPath) {
+                throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
+            }
+
+            return printPdfPath(path, 'facing-first-single-print-smoke.pdf', {
+                pageNumbers: [
+                    1,
+                    2,
+                    3,
+                    4,
+                ],
+                viewMode: 'facing-first-single',
+                orientation: 'auto',
+            });
+        }, workingCopyPath);
+
+        expect(printResult).toEqual(expect.objectContaining({success: true}));
+        expect(existsSync(printLayoutSmokeOutputPath)).toBe(true);
+
+        const qpdfPath = resolveBundledQpdfPath();
+        await execFileAsync(qpdfPath, [
+            '--check',
+            printLayoutSmokeOutputPath,
+        ], {
+            maxBuffer: 128 * 1024,
+            timeout: 60_000,
+        });
+        const {stdout: pageCountOutput} = await execFileAsync(qpdfPath, [
+            '--show-npages',
+            printLayoutSmokeOutputPath,
+        ], {
+            maxBuffer: 16 * 1024,
+            timeout: 60_000,
+        });
+        expect(Number.parseInt(pageCountOutput.trim(), 10)).toBe(3);
+
+        const sheetPaths: string[] = [];
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            const outputPrefix = join(printLayoutSmokeDir, `facing-first-single-page-${pageNumber}`);
+            const sheetPath = `${outputPrefix}.png`;
+            await renderPdfPage(printLayoutSmokeOutputPath, pageNumber, outputPrefix);
+            sheetPaths.push(sheetPath);
+            const rasterMetrics = inspectPrintedPageRaster(sheetPath);
+            expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
+            expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+        }
+        const facingSheetPath = sheetPaths[1]!;
+        expect(inspectPrintedPageRaster(facingSheetPath, {
+            startXRatio: 0,
+            endXRatio: 0.5,
+        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+        expect(inspectPrintedPageRaster(facingSheetPath, {
+            startXRatio: 0.5,
+            endXRatio: 1,
+        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
     }, PRINT_ACCEPTANCE_TIMEOUT_MS);
 });

@@ -533,6 +533,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v
+  run_macos_packaged_tool_smoke "pdf-print-dialog" "$(packaged_entry_path pdf-print-dialog)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$(packaged_entry_path evb-pdf-image-combine)" --protocol-version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest

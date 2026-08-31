@@ -22,6 +22,7 @@ import type {
     IPdfDataPrintOptions,
     IPdfPathPrintOptions,
 } from '@contracts/electronApiDocuments';
+import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
     IDocumentsSenderIdContext,
@@ -38,11 +39,13 @@ import {
     validatePdfBytesForHandoff,
     type IPrintPdfResult,
 } from '@electron/utils/printHandoff';
+import { buildPrintablePdfPath } from '@electron/features/documents/main/buildPrintablePdfPath';
 
 const logger = createLogger('documents-print');
 const DEFAULT_APP_TEMP_PREFIX = 'open-in-default-app-';
 const PRINT_DATA_TEMP_PREFIX = 'print-data-';
 const PRINT_PAGE_TEMP_PREFIX = 'print-pages-';
+const PRINT_LAYOUT_TEMP_PREFIX = 'print-layout-';
 const DEFAULT_APP_TEMP_CLEANUP_DELAY_MS = 5 * 60 * 1000;
 const DEFAULT_APP_TEMP_MAX_AGE_MS = DEFAULT_APP_TEMP_CLEANUP_DELAY_MS;
 const scheduledDefaultAppTempCleanup = new Map<string, ReturnType<typeof setTimeout>>();
@@ -103,7 +106,8 @@ function shouldSweepManagedTempPdf(entry: string) {
     return entry.startsWith(DEFAULT_APP_TEMP_PREFIX)
         || entry.startsWith(PRINT_DATA_TEMP_PREFIX)
         || entry.startsWith(PRINT_DJVU_TEMP_PREFIX)
-        || entry.startsWith(PRINT_PAGE_TEMP_PREFIX);
+        || entry.startsWith(PRINT_PAGE_TEMP_PREFIX)
+        || entry.startsWith(PRINT_LAYOUT_TEMP_PREFIX);
 }
 
 export async function sweepStaleDefaultAppTempPdfs(maxAgeMs = DEFAULT_APP_TEMP_MAX_AGE_MS) {
@@ -187,9 +191,6 @@ function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathP
     if (viewMode !== 'single' && viewMode !== 'facing' && viewMode !== 'facing-first-single') {
         throw new Error('Invalid print layout');
     }
-    if (viewMode === 'facing-first-single') {
-        throw new Error('First-page-single layout is unavailable for native path printing');
-    }
     if (orientation !== 'auto' && orientation !== 'portrait' && orientation !== 'landscape') {
         throw new Error('Invalid print orientation');
     }
@@ -209,21 +210,14 @@ function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathP
 }
 
 function buildNativePathPrintOptions(
-    options: IPdfPathPrintOptions,
     stagedPageCount?: number,
 ): WebContentsPrintOptions {
-    return {
-        ...(options.viewMode === 'single' ? {} : {pagesPerSheet: 2}),
-        ...(options.orientation === 'auto'
-            ? {}
-            : {landscape: options.orientation === 'landscape'}),
-        ...(stagedPageCount === undefined
-            ? {}
-            : {pageRanges: [{
-                from: 0,
-                to: stagedPageCount - 1,
-            }]}),
-    };
+    return stagedPageCount === undefined
+        ? {}
+        : {pageRanges: [{
+            from: 0,
+            to: stagedPageCount - 1,
+        }]};
 }
 
 function getPdfPrintAborterKey(senderId: number | undefined, requestId: string) {
@@ -375,11 +369,15 @@ export async function handlePrintPdfPath(
         ? undefined
         : () => context.onNativePrintDialogOpened?.(requestId);
     const normalizedPageNumbers = normalizedOptions.pageNumbers;
+    const requiresLayoutComposition = normalizedOptions.viewMode !== 'single'
+        || normalizedOptions.orientation !== 'auto';
     const cancelGroup = `print-selected-pages:${randomUUID()}`;
     const operation = registerPdfPrintOperation(
         context,
         requestId,
-        normalizedPageNumbers ? () => cancelNativeCommandGroup(cancelGroup) : undefined,
+        normalizedPageNumbers && !requiresLayoutComposition
+            ? () => cancelNativeCommandGroup(cancelGroup)
+            : undefined,
     );
     let tempPath: string | null = null;
     let shouldRetainTempPdf = false;
@@ -387,11 +385,42 @@ export async function handlePrintPdfPath(
         const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId, operation.signal);
         await assertPdfPathWithinSizeLimit(resolvedPath);
         operation.signal.throwIfAborted();
+        if (requiresLayoutComposition) {
+            const sourceStat = await stat(resolvedPath);
+            if (sourceStat.size > PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES) {
+                throw new Error('PDF is too large for advanced print layout');
+            }
+            const tempFileName = `${PRINT_LAYOUT_TEMP_PREFIX}${randomUUID()}-${normalizePrintableFileName(_fileName)}`;
+            tempPath = join(getAppTempDir(), tempFileName);
+            await buildPrintablePdfPath({
+                inputPath: resolvedPath,
+                outputPath: tempPath,
+                printOptions: normalizedOptions,
+                signal: operation.signal,
+            });
+            operation.signal.throwIfAborted();
+            await assertPdfPathWithinSizeLimit(tempPath);
+            const result = await openNativePrintDialogForPath(
+                ownerWindow,
+                tempPath,
+                {},
+                _fileName,
+                {
+                    ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
+                    signal: operation.signal,
+                },
+            );
+            if (result.success) {
+                shouldRetainTempPdf = true;
+                schedulePrintTempCleanup(tempPath);
+            }
+            return result;
+        }
         if (!normalizedPageNumbers) {
             return await openNativePrintDialogForPath(
                 ownerWindow,
                 resolvedPath,
-                buildNativePathPrintOptions(normalizedOptions),
+                buildNativePathPrintOptions(),
                 _fileName,
                 {
                     ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
@@ -408,7 +437,7 @@ export async function handlePrintPdfPath(
         const result = await openNativePrintDialogForPath(
             ownerWindow,
             tempPath,
-            buildNativePathPrintOptions(normalizedOptions, normalizedPageNumbers.length),
+            buildNativePathPrintOptions(normalizedPageNumbers.length),
             _fileName,
             {
                 ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),

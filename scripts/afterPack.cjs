@@ -103,6 +103,9 @@ function requiredExtraResourcesForContext(context, {
                     .replaceAll('{exeSuffix}', binaryExtension),
                 type: resource.type,
             }));
+        if (packagedEntries.length === 0) {
+            continue;
+        }
         entries.push({
             label: `${entry.label} (${tag})`,
             packagedEntries,

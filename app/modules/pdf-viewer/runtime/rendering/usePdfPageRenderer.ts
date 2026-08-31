@@ -4,6 +4,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { IPdfjsL10n } from '@app/types/pdfjs';
+import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 import type {
     IPageRange,
@@ -482,7 +483,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 continue;
             }
             const lease = await options.document.leasePage(pageNumber);
-            const pageViewport = lease.page.getViewport({scale: toValue(viewport.scale.effectiveScale)});
+            const pageViewport = lease.page.getViewport({
+                scale: toValue(viewport.scale.effectiveScale),
+                rotation: resolvePdfPageViewportRotation(
+                    lease.page.rotate,
+                    toValue(options.viewRotation ?? (() => 0)),
+                ),
+            });
             const userUnit = pageViewport.userUnit ?? 1;
             try {
                 await hydrateCommittedLayers({
@@ -536,7 +543,13 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             && container.dataset.page === String(pageNumber)
         );
         try {
-            const pageViewport = lease.page.getViewport({scale: toValue(viewport.scale.effectiveScale)});
+            const pageViewport = lease.page.getViewport({
+                scale: toValue(viewport.scale.effectiveScale),
+                rotation: resolvePdfPageViewportRotation(
+                    lease.page.rotate,
+                    toValue(options.viewRotation ?? (() => 0)),
+                ),
+            });
             const result = await withPageStageTimeout(
                 annotationLayerRenderer.renderAnnotationEditorLayer(
                     container,

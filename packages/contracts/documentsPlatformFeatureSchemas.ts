@@ -146,6 +146,7 @@ const applicationMenuOptionalBooleanFields = [
     'canContinuousScroll',
     'continuousScroll',
     'supportsViewMode',
+    'supportsViewRotation',
     'isActualSizeActive',
     'isFitWidthActive',
     'isFitHeightActive',
@@ -187,6 +188,17 @@ function decodeApplicationMenuDocumentState(value: unknown): boolean | IApplicat
         ] as const, value.viewMode)
     ) {
         fail('state.viewMode must be a supported PDF view mode');
+    }
+    if (
+        value.viewRotation !== undefined
+        && !([
+            0,
+            90,
+            180,
+            270,
+        ] as readonly unknown[]).includes(value.viewRotation)
+    ) {
+        fail('state.viewRotation must be a supported PDF view rotation');
     }
     return {
         ...value,
@@ -251,7 +263,6 @@ function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
     }
     return {preset: decoded.preset};
 }
-
 function decodePreviewOptions(value: unknown): IPdfNativePagePreviewOptions | undefined {
     const decoded = decodeOptionalObject<IPdfNativePagePreviewOptions>(value, 'options');
     if (decoded === undefined) {
@@ -265,7 +276,6 @@ function decodePreviewOptions(value: unknown): IPdfNativePagePreviewOptions | un
     }
     return {...decoded};
 }
-
 function decodePlatformOperationResult(value: unknown) {
     if (
         !isRecord(value)
@@ -282,7 +292,6 @@ function decodePlatformOperationResult(value: unknown) {
         ...(value.unsupportedReason === undefined ? {} : {unsupportedReason: value.unsupportedReason}),
     };
 }
-
 function decodePrintResult(value: unknown) {
     if (
         !isRecord(value)
@@ -300,7 +309,6 @@ function decodePrintResult(value: unknown) {
         ...(value.unsupportedReason === undefined ? {} : {unsupportedReason: value.unsupportedReason}),
     };
 }
-
 function decodeDocumentSaveResult(value: unknown): TDocumentSaveResult {
     if (!isRecord(value) || typeof value.ok !== 'boolean') {
         fail('invalid document save result');
@@ -359,7 +367,6 @@ function decodeDocumentSaveResult(value: unknown): TDocumentSaveResult {
         ...(validation === undefined ? {} : {validation}),
     };
 }
-
 function decodeOptimizeResult(value: unknown): IPdfOptimizeResult {
     if (
         !isRecord(value)
@@ -386,7 +393,6 @@ function decodeOptimizeResult(value: unknown): IPdfOptimizeResult {
         pageCount: decodeNullableCount(value.pageCount, 'pageCount'),
     };
 }
-
 function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
     if (
         !isRecord(value)
@@ -425,7 +431,6 @@ function decodeNativeSaveResult(value: unknown): IPdfNativeSaveResult {
         ...(stagedOutput ? {stagedOutput} : {}),
     };
 }
-
 function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
     if (
         !isRecord(value)
@@ -452,7 +457,6 @@ function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
         saveRestrictions: value.saveRestrictions.map(String),
     };
 }
-
 const openFileResult = s.fromParser<TFileResult>(decodeOpenFileResult, () => null);
 type TFileResult = TOpenFileResult | null;
 const nullableStringResult = s.fromParser<string | null>(
@@ -506,21 +510,18 @@ type TDocumentMethodArgs<TName extends TDocumentMethodName> =
     Parameters<Extract<TDocumentMethod<TName>, (...args: never[]) => unknown>>;
 type TDocumentMethodResult<TName extends TDocumentMethodName> =
     Awaited<ReturnType<Extract<TDocumentMethod<TName>, (...args: never[]) => unknown>>>;
-
 function documentArgs<TName extends TDocumentMethodName>(
     decode: (value: unknown) => TDocumentMethodArgs<TName>,
     example: () => TDocumentMethodArgs<TName>,
 ) {
     return s.declared<TDocumentMethodArgs<TName>>()(s.fromParser(decode, example));
 }
-
 function documentResult<TName extends TDocumentMethodName>(
     decode: (value: unknown) => TDocumentMethodResult<TName>,
     example: () => TDocumentMethodResult<TName>,
 ) {
     return s.declared<TDocumentMethodResult<TName>>()(s.fromParser(decode, example));
 }
-
 function decodeSingleStringArgs<TName extends TDocumentMethodName>(
     value: unknown,
     fieldName: string,
@@ -528,7 +529,6 @@ function decodeSingleStringArgs<TName extends TDocumentMethodName>(
     const args = decodeArgumentArray(value, 1);
     return [decodeStringValue(args[0], fieldName)] as TDocumentMethodArgs<TName>;
 }
-
 const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
     value => decodeSingleStringArgs<'openDocumentDirect'>(value, 'path'),
     () => ['/tmp/document.pdf'],

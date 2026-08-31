@@ -73,6 +73,7 @@ describe('tab session memory policy', () => {
             zoomMode: 'fit-width',
             fitMode: 'width',
             viewMode: 'single',
+            viewRotation: 0,
             currentPage: 42,
             totalPages: 100,
         });

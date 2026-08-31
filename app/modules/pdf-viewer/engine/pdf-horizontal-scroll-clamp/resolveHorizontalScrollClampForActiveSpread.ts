@@ -1,5 +1,6 @@
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
 } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
@@ -12,6 +13,7 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
     fitMode: TFitMode;
     pageNumber: number;
     viewMode: TPdfViewMode;
+    viewRotation: TPdfViewRotation;
     numPages: number;
     basePageWidth: number | null;
     basePageHeight: number | null;
@@ -40,6 +42,7 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
             pageMetrics: options.pageMetrics,
             currentPage: options.pageNumber,
             viewMode: options.viewMode,
+            viewRotation: options.viewRotation,
             effectiveScale: options.effectiveScale,
             getScaleForPage: options.getScaleForPage,
             scaledMargin: options.scaledMargin,

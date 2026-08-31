@@ -6,7 +6,10 @@ import {
 import type { FileHandle } from 'fs/promises';
 import { extname } from 'path';
 import { MAX_CHUNK } from '@electron/config/constants';
-import { onWorkingCopyMutationSettled } from '@electron/file-access/workingCopyMutationQueue';
+import {
+    onWorkingCopyMutationSettled,
+    onWorkingCopyMutationStarting,
+} from '@electron/file-access/workingCopyMutationQueue';
 import {
     captureWorkingCopyAdmissionSnapshot,
     getWorkingCopyBackingEntry,
@@ -41,6 +44,7 @@ const RANGE_READ_GLOBAL_IN_FLIGHT_BYTES = 32 * 1024 * 1024;
 const RANGE_READ_PER_DOCUMENT_IN_FLIGHT_BYTES = 8 * 1024 * 1024;
 const RANGE_READ_MAX_WAITERS = 256;
 const RANGE_READ_WAITER_TIMEOUT_MS = 30_000;
+const RANGE_READ_MUTATION_CLOSE_TIMEOUT_MS = 30_000;
 
 interface IRangeReadHandleCacheEntry {
     handle: FileHandle;
@@ -51,6 +55,7 @@ interface IRangeReadHandleCacheEntry {
     closeRequested: boolean;
     closed: boolean;
     closePromise: Promise<void> | null;
+    closeResolve: (() => void) | null;
     idleTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -67,9 +72,15 @@ interface IOriginalBackedRead {
     senderId?: number;
 }
 
+interface IRangeReadMutationBarrier {
+    promise: Promise<void>;
+    resolve: () => void;
+}
+
 const rangeReadHandles = new Map<string, IRangeReadHandleCacheEntry>();
 const rangeReadHandleOpens = new Map<string, Promise<IRangeReadHandleCacheEntry>>();
 const rangeReadPathEpochs = new Map<string, number>();
+const rangeReadMutationBarriers = new Map<string, IRangeReadMutationBarrier>();
 const pendingRangeReads = new Map<string, Promise<Uint8Array>>();
 const rangeReadBytesByPath = new Map<string, number>();
 let rangeReadGlobalBytes = 0;
@@ -166,18 +177,50 @@ function advanceRangeReadPathEpoch(resolvedPath: string) {
 
 function pruneRangeReadPathEpochIfUnused(resolvedPath: string) {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
-    if (!rangeReadHandles.has(cacheKey) && !rangeReadHandleOpens.has(cacheKey)) {
+    if (
+        !rangeReadHandles.has(cacheKey)
+        && !rangeReadHandleOpens.has(cacheKey)
+        && !rangeReadMutationBarriers.has(cacheKey)
+    ) {
         rangeReadPathEpochs.delete(cacheKey);
     }
 }
 
+function getOrCreateRangeReadHandleClosePromise(entry: IRangeReadHandleCacheEntry) {
+    if (entry.closePromise) {
+        return entry.closePromise;
+    }
+    let resolve!: () => void;
+    entry.closePromise = new Promise<void>(promiseResolve => {
+        resolve = promiseResolve;
+    });
+    entry.closeResolve = resolve;
+    return entry.closePromise;
+}
+
 function closeRangeReadHandleEntryWhenUnused(entry: IRangeReadHandleCacheEntry) {
-    if (entry.activeReads > 0 || entry.closed) {
-        return entry.closePromise ?? Promise.resolve();
+    const closePromise = getOrCreateRangeReadHandleClosePromise(entry);
+    if (entry.closed) {
+        return closePromise;
+    }
+    if (entry.activeReads > 0) {
+        return closePromise;
     }
     entry.closed = true;
-    entry.closePromise = entry.handle.close().catch(() => undefined);
-    return entry.closePromise;
+    let closeOperation: Promise<unknown>;
+    try {
+        closeOperation = Promise.resolve(entry.handle.close());
+    } catch {
+        closeOperation = Promise.resolve();
+    }
+    void closeOperation
+        .catch(() => undefined)
+        .finally(() => {
+            const resolve = entry.closeResolve;
+            entry.closeResolve = null;
+            resolve?.();
+        });
+    return closePromise;
 }
 
 function requestRangeReadHandleClose(
@@ -218,20 +261,27 @@ function scheduleRangeReadHandleIdleClose(
     (entry.idleTimer as ReturnType<typeof setTimeout> & { unref?: () => void }).unref?.();
 }
 
-async function closeCachedRangeReadHandle(resolvedPath: string) {
+function closeCachedRangeReadHandle(resolvedPath: string) {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
     const pendingOpen = rangeReadHandleOpens.get(cacheKey);
     if (pendingOpen) {
-        await pendingOpen
+        return pendingOpen
             .then(entry => requestRangeReadHandleClose(resolvedPath, entry))
-            .catch(() => undefined);
+            .catch(() => undefined)
+            .then(() => {
+                const entry = rangeReadHandles.get(cacheKey);
+                if (!entry) {
+                    return;
+                }
+                return requestRangeReadHandleClose(resolvedPath, entry);
+            });
     }
 
     const entry = rangeReadHandles.get(cacheKey);
     if (!entry) {
         return;
     }
-    await requestRangeReadHandleClose(resolvedPath, entry);
+    return requestRangeReadHandleClose(resolvedPath, entry);
 }
 
 async function closeLeastRecentlyUsedRangeReadHandle() {
@@ -242,9 +292,78 @@ async function closeLeastRecentlyUsedRangeReadHandle() {
     await requestRangeReadHandleClose(oldest.value[0], oldest.value[1]);
 }
 
+function createRangeReadMutationBarrier(resolvedPath: string) {
+    const cacheKey = getRangeReadCacheKey(resolvedPath);
+    const existingBarrier = rangeReadMutationBarriers.get(cacheKey);
+    if (existingBarrier) {
+        return existingBarrier;
+    }
+    let resolve!: () => void;
+    const barrier: IRangeReadMutationBarrier = {
+        promise: new Promise<void>(promiseResolve => {
+            resolve = promiseResolve;
+        }),
+        resolve: () => {
+            resolve();
+        },
+    };
+    rangeReadMutationBarriers.set(cacheKey, barrier);
+    return barrier;
+}
+
+function finishRangeReadMutation(resolvedPath: string) {
+    const cacheKey = getRangeReadCacheKey(resolvedPath);
+    const barrier = rangeReadMutationBarriers.get(cacheKey);
+    if (!barrier) {
+        return;
+    }
+    rangeReadMutationBarriers.delete(cacheKey);
+    barrier.resolve();
+    pruneRangeReadPathEpochIfUnused(resolvedPath);
+}
+
+function waitForRangeReadHandleCloseBeforeMutation(
+    closePromise: Promise<void>,
+    signal: AbortSignal,
+) {
+    if (signal.aborted) {
+        return Promise.resolve();
+    }
+    return new Promise<void>((resolve, reject) => {
+        let settled = false;
+        const handleAbort = () => finish(resolve);
+        const timeout = setTimeout(() => {
+            finish(() => reject(new Error('Timed out closing PDF range reads before document mutation')));
+        }, RANGE_READ_MUTATION_CLOSE_TIMEOUT_MS);
+        function finish(settle: () => void) {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            clearTimeout(timeout);
+            signal.removeEventListener('abort', handleAbort);
+            settle();
+        }
+        timeout.unref?.();
+        signal.addEventListener('abort', handleAbort, {once: true});
+        if (signal.aborted) {
+            handleAbort();
+            return;
+        }
+        void closePromise.then(
+            () => finish(resolve),
+            error => finish(() => reject(error)),
+        );
+    });
+}
+
 async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadHandleLease> {
     const cacheKey = getRangeReadCacheKey(resolvedPath);
     while (true) {
+        const mutationBarrier = rangeReadMutationBarriers.get(cacheKey);
+        if (mutationBarrier) {
+            await mutationBarrier.promise;
+        }
         const {
             mtimeMs,
             size,
@@ -296,6 +415,7 @@ async function acquireRangeReadHandle(resolvedPath: string): Promise<IRangeReadH
                 closeRequested: false,
                 closed: false,
                 closePromise: null,
+                closeResolve: null,
                 idleTimer: null,
             };
             if (epoch !== getRangeReadPathEpoch(cacheKey)) {
@@ -552,10 +672,29 @@ async function invalidateCachedRangeReadPath(resolvedPath: string) {
     pruneRangeReadPathEpochIfUnused(resolvedPath);
 }
 
+// Keep range readers out of the replacement window. The barrier is installed
+// before closing the current handle, so a reader that arrives while an active
+// read drains cannot reopen the path before the mutation has settled.
+onWorkingCopyMutationStarting((workingCopyPath, signal) => {
+    createRangeReadMutationBarrier(workingCopyPath);
+    advanceRangeReadPathEpoch(workingCopyPath);
+    const closePromise = closeCachedRangeReadHandle(workingCopyPath);
+    if (!closePromise) {
+        return;
+    }
+    return waitForRangeReadHandleCloseBeforeMutation(closePromise, signal).catch(error => {
+        finishRangeReadMutation(workingCopyPath);
+        throw error;
+    });
+});
+
 onWorkingCopyMutationSettled((workingCopyPath) => {
     advanceRangeReadPathEpoch(workingCopyPath);
-    void closeCachedRangeReadHandle(workingCopyPath)
-        .finally(() => pruneRangeReadPathEpochIfUnused(workingCopyPath));
+    void Promise.resolve(closeCachedRangeReadHandle(workingCopyPath))
+        .finally(() => {
+            finishRangeReadMutation(workingCopyPath);
+            pruneRangeReadPathEpochIfUnused(workingCopyPath);
+        });
 });
 
 onWorkingCopyBackingSwapCacheInvalidation(async (logicalRef, previousPhysicalPath) => {

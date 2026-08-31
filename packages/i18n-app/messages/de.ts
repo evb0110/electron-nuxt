@@ -966,6 +966,8 @@ export default {
         'extractSelectedPages': 'Ausgewählte Seiten extrahieren...',
         'rotateClockwise': 'Im Uhrzeigersinn drehen',
         'rotateCounterclockwise': 'Gegen den Uhrzeigersinn drehen',
+        'rotateViewClockwise': 'Ansicht im Uhrzeigersinn drehen',
+        'rotateViewCounterclockwise': 'Ansicht gegen den Uhrzeigersinn drehen',
         'insertPages': 'Seiten einfügen...',
         'view': 'Ansicht',
         'zoomIn': 'Vergrößern',

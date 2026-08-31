@@ -95,6 +95,7 @@ export function buildWorkspaceCheckpoint(
                 zoomMode: toolbar?.hasPdf ? toolbar.zoomMode : null,
                 continuousScroll: toolbar?.hasPdf ? toolbar.continuousScroll : null,
                 viewMode: toolbar?.hasPdf ? toolbar.viewMode : null,
+                viewRotation: toolbar?.hasPdf ? toolbar.viewRotation : null,
             };
         }),
     };

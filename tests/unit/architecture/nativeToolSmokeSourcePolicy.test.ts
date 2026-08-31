@@ -54,6 +54,10 @@ describe('native tool smoke source policy', () => {
         const verifierTools = Array.from(new Set(smokedToolNames()));
         const expectedPolicies = new Map<string, Set<number>>([
             [
+                'pdf-print-dialog',
+                new Set([0]),
+            ],
+            [
                 'ddjvu',
                 new Set([
                     0,

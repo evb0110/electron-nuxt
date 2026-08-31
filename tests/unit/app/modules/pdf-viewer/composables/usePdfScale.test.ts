@@ -12,7 +12,10 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TPdfViewMode } from '@contracts/shared';
+import type {
+    TPdfViewMode,
+    TPdfViewRotation,
+} from '@contracts/shared';
 
 function createContainer(
     width: number,
@@ -32,6 +35,7 @@ function createScaleComposable(options: {
     zoomMode?: TZoomMode;
     zoom?: number;
     viewMode?: TPdfViewMode;
+    viewRotation?: TPdfViewRotation;
     currentPage?: number;
 }) {
     const zoom = ref(options.zoom ?? 1);
@@ -40,6 +44,7 @@ function createScaleComposable(options: {
         fitMode.value === 'height' ? 'fit-height' : 'fit-width'
     ));
     const viewMode = ref<TPdfViewMode>(options.viewMode ?? 'single');
+    const viewRotation = ref<TPdfViewRotation>(options.viewRotation ?? 0);
     const pageMetrics = ref(options.pageMetrics ?? [{
         width: options.width,
         height: options.height,
@@ -60,6 +65,7 @@ function createScaleComposable(options: {
             zoomMode,
             fitMode,
             viewMode,
+            viewRotation,
             numPages,
             pageMetrics,
             pageMetricsVersion,
@@ -100,6 +106,19 @@ describe('usePdfScale', () => {
         });
         expect(scale.scaledMargin.value).toBe(20);
         expect(scale.effectiveScale.value * 227.04).toBeCloseTo(1496, 6);
+    });
+
+    it('fits the projected page width after a quarter-turn view rotation', () => {
+        const { scale } = createScaleComposable({
+            width: 600,
+            height: 800,
+            mode: 'width',
+            viewRotation: 90,
+        });
+
+        scale.computeFitWidthScale(createContainer(1_000, 900));
+
+        expect(scale.effectiveScale.value * 800).toBeCloseTo(960, 6);
     });
 
     it('uses a separate live layout preview without committing effective zoom', () => {

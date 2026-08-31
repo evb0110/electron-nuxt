@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import type { WebContentsPrintOptions } from 'electron';
 import {
+    copyFile,
     mkdtemp,
     readdir,
     open,
@@ -25,6 +26,8 @@ import { getPdfNativeToolPaths } from '@electron/pdf/nativeToolPaths';
 import { buildPopplerEnv } from '@electron/native-tools/buildPopplerEnv';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { includesAsciiToken } from '@electron/utils/includesAsciiToken';
+import { openMacOsPdfPrintDialog } from '@electron/utils/openMacOsPdfPrintDialog';
+import { getPrintRuntimePlatform } from '@electron/utils/getPrintRuntimePlatform';
 
 const logger = createLogger('documents-print');
 // Low-end Windows machines can report the PDF plugin as loaded before it has painted.
@@ -39,7 +42,6 @@ const PRINT_DIALOG_TEST_MODE_PRINT_TO_PDF = 'print-to-pdf';
 const PRINT_DIALOG_TEST_OUTPUT_PATH_ENV = 'EVB_PRINT_DIALOG_TEST_OUTPUT_PATH';
 const PRINT_WINDOW_WIDTH_PX = 1280;
 const PRINT_WINDOW_HEIGHT_PX = 1600;
-const PRINT_WINDOW_VISIBLE_ON_DARWIN = process.platform === 'darwin';
 export const PRINT_DJVU_TEMP_PREFIX = 'print-djvu-';
 const MAX_PRINT_PDF_DATA_BYTES = parseIntegerEnv('EVB_PRINT_PDF_MAX_MB', 16, 1, 16) * 1024 * 1024;
 const PRINT_RASTER_DPI = parseIntegerEnv('EVB_PRINT_RASTER_DPI', 180, 72, 300);
@@ -642,7 +644,7 @@ async function waitForPrintSurfacePainted(printWindow: BrowserWindow, signal?: A
 }
 
 function revealPrintWindowForNativeDialog(printWindow: BrowserWindow, painted: boolean) {
-    if (!PRINT_WINDOW_VISIBLE_ON_DARWIN || shouldRunPrintToPdfSmoke()) {
+    if (getPrintRuntimePlatform() !== 'darwin' || shouldRunPrintToPdfSmoke()) {
         return;
     }
 
@@ -679,7 +681,7 @@ function waitForPrintWindowReady(printWindow: BrowserWindow) {
 }
 
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
-    if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
+    if (getPrintRuntimePlatform() === 'darwin' && !printWindow.isDestroyed()) {
         printWindow.hide();
         printWindow.setOpacity(1);
     }
@@ -711,6 +713,22 @@ async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdf
             await writeFile(outputPath, data);
         }
         return { success: true };
+    } catch (error) {
+        return {
+            success: false,
+            error: getErrorMessage(error),
+        };
+    }
+}
+
+async function runPrintPathSmoke(path: string): Promise<IPrintPdfResult> {
+    try {
+        await assertPdfPathWithinSizeLimit(path);
+        const outputPath = process.env[PRINT_DIALOG_TEST_OUTPUT_PATH_ENV]?.trim();
+        if (outputPath) {
+            await copyFile(path, outputPath);
+        }
+        return {success: true};
     } catch (error) {
         return {
             success: false,
@@ -820,6 +838,27 @@ export async function openNativePrintDialogForPath(
     fileName?: string,
     handoffOptions: IPrintHandoffOptions = {},
 ): Promise<IPrintPdfResult> {
+    if (shouldRunPrintToPdfSmoke()) {
+        return runPrintPathSmoke(path);
+    }
+    if (getPrintRuntimePlatform() === 'darwin' && handoffOptions.surface !== 'rasterized-html') {
+        try {
+            return await openMacOsPdfPrintDialog(path, handoffOptions);
+        } catch (error) {
+            if (isPrintHandoffAbort(error) || handoffOptions.signal?.aborted) {
+                return {
+                    success: false,
+                    canceled: true,
+                    error: 'Print handoff canceled',
+                };
+            }
+            logger.warn(`Failed to open macOS PDF print dialog: ${getErrorMessage(error)}`);
+            return {
+                success: false,
+                error: getErrorMessage(error),
+            };
+        }
+    }
     const documentTitle = resolvePrintDocumentTitle(path, fileName);
     const shouldUseRasterSurface = handoffOptions.surface === 'rasterized-html';
     let rasterSurface: Awaited<ReturnType<typeof createRasterPrintHtmlPath>> | null = null;
@@ -853,7 +892,7 @@ export async function openNativePrintDialogForPath(
             await printWindowReady;
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
-        const printSurfacePainted = rasterSurface || shouldRunPrintToPdfSmoke() || !PRINT_WINDOW_VISIBLE_ON_DARWIN
+        const printSurfacePainted = rasterSurface || shouldRunPrintToPdfSmoke() || getPrintRuntimePlatform() !== 'darwin'
             ? false
             : await waitForPrintSurfacePainted(printWindow, handoffOptions.signal);
         await waitForPrintHandoffDelay(PRINT_LOAD_SETTLE_DELAY_MS, handoffOptions.signal);

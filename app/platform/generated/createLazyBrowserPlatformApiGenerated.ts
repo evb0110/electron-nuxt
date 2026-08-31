@@ -120,6 +120,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentMenuOnMenuViewModeSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeSingle.path);
     const documentMenuOnMenuViewModeFacingMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacing.path);
     const documentMenuOnMenuViewModeFacingFirstSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacingFirstSingle.path);
+    const documentMenuOnMenuViewRotationCwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewRotationCw.path);
+    const documentMenuOnMenuViewRotationCcwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewRotationCcw.path);
     const documentMenuOnMenuToggleAssistantMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleAssistant.path);
     const documentMenuOnMenuUndoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuUndo.path);
     const documentMenuOnMenuRedoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRedo.path);
@@ -368,6 +370,8 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
         onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
         onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
+        onMenuViewRotationCw: documentMenuOnMenuViewRotationCwMethod,
+        onMenuViewRotationCcw: documentMenuOnMenuViewRotationCcwMethod,
         onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
         onMenuUndo: documentMenuOnMenuUndoMethod,
         onMenuRedo: documentMenuOnMenuRedoMethod,

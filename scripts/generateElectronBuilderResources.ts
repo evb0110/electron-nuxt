@@ -47,6 +47,10 @@ function renderNativeResource(
     return lines.join('\n');
 }
 
+function supportsPlatform(family: INativeToolResourceFamily, platform: TNativeResourcePlatform) {
+    return family.packagedEntries.some(entry => !entry.platforms || entry.platforms.includes(platform));
+}
+
 export function renderElectronBuilderResources(
     bundledOcrCodes: readonly string[] = BUNDLED_OCR_LANGUAGE_CODES,
     nativeResourceFamilies: readonly INativeToolResourceFamily[] = NATIVE_TOOL_RESOURCE_FAMILIES,
@@ -75,10 +79,12 @@ export function renderElectronBuilderResources(
     ]) => [
         `${configKey}:`,
         '  extraResources:',
-        ...nativeResourceFamilies.map(family => renderNativeResource(
-            family,
-            platform as TNativeResourcePlatform,
-        )),
+        ...nativeResourceFamilies
+            .filter(family => supportsPlatform(family, platform as TNativeResourcePlatform))
+            .map(family => renderNativeResource(
+                family,
+                platform as TNativeResourcePlatform,
+            )),
     ].join('\n')).join('\n\n');
 
     return [

@@ -966,6 +966,8 @@ export default {
         'extractSelectedPages': 'Geselecteerde pagina\'s extraheren...',
         'rotateClockwise': 'Rechtsom draaien',
         'rotateCounterclockwise': 'Linksom draaien',
+        'rotateViewClockwise': 'Weergave rechtsom draaien',
+        'rotateViewCounterclockwise': 'Weergave linksom draaien',
         'insertPages': 'Pagina\'s invoegen...',
         'view': 'Weergave',
         'zoomIn': 'Inzoomen',

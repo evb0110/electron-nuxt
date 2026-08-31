@@ -925,6 +925,8 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
         onMenuViewModeSingle: defineEvent('onMenuViewModeSingle', 'menu:viewModeSingle', noPayload),
         onMenuViewModeFacing: defineEvent('onMenuViewModeFacing', 'menu:viewModeFacing', noPayload),
         onMenuViewModeFacingFirstSingle: defineEvent('onMenuViewModeFacingFirstSingle', 'menu:viewModeFacingFirstSingle', noPayload),
+        onMenuViewRotationCw: defineEvent('onMenuViewRotationCw', 'menu:viewRotationCw', noPayload),
+        onMenuViewRotationCcw: defineEvent('onMenuViewRotationCcw', 'menu:viewRotationCcw', noPayload),
         onMenuToggleAssistant: defineEvent('onMenuToggleAssistant', 'menu:toggleAssistant', noPayload),
         onMenuUndo: defineEvent('onMenuUndo', 'menu:undo', noPayload),
         onMenuRedo: defineEvent('onMenuRedo', 'menu:redo', noPayload),

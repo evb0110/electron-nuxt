@@ -973,6 +973,8 @@ export default {
         'extractSelectedPages': 'Извлечь выбранные страницы...',
         'rotateClockwise': 'Повернуть по часовой',
         'rotateCounterclockwise': 'Повернуть против часовой',
+        'rotateViewClockwise': 'Повернуть вид по часовой',
+        'rotateViewCounterclockwise': 'Повернуть вид против часовой',
         'insertPages': 'Вставить страницы...',
         'view': 'Вид',
         'zoomIn': 'Увеличить',

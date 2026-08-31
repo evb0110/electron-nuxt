@@ -123,6 +123,8 @@ export const browserPlatformPathDescriptorsGenerated = {
         onMenuViewModeSingle: {kind: 'event', path: ["documentMenu","onMenuViewModeSingle"]},
         onMenuViewModeFacing: {kind: 'event', path: ["documentMenu","onMenuViewModeFacing"]},
         onMenuViewModeFacingFirstSingle: {kind: 'event', path: ["documentMenu","onMenuViewModeFacingFirstSingle"]},
+        onMenuViewRotationCw: {kind: 'event', path: ["documentMenu","onMenuViewRotationCw"]},
+        onMenuViewRotationCcw: {kind: 'event', path: ["documentMenu","onMenuViewRotationCcw"]},
         onMenuToggleAssistant: {kind: 'event', path: ["documentMenu","onMenuToggleAssistant"]},
         onMenuUndo: {kind: 'event', path: ["documentMenu","onMenuUndo"]},
         onMenuRedo: {kind: 'event', path: ["documentMenu","onMenuRedo"]},

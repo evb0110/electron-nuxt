@@ -966,6 +966,8 @@ export default {
         'extractSelectedPages': 'Extraer páginas seleccionadas...',
         'rotateClockwise': 'Girar en sentido horario',
         'rotateCounterclockwise': 'Girar en sentido antihorario',
+        'rotateViewClockwise': 'Girar la vista en sentido horario',
+        'rotateViewCounterclockwise': 'Girar la vista en sentido antihorario',
         'insertPages': 'Insertar páginas...',
         'view': 'Ver',
         'zoomIn': 'Acercar',

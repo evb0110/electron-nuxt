@@ -18,6 +18,7 @@ import { pageSelectionCount } from '@contracts/pageNumbers';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
@@ -46,6 +47,7 @@ import type {
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TWorkspaceOrchestration } from '@app/modules/workspace-shell/useWorkspaceOrchestration';
+import { stepPdfViewRotation } from '@app/utils/pdfViewRotation';
 
 export interface ICreateWorkspaceExposeDeps extends
     IWorkspaceFilePort,
@@ -86,6 +88,7 @@ export interface ICreateWorkspaceExposeDeps extends
     zoomMode: Ref<TZoomMode>;
     fitMode: Ref<TFitMode>;
     viewMode: Ref<TPdfViewMode>;
+    viewRotation: Ref<TPdfViewRotation>;
     currentPage: Ref<number>;
     toolbarCurrentPage?: Ref<number>;
     toolbarTotalPages?: Ref<number>;
@@ -244,6 +247,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 saveAs: deps.hasPdf.value,
                 sidebar: deps.hasPdf.value,
                 viewMode: deps.hasPdf.value,
+                viewRotation: deps.hasPdf.value,
             }
     );
     const canRepairSave = () => deps.canRepairSave?.value ?? (
@@ -349,6 +353,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             zoomMode: deps.zoomMode.value,
             fitMode: deps.fitMode.value,
             viewMode: deps.viewMode.value,
+            viewRotation: deps.viewRotation.value,
             currentPage,
             totalPages,
             selectedPageCount: selectedPagePayloadCount(getSelectedPagePayload(deps)),
@@ -527,6 +532,24 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 return;
             }
             deps.viewMode.value = 'facing-first-single';
+        },
+        handleViewRotationCw: () => {
+            if (!viewerCapabilities().viewRotation) {
+                return;
+            }
+            deps.viewRotation.value = stepPdfViewRotation(deps.viewRotation.value, 'clockwise');
+        },
+        handleViewRotationCcw: () => {
+            if (!viewerCapabilities().viewRotation) {
+                return;
+            }
+            deps.viewRotation.value = stepPdfViewRotation(deps.viewRotation.value, 'counterclockwise');
+        },
+        setViewRotation: (rotation) => {
+            if (!viewerCapabilities().viewRotation) {
+                return;
+            }
+            deps.viewRotation.value = rotation;
         },
         handleDeletePages: () => {
             const pages = getSelectedPagePayload(deps);

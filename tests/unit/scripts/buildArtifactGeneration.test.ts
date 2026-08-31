@@ -124,13 +124,19 @@ describe('build artifact generation', () => {
             }
         }
         for (const family of NATIVE_TOOL_RESOURCE_FAMILIES) {
+            expect(family.packagedEntries, family.id).not.toHaveLength(0);
             for (const platform of [
                 'darwin',
                 'linux',
                 'win32',
-            ]) {
-                expect(rendered).toContain(
-                    `${family.sourceRootSegments.join('/')}/${platform}-\${arch}`,
+            ] as const) {
+                const sourcePath = `${family.sourceRootSegments.join('/')}/${platform}-\${arch}`;
+                const isPackagedForPlatform = family.packagedEntries.some(entry => (
+                    !entry.platforms || entry.platforms.includes(platform)
+                ));
+
+                expect(rendered.includes(sourcePath), `${family.id} on ${platform}`).toBe(
+                    isPackagedForPlatform,
                 );
             }
         }

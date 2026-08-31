@@ -206,7 +206,9 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -250,7 +252,9 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -266,7 +270,9 @@ describe('private Vercel deployment source', () => {
         } finally {
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -337,7 +343,9 @@ describe('private Vercel deployment source', () => {
         } finally {
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -388,7 +396,9 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -429,7 +439,9 @@ describe('private Vercel deployment source', () => {
         } finally {
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });

@@ -156,6 +156,7 @@ const areViewerCapabilitiesEqual = createShallowKeyEquality<IWorkspaceViewerCapa
     saveAs: true,
     sidebar: true,
     viewMode: true,
+    viewRotation: true,
 });
 
 const areToolbarSnapshotPrimitivesEqual = createShallowKeyEquality<Omit<IWorkspaceToolbarSnapshot, 'viewerCapabilities'>>({
@@ -195,6 +196,7 @@ const areToolbarSnapshotPrimitivesEqual = createShallowKeyEquality<Omit<IWorkspa
     sidebarWidth: true,
     totalPages: true,
     viewMode: true,
+    viewRotation: true,
     zoom: true,
     zoomMode: true,
 });
@@ -262,6 +264,7 @@ const areViewStatePrimitivesEqual = createShallowKeyEquality<Omit<ITabViewSessio
     sidebarWidth: true,
     surfaceMode: true,
     viewMode: true,
+    viewRotation: true,
     zoom: true,
     zoomMode: true,
 });

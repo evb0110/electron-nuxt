@@ -1,6 +1,7 @@
 export type {
     IOcrWord,
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';

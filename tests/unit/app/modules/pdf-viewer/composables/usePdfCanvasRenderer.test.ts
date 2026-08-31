@@ -262,6 +262,21 @@ describe('usePdfCanvasRenderer', () => {
         expect(result?.requestedPixels).toBe(80_000);
     });
 
+    it('passes the effective page and view rotation to PDF.js', async () => {
+        installCanvasDocument();
+        const pdfPage = createPdfPage({rotate: 90});
+        const renderer = usePdfCanvasRenderer({
+            outputScale: 1,
+            viewRotation: 90,
+        });
+        await renderer.renderCanvas(pdfPage as never, 1);
+
+        expect(pdfPage.getViewport).toHaveBeenLastCalledWith({
+            scale: 1,
+            rotation: 180,
+        });
+    });
+
     it('replaces the existing page canvas without clearing sibling overlay layers', () => {
         const renderer = usePdfCanvasRenderer({ outputScale: 1 });
         const nextCanvas = {} as HTMLCanvasElement;

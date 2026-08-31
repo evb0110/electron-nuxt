@@ -64,6 +64,23 @@ describe('decodeWorkspaceCheckpoint', () => {
     });
 
     it.each([
+        0,
+        90,
+        180,
+        270,
+    ] as const)('round-trips view rotation %s', (viewRotation) => {
+        const checkpoint = {
+            ...createCheckpoint(),
+            tabs: createCheckpoint().tabs.map(tab => ({
+                ...tab,
+                viewRotation,
+            })),
+        };
+
+        expect(decodeWorkspaceCheckpoint(checkpoint)).toEqual(checkpoint);
+    });
+
+    it.each([
         {
             ...createCheckpoint(),
             version: 2,
@@ -89,6 +106,13 @@ describe('decodeWorkspaceCheckpoint', () => {
             tabs: [{
                 ...createCheckpoint().tabs[0],
                 zoomMode: 'page-width',
+            }],
+        },
+        {
+            ...createCheckpoint(),
+            tabs: [{
+                ...createCheckpoint().tabs[0],
+                viewRotation: 45,
             }],
         },
     ])('rejects malformed or unsupported checkpoints', (candidate) => {

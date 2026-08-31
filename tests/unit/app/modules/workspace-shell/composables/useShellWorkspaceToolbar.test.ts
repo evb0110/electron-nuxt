@@ -172,6 +172,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
             zoomMode: 'custom',
             fitMode: 'width',
             viewMode: 'single',
+            viewRotation: 0,
             currentPage: 1,
             totalPages: 0,
             selectedPageCount: 0,
@@ -192,6 +193,7 @@ describe('createDefaultWorkspaceToolbarSnapshot', () => {
                 saveAs: false,
                 sidebar: false,
                 viewMode: false,
+                viewRotation: false,
             },
         });
     });

@@ -77,6 +77,9 @@ async function applyViewState(tab: IWorkspaceCheckpointTab, workspace: IWorkspac
             workspace.handleViewModeFacingFirstSingle();
         }
     }
+    if (tab.viewRotation != null && toolbar.viewerCapabilities.viewRotation) {
+        workspace.setViewRotation(tab.viewRotation);
+    }
     if (tab.currentPage !== null) {
         workspace.handleGoToPage(tab.currentPage);
     }

@@ -11,6 +11,7 @@ import type {
 } from '@contracts/documentRevision';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TPrintOrientation,
     TZoomMode,
@@ -502,6 +503,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
     sourcePdfData: TReadableRef<Uint8Array | null>;
     viewMode: Ref<TPdfViewMode>;
+    viewRotation: Ref<TPdfViewRotation>;
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
     zoom: Ref<number>;
@@ -574,6 +576,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 zoomMode: options.zoomMode.value,
                 fitMode: options.fitMode.value,
                 viewMode: options.viewMode.value,
+                viewRotation: options.viewRotation.value,
                 currentPage: options.currentPage.value,
                 dragMode: options.dragMode.value,
                 continuousScroll: options.continuousScroll.value,

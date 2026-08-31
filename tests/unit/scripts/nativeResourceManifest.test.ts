@@ -81,6 +81,24 @@ describe('native resource manifest', () => {
         });
     });
 
+    it('keeps the macOS-only print dialog helper out of non-macOS source entries', () => {
+        expect(getNativeSourceMatrixCheckEntries('darwin-arm64')).toContainEqual({
+            kind: 'required',
+            label: 'pdf-print-dialog',
+            path: '.tmp/pdf-print-dialog/darwin-arm64/bin/pdf-print-dialog',
+            type: 'file',
+        });
+
+        for (const tag of [
+            'linux-x64',
+            'win32-arm64',
+        ]) {
+            expect(getNativeSourceMatrixCheckEntries(tag).some(entry => (
+                entry.label === 'pdf-print-dialog'
+            ))).toBe(false);
+        }
+    });
+
     it('keeps generated native tools attached to package resource families', () => {
         const familyIds = new Set(NATIVE_TOOL_RESOURCE_FAMILIES.map(family => family.id));
         const contractResourceRows = GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
@@ -102,7 +120,7 @@ describe('native resource manifest', () => {
         }
 
         expect(NATIVE_TOOL_RESOURCE_FAMILIES
-            .filter(family => family.sourceRootSegments[0] === '.tmp')
+            .filter(family => GENERATED_NATIVE_TOOL_RESOURCES.some(tool => tool.familyId === family.id))
             .map(family => family.sourceRootSegments.join('/'))).toEqual([
             '.tmp/pdf-image-combine',
             '.tmp/pdf-page-ops',

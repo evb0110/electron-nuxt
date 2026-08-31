@@ -5,6 +5,7 @@ import type {
 import type {
     PDFDocumentProxy,
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -63,6 +64,7 @@ export interface IUsePdfViewerRerenderCoordinatorOptions {
     zoomMode?: ComputedRef<TZoomMode> | undefined;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
+    viewRotation?: ComputedRef<TPdfViewRotation>;
     isResizing: ComputedRef<boolean>;
     continuousScroll: ComputedRef<boolean>;
     getVisibleRange: () => IPageRange;

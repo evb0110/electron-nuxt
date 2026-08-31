@@ -4,7 +4,10 @@ import type {
 } from 'vue';
 import { range } from 'es-toolkit/math';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TPdfViewMode } from '@contracts/shared';
+import type {
+    TPdfViewMode,
+    TPdfViewRotation,
+} from '@contracts/shared';
 import { buildPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/buildPageLayoutMetrics';
 import { getLeadingSpacerHeightForPage } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getLeadingSpacerHeightForPage';
 import { getInterSegmentSpacerHeight } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getInterSegmentSpacerHeight';
@@ -51,6 +54,7 @@ interface IUsePdfViewerVirtualizationOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
+    viewRotation?: ComputedRef<TPdfViewRotation>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
@@ -115,6 +119,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         performancePolicy,
         bufferPages,
         viewMode,
+        viewRotation: providedViewRotation,
         numPages,
         currentPage,
         continuousScroll,
@@ -131,6 +136,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
     } = options;
+    const viewRotation = providedViewRotation ?? computed<TPdfViewRotation>(() => 0);
 
     const pageMetricsSnapshot = computed(() => ({
         metrics: pageMetrics.value,
@@ -143,6 +149,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             totalPages: numPages.value,
             fallbackWidth: basePageWidth.value,
             fallbackHeight: basePageHeight.value,
+            viewRotation: viewRotation.value,
         }),
     );
 

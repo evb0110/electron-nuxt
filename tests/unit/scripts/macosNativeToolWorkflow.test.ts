@@ -400,6 +400,7 @@ describe('macOS native tool workflow', () => {
         expect(sourceMatrix).toContain('nativeResourceManifestCli.ts');
         expect(sourceMatrix).toContain('source-matrix "$tag"');
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
+        expect(sourceMatrix).toContain('[ -f "scripts/build-macos-pdf-print-dialog.sh" ]');
         expect(verifier).toContain('Absolute symlink in $label');
     });
 

@@ -17,6 +17,8 @@ import {
     isNativePrintCapabilityUnavailable,
 } from '@app/utils/platformDocuments';
 import type { TPageSelection } from '@contracts/pageNumbers';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import {
     createExplicitPageSelection,
     materializePageSelection,
@@ -163,13 +165,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let preparingPrintToastTimer: number | null = null;
     let preparingPrintToastId: string | number | null = null;
 
-    const supportsAdvancedPrintOptions = computed(() => (
-        isPathPdfSource(deps.sourcePdf.value)
-        || deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
-    ));
-    const supportsFirstPageSinglePrintLayout = computed(() => (
-        !isPathPdfSource(deps.sourcePdf.value)
-    ));
+    const supportsAdvancedPrintOptions = computed(() => {
+        const sourcePdf = deps.sourcePdf.value;
+        return deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+            && (
+                !isPathPdfSource(sourcePdf)
+                || sourcePdf.size <= PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES
+            );
+    });
+    const supportsFirstPageSinglePrintLayout = computed(() => supportsAdvancedPrintOptions.value);
 
     function canPrintDjvuSource() {
         return Boolean(deps.printDjvuSource)
@@ -599,7 +603,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         throwIfPrintAborted(signal);
         const documentPdfCapability = getDocumentPdfCapability();
         const printPdfData = documentPdfCapability.printPdfData;
-        if (typeof printPdfData === 'function') {
+        if (
+            typeof printPdfData === 'function'
+            && printablePdf.byteLength <= IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES
+        ) {
             const requestId = createNativePrintRequestId();
             const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
                 if (event.requestId === requestId) {
@@ -673,10 +680,6 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function resolveNativePathPrintPageNumbers(payload: IPrintDialogSubmitPayload) {
-        if (payload.viewMode === 'facing-first-single') {
-            return null;
-        }
-
         if (!payload.pageNumbers?.length) {
             return undefined;
         }
@@ -703,16 +706,22 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         signal: AbortSignal,
     ) {
         const sourcePdf = deps.sourcePdf.value;
-        if (!isPathPdfSource(sourcePdf)) {
+        const isPathSource = isPathPdfSource(sourcePdf);
+        const requiresLayoutComposition = payload.viewMode !== 'single'
+            || payload.orientation !== 'auto';
+        const managedPrintPath = isPathSource
+            ? sourcePdf.path
+            : requiresLayoutComposition
+                ? deps.workingCopyPath.value
+                : null;
+        if (!managedPrintPath) {
             return false;
         }
 
         const pageNumbers = resolveNativePathPrintPageNumbers(payload);
         if (pageNumbers === null) {
             throw new NativePrintRequiredError(
-                payload.viewMode === 'facing-first-single'
-                    ? 'First-page-single layout is unavailable for path-backed PDF printing'
-                    : 'Native PDF printing is required because the selected path-backed pages are invalid',
+                'Native PDF printing is required because the selected path-backed pages are invalid',
             );
         }
 
@@ -725,7 +734,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         const wasDirty = hasPendingPathPrintChanges();
-        let printPath = sourcePdf.path;
+        let printPath = managedPrintPath;
         if (wasDirty) {
             throwIfPrintAborted(signal);
             if (!deps.ensureWorkingCopyFreshForRead) {
@@ -799,6 +808,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         }
 
         if (isNativePrintCapabilityUnavailable(result)) {
+            if (!isPathSource) {
+                clearPreparingPrintToast();
+                return false;
+            }
             throw new NativePrintRequiredError(
                 result.error ?? 'Native PDF printing requires a native backend for this path-backed document',
             );

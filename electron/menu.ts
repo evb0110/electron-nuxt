@@ -71,6 +71,8 @@ const EMPTY_MENU_DOCUMENT_STATE: TResolvedApplicationMenuDocumentState = {
     continuousScroll: false,
     supportsViewMode: false,
     viewMode: 'single',
+    supportsViewRotation: false,
+    viewRotation: 0,
     isActualSizeActive: false,
     isFitWidthActive: false,
     isFitHeightActive: false,
@@ -618,6 +620,19 @@ function getViewMenu(state: TResolvedApplicationMenuDocumentState): MenuItemCons
                     checked: state.viewMode === 'facing-first-single',
                 },
             ] : []),
+            ...(state.supportsViewRotation ? [
+                { type: 'separator' as const },
+                createWindowMenuAction({
+                    label: te('menu.rotateViewClockwise'),
+                    enabled: documentActionsEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewRotationCw,
+                }),
+                createWindowMenuAction({
+                    label: te('menu.rotateViewCounterclockwise'),
+                    enabled: documentActionsEnabled,
+                    channel: DOCUMENTS_EVENT_CHANNELS.onMenuViewRotationCcw,
+                }),
+            ] : []),
             ...(state.canToggleAssistant ? [
                 { type: 'separator' as const },
                 createWindowMenuAction({
@@ -889,6 +904,8 @@ function normalizeMenuDocumentState(
         continuousScroll: value?.continuousScroll ?? false,
         supportsViewMode: value?.supportsViewMode ?? hasDocument,
         viewMode: value?.viewMode ?? 'single',
+        supportsViewRotation: value?.supportsViewRotation ?? hasDocument,
+        viewRotation: value?.viewRotation ?? 0,
         isActualSizeActive: value?.isActualSizeActive ?? false,
         isFitWidthActive: value?.isFitWidthActive ?? false,
         isFitHeightActive: value?.isFitHeightActive ?? false,

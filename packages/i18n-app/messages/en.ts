@@ -966,6 +966,8 @@ export default {
         'extractSelectedPages': 'Extract Selected Pages...',
         'rotateClockwise': 'Rotate Clockwise',
         'rotateCounterclockwise': 'Rotate Counterclockwise',
+        'rotateViewClockwise': 'Rotate View Clockwise',
+        'rotateViewCounterclockwise': 'Rotate View Counterclockwise',
         'insertPages': 'Insert Pages...',
         'view': 'View',
         'zoomIn': 'Zoom In',

@@ -14,6 +14,8 @@ import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
+import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import {
     createRangePageSelection,
     type TPageSelection,
@@ -276,7 +278,9 @@ function createState(options?: {
             ? {selectedPageSelection: ref(options.selectedPageSelection)}
             : {}),
         sourcePdf: ref(options?.sourcePdf ?? null),
-        workingCopyPath: ref(options?.workingCopyPath ?? '/tmp/document.pdf'),
+        workingCopyPath: ref(options?.workingCopyPath === undefined
+            ? '/tmp/document.pdf'
+            : options.workingCopyPath),
         fileName: ref(options?.fileName ?? 'document.pdf'),
         hasPendingUnsavedChanges: ref(options?.hasPendingUnsavedChanges ?? false),
         ...(options?.hasPendingPrintSerializationChanges !== undefined
@@ -626,18 +630,54 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('keeps layout and orientation controls available for a path-backed PDF within the planning limit', () => {
+    it('keeps all advanced path print controls available at the planning limits', () => {
         const pathState = createState({
             sourcePdf: {
                 kind: 'path',
                 path: '/tmp/path-backed.pdf',
-                size: 689 * 1024 * 1024,
+                size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
             },
-            totalPages: 882,
+            totalPages: 5_000,
         });
 
         try {
             expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(true);
+            expect(pathState.state.supportsFirstPageSinglePrintLayout.value).toBe(true);
+        } finally {
+            pathState.scope.stop();
+        }
+    });
+
+    it('exposes only single-page automatic printing for an oversized path PDF', () => {
+        const pathState = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/oversized-path.pdf',
+                size: 3 * 1024 * 1024 * 1024,
+            },
+            totalPages: 10,
+        });
+
+        try {
+            expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(false);
+            expect(pathState.state.supportsFirstPageSinglePrintLayout.value).toBe(false);
+        } finally {
+            pathState.scope.stop();
+        }
+    });
+
+    it('hides advanced path print controls above the page-count limit', () => {
+        const pathState = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/high-page-count-path.pdf',
+                size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
+            },
+            totalPages: 5_001,
+        });
+
+        try {
+            expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(false);
             expect(pathState.state.supportsFirstPageSinglePrintLayout.value).toBe(false);
         } finally {
             pathState.scope.stop();
@@ -831,7 +871,22 @@ describe('useWorkspacePrint', () => {
             'facing',
             'landscape',
         ],
-    ] as const)('hands path-backed %s to native printing without resolving PDF bytes', async (
+        [
+            'first page single with automatic orientation',
+            'facing-first-single',
+            'auto',
+        ],
+        [
+            'first page single with portrait orientation',
+            'facing-first-single',
+            'portrait',
+        ],
+        [
+            'first page single with landscape orientation',
+            'facing-first-single',
+            'landscape',
+        ],
+    ] as const)('hands supported path-backed %s to native printing without resolving PDF bytes', async (
         _label,
         viewMode,
         orientation,
@@ -844,11 +899,12 @@ describe('useWorkspacePrint', () => {
         } = createState({sourcePdf: {
             kind: 'path',
             path: '/tmp/path-options.pdf',
-            size: 3 * 1024 * 1024 * 1024,
+            size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
         }});
 
         try {
             expect(state.supportsAdvancedPrintOptions.value).toBe(true);
+            expect(state.supportsFirstPageSinglePrintLayout.value).toBe(true);
 
             await state.handlePrintDialogSubmit({
                 viewMode,
@@ -865,31 +921,6 @@ describe('useWorkspacePrint', () => {
                 },
             );
             expect(getPrintableSourceData).not.toHaveBeenCalled();
-        } finally {
-            scope.stop();
-        }
-    });
-
-    it('fails closed for a forged first-page-single path request without resolving PDF bytes', async () => {
-        const {
-            getPrintableSourceData,
-            scope,
-            state,
-        } = createState({sourcePdf: {
-            kind: 'path',
-            path: '/tmp/path-options.pdf',
-            size: 3 * 1024 * 1024 * 1024,
-        }});
-
-        try {
-            await state.handlePrintDialogSubmit({
-                viewMode: 'facing-first-single',
-                orientation: 'auto',
-            }, {reopenDialogOnError: false});
-
-            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
-            expect(getPrintableSourceData).not.toHaveBeenCalled();
-            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('First-page-single layout is unavailable')}));
         } finally {
             scope.stop();
         }
@@ -1265,7 +1296,7 @@ describe('useWorkspacePrint', () => {
             state,
         } = createState({
             sourcePdf: null,
-            workingCopyPath: '/tmp/data-native-dialog.pdf',
+            workingCopyPath: null,
             fileName: 'data-native-dialog.pdf',
         });
 
@@ -1303,7 +1334,10 @@ describe('useWorkspacePrint', () => {
         const {
             scope,
             state,
-        } = createState({sourcePdf: null});
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: null,
+        });
 
         try {
             await state.handlePrintDialogSubmit({
@@ -1336,7 +1370,10 @@ describe('useWorkspacePrint', () => {
         const {
             scope,
             state,
-        } = createState({sourcePdf: null});
+        } = createState({
+            sourcePdf: null,
+            workingCopyPath: null,
+        });
         const printPromise = state.handlePrintDialogSubmit({
             viewMode: 'facing',
             orientation: 'landscape',
@@ -2014,7 +2051,44 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('builds a transformed PDF and sends it to the native print dialog', async () => {
+    it('routes byte-backed advanced layouts through the managed path when native printing is available', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], {type: 'application/pdf'}),
+            workingCopyPath: '/tmp/managed-byte-backed.pdf',
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                pageNumbers: [2],
+                viewMode: 'facing',
+                orientation: 'portrait',
+            });
+
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/managed-byte-backed.pdf',
+                'document.pdf',
+                {
+                    pageNumbers: [2],
+                    viewMode: 'facing',
+                    orientation: 'portrait',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+            expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
+            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('builds a transformed PDF and sends it to the native print dialog without a managed path', async () => {
         documentsCapabilityMock.printPdfData.mockResolvedValue({ success: true });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
         const appFrame = stubDocumentWithFrame();
@@ -2022,7 +2096,10 @@ describe('useWorkspacePrint', () => {
             getPrintableSourceData,
             scope,
             state,
-        } = createState({ hasPendingUnsavedChanges: true });
+        } = createState({
+            hasPendingUnsavedChanges: true,
+            workingCopyPath: null,
+        });
 
         try {
             state.handlePrint();
@@ -2058,10 +2135,47 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('falls back to browser printing when native data printing is unavailable', async () => {
+    it('keeps oversized composed bytes out of the bounded native IPC handoff', async () => {
+        buildPrintablePdfDataMock.mockResolvedValue(
+            new Uint8Array(IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1),
+        );
+        const appFrame = stubDocumentWithFrame();
+        const {
+            scope,
+            state,
+        } = createState({workingCopyPath: null});
+
+        try {
+            const submitPromise = state.handlePrintDialogSubmit({
+                viewMode: 'facing',
+                orientation: 'portrait',
+            });
+            await flushMicrotasks(12);
+
+            expect(documentsCapabilityMock.printPdfData).not.toHaveBeenCalled();
+            expect(document.body.append).toHaveBeenCalledWith(appFrame.frame);
+
+            appFrame.frame.trigger('load');
+            await submitPromise;
+
+            expect(renderPdfPagesForBrowserPrintMock).toHaveBeenCalledOnce();
+            expect(appFrame.frameWindow.print).toHaveBeenCalledOnce();
+            expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('falls back to browser printing when managed-path and data handoffs need a native backend', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({
+            success: false,
+            error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            unsupportedReason: 'requires-native-backend',
+        });
         documentsCapabilityMock.printPdfData.mockResolvedValue({
             success: false,
             error: 'Printing via the native desktop dialog is unavailable in the browser capability',
+            unsupportedReason: 'requires-native-backend',
         });
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
         const appFrame = stubDocumentWithFrame();
@@ -2069,7 +2183,10 @@ describe('useWorkspacePrint', () => {
             getPrintableSourceData,
             scope,
             state,
-        } = createState({ hasPendingUnsavedChanges: true });
+        } = createState({
+            sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], {type: 'application/pdf'}),
+            workingCopyPath: '/browser/managed-byte-backed.pdf',
+        });
 
         try {
             state.handlePrint();
@@ -2081,6 +2198,16 @@ describe('useWorkspacePrint', () => {
             });
             await flushMicrotasks();
 
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/browser/managed-byte-backed.pdf',
+                'document.pdf',
+                {
+                    pageNumbers: [2],
+                    viewMode: 'facing',
+                    orientation: 'portrait',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
+            );
             expect(getPrintableSourceData).toHaveBeenCalledTimes(1);
             expect(buildPrintablePdfDataMock).toHaveBeenCalledWith(
                 Uint8Array.of(9, 8, 7),

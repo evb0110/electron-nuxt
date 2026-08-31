@@ -4,7 +4,10 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
-import type { TPdfViewMode } from '@contracts/shared';
+import type {
+    TPdfViewMode,
+    TPdfViewRotation,
+} from '@contracts/shared';
 import { getViewColumnCount } from '@app/utils/pdfViewMode';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
@@ -27,6 +30,7 @@ export const usePdfScale = (
     zoomMode: MaybeRefOrGetter<TZoomMode>,
     fitMode: MaybeRefOrGetter<TFitMode>,
     viewMode: MaybeRefOrGetter<TPdfViewMode>,
+    viewRotation: MaybeRefOrGetter<TPdfViewRotation>,
     numPages: MaybeRefOrGetter<number>,
     pageMetrics: MaybeRefOrGetter<IPdfPageMetric[]>,
     pageMetricsVersion: MaybeRefOrGetter<number>,
@@ -72,6 +76,7 @@ export const usePdfScale = (
             totalPages,
             fallbackWidth ?? 'null',
             fallbackHeight ?? 'null',
+            toValue(viewRotation),
         ].join('|');
 
         if (cacheKey === normalizedMetricsCacheKey) {
@@ -84,6 +89,7 @@ export const usePdfScale = (
             totalPages,
             fallbackWidth,
             fallbackHeight,
+            viewRotation: toValue(viewRotation),
         });
         return normalizedMetricsCacheValue;
     }
@@ -146,6 +152,7 @@ export const usePdfScale = (
         return [
             options.mode,
             toValue(viewMode),
+            toValue(viewRotation),
             getViewColumnCount(toValue(viewMode), options.totalPages),
             options.scalePage,
             Math.round(options.rawSize),

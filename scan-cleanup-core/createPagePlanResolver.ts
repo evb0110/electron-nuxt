@@ -59,7 +59,8 @@ export function createPagePlanResolver(
                 const contentBox = pageOverride.manualContentBoxes?.[half]
                     ?? result.plan.automaticContentBoxes?.[half];
                 if (
-                    alignment === 'ink'
+                    input.options.matchPageSize
+                    && alignment === 'ink'
                     && contentBox !== undefined
                     && placementAnchors?.[half] === undefined
                 ) {
