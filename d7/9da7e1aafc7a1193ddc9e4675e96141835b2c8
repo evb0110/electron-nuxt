@@ -1,0 +1,25 @@
+tests/unit/scripts/buildElectron.test.ts
+  s_b3eba3f665eb5c::t_810229142e1f2b 26,28,49
+  s_b3eba3f665eb5c::t_5157cb4b04f4e2 1-25,27,29-48,50-80
+tests/unit/electron/pdfPrintLayoutUtilityProcess.test.ts
+  s_b3eba3f665eb5c::t_810229142e1f2b 29,88-97
+  s_b3eba3f665eb5c::t_5157cb4b04f4e2 1-28,30-87,98-131
+tests/unit/electron/getPrintRuntimePlatform.test.ts
+  s_b3eba3f665eb5c::t_5157cb4b04f4e2 1-12
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d79da7e1aafc7a1193ddc9e4675e96141835b2c8",
+  "prompts": {},
+  "sessions": {
+    "s_b3eba3f665eb5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05717-85ca-7122-bcf1-13656e3d390b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
