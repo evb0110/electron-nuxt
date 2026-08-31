@@ -989,6 +989,46 @@ describe('useManagedEmbeddedPdfShapes', () => {
         );
     });
 
+    it('treats a source change during baseline import as a stale background result', async () => {
+        const imported = Promise.withResolvers<IShapeAnnotation[]>();
+        vi.mocked(importEmbeddedShapeAnnotations).mockReset().mockReturnValueOnce(imported.promise);
+        const sourcePdfData = ref<Uint8Array | null>(new Uint8Array([1]));
+        const documentRevisionToken = ref<TDocumentRevisionToken | null>(requireDocumentRevisionToken('before-save'));
+        const managedShapes = useManagedEmbeddedPdfShapes({
+            viewerContainer: ref(createRenderedViewerContainer()),
+            workingCopyPath: ref('browser://documents/work.pdf'),
+            sourcePdfData,
+            documentRevisionToken,
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            bufferPages: ref(0),
+            shapeComposable: createManagedShapeStorePort(),
+            deletedEmbeddedAnnotationIds: ref(new Set<string>()),
+            logger: {
+                debug: vi.fn(),
+                warn: vi.fn(),
+            },
+            runGuardedTask: task => void Promise.resolve(task()),
+            nextTick,
+            isPageRendered: () => true,
+            invalidatePages: vi.fn(),
+            renderVisiblePages: vi.fn(async () => undefined),
+            hideManagedAnnotationEditors: vi.fn(),
+            currentPage: ref(1),
+        });
+
+        const baseline = managedShapes.ensureManagedShapeBaselineReady();
+        await vi.waitFor(() => expect(importEmbeddedShapeAnnotations).toHaveBeenCalledOnce());
+
+        sourcePdfData.value = new Uint8Array([2]);
+        documentRevisionToken.value = requireDocumentRevisionToken('after-save');
+        imported.resolve([]);
+
+        await expect(baseline).resolves.toBe(true);
+    });
+
     it('does not apply an embedded-shape import after its scope is disposed', async () => {
         const imported = Promise.withResolvers<IShapeAnnotation[]>();
         const importEmbeddedShapesMock = vi.mocked(importEmbeddedShapeAnnotations);

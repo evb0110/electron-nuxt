@@ -711,7 +711,8 @@ export const useManagedEmbeddedPdfShapes = ({
             || workingCopyPath.value !== path
             || documentRevisionToken.value !== revision
         ) {
-            throw new Error('PDF source changed while establishing embedded shape baseline');
+            // The source watcher owns the next baseline after a save race.
+            return true;
         }
         return shapeComposable.isShapeImportBaselineReady();
     }
