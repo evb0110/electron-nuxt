@@ -1,0 +1,37 @@
+native/pdf-page-ops/src/annotations.rs
+  s_7fe07412ad5143::t_870c86db5d8fc8 1460,1482,1486
+  s_7fe07412ad5143::t_67be2e9abc332f 1472-1481,1483-1485,2235-2289
+  s_eb7ba9db0ef355::t_aecae0999c3276 2290
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_7fe07412ad5143::t_cb22a5573a8d07 1612-1662,2005
+native/pdf-page-ops/src/tests/notes.rs
+  s_7fe07412ad5143::t_a99ec064e0b6cb 659
+  s_7fe07412ad5143::t_7ff914e80dac4d 653-658,660-694,711-743
+  s_7fe07412ad5143::t_338367b16247e2 695-710
+  s_7fe07412ad5143::t_9076534f6b1ed4 1302,1340-1351
+  s_7fe07412ad5143::t_286e55bc7d39f6 652
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4ebbf037aea8340a9852cd105f13a5bb5dd9ed8c",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_eb7ba9db0ef355": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a054cc-c322-7f11-a391-79ed1aa0897e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
