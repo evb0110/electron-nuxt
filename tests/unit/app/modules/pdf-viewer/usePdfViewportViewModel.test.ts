@@ -129,4 +129,88 @@ describe('usePdfViewportViewModel', () => {
 
         scope.stop();
     });
+
+    it('keeps an outgoing facing spread wide during pending navigation', () => {
+        const scope = effectScope();
+        const writePort = createTestPdfViewportWritePort();
+        const container = document.createElement('div');
+        Object.defineProperty(container, 'clientWidth', {
+            configurable: true,
+            value: 500,
+        });
+        Object.defineProperty(container, 'scrollWidth', {
+            configurable: true,
+            value: 700,
+        });
+        container.scrollLeft = 50;
+
+        const viewModel = scope.run(() => usePdfViewportViewModel({
+            performancePolicy,
+            viewportWritePort: writePort.port,
+            viewerContainer: ref(container),
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'facing' as const),
+            numPages: ref(4),
+            currentPage: ref(1),
+            continuousScroll: computed(() => false),
+            basePageWidth: ref(300),
+            basePageHeight: ref(800),
+            pageMetrics: ref([
+                {
+                    width: 300,
+                    height: 800,
+                },
+                {
+                    width: 300,
+                    height: 800,
+                },
+                {
+                    width: 300,
+                    height: 800,
+                },
+                {
+                    width: 300,
+                    height: 800,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(0.7),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 2,
+            }),
+            navigationAnchorPage: computed(() => 3),
+            getCommittedPageScale: pageNumber => pageNumber <= 2 ? 1 : null,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+            scaleContainerStyle: computed(() => ({})),
+            selectionMarkupStyle: computed(() => null),
+            classState: {
+                isAnySaving: computed(() => false),
+                isDragging: ref(false),
+                isViewerPanDragModeActive: computed(() => false),
+                isPlacingComment: ref(false),
+                isSelectionMarkupToolActive: computed(() => false),
+                isTextSelectionModeActive: computed(() => false),
+                fitMode: computed(() => 'width' as const),
+                zoomMode: computed(() => 'fit-width' as const),
+                resizeTransitionVisible: ref(false),
+                zoomSnapSuppressed: ref(false),
+            },
+        }));
+        try {
+            if (!viewModel) {
+                throw new Error('Failed to create viewport view model');
+            }
+
+            expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(false);
+
+            expect(viewModel.syncHorizontalScrollForZoomMode()).toBe(false);
+            expect(container.scrollLeft).toBe(50);
+            expect(writePort.writes).toHaveLength(0);
+        } finally {
+            scope.stop();
+        }
+    });
 });

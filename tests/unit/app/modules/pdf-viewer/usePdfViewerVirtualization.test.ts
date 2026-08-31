@@ -231,6 +231,61 @@ describe('usePdfViewerVirtualization', () => {
         expect(virtualization.isPageBuffered(18)).toBe(false);
     });
 
+    it('keeps committed outgoing geometry until the pending target row is ready', () => {
+        const navigationAnchorPage = ref<number | null>(2);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(2),
+            currentPage: ref(1),
+            continuousScroll: computed(() => false),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([
+                {
+                    width: 300,
+                    height: 100,
+                },
+                {
+                    width: 300,
+                    height: 120,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(0.8),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 1,
+                end: 1,
+            }),
+            navigationAnchorPage,
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : null,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
+        });
+        expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
+            width: '240px',
+            height: '96px',
+            '--scale-factor': '0.8',
+        });
+        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
+
+        navigationAnchorPage.value = null;
+
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '240px',
+            height: '80px',
+            '--scale-factor': '0.8',
+        });
+    });
+
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
         const pageMetrics = ref<IPdfPageMetric[]>([]);
         pageMetrics.value[0] = {

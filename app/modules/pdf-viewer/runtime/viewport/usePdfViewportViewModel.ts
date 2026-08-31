@@ -35,6 +35,7 @@ interface IUsePdfViewportViewModelOptions {
         end: number;
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
+    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -103,6 +104,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         scaledMargin: options.scaledMargin,
         visibleRange: options.visibleRange,
         navigationAnchorPage: options.navigationAnchorPage,
+        getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
         zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,
     });
@@ -128,6 +130,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             currentPage: options.currentPage.value,
             viewMode: options.viewMode.value,
             effectiveScale: options.effectiveScale.value,
+            getScaleForPage: virtualization.getPageLayoutScale,
             scaledMargin: options.scaledMargin.value,
         });
 
@@ -189,6 +192,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             basePageHeight: options.basePageHeight.value,
             pageMetrics: options.pageMetrics.value,
             effectiveScale: options.effectiveScale.value,
+            getScaleForPage: virtualization.getPageLayoutScale,
             scaledMargin: options.scaledMargin.value,
             epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
         });

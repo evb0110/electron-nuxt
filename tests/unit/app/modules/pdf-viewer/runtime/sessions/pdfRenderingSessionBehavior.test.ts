@@ -816,6 +816,7 @@ describe('PdfRenderingSession behavior', () => {
                 revision: 3,
             };
             expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            expect(fixture.rendering.getCommittedPageScale(3)).toBe(1);
             fixture.effectiveScale.value = 5.27;
             fixture.demand.value = {
                 ...fixture.demand.value,
@@ -833,6 +834,7 @@ describe('PdfRenderingSession behavior', () => {
 
             fixture.renderTasks[1]!.resolve();
             await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            expect(fixture.rendering.getCommittedPageScale(3)).toBeCloseTo(5.27);
             expect(fixture.canvasHost.querySelector('canvas')).not.toBe(resident);
         } finally {
             await fixture.dispose();

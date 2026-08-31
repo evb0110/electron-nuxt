@@ -130,9 +130,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         canvasHost: HTMLDivElement;
         render: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>;
     }
-    function getRenderDocumentToken() {
-        return `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
-    }
+    const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
     function getMountedRasterTarget(pageNumber: number) {
         const root = options.viewerContainer.value;
         const container = root ? getPageContainer(root, pageNumber - 1) : null;
@@ -763,8 +761,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         documentSession.cleanupPageCache();
     }
     function isPageVisualReady(pageNumber: number) {
-        void renderedPageStateVersion.value;
-        return isCommittedVisual(pageNumber);
+        void renderedPageStateVersion.value; return isCommittedVisual(pageNumber);
     }
     let frameId: number | null = null;
     let activeMandatoryRasterId: number | null = null;
@@ -1183,6 +1180,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         renderedPageStateVersion,
         isPageVisualReady,
+        getCommittedPageScale: (pageNumber: number) => isCommittedVisual(pageNumber, false)
+            ? pageRenderState.getSlot(pageNumber).targetScale
+            : null,
         isPageRenderedForClass: (pageNumber: number) => isCommittedVisual(pageNumber, false),
         isPageRenderFailed: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);

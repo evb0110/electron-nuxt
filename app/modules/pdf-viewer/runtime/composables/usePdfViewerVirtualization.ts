@@ -65,6 +65,7 @@ interface IUsePdfViewerVirtualizationOptions {
         end: number;
     }>;
     navigationAnchorPage: Ref<number | null>;
+    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
 }
@@ -124,6 +125,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         scaledMargin,
         visibleRange,
         navigationAnchorPage,
+        getCommittedPageScale,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
     } = options;
@@ -178,13 +180,43 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return getLayoutPhysicalScrollSegment(layout, anchorTop);
     });
 
+    function shouldPreserveCommittedPageGeometry(pageNumber: number) {
+        if (continuousScroll.value || numPages.value <= 0) {
+            return false;
+        }
+
+        const targetPage = navigationAnchorPage.value;
+        if (targetPage === null) {
+            return false;
+        }
+
+        const targetRow = getPageRowBoundsForViewMode({
+            pageNumber: targetPage,
+            viewMode: viewMode.value,
+            totalPages: numPages.value,
+        });
+        return pageNumber < targetRow.start || pageNumber > targetRow.end;
+    }
+
+    function getPageLayoutScale(pageNumber: number) {
+        if (shouldPreserveCommittedPageGeometry(pageNumber)) {
+            const committedScale = getCommittedPageScale?.(pageNumber);
+            if (committedScale !== null && committedScale !== undefined
+                && Number.isFinite(committedScale) && committedScale > 0) {
+                return committedScale;
+            }
+        }
+
+        return effectiveScale.value;
+    }
+
     function getPageScale(pageNumber: number) {
         const metric = getIndexedValue(normalizedPageMetrics.value, pageNumber - 1);
         if (!metric) {
             return null;
         }
 
-        return createPdfPageScale(effectiveScale.value, metric.userUnit);
+        return createPdfPageScale(getPageLayoutScale(pageNumber), metric.userUnit);
     }
 
     function getPagePlaceholderStyle(pageNumber: number): Record<string, string> | null {
@@ -195,8 +227,8 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         return {
-            width: `${metric.width * effectiveScale.value}px`,
-            height: `${metric.height * effectiveScale.value}px`,
+            width: `${metric.width * pageScale.scaleFactor}px`,
+            height: `${metric.height * pageScale.scaleFactor}px`,
             ...buildPdfPageScaleStyle(pageScale),
         };
     }
@@ -632,6 +664,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     return {
         pageHeightEstimate,
         pageLayout,
+        getPageLayoutScale,
         getPageScale,
         getPagePlaceholderStyle,
         virtualizedContinuousMode,

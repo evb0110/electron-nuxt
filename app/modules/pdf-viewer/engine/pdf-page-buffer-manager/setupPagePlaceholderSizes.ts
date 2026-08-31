@@ -29,6 +29,7 @@ export function setupPagePlaceholderSizes(
     containerRoot: HTMLElement,
     pageMetrics: IPdfPageMetric[],
     scale: number,
+    getScaleForPage: ((pageNumber: number) => number) | undefined = undefined,
 ) {
     const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
     containers.forEach((container) => {
@@ -40,9 +41,10 @@ export function setupPagePlaceholderSizes(
             return;
         }
 
-        const width = metric.width * scale;
-        const height = metric.height * scale;
-        const scaleStyle = buildPdfPageScaleStyle(createPdfPageScale(scale, metric.userUnit));
+        const pageScale = getScaleForPage?.(pageNumber) ?? scale;
+        const width = metric.width * pageScale;
+        const height = metric.height * pageScale;
+        const scaleStyle = buildPdfPageScaleStyle(createPdfPageScale(pageScale, metric.userUnit));
         Object.entries(scaleStyle).forEach(([
             property,
             value,

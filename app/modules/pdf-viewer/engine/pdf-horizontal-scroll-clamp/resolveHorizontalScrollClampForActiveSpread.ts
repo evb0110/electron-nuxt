@@ -17,6 +17,7 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
     basePageHeight: number | null;
     pageMetrics: IPdfPageMetric[];
     effectiveScale: number;
+    getScaleForPage?: ((pageNumber: number) => number) | undefined;
     scaledMargin: number;
     epsilon: number;
 }) {
@@ -40,6 +41,7 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
             currentPage: options.pageNumber,
             viewMode: options.viewMode,
             effectiveScale: options.effectiveScale,
+            getScaleForPage: options.getScaleForPage,
             scaledMargin: options.scaledMargin,
         });
     if (!renderedSpreadBounds) {

@@ -14,6 +14,7 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
     currentPage: number;
     viewMode: TPdfViewMode;
     effectiveScale: number;
+    getScaleForPage?: ((pageNumber: number) => number) | undefined;
     scaledMargin: number;
 }): IRenderedSpreadHorizontalBounds | null {
     if (!options.basePageWidth || !options.basePageHeight || options.numPages <= 0) {
@@ -42,9 +43,18 @@ export function getCurrentSpreadRenderedBoundsFromMetrics(options: {
         return null;
     }
 
-    const renderedSpreadWidth =
-        baseSpreadWidth * options.effectiveScale
-        + Math.max(0, rowPageCount - 1) * options.scaledMargin;
+    let renderedSpreadWidth = 0;
+    for (let pageNumber = rowBounds.start; pageNumber <= rowBounds.end; pageNumber += 1) {
+        const pageMetric = normalizedMetrics[pageNumber - 1];
+        const pageScale = options.getScaleForPage?.(pageNumber) ?? options.effectiveScale;
+        if (pageMetric && Number.isFinite(pageScale) && pageScale > 0) {
+            renderedSpreadWidth += pageMetric.width * pageScale;
+        }
+    }
+    if (renderedSpreadWidth <= 0) {
+        renderedSpreadWidth = baseSpreadWidth * options.effectiveScale;
+    }
+    renderedSpreadWidth += Math.max(0, rowPageCount - 1) * options.scaledMargin;
     if (!Number.isFinite(renderedSpreadWidth) || renderedSpreadWidth <= 0) {
         return null;
     }

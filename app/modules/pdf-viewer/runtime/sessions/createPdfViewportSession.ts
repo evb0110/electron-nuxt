@@ -84,6 +84,7 @@ interface IPdfViewportReloadPlacement {
 export interface ICreatePdfViewportSessionOptions {
     document: TPdfDocumentSession;
     isPageFreshlyRenderedForNavigation: (pageNumber: number) => boolean;
+    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
@@ -172,6 +173,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         end: 1,
     });
     const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
+    const pageLayoutScaleResolver = shallowRef<((pageNumber: number) => number) | null>(null);
     function seedPreparedOpeningFitScale() {
         if (!chassisAuthority) {
             return false;
@@ -203,6 +205,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 fallbackHeight: baseHeight,
             }),
             scale.effectiveScale.value,
+            pageNumber => pageLayoutScaleResolver.value?.(pageNumber) ?? scale.effectiveScale.value,
         );
     }
     function getNavigationRenderTargetPage() {
@@ -408,6 +411,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,
+        getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
         scaleContainerStyle: scale.containerStyle,
@@ -415,6 +419,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportWritePort,
         classState: options.classState,
     });
+    pageLayoutScaleResolver.value = viewModel.getPageLayoutScale;
     const openVirtualSurfaceGeometry = usePdfOpenVirtualSurfaceGeometry({
         chassisAuthority,
         continuousScroll: options.continuousScroll,
