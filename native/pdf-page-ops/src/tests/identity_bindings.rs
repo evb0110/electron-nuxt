@@ -131,7 +131,7 @@
             .collect::<Vec<_>>();
         assert!(annotation_names
             .iter()
-            .any(|name| name.starts_with("evb-note:uid:0:note-one:created:")));
+            .any(|name| name == "uid:0:note-one"));
         assert!(annotation_names
             .iter()
             .any(|name| name == "uid:0:text-box-one"));

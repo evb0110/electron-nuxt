@@ -272,10 +272,10 @@ pub(crate) fn validate_text_note_document_postconditions(
                     .dictionary(*object_id)
                     .ok()
                     .filter(|dict| annotation_subtype(dict) == "text")
-                    .and_then(|dict| dict.get(b"NM").ok())
-                    .and_then(pdf_string_to_text)
-                    .as_deref()
-                    == Some(note_name.as_str())
+                    .and_then(read_annotation_name)
+                    .is_some_and(|actual_name| {
+                        text_note_delete_name_matches(&actual_name, &note_name, note.created_at)
+                    })
             })
             .collect();
 
@@ -307,7 +307,7 @@ pub(crate) fn validate_text_note_document_postconditions(
             .ok()
             .and_then(pdf_string_to_text)
             .ok_or("Text note annotation is missing NM")?;
-        if actual_name != note_name {
+        if !text_note_delete_name_matches(&actual_name, &note_name, note.created_at) {
             return Err("Text note annotation NM did not match requested note name".into());
         }
         if annot_dict
@@ -378,29 +378,30 @@ pub(crate) fn validate_text_box_document_postconditions(
             .iter()
             .filter_map(|object| object.as_reference().ok())
             .collect::<Vec<_>>();
-        let matching_refs: Vec<ObjectId> =
-            if let Some(annotation_id) = editor.annotation_id.as_deref() {
-                let object_id = parse_pdfjs_annotation_object_id(annotation_id)
-                    .ok_or("Invalid imported FreeText annotation id")?;
-                page_annotation_refs
-                    .into_iter()
-                    .filter(|candidate| *candidate == object_id)
-                    .collect()
-            } else {
-                page_annotation_refs
-                    .into_iter()
-                    .filter(|object_id| {
-                        document
-                            .dictionary(*object_id)
-                            .ok()
-                            .filter(|dict| annotation_subtype(dict) == "freetext")
-                            .and_then(|dict| dict.get(b"NM").ok())
-                            .and_then(pdf_string_to_text)
-                            .as_deref()
-                            == Some(expected_name.as_str())
-                    })
-                    .collect()
-            };
+        let matching_refs: Vec<ObjectId> = if let Some(annotation_id) =
+            editor.annotation_id.as_deref()
+        {
+            let object_id = parse_pdfjs_annotation_object_id(annotation_id)
+                .ok_or("Invalid imported FreeText annotation id")?;
+            page_annotation_refs
+                .into_iter()
+                .filter(|candidate| *candidate == object_id)
+                .collect()
+        } else {
+            page_annotation_refs
+                .into_iter()
+                .filter(|object_id| {
+                    document
+                        .dictionary(*object_id)
+                        .ok()
+                        .filter(|dict| annotation_subtype(dict) == "freetext")
+                        .and_then(read_annotation_name)
+                        .is_some_and(|actual_name| {
+                            annotation_names_match(&actual_name, &expected_name, &["evb-freetext:"])
+                        })
+                })
+                .collect()
+        };
         if matching_refs.len() != 1 {
             return Err(format!(
                 "Expected exactly one FreeText editor named {expected_name}, found {}",
@@ -540,7 +541,10 @@ pub(crate) fn validate_annotation_delete_document_postconditions(
             let target_id = (object_number, generation_number);
             refs_to_delete.insert(target_id);
             if document.dictionary(target_id).is_ok() {
-                for object_id in collect_annotation_refs_to_delete(document, target_id)? {
+                let page_annots = get_page_annots(document, page_id)?;
+                for object_id in
+                    collect_annotation_refs_to_delete(document, target_id, Some(&page_annots))?
+                {
                     refs_to_delete.insert(object_id);
                 }
             }
@@ -638,7 +642,7 @@ pub(crate) fn validate_placed_image_annotation(
         .ok()
         .and_then(pdf_string_to_text)
         .ok_or("Placed image annotation is missing NM")?;
-    if actual_name != expected_name {
+    if !placed_image_names_match(&actual_name, expected_name) {
         return Err("Placed image annotation NM did not match requested name".into());
     }
     let modified = dict
@@ -1132,7 +1136,7 @@ pub(crate) fn validate_shapes_document_postconditions(
             let Ok(dict) = document.dictionary(object_id) else {
                 continue;
             };
-            if let Some(stable_key) = read_managed_shape_stable_key(dict) {
+            if let Some(stable_key) = read_shape_stable_key(dict) {
                 if deleted_refs.stable_keys.contains(&stable_key) {
                     return Err(
                         "Deleted stable-key shape is still referenced from page Annots".into(),
@@ -1325,10 +1329,10 @@ fn validate_new_markup_target(
                 .dictionary(*object_id)
                 .ok()
                 .filter(|dict| canonical_markup_subtype(dict).as_deref() == Some(&hint.subtype))
-                .and_then(|dict| dict.get(b"NM").ok())
-                .and_then(pdf_string_to_text)
-                .as_deref()
-                == Some(expected_name.as_str())
+                .and_then(read_annotation_name)
+                .is_some_and(|actual_name| {
+                    annotation_names_match(&actual_name, &expected_name, &["evb-markup:"])
+                })
         })
         .collect();
     if matching_refs.len() != 1 {

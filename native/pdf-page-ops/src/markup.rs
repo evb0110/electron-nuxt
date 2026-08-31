@@ -272,11 +272,7 @@ pub(crate) fn markup_annotation_name(hint: &MarkupSubtypeHint) -> Option<String>
                     !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none()
                 })
         })?;
-    Some(if identity.starts_with("evb-markup:") {
-        identity.to_string()
-    } else {
-        format!("evb-markup:{identity}")
-    })
+    Some(identity.to_string())
 }
 
 fn candidate_markup_name(
@@ -286,8 +282,7 @@ fn candidate_markup_name(
     document
         .dictionary(candidate.object_id)
         .ok()
-        .and_then(|dict| dict.get(b"NM").ok())
-        .and_then(pdf_string_to_text)
+        .and_then(read_annotation_name)
 }
 
 fn find_named_markup_hint_for_candidate(
@@ -300,7 +295,10 @@ fn find_named_markup_hint_for_candidate(
         if state.consumed {
             return None;
         }
-        (markup_annotation_name(&state.hint).as_deref() == Some(candidate_name.as_str()))
+        markup_annotation_name(&state.hint)
+            .is_some_and(|hint_name| {
+                annotation_names_match(&candidate_name, &hint_name, &["evb-markup:"])
+            })
             .then_some(index)
     })
 }
@@ -464,6 +462,7 @@ pub(crate) fn apply_markup_rewrite_to_object(
     target_subtype: &str,
     color: Option<&str>,
     contents: Option<&str>,
+    identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
     let target_color = resolve_hint_target_color(target_subtype, color);
@@ -502,11 +501,27 @@ pub(crate) fn apply_markup_rewrite_to_object(
     if contents.is_some() {
         modified = true;
     }
+    let identity_name = identity_name
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    let identity_name_needs_write = identity_name.is_some()
+        && document
+            .get_dictionary(candidate.object_id)
+            .ok()
+            .and_then(read_annotation_name)
+            .is_none();
+    modified = identity_name_needs_write || modified;
     if !modified {
         return Ok(false);
     }
 
     let dict = document.get_dictionary_mut(candidate.object_id)?;
+    if identity_name_needs_write {
+        write_annotation_name(
+            dict,
+            identity_name.expect("identity name was checked before mutation"),
+        );
+    }
     if let Some(color) = target_color {
         write_markup_color(dict, color);
         if target_subtype == "Highlight" {
@@ -654,6 +669,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -670,6 +686,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -686,6 +703,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -697,6 +715,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
                 document,
                 candidate,
                 override_subtype,
+                None,
                 None,
                 None,
                 modified_at,
@@ -723,6 +742,7 @@ pub(crate) fn rewrite_page_markup_subtypes(
             &hint.subtype,
             hint.color.as_deref(),
             hint.contents.as_deref(),
+            markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;
     }
@@ -816,6 +836,7 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
     target_subtype: &str,
     color: Option<&str>,
     contents: Option<&str>,
+    identity_name: Option<&str>,
     modified_at: &str,
 ) -> Result<bool> {
     incremental.opt_clone_object_to_new_document(candidate.object_id)?;
@@ -825,6 +846,7 @@ pub(crate) fn apply_markup_rewrite_to_incremental_object(
         target_subtype,
         color,
         None,
+        identity_name,
         modified_at,
     )?;
     if let Some(contents) = contents {
@@ -872,6 +894,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -888,6 +911,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -904,6 +928,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 &hint.subtype,
                 hint.color.as_deref(),
                 hint.contents.as_deref(),
+                markup_annotation_name(&hint).as_deref(),
                 modified_at,
             )? || rewritten;
             continue;
@@ -915,6 +940,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
                 incremental,
                 candidate,
                 override_subtype,
+                None,
                 None,
                 None,
                 modified_at,
@@ -941,6 +967,7 @@ pub(crate) fn rewrite_page_markup_subtypes_incremental(
             &hint.subtype,
             hint.color.as_deref(),
             hint.contents.as_deref(),
+            markup_annotation_name(&hint).as_deref(),
             modified_at,
         )? || rewritten;
     }

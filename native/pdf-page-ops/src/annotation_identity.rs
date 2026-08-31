@@ -11,6 +11,48 @@ pub(crate) fn read_annotation_name(dict: &Dictionary) -> Option<String> {
         .and_then(|name| (!name.trim().is_empty()).then_some(name))
 }
 
+/// Match a current identity against a name written by an older EVB writer.
+/// New writes use the supplied identity verbatim, but existing prefixed names
+/// remain valid lookup keys after the prefix removal.
+pub(crate) fn annotation_names_match(
+    actual: &str,
+    requested: &str,
+    legacy_prefixes: &[&str],
+) -> bool {
+    actual == requested
+        || legacy_prefixes.iter().any(|prefix| {
+            actual.strip_prefix(prefix) == Some(requested)
+                || requested.strip_prefix(prefix) == Some(actual)
+        })
+}
+
+pub(crate) fn text_note_names_match(actual: &str, requested: &str) -> bool {
+    annotation_names_match(actual, requested, &["evb-note:"]) || {
+        let requested_key = requested.strip_prefix("evb-note:").unwrap_or(requested);
+        actual
+            .strip_prefix("evb-note:")
+            .is_some_and(|legacy| legacy.starts_with(&format!("{requested_key}:created:")))
+    }
+}
+
+pub(crate) fn text_note_delete_name_matches(
+    actual: &str,
+    requested: &str,
+    created_at: Option<u64>,
+) -> bool {
+    if annotation_names_match(actual, requested, &["evb-note:"]) {
+        return true;
+    }
+    let requested_key = requested.strip_prefix("evb-note:").unwrap_or(requested);
+    let Some(legacy) = actual.strip_prefix("evb-note:") else {
+        return false;
+    };
+    match created_at.filter(|value| *value > 0) {
+        Some(created_at) => legacy == format!("{requested_key}:created:{created_at}"),
+        None => legacy.starts_with(&format!("{requested_key}:created:")),
+    }
+}
+
 /// Append a newly created annotation's durable identity when either of its
 /// identity candidates is present. The primary candidate always wins after
 /// trimming, unless it is blank, in which case the fallback is considered.

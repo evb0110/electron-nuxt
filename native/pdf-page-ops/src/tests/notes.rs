@@ -742,6 +742,109 @@ fn deletes_popup_free_text_by_stable_key_when_page_geometry_is_unavailable() {
 }
 
 #[test]
+fn deletes_a_note_popup_and_transitive_reply_chain() {
+    fn fixture() -> (Document, ObjectId, [ObjectId; 4], ObjectId) {
+        let (mut document, page_id) = create_test_document();
+        let popup_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Popup",
+            "Contents" => Object::string_literal("popup"),
+            "P" => Object::Reference(page_id),
+        });
+        let note_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "NM" => Object::string_literal("note-with-replies"),
+            "Contents" => Object::string_literal("note"),
+            "Popup" => Object::Reference(popup_id),
+            "P" => Object::Reference(page_id),
+        });
+        document
+            .get_dictionary_mut(popup_id)
+            .unwrap()
+            .set("Parent", Object::Reference(note_id));
+        let reply_one_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "IRT" => Object::Reference(note_id),
+            "Contents" => Object::string_literal("reply one"),
+            "P" => Object::Reference(page_id),
+        });
+        let reply_two_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Text",
+            "IRT" => Object::Reference(reply_one_id),
+            "Contents" => Object::string_literal("reply two"),
+            "P" => Object::Reference(page_id),
+        });
+        let unrelated_id = document.add_object(dictionary! {
+            "Type" => "Annot",
+            "Subtype" => "Highlight",
+            "Contents" => Object::string_literal("keep"),
+            "P" => Object::Reference(page_id),
+        });
+        document.get_dictionary_mut(page_id).unwrap().set(
+            "Annots",
+            vec![
+                Object::Reference(note_id),
+                Object::Reference(popup_id),
+                Object::Reference(reply_one_id),
+                Object::Reference(reply_two_id),
+                Object::Reference(unrelated_id),
+            ],
+        );
+        (
+            document,
+            page_id,
+            [note_id, popup_id, reply_one_id, reply_two_id],
+            unrelated_id,
+        )
+    }
+
+    let (mut document, page_id, deleted_ids, unrelated_id) = fixture();
+    delete_annotations(
+        &mut document,
+        &[AnnotationDelete {
+            page_index: 0,
+            object_number: Some(deleted_ids[0].0),
+            generation_number: Some(deleted_ids[0].1),
+            stable_key: None,
+            created_at: None,
+        }],
+    )
+    .unwrap();
+    assert_eq!(
+        get_page_annots(&document, page_id).unwrap(),
+        vec![Object::Reference(unrelated_id)]
+    );
+    for object_id in deleted_ids {
+        assert!(!document.objects.contains_key(&object_id));
+    }
+
+    let (document, page_id, deleted_ids, unrelated_id) = fixture();
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    delete_annotations_incremental(
+        &mut incremental,
+        &[AnnotationDelete {
+            page_index: 0,
+            object_number: Some(deleted_ids[0].0),
+            generation_number: Some(deleted_ids[0].1),
+            stable_key: None,
+            created_at: None,
+        }],
+    )
+    .unwrap();
+    let revision = AppendedRevision::new(&incremental);
+    assert_eq!(
+        get_page_annots(&revision, page_id).unwrap(),
+        vec![Object::Reference(unrelated_id)]
+    );
+    for object_id in deleted_ids {
+        assert!(matches!(revision.object(object_id), Ok(Object::Null)));
+    }
+}
+
+#[test]
 fn deletes_explicit_annotation_ref_from_its_p_page_when_page_hint_is_stale() {
     let (mut document, _first_page_id, last_page_id) = create_sparse_million_page_document();
     let target_id = document.add_object(dictionary! {
@@ -975,7 +1078,7 @@ fn appends_free_text_note_as_text_annotation_for_legacy_callers() {
     );
     assert_eq!(
         pdf_string_to_text(text_note.get(b"NM").unwrap()).unwrap(),
-        "evb-note:uid:0:pdfjs_internal_editor_0:created:1781009077000"
+        "uid:0:pdfjs_internal_editor_0"
     );
     assert_eq!(text_note.get(b"Name").unwrap().as_name().unwrap(), b"Note");
     assert_eq!(
@@ -1051,7 +1154,7 @@ fn canonical_notes_input_also_writes_a_text_annotation() {
     );
     assert_eq!(
         pdf_string_to_text(note.get(b"NM").unwrap()).as_deref(),
-        Some("evb-note:canonical-note")
+        Some("canonical-note")
     );
     assert_eq!(
         pdf_string_to_text(note.get(b"T").unwrap()).as_deref(),
@@ -1947,7 +2050,7 @@ fn incremental_mixed_free_text_mutations_preserve_every_page_annotation() {
         .collect();
     assert_eq!(
         text_names,
-        vec!["evb-note:uid:0:pdfjs_internal_editor_0:created:1787783296280"]
+        vec!["uid:0:pdfjs_internal_editor_0"]
     );
     assert_eq!(
         free_text_names,

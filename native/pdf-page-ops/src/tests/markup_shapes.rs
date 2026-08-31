@@ -81,6 +81,90 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
 }
 
 #[test]
+fn patches_highlight_without_dropping_rich_text_review_reply_or_unknown_keys() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    let foreign_reply_id = document.new_object_id();
+    let markup = document.get_dictionary_mut(markup_id).unwrap();
+    markup.set("RC", Object::string_literal("<p>rich text</p>"));
+    markup.set("State", Object::Name(b"Accepted".to_vec()));
+    markup.set("IRT", Object::Reference(foreign_reply_id));
+    markup.set(
+        "UnknownKey",
+        Object::String(vec![1, 2, 3], StringFormat::Hexadecimal),
+    );
+    let before = markup.clone();
+    let page_view = resolve_page_view(&document, page_id).unwrap();
+    let candidate = create_markup_candidate(&document, page_view, 0, markup_id, 0).unwrap();
+
+    assert!(apply_markup_rewrite_to_object(
+        &mut document,
+        &candidate,
+        "Highlight",
+        Some("#00ff00"),
+        Some("updated contents"),
+        Some("markup-preserve"),
+        "D:20260831130000Z",
+    )
+    .unwrap());
+
+    let after = document.get_dictionary(markup_id).unwrap();
+    assert_unowned_keys_unchanged(
+        &before,
+        after,
+        &[b"C", b"CA", b"AP", b"Contents", b"M", b"NM"],
+    )
+    .unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("markup-preserve"));
+}
+
+#[test]
+fn resolves_a_legacy_markup_prefix_without_rewriting_it() {
+    let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("NM", Object::string_literal("evb-markup:legacy-markup"));
+    let page_view = resolve_page_view(&document, page_id).unwrap();
+    let candidate = create_markup_candidate(&document, page_view, 0, markup_id, 0).unwrap();
+    let hint = MarkupSubtypeHint {
+        subtype: "Underline".to_string(),
+        page_index: 0,
+        marker_rect: MarkerRect {
+            left: 0.1,
+            top: 0.5,
+            width: 0.4,
+            height: 0.3,
+        },
+        markup_geometry: None,
+        app_annotation_id: None,
+        annotation_id: None,
+        color: Some("#00ff00".to_string()),
+        contents: None,
+        id: Some("legacy-markup".to_string()),
+        page_markup_index: Some(0),
+        source: Some("editor".to_string()),
+    };
+    let mut states = vec![MarkupHintState {
+        annotation_ref: None,
+        color: None,
+        hint,
+        consumed: false,
+    }];
+    assert!(rewrite_page_markup_subtypes(
+        &mut document,
+        &[candidate],
+        &HashMap::new(),
+        &mut states,
+        "D:20260831130000Z",
+    )
+    .unwrap());
+    assert!(states[0].consumed);
+    let after = document.get_dictionary(markup_id).unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("evb-markup:legacy-markup"));
+    assert_eq!(canonical_markup_subtype(after).as_deref(), Some("Underline"));
+}
+
+#[test]
 fn creates_new_text_markup_annotations_with_quad_geometry() {
     let (document, page_id) = create_test_document();
     let mut incremental = IncrementalDocument::from_document(document, 0, None);
@@ -444,7 +528,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
         assert_eq!(canonical_markup_subtype(annotation).as_deref(), Some(subtype));
         assert_eq!(
             pdf_string_to_text(annotation.get(b"NM").unwrap()).as_deref(),
-            Some(format!("evb-markup:{id}").as_str())
+            Some(id)
         );
         assert!(annotation.get(b"QuadPoints").is_ok());
         let quad_points = read_markup_quad_points(&loaded, annotation).unwrap();
@@ -602,7 +686,7 @@ fn recreates_managed_markup_after_an_incremental_delete_retired_its_object() {
             .ok()
             .and_then(pdf_string_to_text)
             .as_deref(),
-        Some("evb-markup:9R"),
+        Some("9R"),
     );
 
     let _ = remove_file(pdf_path);
@@ -1366,6 +1450,136 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
     }));
 
     let _ = remove_file(pdf_path);
+}
+
+#[test]
+fn deletes_explicit_shapes_without_page_backrefs_from_full_and_incremental_documents() {
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set("NM", Object::string_literal("shape-without-page"));
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: Vec::new(),
+            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+    assert!(get_page_annots(&document, page_id).unwrap().is_empty());
+
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set(
+        "NM",
+        Object::string_literal("shape-without-page-incremental"),
+    );
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    let mut incremental = IncrementalDocument::from_document(document, 0, None);
+    apply_shape_annotations_incremental(
+        &mut incremental,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: Vec::new(),
+            deleted_annotation_ids: vec![format_pdfjs_annotation_ref(shape_id)],
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+    let revision = AppendedRevision::new(&incremental);
+    assert!(get_page_annots(&revision, page_id).unwrap().is_empty());
+}
+
+#[test]
+fn patches_a_bare_shape_without_dropping_rich_text_review_reply_or_unknown_keys() {
+    let (mut document, page_id) = create_test_document();
+    let mut shape = shape_with_stale_appearance("Square");
+    shape.set("NM", Object::string_literal("bare-shape"));
+    shape.set("RC", Object::string_literal("<p>rich shape</p>"));
+    shape.set("State", Object::Name(b"Accepted".to_vec()));
+    shape.set("IRT", Object::Reference((900, 0)));
+    shape.set("UnknownKey", Object::Integer(77));
+    let shape_id = document.add_object(Object::Dictionary(shape));
+    document
+        .get_dictionary_mut(page_id)
+        .unwrap()
+        .set("Annots", vec![Object::Reference(shape_id)]);
+    let before = document.get_dictionary(shape_id).unwrap().clone();
+    let mut requested = rectangle_shape("bare-shape", "#112233");
+    requested.annotation_id = Some(format_pdfjs_annotation_ref(shape_id));
+
+    apply_shape_annotations(
+        &mut document,
+        &ShapesMutation {
+            total_pages: 1,
+            rewrite_shape_state: true,
+            shapes: vec![requested],
+            deleted_annotation_ids: Vec::new(),
+            deleted_stable_keys: Vec::new(),
+        },
+        "D:20260831130000Z",
+        &mut None,
+    )
+    .unwrap();
+
+    let after = document.get_dictionary(shape_id).unwrap();
+    assert_unowned_keys_unchanged(
+        &before,
+        after,
+        &[
+            b"P",
+            b"Rect",
+            b"C",
+            b"CA",
+            b"Border",
+            b"IC",
+            b"AP",
+            b"CreationDate",
+            b"M",
+            b"NM",
+            b"EVBShapeKey",
+        ],
+    )
+    .unwrap();
+    assert_eq!(read_annotation_name(after).as_deref(), Some("bare-shape"));
+}
+
+#[test]
+fn writes_the_supplied_shape_identity_to_nm_without_a_generated_prefix() {
+    let shape = rectangle_shape("shape-created-bare", "#112233");
+    let dict = create_shape_annotation_dict(
+        &shape,
+        PdfRect {
+            x1: 0.0,
+            y1: 0.0,
+            x2: 200.0,
+            y2: 100.0,
+        },
+        0,
+        "D:20260831130000Z",
+    )
+    .unwrap();
+    assert_eq!(
+        read_annotation_name(&dict).as_deref(),
+        Some("shape-created-bare")
+    );
+    assert!(read_managed_shape_stable_key(&dict).is_none());
 }
 
 #[test]

@@ -1737,14 +1737,9 @@ pub(crate) fn get_or_create_blank_appearance_ref(
 
 pub(crate) fn replayable_free_text_note_name_from_parts(
     stable_key: &str,
-    created_at: Option<u64>,
+    _created_at: Option<u64>,
 ) -> String {
-    match created_at {
-        Some(created_at) if created_at > 0 => {
-            format!("evb-note:{}:created:{created_at}", stable_key.trim())
-        }
-        _ => format!("evb-note:{}", stable_key.trim()),
-    }
+    stable_key.trim().to_string()
 }
 
 pub(crate) fn replayable_free_text_note_name(note: &FreeTextNote) -> String {
@@ -1763,11 +1758,26 @@ pub(crate) struct PageAnnotationIndex {
 
 impl PageAnnotationIndex {
     fn first_text_note_named(&self, note_name: &str) -> Option<ObjectId> {
-        self.first_text_note_by_name.get(note_name).copied()
+        self.first_text_note_by_name
+            .get(note_name)
+            .copied()
+            .or_else(|| {
+                self.named_text_notes.iter().find_map(|(object_id, name)| {
+                    text_note_names_match(name, note_name).then_some(*object_id)
+                })
+            })
     }
 
     fn first_free_text_named(&self, note_name: &str) -> Option<ObjectId> {
-        self.first_free_text_by_name.get(note_name).copied()
+        self.first_free_text_by_name
+            .get(note_name)
+            .copied()
+            .or_else(|| {
+                self.named_free_text.iter().find_map(|(object_id, name)| {
+                    annotation_names_match(name, note_name, &["evb-freetext:"])
+                        .then_some(*object_id)
+                })
+            })
     }
 
     pub(crate) fn append_missing_refs(&mut self, refs: &[ObjectId]) {
@@ -1813,30 +1823,17 @@ impl PageAnnotationIndex {
         if stable_key.is_empty() {
             return Vec::new();
         }
-        let exact_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
-        let stable_prefix = format!(
-            "{}:created:",
-            replayable_free_text_note_name_from_parts(stable_key, None)
-        );
+        let requested_name =
+            replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
         self.named_text_notes
             .iter()
+            .chain(self.named_free_text.iter())
             .filter_map(|(object_id, note_name)| {
-                let matches = note_name == &exact_name
-                    || (delete.created_at.is_none_or(|created_at| created_at == 0)
-                        && note_name.starts_with(&stable_prefix));
+                let matches =
+                    text_note_delete_name_matches(note_name, &requested_name, delete.created_at)
+                        || annotation_names_match(note_name, &requested_name, &["evb-freetext:"]);
                 matches.then_some(*object_id)
             })
-            .chain(
-                self.named_free_text
-                    .iter()
-                    .filter_map(|(object_id, note_name)| {
-                        let matches = note_name == stable_key
-                            || note_name == &exact_name
-                            || (delete.created_at.is_none_or(|created_at| created_at == 0)
-                                && note_name.starts_with(&stable_prefix));
-                        matches.then_some(*object_id)
-                    }),
-            )
             .collect()
     }
 }
@@ -1881,7 +1878,7 @@ pub(crate) fn build_page_annotation_index(
             if annotation_related_ref(dictionary, b"IRT").is_some() {
                 continue;
             }
-            let Some(note_name) = dictionary.get(b"NM").ok().and_then(pdf_string_to_text) else {
+            let Some(note_name) = read_annotation_name(dictionary) else {
                 continue;
             };
             first_text_note_by_name
@@ -1893,7 +1890,7 @@ pub(crate) fn build_page_annotation_index(
         if subtype != "freetext" {
             continue;
         }
-        let Some(note_name) = dictionary.get(b"NM").ok().and_then(pdf_string_to_text) else {
+        let Some(note_name) = read_annotation_name(dictionary) else {
             continue;
         };
         first_free_text_by_name
@@ -1994,6 +1991,10 @@ pub(crate) fn append_annots_to_page_incremental(
 pub(crate) fn collect_annotation_refs_to_delete(
     document: &impl PdfObjectSource,
     target_id: ObjectId,
+    // Callers that already have the owning page's `/Annots` list provide it
+    // for annotations without a `/P` back-reference. This keeps reply
+    // discovery page-local without walking the document's page tree.
+    page_annots_hint: Option<&[Object]>,
 ) -> Result<Vec<ObjectId>> {
     if document.dictionary(target_id).is_err() {
         return Err(format!(
@@ -2006,6 +2007,30 @@ pub(crate) fn collect_annotation_refs_to_delete(
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
     let mut pending = vec![target_id];
+    let owner_page_annots = annotation_page_id(document, target_id)
+        .map(|page_id| get_page_annots(document, page_id))
+        .transpose()?;
+    let page_annots = owner_page_annots.as_deref().or(page_annots_hint);
+    let replies_by_parent = page_annots.map(|page_annots| {
+        let mut replies_by_parent: HashMap<ObjectId, Vec<ObjectId>> = HashMap::new();
+        for reply_id in page_annots
+            .iter()
+            .filter_map(|object| object.as_reference().ok())
+        {
+            let Ok(reply_dict) = document.dictionary(reply_id) else {
+                continue;
+            };
+            if annotation_subtype(reply_dict) != "popup" {
+                if let Some(parent_id) = annotation_related_ref(reply_dict, b"IRT") {
+                    replies_by_parent
+                        .entry(parent_id)
+                        .or_default()
+                        .push(reply_id);
+                }
+            }
+        }
+        replies_by_parent
+    });
     while let Some(object_id) = pending.pop() {
         if !seen.insert(object_id) {
             continue;
@@ -2017,11 +2042,8 @@ pub(crate) fn collect_annotation_refs_to_delete(
             Err(_) => continue,
         };
         if annotation_subtype(dict) == "stamp"
-            && dict
-                .get(b"NM")
-                .ok()
-                .and_then(pdf_string_to_text)
-                .is_some_and(|name| name.starts_with("placed-image-"))
+            && is_managed_placed_image_stamp(dict)
+            && placed_image_appearance_refs(document, object_id).is_some()
         {
             if let Ok(appearance) = dict.get(b"AP") {
                 if let Some(appearance_dict) = document
@@ -2073,6 +2095,12 @@ pub(crate) fn collect_annotation_refs_to_delete(
                 }
             }
         }
+        if let Some(reply_ids) = replies_by_parent
+            .as_ref()
+            .and_then(|replies| replies.get(&object_id))
+        {
+            pending.extend(reply_ids.iter().copied());
+        }
     }
 
     Ok(refs)
@@ -2119,24 +2147,14 @@ pub(crate) fn annotation_matches_stable_delete_name(
     if target_subtype != "text" && target_subtype != "freetext" {
         return Ok(false);
     }
-    let Some(note_name) = target_dict.get(b"NM").ok().and_then(pdf_string_to_text) else {
+    let Some(note_name) = read_annotation_name(target_dict) else {
         return Ok(false);
     };
-    if target_subtype == "freetext" && note_name == stable_key {
-        return Ok(true);
-    }
-    let exact_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
-    if note_name == exact_name {
-        return Ok(true);
-    }
-    if delete.created_at.is_some_and(|created_at| created_at > 0) {
-        return Ok(false);
-    }
-    let stable_prefix = format!(
-        "{}:created:",
-        replayable_free_text_note_name_from_parts(stable_key, None)
-    );
-    Ok(note_name.starts_with(&stable_prefix))
+    let requested_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
+    Ok(
+        text_note_delete_name_matches(&note_name, &requested_name, delete.created_at)
+            || annotation_names_match(&note_name, &requested_name, &["evb-freetext:"]),
+    )
 }
 
 fn resolve_annotation_delete_target_refs_from_index(
@@ -2207,7 +2225,9 @@ pub(crate) fn collect_delete_refs(
             resolve_annotation_delete_target_refs_from_index(index, delete)?
         };
         for target_id in target_refs {
-            for object_id in collect_annotation_refs_to_delete(document, target_id)? {
+            for object_id in
+                collect_annotation_refs_to_delete(document, target_id, Some(&index.annots))?
+            {
                 refs_to_delete.insert(object_id);
             }
         }
@@ -2686,7 +2706,7 @@ mod tests {
     }
 
     #[test]
-    fn stable_key_delete_matches_raw_names_only_on_free_text() {
+    fn stable_key_delete_matches_bare_names_after_prefix_removal() {
         let index = PageAnnotationIndex {
             annots: Vec::new(),
             annotation_refs: HashSet::new(),
@@ -2704,7 +2724,10 @@ mod tests {
             created_at: None,
         };
 
-        assert_eq!(index.matching_stable_delete_refs(&delete), vec![(20, 0)]);
+        assert_eq!(
+            index.matching_stable_delete_refs(&delete),
+            vec![(10, 0), (20, 0)]
+        );
     }
 
     #[test]

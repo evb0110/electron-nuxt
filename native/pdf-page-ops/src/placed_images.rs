@@ -246,10 +246,25 @@ pub(crate) fn placed_image_annotation_name(
     let global_index = u64::from(chunk_index)
         .saturating_mul(MAX_PLACED_IMAGE_MUTATIONS as u64)
         .saturating_add(index as u64);
-    format!(
-        "placed-image-native:{}:{}:{}",
-        image.page_index, global_index, modified_at
-    )
+    format!("{}:{}:{}", image.page_index, global_index, modified_at)
+}
+
+pub(crate) fn placed_image_names_match(actual: &str, expected: &str) -> bool {
+    annotation_names_match(actual, expected, &["placed-image-native:"])
+}
+
+const PLACED_IMAGE_MARKER_KEY: &[u8] = b"EVBPlacedImage";
+
+/// A generated placed-image stamp carries a private marker. The legacy
+/// prefixed identity remains an ownership signal for files written before the
+/// marker existed, but an arbitrary Stamp appearance graph is not enough to
+/// claim its image resources.
+pub(crate) fn is_managed_placed_image_stamp(dict: &Dictionary) -> bool {
+    dict.get(PLACED_IMAGE_MARKER_KEY)
+        .ok()
+        .and_then(|value| value.as_bool().ok())
+        == Some(true)
+        || read_annotation_name(dict).is_some_and(|name| name.starts_with("placed-image-native:"))
 }
 
 pub(crate) fn placed_image_chunk_index(mutations: &NativeMutationsFile) -> u32 {
@@ -435,6 +450,7 @@ pub(crate) fn build_placed_image_stamp_dict(
         ),
     );
     dict.set("Name", Object::Name(b"Approved".to_vec()));
+    dict.set(PLACED_IMAGE_MARKER_KEY, Object::Boolean(true));
     dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
     dict
 }
@@ -459,10 +475,14 @@ fn resolve_placed_image_target(
         if annotation_subtype(dict) != "stamp" {
             return Err("Placed image target is not a Stamp annotation".into());
         }
-        if image.stable_key.is_some()
-            && dict.get(b"NM").ok().and_then(pdf_string_to_text).as_deref() != Some(expected_name)
-        {
-            return Err("Placed image stable identity does not match the target Stamp".into());
+        if image.stable_key.is_some() {
+            if let Some(name) = read_annotation_name(dict) {
+                if !placed_image_names_match(&name, expected_name) {
+                    return Err(
+                        "Placed image stable identity does not match the target Stamp".into(),
+                    );
+                }
+            }
         }
         return Ok(Some(object_id));
     }
@@ -477,8 +497,7 @@ fn resolve_placed_image_target(
                 .filter(|dict| annotation_subtype(dict) == "stamp")
                 .and_then(|dict| dict.get(b"NM").ok())
                 .and_then(pdf_string_to_text)
-                .as_deref()
-                == Some(expected_name)
+                .is_some_and(|name| placed_image_names_match(&name, expected_name))
         })
         .collect::<Vec<_>>();
     if matches.len() > 1 {
@@ -513,6 +532,29 @@ pub(crate) fn placed_image_appearance_refs(
         .iter()
         .find_map(|(_, object)| object.as_reference().ok())?;
     Some((appearance_ref, image_ref))
+}
+
+fn patch_placed_image_stamp_dict(
+    dict: &mut Dictionary,
+    geometry: &PlacedImageGeometry,
+    appearance_ref: ObjectId,
+    expected_name: &str,
+    modified_at: &str,
+) {
+    let mut ap_dict = Dictionary::new();
+    ap_dict.set("N", Object::Reference(appearance_ref));
+    dict.set("Rect", rect_object(geometry.rect));
+    dict.set("AP", Object::Dictionary(ap_dict));
+    let flags = dict
+        .get(b"F")
+        .ok()
+        .and_then(|value| value.as_i64().ok())
+        .unwrap_or(0);
+    dict.set("F", Object::Integer(flags | 4));
+    if read_annotation_name(dict).is_none() {
+        write_annotation_name(dict, expected_name);
+    }
+    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
 }
 
 pub(crate) fn apply_placed_images(
@@ -573,16 +615,29 @@ pub(crate) fn apply_placed_images(
         } else {
             document.add_object(appearance_stream)
         };
-        let stamp_ref = existing_stamp_ref.unwrap_or_else(|| document.new_object_id());
-        let stamp_dict = build_placed_image_stamp_dict(
-            image,
-            &geometry,
-            appearance_ref,
-            index,
-            chunk_index,
-            modified_at,
-        );
-        document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
+        let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
+            let stamp_dict = document.get_dictionary_mut(stamp_ref)?;
+            patch_placed_image_stamp_dict(
+                stamp_dict,
+                &geometry,
+                appearance_ref,
+                &expected_name,
+                modified_at,
+            );
+            stamp_ref
+        } else {
+            let stamp_ref = document.new_object_id();
+            let stamp_dict = build_placed_image_stamp_dict(
+                image,
+                &geometry,
+                appearance_ref,
+                index,
+                chunk_index,
+                modified_at,
+            );
+            document.set_object(stamp_ref, Object::Dictionary(stamp_dict));
+            stamp_ref
+        };
         if existing_stamp_ref.is_none() {
             report_stamp_identity_binding(identity_bindings, image, stamp_ref);
             annotation_indexes
@@ -664,19 +719,32 @@ pub(crate) fn apply_placed_images_incremental(
         } else {
             incremental.new_document.add_object(appearance_stream)
         };
-        let stamp_ref =
-            existing_stamp_ref.unwrap_or_else(|| incremental.new_document.new_object_id());
-        let stamp_dict = build_placed_image_stamp_dict(
-            image,
-            &geometry,
-            appearance_ref,
-            index,
-            chunk_index,
-            modified_at,
-        );
-        incremental
-            .new_document
-            .set_object(stamp_ref, Object::Dictionary(stamp_dict));
+        let stamp_ref = if let Some(stamp_ref) = existing_stamp_ref {
+            incremental.opt_clone_object_to_new_document(stamp_ref)?;
+            let stamp_dict = incremental.new_document.get_dictionary_mut(stamp_ref)?;
+            patch_placed_image_stamp_dict(
+                stamp_dict,
+                &geometry,
+                appearance_ref,
+                &expected_name,
+                modified_at,
+            );
+            stamp_ref
+        } else {
+            let stamp_ref = incremental.new_document.new_object_id();
+            let stamp_dict = build_placed_image_stamp_dict(
+                image,
+                &geometry,
+                appearance_ref,
+                index,
+                chunk_index,
+                modified_at,
+            );
+            incremental
+                .new_document
+                .set_object(stamp_ref, Object::Dictionary(stamp_dict));
+            stamp_ref
+        };
         if existing_stamp_ref.is_none() {
             report_stamp_identity_binding(identity_bindings, image, stamp_ref);
             annotation_indexes
