@@ -127,6 +127,14 @@ async function createMetadataPdf() {
     return new Uint8Array(await pdfDocument.save());
 }
 
+async function readPasswordProtectedPdf() {
+    const encoded = await readFile(
+        join(process.cwd(), 'tests/fixtures/electron/password-protected.pdf.b64'),
+        'utf8',
+    );
+    return Uint8Array.from(Buffer.from(encoded.trim(), 'base64'));
+}
+
 function readPageLabels(pdfDocument: PDFDocument) {
     const pageLabels = pdfDocument.context.lookup(
         pdfDocument.catalog.get(PDFName.of('PageLabels')) as PDFRef,
@@ -293,6 +301,38 @@ describe('browser page-ops WASM fast path', () => {
             new Uint8Array(memory.buffer, pointer >>> 0, length).fill(0xa5);
             free(pointer, length);
         }
+    });
+
+    it('decrypts an encrypted PDF through WASM operation 9 with the correct password', async () => {
+        const encryptedPdf = await readPasswordProtectedPdf();
+        const wasm = await loadWasmRunner();
+
+        const result = await wasm.run('decrypt', {
+            data: encryptedPdf,
+            password: 'frame-secret',
+        });
+
+        assertSuccessfulWasmMutation(result);
+        expect(result.data).not.toEqual(encryptedPdf);
+        expect(result.pageCount).toBe(1);
+        const opened = await PDFDocument.load(result.data);
+        expect(opened.getPageCount()).toBe(1);
+        expect(wasm.fetchMock).toHaveBeenCalledOnce();
+    });
+
+    it('reports a typed password failure through WASM operation 9', async () => {
+        const encryptedPdf = await readPasswordProtectedPdf();
+        const wasm = await loadWasmRunner();
+
+        const result = await wasm.run('decrypt', {
+            data: encryptedPdf,
+            password: 'wrong-password',
+        });
+
+        expect(result).toMatchObject({
+            status: 'failed',
+            error: {code: 'needs-password'},
+        });
     });
 
     it('matches pdf-lib page summaries for representative operations', async () => {
@@ -570,7 +610,7 @@ describe('browser page-ops WASM fast path', () => {
         expect(wasmMock.free).toHaveBeenCalledTimes(1);
         expect(loggerWarn).toHaveBeenCalledWith(
             'browser-wasm',
-            'PDF page operation WASM failed; falling back to pdf-lib',
+            'PDF page operation WASM failed',
             {
                 error: 'page wasm failed',
                 resultCode: -7,

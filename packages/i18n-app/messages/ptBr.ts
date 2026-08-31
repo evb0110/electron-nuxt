@@ -1482,6 +1482,12 @@ export default {
         'file': {
             'open': 'Falha ao abrir arquivo',
             'openNotFound': 'Não foi possível abrir "{name}". O arquivo pode ter sido movido, excluído ou seu armazenamento foi limpo.',
+            'passwordPromptTitle': 'Senha necessária',
+            'passwordPromptDescription': 'Digite a senha de "{name}" para abrir este PDF.',
+            'passwordPromptLabel': 'Senha',
+            'passwordPromptOpen': 'Abrir',
+            'passwordPromptIncorrect': 'A senha está incorreta. Tente novamente.',
+            'unsupportedEncryption': 'Este PDF usa uma criptografia que o EVB Viewer não consegue abrir.',
             'invalid': 'Arquivo inválido ou inexistente',
             'emptyPdf': 'O arquivo PDF está vazio (0 bytes)',
             'noPages': 'O PDF não contém páginas',

@@ -93,11 +93,13 @@ export interface IDocumentsService {
         fileName: string,
         data: Uint8Array,
         originalPath?: string,
+        password?: string,
     ) => Promise<string>;
     createWorkingCopyFromPath: (
         context: IDocumentsSenderIdContext,
         sourcePath: TOpenPath,
         originalPath?: string,
+        password?: string,
     ) => Promise<string>;
     savePdfAs: (
         context: IDocumentsDialogContext,

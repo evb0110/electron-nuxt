@@ -215,6 +215,7 @@ describe('openInputPaths', () => {
             kind: 'pdf',
             workingPath: '/tmp/working/decrypted.pdf',
             originalPath: '/tmp/source.pdf',
+            wasEncrypted: true,
         });
 
         expect(mocks.createWorkingCopyWithOutcome).toHaveBeenCalledWith(

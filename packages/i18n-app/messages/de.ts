@@ -1471,6 +1471,12 @@ export default {
         'file': {
             'open': 'Datei konnte nicht geöffnet werden',
             'openNotFound': '„{name}“ konnte nicht geöffnet werden. Die Datei wurde möglicherweise verschoben, gelöscht oder ihr Speicher wurde geleert.',
+            'passwordPromptTitle': 'Passwort erforderlich',
+            'passwordPromptDescription': 'Geben Sie das Passwort für „{name}“ ein, um dieses PDF zu öffnen.',
+            'passwordPromptLabel': 'Passwort',
+            'passwordPromptOpen': 'Öffnen',
+            'passwordPromptIncorrect': 'Das Passwort ist falsch. Versuchen Sie es erneut.',
+            'unsupportedEncryption': 'Dieses PDF verwendet eine Verschlüsselung, die EVB Viewer nicht öffnen kann.',
             'invalid': 'Ungültige oder nicht vorhandene Datei',
             'emptyPdf': 'Die PDF-Datei ist leer (0 Byte)',
             'noPages': 'Die PDF-Datei enthält keine Seiten',

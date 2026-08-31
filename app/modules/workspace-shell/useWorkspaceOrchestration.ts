@@ -103,9 +103,13 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         emit,
     } = deps;
     const { t } = useTypedI18n();
+    // Every workspace failure that reaches the user goes through this one
+    // surface, so save, annotation, and open failures share one toast path.
+    const failureSurface = useWorkspaceFailureSurface();
     const fileLifecycle = useWorkspaceFileLifecycleController({
         analyticsDocumentScope: deps.analyticsDocumentScope,
         openSurface: deps.openSurface,
+        failureSurface,
     });
     const {
         isDjvuMode,
@@ -435,11 +439,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         ?? originalPath.value
         ?? workingCopyPath.value
     ));
-
-    // Every workspace failure that reaches the user goes through this one
-    // surface, so save aborts and annotation creation failures cannot drift
-    // into separate, half-wired reporting.
-    const failureSurface = useWorkspaceFailureSurface();
 
     const pageSaveOrchestration = usePageSaveOrchestration({
         failureSurface,

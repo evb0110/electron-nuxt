@@ -51,11 +51,23 @@ export function isPdfDecryptRequest(value: unknown): value is IPdfDecryptRequest
 
 /** Runtime guard for the decrypt result shared by the CLI and the wasm entry. */
 export function isPdfDecryptResult(value: unknown): value is IPdfDecryptResult {
-    return isRecord(value)
-        && isPdfDecryptOutcome(value.outcome)
-        && typeof value.wasEncrypted === 'boolean'
-        && (value.revision === null
+    if (!isRecord(value)
+        || !isPdfDecryptOutcome(value.outcome)
+        || typeof value.wasEncrypted !== 'boolean'
+        || !(value.revision === null
             || (typeof value.revision === 'number'
                 && Number.isSafeInteger(value.revision)
-                && value.revision > 0));
+                && value.revision > 0))) {
+        return false;
+    }
+    if (value.outcome === 'opened') {
+        return value.wasEncrypted === false && value.revision === null;
+    }
+    if (value.outcome === 'rewritten') {
+        return value.wasEncrypted === true
+            && typeof value.revision === 'number'
+            && Number.isSafeInteger(value.revision)
+            && value.revision > 0;
+    }
+    return value.wasEncrypted === true && value.revision === null;
 }

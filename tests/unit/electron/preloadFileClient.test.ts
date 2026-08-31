@@ -20,6 +20,7 @@ import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {PDF_DECRYPT_PASSWORD_MAX_BYTES} from '@contracts/pdfDecryptSchemas';
 
 class FakeMessagePort {
     readonly close = vi.fn();
@@ -181,6 +182,28 @@ describe('createDocumentsPreloadFileClient', () => {
 
     afterEach(() => {
         vi.unstubAllGlobals();
+    });
+
+    it('rejects invalid working-copy passwords before invoking IPC', () => {
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const oversizedPassword = 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1);
+
+        expect(() => client.createWorkingCopyFromData(
+            'protected.pdf',
+            Uint8Array.of(1),
+            undefined,
+            oversizedPassword,
+        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(() => client.createWorkingCopyFromPath(
+            '/tmp/protected.pdf',
+            undefined,
+            null as never,
+        )).toThrow(`PDF password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
     it('closes the PDF persistence port when posting a streamed chunk fails', async () => {

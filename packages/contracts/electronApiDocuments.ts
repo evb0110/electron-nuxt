@@ -355,6 +355,7 @@ export interface IOpenPdfResult {
     workingPath: TDocumentRef;
     originalPath: TDocumentRef;
     isGenerated?: boolean;
+    wasEncrypted?: true;
     /**
      * Authoritative first-page metadata discovered by the main process from
      * the admitted working copy. The workspace host can therefore publish
@@ -362,7 +363,6 @@ export interface IOpenPdfResult {
      */
     openingGeometry?: IPdfOpeningGeometry;
 }
-
 export interface IOpenDjvuResult {
     kind: 'djvu';
     workingPath: '';
@@ -965,8 +965,8 @@ export interface IDocumentsFileCapability {
         options?: IDocumentMutationRevisionOptions,
     ) => Promise<boolean>;
     writeDocxFile: (path: TDocumentRef, data: Uint8Array, signal?: AbortSignal) => Promise<boolean>;
-    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
-    createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef) => Promise<TDocumentRef>;
+    createWorkingCopyFromData: (fileName: string, data: Uint8Array, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
+    createWorkingCopyFromPath: (sourcePath: TDocumentRef, originalPath?: TDocumentRef, password?: string) => Promise<TDocumentRef>;
     saveFileStructured: (path: TDocumentRef, options?: IDocumentMutationRevisionOptions) => Promise<TDocumentSaveResult>;
     resyncWorkingCopy?: (path: TDocumentRef) => Promise<TDocumentSaveResult>;
     savePdfData: (

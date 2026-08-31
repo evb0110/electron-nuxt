@@ -156,6 +156,7 @@ describe('in-process preload to validated IPC round trips', () => {
             'round-trip.pdf',
             data,
             '/tmp/source.pdf',
+            undefined,
         );
         await expect(harness.client.savePdfDataChunks('/tmp/working.pdf', 5, [
             Uint8Array.from([

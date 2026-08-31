@@ -96,6 +96,7 @@ export interface ISettingsData {
     assistantPanelEnabled: boolean;
     agentMcpEnabled: boolean;
     suppressDefaultViewerPrompt?: boolean;
+    suppressUnencryptedSaveNotice?: boolean;
     skippedUpdateVersion?: string;
 }
 

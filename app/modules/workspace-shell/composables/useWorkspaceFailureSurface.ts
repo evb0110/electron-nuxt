@@ -13,7 +13,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
  * annotation leaves nothing behind to present, so it is told once and dropped
  * rather than parked in a container nothing reads.
  */
-type TWorkspaceFailureDomain = 'save' | 'annotation';
+type TWorkspaceFailureDomain = 'save' | 'annotation' | 'open';
 
 export type TWorkspaceSaveFailureReason =
     | 'validation-rejected'
@@ -23,6 +23,8 @@ export type TWorkspaceSaveFailureReason =
     | 'persist-rejected'
     | 'document-changed'
     | 'unexpected-error';
+
+type TWorkspaceOpenFailureReason = 'unsupported-encryption';
 
 export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
@@ -142,11 +144,31 @@ export const useWorkspaceFailureSurface = () => {
         });
     }
 
+    function reportOpenFailure(
+        operationId: string,
+        reason: TWorkspaceOpenFailureReason,
+        detail?: string | null,
+    ) {
+        const description = detail ?? (() => {
+            switch (reason) {
+                case 'unsupported-encryption':
+                    return t('errors.file.unsupportedEncryption');
+            }
+        })();
+        return toastOnce({
+            domain: 'open',
+            operationId,
+            title: t('errors.file.open'),
+            description,
+        });
+    }
+
     return {
         hasSaveFailure: computed(() => hasSaveFailureState.value),
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,
+        reportOpenFailure,
     };
 };
 

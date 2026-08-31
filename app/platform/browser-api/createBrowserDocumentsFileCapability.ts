@@ -23,7 +23,6 @@ import {
 import {
     ensureDocxExtension,
     ensurePdfExtension,
-    isPdfFileName,
 } from '@app/platform/browser-api/browserFileName';
 import type { IBrowserBatchOpenProgressOptions } from '@app/platform/browser-api/createCombinedPdfFromPaths';
 import {
@@ -41,6 +40,7 @@ import {
     writeDocumentRefToHandle,
 } from '@app/platform/browser-api/browserFilePickerAdapter';
 import {
+    assertBrowserWorkingCopyDecrypted,
     createBrowserWorkingCopyFromBytes,
     decryptBrowserWorkingCopy,
     openDocumentPaths,
@@ -53,7 +53,6 @@ import {
 } from '@app/platform/browser-api/browserSaveTargets';
 import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
-import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
@@ -351,13 +350,13 @@ export function createBrowserDocumentsFileCapability(
                 saveHandle: picked.handle ?? null,
             });
         },
-        async openDocumentDirect(path) {
+        async openDocumentDirect(path, password) {
             if (!isBrowserDocumentRef(path)) {
                 return null;
             }
 
             try {
-                return await openDocumentPaths([path]);
+                return await openDocumentPaths([path], undefined, password);
             } catch (error) {
                 if (isFileSystemAccessDeniedError(error)) {
                     return null;
@@ -713,21 +712,18 @@ export function createBrowserDocumentsFileCapability(
                 }
             }
         },
-        async createWorkingCopyFromData(fileName, data, originalPath) {
-            const decryptedData = isPdfFileName(fileName)
-                ? new Uint8Array(await stripBrowserPdfEncryption(data))
-                : data;
-
+        async createWorkingCopyFromData(fileName, data, originalPath, password) {
             return createBrowserWorkingCopyFromBytes({
                 fileName,
-                data: decryptedData,
+                data,
                 mimeType: 'application/pdf',
+                ...(password === undefined ? {} : {password}),
                 ...(originalPath && isBrowserDocumentRef(originalPath)
                     ? { sourceRef: originalPath }
                     : {}),
             });
         },
-        async createWorkingCopyFromPath(sourcePath, originalPath) {
+        async createWorkingCopyFromPath(sourcePath, originalPath, password) {
             const sourceEntry = await browserDocumentStore.requireEntry(sourcePath);
             const sourceRef =
                 originalPath && isBrowserDocumentRef(originalPath)
@@ -742,9 +738,15 @@ export function createBrowserDocumentsFileCapability(
                     sourceEntry.ref,
                     sourceEntry.fileName,
                 );
-                await decryptBrowserWorkingCopy(workingPath);
-                browserDocumentStore.unload(sourcePath);
-                return workingPath;
+                try {
+                    const decryption = await decryptBrowserWorkingCopy(workingPath, password);
+                    assertBrowserWorkingCopyDecrypted(decryption);
+                    browserDocumentStore.unload(sourcePath);
+                    return workingPath;
+                } catch (error) {
+                    await browserDocumentStore.remove(workingPath).catch(() => undefined);
+                    throw error;
+                }
             }
 
             const workingPath = await browserDocumentStore.cloneStoredDocument(
@@ -760,7 +762,13 @@ export function createBrowserDocumentsFileCapability(
                     saveHandle: null,
                 },
             );
-            await decryptBrowserWorkingCopy(workingPath);
+            try {
+                const decryption = await decryptBrowserWorkingCopy(workingPath, password);
+                assertBrowserWorkingCopyDecrypted(decryption);
+            } catch (error) {
+                await browserDocumentStore.remove(workingPath).catch(() => undefined);
+                throw error;
+            }
             return workingPath;
         },
         async saveFileStructured(path, revisionOptions) {

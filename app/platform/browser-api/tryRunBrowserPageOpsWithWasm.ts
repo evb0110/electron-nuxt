@@ -1,7 +1,6 @@
 import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
-    TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type { ICropMargins } from '@contracts/shared';
@@ -33,12 +32,26 @@ interface IPdfPageOpsWasmExports {
 const PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES = 256 * 1024 * 1024;
 const PDF_PAGE_OPS_WASM_MAX_OUTPUT_BYTES = 512 * 1024 * 1024;
 
-type TBrowserPageOpsWasmRequestType = TBrowserPageOpsWorkerRequestType;
+interface IBrowserPageOpsWasmDecryptRequest {
+    data: Uint8Array;
+    password: string;
+}
+
+interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap {decrypt: IBrowserPageOpsWasmDecryptRequest;}
+
+interface IBrowserPageOpsWasmDecryptResult {
+    data: Uint8Array;
+    pageCount: number;
+}
+
+interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {decrypt: IBrowserPageOpsWasmDecryptResult;}
+
+type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
 type TBrowserPageOpsWasmRequest = {
     [K in TBrowserPageOpsWasmRequestType]: {
         type: K;
-        payload: IBrowserPageOpsWorkerRequestMap[K];
+        payload: IBrowserPageOpsWasmRequestMap[K];
     };
 }[TBrowserPageOpsWasmRequestType];
 
@@ -59,6 +72,7 @@ const OP_ROTATE = 5;
 const OP_CROP = 6;
 const OP_REMOVE_CROP = 7;
 const OP_GET_PAGE_GEOMETRY = 8;
+const OP_DECRYPT = 9;
 
 const RESPONSE_MUTATION = 1;
 const RESPONSE_GEOMETRY = 2;
@@ -222,6 +236,8 @@ function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
             return OP_REMOVE_CROP;
         case 'getPageGeometry':
             return OP_GET_PAGE_GEOMETRY;
+        case 'decrypt':
+            return OP_DECRYPT;
     }
 }
 
@@ -237,6 +253,7 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
             return request.payload.newOrder;
         case 'insertPages':
         case 'getPageGeometry':
+        case 'decrypt':
             return [];
     }
 }
@@ -248,6 +265,12 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
 function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
     return request.type === 'insertPages'
         ? request.payload.insertionData
+        : new Uint8Array();
+}
+
+function getPassword(request: TBrowserPageOpsWasmRequest) {
+    return request.type === 'decrypt'
+        ? new TextEncoder().encode(request.payload.password)
         : new Uint8Array();
 }
 
@@ -285,17 +308,20 @@ function getMargins(request: TBrowserPageOpsWasmRequest): ICropMargins {
 function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     const data = getRequestData(request);
     const insertionData = getInsertionData(request);
+    const password = getPassword(request);
     const pages = getRequestPages(request).map(toWasmU32);
     const pageNumber = toWasmU32(getPageNumber(request));
     const afterPage = toWasmU32(getAfterPage(request));
     const angle = toWasmU32(getAngle(request));
     const dataLength = toWasmU32(data.byteLength);
     const insertionDataLength = toWasmU32(insertionData.byteLength);
+    const passwordLength = toWasmU32(password.byteLength);
     const output: Uint8Array<ArrayBuffer> = new Uint8Array(
         REQUEST_HEADER_BYTES
         + (pages.length * 4)
         + dataLength
-        + insertionDataLength,
+        + insertionDataLength
+        + passwordLength,
     );
     const view = new DataView(output.buffer);
     const margins = getMargins(request);
@@ -314,9 +340,7 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     offset = writeF64(view, offset, toWasmF64(margins.right));
     offset = writeU32(view, offset, dataLength);
     offset = writeU32(view, offset, insertionDataLength);
-    // Trailing password length; empty for every operation until the decrypt
-    // host carries a password.
-    offset = writeU32(view, offset, 0);
+    offset = writeU32(view, offset, passwordLength);
 
     for (const page of pages) {
         offset = writeU32(view, offset, page);
@@ -325,8 +349,14 @@ function buildWasmRequest(request: TBrowserPageOpsWasmRequest) {
     output.set(data, offset);
     offset += dataLength;
     output.set(insertionData, offset);
+    offset += insertionDataLength;
+    output.set(password, offset);
 
-    return output;
+    return {
+        data: output,
+        passwordOffset: output.byteLength - passwordLength,
+        passwordLength,
+    };
 }
 
 function copyWasmBytes(
@@ -361,7 +391,7 @@ function readWasmFailure(
         code: 'native-failure' as const,
         message: encodedError ?? `Page operation WASM failed with result code ${resultCode}`,
     };
-    BrowserLogger.warn('browser-wasm', 'PDF page operation WASM failed; falling back to pdf-lib', {
+    BrowserLogger.warn('browser-wasm', 'PDF page operation WASM failed', {
         error: error.message,
         resultCode,
         type,
@@ -423,7 +453,7 @@ function readGeometryResult(output: Uint8Array) {
 function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
     output: Uint8Array,
-): IBrowserPageOpsWorkerResultMap[K] | null {
+): IBrowserPageOpsWasmResultMap[K] | null {
     if (output.byteLength < 4) {
         return null;
     }
@@ -432,19 +462,19 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
     const kind = view.getUint32(0, true);
     if (type === 'getPageGeometry') {
         return kind === RESPONSE_GEOMETRY
-            ? readGeometryResult(output) as IBrowserPageOpsWorkerResultMap[K] | null
+            ? readGeometryResult(output) as IBrowserPageOpsWasmResultMap[K] | null
             : null;
     }
 
     return kind === RESPONSE_MUTATION
-        ? readMutationResult(output) as IBrowserPageOpsWorkerResultMap[K] | null
+        ? readMutationResult(output) as IBrowserPageOpsWasmResultMap[K] | null
         : null;
 }
 
 export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasmRequestType>(
     type: K,
-    payload: IBrowserPageOpsWorkerRequestMap[K],
-): Promise<IBrowserPageOpsWorkerResultMap[K] | IBrowserPageOpsWasmFailure | null> {
+    payload: IBrowserPageOpsWasmRequestMap[K],
+): Promise<IBrowserPageOpsWasmResultMap[K] | IBrowserPageOpsWasmFailure | null> {
     if (!canUsePdfPageOpsWasm()) {
         return null;
     }
@@ -456,12 +486,18 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
 
     let pointer: number | null = null;
     let requestByteLength = 0;
+    let request: Uint8Array<ArrayBuffer> | null = null;
+    let passwordOffset = 0;
+    let passwordLength = 0;
 
     try {
-        const request = buildWasmRequest({
+        const builtRequest = buildWasmRequest({
             type,
             payload,
         } as TBrowserPageOpsWasmRequest);
+        request = builtRequest.data;
+        passwordOffset = builtRequest.passwordOffset;
+        passwordLength = builtRequest.passwordLength;
         requestByteLength = request.byteLength;
         if (requestByteLength === 0 || requestByteLength > PDF_PAGE_OPS_WASM_MAX_REQUEST_BYTES) {
             return createWasmFailure('too-large', 'Page operation WASM request exceeds the admission ceiling');
@@ -500,8 +536,22 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
             error instanceof Error ? error.message : 'Page operation WASM request failed',
         );
     } finally {
+        if (request !== null && passwordLength > 0) {
+            request.fill(0, passwordOffset, passwordOffset + passwordLength);
+        }
         if (pointer !== null) {
-            exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+            try {
+                if (passwordLength > 0) {
+                    getCheckedWasmMemoryView(
+                        exports.memory,
+                        pointer,
+                        requestByteLength,
+                        'Page operation WASM allocation',
+                    ).fill(0, passwordOffset, passwordOffset + passwordLength);
+                }
+            } finally {
+                exports.evb_pdf_page_ops_free(pointer, requestByteLength);
+            }
         }
     }
 }

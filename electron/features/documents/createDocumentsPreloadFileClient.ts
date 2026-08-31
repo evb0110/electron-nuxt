@@ -69,6 +69,7 @@ import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
 } from '@electron/features/documents/contract';
+import * as workingCopyPassword from '@electron/features/documents/appendWorkingCopyPassword';
 import {
     createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
@@ -1041,18 +1042,18 @@ export function createDocumentsPreloadFileClient(
                 assertAbsolutePath(path, 'writeDocxFile.path'),
                 assertWriteData(data, 'writeDocxFile.data'),
             ),
-        createWorkingCopyFromData: (fileName, data, originalPath?: string) =>
+        createWorkingCopyFromData: (fileName, data, originalPath?: string, password?: string) =>
             invokeWorkingCopy(
                 DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromData,
                 assertWorkingCopyFileName(fileName, 'createWorkingCopyFromData.fileName'),
                 assertWriteData(data, 'createWorkingCopyFromData.data'),
-                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'),
+                ...workingCopyPassword.appendWorkingCopyPassword(assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromData.originalPath'), workingCopyPassword.assertOptionalPdfDecryptPassword(password)),
             ),
-        createWorkingCopyFromPath: (sourcePath, originalPath?: string) =>
+        createWorkingCopyFromPath: (sourcePath, originalPath?: string, password?: string) =>
             invokeWorkingCopy(
                 DOCUMENT_WORKING_COPY_PLATFORM_FEATURE.invokeChannels.createWorkingCopyFromPath,
                 assertAbsolutePath(sourcePath, 'createWorkingCopyFromPath.sourcePath'),
-                assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'),
+                ...workingCopyPassword.appendWorkingCopyPassword(assertOptionalAbsolutePath(originalPath, 'createWorkingCopyFromPath.originalPath'), workingCopyPassword.assertOptionalPdfDecryptPassword(password)),
             ),
         saveFileStructured: (path, options) =>
             invokeFiles(

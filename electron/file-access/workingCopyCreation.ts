@@ -10,16 +10,17 @@ import {
     relative,
     sep,
 } from 'path';
-import {writeFile} from 'fs/promises';
 import {
-    decryptPdfFileIfNeeded,
-    isPdfFileEncrypted as isLegacyPdfFileEncrypted,
-} from '@electron/utils/decryptPdfFileIfNeeded';
+    rmdir,
+    rm,
+    writeFile,
+} from 'fs/promises';
 import {
     decryptWorkingCopyWithWriter,
     PdfDecryptAttemptError,
     type TWorkingCopyDecryptionResult,
 } from '@electron/file-access/workingCopyDecryption';
+import {isPdfFileEncrypted} from '@electron/file-access/isPdfFileEncrypted';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {
     attemptWorkingCopyClone,
@@ -110,10 +111,9 @@ async function decryptPdfWorkingCopy(
     password: string | undefined,
     timings: IWorkingCopyPhaseTiming[],
     signal?: AbortSignal,
-    useWriter = false,
 ): Promise<TWorkingCopyDecryptionResult> {
     const encrypted = await measureWorkingCopyPhase(timings, 'encryption-probe', () =>
-        isLegacyPdfFileEncrypted(workingPath));
+        isPdfFileEncrypted(workingPath));
     if (!encrypted) {
         return {
             outcome: 'plain',
@@ -121,31 +121,20 @@ async function decryptPdfWorkingCopy(
             revision: null,
         };
     }
-    if (useWriter) {
-        const result = await measureWorkingCopyPhase(timings, 'decrypt', () =>
-            decryptWorkingCopyWithWriter(workingPath, password, signal));
-        if (result.outcome === 'needs-password' || result.outcome === 'unsupported') {
-            throw new PdfDecryptAttemptError(
-                result.outcome === 'needs-password'
-                    ? 'needs-password'
-                    : 'unsupported-encryption',
-            );
-        }
-        return result;
+    const result = await measureWorkingCopyPhase(timings, 'decrypt', () =>
+        decryptWorkingCopyWithWriter(workingPath, password, signal));
+    assertWorkingCopyDecryptionSucceeded(result);
+    return result;
+}
+
+function assertWorkingCopyDecryptionSucceeded(result: TWorkingCopyDecryptionResult) {
+    if (result.outcome === 'needs-password' || result.outcome === 'unsupported') {
+        throw new PdfDecryptAttemptError(
+            result.outcome === 'needs-password'
+                ? 'needs-password'
+                : 'unsupported-encryption',
+        );
     }
-    const decrypted = await measureWorkingCopyPhase(timings, 'decrypt', () =>
-        decryptPdfFileIfNeeded(workingPath));
-    return decrypted
-        ? {
-            outcome: 'decrypted',
-            wasEncrypted: true,
-            revision: null,
-        }
-        : {
-            outcome: 'plain',
-            wasEncrypted: false,
-            revision: null,
-        };
 }
 
 async function createWorkingCopyWithOutcomeInternal(
@@ -153,7 +142,6 @@ async function createWorkingCopyWithOutcomeInternal(
     ownerWebContentsId?: number,
     password?: string,
     signal?: AbortSignal,
-    useWriter = false,
 ): Promise<IWorkingCopyCreationResult> {
     const operationStartedAt = performance.now();
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
@@ -175,7 +163,7 @@ async function createWorkingCopyWithOutcomeInternal(
                     copyFileFromStableSource(originalPath, workingPath));
             }
             if (isPdf) {
-                const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
+                const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
                 encrypted = decryption.wasEncrypted;
             }
             backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
@@ -187,7 +175,7 @@ async function createWorkingCopyWithOutcomeInternal(
                     captureWorkingCopyAdmissionSnapshot(originalPath));
                 encrypted = isPdf
                     ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                        isLegacyPdfFileEncrypted(originalPath))
+                        isPdfFileEncrypted(originalPath))
                     : false;
                 const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                     captureWorkingCopyAdmissionSnapshot(originalPath));
@@ -207,7 +195,6 @@ async function createWorkingCopyWithOutcomeInternal(
                             password,
                             phaseTimings,
                             signal,
-                            useWriter,
                         );
                         encrypted = decryption.wasEncrypted;
                     }
@@ -217,7 +204,7 @@ async function createWorkingCopyWithOutcomeInternal(
                 }
             } else {
                 if (isPdf) {
-                    const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
+                    const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal);
                     encrypted = decryption.wasEncrypted;
                 }
                 backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
@@ -277,18 +264,15 @@ export async function createWorkingCopyWithOutcome(
         ownerWebContentsId,
         password,
         signal,
-        true,
     );
 }
 
-export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
-    const result = await createWorkingCopyWithOutcomeInternal(
-        originalPath,
-        ownerWebContentsId,
-        undefined,
-        undefined,
-        false,
-    );
+export async function createWorkingCopy(
+    originalPath: TOpenPath,
+    ownerWebContentsId?: number,
+    password?: string,
+) {
+    const result = await createWorkingCopyWithOutcome(originalPath, ownerWebContentsId, password);
     return result.workingPath;
 }
 
@@ -299,6 +283,7 @@ export async function createWorkingCopyFromPath(
     options: {
         role?: TWorkingCopyRole;
         mapToSourceWhenOriginalMissing?: boolean;
+        password?: string;
     } = {},
 ) {
     const explicitOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
@@ -319,7 +304,11 @@ export async function createWorkingCopyFromPath(
         const workingPath = join(workDir, normalizedName);
 
         await copyFileCopyOnWrite(sourcePath, workingPath);
-        await decryptPdfFileIfNeeded(workingPath);
+        if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
+            assertWorkingCopyDecryptionSucceeded(
+                await decryptWorkingCopyWithWriter(workingPath, options.password),
+            );
+        }
 
         const role = options.role ?? resolveWorkingCopyRoleForPathClone(sourcePath, ownerWebContentsId);
         if (mappedOriginalPath) {
@@ -362,6 +351,7 @@ export async function createWorkingCopyFromData(
     data: Uint8Array,
     originalPath?: string,
     ownerWebContentsId?: number,
+    password?: string,
 ) {
     const normalizedOriginalPath = typeof originalPath === 'string' && originalPath.trim().length > 0
         ? originalPath.trim()
@@ -379,7 +369,11 @@ export async function createWorkingCopyFromData(
         const workingPath = join(workDir, normalizedName);
 
         await writeFile(workingPath, data);
-        await decryptPdfFileIfNeeded(workingPath);
+        if (workingPath.toLowerCase().endsWith('.pdf') && await isPdfFileEncrypted(workingPath)) {
+            assertWorkingCopyDecryptionSucceeded(
+                await decryptWorkingCopyWithWriter(workingPath, password),
+            );
+        }
 
         if (normalizedOriginalPath) {
             const role = isKnownWorkingCopyOriginalPath(normalizedOriginalPath, ownerWebContentsId) ? 'snapshot' : 'current';
@@ -457,23 +451,35 @@ export async function ensureWorkingCopyDirectory(workingPath: string, senderWebC
         throw new WorkingCopyMissingError('Working copy directory was removed and the original file is unavailable');
     }
 
-    mkdirSync(parentDir, { recursive: true });
-    await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
-    if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
-        await decryptPdfFileIfNeeded(normalizedWorkingPath);
+    const parentExisted = existsSync(parentDir);
+    try {
+        mkdirSync(parentDir, { recursive: true });
+        await copyFileCopyOnWrite(originalPath, normalizedWorkingPath);
+        if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')
+            && await isPdfFileEncrypted(normalizedWorkingPath)) {
+            assertWorkingCopyDecryptionSucceeded(
+                await decryptWorkingCopyWithWriter(normalizedWorkingPath),
+            );
+        }
+        if (mapping.retired) {
+            const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
+            await setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
+            forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
+        }
+        if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
+            const revision = await ensureWorkingCopyRevision(normalizedWorkingPath, senderWebContentsId);
+            void schedulePageIdentityStoreInitialization(normalizedWorkingPath, revision, originalPath);
+        }
+        await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
+        logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
+        return true;
+    } catch (error) {
+        await rm(normalizedWorkingPath, {force: true}).catch(() => undefined);
+        if (!parentExisted) {
+            await rmdir(parentDir).catch(() => undefined);
+        }
+        throw error;
     }
-    if (mapping.retired) {
-        const role = getWorkingCopyRole(normalizedWorkingPath, senderWebContentsId) ?? 'current';
-        await setWorkingCopyOriginalPath(normalizedWorkingPath, originalPath, mapping.ownerWebContentsId, {role});
-        forgetRetiredWorkingCopyOriginal(normalizedWorkingPath);
-    }
-    if (normalizedWorkingPath.toLowerCase().endsWith('.pdf')) {
-        const revision = await ensureWorkingCopyRevision(normalizedWorkingPath, senderWebContentsId);
-        void schedulePageIdentityStoreInitialization(normalizedWorkingPath, revision, originalPath);
-    }
-    await markWorkingCopyContentChanged(normalizedWorkingPath, 'replace-working-copy', senderWebContentsId);
-    logger.warn(`Recreated missing working copy directory for "${normalizedWorkingPath}"`);
-    return true;
 }
 
 export async function requireManagedWorkingCopyPath(sourcePath: string, senderWebContentsId?: number): Promise<TOpenPath> {

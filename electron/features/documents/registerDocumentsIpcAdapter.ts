@@ -376,11 +376,11 @@ export function registerDocumentsIpcAdapter(
             service.openDocumentDirectBatch(context, filePaths, requestId, batchOptions),
         cancelOpenDocumentDirectBatch: (context, requestId) =>
             service.cancelOpenDocumentDirectBatch(context, requestId),
-        createWorkingCopyFromData: (context, fileName, data, originalPath) =>
-            service.createWorkingCopyFromData(context, fileName, data, originalPath),
-        createWorkingCopyFromPath: async (context, sourcePath, originalPath) => {
+        createWorkingCopyFromData: (context, fileName, data, originalPath, password) =>
+            service.createWorkingCopyFromData(context, fileName, data, originalPath, password),
+        createWorkingCopyFromPath: async (context, sourcePath, originalPath, password) => {
             const trustedSourcePath = await requireWorkingCopySourcePath(context, sourcePath);
-            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath);
+            return service.createWorkingCopyFromPath(context, trustedSourcePath, originalPath, password);
         },
         cleanupFile: (context, workingPath) =>
             service.cleanupFile(context, workingPath).then(() => undefined),

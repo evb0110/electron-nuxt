@@ -5,10 +5,11 @@ import type {
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
 import {
     buildPdfSaveRestrictions,
+    containsPdfEncryptMarker,
     createConservativePdfConformanceFallbackProfile,
     detectPdfaLevelFromPdfText,
-    hasPdfEncryptMarkersInPdfText,
     hasPdfSignatureMarkersInPdfText,
+    PDF_ENCRYPT_SCAN_REGION_BYTES,
 } from '@pdf-core/pdfConformanceHelpers';
 import {
     createPdfjsDocumentInit,
@@ -19,14 +20,9 @@ import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const pdfBinaryDecoder = new TextDecoder('latin1');
-const PDF_ENCRYPT_SCAN_REGION_BYTES = 32 * 1024;
 
 function decodePdfBinary(bytes: Uint8Array) {
     return pdfBinaryDecoder.decode(bytes);
-}
-
-export function containsPdfEncryptMarker(bytes: Uint8Array) {
-    return hasPdfEncryptMarkersInPdfText(decodePdfBinary(bytes));
 }
 
 function detectBrowserPdfaLevel(bytes: Uint8Array) {

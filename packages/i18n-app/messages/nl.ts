@@ -1471,6 +1471,12 @@ export default {
         'file': {
             'open': 'Kan bestand niet openen',
             'openNotFound': '"{name}" kon niet worden geopend. Het bestand is mogelijk verplaatst, verwijderd, of de opslag is gewist.',
+            'passwordPromptTitle': 'Wachtwoord vereist',
+            'passwordPromptDescription': 'Voer het wachtwoord voor "{name}" in om deze PDF te openen.',
+            'passwordPromptLabel': 'Wachtwoord',
+            'passwordPromptOpen': 'Openen',
+            'passwordPromptIncorrect': 'Dat wachtwoord is onjuist. Probeer het opnieuw.',
+            'unsupportedEncryption': 'Deze PDF gebruikt versleuteling die EVB Viewer niet kan openen.',
             'invalid': 'Ongeldig of niet-bestaand bestand',
             'emptyPdf': 'Het PDF-bestand is leeg (0 bytes)',
             'noPages': 'De PDF bevat geen pagina’s',

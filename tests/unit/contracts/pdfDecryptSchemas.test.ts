@@ -83,6 +83,26 @@ describe('pdf decrypt outcome guard', () => {
             revision: '6',
         },
         {
+            outcome: 'opened',
+            wasEncrypted: true,
+            revision: null,
+        },
+        {
+            outcome: 'opened',
+            wasEncrypted: false,
+            revision: 6,
+        },
+        {
+            outcome: 'needs-password',
+            wasEncrypted: false,
+            revision: null,
+        },
+        {
+            outcome: 'unsupported-encryption',
+            wasEncrypted: true,
+            revision: 6,
+        },
+        {
             outcome: 'rewritten',
             wasEncrypted: true,
         },

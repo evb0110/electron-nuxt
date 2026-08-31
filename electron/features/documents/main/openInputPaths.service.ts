@@ -270,6 +270,7 @@ export async function openInputPaths(
                     workingPath: unownedWorkingPath,
                     originalPath,
                     ...(isGenerated ? {isGenerated: true} : {}),
+                    ...(workingCopy.wasEncrypted ? {wasEncrypted: true as const} : {}),
                 };
                 unownedWorkingPath = null;
                 return result;

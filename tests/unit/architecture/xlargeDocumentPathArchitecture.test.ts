@@ -231,17 +231,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Remove both loads when native crop returns a typed capability error and no JS fallback remains.',
     },
     {
-        module: 'app/utils/stripPdfEncryption.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory utility',
-        reason:
-      'Encryption stripping is an in-memory byte utility with no path-aware admission check.',
-        removalCondition:
-      'Remove the load when encrypted path sources use a bounded native decrypt or copy operation.',
-    },
-    {
         module: 'packages/pdf-core/pdfPrintLayout.ts',
         primitive: 'PDFDocument.load',
         occurrences: 2,

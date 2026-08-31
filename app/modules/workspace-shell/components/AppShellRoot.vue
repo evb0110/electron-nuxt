@@ -128,6 +128,7 @@
             @update:open="dirtyTabCloseDialogOpen = $event"
             @confirm="confirmDirtyTabClose"
         />
+        <DocumentPasswordDialog />
         <AppUpdatesDialog
             :open="updatesDialog.open"
             :title="updatesDialogBindings.updatesDialogTitle"
@@ -143,7 +144,6 @@
         />
     </div>
 </template>
-
 <script setup lang="ts">
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
@@ -153,6 +153,7 @@ import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
 import AppUpdatesDialog from '@app/modules/workspace-shell/components/AppUpdatesDialog.vue';
 import DirtyTabCloseDialog from '@app/modules/workspace-shell/components/DirtyTabCloseDialog.vue';
+import DocumentPasswordDialog from '@app/modules/workspace-shell/components/DocumentPasswordDialog.vue';
 import EditorPanesHost from '@app/modules/workspace-shell/components/EditorPanesHost.vue';
 import { tabHasDocumentHint } from '@app/modules/workspace-shell/tabs/tabHasDocumentHint';
 import ShellWorkspaceToolbar from '@app/modules/workspace-shell/components/ShellWorkspaceToolbar.vue';
@@ -323,7 +324,6 @@ const {
     requestDirtyTabCloseConfirmation,
     resolveDirtyTabCloseDialog,
 } = useDirtyTabCloseDialog({tabs});
-
 const {
     activeDocumentRecord,
     activeWorkspace,

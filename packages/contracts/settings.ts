@@ -64,6 +64,7 @@ export const SETTINGS_SAVE_KEYS = [
     'optimizePdfOnSaveAs',
     'assistantPanelEnabled',
     'suppressDefaultViewerPrompt',
+    'suppressUnencryptedSaveNotice',
 ] as const satisfies readonly TSettingsSaveKey[];
 
 const SETTINGS_SAVE_KEY_SET: ReadonlySet<string> = new Set(SETTINGS_SAVE_KEYS);
@@ -230,6 +231,9 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
     };
     if (isBoolean(value?.suppressDefaultViewerPrompt)) {
         settings.suppressDefaultViewerPrompt = value.suppressDefaultViewerPrompt;
+    }
+    if (isBoolean(value?.suppressUnencryptedSaveNotice)) {
+        settings.suppressUnencryptedSaveNotice = value.suppressUnencryptedSaveNotice;
     }
     const skippedUpdateVersion = normalizeBoundedString(value?.skippedUpdateVersion, MAX_SKIPPED_UPDATE_VERSION_LENGTH);
     if (skippedUpdateVersion) {

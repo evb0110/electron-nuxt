@@ -195,7 +195,6 @@ function decodeArgumentArray(value: unknown, minLength: number, maxLength = minL
     }
     return value as unknown[];
 }
-
 function decodeStringValue(value: unknown, fieldName: string) {
     if (typeof value !== 'string') {
         fail(`${fieldName} must be a string`);
@@ -563,11 +562,26 @@ const cancelOpenBatchArgs = documentArgs<'cancelOpenDocumentDirectBatch'>(
 );
 const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
     (value) => {
-        const args = decodeArgumentArray(value, 2, 3);
-        return appendOptional([
-            decodeStringValue(args[0], 'fileName'),
-            decodeUint8ArrayValue(args[1], 'data'),
-        ], decodeOptionalStringValue(args[2], 'originalPath'));
+        const args = decodeArgumentArray(value, 2, 4);
+        const fileName = decodeStringValue(args[0], 'fileName');
+        const data = decodeUint8ArrayValue(args[1], 'data');
+        const originalPath = decodeOptionalStringValue(args[2], 'originalPath');
+        if (args.length < 4) {
+            return appendOptional([
+                fileName,
+                data,
+            ], originalPath);
+        }
+        const password = decodeOptionalStringValue(args[3], 'password');
+        if (password !== undefined && !isPdfDecryptPassword(password)) {
+            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        }
+        return [
+            fileName,
+            data,
+            originalPath,
+            password,
+        ];
     },
     () => [
         'document.pdf',
@@ -576,11 +590,21 @@ const createWorkingCopyFromDataArgs = documentArgs<'createWorkingCopyFromData'>(
 );
 const createWorkingCopyFromPathArgs = documentArgs<'createWorkingCopyFromPath'>(
     (value) => {
-        const args = decodeArgumentArray(value, 1, 2);
-        return appendOptional(
-            [decodeStringValue(args[0], 'sourcePath')],
-            decodeOptionalStringValue(args[1], 'originalPath'),
-        );
+        const args = decodeArgumentArray(value, 1, 3);
+        const sourcePath = decodeStringValue(args[0], 'sourcePath');
+        const originalPath = decodeOptionalStringValue(args[1], 'originalPath');
+        if (args.length < 3) {
+            return appendOptional([sourcePath], originalPath);
+        }
+        const password = decodeOptionalStringValue(args[2], 'password');
+        if (password !== undefined && !isPdfDecryptPassword(password)) {
+            fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+        }
+        return [
+            sourcePath,
+            originalPath,
+            password,
+        ];
     },
     () => ['/tmp/source.pdf'],
 );

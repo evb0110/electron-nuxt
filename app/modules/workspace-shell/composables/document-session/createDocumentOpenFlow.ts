@@ -13,7 +13,6 @@ import type {
     IDocumentMutationRevisionOptions,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
-import {isBrowserFilePickerSetupDeniedError} from '@app/platform/browser-api/public';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { IPdfRasterDisplayProfileOpenOptions } from '@app/types/pdfRasterDisplayProfile';
 import {consumeRegisteredPdfRasterDisplayProfile} from '@app/types/pdfRasterDisplayProfile';
@@ -50,14 +49,17 @@ import {
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
 import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
+import {openPdfAfterPasswordPrompt as runPasswordPromptFlow} from '@app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt';
+import {
+    isPdfPasswordFailureResult,
+    type TPdfPasswordFailureResult,
+} from '@app/modules/workspace-shell/composables/document-session/isPdfPasswordFailureResult';
+import {classifyDocumentOpenError} from '@app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError';
+import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
 type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
-type TPdfPasswordFailureResult = Extract<
-    TOpenFileResult,
-    {kind: 'pdf-needs-password' | 'pdf-unsupported-encryption'}
->;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
 interface ICreateDocumentOpenFlowDeps {
@@ -87,12 +89,16 @@ interface ICreateDocumentOpenFlowDeps {
         },
     ) => Promise<boolean>;
     syncDirtyFromHistory: () => void;
+    reportOpenFailure?: (
+        operationId: string,
+        reason: 'unsupported-encryption',
+        detail?: string | null,
+    ) => boolean;
     t: TTranslateFn;
 }
 
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 const MAX_EAGER_HISTORY_BASELINE_BYTES = 8 * 1024 * 1024;
-
 function createDocumentMutationRevisionOptions(
     expectedDocumentRevisionToken: TDocumentRevisionToken | null | undefined,
 ): IDocumentMutationRevisionOptions | undefined {
@@ -113,7 +119,10 @@ export function createDocumentOpenFlow(
         geometryPreflightMode,
         maxInMemoryPdfBytes,
     } = performancePolicy;
-
+    const {
+        requestPassword,
+        cancelPasswordPrompt,
+    } = useDocumentPasswordPrompt();
     function assertPdfHasBytes(size: number) {
         if (size > 0) {
             return;
@@ -197,6 +206,7 @@ export function createDocumentOpenFlow(
     }
 
     function beginOpenRequest() {
+        cancelPasswordPrompt();
         cancelActiveSpeculativeOpen?.('open-superseded');
         cancelActiveSpeculativeOpen = null;
         deps.loadEpoch.invalidate();
@@ -238,11 +248,14 @@ export function createDocumentOpenFlow(
         }
     }
 
-    function isPdfPasswordFailureResult(
-        result: TOpenFileResult,
-    ): result is TPdfPasswordFailureResult {
-        return result.kind === 'pdf-needs-password'
-            || result.kind === 'pdf-unsupported-encryption';
+    function reportUnsupportedEncryption(openRequestId: number) {
+        const message = deps.t('errors.file.unsupportedEncryption');
+        state.error.value = message;
+        deps.reportOpenFailure?.(`open:${openRequestId}`, 'unsupported-encryption');
+        return {
+            status: 'failed',
+            error: message,
+        } satisfies TDocumentOpenOutcome;
     }
 
     async function openFile(preSelected?: TOpenFileResult) {
@@ -266,12 +279,11 @@ export function createDocumentOpenFlow(
                 return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
             }
             if (isPdfPasswordFailureResult(result)) {
-                const message = deps.t('errors.file.open');
-                state.error.value = message;
-                return {
-                    status: 'failed',
-                    error: message,
-                } satisfies TDocumentOpenOutcome;
+                return await openPdfWithPasswordPrompt(
+                    openRequestId,
+                    result,
+                    preSelected ? 'preselected' : 'picker',
+                );
             }
             if (result.kind === 'djvu') {
                 state.pendingDjvu.value = result.originalPath;
@@ -295,10 +307,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: classifyOpenError(e, preSelected?.originalPath ?? null),
+                    error: classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t),
                 } satisfies TDocumentOpenOutcome;
             }
-            const message = classifyOpenError(e, preSelected?.originalPath ?? null);
+            const message = classifyDocumentOpenError(e, preSelected?.originalPath ?? null, deps.t);
             state.error.value = message;
             return {
                 status: 'failed',
@@ -370,6 +382,26 @@ export function createDocumentOpenFlow(
         } satisfies TDocumentOpenOutcome;
     }
 
+    function openPdfWithPasswordPrompt(
+        openRequestId: number,
+        initialFailure: TPdfPasswordFailureResult,
+        openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
+        options: IPdfRasterDisplayProfileOpenOptions = {},
+    ) {
+        return runPasswordPromptFlow(openRequestId, initialFailure, openMethod, options, {
+            requestPassword,
+            isCurrentOpenRequest,
+            openDocumentDirect: (path, password) => getDocumentOpenCapability().openDocumentDirect(path, password),
+            cleanupAbandonedPdfWorkingCopy,
+            setError: message => { state.error.value = message; },
+            reportUnsupportedEncryption,
+            trackOpenedDocument,
+            setPendingDjvuPath: path => { state.pendingDjvu.value = path; },
+            finishPdfOpenResult,
+            t: deps.t,
+        });
+    }
+
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
@@ -423,18 +455,7 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
             if (isPdfPasswordFailureResult(result)) {
-                const message = deps.t('errors.file.open');
-                state.error.value = message;
-                logPdfRenderTrace('pdf-open-direct-end', {
-                    openRequestId,
-                    path,
-                    status: 'failed',
-                    resultKind: result.kind,
-                });
-                return {
-                    status: 'failed',
-                    error: message,
-                } satisfies TDocumentOpenOutcome;
+                return await openPdfWithPasswordPrompt(openRequestId, result, 'direct', options);
             }
 
             BrowserLogger.debug(
@@ -507,10 +528,10 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: classifyOpenError(e, path),
+                    error: classifyDocumentOpenError(e, path, deps.t),
                 } satisfies TDocumentOpenOutcome;
             }
-            const message = classifyOpenError(e, path);
+            const message = classifyDocumentOpenError(e, path, deps.t);
             state.error.value = message;
             BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
                 path,
@@ -527,19 +548,6 @@ export function createDocumentOpenFlow(
                 error: message,
             } satisfies TDocumentOpenOutcome;
         }
-    }
-
-    function classifyOpenError(e: unknown, path: TDocumentRef | null) {
-        if (isBrowserFilePickerSetupDeniedError(e)) {
-            return deps.t('errors.browser.filePickerSetupDenied');
-        }
-        const rawMessage = e instanceof Error ? e.message : '';
-        if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
-            const baseName = path ? getDocumentRefBaseName(path) : '';
-            const name = baseName && baseName.length > 0 ? baseName : path ? String(path) : '';
-            return deps.t('errors.file.openNotFound', { name });
-        }
-        return rawMessage || deps.t('errors.file.open');
     }
 
     async function openFileDirectBatch(paths: TDocumentRef[]) {
@@ -630,12 +638,7 @@ export function createDocumentOpenFlow(
             }
             if (isPdfPasswordFailureResult(result)) {
                 state.openBatchProgress.value = null;
-                const message = deps.t('errors.file.open');
-                state.error.value = message;
-                return {
-                    status: 'failed',
-                    error: message,
-                } satisfies TDocumentOpenOutcome;
+                return await openPdfWithPasswordPrompt(openRequestId, result, 'batch');
             }
             if (result.kind === 'djvu') {
                 state.openBatchProgress.value = null;
