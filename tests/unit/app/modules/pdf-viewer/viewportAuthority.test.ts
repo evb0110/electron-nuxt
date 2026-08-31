@@ -157,6 +157,7 @@ describe('ViewportAuthority', () => {
                 events.push('visual-requested');
                 releaseVisual = resolve;
             }),
+            beforeApply: async () => { events.push('before-apply'); },
             apply: () => { events.push('applied'); },
         });
 
@@ -170,10 +171,46 @@ describe('ViewportAuthority', () => {
             'metrics',
             'slots',
             'visual-requested',
+            'before-apply',
             'applied',
         ]);
         expect(authority.currentPage.value).toBe(2);
         expect(authority.pendingTargetPage.value).toBeNull();
+    });
+
+    it('does not apply an intent suspended while its before-apply fence is pending', async () => {
+        let releaseBeforeApply!: () => void;
+        const events: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async request => ({
+                anchor: {
+                    ...anchor,
+                    page: request.navigation!.target.kind === 'page' ? request.navigation!.target.page : 1,
+                },
+                left: 0,
+                top: 900,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {},
+            beforeApply: () => new Promise<void>((resolve) => {
+                events.push('before-apply');
+                releaseBeforeApply = resolve;
+            }),
+            apply: () => { events.push('applied'); },
+        });
+
+        const pending = authority.submit(intent('suspended-before-apply', 2));
+        await vi.waitFor(() => expect(releaseBeforeApply).toBeTypeOf('function'));
+        authority.suspend();
+        releaseBeforeApply();
+
+        await expect(pending).resolves.toMatchObject({outcome: 'cancelled'});
+        expect(events).toEqual(['before-apply']);
+        expect(authority.currentPage.value).toBe(1);
+        expect(authority.getTerminalOutcome('suspended-before-apply')).toBe('cancelled');
     });
 
     it('re-arms one-frame geometry ownership when delayed target layout arrives', async () => {

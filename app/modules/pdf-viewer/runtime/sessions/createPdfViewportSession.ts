@@ -411,6 +411,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,
+        navigationVisualHandoffTargetPage: singlePageScroll.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,

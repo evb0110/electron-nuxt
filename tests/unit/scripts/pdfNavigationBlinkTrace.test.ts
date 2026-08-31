@@ -24,8 +24,16 @@ describe('pdf navigation blink trace options', () => {
             '3',
             '--click-delay-ms',
             '0',
+            '--direction',
+            'previous',
             '--pre-click-wait-ms',
             '0',
+            '--viewport-device-scale-factor',
+            '2',
+            '--viewport-height',
+            '1080',
+            '--viewport-width',
+            '1920',
             '--skip-start-page-canvas-wait',
         ]);
 
@@ -35,7 +43,11 @@ describe('pdf navigation blink trace options', () => {
         expect(options.videoFps).toBe(12);
         expect(options.clicks).toBe(3);
         expect(options.clickDelayMs).toBe(0);
+        expect(options.direction).toBe('previous');
         expect(options.preClickWaitMs).toBe(0);
+        expect(options.viewportDeviceScaleFactor).toBe(2);
+        expect(options.viewportHeight).toBe(1080);
+        expect(options.viewportWidth).toBe(1920);
         expect(options.waitForStartCanvas).toBe(false);
     });
 
@@ -296,6 +308,130 @@ describe('pdf navigation blink trace summary', () => {
         expect(summary.targetFeedbackHeightDeltaPx).toBe(20);
         expect(summary.targetFeedbackWidthDeltaPx).toBe(0);
         expect(summary.firstTargetFeedbackGeometryMismatchSample).toMatchObject({ atMs: 150 });
+    });
+
+    it('rejects outgoing visual geometry changes before target arrival', () => {
+        const summary = summarizeTrace({
+            trace: {
+                events: [{
+                    atMs: 50,
+                    kind: 'toolbar-button-click',
+                }],
+                samples: [
+                    {
+                        atMs: 40,
+                        centeredVisualPage: 1,
+                        toolbarSnapshot: {currentPage: 1},
+                        visiblePages: [{
+                            hasUsableCanvas: true,
+                            height: 500,
+                            page: 1,
+                            skeletonVisible: false,
+                            visualReady: true,
+                            width: 300,
+                        }],
+                    },
+                    {
+                        atMs: 65,
+                        centeredVisualPage: 1,
+                        toolbarSnapshot: {currentPage: 2},
+                        visiblePages: [{
+                            hasUsableCanvas: true,
+                            height: 488,
+                            page: 1,
+                            skeletonVisible: false,
+                            visualReady: true,
+                            width: 292,
+                        }],
+                    },
+                    {
+                        atMs: 80,
+                        centeredVisualPage: 2,
+                        toolbarSnapshot: {currentPage: 2},
+                        visiblePages: [{
+                            hasUsableCanvas: true,
+                            height: 500,
+                            page: 2,
+                            skeletonVisible: false,
+                            visualReady: true,
+                            width: 300,
+                        }],
+                    },
+                ],
+            },
+            renderTrace: [
+                {
+                    event: 'single-page-set-paged-target',
+                    payload: {targetPage: 2},
+                },
+                {
+                    event: 'raster-scheduler-snapshot',
+                    payload: {scheduler: {
+                        accepting: true,
+                        inFlightByLane: {},
+                        inFlightPages: [],
+                        queueDepth: 0,
+                        queuedByLane: {},
+                        residentPages: [],
+                        reservedPixels: 0,
+                    }},
+                },
+            ],
+        });
+
+        expect(summary.outgoingPage).toBe(1);
+        expect(summary.outgoingVisualGeometrySampleCount).toBe(1);
+        expect(summary.outgoingVisualGeometryHeightDeltaPx).toBe(12);
+        expect(summary.outgoingVisualGeometryWidthDeltaPx).toBe(8);
+        expect(summary.firstOutgoingVisualGeometryMismatchSample).toMatchObject({atMs: 65});
+        expect(() => assertPdfNavigationBlinkTraceSummary(summary))
+            .toThrow('outgoing committed visual geometry changed by width=8px height=12px');
+    });
+
+    it('rejects assert mode when the outgoing visual baseline is missing', () => {
+        const summary = summarizeTrace({
+            trace: {
+                events: [{
+                    atMs: 50,
+                    kind: 'toolbar-button-click',
+                }],
+                samples: [{
+                    atMs: 80,
+                    centeredVisualPage: 2,
+                    toolbarSnapshot: {currentPage: 2},
+                    visiblePages: [{
+                        hasUsableCanvas: true,
+                        height: 500,
+                        page: 2,
+                        skeletonVisible: false,
+                        visualReady: true,
+                        width: 300,
+                    }],
+                }],
+            },
+            renderTrace: [
+                {
+                    event: 'single-page-set-paged-target',
+                    payload: {targetPage: 2},
+                },
+                {
+                    event: 'raster-scheduler-snapshot',
+                    payload: {scheduler: {
+                        accepting: true,
+                        inFlightByLane: {},
+                        inFlightPages: [],
+                        queueDepth: 0,
+                        queuedByLane: {},
+                        residentPages: [],
+                        reservedPixels: 0,
+                    }},
+                },
+            ],
+        });
+
+        expect(summary.outgoingVisualGeometryBaselineFound).toBe(false);
+        expect(() => assertPdfNavigationBlinkTraceSummary(summary))
+            .toThrow('no outgoing visual geometry baseline was captured before the navigation click');
     });
 
     it('prefers the hit-tested visible page over buffered DOM-order geometry', () => {

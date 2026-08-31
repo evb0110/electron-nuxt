@@ -19,27 +19,17 @@ import {
     assertPdfNavigationBlinkTraceSummary,
     MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX,
 } from '@scripts/diagnostics/assertPdfNavigationBlinkTraceSummary';
+import {
+    readOptions,
+    resolveVideoDirectory,
+} from '@scripts/diagnostics/pdfNavigationBlinkTraceOptions';
 
-const DEFAULT_TARGET_PDF_PATH = process.env.EVB_DIAGNOSTIC_PDF_PATH?.length
-    ? process.env.EVB_DIAGNOSTIC_PDF_PATH
-    : resolve(process.cwd(), '.devkit', 'manual-pdf-fixtures', 'page-jump-source.pdf');
-const DEFAULT_OUT_PATH = '.devkit/pdf-navigation-blink-trace.json';
+export {
+    readOptions,
+    resolveVideoDirectory,
+} from '@scripts/diagnostics/pdfNavigationBlinkTraceOptions';
+
 const POST_CLICK_INTERMEDIATE_VISUAL_GRACE_MS = 80;
-
-export interface IPdfNavigationBlinkTraceOptions {
-    assert: boolean;
-    clicks: number;
-    clickDelayMs: number;
-    out: string;
-    pdf: string;
-    preClickWaitMs: number;
-    settleMs: number;
-    startPage: number;
-    video: boolean;
-    videoDir: string | null;
-    videoFps: number;
-    waitForStartCanvas: boolean;
-}
 
 interface ITraceSummary {
     bodyCanvasReadyAtMs: number | null;
@@ -54,6 +44,7 @@ interface ITraceSummary {
     firstLatePostClickSwapSample: unknown;
     firstNonFinalPagedCommitAfterFinalRequest: unknown;
     firstNonFinalWorkspacePageAcceptAfterFinalRequest: unknown;
+    firstOutgoingVisualGeometryMismatchSample: unknown;
     firstSkeletonAfterVisualSample: unknown;
     firstTranslucentSkeletonCanvasOverlapSample: unknown;
     firstSkeletonVisualOverlapSample: unknown;
@@ -71,6 +62,11 @@ interface ITraceSummary {
     maxToolbarBodyLagMs: number;
     nonFinalPagedCommitAfterFinalRequestCount: number;
     nonFinalWorkspacePageAcceptAfterFinalRequestCount: number;
+    outgoingPage: number | null;
+    outgoingVisualGeometryBaselineFound: boolean;
+    outgoingVisualGeometryHeightDeltaPx: number;
+    outgoingVisualGeometrySampleCount: number;
+    outgoingVisualGeometryWidthDeltaPx: number;
     postReadyUnstableSampleCount: number;
     rasterSchedulerSnapshots: unknown[];
     skeletonAfterVisualSampleCount: number;
@@ -99,82 +95,6 @@ export interface IFrameAnalysisSummary {
     firstSkeletonAfterCanvasAtMs: number | null;
     skeletonAfterCanvasObserved: boolean;
     skeletonAfterCanvasPages: number[];
-}
-
-export function readOptions(argv = process.argv.slice(2)): IPdfNavigationBlinkTraceOptions {
-    const options: IPdfNavigationBlinkTraceOptions = {
-        assert: false,
-        clicks: 12,
-        clickDelayMs: 20,
-        out: DEFAULT_OUT_PATH,
-        pdf: DEFAULT_TARGET_PDF_PATH,
-        preClickWaitMs: 500,
-        settleMs: 2_000,
-        startPage: 1,
-        video: false,
-        videoDir: null,
-        videoFps: 30,
-        waitForStartCanvas: true,
-    };
-
-    const readIntegerOption = (value: string | undefined, fallback: number, min: number) => {
-        const parsed = value === undefined ? Number.NaN : Number.parseInt(value, 10);
-        return Number.isFinite(parsed) ? Math.max(min, parsed) : fallback;
-    };
-
-    for (let index = 0; index < argv.length; index += 1) {
-        const arg = argv[index];
-        const next = argv[index + 1];
-        if (arg === '--assert') {
-            options.assert = true;
-        } else if (arg === '--clicks' && next) {
-            options.clicks = readIntegerOption(next, options.clicks, 1);
-            index += 1;
-        } else if (arg === '--click-delay-ms' && next) {
-            options.clickDelayMs = readIntegerOption(next, options.clickDelayMs, 0);
-            index += 1;
-        } else if (arg === '--out' && next) {
-            options.out = next;
-            index += 1;
-        } else if (arg === '--pdf' && next) {
-            options.pdf = next;
-            index += 1;
-        } else if (arg === '--pre-click-wait-ms' && next) {
-            options.preClickWaitMs = readIntegerOption(next, options.preClickWaitMs, 0);
-            index += 1;
-        } else if (arg === '--settle-ms' && next) {
-            options.settleMs = readIntegerOption(next, options.settleMs, 0);
-            index += 1;
-        } else if (arg === '--start-page' && next) {
-            options.startPage = readIntegerOption(next, options.startPage, 1);
-            index += 1;
-        } else if (arg === '--skip-start-page-canvas-wait') {
-            options.waitForStartCanvas = false;
-        } else if (arg === '--video') {
-            options.video = true;
-        } else if (arg === '--video-dir' && next) {
-            options.video = true;
-            options.videoDir = next;
-            index += 1;
-        } else if (arg === '--video-fps' && next) {
-            options.videoFps = readIntegerOption(next, options.videoFps, 1);
-            index += 1;
-        }
-    }
-
-    return options;
-}
-
-export function resolveVideoDirectory(options: Pick<IPdfNavigationBlinkTraceOptions, 'out' | 'videoDir'>, cwd = process.cwd()) {
-    if (options.videoDir) {
-        return resolve(cwd, options.videoDir);
-    }
-
-    const outPath = resolve(cwd, options.out);
-    const withoutJsonExtension = outPath.endsWith('.json')
-        ? outPath.slice(0, -'.json'.length)
-        : outPath;
-    return `${withoutJsonExtension}-video`;
 }
 
 async function installBlinkSampler(page: Page) {
@@ -943,6 +863,95 @@ function getTargetFeedbackGeometrySummary(options: {
     };
 }
 
+function getOutgoingVisualGeometrySummary(options: {
+    clickAtMs: number | null;
+    finalTargetPage: number | null;
+    samples: Array<Record<string, unknown>>;
+}) {
+    if (options.clickAtMs === null || options.finalTargetPage === null) {
+        return {
+            baselineFound: false,
+            firstMismatchSample: null,
+            maxHeightDeltaPx: 0,
+            maxWidthDeltaPx: 0,
+            outgoingPage: null,
+            sampleCount: 0,
+        };
+    }
+
+    // Outgoing deltas use the last pre-click visual as their baseline. Target
+    // feedback instead compares every sample with its final geometry.
+    const baselineSample = options.samples.findLast((sample) => {
+        const atMs = readFiniteNumber(sample.atMs);
+        const centeredPage = readCenteredVisualPage(sample);
+        return atMs !== null
+            && atMs <= options.clickAtMs!
+            && centeredPage !== null
+            && centeredPage !== options.finalTargetPage
+            && sampleHasVisualForPage(sample, centeredPage);
+    }) ?? null;
+    const outgoingPage = baselineSample ? readCenteredVisualPage(baselineSample) : null;
+    const baselinePageInfo = outgoingPage === null || baselineSample === null
+        ? null
+        : readPageInfoForPage(baselineSample, outgoingPage);
+    const baselineGeometry = baselinePageInfo ? readPageInfoGeometry(baselinePageInfo) : null;
+    if (outgoingPage === null || baselineGeometry === null) {
+        return {
+            baselineFound: false,
+            firstMismatchSample: null,
+            maxHeightDeltaPx: 0,
+            maxWidthDeltaPx: 0,
+            outgoingPage,
+            sampleCount: 0,
+        };
+    }
+
+    let firstMismatchSample: Record<string, unknown> | null = null;
+    let maxHeightDeltaPx = 0;
+    let maxWidthDeltaPx = 0;
+    let sampleCount = 0;
+    for (const sample of options.samples) {
+        const atMs = readFiniteNumber(sample.atMs);
+        if (atMs === null || atMs <= options.clickAtMs) {
+            continue;
+        }
+        if (sampleHasCenteredVisualForPage(sample, options.finalTargetPage)) {
+            break;
+        }
+        if (!sampleHasCenteredVisualForPage(sample, outgoingPage)) {
+            continue;
+        }
+        const pageInfo = readPageInfoForPage(sample, outgoingPage);
+        const geometry = pageInfo ? readPageInfoGeometry(pageInfo) : null;
+        if (geometry === null) {
+            continue;
+        }
+        sampleCount += 1;
+        const heightDelta = Math.abs(geometry.height - baselineGeometry.height);
+        const widthDelta = Math.abs(geometry.width - baselineGeometry.width);
+        maxHeightDeltaPx = Math.max(maxHeightDeltaPx, heightDelta);
+        maxWidthDeltaPx = Math.max(maxWidthDeltaPx, widthDelta);
+        if (
+            firstMismatchSample === null
+            && (
+                heightDelta > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+                || widthDelta > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+            )
+        ) {
+            firstMismatchSample = sample;
+        }
+    }
+
+    return {
+        baselineFound: true,
+        firstMismatchSample,
+        maxHeightDeltaPx,
+        maxWidthDeltaPx,
+        outgoingPage,
+        sampleCount,
+    };
+}
+
 function sampleHasCenteredSkeleton(sample: Record<string, unknown>) {
     const centeredPageInfo = readCenteredPageInfo(sample);
     return centeredPageInfo?.skeletonVisible === true;
@@ -1176,10 +1185,8 @@ export function summarizeTrace(payload: {
             typeof snapshot === 'object' && snapshot !== null
         ));
     const finalTargetPage = workspaceGoToPages.at(-1) ?? toolbarPages.at(-1) ?? pagedTargets.at(-1) ?? null;
-    const lastClickAtMs = getLastEventAtMs(payload.trace.events ?? [], [
-        'after-next-click',
-        'toolbar-button-click',
-    ]);
+    const lastClickAtMs = getLastEventAtMs(payload.trace.events ?? [], ['toolbar-button-click'])
+        ?? getLastEventAtMs(payload.trace.events ?? [], ['after-next-click']);
     const centeredBlankAfterClick = lastClickAtMs === null
         ? {
             firstSample: null,
@@ -1298,6 +1305,11 @@ export function summarizeTrace(payload: {
         finalTargetPage,
         samples,
     });
+    const outgoingVisualGeometry = getOutgoingVisualGeometrySummary({
+        clickAtMs: lastClickAtMs,
+        finalTargetPage,
+        samples,
+    });
     let latePostClickSwapCount = 0;
     let previousPostReadySignature: string | null = null;
     let firstLatePostClickSwapSample: Record<string, unknown> | null = null;
@@ -1330,6 +1342,7 @@ export function summarizeTrace(payload: {
         firstLatePostClickSwapSample,
         firstNonFinalPagedCommitAfterFinalRequest: nonFinalPagedCommitsAfterFinalRequest[0] ?? null,
         firstNonFinalWorkspacePageAcceptAfterFinalRequest: nonFinalWorkspacePageAcceptsAfterFinalRequest[0] ?? null,
+        firstOutgoingVisualGeometryMismatchSample: outgoingVisualGeometry.firstMismatchSample,
         firstSkeletonAfterVisualSample: skeletonAfterVisualSamples[0] ?? null,
         firstTranslucentSkeletonCanvasOverlapSample: translucentSkeletonCanvasOverlapSamples[0] ?? null,
         firstSkeletonVisualOverlapSample: skeletonVisualOverlapSamples[0] ?? null,
@@ -1347,6 +1360,11 @@ export function summarizeTrace(payload: {
         maxToolbarBodyLagMs,
         nonFinalPagedCommitAfterFinalRequestCount: nonFinalPagedCommitsAfterFinalRequest.length,
         nonFinalWorkspacePageAcceptAfterFinalRequestCount: nonFinalWorkspacePageAcceptsAfterFinalRequest.length,
+        outgoingPage: outgoingVisualGeometry.outgoingPage,
+        outgoingVisualGeometryBaselineFound: outgoingVisualGeometry.baselineFound,
+        outgoingVisualGeometryHeightDeltaPx: outgoingVisualGeometry.maxHeightDeltaPx,
+        outgoingVisualGeometrySampleCount: outgoingVisualGeometry.sampleCount,
+        outgoingVisualGeometryWidthDeltaPx: outgoingVisualGeometry.maxWidthDeltaPx,
         postReadyUnstableSampleCount: postReadyUnstableSamples.length,
         rasterSchedulerSnapshots,
         skeletonAfterVisualSampleCount: skeletonAfterVisualSamples.length,
@@ -1396,6 +1414,13 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             navigation: true,
             render: true,
         },
+        prepare: async ({page}: IPdfDiagnosticsContext) => {
+            await page.setViewport({
+                deviceScaleFactor: options.viewportDeviceScaleFactor,
+                height: options.viewportHeight,
+                width: options.viewportWidth,
+            });
+        },
         run: async (context: IPdfDiagnosticsContext) => {
             const { page } = context;
             await installBlinkSampler(page);
@@ -1406,7 +1431,6 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             if (options.waitForStartCanvas) {
                 await context.navigation.waitForPageCanvas(options.startPage);
             }
-            await delay(options.preClickWaitMs);
 
             const videoRecorder = options.video
                 ? await context.capture.start({
@@ -1422,9 +1446,11 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
                 options,
                 wallTimeMs: Date.now(),
             });
+            await delay(options.preClickWaitMs);
+            const toolbarButtonLabel = options.direction === 'previous' ? 'Previous Page' : 'Next Page';
             for (let index = 0; index < options.clicks; index += 1) {
                 await recordTraceEvent(page, 'before-next-click', { index });
-                const clickResult = await context.navigation.clickToolbarButton('Next Page', {dispatch: 'mouse'});
+                const clickResult = await context.navigation.clickToolbarButton(toolbarButtonLabel);
                 await recordTraceEvent(page, 'after-next-click', {
                     index,
                     clickResult,

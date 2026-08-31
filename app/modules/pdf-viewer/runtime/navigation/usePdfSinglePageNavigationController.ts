@@ -40,6 +40,7 @@ import {resolveRetainedPdfNavigationAnchor} from '@app/modules/pdf-viewer/engine
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {runGuardedTask} from '@app/utils/asyncGuard';
 import {createLatestWinsPdfMetricHydrator} from '@app/modules/pdf-viewer/runtime/navigation/createLatestWinsPdfMetricHydrator';
+import {createPdfNavigationVisualHandoff} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationVisualHandoff';
 import {
     getRequestAnchor,
     getRequestPage,
@@ -79,10 +80,8 @@ export function shouldSubmitRequestedCurrentPage(
     pendingPage: number | null,
 ) {
     // The outer page model is also the projection sink for committed viewer
-    // pages. While navigation is pending it can therefore briefly contain an
-    // older commit (for example page 2 after wheel intent has already advanced
-    // to page 3). Explicit toolbar/search/thumbnail commands enter through
-    // submitPageNavigation, so a prop echo must never supersede newer internal
+    // pages. While navigation is pending it can briefly contain an older commit.
+    // Explicit commands enter through submitPageNavigation, so a prop echo must not supersede newer internal
     // intent. Once idle, the prop remains the initial/restore command channel.
     return pendingPage === null && requestedPage !== committedPage;
 }
@@ -97,6 +96,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     let resizePreviewWriteSequence = 0;
     let activeNavigationSequence: number | null = null;
     const retainedNavigationAnchorPage = ref<number | null>(null);
+    const navigationVisualHandoff = createPdfNavigationVisualHandoff();
     const wheelNavigationCursorPage = ref<number | null>(null);
     let queuedNavigation: {
         request: IPdfNavigationRequest;
@@ -172,7 +172,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const resolved = intent.navigation
                 ? await resolvePdfNavigationTarget(intent.navigation.target, options.pdfDocument.value)
                 : null;
-            if (resolved) resolvedTargets.set(intent.id, resolved);
+            if (resolved) {
+                resolvedTargets.set(intent.id, resolved);
+                navigationVisualHandoff.resolveIntent(intent.id, resolved.page, signal.aborted);
+            }
             const page = resolved?.page ?? getRequestPage(
                 intent.navigation,
                 intent.anchor?.page ?? options.currentPage.value,
@@ -188,10 +191,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const container = options.viewerContainer.value;
             const snapshot = geometry ?? refreshGeometry();
             const resolved = resolvedTargets.get(intent.id);
-            const anchor = intent.anchor
-                ?? (intent.navigation && resolved
-                    ? resolvePdfNavigationAnchor(intent.navigation, resolved)
-                    : getRequestAnchor(intent.navigation, options.currentPage.value));
+            const anchor = intent.navigation && resolved
+                ? resolvePdfNavigationAnchor(intent.navigation, resolved)
+                : intent.anchor ?? getRequestAnchor(intent.navigation, options.currentPage.value);
             if (!container || !snapshot) {
                 throw new DOMException('PDF viewport geometry unavailable', 'AbortError');
             }
@@ -373,6 +375,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 outcome: container ? 'ready' : 'container-detached',
             });
         },
+        beforeApply: async (intent, signal) => {
+            if (signal.aborted || !navigationVisualHandoff.releaseIntent(intent.id)) {
+                return;
+            }
+            await nextTick();
+            refreshGeometry();
+        },
         postArrival: async (request, signal) => {
             if (signal.aborted) {
                 return;
@@ -434,32 +443,38 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return request;
     }
 
-    async function submitNavigationIntent(request: IPdfNavigationRequest) {
+    async function submitNavigationIntent(request: IPdfNavigationRequest, sequence: number) {
         const submittedDocumentRevision = options.getDocumentRevision();
         const submittedGeometryRevision = options.getGeometryRevision();
         refreshGeometry();
-        const result = await viewportAuthority.submit({
-            // Replays retain queue ownership but require a fresh authority ID.
-            id: `viewport-navigation-${String(++navigationIntentSequence)}`,
-            kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
-            documentRevision: submittedDocumentRevision,
-            geometryRevision: submittedGeometryRevision,
-            priority: 10,
-            supersessionKey: 'navigation',
-            navigation: request,
-        });
-        return result;
+        const intentId = `viewport-navigation-${String(++navigationIntentSequence)}`;
+        navigationVisualHandoff.registerIntent(intentId, sequence);
+        try {
+            return await viewportAuthority.submit({
+                // Replays retain queue ownership but require a fresh authority ID.
+                id: intentId,
+                kind: request.source === 'search' ? 'search' : request.source === 'wheel' ? 'wheel-page' : 'navigate',
+                documentRevision: submittedDocumentRevision,
+                geometryRevision: submittedGeometryRevision,
+                priority: 10,
+                supersessionKey: 'navigation',
+                navigation: request,
+            });
+        } finally {
+            navigationVisualHandoff.finishIntent(intentId);
+        }
     }
 
     function submitDetachedNavigationIntent(request: IPdfNavigationRequest, sequence: number) {
         activeNavigationSequence = sequence;
         runGuardedTask(async () => {
             try {
-                await submitNavigationIntent(request);
+                await submitNavigationIntent(request, sequence);
             } finally {
                 if (activeNavigationSequence === sequence) {
                     activeNavigationSequence = null;
                 }
+                navigationVisualHandoff.clearSequence(sequence);
             }
             if (queuedNavigation !== null) {
                 await nextTick();
@@ -560,6 +575,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             // authoritative clamp. This makes rapid commands durable during
             // Recent/open transitions without committing viewport state early.
             retainedNavigationAnchorPage.value = page;
+            navigationVisualHandoff.assign(page, intentSequence);
             options.emitNavigationFeedbackPage?.(page);
         }
         if (activeNavigationSequence !== null) {
@@ -574,6 +590,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         queuedNavigation = null;
         intentSequence += 1;
         retainedNavigationAnchorPage.value = null;
+        if (activeNavigationSequence === null) {
+            navigationVisualHandoff.clear();
+        }
         wheelNavigationCursorPage.value = null;
         options.emitNavigationFeedbackPage?.(null);
     }
@@ -665,6 +684,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             // stale request and supersede this fit/zoom/view-mode transaction.
             queuedNavigation = null;
             activeNavigationSequence = null;
+            if (inheritedNavigationPage !== null) {
+                navigationVisualHandoff.assign(inheritedNavigationPage, intentSequence);
+            }
         }
         logPdfRenderTrace('navigation-viewport-state-intent-submitted', () => ({
             kind,
@@ -674,8 +696,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             committedPage: viewportAuthority.currentPage.value,
             anchorPage: anchor.page,
         }));
-        return viewportAuthority.submit({
-            id: `viewport-state-${intentSequence}`,
+        const viewportStateIntentId = `viewport-state-${intentSequence}`;
+        if (absorbedNavigation) {
+            navigationVisualHandoff.registerIntent(viewportStateIntentId, intentSequence);
+        }
+        const submission = viewportAuthority.submit({
+            id: viewportStateIntentId,
             kind,
             documentRevision,
             geometryRevision,
@@ -686,6 +712,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ...(state.zoom === undefined ? {} : {zoom: state.zoom}),
             ...(state.viewMode === undefined ? {} : {viewMode: state.viewMode}),
             ...(state.dpr === undefined ? {} : {dpr: state.dpr}),
+        });
+        if (!absorbedNavigation) {
+            return submission;
+        }
+        const handoffSequence = intentSequence;
+        return submission.finally(() => {
+            navigationVisualHandoff.finishIntent(viewportStateIntentId);
+            navigationVisualHandoff.clearSequence(handoffSequence);
         });
     }
 
@@ -1150,6 +1184,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,
         navigationAnchorPage,
+        navigationVisualHandoffTargetPage: navigationVisualHandoff.targetPage,
         pagedNavigationTargetPage: navigationAnchorPage,
         continuousNavigationTargetPage: computed(() => null),
         searchNavigationTargetPage,

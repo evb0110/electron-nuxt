@@ -35,6 +35,7 @@ interface IUsePdfViewportViewModelOptions {
         end: number;
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
+    navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
     getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
@@ -104,6 +105,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         scaledMargin: options.scaledMargin,
         visibleRange: options.visibleRange,
         navigationAnchorPage: options.navigationAnchorPage,
+        navigationVisualHandoffTargetPage: options.navigationVisualHandoffTargetPage,
         getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
         zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,

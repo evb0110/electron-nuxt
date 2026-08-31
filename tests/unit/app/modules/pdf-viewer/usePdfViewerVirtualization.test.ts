@@ -233,6 +233,7 @@ describe('usePdfViewerVirtualization', () => {
 
     it('keeps committed outgoing geometry until the pending target row is ready', () => {
         const navigationAnchorPage = ref<number | null>(2);
+        const navigationVisualHandoffTargetPage = ref<number | null>(2);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
@@ -260,7 +261,8 @@ describe('usePdfViewerVirtualization', () => {
                 end: 1,
             }),
             navigationAnchorPage,
-            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : null,
+            navigationVisualHandoffTargetPage,
+            getCommittedPageScale: () => 1,
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
@@ -280,10 +282,76 @@ describe('usePdfViewerVirtualization', () => {
         navigationAnchorPage.value = null;
 
         expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
+        });
+
+        navigationVisualHandoffTargetPage.value = null;
+
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
             width: '240px',
             height: '80px',
             '--scale-factor': '0.8',
         });
+    });
+
+    it('stages a preceding target as buffered until the outgoing page hands off', () => {
+        const navigationVisualHandoffTargetPage = ref<number | null>(1);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(10),
+            currentPage: ref(10),
+            continuousScroll: computed(() => false),
+            basePageWidth: ref(300),
+            basePageHeight: ref(100),
+            pageMetrics: ref([
+                {
+                    width: 300,
+                    height: 100,
+                },
+                {
+                    width: 300,
+                    height: 120,
+                },
+            ]),
+            pageMetricsVersion: ref(0),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange: ref({
+                start: 10,
+                end: 10,
+            }),
+            navigationAnchorPage: ref(1),
+            navigationVisualHandoffTargetPage,
+            getCommittedPageScale: () => 0.8,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.pagesToRender.value).toContain(1);
+        expect(virtualization.pagesToRender.value).toContain(10);
+        expect(virtualization.pagesToRender.value).not.toContain(5);
+        expect(virtualization.isPageBuffered(1)).toBe(true);
+        expect(virtualization.isPageBuffered(10)).toBe(false);
+        expect(virtualization.getPageScale(1)).toMatchObject({scaleFactor: 1});
+        expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
+        });
+        expect(virtualization.getPagePlaceholderStyle(10)).toMatchObject({
+            width: '240px',
+            height: '96px',
+            '--scale-factor': '0.8',
+        });
+
+        navigationVisualHandoffTargetPage.value = null;
+
+        expect(virtualization.isPageBuffered(1)).toBe(false);
+        expect(virtualization.isPageBuffered(10)).toBe(true);
     });
 
     it('does not size skeleton placeholders from a wider document fallback while page metrics hydrate', () => {
