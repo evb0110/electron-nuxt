@@ -109,6 +109,42 @@
     }
 
     #[test]
+    fn read_catalog_returns_outlines_and_page_labels() {
+        let (document, _page_id) = create_outline_fixture();
+        let catalog = read_pdf_combine_catalog(&document).unwrap();
+        assert_eq!(catalog.page_labels.len(), 1);
+        assert_eq!(catalog.bookmarks[0].title, "Parent");
+        assert_eq!(catalog.bookmarks[0].page_index, Some(0));
+    }
+
+    #[test]
+    fn read_catalog_terminates_on_cyclic_outline() {
+        let mut document = create_test_document().0;
+        let item_id = document.new_object_id();
+        document.set_object(
+            item_id,
+            Object::Dictionary(dictionary! {
+                "Title" => Object::string_literal("Loop"),
+                "Next" => Object::Reference(item_id),
+            }),
+        );
+        let outlines_id = document.new_object_id();
+        document.set_object(
+            outlines_id,
+            Object::Dictionary(dictionary! {"First" => Object::Reference(item_id)}),
+        );
+        let root_id = document.trailer.get(b"Root").unwrap().as_reference().unwrap();
+        document
+            .get_dictionary_mut(root_id)
+            .unwrap()
+            .set("Outlines", Object::Reference(outlines_id));
+
+        let catalog = read_pdf_combine_catalog(&document).unwrap();
+        assert_eq!(catalog.bookmarks.len(), 1);
+        assert!(catalog.bookmarks[0].items.is_empty());
+    }
+
+    #[test]
     fn saves_and_reopens_10_001_bookmarks_across_path_addressed_fragments() {
         let (mut document, _page_id) = create_test_document();
         let input_path = temp_pdf_path("append-bookmark-subtree-input");

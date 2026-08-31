@@ -2,7 +2,6 @@ use evb_native_support::{
     wasm_request_allocation::{WasmRequestAllocation, WASM_REQUEST_ALLOCATION_ABI_VERSION},
     NativeErrorCode, NativeErrorEnvelope,
 };
-use lopdf::{dictionary, Dictionary, Object};
 use std::{cell::RefCell, slice};
 
 use crate::pdf_conformance_facts;
@@ -16,8 +15,9 @@ use crate::{
     PAGE_OP_WASM_MUTATION_HEADER_BYTES,
 };
 use crate::{
-    build_browser_page_subset_pdf, read_pdf_combine_catalog, save_document_to_bytes,
-    PageCloneSource, PdfObjectSource,
+    build_browser_page_subset_pdf, read_pdf_combine_catalog, save_document_to_bytes, set_bookmarks,
+    set_page_labels, BookmarkEntry, BookmarksMutation, PageCloneSource, PageLabelRange,
+    PageLabelsMutation,
 };
 
 const REQUEST_MAGIC: &[u8; 4] = b"EPPO";
@@ -270,33 +270,74 @@ fn run_document_list_request(request: &[u8]) -> Result<Vec<u8>> {
             }
             let merged = build_browser_page_subset_pdf(&sources, &sequence)?;
             let mut output = load_browser_pdf(&merged.data)?;
-            let source_catalog = read_pdf_combine_catalog(&documents[0])?;
-            let catalog_id = output.root_id()?;
-            let catalog = output.get_dictionary_mut(catalog_id)?;
-            let mut nums = Vec::with_capacity(source_catalog.page_labels.len() * 2);
-            for range in source_catalog.page_labels {
-                nums.push(Object::Integer(i64::from(range.page_index)));
-                let mut label = Dictionary::new();
-                if let Some(style) = range.style {
-                    label.set("S", Object::Name(style.into_bytes()));
-                }
-                if let Some(prefix) = range.prefix {
-                    label.set("P", Object::string_literal(prefix));
-                }
-                if let Some(start) = range.start {
-                    label.set("St", Object::Integer(i64::from(start)));
-                }
-                nums.push(Object::Dictionary(label));
+            let mut page_offset = 0u32;
+            let mut bookmarks = Vec::new();
+            let mut page_labels = Vec::new();
+            for (source_index, document) in documents.iter().enumerate() {
+                let source_catalog = read_pdf_combine_catalog(document)?;
+                bookmarks.extend(
+                    source_catalog
+                        .bookmarks
+                        .into_iter()
+                        .map(|bookmark| offset_wasm_bookmark(bookmark, page_offset)),
+                );
+                page_labels.extend(source_catalog.page_labels.into_iter().map(|range| {
+                    PageLabelRange {
+                        start_page: range
+                            .page_index
+                            .saturating_add(page_offset)
+                            .saturating_add(1),
+                        style: range.style,
+                        prefix: range.prefix.unwrap_or_default(),
+                        start_number: range.start.unwrap_or(1),
+                    }
+                }));
+                page_offset =
+                    page_offset.saturating_add(documents[source_index].get_pages().len() as u32);
             }
-            if !nums.is_empty() {
-                catalog.set("PageLabels", dictionary! {"Nums" => nums});
-            }
+            set_page_labels(
+                &mut output,
+                &PageLabelsMutation {
+                    total_pages: merged.page_count,
+                    ranges: page_labels,
+                },
+            )?;
+            set_bookmarks(
+                &mut output,
+                &BookmarksMutation {
+                    total_pages: merged.page_count,
+                    untitled_label: "Untitled".to_string(),
+                    items: bookmarks,
+                },
+            )?;
             encode_mutation(PageMutationBytes {
                 page_count: merged.page_count,
                 data: save_document_to_bytes(&mut output)?,
             })
         }
         _ => Err(format!("Unsupported page-op WASM document-list operation {operation}").into()),
+    }
+}
+
+fn offset_wasm_bookmark(
+    bookmark: crate::PdfCombineBookmarkEntry,
+    page_offset: u32,
+) -> BookmarkEntry {
+    BookmarkEntry {
+        title: bookmark.title,
+        page_index: bookmark
+            .page_index
+            .map(|page| page.saturating_add(page_offset)),
+        page_y_ratio: None,
+        named_dest: bookmark.named_dest,
+        bold: bookmark.bold,
+        italic: bookmark.italic,
+        color: bookmark.color,
+        items: bookmark
+            .items
+            .into_iter()
+            .map(|item| offset_wasm_bookmark(item, page_offset))
+            .collect(),
     }
 }
 

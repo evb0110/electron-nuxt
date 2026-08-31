@@ -42,6 +42,7 @@ struct Config {
     output_format: OutputFormat,
     compact_manifest_path: Option<PathBuf>,
     shared_jbig2_symbols: bool,
+    rotations_file: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -153,7 +154,7 @@ fn run(raw_args: Vec<String>) -> Result<()> {
         }
     }
 
-    let (page_specs, provenance_stamp_hex, outlines, page_labels) =
+    let (mut page_specs, provenance_stamp_hex, outlines, page_labels) =
         if let Some(manifest_path) = &config.compact_manifest_path {
             let manifest = read_compact_manifest(manifest_path, max_pages)?;
             (
@@ -186,6 +187,18 @@ fn run(raw_args: Vec<String>) -> Result<()> {
                 Vec::new(),
             )
         };
+    if let Some(rotations_path) = &config.rotations_file {
+        let rotations = read_rotation_values(rotations_path, page_specs.len())?;
+        for (page_spec, rotation_degrees) in page_specs.iter_mut().zip(rotations) {
+            if let PageSpec::Image {
+                rotation_degrees: current,
+                ..
+            } = page_spec
+            {
+                *current = rotation_degrees;
+            }
+        }
+    }
     let total = page_specs.len();
     let started_at = Instant::now();
     write_pdf_file(
@@ -541,6 +554,7 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
     let mut compact_manifest_path = None;
     let mut shared_jbig2_symbols = false;
     let mut reading_inputs = false;
+    let mut rotations_file = None;
 
     while let Some(arg) = args.next() {
         if reading_inputs {
@@ -564,6 +578,11 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
             "--inputs-file" => {
                 let value = args.next().ok_or("Missing --inputs-file value")?;
                 input_paths.extend(read_input_paths_file(Path::new(&value), max_pages)?);
+            }
+            "--rotations-file" => {
+                rotations_file = Some(PathBuf::from(
+                    args.next().ok_or("Missing --rotations-file value")?,
+                ));
             }
             "--compact-manifest" => {
                 compact_manifest_path = Some(PathBuf::from(
@@ -609,6 +628,7 @@ fn parse_args(mut args: impl Iterator<Item = String>, max_pages: usize) -> Resul
         output_format,
         compact_manifest_path,
         shared_jbig2_symbols,
+        rotations_file,
     })
 }
 
@@ -643,6 +663,31 @@ fn read_input_paths_file(path: &Path, max_pages: usize) -> Result<Vec<PathBuf>> 
         paths.push(PathBuf::from(line));
     }
     Ok(paths)
+}
+
+fn read_rotation_values(path: &Path, expected: usize) -> Result<Vec<u16>> {
+    let bytes = read_file_bounded(path, MAX_SIDECAR_BYTES, "image rotation list")?;
+    let text = std::str::from_utf8(&bytes).map_err(|error| {
+        NativeError::new(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid image rotation list UTF-8: {error}"),
+        )
+    })?;
+    let values = text
+        .lines()
+        .map(|line| line.parse::<u16>())
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    if values.len() != expected
+        || values
+            .iter()
+            .any(|value| !matches!(value, 0 | 90 | 180 | 270))
+    {
+        return Err(
+            "Image rotation list must contain one value per input and only 0, 90, 180, or 270"
+                .into(),
+        );
+    }
+    Ok(values)
 }
 
 struct ParsedCompactManifest {

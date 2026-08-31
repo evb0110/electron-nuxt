@@ -137,9 +137,38 @@ function validateWorkerInput(
     }
     assertImageDimensions(metadata.width, metadata.height, input.fileName);
     consumeDecodedWorkingSet(budget, metadata.width, metadata.height, input.fileName);
-    if ((extension === '.jpg' || extension === '.jpeg') && metadata.orientation !== 1) {
-        throw new Error(`ERR_BROWSER_PDF_COMBINE_ORIENTED_JPEG_UNSUPPORTED:${input.fileName}`);
+}
+
+function getExifRotationDegrees(input: IBrowserPdfCombineInput): 0 | 90 | 180 | 270 {
+    const metadata = readBrowserRasterImageMetadata(input.data, getBrowserFileExtension(input.fileName));
+    if (!metadata) {
+        return 0;
     }
+    return metadata.orientation === 3 ? 180 : metadata.orientation === 6 ? 90 : metadata.orientation === 8 ? 270 : 0;
+}
+
+function buildExifRotationPreprocessing(inputs: IBrowserPdfCombineInput[]): IBrowserPdfCombineWasmImagePreprocessing | undefined {
+    if (!inputs.some(input => getExifRotationDegrees(input) !== 0)) {
+        return undefined;
+    }
+    const pageSizes = inputs.map(input => {
+        const metadata = readBrowserRasterImageMetadata(input.data, getBrowserFileExtension(input.fileName));
+        if (!metadata) throw new Error(`ERR_BROWSER_PDF_COMBINE_UNREADABLE_IMAGE_HEADER:${input.fileName}`);
+        const dpi = metadata.dpi > 0 ? metadata.dpi : 72;
+        return {
+            widthPoints: metadata.width * 72 / dpi,
+            heightPoints: metadata.height * 72 / dpi,
+        };
+    });
+    return {
+        pageSizes,
+        pageSpecs: inputs.map((input, index) => ({
+            kind: 'image' as const,
+            pageSize: pageSizes[index]!,
+            rotationDegrees: getExifRotationDegrees(input),
+            image: input,
+        })),
+    };
 }
 
 async function prepareWorkerInput(
@@ -240,7 +269,10 @@ async function handleCombinePdfsRequest(request: {payload: {
             if (imageInputs.length === 0) {
                 return;
             }
-            const imageResult = await tryCombineImageInputsWithWasm(imageInputs);
+            const imageResult = await tryCombineImageInputsWithWasm(
+                imageInputs,
+                buildExifRotationPreprocessing(imageInputs),
+            );
             if (imageResult.status === 'fatal') {
                 throw new SerializableError(imageResult.error);
             }
@@ -275,7 +307,11 @@ async function handleCombinePdfsRequest(request: {payload: {
         return {data: toTransferableUint8Array(merged.data)};
     }
 
-    const wasmResult = await tryCombineImageInputsWithWasm(inputs, wasmImagePreprocessing);
+    let flatWasmPreprocessing = wasmImagePreprocessing;
+    if (!flatWasmPreprocessing?.pageSpecs) {
+        flatWasmPreprocessing = buildExifRotationPreprocessing(inputs);
+    }
+    const wasmResult = await tryCombineImageInputsWithWasm(inputs, flatWasmPreprocessing);
     if (wasmResult.status === 'success') {
         if (wasmResult.data.byteLength === 0 || wasmResult.data.byteLength > MAX_OUTPUT_BYTES) {
             throw createBrowserPdfCombineOutputError(wasmResult.data.byteLength);

@@ -54,6 +54,7 @@ interface INativePdfImageCombineOptions {
     maxOutputBytes?: number;
     onProgress?: (progress: INativePdfImageCombineProgress) => void;
     signal?: AbortSignal;
+    rotationDegrees?: readonly number[];
 }
 
 type TNativeProgressPayload = INativePdfImageCombineProgress & {type: 'progress';};
@@ -177,6 +178,10 @@ function createNativeInputsFileContents(inputPaths: string[]) {
         throw new Error('Native image combine input paths must not contain leading/trailing whitespace or line breaks');
     }
     return `${inputPaths.join('\n')}\n`;
+}
+
+function createNativeRotationFileContents(rotationDegrees: readonly number[]) {
+    return `${rotationDegrees.join('\n')}\n`;
 }
 
 async function isStructurallyPlausiblePdfFile(outputPath: string) {
@@ -324,11 +329,14 @@ export async function tryCreatePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return null;
     }
-    if (await hasOrientedJpegInput(inputPaths, options?.signal)) {
+    const rotationDegrees = await readInputRotationDegrees(inputPaths, options?.signal);
+    if (rotationDegrees === null) {
         return null;
     }
-
-    return createPdfWithNativeImageCombiner(inputPaths, options);
+    return createPdfWithNativeImageCombiner(inputPaths, {
+        ...options,
+        rotationDegrees,
+    });
 }
 
 export async function tryWritePdfWithNativeImageCombiner(
@@ -339,11 +347,14 @@ export async function tryWritePdfWithNativeImageCombiner(
     if (!canUseNativePdfImageCombine(inputPaths, SUPPORTED_NATIVE_BITMAP_EXTENSIONS)) {
         return false;
     }
-    if (await hasOrientedJpegInput(inputPaths, options?.signal)) {
+    const rotationDegrees = await readInputRotationDegrees(inputPaths, options?.signal);
+    if (rotationDegrees === null) {
         return false;
     }
-
-    return writePdfWithNativeImageCombiner(inputPaths, outputPath, options);
+    return writePdfWithNativeImageCombiner(inputPaths, outputPath, {
+        ...options,
+        rotationDegrees,
+    });
 }
 
 function hasCompleteJpegMetadataPrefix(bytes: Uint8Array) {
@@ -396,17 +407,23 @@ async function readBoundedJpegMetadata(inputPath: string, signal?: AbortSignal) 
     }
 }
 
-async function hasOrientedJpegInput(inputPaths: string[], signal?: AbortSignal) {
+async function readInputRotationDegrees(inputPaths: string[], signal?: AbortSignal): Promise<number[] | null> {
+    const rotations: number[] = [];
     for (const inputPath of inputPaths) {
         if (signal?.aborted) throw abortErrorFromSignal(signal);
         const extension = extname(inputPath).toLowerCase();
-        if (extension !== '.jpg' && extension !== '.jpeg') continue;
-        const metadata = await readBoundedJpegMetadata(inputPath, signal);
-        if (!hasCompleteJpegMetadataPrefix(metadata) || readJpegExifOrientation(metadata) !== 1) {
-            return true;
+        if (extension !== '.jpg' && extension !== '.jpeg') {
+            rotations.push(0);
+            continue;
         }
+        const metadata = await readBoundedJpegMetadata(inputPath, signal);
+        if (!hasCompleteJpegMetadataPrefix(metadata)) {
+            return null;
+        }
+        const orientation = readJpegExifOrientation(metadata);
+        rotations.push(orientation === 3 ? 180 : orientation === 6 ? 90 : orientation === 8 ? 270 : 0);
     }
-    return false;
+    return rotations;
 }
 
 export async function tryBuildOptimizedPdfWithNativeImageCombiner(
@@ -449,13 +466,17 @@ async function createPdfWithNativeImageCombiner(
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
     const outputPath = join(tempDir, `${randomUUID()}.pdf`);
     const inputsPath = join(tempDir, 'inputs.txt');
+    const rotationsPath = join(tempDir, 'rotations.txt');
 
     try {
         await writeFile(inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
+        await writeFile(rotationsPath, createNativeRotationFileContents(options?.rotationDegrees ?? inputPaths.map(() => 0)), 'utf8');
         const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             ...extraArgs,
             '--inputs-file',
             inputsPath,
+            '--rotations-file',
+            rotationsPath,
         ]);
         if (!ok) {
             return null;
@@ -492,12 +513,16 @@ async function writePdfWithNativeImageCombiner(
 
     const tempDir = await mkdtemp(join(tmpdir(), 'pdf-image-combine-'));
     const inputsPath = join(tempDir, 'inputs.txt');
+    const rotationsPath = join(tempDir, 'rotations.txt');
 
     try {
         await writeFile(inputsPath, createNativeInputsFileContents(inputPaths), 'utf8');
+        await writeFile(rotationsPath, createNativeRotationFileContents(options?.rotationDegrees ?? inputPaths.map(() => 0)), 'utf8');
         const ok = await runNativePdfImageCombine(binaryPath, outputPath, [], options, [
             '--inputs-file',
             inputsPath,
+            '--rotations-file',
+            rotationsPath,
         ]);
         if (!ok) {
             await rm(outputPath, { force: true }).catch(() => undefined);

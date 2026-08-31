@@ -40,7 +40,6 @@ import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
-import { applyCombinedPdfPageLabels } from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/annotationMetadata';
 
@@ -73,6 +72,28 @@ const TRACKED_DJVU_CORPUS_FIXTURE = resolve(
 const NATIVE_DJVU_SEARCH_FIXTURE_PAGE_COUNT = 501;
 const NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE = 450;
 const NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL = 'EVB_LATE_DJVU_SENTINEL_450';
+
+function applyFixturePageLabels(
+    document: PDFDocument,
+    ranges: ReadonlyArray<{
+        pageIndex: number;
+        style?: string;
+        prefix?: string;
+        start?: number
+    }>,
+) {
+    const nums = ranges.flatMap((range) => {
+        const dict = document.context.obj({});
+        if (range.style) dict.set(PDFName.of('S'), PDFName.of(range.style));
+        if (range.prefix !== undefined) dict.set(PDFName.of('P'), PDFString.of(range.prefix));
+        if (range.start !== undefined) dict.set(PDFName.of('St'), PDFNumber.of(range.start));
+        return [
+            PDFNumber.of(range.pageIndex),
+            dict,
+        ];
+    });
+    document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: document.context.obj(nums)}));
+}
 const GENERATED_DJVU_FIXTURE_PAGE_COUNT = 100;
 const GENERATED_DJVU_FIXTURE_WIDTH = 1200;
 const GENERATED_DJVU_FIXTURE_HEIGHT = 1600;
@@ -608,7 +629,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
         });
     }
 
-    applyCombinedPdfPageLabels(doc, [
+    applyFixturePageLabels(doc, [
         {
             pageIndex: 0,
             style: 'r',

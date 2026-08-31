@@ -618,6 +618,30 @@ describe('browser page-ops WASM fast path', () => {
             .toBe(merged.getPage(2).ref.objectNumber);
     });
 
+    it('preserves and offsets catalogs from every document in mergePages', async () => {
+        const sourcePdf = await createMetadataPdf();
+        const wasm = await loadWasmRunner();
+
+        const mergedResult = await wasm.run('mergePages', {documents: [
+            sourcePdf,
+            sourcePdf,
+        ]});
+        assertSuccessfulWasmMutation(mergedResult);
+
+        const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
+        expect(mergedCatalog.bookmarks).toHaveLength(2);
+        expect(mergedCatalog.bookmarks.map(bookmark => bookmark.pageIndex)).toEqual([
+            2,
+            5,
+        ]);
+        expect(mergedCatalog.pageLabels.map(range => range.pageIndex)).toEqual([
+            0,
+            1,
+            3,
+            4,
+        ]);
+    });
+
     it('fails closed when core receives non-integer runtime page fields', async () => {
         const basePdf = await createPdf({pageWidths: [200]});
         const insertionPdf = await createPdf({pageWidths: [300]});
