@@ -39,12 +39,27 @@ const shouldPrintSourcePdfDirectlyMock = vi.hoisted(() => vi.fn(async () => true
 const waitForPrintPaintMock = vi.hoisted(() => vi.fn(async () => {}));
 const createObjectURLMock = vi.hoisted(() => vi.fn(() => 'blob:print-pdf'));
 const revokeObjectURLMock = vi.hoisted(() => vi.fn());
-const documentsCapabilityMock = vi.hoisted(() => ({
-    openPdfInDefaultAppData: vi.fn(),
-    openPdfInDefaultAppPath: vi.fn(),
-    printPdfData: vi.fn(),
-    printPdfPath: vi.fn(),
-}));
+const documentsCapabilityMock = vi.hoisted(() => {
+    let nativePrintDialogOpenedListener: ((event: {requestId: string}) => void) | null = null;
+    const unsubscribeNativePrintDialogOpened = vi.fn(() => {
+        nativePrintDialogOpenedListener = null;
+    });
+    return {
+        emitNativePrintDialogOpened: (event: {requestId: string}) => nativePrintDialogOpenedListener?.(event),
+        onNativePrintDialogOpened: vi.fn((listener: (event: {requestId: string}) => void) => {
+            nativePrintDialogOpenedListener = listener;
+            return unsubscribeNativePrintDialogOpened;
+        }),
+        openPdfInDefaultAppData: vi.fn(),
+        openPdfInDefaultAppPath: vi.fn(),
+        printPdfData: vi.fn(),
+        printPdfPath: vi.fn(),
+        resetNativePrintDialogOpened: () => {
+            nativePrintDialogOpenedListener = null;
+        },
+        unsubscribeNativePrintDialogOpened,
+    };
+});
 const toastAddMock = vi.hoisted(() => vi.fn());
 const toastRemoveMock = vi.hoisted(() => vi.fn());
 
@@ -301,6 +316,7 @@ function createState(options?: {
 describe('useWorkspacePrint', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        documentsCapabilityMock.resetNativePrintDialogOpened();
         buildBrowserPrintFrameMarkupMock.mockReturnValue('<html><body><main data-browser-print-root></main></body></html>');
         buildPrintablePdfDataMock.mockResolvedValue(Uint8Array.of(7, 8, 9));
         createObjectURLMock.mockReturnValue('blob:print-pdf');
@@ -592,6 +608,11 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/multi-gigabyte.pdf',
                 'multi-gigabyte.pdf',
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
             );
             expect(getQuickPrintPageMetrics).not.toHaveBeenCalled();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
@@ -603,20 +624,21 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('marks layout and orientation controls unavailable for path-backed printing', () => {
-        const pathState = createState({sourcePdf: {
-            kind: 'path',
-            path: '/tmp/path-backed.pdf',
-            size: 3 * 1024 * 1024 * 1024,
-        }});
-        const dataState = createState({sourcePdf: new Blob([Uint8Array.of(1, 2, 3)], { type: 'application/pdf' })});
+    it('keeps layout and orientation controls available for a path-backed PDF within the planning limit', () => {
+        const pathState = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/path-backed.pdf',
+                size: 689 * 1024 * 1024,
+            },
+            totalPages: 882,
+        });
 
         try {
-            expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(false);
-            expect(dataState.state.supportsAdvancedPrintOptions.value).toBe(true);
+            expect(pathState.state.supportsAdvancedPrintOptions.value).toBe(true);
+            expect(pathState.state.supportsFirstPageSinglePrintLayout.value).toBe(false);
         } finally {
             pathState.scope.stop();
-            dataState.scope.stop();
         }
     });
 
@@ -649,10 +671,15 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/selected-pages.pdf',
                 'selected-pages.pdf',
-                [
-                    3,
-                    8,
-                ],
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                    requestId: expect.stringMatching(/^print-/u),
+                    pageNumbers: [
+                        3,
+                        8,
+                    ],
+                },
             );
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
@@ -690,6 +717,11 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/refreshed.pdf',
                 'document.pdf',
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
             );
             expect(getPrintableSourceData).not.toHaveBeenCalled();
         } finally {
@@ -735,7 +767,8 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('fails closed for an unrepresentable clean path request instead of resolving PDF bytes', async () => {
+    it('dispatches selected facing-page printing without resolving path-backed PDF bytes', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
         const sourcePdf: TPdfSource = {
             kind: 'path',
             path: '/tmp/clean-unrepresentable.pdf',
@@ -755,11 +788,16 @@ describe('useWorkspacePrint', () => {
             }, {reopenDialogOnError: false});
 
             expect(getPrintableSourceData).not.toHaveBeenCalled();
-            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
-            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
-                description: expect.stringContaining('native path handoff'),
-            }));
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/clean-unrepresentable.pdf',
+                'document.pdf',
+                {
+                    pageNumbers: [2],
+                    viewMode: 'facing',
+                    orientation: 'portrait',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
+            );
         } finally {
             scope.stop();
         }
@@ -791,26 +829,12 @@ describe('useWorkspacePrint', () => {
             'facing',
             'landscape',
         ],
-        [
-            'first page single with automatic orientation',
-            'facing-first-single',
-            'auto',
-        ],
-        [
-            'first page single with portrait orientation',
-            'facing-first-single',
-            'portrait',
-        ],
-        [
-            'first page single with landscape orientation',
-            'facing-first-single',
-            'landscape',
-        ],
-    ] as const)('does not hand unsupported path-print controls to native printing (%s)', async (
+    ] as const)('hands path-backed %s to native printing without resolving PDF bytes', async (
         _label,
         viewMode,
         orientation,
     ) => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
         const {
             getPrintableSourceData,
             scope,
@@ -822,19 +846,48 @@ describe('useWorkspacePrint', () => {
         }});
 
         try {
-            expect(state.supportsAdvancedPrintOptions.value).toBe(false);
+            expect(state.supportsAdvancedPrintOptions.value).toBe(true);
 
             await state.handlePrintDialogSubmit({
                 viewMode,
                 orientation,
             }, {reopenDialogOnError: false});
 
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/path-options.pdf',
+                'document.pdf',
+                {
+                    viewMode,
+                    orientation,
+                    requestId: expect.stringMatching(/^print-/u),
+                },
+            );
+            expect(getPrintableSourceData).not.toHaveBeenCalled();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('fails closed for a forged first-page-single path request without resolving PDF bytes', async () => {
+        const {
+            getPrintableSourceData,
+            scope,
+            state,
+        } = createState({sourcePdf: {
+            kind: 'path',
+            path: '/tmp/path-options.pdf',
+            size: 3 * 1024 * 1024 * 1024,
+        }});
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'facing-first-single',
+                orientation: 'auto',
+            }, {reopenDialogOnError: false});
+
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
-            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
-                description: expect.stringContaining('native path handoff'),
-            }));
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('First-page-single layout is unavailable')}));
         } finally {
             scope.stop();
         }
@@ -866,6 +919,11 @@ describe('useWorkspacePrint', () => {
             expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
                 '/tmp/clean-native-required.pdf',
                 'document.pdf',
+                {
+                    viewMode: 'single',
+                    orientation: 'auto',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
             );
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
@@ -877,8 +935,9 @@ describe('useWorkspacePrint', () => {
         }
     });
 
-    it('fails closed for an unrepresentable dirty path request instead of materializing bytes', async () => {
-        const ensureWorkingCopyFreshForRead = vi.fn(async () => true);
+    it('refreshes a dirty path before native facing-page printing without materializing bytes', async () => {
+        documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => '/tmp/refreshed-facing.pdf');
         const {
             getPrintableSourceData,
             scope,
@@ -900,13 +959,18 @@ describe('useWorkspacePrint', () => {
                 orientation: 'portrait',
             }, {reopenDialogOnError: false});
 
-            expect(ensureWorkingCopyFreshForRead).not.toHaveBeenCalled();
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
-            expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
-            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
-                description: expect.stringContaining('detached staging'),
-            }));
+            expect(documentsCapabilityMock.printPdfPath).toHaveBeenCalledWith(
+                '/tmp/refreshed-facing.pdf',
+                'document.pdf',
+                {
+                    pageNumbers: [2],
+                    viewMode: 'facing',
+                    orientation: 'portrait',
+                    requestId: expect.stringMatching(/^print-/u),
+                },
+            );
         } finally {
             scope.stop();
         }
@@ -1103,6 +1167,49 @@ describe('useWorkspacePrint', () => {
             expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
             expect(state.isPreparingPrint.value).toBe(false);
             expect(state.printError.value).toBeNull();
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('removes path-print preparation feedback when the matching native dialog opens', async () => {
+        let finishPrint!: (result: {success: boolean}) => void;
+        documentsCapabilityMock.printPdfPath.mockImplementation(() => new Promise((resolve) => {
+            finishPrint = resolve;
+        }));
+        const {
+            scope,
+            state,
+        } = createState({sourcePdf: {
+            kind: 'path',
+            path: '/tmp/native-dialog.pdf',
+            size: 689 * 1024 * 1024,
+        }});
+
+        try {
+            const printPromise = state.handlePrintDialogSubmit({
+                viewMode: 'facing',
+                orientation: 'landscape',
+            });
+            await flushMicrotasks();
+
+            const requestOptions = documentsCapabilityMock.printPdfPath.mock.calls[0]?.[2];
+            expect(requestOptions?.requestId).toMatch(/^print-/u);
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({title: 'print.preparing'}));
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            documentsCapabilityMock.emitNativePrintDialogOpened({requestId: 'another-print'});
+            expect(toastRemoveMock).not.toHaveBeenCalled();
+            documentsCapabilityMock.emitNativePrintDialogOpened({requestId: requestOptions?.requestId ?? ''});
+
+            expect(toastRemoveMock).toHaveBeenCalledWith('toast-id');
+            expect(state.isPreparingPrint.value).toBe(true);
+
+            finishPrint({success: true});
+            await printPromise;
+
+            expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
+            expect(state.isPreparingPrint.value).toBe(false);
         } finally {
             scope.stop();
         }

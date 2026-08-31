@@ -506,11 +506,15 @@ export function registerDocumentsIpcAdapter(
                 senderId: context.senderId,
                 window: BrowserWindow.fromWebContents(context.sender),
             }, data, fileName),
-        printPdfPath: (context, filePath, fileName, pageNumbers) =>
+        printPdfPath: (context, filePath, fileName, options) =>
             service.printPdfPath({
+                onNativePrintDialogOpened: requestId => context.sender.send(
+                    DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
+                    {requestId},
+                ),
                 senderId: context.senderId,
                 window: BrowserWindow.fromWebContents(context.sender),
-            }, filePath, fileName, pageNumbers),
+            }, filePath, fileName, options),
         getRecentFiles: context => service.getRecentFiles(context),
         removeRecentFile: async (originalPath) => {
             await service.removeRecentFile(originalPath);

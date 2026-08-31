@@ -35,6 +35,7 @@ import {
 import type {
     IRecentFile,
     TPdfViewMode,
+    TPrintOrientation,
 } from '@contracts/shared';
 import type {
     IPdfConformanceAnalysisOptions,
@@ -60,6 +61,15 @@ export interface IDocumentChunkReadResult {
     bytesRead: number;
     chunks: number;
 }
+
+export interface IPdfPathPrintOptions {
+    pageNumbers?: number[];
+    requestId?: string;
+    viewMode: TPdfViewMode;
+    orientation: TPrintOrientation;
+}
+
+export interface IPdfNativePrintDialogOpenedEvent {requestId: string;}
 
 /** A PDF indirect-object reference returned by the native annotation index. */
 export interface IPdfAnnotationIndexObjectRef {
@@ -935,12 +945,15 @@ export interface IDocumentsFileCapability {
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    printPdfPath: (path: TDocumentRef, fileName?: string, pageNumbers?: number[]) => Promise<{
+    printPdfPath: (path: TDocumentRef, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
+    onNativePrintDialogOpened?: (
+        callback: (event: IPdfNativePrintDialogOpenedEvent) => void,
+    ) => TMenuEventUnsubscribe;
     writeFile: (path: TDocumentRef, data: Uint8Array, options?: IDocumentMutationRevisionOptions) => Promise<boolean>;
     replaceWorkingCopyFromPath: (
         workingCopyPath: TDocumentRef,
@@ -1138,6 +1151,7 @@ export interface IDocumentsPdfExternalCapability extends Pick<
     | 'openPdfInDefaultAppPath'
     | 'printPdfData'
     | 'printPdfPath'
+    | 'onNativePrintDialogOpened'
 > {}
 
 export interface IDocumentsPdfPersistenceCapability extends Pick<

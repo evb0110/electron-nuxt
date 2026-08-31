@@ -160,6 +160,7 @@ const {
     selectedPages,
     totalPages,
     supportsAdvancedPrintOptions,
+    supportsFirstPageSinglePrintLayout = true,
 } = defineProps<{
     totalPages: number;
     currentPage: number;
@@ -170,6 +171,7 @@ const {
     status: string | null;
     error: string | null;
     supportsAdvancedPrintOptions?: boolean;
+    supportsFirstPageSinglePrintLayout?: boolean;
 }>();
 
 const emit = defineEmits<{submit: [payload: {
@@ -275,20 +277,30 @@ const printPageCount = computed(() => {
 const layoutOptions = computed<Array<{
     value: TPdfViewMode;
     label: string;
-}>>(() => [
-    {
-        value: 'single',
-        label: t('print.layoutSingle'),
-    },
-    {
-        value: 'facing',
-        label: t('print.layoutFacing'),
-    },
-    {
-        value: 'facing-first-single',
-        label: t('print.layoutFacingFirstSingle'),
-    },
-]);
+}>>(() => {
+    const options: Array<{
+        value: TPdfViewMode;
+        label: string;
+    }> = [
+        {
+            value: 'single',
+            label: t('print.layoutSingle'),
+        },
+        {
+            value: 'facing',
+            label: t('print.layoutFacing'),
+        },
+        {
+            value: 'facing-first-single',
+            label: t('print.layoutFacingFirstSingle'),
+        },
+    ];
+
+    return options.filter(option => (
+        option.value !== 'facing-first-single'
+        || supportsFirstPageSinglePrintLayout
+    ));
+});
 
 const orientationOptions = computed<Array<{
     value: TPrintOrientation;
@@ -340,7 +352,10 @@ watch(open, (isOpen) => {
     }
 
     resetScopeForOpen();
-    viewMode.value = supportsAdvancedPrintOptions === false ? 'single' : defaultViewMode;
+    viewMode.value = supportsAdvancedPrintOptions === false
+        || (defaultViewMode === 'facing-first-single' && !supportsFirstPageSinglePrintLayout)
+        ? 'single'
+        : defaultViewMode;
     orientation.value = 'auto';
 });
 </script>

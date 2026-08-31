@@ -1,4 +1,5 @@
 import { shell } from 'electron';
+import type { WebContentsPrintOptions } from 'electron';
 import { uniq } from 'es-toolkit/array';
 import {
     readdir,
@@ -17,6 +18,7 @@ import { getErrorMessage } from '@electron/utils/error';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import { registerMainOperation } from '@electron/operation-lifecycle/mainOperationLifecycle';
 import { extractPages } from '@electron/features/page-ops/public';
+import type { IPdfPathPrintOptions } from '@contracts/electronApiDocuments';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import type {
     IDocumentsSenderIdContext,
@@ -175,6 +177,51 @@ function normalizePrintPageNumbers(pageNumbers?: number[]) {
     return normalized.sort((left, right) => left - right);
 }
 
+function normalizePdfPathPrintOptions(options?: IPdfPathPrintOptions): IPdfPathPrintOptions {
+    const viewMode = options?.viewMode ?? 'single';
+    const orientation = options?.orientation ?? 'auto';
+    if (viewMode !== 'single' && viewMode !== 'facing' && viewMode !== 'facing-first-single') {
+        throw new Error('Invalid print layout');
+    }
+    if (viewMode === 'facing-first-single') {
+        throw new Error('First-page-single layout is unavailable for native path printing');
+    }
+    if (orientation !== 'auto' && orientation !== 'portrait' && orientation !== 'landscape') {
+        throw new Error('Invalid print orientation');
+    }
+    if (
+        options?.requestId !== undefined
+        && (typeof options.requestId !== 'string' || options.requestId.length === 0 || options.requestId.length > 128)
+    ) {
+        throw new Error('Invalid print request ID');
+    }
+    const pageNumbers = normalizePrintPageNumbers(options?.pageNumbers);
+    return {
+        viewMode,
+        orientation,
+        ...(pageNumbers ? {pageNumbers} : {}),
+        ...(options?.requestId === undefined ? {} : {requestId: options.requestId}),
+    };
+}
+
+function buildNativePathPrintOptions(
+    options: IPdfPathPrintOptions,
+    stagedPageCount?: number,
+): WebContentsPrintOptions {
+    return {
+        ...(options.viewMode === 'single' ? {} : {pagesPerSheet: 2}),
+        ...(options.orientation === 'auto'
+            ? {}
+            : {landscape: options.orientation === 'landscape'}),
+        ...(stagedPageCount === undefined
+            ? {}
+            : {pageRanges: [{
+                from: 0,
+                to: stagedPageCount - 1,
+            }]}),
+    };
+}
+
 export async function handlePrintPdfData(
     context: IDocumentsWindowContext,
     data: Uint8Array,
@@ -240,14 +287,25 @@ export async function handlePrintPdfPath(
     context: IDocumentsWindowContext,
     filePath: string,
     _fileName?: string,
-    pageNumbers?: number[],
+    options?: IPdfPathPrintOptions,
 ): Promise<IPrintPdfResult> {
     const ownerWindow = context.window ?? undefined;
-    const normalizedPageNumbers = normalizePrintPageNumbers(pageNumbers);
+    const normalizedOptions = normalizePdfPathPrintOptions(options);
+    const requestId = normalizedOptions.requestId;
+    const onNativeDialogOpened = requestId === undefined
+        ? undefined
+        : () => context.onNativePrintDialogOpened?.(requestId);
+    const normalizedPageNumbers = normalizedOptions.pageNumbers;
     if (!normalizedPageNumbers) {
         const resolvedPath = await resolveReadablePdfPathForSender(filePath, context.senderId);
         await assertPdfPathWithinSizeLimit(resolvedPath);
-        return openNativePrintDialogForPath(ownerWindow, resolvedPath, {}, _fileName);
+        return openNativePrintDialogForPath(
+            ownerWindow,
+            resolvedPath,
+            buildNativePathPrintOptions(normalizedOptions),
+            _fileName,
+            {...(onNativeDialogOpened ? {onNativeDialogOpened} : {})},
+        );
     }
 
     const cancelGroup = `print-selected-pages:${randomUUID()}`;
@@ -270,10 +328,16 @@ export async function handlePrintPdfPath(
             cancelGroup,
             signal: operation.signal,
         });
-        const result = await openNativePrintDialogForPath(ownerWindow, tempPath, {pageRanges: [{
-            from: 0,
-            to: normalizedPageNumbers.length - 1,
-        }]}, _fileName, {signal: operation.signal});
+        const result = await openNativePrintDialogForPath(
+            ownerWindow,
+            tempPath,
+            buildNativePathPrintOptions(normalizedOptions, normalizedPageNumbers.length),
+            _fileName,
+            {
+                ...(onNativeDialogOpened ? {onNativeDialogOpened} : {}),
+                signal: operation.signal,
+            },
+        );
         if (result.success) {
             shouldRetainTempPdf = true;
             schedulePrintTempCleanup(tempPath);

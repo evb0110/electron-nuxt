@@ -68,6 +68,7 @@ export interface IPrintPdfResult {
 export interface IPrintWindowContext {window?: BrowserWindow | null;}
 
 interface IPrintHandoffOptions {
+    onNativeDialogOpened?: () => void;
     signal?: AbortSignal;
     surface?: 'pdf-plugin' | 'rasterized-html';
 }
@@ -648,6 +649,9 @@ function revealPrintWindowForNativeDialog(printWindow: BrowserWindow, painted: b
     if (!painted) {
         logger.warn(`Print surface did not paint within ${PRINT_SURFACE_READY_TIMEOUT_MS}ms; opening the native dialog with the visible fallback`);
     }
+    // Chromium needs a compositor-visible PDF plugin window on macOS, but the
+    // native print sheet does not need its dark backing surface to be visible.
+    printWindow.setOpacity(0);
     printWindow.showInactive();
 }
 
@@ -677,6 +681,7 @@ function waitForPrintWindowReady(printWindow: BrowserWindow) {
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
     if (PRINT_WINDOW_VISIBLE_ON_DARWIN && !printWindow.isDestroyed()) {
         printWindow.hide();
+        printWindow.setOpacity(1);
     }
 }
 
@@ -717,6 +722,7 @@ async function runPrintToPdfSmoke(printWindow: BrowserWindow): Promise<IPrintPdf
 function runNativePrintDialog(
     printWindow: BrowserWindow,
     printOptions: WebContentsPrintOptions = {},
+    onNativeDialogOpened?: () => void,
 ): Promise<IPrintPdfResult> {
     if (shouldRunPrintToPdfSmoke()) {
         return runPrintToPdfSmoke(printWindow);
@@ -793,6 +799,11 @@ function runNativePrintDialog(
                     });
                 },
             );
+            try {
+                onNativeDialogOpened?.();
+            } catch (error) {
+                logger.warn(`Failed to report native print dialog handoff: ${getErrorMessage(error)}`);
+            }
         } catch (error) {
             finish({
                 success: false,
@@ -850,7 +861,11 @@ export async function openNativePrintDialogForPath(
         if (!rasterSurface) {
             revealPrintWindowForNativeDialog(printWindow, printSurfacePainted);
         }
-        const result = await runNativePrintDialog(printWindow, printOptions);
+        const result = await runNativePrintDialog(
+            printWindow,
+            printOptions,
+            handoffOptions.onNativeDialogOpened,
+        );
         if (handoffOptions.signal?.aborted) {
             return {
                 success: false,

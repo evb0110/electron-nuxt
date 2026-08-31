@@ -101,6 +101,7 @@ export const DOCUMENTS_CHANNELS = {
 
 export const DOCUMENTS_EVENT_CHANNELS = {
     documentRevisionChanged: DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged,
+    nativePrintDialogOpened: DOCUMENT_PDF_PLATFORM_FEATURE.eventChannels.onNativePrintDialogOpened,
     workingCopyBackingStatusChanged:
         DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onWorkingCopyBackingStatusChanged,
 } as const;

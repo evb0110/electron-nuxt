@@ -554,6 +554,9 @@ export function createElectronApi(
         openPdfInDefaultAppPath: baseDocuments.openPdfInDefaultAppPath,
         printPdfData: baseDocuments.printPdfData,
         printPdfPath: baseDocuments.printPdfPath,
+        ...(baseDocuments.onNativePrintDialogOpened
+            ? {onNativePrintDialogOpened: baseDocuments.onNativePrintDialogOpened}
+            : {}),
     } satisfies IDocumentsPdfCapability;
     const api = {
         manifest: ELECTRON_PLATFORM_MANIFEST,

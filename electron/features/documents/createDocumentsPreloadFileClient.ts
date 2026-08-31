@@ -15,10 +15,12 @@ import type {
     IPdfNativePagePreviewOptions,
     IPdfNativeStagedCommitOptions,
     IPdfOptimizeOptions,
+    IPdfPathPrintOptions,
     IPdfSaveAsOptions,
     IPdfSerializedCommitCallbacks,
     IPdfSerializedSaveOptions,
 } from '@contracts/electronApiDocuments';
+import {decodeOptionalPdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
 import {
     DOCX_EXPORT_STREAM_CHANNELS,
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
@@ -73,6 +75,7 @@ import {
     createCodecIpcInvoker,
     createTypedIpcEventSubscriber,
 } from '@electron/preload/ipcClient';
+import {createNativePrintDialogOpenedSubscriber} from '@electron/features/documents/createNativePrintDialogOpenedSubscriber';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
     assertAbsolutePath,
@@ -82,7 +85,6 @@ import {
     assertWriteData,
     MAX_IPC_FILE_NAME_LENGTH,
 } from '@electron/features/documents/preloadShared';
-
 type TDocumentsPreloadFileClient = Omit<
     IDocumentsFileCapability,
     keyof IDocumentsPickerCapability
@@ -125,7 +127,6 @@ interface ISerializedPdfPersistencePortResult {
         stagedOutput: ITypedStagedArtifact;
     };
 }
-
 interface IDocumentsFileEventMap {
     [DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged]:
     IDocumentRevisionChangedEvent;
@@ -967,6 +968,7 @@ export function createDocumentsPreloadFileClient(
                 callback,
             );
         },
+        onNativePrintDialogOpened: createNativePrintDialogOpenedSubscriber(ipcRenderer),
         analyzePdfConformance: (path, options) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.analyzePdfConformance,
@@ -1011,16 +1013,14 @@ export function createDocumentsPreloadFileClient(
                     ? assertNonEmptyString(fileName, 'printPdfData.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
             ),
-        printPdfPath: (path, fileName?: string, pageNumbers?: number[]) =>
+        printPdfPath: (path, fileName?: string, options?: IPdfPathPrintOptions) =>
             invokePdf(
                 DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
                 assertAbsolutePath(path, 'printPdfPath.path'),
                 typeof fileName === 'string'
                     ? assertNonEmptyString(fileName, 'printPdfPath.fileName', MAX_IPC_FILE_NAME_LENGTH)
                     : undefined,
-                Array.isArray(pageNumbers)
-                    ? pageNumbers.map((pageNumber, index) => assertPositiveInteger(pageNumber, `printPdfPath.pageNumbers[${index}]`))
-                    : undefined,
+                decodeOptionalPdfPathPrintOptions(options, 'printPdfPath.options'),
             ),
         writeFile: (path, data, options) =>
             invokeFiles(

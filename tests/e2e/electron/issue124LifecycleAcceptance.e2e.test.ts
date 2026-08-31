@@ -428,7 +428,11 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
                 if (!printPdfPath) {
                     throw new Error('Issue 124 lazy-materialization print bridge is unavailable');
                 }
-                return printPdfPath(path, 'issue-124-lazy.pdf', [1]);
+                return printPdfPath(path, 'issue-124-lazy.pdf', {
+                    pageNumbers: [1],
+                    viewMode: 'single',
+                    orientation: 'auto',
+                });
             }, workingCopyPath);
             // Puppeteer cannot deliver a result from a renderer after that
             // renderer has been killed. Main-operation unit coverage asserts
@@ -576,7 +580,11 @@ issue124Describe('Electron E2E - issue 124 lifecycle acceptance', () => {
                 if (!printPdfPath) {
                     throw new Error('Issue 124 qpdf-cancellation print bridge is unavailable');
                 }
-                return printPdfPath(path, 'issue-124-selected.pdf', pageNumbers);
+                return printPdfPath(path, 'issue-124-selected.pdf', {
+                    pageNumbers,
+                    viewMode: 'single',
+                    orientation: 'auto',
+                });
             }, {
                 pageNumbers: Array.from({length: ISSUE_124_SELECTED_PAGE_COUNT}, (_, index) => index + 1),
                 path: workingCopyPath,

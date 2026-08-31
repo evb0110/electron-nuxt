@@ -84,6 +84,7 @@ import {
     type TDocumentMethodArgs,
     type TDocumentMethodResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
+import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
 import {
     beginPdfAnnotationIndexArgs,
     cancelPdfAnnotationIndexArgs,
@@ -809,7 +810,17 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
             'printPdfPath', 'sender',
         ),
     },
-    events: {},
+    events: {onNativePrintDialogOpened: {
+        ...defineEvent(
+            'onNativePrintDialogOpened',
+            'pdf:print:native-dialog-opened',
+            s.fromParser(
+                decodePdfNativePrintDialogOpenedEvent,
+                () => ({requestId: 'print-request'}),
+            ),
+        ),
+        ...electronImplementedOptional,
+    }},
 });
 
 export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({

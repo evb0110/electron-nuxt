@@ -19,6 +19,7 @@
             :selected-page-selection="printDialogPageSelection"
             :default-view-mode="viewMode"
             :supports-advanced-print-options="supportsAdvancedPrintOptions"
+            :supports-first-page-single-print-layout="supportsFirstPageSinglePrintLayout"
             :is-preparing="isPreparingPrint"
             :status="printStatus"
             :error="printError"
@@ -109,6 +110,7 @@ defineProps<{
     currentPage: number;
     viewMode: TPdfPrintDialogProps['defaultViewMode'];
     supportsAdvancedPrintOptions: TPdfPrintDialogProps['supportsAdvancedPrintOptions'];
+    supportsFirstPageSinglePrintLayout: TPdfPrintDialogProps['supportsFirstPageSinglePrintLayout'];
     showDjvuConversionUi: boolean;
     showConvertDialog: boolean;
     djvuPath: TDjvuConvertDialogProps['djvuPath'];

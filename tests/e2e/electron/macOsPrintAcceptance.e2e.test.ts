@@ -376,7 +376,11 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
                 throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
             }
 
-            return printPdfPath(path, 'macos-print-acceptance.pdf', [1]);
+            return printPdfPath(path, 'macos-print-acceptance.pdf', {
+                pageNumbers: [1],
+                viewMode: 'single',
+                orientation: 'auto',
+            });
         }, workingCopyPath);
         void printPromise.catch(() => undefined);
 

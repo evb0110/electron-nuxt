@@ -45,6 +45,7 @@ import type {
     IPdfValidationResult,
 } from '@contracts/pdfConformance';
 import type { TPlatformUnsupportedReason } from '@contracts/platformUnsupported';
+import {decodePdfPathPrintOptions} from '@contracts/pdfPathPrintOptions';
 import {runtimeSchema as s} from '@contracts/platformFeature';
 import {
     isFiniteNumber,
@@ -242,16 +243,6 @@ function decodeStringArrayValue(value: unknown, fieldName: string) {
         fail(`${fieldName} must be an array of strings`);
     }
     return value as string[];
-}
-
-function decodePositiveIntegerArrayValue(value: unknown, fieldName: string) {
-    if (
-        !Array.isArray(value)
-        || value.some(item => typeof item !== 'number' || !Number.isSafeInteger(item) || item < 1)
-    ) {
-        fail(`${fieldName} must contain positive safe integers`);
-    }
-    return value as number[];
 }
 
 function decodeOptimizeOptions(value: unknown): IPdfOptimizeOptions {
@@ -969,19 +960,18 @@ const printPdfPathArgs = documentArgs<'printPdfPath'>(
         const args = decodeArgumentArray(value, 1, 3);
         const path = decodeStringValue(args[0], 'path');
         const fileName = decodeOptionalStringValue(args[1], 'fileName');
-        if (fileName === undefined) {
-            return [path];
+        if (args[2] === undefined) {
+            return fileName === undefined
+                ? [path]
+                : [
+                    path,
+                    fileName,
+                ];
         }
-        const pages = args[2] === undefined
-            ? undefined
-            : decodePositiveIntegerArrayValue(args[2], 'pageNumbers');
-        return pages === undefined ? [
+        return [
             path,
             fileName,
-        ] : [
-            path,
-            fileName,
-            pages,
+            decodePdfPathPrintOptions(args[2], 'options'),
         ];
     },
     () => ['/tmp/document.pdf'],

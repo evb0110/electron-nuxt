@@ -394,8 +394,12 @@ describe('documents print', () => {
         await vi.advanceTimersByTimeAsync(2_000);
         await expect(resultPromise).resolves.toEqual({success: true});
         expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
-        expect(printWindow?.setOpacity).not.toHaveBeenCalledWith(0);
+        expect(printWindow?.setOpacity).toHaveBeenNthCalledWith(1, 0);
+        expect(printWindow?.setOpacity.mock.invocationCallOrder[0]).toBeLessThan(
+            printWindow?.showInactive.mock.invocationCallOrder[0] ?? 0,
+        );
         expect(printWindow?.hide).toHaveBeenCalledTimes(1);
+        expect(printWindow?.setOpacity).toHaveBeenLastCalledWith(1);
     });
 
     it('accepts captured print pixels regardless of page color', () => {
@@ -435,6 +439,54 @@ describe('documents print', () => {
 
         await vi.runOnlyPendingTimersAsync();
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('hands facing-page layout and explicit orientation to native path printing', async () => {
+        vi.useFakeTimers();
+        const onNativePrintDialogOpened = vi.fn();
+        const resultPromise = handlePrintPdfPath(
+            {
+                ...windowContext,
+                onNativePrintDialogOpened,
+            },
+            sourcePdfPath,
+            'facing.pdf',
+            {
+                viewMode: 'facing',
+                orientation: 'landscape',
+                requestId: 'facing-print-request',
+            },
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({success: true});
+        expect(mocks.extractPages).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+            pathToFileURL(sourcePdfPath).toString(),
+        );
+        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+            expect.objectContaining({
+                landscape: true,
+                pagesPerSheet: 2,
+            }),
+            expect.any(Function),
+        );
+        expect(onNativePrintDialogOpened).toHaveBeenCalledOnce();
+        expect(onNativePrintDialogOpened).toHaveBeenCalledWith('facing-print-request');
+    });
+
+    it('rejects first-page-single layout instead of printing the first page at half size', async () => {
+        await expect(handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'first-single.pdf',
+            {
+                viewMode: 'facing-first-single',
+                orientation: 'auto',
+            },
+        )).rejects.toThrow('First-page-single layout is unavailable for native path printing');
+
+        expect(mocks.browserWindowInstances).toHaveLength(0);
     });
 
     it('uses the env-gated print-to-PDF smoke mode without opening the native dialog', async () => {
@@ -688,7 +740,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         const result = await settleNativePrint(resultPromise);
 
@@ -738,7 +794,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
 
@@ -767,7 +827,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         await vi.waitFor(() => expect(mocks.extractPages).toHaveBeenCalledOnce());
 
@@ -788,7 +852,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         for (let index = 0; index < 40; index += 1) {
             await Promise.resolve();

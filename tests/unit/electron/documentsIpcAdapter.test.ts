@@ -196,6 +196,41 @@ describe('documents ipc adapter', () => {
         );
     });
 
+    it('reports the native print-dialog handoff to the renderer that requested it', async () => {
+        const {
+            eventRegistrar,
+            handlers,
+            registrar,
+        } = createRegistrationHarness();
+        const send = vi.fn();
+        const sender = Object.assign(new EventEmitter(), {
+            id: 91,
+            send,
+        });
+        const printPdfPath = vi.fn(async (context: {onNativePrintDialogOpened?: (requestId: string) => void}) => {
+            context.onNativePrintDialogOpened?.('print-request-91');
+            return {success: true};
+        });
+        const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
+
+        registerDocumentsIpcAdapter(registrar as never, {printPdfPath} as never, {eventRegistrar});
+        await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintPath)?.(
+            {sender},
+            '/tmp/document.pdf',
+            'document.pdf',
+            {
+                viewMode: 'facing',
+                orientation: 'landscape',
+                requestId: 'print-request-91',
+            },
+        )).resolves.toEqual({success: true});
+
+        expect(send).toHaveBeenCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
+            {requestId: 'print-request-91'},
+        );
+    });
+
     it('fails the documents ipc invariant for duplicate channel values', async () => {
         const { assertDocumentsIpcSingleRegistrationInvariant } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
         const registeredChannels = [...new Set([

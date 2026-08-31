@@ -34,6 +34,12 @@ const NATIVE_PRINT_REQUIRED_REASON = 'requires-native-backend' as const;
 const PDF_LIB_PRINT_PAGE_COUNT_LIMIT = 5_000;
 const PRINT_SELECTION_MATERIALIZATION_LIMIT = 100_000;
 const HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY = 'print.highPageCountAdvancedLayout' as const;
+let nextNativePrintRequestId = 0;
+
+function createNativePrintRequestId() {
+    nextNativePrintRequestId += 1;
+    return `print-${Date.now()}-${nextNativePrintRequestId}`;
+}
 
 class NativePrintRequiredError extends Error {
     readonly code = 'native-print-required' as const;
@@ -145,8 +151,11 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let preparingPrintToastId: string | number | null = null;
 
     const supportsAdvancedPrintOptions = computed(() => (
+        isPathPdfSource(deps.sourcePdf.value)
+        || deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
+    ));
+    const supportsFirstPageSinglePrintLayout = computed(() => (
         !isPathPdfSource(deps.sourcePdf.value)
-        && deps.totalPages.value <= PDF_LIB_PRINT_PAGE_COUNT_LIMIT
     ));
 
     function canPrintDjvuSource() {
@@ -688,7 +697,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     }
 
     function resolveNativePathPrintPageNumbers(payload: IPrintDialogSubmitPayload) {
-        if (payload.viewMode !== 'single' || payload.orientation !== 'auto') {
+        if (payload.viewMode === 'facing-first-single') {
             return null;
         }
 
@@ -725,13 +734,14 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         const pageNumbers = resolveNativePathPrintPageNumbers(payload);
         if (pageNumbers === null) {
             throw new NativePrintRequiredError(
-                hasPendingPathPrintChanges()
-                    ? 'Native PDF printing is required because this dirty path-backed request cannot be represented without detached staging'
-                    : 'Native PDF printing is required because this path-backed request cannot be represented by the native path handoff',
+                payload.viewMode === 'facing-first-single'
+                    ? 'First-page-single layout is unavailable for path-backed PDF printing'
+                    : 'Native PDF printing is required because the selected path-backed pages are invalid',
             );
         }
 
-        const printPdfPath = getDocumentPdfCapability().printPdfPath;
+        const documentPdfCapability = getDocumentPdfCapability();
+        const printPdfPath = documentPdfCapability.printPdfPath;
         if (typeof printPdfPath !== 'function') {
             throw new NativePrintRequiredError(
                 'Native PDF printing is required because path printing is unavailable',
@@ -779,9 +789,23 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         throwIfPrintAborted(signal);
         closePrintDialogForSystemDialog();
         showPreparingPrintToast();
-        const result = pageNumbers === undefined
-            ? await printPdfPath(printPath, deps.fileName.value ?? undefined)
-            : await printPdfPath(printPath, deps.fileName.value ?? undefined, pageNumbers);
+        const requestId = createNativePrintRequestId();
+        const stopNativeDialogOpenedListener = documentPdfCapability.onNativePrintDialogOpened?.((event) => {
+            if (event.requestId === requestId) {
+                clearPreparingPrintToast();
+            }
+        });
+        let result;
+        try {
+            result = await printPdfPath(printPath, deps.fileName.value ?? undefined, {
+                viewMode: payload.viewMode,
+                orientation: payload.orientation,
+                requestId,
+                ...(pageNumbers === undefined ? {} : {pageNumbers}),
+            });
+        } finally {
+            stopNativeDialogOpenedListener?.();
+        }
         throwIfPrintAborted(signal);
         if (result.success || result.canceled) {
             return true;
@@ -837,7 +861,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                         : {pageNumbers: materializePageSelection(selection)}),
                 };
             }
-            if (requiresNativePrintForHighPageCountLayout(payload)) {
+            if (
+                !isPathPdfSource(deps.sourcePdf.value)
+                && requiresNativePrintForHighPageCountLayout(payload)
+            ) {
                 throw new NativePrintRequiredError(t(HIGH_PAGE_COUNT_PRINT_LAYOUT_ERROR_KEY));
             }
             throwIfPrintAborted(signal);
@@ -984,6 +1011,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         printError,
         printStatus,
         supportsAdvancedPrintOptions,
+        supportsFirstPageSinglePrintLayout,
         handlePrint,
         handleQuickPrint,
         handlePrintCurrentPage,

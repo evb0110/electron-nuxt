@@ -24,6 +24,7 @@ import type {
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
+    IPdfPathPrintOptions,
     IPdfPathValidationOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
@@ -60,6 +61,7 @@ export interface IDocumentsSenderIdContext {
 }
 
 export interface IDocumentsWindowContext {
+    onNativePrintDialogOpened?: (requestId: string) => void;
     senderId?: number;
     window: BrowserWindow | null;
 }
@@ -218,7 +220,7 @@ export interface IDocumentsService {
         canceled?: boolean;
         error?: string;
     }>;
-    printPdfPath: (context: IDocumentsWindowContext, filePath: string, fileName?: string, pageNumbers?: number[]) => Promise<{
+    printPdfPath: (context: IDocumentsWindowContext, filePath: string, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
