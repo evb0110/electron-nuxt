@@ -1,0 +1,21 @@
+scripts/wasm-fingerprint.mjs
+  s_b3eba3f665eb5c::t_cfb6809271a11c 38,102-104
+tests/unit/scripts/wasmFreshness.test.ts
+  s_b3eba3f665eb5c::t_cfb6809271a11c 241-267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "43e9a7a5279cc4b27e04b02bf944262f863a8da1",
+  "prompts": {},
+  "sessions": {
+    "s_b3eba3f665eb5c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05717-85ca-7122-bcf1-13656e3d390b",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
