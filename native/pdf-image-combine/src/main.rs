@@ -12,6 +12,7 @@ use evb_native_support::{
     bounded_io::{deserialize_bounded_vec, read_file_bounded},
     generated_native_tool_protocols::PDF_IMAGE_COMBINE,
     output::{AtomicOutput, ValidatedInputFiles},
+    pdf_catalog::deserialize_bounded_bookmark_items,
     NativeError, NativeErrorCode,
 };
 use evb_pdf_image_combine::{
@@ -314,7 +315,7 @@ struct CompactManifestJsonl {
     page_labels: Vec<PageLabelRange>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct CompactManifestJsonlHeader {
     format: String,
@@ -322,7 +323,11 @@ struct CompactManifestJsonlHeader {
     page_count: usize,
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
-    #[serde(default, alias = "bookmarks")]
+    #[serde(
+        default,
+        alias = "bookmarks",
+        deserialize_with = "deserialize_bounded_bookmark_items"
+    )]
     outlines: Vec<BookmarkEntry>,
     #[serde(default)]
     page_labels: Vec<PageLabelRange>,
@@ -702,7 +707,11 @@ struct ParsedCompactManifest {
 struct CompactManifestEnvelope {
     #[serde(default)]
     provenance_stamp_hex: Option<String>,
-    #[serde(default, alias = "bookmarks")]
+    #[serde(
+        default,
+        alias = "bookmarks",
+        deserialize_with = "deserialize_bounded_bookmark_items"
+    )]
     outlines: Vec<BookmarkEntry>,
     #[serde(default)]
     page_labels: Vec<PageLabelRange>,
@@ -1433,5 +1442,21 @@ mod tests {
         assert_eq!(parsed.page_labels.len(), 1);
         assert_eq!(parsed.page_labels[0].start_page, 1);
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn compact_manifest_header_rejects_aggregate_bookmark_overflow() {
+        let header = serde_json::json!({
+            "format": COMPACT_MANIFEST_JSONL_FORMAT,
+            "schemaVersion": COMPACT_MANIFEST_JSONL_SCHEMA_VERSION,
+            "pageCount": 1,
+            "outlines": (0..=evb_native_support::pdf_catalog::MAX_BOOKMARK_ITEMS)
+                .map(|_| serde_json::json!({"title": "x", "pageIndex": 0}))
+                .collect::<Vec<_>>(),
+        });
+
+        let error = serde_json::from_value::<CompactManifestJsonlHeader>(header)
+            .expect_err("the manifest outline field must use the shared aggregate bound");
+        assert!(error.to_string().contains("item admission ceiling"));
     }
 }

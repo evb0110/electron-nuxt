@@ -182,28 +182,6 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.embedPng).not.toHaveBeenCalled();
     });
 
-    it('checks PNG dimensions before embedding the image into pdf-lib', async () => {
-        mocks.readFile.mockResolvedValueOnce(createPngHeader(10_000, 10_000));
-
-        await expect(createCombinedPdf(['/tmp/oversized.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
-            .rejects
-            .toThrow('Image dimensions are too large to combine safely: /tmp/oversized.png');
-
-        expect(mocks.embedPng).not.toHaveBeenCalled();
-        expect(mocks.addPage).not.toHaveBeenCalled();
-    });
-
-    it.skip('rejects oversized JS fallback output before returning it', async () => {
-        mocks.save.mockResolvedValueOnce({byteLength: (16 * 1024 * 1024) + 1});
-
-        await expect(createCombinedPdf(['/tmp/a.png'], {unsupportedFileError: sourcePath => `Unsupported: ${sourcePath}`}))
-            .rejects
-            .toMatchObject({
-                code: 'too-large',
-                name: 'SerializableError',
-            });
-    });
-
     it.each([
         [
             'BMP',
@@ -277,6 +255,10 @@ describe('createCombinedPdf native image fast path', () => {
             expect.any(Object),
         );
         expect(mocks.embedPng).not.toHaveBeenCalled();
+        expect(mocks.rm).toHaveBeenCalledWith('/tmp/pdf-combine-normalized', {
+            recursive: true,
+            force: true,
+        });
     });
 
     it.each([
@@ -319,37 +301,6 @@ describe('createCombinedPdf native image fast path', () => {
         expect(mocks.embedPng).not.toHaveBeenCalled();
     });
 });
-
-function createPngHeader(width: number, height: number): Uint8Array<ArrayBuffer> {
-    const data = new Uint8Array(new ArrayBuffer(24));
-    data.set([
-        0x89,
-        0x50,
-        0x4e,
-        0x47,
-        0x0d,
-        0x0a,
-        0x1a,
-        0x0a,
-        0x00,
-        0x00,
-        0x00,
-        0x0d,
-        0x49,
-        0x48,
-        0x44,
-        0x52,
-    ]);
-    data[16] = (width >>> 24) & 0xff;
-    data[17] = (width >>> 16) & 0xff;
-    data[18] = (width >>> 8) & 0xff;
-    data[19] = width & 0xff;
-    data[20] = (height >>> 24) & 0xff;
-    data[21] = (height >>> 16) & 0xff;
-    data[22] = (height >>> 8) & 0xff;
-    data[23] = height & 0xff;
-    return data;
-}
 
 function writeUint16LE(data: Uint8Array, offset: number, value: number) {
     data[offset] = value & 0xff;

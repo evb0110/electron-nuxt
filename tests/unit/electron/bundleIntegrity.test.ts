@@ -77,10 +77,7 @@ const REQUIRED_SYMBOLS_BY_WORKER: Partial<Record<TWorkerBundleId, string[]>> = {
     ],
     'image-export-tiff': ['combinePagesIntoMultiPageTiffLocal'],
     ocr: ['detectSourceDpiDetails'],
-    'page-ops-crop': [
-        'cropPagesLocal',
-        'getPageGeometryLocal',
-    ],
+    'page-ops-crop': ['cropPagesLocal'],
     'pdf-combine': [
         'tryCreatePdfFromInputPathsNative',
         'tryCreatePdfWithNativeImageCombiner',

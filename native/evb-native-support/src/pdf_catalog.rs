@@ -1,6 +1,6 @@
-use crate::bounded_io::deserialize_bounded_vec;
-use serde::de::Deserializer;
+use serde::de::{DeserializeSeed, Deserializer, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 pub const MAX_BOOKMARK_ITEMS: usize = 5_000;
 pub const MAX_BOOKMARK_DEPTH: usize = 64;
@@ -15,7 +15,7 @@ pub struct PageLabelRange {
     pub start_number: u32,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BookmarkEntry {
     pub title: String,
@@ -30,18 +30,182 @@ pub struct BookmarkEntry {
     pub italic: bool,
     #[serde(default)]
     pub color: Option<String>,
-    #[serde(default)]
-    #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
     pub items: Vec<BookmarkEntry>,
 }
 
-fn deserialize_bounded_bookmark_items<'de, D>(
+struct BookmarkBudget {
+    items: usize,
+}
+
+struct BookmarkSeed<'a> {
+    budget: &'a mut BookmarkBudget,
+    depth: usize,
+}
+
+struct BookmarkListSeed<'a> {
+    budget: &'a mut BookmarkBudget,
+    depth: usize,
+}
+
+struct BookmarkVisitor<'a> {
+    budget: &'a mut BookmarkBudget,
+    depth: usize,
+}
+
+struct BookmarkListVisitor<'a> {
+    budget: &'a mut BookmarkBudget,
+    depth: usize,
+}
+
+impl<'de, 'a> DeserializeSeed<'de> for BookmarkSeed<'a> {
+    type Value = BookmarkEntry;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        if self.depth >= MAX_BOOKMARK_DEPTH {
+            return Err(serde::de::Error::custom(format!(
+                "bookmark tree exceeds the {MAX_BOOKMARK_DEPTH}-level admission ceiling"
+            )));
+        }
+        if self.budget.items >= MAX_BOOKMARK_ITEMS {
+            return Err(serde::de::Error::custom(format!(
+                "bookmark tree exceeds the {MAX_BOOKMARK_ITEMS}-item admission ceiling"
+            )));
+        }
+        self.budget.items += 1;
+        deserializer.deserialize_map(BookmarkVisitor {
+            budget: self.budget,
+            depth: self.depth,
+        })
+    }
+}
+
+impl<'de, 'a> DeserializeSeed<'de> for BookmarkListSeed<'a> {
+    type Value = Vec<BookmarkEntry>;
+
+    fn deserialize<D>(self, deserializer: D) -> Result<Self::Value, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        deserializer.deserialize_seq(BookmarkListVisitor {
+            budget: self.budget,
+            depth: self.depth,
+        })
+    }
+}
+
+impl<'de, 'a> Visitor<'de> for BookmarkListVisitor<'a> {
+    type Value = Vec<BookmarkEntry>;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a bounded bookmark array")
+    }
+
+    fn visit_seq<A>(self, mut sequence: A) -> Result<Self::Value, A::Error>
+    where
+        A: SeqAccess<'de>,
+    {
+        let capacity = sequence.size_hint().unwrap_or(0).min(MAX_BOOKMARK_ITEMS);
+        let mut items = Vec::with_capacity(capacity);
+        while let Some(item) = sequence.next_element_seed(BookmarkSeed {
+            budget: self.budget,
+            depth: self.depth,
+        })? {
+            items.push(item);
+        }
+        Ok(items)
+    }
+}
+
+impl<'de, 'a> Visitor<'de> for BookmarkVisitor<'a> {
+    type Value = BookmarkEntry;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("a bookmark object")
+    }
+
+    fn visit_map<M>(self, mut map: M) -> Result<Self::Value, M::Error>
+    where
+        M: MapAccess<'de>,
+    {
+        let mut title = None;
+        let mut page_index = None;
+        let mut page_y_ratio = None;
+        let mut named_dest = None;
+        let mut bold = false;
+        let mut italic = false;
+        let mut color = None;
+        let mut items = None;
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                "title" => title = Some(map.next_value()?),
+                "pageIndex" => page_index = Some(map.next_value()?),
+                "pageYRatio" => page_y_ratio = map.next_value()?,
+                "namedDest" => named_dest = map.next_value()?,
+                "bold" => bold = map.next_value()?,
+                "italic" => italic = map.next_value()?,
+                "color" => color = map.next_value()?,
+                "items" => {
+                    items = Some(map.next_value_seed(BookmarkListSeed {
+                        budget: self.budget,
+                        depth: self.depth + 1,
+                    })?);
+                }
+                _ => return Err(serde::de::Error::unknown_field(&key, BOOKMARK_FIELDS)),
+            }
+        }
+        Ok(BookmarkEntry {
+            title: title.ok_or_else(|| serde::de::Error::missing_field("title"))?,
+            page_index: page_index.unwrap_or(None),
+            page_y_ratio,
+            named_dest,
+            bold,
+            italic,
+            color,
+            items: items.unwrap_or_default(),
+        })
+    }
+}
+
+const BOOKMARK_FIELDS: &[&str] = &[
+    "title",
+    "pageIndex",
+    "pageYRatio",
+    "namedDest",
+    "bold",
+    "italic",
+    "color",
+    "items",
+];
+
+impl<'de> Deserialize<'de> for BookmarkEntry {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let mut budget = BookmarkBudget { items: 0 };
+        BookmarkSeed {
+            budget: &mut budget,
+            depth: 0,
+        }
+        .deserialize(deserializer)
+    }
+}
+
+pub fn deserialize_bounded_bookmark_items<'de, D>(
     deserializer: D,
 ) -> Result<Vec<BookmarkEntry>, D::Error>
 where
     D: Deserializer<'de>,
 {
-    deserialize_bounded_vec::<D, BookmarkEntry, MAX_BOOKMARK_ITEMS>(deserializer)
+    let mut budget = BookmarkBudget { items: 0 };
+    BookmarkListSeed {
+        budget: &mut budget,
+        depth: 0,
+    }
+    .deserialize(deserializer)
 }
 
 pub fn clamp_u32(value: u32, min: u32, max: u32) -> u32 {
@@ -273,5 +437,56 @@ mod tests {
         assert_eq!(normalized[0].page_y_ratio, None);
         assert_eq!(normalized[0].named_dest, None);
         assert_eq!(normalized[0].color.as_deref(), Some("#aabbcc"));
+    }
+
+    #[test]
+    fn rejects_bookmark_depth_before_descending() {
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct BookmarkRoot {
+            #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
+            items: Vec<BookmarkEntry>,
+        }
+        let mut json = String::new();
+        for _ in 0..=MAX_BOOKMARK_DEPTH {
+            json.push_str(r#"{"title":"nested","pageIndex":0,"items":["#);
+        }
+        json.push_str(r#"{"title":"leaf","pageIndex":0}"#);
+        for _ in 0..=MAX_BOOKMARK_DEPTH {
+            json.push_str("]}");
+        }
+
+        let source = format!(r#"{{"items":[{json}]}}"#);
+        let error = BookmarkRoot::deserialize(&mut serde_json::Deserializer::from_str(&source))
+            .expect_err("deep bookmark trees must be rejected");
+        assert!(
+            error.to_string().contains("admission ceiling")
+                || error.to_string().contains("recursion limit"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn rejects_bookmark_count_across_the_whole_tree() {
+        #[allow(dead_code)]
+        #[derive(Debug, Deserialize)]
+        struct BookmarkRoot {
+            #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
+            items: Vec<BookmarkEntry>,
+        }
+        let item = r#"{"title":"item","pageIndex":0}"#;
+        let json = format!(
+            r#"{{"items":[{}]}}"#,
+            std::iter::repeat_n(item, MAX_BOOKMARK_ITEMS + 1)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+
+        let error = serde_json::from_str::<BookmarkRoot>(&json)
+            .expect_err("bookmark trees over the aggregate item limit must be rejected");
+        assert!(
+            error.to_string().contains("item admission ceiling"),
+            "{error}"
+        );
     }
 }

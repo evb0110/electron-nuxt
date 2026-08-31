@@ -1,5 +1,7 @@
 use super::*;
-pub(crate) use evb_native_support::pdf_catalog::{BookmarkEntry, PageLabelRange};
+pub(crate) use evb_native_support::pdf_catalog::{
+    deserialize_bounded_bookmark_items, BookmarkEntry, PageLabelRange,
+};
 use serde::Serialize;
 
 fn deserialize_collection<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -8,15 +10,6 @@ where
     T: serde::Deserialize<'de>,
 {
     deserialize_bounded_vec::<D, T, MAX_COLLECTION_ITEMS>(deserializer)
-}
-
-fn deserialize_bookmark_items<'de, D>(
-    deserializer: D,
-) -> std::result::Result<Vec<BookmarkEntry>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    deserialize_bounded_vec::<D, BookmarkEntry, 5_000>(deserializer)
 }
 
 fn deserialize_shape_items<'de, D, T>(deserializer: D) -> std::result::Result<Vec<T>, D::Error>
@@ -940,7 +933,7 @@ pub(crate) struct BookmarksMutation {
     pub(crate) total_pages: u32,
     pub(crate) untitled_label: String,
     #[serde(default)]
-    #[serde(deserialize_with = "deserialize_bookmark_items")]
+    #[serde(deserialize_with = "deserialize_bounded_bookmark_items")]
     pub(crate) items: Vec<BookmarkEntry>,
 }
 

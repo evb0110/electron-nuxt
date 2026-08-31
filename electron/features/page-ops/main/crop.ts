@@ -336,25 +336,10 @@ export async function getPageGeometry(
     if (nativeGeometry) {
         return nativeGeometry;
     }
-    try {
-        return await runCropWorkerTask<IPageGeometry>({
-            type: 'getPageGeometry',
-            workingCopyPath: materializedPath,
-            pageNumber,
-            ...(senderWebContentsId !== undefined ? { senderWebContentsId } : {}),
-        }, decodePageGeometryResult, signal);
-    } catch (error) {
-        if (!shouldFallbackToLocalCrop(error)) {
-            throw error;
-        }
-        await assertPageOpsLocalFallbackAllowed(materializedPath, 'get-page-geometry', signal);
-        throw new PdfPageOpsCapabilityError(
-            'native-failure',
-            `Native page geometry and the crop worker were unavailable: ${getErrorMessage(error)}`,
-            {
-                operation: 'get-page-geometry',
-                cause: error,
-            },
-        );
-    }
+    await assertPageOpsLocalFallbackAllowed(materializedPath, 'get-page-geometry', signal);
+    throw new PdfPageOpsCapabilityError(
+        'native-failure',
+        'Native page geometry was unavailable and no JavaScript fallback is permitted',
+        {operation: 'get-page-geometry'},
+    );
 }
