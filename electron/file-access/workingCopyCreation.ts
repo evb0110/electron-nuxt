@@ -13,8 +13,13 @@ import {
 import {writeFile} from 'fs/promises';
 import {
     decryptPdfFileIfNeeded,
-    isPdfFileEncrypted,
+    isPdfFileEncrypted as isLegacyPdfFileEncrypted,
 } from '@electron/utils/decryptPdfFileIfNeeded';
+import {
+    decryptWorkingCopyWithWriter,
+    PdfDecryptAttemptError,
+    type TWorkingCopyDecryptionResult,
+} from '@electron/file-access/workingCopyDecryption';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {
     attemptWorkingCopyClone,
@@ -62,6 +67,11 @@ interface IWorkingCopyPhaseTiming {
 
 type TWorkingCopyMaterializationMode = 'eager' | 'background' | 'lazy';
 
+export interface IWorkingCopyCreationResult {
+    workingPath: string;
+    wasEncrypted: true | undefined;
+}
+
 // Permanent runtime kill-switch, not a compatibility shim: 'eager' restores
 // pre-lazy behavior for filesystems where background materialization
 // misbehaves; remove only if the lazy backing itself is ever removed.
@@ -95,7 +105,59 @@ function resolveWorkingCopyRoleForPathClone(
     return getWorkingCopyOriginalPath(sourcePath, ownerWebContentsId) ? 'snapshot' : 'current';
 }
 
-export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
+async function decryptPdfWorkingCopy(
+    workingPath: string,
+    password: string | undefined,
+    timings: IWorkingCopyPhaseTiming[],
+    signal?: AbortSignal,
+    useWriter = false,
+): Promise<TWorkingCopyDecryptionResult> {
+    const encrypted = await measureWorkingCopyPhase(timings, 'encryption-probe', () =>
+        isLegacyPdfFileEncrypted(workingPath));
+    if (!encrypted) {
+        return {
+            outcome: 'plain',
+            wasEncrypted: false,
+            revision: null,
+        };
+    }
+    if (useWriter) {
+        return measureWorkingCopyPhase(timings, 'decrypt', () =>
+            decryptWorkingCopyWithWriter(workingPath, password, signal));
+    }
+    const decrypted = await measureWorkingCopyPhase(timings, 'decrypt', () =>
+        decryptPdfFileIfNeeded(workingPath));
+    return decrypted
+        ? {
+            outcome: 'decrypted',
+            wasEncrypted: true,
+            revision: null,
+        }
+        : {
+            outcome: 'plain',
+            wasEncrypted: false,
+            revision: null,
+        };
+}
+
+function throwOnPdfDecryptFailure(outcome: TWorkingCopyDecryptionResult) {
+    if (outcome.outcome !== 'needs-password' && outcome.outcome !== 'unsupported') {
+        return;
+    }
+    throw new PdfDecryptAttemptError(
+        outcome.outcome === 'needs-password'
+            ? 'needs-password'
+            : 'unsupported-encryption',
+    );
+}
+
+async function createWorkingCopyWithOutcomeInternal(
+    originalPath: TOpenPath,
+    ownerWebContentsId?: number,
+    password?: string,
+    signal?: AbortSignal,
+    useWriter = false,
+): Promise<IWorkingCopyCreationResult> {
     const operationStartedAt = performance.now();
     const phaseTimings: IWorkingCopyPhaseTiming[] = [];
     const workDir = createWorkingDirectory();
@@ -116,8 +178,9 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                     copyFileFromStableSource(originalPath, workingPath));
             }
             if (isPdf) {
-                encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                    decryptPdfFileIfNeeded(workingPath));
+                const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
+                encrypted = decryption.wasEncrypted;
+                throwOnPdfDecryptFailure(decryption);
             }
             backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
         } else {
@@ -128,7 +191,7 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                     captureWorkingCopyAdmissionSnapshot(originalPath));
                 encrypted = isPdf
                     ? await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                        isPdfFileEncrypted(originalPath))
+                        isLegacyPdfFileEncrypted(originalPath))
                     : false;
                 const afterProbe = await measureWorkingCopyPhase(phaseTimings, 'source-stat-after-probe', () =>
                     captureWorkingCopyAdmissionSnapshot(originalPath));
@@ -143,8 +206,15 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                     await measureWorkingCopyPhase(phaseTimings, 'eager-copy', () =>
                         copyFileFromStableSource(originalPath, workingPath));
                     if (isPdf) {
-                        await measureWorkingCopyPhase(phaseTimings, 'decrypt', () =>
-                            decryptPdfFileIfNeeded(workingPath));
+                        const decryption = await decryptPdfWorkingCopy(
+                            workingPath,
+                            password,
+                            phaseTimings,
+                            signal,
+                            useWriter,
+                        );
+                        encrypted = decryption.wasEncrypted;
+                        throwOnPdfDecryptFailure(decryption);
                     }
                     backingState = 'eager';
                 } else {
@@ -152,8 +222,9 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
                 }
             } else {
                 if (isPdf) {
-                    encrypted = await measureWorkingCopyPhase(phaseTimings, 'encryption-probe', () =>
-                        decryptPdfFileIfNeeded(workingPath));
+                    const decryption = await decryptPdfWorkingCopy(workingPath, password, phaseTimings, signal, useWriter);
+                    encrypted = decryption.wasEncrypted;
+                    throwOnPdfDecryptFailure(decryption);
                 }
                 backingState = cloneOutcome === 'cloned' && !encrypted ? 'cloned' : 'eager';
             }
@@ -191,11 +262,40 @@ export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContent
             totalMs: Math.round((performance.now() - operationStartedAt) * 10) / 10,
             workingPath,
         })}`);
-        return workingPath;
+        return {
+            workingPath,
+            wasEncrypted: encrypted || undefined,
+        };
     } catch (error) {
         await safeRemoveDirectory(workDir);
         throw error;
     }
+}
+
+export async function createWorkingCopyWithOutcome(
+    originalPath: TOpenPath,
+    ownerWebContentsId?: number,
+    password?: string,
+    signal?: AbortSignal,
+) {
+    return createWorkingCopyWithOutcomeInternal(
+        originalPath,
+        ownerWebContentsId,
+        password,
+        signal,
+        password !== undefined,
+    );
+}
+
+export async function createWorkingCopy(originalPath: TOpenPath, ownerWebContentsId?: number) {
+    const result = await createWorkingCopyWithOutcomeInternal(
+        originalPath,
+        ownerWebContentsId,
+        undefined,
+        undefined,
+        false,
+    );
+    return result.workingPath;
 }
 
 export async function createWorkingCopyFromPath(

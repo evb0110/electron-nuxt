@@ -6,8 +6,10 @@ import {
     it,
 } from 'vitest';
 import {
+    PDF_DECRYPT_PASSWORD_MAX_BYTES,
     PDF_DECRYPT_OUTCOMES,
     isPdfDecryptOutcome,
+    isPdfDecryptPassword,
     isPdfDecryptRequest,
     isPdfDecryptResult,
 } from '@contracts/pdfDecryptSchemas';
@@ -29,6 +31,9 @@ describe('pdf decrypt outcome guard', () => {
         expect(isPdfDecryptRequest(undefined)).toBe(true);
         expect(isPdfDecryptRequest({})).toBe(true);
         expect(isPdfDecryptRequest({password: 'secret'})).toBe(true);
+        expect(isPdfDecryptPassword('x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES))).toBe(true);
+        expect(isPdfDecryptPassword('x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1))).toBe(false);
+        expect(isPdfDecryptRequest({password: 'x'.repeat(PDF_DECRYPT_PASSWORD_MAX_BYTES + 1)})).toBe(false);
         expect(isPdfDecryptRequest({password: 3})).toBe(false);
         expect(isPdfDecryptRequest(null)).toBe(false);
     });

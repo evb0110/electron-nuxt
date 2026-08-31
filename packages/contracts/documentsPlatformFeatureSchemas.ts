@@ -10,7 +10,6 @@ import {
     type IPdfOptimizeOptions,
     type IPdfOptimizeResult,
     type TDocumentSaveResult,
-    type TOpenFileResult,
     type TOpenFolderDialogResult,
     type TShowItemInFolderResult,
 } from '@contracts/electronApiDocuments';
@@ -39,6 +38,14 @@ import {
     decodeUint8ArrayValue,
     fail,
 } from '@contracts/documentsPlatformFeatureNativePageSchemas';
+import {
+    isPdfDecryptPassword,
+    PDF_DECRYPT_PASSWORD_MAX_BYTES,
+} from '@contracts/pdfDecryptSchemas';
+import {
+    decodeOpenFileResult,
+    openFileResult,
+} from '@contracts/pdfOpenFileSchemas';
 import type {
     IPdfConformanceAnalysisOptions,
     IPdfConformanceProfile,
@@ -63,41 +70,6 @@ const fixtureNativeMutation = {pageLabels: {
     totalPages: 1,
     ranges: [],
 }};
-function decodeOpenFileResult(value: unknown): TOpenFileResult | null {
-    if (value === null) {
-        return null;
-    }
-    if (!isRecord(value) || (value.kind !== 'pdf' && value.kind !== 'djvu')) {
-        fail('invalid open-file result');
-    }
-    if (value.kind === 'djvu') {
-        if (value.workingPath !== '' || typeof value.originalPath !== 'string') {
-            fail('invalid DjVu open-file result');
-        }
-        return {
-            kind: 'djvu',
-            workingPath: '',
-            originalPath: value.originalPath,
-        };
-    }
-    if (
-        typeof value.workingPath !== 'string'
-        || typeof value.originalPath !== 'string'
-        || (value.isGenerated !== undefined && typeof value.isGenerated !== 'boolean')
-    ) {
-        fail('invalid PDF open-file result');
-    }
-    const openingGeometry = value.openingGeometry === undefined
-        ? undefined
-        : decodeOpeningGeometry(value.openingGeometry);
-    return {
-        kind: 'pdf',
-        workingPath: value.workingPath,
-        originalPath: value.originalPath,
-        ...(value.isGenerated === undefined ? {} : {isGenerated: value.isGenerated}),
-        ...(openingGeometry === undefined ? {} : {openingGeometry}),
-    };
-}
 function decodeRecentFile(value: unknown): IRecentFile {
     if (
         !isRecord(value)
@@ -461,8 +433,6 @@ function decodeConformanceResult(value: unknown): IPdfConformanceProfile {
     };
 }
 
-const openFileResult = s.fromParser<TFileResult>(decodeOpenFileResult, () => null);
-type TFileResult = TOpenFileResult | null;
 const nullableStringResult = s.fromParser<string | null>(
     value => value === null || typeof value === 'string'
         ? value
@@ -538,7 +508,22 @@ function decodeSingleStringArgs<TName extends TDocumentMethodName>(
 }
 
 const openDocumentDirectArgs = documentArgs<'openDocumentDirect'>(
-    value => decodeSingleStringArgs<'openDocumentDirect'>(value, 'path'),
+    (value) => {
+        const args = decodeArgumentArray(value, 1, 2);
+        const path = decodeStringValue(args[0], 'path');
+        return args.length === 1 || args[1] === undefined
+            ? [path]
+            : (() => {
+                const password = decodeStringValue(args[1], 'password');
+                if (!isPdfDecryptPassword(password)) {
+                    fail(`password exceeds the ${PDF_DECRYPT_PASSWORD_MAX_BYTES}-byte limit`);
+                }
+                return [
+                    path,
+                    password,
+                ];
+            })();
+    },
     () => ['/tmp/document.pdf'],
 );
 const openDocumentDirectBatchArgs = documentArgs<'openDocumentDirectBatch'>(

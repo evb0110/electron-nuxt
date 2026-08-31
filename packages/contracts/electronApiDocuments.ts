@@ -52,7 +52,7 @@ import type {
     IPdfDecryptRequest,
     IPdfDecryptResult,
 } from '@contracts/pdfDecryptSchemas';
-
+import type {TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileResults';
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
 
 export interface IDocumentChunkReadOptions {
@@ -369,7 +369,7 @@ export interface IOpenDjvuResult {
     originalPath: TDocumentRef;
 }
 
-export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult;
+export type TOpenFileResult = IOpenPdfResult | IOpenDjvuResult | TPdfOpenFileFailureResult;
 export type TOpenFolderDialogResult =
     | {
         ok: true;
@@ -865,7 +865,7 @@ export interface IDocumentsFileCapability {
     openFolderDialog: () => Promise<TOpenFileResult | null>;
     openFolderDialogStructured?: () => Promise<TOpenFolderDialogResult>;
     openImageDialog: () => Promise<string | null>;
-    openDocumentDirect: (path: TDocumentRef) => Promise<TOpenFileResult | null>;
+    openDocumentDirect: (path: TDocumentRef, password?: string) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         paths: TDocumentRef[],
         requestId?: string,

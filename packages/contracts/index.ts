@@ -111,6 +111,7 @@ export type {
 } from '@contracts/electronApiDocuments';
 export {decodePdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
 export type {IPdfAnnotationParseProtocolFixture} from '@contracts/pdfAnnotationParseSchemas';
+export type * from '@contracts/pdfOpenFileResults';
 
 export {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,

@@ -74,11 +74,20 @@ describe('in-process preload to validated IPC round trips', () => {
             '/documents/duplicate-source-b/duplicate-recent-source.pdf',
         ];
         const receivedChunks: Uint8Array[] = [];
-        const openDocumentDirect = vi.fn(async (_context: unknown, originalPath: string) => ({
-            kind: 'pdf' as const,
-            originalPath,
-            workingPath: `/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`,
-        }));
+        const openDocumentDirect = vi.fn(async (
+            _context: unknown,
+            originalPath: string,
+            password?: string,
+        ) => originalPath === '/documents/protected.pdf' && password !== 'correct-password'
+            ? {
+                kind: 'pdf-needs-password' as const,
+                originalPath,
+            }
+            : {
+                kind: 'pdf' as const,
+                originalPath,
+                workingPath: `/managed/duplicate-source-${originalPath.includes('-a/') ? 'a' : 'b'}.pdf`,
+            });
         const service = cast<IDocumentsService>({
             beginSavePdfData: vi.fn(async () => ({sessionId: 'persistence-session-1'})),
             createWorkingCopyFromData: vi.fn(async () => '/tmp/working-copy.pdf'),
@@ -176,7 +185,7 @@ describe('in-process preload to validated IPC round trips', () => {
         ]);
 
         const opened = await Promise.all(sourcePaths.map(path => harness.client.openDocumentDirect(path)));
-        expect(opened.map(result => result?.workingPath)).toEqual([
+        expect(opened.map(result => result?.kind === 'pdf' ? result.workingPath : undefined)).toEqual([
             '/managed/duplicate-source-a.pdf',
             '/managed/duplicate-source-b.pdf',
         ]);
@@ -185,5 +194,47 @@ describe('in-process preload to validated IPC round trips', () => {
             args: [path],
             channel: DOCUMENTS_CHANNELS.openDocumentDirect,
         })));
+
+        await expect(harness.client.openDocumentDirect('/documents/protected.pdf'))
+            .resolves.toEqual({
+                kind: 'pdf-needs-password',
+                originalPath: '/documents/protected.pdf',
+            });
+        await expect(harness.client.openDocumentDirect('/documents/protected.pdf', 'wrong-password'))
+            .resolves.toEqual({
+                kind: 'pdf-needs-password',
+                originalPath: '/documents/protected.pdf',
+            });
+        await expect(harness.client.openDocumentDirect('/documents/protected.pdf', 'correct-password'))
+            .resolves.toMatchObject({
+                kind: 'pdf',
+                originalPath: '/documents/protected.pdf',
+            });
+        expect(openDocumentDirect.mock.calls.slice(-2).map(call => call.slice(1))).toEqual([
+            [
+                '/documents/protected.pdf',
+                'wrong-password',
+            ],
+            [
+                '/documents/protected.pdf',
+                'correct-password',
+            ],
+        ]);
+        expect(harness.invokeCalls.slice(-2)).toEqual([
+            {
+                args: [
+                    '/documents/protected.pdf',
+                    'wrong-password',
+                ],
+                channel: DOCUMENTS_CHANNELS.openDocumentDirect,
+            },
+            {
+                args: [
+                    '/documents/protected.pdf',
+                    'correct-password',
+                ],
+                channel: DOCUMENTS_CHANNELS.openDocumentDirect,
+            },
+        ]);
     });
 });

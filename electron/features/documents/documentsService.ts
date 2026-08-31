@@ -76,7 +76,11 @@ export interface IDocumentsService {
     openCombineDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openFolderDialog: (context: IDocumentsDialogContext) => Promise<TOpenFileResult | null>;
     openImageDialog: (context: IDocumentsDialogContext) => Promise<string | null>;
-    openDocumentDirect: (context: IDocumentsWebContentsContext, filePath: string) => Promise<TOpenFileResult | null>;
+    openDocumentDirect: (
+        context: IDocumentsWebContentsContext,
+        filePath: string,
+        password?: string,
+    ) => Promise<TOpenFileResult | null>;
     openDocumentDirectBatch: (
         context: IDocumentsWebContentsContext,
         filePaths: string[],

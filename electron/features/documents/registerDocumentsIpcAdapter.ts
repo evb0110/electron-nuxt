@@ -369,8 +369,9 @@ export function registerDocumentsIpcAdapter(
             ...context,
             parentWindow: BrowserWindow.fromWebContents(context.sender),
         }),
-        openDocumentDirect: (context, filePath) =>
-            service.openDocumentDirect(context, filePath),
+        openDocumentDirect: (context, filePath, password) => password === undefined
+            ? service.openDocumentDirect(context, filePath)
+            : service.openDocumentDirect(context, filePath, password),
         openDocumentDirectBatch: (context, filePaths, requestId, batchOptions) =>
             service.openDocumentDirectBatch(context, filePaths, requestId, batchOptions),
         cancelOpenDocumentDirectBatch: (context, requestId) =>

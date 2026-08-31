@@ -938,7 +938,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
 
         const result = await capability.openDocumentDirect(sourceRef);
         const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
-        const workingEntry = result
+        const workingEntry = result?.kind === 'pdf'
             ? await browserDocumentStore.requireEntry(result.workingPath)
             : null;
 

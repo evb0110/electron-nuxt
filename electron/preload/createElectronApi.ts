@@ -252,13 +252,15 @@ export function createElectronApi(
         });
     }
 
-    const openDocumentDirect = async (path: string) => {
+    const openDocumentDirect = async (path: string, password?: string) => {
         const pendingAllow = pendingRendererFileOpenAllows.get(path)?.promise;
         if (pendingAllow && !await pendingAllow) {
             return null;
         }
         await options.waitForDocumentOpenDirect?.(path);
-        return baseDocuments.openDocumentDirect(path);
+        return password === undefined
+            ? baseDocuments.openDocumentDirect(path)
+            : baseDocuments.openDocumentDirect(path, password);
     };
     const openDocumentDirectBatch = async (
         paths: string[],

@@ -38,6 +38,7 @@ import type {
     IDocumentsDialogContext,
     IDocumentsWebContentsContext,
 } from '@electron/features/documents/documentsService';
+import {isPdfDecryptPassword} from '@contracts/pdfDecryptSchemas';
 
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
@@ -158,10 +159,14 @@ async function openDocumentsFromDialog(
 export async function handleOpenPdfDirect(
     context: IDocumentsWebContentsContext,
     filePath: unknown,
+    password?: unknown,
 ): Promise<TOpenFileResult | null> {
     if (typeof filePath !== 'string' || filePath.length === 0) {
         logger.warn('openDocumentDirect received empty path');
         return null;
+    }
+    if (password !== undefined && !isPdfDecryptPassword(password)) {
+        throw new Error(te('errors.file.invalid'));
     }
 
     let normalizedPath: TOpenPath;
@@ -178,7 +183,11 @@ export async function handleOpenPdfDirect(
 
     logger.info(`openDocumentDirect request: ${normalizedPath}`);
     try {
-        const result = await openInputPaths([normalizedPath], {}, context.sender);
+        const result = await openInputPaths(
+            [normalizedPath],
+            password === undefined ? {} : {password},
+            context.sender,
+        );
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {

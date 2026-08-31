@@ -729,10 +729,9 @@ export function createDocumentsPreloadFileClient(
     );
     const eventSubscriber = createTypedIpcEventSubscriber<IDocumentsFileEventMap>(ipcRenderer);
     const docxExportCapability = createDocxExportFileCapability(ipcRenderer);
-    const openDocumentDirect = (path: string) => invokeOpen(
-        DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect,
-        path,
-    );
+    const openDocumentDirect = (path: string, password?: string) => password === undefined
+        ? invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, path)
+        : invokeOpen(DOCUMENT_OPEN_PLATFORM_FEATURE.invokeChannels.openDocumentDirect, path, password);
     const openDocumentDirectBatch = (
         paths: string[],
         requestId?: string,

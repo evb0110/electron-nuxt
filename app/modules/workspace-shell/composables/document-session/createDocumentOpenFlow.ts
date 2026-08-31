@@ -53,6 +53,7 @@ import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composable
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
 type TEpochGuard = ReturnType<typeof createEpochGuard>;
+type TOpenedFileResult = Extract<TOpenFileResult, {kind: 'pdf' | 'djvu'}>;
 export type TDocumentDirectOpenOptions = IPdfRasterDisplayProfileOpenOptions;
 
 interface ICreateDocumentOpenFlowDeps {
@@ -154,7 +155,7 @@ export function createDocumentOpenFlow(
     }
 
     async function trackOpenedDocument(
-        result: TOpenFileResult,
+        result: TOpenedFileResult,
         openMethod: 'picker' | 'preselected' | 'direct' | 'batch',
     ) {
         const fileName = getDocumentRefBaseName(result.originalPath);
@@ -252,6 +253,14 @@ export function createDocumentOpenFlow(
             }
             if (!result) {
                 return { status: 'cancelled' } satisfies TDocumentOpenOutcome;
+            }
+            if (result.kind === 'pdf-needs-password' || result.kind === 'pdf-unsupported-encryption') {
+                const message = deps.t('errors.file.open');
+                state.error.value = message;
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
             }
             if (result.kind === 'djvu') {
                 state.pendingDjvu.value = result.originalPath;
@@ -397,6 +406,20 @@ export function createDocumentOpenFlow(
                     'openDocumentDirect returned null',
                     { path },
                 );
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
+            }
+            if (result.kind === 'pdf-needs-password' || result.kind === 'pdf-unsupported-encryption') {
+                const message = deps.t('errors.file.open');
+                state.error.value = message;
+                logPdfRenderTrace('pdf-open-direct-end', {
+                    openRequestId,
+                    path,
+                    status: 'failed',
+                    resultKind: result.kind,
+                });
                 return {
                     status: 'failed',
                     error: message,
@@ -588,6 +611,15 @@ export function createDocumentOpenFlow(
             if (!result) {
                 state.openBatchProgress.value = null;
                 const message = deps.t('errors.file.invalid');
+                state.error.value = message;
+                return {
+                    status: 'failed',
+                    error: message,
+                } satisfies TDocumentOpenOutcome;
+            }
+            if (result.kind === 'pdf-needs-password' || result.kind === 'pdf-unsupported-encryption') {
+                state.openBatchProgress.value = null;
+                const message = deps.t('errors.file.open');
                 state.error.value = message;
                 return {
                     status: 'failed',
