@@ -711,8 +711,8 @@ export const useManagedEmbeddedPdfShapes = ({
             || workingCopyPath.value !== path
             || documentRevisionToken.value !== revision
         ) {
-            // The source watcher owns the next baseline after a save race.
-            return true;
+            // The source watcher owns the next baseline; saves remain additive until it finishes.
+            return false;
         }
         return shapeComposable.isShapeImportBaselineReady();
     }

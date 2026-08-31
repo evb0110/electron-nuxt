@@ -451,7 +451,7 @@ describe('embedded shape import revision fencing', () => {
         await nextTick();
         imported.resolve([createEmbeddedSquare()]);
 
-        await expect(baseline).rejects.toThrow('PDF source changed while establishing embedded shape baseline');
+        await expect(baseline).resolves.toBe(false);
         expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
     });
 
@@ -478,7 +478,7 @@ describe('embedded shape import revision fencing', () => {
         await nextTick();
         imported.resolve([createEmbeddedSquare()]);
 
-        await expect(baseline).rejects.toThrow('PDF source changed while establishing embedded shape baseline');
+        await expect(baseline).resolves.toBe(false);
         expect(shapeComposable.importEmbeddedShapes).not.toHaveBeenCalled();
     });
 });

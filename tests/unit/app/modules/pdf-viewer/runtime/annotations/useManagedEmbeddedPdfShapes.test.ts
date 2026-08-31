@@ -1026,7 +1026,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         documentRevisionToken.value = requireDocumentRevisionToken('after-save');
         imported.resolve([]);
 
-        await expect(baseline).resolves.toBe(true);
+        await expect(baseline).resolves.toBe(false);
     });
 
     it('does not apply an embedded-shape import after its scope is disposed', async () => {
