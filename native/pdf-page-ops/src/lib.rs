@@ -52,6 +52,8 @@ const MAX_AGGREGATE_TEXT_BYTES: usize = 64 * 1024 * 1024;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MUTATION_HEADER_BYTES: usize = 12;
 #[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+const PAGE_OP_WASM_MAX_INPUT_BYTES: usize = 512 * 1024 * 1024;
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
 const PAGE_OP_WASM_MAX_OUTPUT_BYTES: usize = 512 * 1024 * 1024;
 
 fn read_json_sidecar<T: DeserializeOwned>(path: &std::path::Path, label: &str) -> Result<T> {

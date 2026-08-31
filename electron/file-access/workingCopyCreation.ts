@@ -67,7 +67,7 @@ interface IWorkingCopyPhaseTiming {
 
 type TWorkingCopyMaterializationMode = 'eager' | 'background' | 'lazy';
 
-export interface IWorkingCopyCreationResult {
+interface IWorkingCopyCreationResult {
     workingPath: string;
     wasEncrypted: true | undefined;
 }

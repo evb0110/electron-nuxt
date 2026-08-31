@@ -16,7 +16,7 @@ import {createManagedScratchTempDir} from '@electron/utils/managedScratchTemp';
 import {
     isNativePageOpsDisabled,
     resolveNativePageOpsPath,
-} from '@electron/features/page-ops/main/nativePageOpsPath';
+} from '@electron/features/page-ops/public/nativePageOpsPath';
 import { runNativeToolCommand } from '@electron/native-tools/runNativeToolCommand';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';

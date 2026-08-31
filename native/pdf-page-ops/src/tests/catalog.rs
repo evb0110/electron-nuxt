@@ -16,7 +16,7 @@
                 geometry_updates: Vec::new(),
                 notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,
@@ -134,7 +134,7 @@
                 geometry_updates: Vec::new(),
                 notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: None,
                 bookmarks: Some(BookmarksMutation {
@@ -172,7 +172,7 @@
                     geometry_updates: Vec::new(),
                     notes: Vec::new(),
                     free_text_notes: Vec::new(),
-                    free_text_editors: Vec::new(),
+                    text_boxes: Vec::new(),
                     deletes: Vec::new(),
                     page_labels: None,
                     bookmarks: Some(BookmarksMutation {
@@ -271,7 +271,7 @@
                 geometry_updates: Vec::new(),
                 notes: Vec::new(),
                 free_text_notes: Vec::new(),
-                free_text_editors: Vec::new(),
+                text_boxes: Vec::new(),
                 deletes: Vec::new(),
                 page_labels: Some(PageLabelsMutation {
                     total_pages: 1,

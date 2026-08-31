@@ -685,9 +685,9 @@ pub(crate) fn upsert_free_text_notes_incremental_with_counter(
     )
 }
 
-pub(crate) fn upsert_free_text_editors_with_counter(
+pub(crate) fn upsert_text_boxes_with_counter(
     document: &mut Document,
-    editors: &[FreeTextEditor],
+    editors: &[TextBoxMutation],
     modified_at: &str,
     annotation_visits: &mut usize,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -710,17 +710,29 @@ pub(crate) fn upsert_free_text_editors_with_counter(
             entry.insert(index);
         }
         let page_view = resolve_page_view(document, page_id)?;
-        let rect = validate_free_text_editor_rect(editor, page_view)?;
-        let name = free_text_editor_name(editor);
-        let appearance_ref = build_free_text_editor_appearance(document, editor, rect)?;
-        let existing_annotation_ref = resolve_free_text_editor_target(document, page_id, editor)?;
+        let rect = validate_text_box_rect(editor, page_view)?;
+        let name = text_box_name(editor);
+        let appearance_ref = build_text_box_appearance(document, editor, rect)?;
+        let existing_annotation_ref = resolve_text_box_target(document, page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         }) {
+            let (existing_appearance, existing_default_appearance) =
+                existing_text_box_values(document, annotation_ref)?;
             let dict = document.get_dictionary_mut(annotation_ref)?;
-            set_free_text_editor_fields(dict, editor, &name, rect, modified_at, appearance_ref);
+            set_text_box_fields(
+                dict,
+                editor,
+                &name,
+                rect,
+                modified_at,
+                appearance_ref,
+                false,
+                existing_appearance,
+                existing_default_appearance,
+            );
             continue;
         }
         let annotation_ref = document.new_object_id();
@@ -728,7 +740,17 @@ pub(crate) fn upsert_free_text_editors_with_counter(
         dict.set("Type", Object::Name(b"Annot".to_vec()));
         dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
         dict.set("F", Object::Integer(4));
-        set_free_text_editor_fields(&mut dict, editor, &name, rect, modified_at, appearance_ref);
+        set_text_box_fields(
+            &mut dict,
+            editor,
+            &name,
+            rect,
+            modified_at,
+            appearance_ref,
+            true,
+            None,
+            None,
+        );
         document.set_object(annotation_ref, Object::Dictionary(dict));
         report_annotation_identity_binding(identity_bindings, &editor.stable_key, annotation_ref);
         annotation_indexes
@@ -742,9 +764,9 @@ pub(crate) fn upsert_free_text_editors_with_counter(
     Ok(())
 }
 
-pub(crate) fn upsert_free_text_editors_incremental_with_counter(
+pub(crate) fn upsert_text_boxes_incremental_with_counter(
     incremental: &mut IncrementalDocument,
-    editors: &[FreeTextEditor],
+    editors: &[TextBoxMutation],
     modified_at: &str,
     annotation_visits: &mut usize,
     identity_bindings: &mut Option<&mut Vec<AnnotationIdentityBinding>>,
@@ -767,22 +789,34 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
             entry.insert(index);
         }
         let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
-        let rect = validate_free_text_editor_rect(editor, page_view)?;
-        let name = free_text_editor_name(editor);
+        let rect = validate_text_box_rect(editor, page_view)?;
+        let name = text_box_name(editor);
         let appearance_ref =
-            build_free_text_editor_appearance(&mut incremental.new_document, editor, rect)?;
+            build_text_box_appearance(&mut incremental.new_document, editor, rect)?;
         let existing_annotation_ref =
-            resolve_free_text_editor_target(&AppendedRevision::new(incremental), page_id, editor)?;
+            resolve_text_box_target(&AppendedRevision::new(incremental), page_id, editor)?;
         if let Some(annotation_ref) = existing_annotation_ref.or_else(|| {
             annotation_indexes
                 .get(&page_id)
                 .and_then(|index| index.first_free_text_named(&name))
         }) {
+            let (existing_appearance, existing_default_appearance) =
+                existing_text_box_values(&AppendedRevision::new(incremental), annotation_ref)?;
             incremental.opt_clone_object_to_new_document(annotation_ref)?;
             let dict = incremental
                 .new_document
                 .get_dictionary_mut(annotation_ref)?;
-            set_free_text_editor_fields(dict, editor, &name, rect, modified_at, appearance_ref);
+            set_text_box_fields(
+                dict,
+                editor,
+                &name,
+                rect,
+                modified_at,
+                appearance_ref,
+                false,
+                existing_appearance,
+                existing_default_appearance,
+            );
             continue;
         }
         let annotation_ref = incremental.new_document.new_object_id();
@@ -790,7 +824,17 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
         dict.set("Type", Object::Name(b"Annot".to_vec()));
         dict.set("Subtype", Object::Name(b"FreeText".to_vec()));
         dict.set("F", Object::Integer(4));
-        set_free_text_editor_fields(&mut dict, editor, &name, rect, modified_at, appearance_ref);
+        set_text_box_fields(
+            &mut dict,
+            editor,
+            &name,
+            rect,
+            modified_at,
+            appearance_ref,
+            true,
+            None,
+            None,
+        );
         incremental
             .new_document
             .set_object(annotation_ref, Object::Dictionary(dict));
@@ -806,14 +850,14 @@ pub(crate) fn upsert_free_text_editors_incremental_with_counter(
     Ok(())
 }
 
-pub(crate) fn free_text_editor_name(editor: &FreeTextEditor) -> String {
-    format!("evb-freetext:{}", editor.stable_key.trim())
+pub(crate) fn text_box_name(editor: &TextBoxMutation) -> String {
+    editor.stable_key.trim().to_string()
 }
 
-fn resolve_free_text_editor_target(
+fn resolve_text_box_target(
     document: &impl PdfObjectSource,
     page_id: ObjectId,
-    editor: &FreeTextEditor,
+    editor: &TextBoxMutation,
 ) -> Result<Option<ObjectId>> {
     let Some(annotation_id) = editor.annotation_id.as_deref() else {
         return Ok(None);
@@ -838,8 +882,8 @@ fn resolve_free_text_editor_target(
     Ok(Some(object_id))
 }
 
-pub(crate) fn validate_free_text_editor_rect(
-    editor: &FreeTextEditor,
+pub(crate) fn validate_text_box_rect(
+    editor: &TextBoxMutation,
     page_view: PdfRect,
 ) -> Result<PdfRect> {
     if !matches!(editor.rotation, 0 | 90 | 180 | 270) {
@@ -886,9 +930,161 @@ fn escape_free_text_appearance_line(line: &str) -> String {
     escaped
 }
 
-fn build_free_text_editor_appearance(
+fn helvetica_char_width(ch: char) -> f64 {
+    match ch {
+        ' ' => 278.0,
+        '!' => 278.0,
+        '"' => 355.0,
+        '#' => 556.0,
+        '$' => 556.0,
+        '%' => 889.0,
+        '&' => 667.0,
+        '\'' => 191.0,
+        '(' | ')' => 333.0,
+        '*' => 389.0,
+        '+' => 584.0,
+        ',' | '.' => 278.0,
+        '-' => 333.0,
+        '/' => 278.0,
+        '0'..='9' => 556.0,
+        ':' | ';' => 278.0,
+        '<' | '=' | '>' => 584.0,
+        '?' => 556.0,
+        '@' => 1_015.0,
+        'A' => 667.0,
+        'B' => 667.0,
+        'C' => 722.0,
+        'D' => 722.0,
+        'E' => 667.0,
+        'F' => 611.0,
+        'G' => 778.0,
+        'H' => 722.0,
+        'I' => 278.0,
+        'J' => 500.0,
+        'K' => 667.0,
+        'L' => 556.0,
+        'M' => 833.0,
+        'N' => 722.0,
+        'O' => 778.0,
+        'P' => 667.0,
+        'Q' => 778.0,
+        'R' => 722.0,
+        'S' => 667.0,
+        'T' => 611.0,
+        'U' => 722.0,
+        'V' => 667.0,
+        'W' => 944.0,
+        'X' => 667.0,
+        'Y' => 667.0,
+        'Z' => 611.0,
+        '[' | ']' => 278.0,
+        '\\' => 278.0,
+        '^' => 469.0,
+        '_' => 556.0,
+        '`' => 333.0,
+        'a' => 556.0,
+        'b' => 556.0,
+        'c' => 500.0,
+        'd' => 556.0,
+        'e' => 556.0,
+        'f' => 278.0,
+        'g' => 556.0,
+        'h' => 556.0,
+        'i' => 222.0,
+        'j' => 222.0,
+        'k' => 500.0,
+        'l' => 222.0,
+        'm' => 833.0,
+        'n' => 556.0,
+        'o' => 556.0,
+        'p' => 556.0,
+        'q' => 556.0,
+        'r' => 333.0,
+        's' => 500.0,
+        't' => 278.0,
+        'u' => 556.0,
+        'v' => 500.0,
+        'w' => 722.0,
+        'x' => 500.0,
+        'y' => 500.0,
+        'z' => 500.0,
+        '{' | '}' => 334.0,
+        '|' => 260.0,
+        '~' => 584.0,
+        _ => 556.0,
+    }
+}
+
+fn text_box_character_width(character: char, font_size: f64) -> f64 {
+    let glyph_width = if character == '\t' {
+        4.0 * helvetica_char_width(' ')
+    } else {
+        helvetica_char_width(character)
+    };
+    glyph_width * font_size / 1_000.0
+}
+
+#[cfg(test)]
+pub(crate) fn free_text_line_width(line: &str, font_size: f64) -> f64 {
+    line.chars()
+        .map(|character| text_box_character_width(character, font_size))
+        .sum()
+}
+
+fn wrap_free_text_line(line: &str, width: f64, font_size: f64) -> Vec<String> {
+    if line.is_empty() {
+        return vec![String::new()];
+    }
+
+    let characters = line.chars().collect::<Vec<_>>();
+    let mut lines = Vec::new();
+    let mut start = 0usize;
+    while start < characters.len() {
+        let mut end = start;
+        let mut line_width = 0.0;
+        let mut last_break = None;
+        while end < characters.len() {
+            let character = characters[end];
+            let character_width = text_box_character_width(character, font_size);
+            if end > start && line_width + character_width > width {
+                break;
+            }
+            line_width += character_width;
+            end += 1;
+            if character.is_whitespace() {
+                last_break = Some(end);
+            }
+        }
+        if end == characters.len() {
+            lines.push(characters[start..end].iter().collect());
+            break;
+        }
+
+        let split_at = last_break
+            .filter(|break_at| *break_at > start)
+            .unwrap_or(end.max(start + 1));
+        let mut output_end = split_at;
+        while output_end > start && characters[output_end - 1].is_whitespace() {
+            output_end -= 1;
+        }
+        lines.push(characters[start..output_end].iter().collect());
+        start = split_at;
+        while start < characters.len() && characters[start].is_whitespace() {
+            start += 1;
+        }
+    }
+    lines
+}
+
+pub(crate) fn wrap_free_text_lines(text: &str, width: f64, font_size: f64) -> Vec<String> {
+    text.split('\n')
+        .flat_map(|line| wrap_free_text_line(line, width, font_size))
+        .collect()
+}
+
+fn build_text_box_appearance(
     document: &mut Document,
-    editor: &FreeTextEditor,
+    editor: &TextBoxMutation,
     rect: PdfRect,
 ) -> Result<ObjectId> {
     const LINE_FACTOR: f64 = 1.35;
@@ -940,7 +1136,10 @@ fn build_free_text_editor_appearance(
         number_to_content(first_point[0]),
         number_to_content(first_point[1]),
     );
-    for (index, line) in editor.text.split('\n').enumerate() {
+    for (index, line) in wrap_free_text_lines(&editor.text, width, editor.font_size)
+        .iter()
+        .enumerate()
+    {
         if index > 0 {
             content.push_str(&format!(
                 "\n0 -{} Td",
@@ -983,13 +1182,173 @@ fn build_free_text_editor_appearance(
     Ok(document.add_object(Stream::new(stream_dict, content.into_bytes())))
 }
 
-fn set_free_text_editor_fields(
+fn existing_text_box_values(
+    document: &impl PdfObjectSource,
+    annotation_ref: ObjectId,
+) -> Result<(Option<Dictionary>, Option<Vec<u8>>)> {
+    let dict = document.dictionary(annotation_ref)?;
+    let appearance = dict
+        .get(b"AP")
+        .ok()
+        .and_then(|object| document.resolved(object).ok())
+        .and_then(|object| object.as_dict().ok())
+        .cloned();
+    let default_appearance = dict
+        .get(b"DA")
+        .ok()
+        .and_then(|object| document.resolved(object).ok())
+        .and_then(|object| object.as_str().ok())
+        .map(ToOwned::to_owned);
+    Ok((appearance, default_appearance))
+}
+
+fn appearance_with_normal_stream(mut appearance: Dictionary, appearance_ref: ObjectId) -> Object {
+    appearance.set("N", Object::Reference(appearance_ref));
+    Object::Dictionary(appearance)
+}
+
+pub(crate) fn tokenize_default_appearance(bytes: &[u8]) -> Vec<(usize, usize)> {
+    let mut tokens = Vec::new();
+    let mut index = 0usize;
+    while index < bytes.len() {
+        while index < bytes.len() && bytes[index].is_ascii_whitespace() {
+            index += 1;
+        }
+        if index >= bytes.len() {
+            break;
+        }
+        let start = index;
+        match bytes[index] {
+            b'(' => {
+                index += 1;
+                let mut depth = 1usize;
+                while index < bytes.len() && depth > 0 {
+                    match bytes[index] {
+                        b'\\' => index = index.saturating_add(2).min(bytes.len()),
+                        b'(' => {
+                            depth += 1;
+                            index += 1;
+                        }
+                        b')' => {
+                            depth = depth.saturating_sub(1);
+                            index += 1;
+                        }
+                        _ => index += 1,
+                    }
+                }
+            }
+            b'<' => {
+                index += 1;
+                while index < bytes.len() && bytes[index] != b'>' {
+                    index += 1;
+                }
+                if index < bytes.len() {
+                    index += 1;
+                }
+            }
+            b'[' | b']' | b'>' => index += 1,
+            _ => {
+                while index < bytes.len()
+                    && !bytes[index].is_ascii_whitespace()
+                    && !matches!(bytes[index], b'[' | b']' | b'<' | b'>')
+                {
+                    index += 1;
+                }
+            }
+        }
+        tokens.push((start, index));
+    }
+    tokens
+}
+
+fn patch_default_appearance(existing: Option<&[u8]>, font_size: f64, color: [f64; 3]) -> Vec<u8> {
+    let mut bytes = existing.unwrap_or_default().to_vec();
+    let tokens = tokenize_default_appearance(&bytes);
+    let mut replacements = Vec::<(usize, usize, Vec<u8>)>::new();
+    let mut replaced_tf = false;
+    let mut replaced_rg = false;
+    for (index, &(start, end)) in tokens.iter().enumerate() {
+        let token = &bytes[start..end];
+        if token == b"Tf" {
+            if let Some(&(size_start, size_end)) = index.checked_sub(1).and_then(|i| tokens.get(i))
+            {
+                let is_finite_number = std::str::from_utf8(&bytes[size_start..size_end])
+                    .ok()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .is_some_and(f64::is_finite);
+                if !is_finite_number {
+                    continue;
+                }
+                replacements.push((
+                    size_start,
+                    size_end,
+                    number_to_content(font_size).into_bytes(),
+                ));
+                replaced_tf = true;
+            }
+        } else if token == b"rg" {
+            if let Some(first) = index.checked_sub(3) {
+                let operands_are_numbers = tokens[first..index].iter().all(|&(start, end)| {
+                    std::str::from_utf8(&bytes[start..end])
+                        .ok()
+                        .and_then(|value| value.parse::<f64>().ok())
+                        .is_some_and(f64::is_finite)
+                });
+                if operands_are_numbers {
+                    for (component, token_index) in color.into_iter().zip(first..index) {
+                        let (start, end) = tokens[token_index];
+                        replacements.push((start, end, number_to_content(component).into_bytes()));
+                    }
+                    replaced_rg = true;
+                }
+            }
+        }
+    }
+    if replacements.is_empty() {
+        bytes.extend_from_slice(
+            format!(
+                " /Helv {} Tf {} {} {} rg",
+                number_to_content(font_size),
+                number_to_content(color[0]),
+                number_to_content(color[1]),
+                number_to_content(color[2]),
+            )
+            .as_bytes(),
+        );
+        return bytes;
+    }
+    replacements.sort_unstable_by_key(|(start, _, _)| *start);
+    for (start, end, replacement) in replacements.into_iter().rev() {
+        bytes.splice(start..end, replacement);
+    }
+    if !replaced_tf {
+        bytes.extend_from_slice(format!(" /Helv {} Tf", number_to_content(font_size)).as_bytes());
+    }
+    if !replaced_rg {
+        bytes.extend_from_slice(
+            format!(
+                " {} {} {} rg",
+                number_to_content(color[0]),
+                number_to_content(color[1]),
+                number_to_content(color[2]),
+            )
+            .as_bytes(),
+        );
+    }
+    bytes
+}
+
+#[allow(clippy::too_many_arguments)]
+fn set_text_box_fields(
     dict: &mut Dictionary,
-    editor: &FreeTextEditor,
+    editor: &TextBoxMutation,
     name: &str,
     rect: PdfRect,
     modified_at: &str,
     appearance_ref: ObjectId,
+    is_new: bool,
+    existing_appearance: Option<Dictionary>,
+    existing_default_appearance: Option<Vec<u8>>,
 ) {
     dict.set("Rect", rect_object(rect));
     dict.set(
@@ -999,37 +1358,62 @@ fn set_free_text_editor_fields(
             StringFormat::Hexadecimal,
         ),
     );
-    dict.set("M", Object::string_literal(modified_at.as_bytes().to_vec()));
-    if editor.annotation_id.is_none() {
+    let effective_modified_at = shape_pdf_date(editor.modified_at, modified_at);
+    dict.set(
+        "M",
+        Object::string_literal(effective_modified_at.into_bytes()),
+    );
+    if read_annotation_name(dict).is_none() {
         write_annotation_name(dict, name);
     }
-    dict.set(
-        "Border",
-        Object::Array(vec![
-            Object::Integer(0),
-            Object::Integer(0),
-            Object::Integer(0),
-        ]),
-    );
+    if is_new {
+        dict.set(
+            "Border",
+            Object::Array(vec![
+                Object::Integer(0),
+                Object::Integer(0),
+                Object::Integer(0),
+            ]),
+        );
+    }
     dict.set("Rotate", Object::Integer(i64::from(editor.rotation)));
     let color = editor.color.map(|component| f64::from(component) / 255.0);
+    let default_appearance = if is_new {
+        format!(
+            "/Helv {} Tf {} {} {} rg",
+            number_to_content(editor.font_size),
+            number_to_content(color[0]),
+            number_to_content(color[1]),
+            number_to_content(color[2]),
+        )
+        .into_bytes()
+    } else {
+        patch_default_appearance(
+            existing_default_appearance.as_deref(),
+            editor.font_size,
+            color,
+        )
+    };
+    dict.set("DA", Object::string_literal(default_appearance));
     dict.set(
-        "DA",
-        Object::string_literal(
-            format!(
-                "/Helv {} Tf {} {} {} rg",
-                number_to_content(editor.font_size),
-                number_to_content(color[0]),
-                number_to_content(color[1]),
-                number_to_content(color[2]),
-            )
-            .into_bytes(),
-        ),
+        "AP",
+        appearance_with_normal_stream(existing_appearance.unwrap_or_default(), appearance_ref),
     );
-    let mut appearance = Dictionary::new();
-    appearance.set("N", Object::Reference(appearance_ref));
-    dict.set("AP", Object::Dictionary(appearance));
-    dict.remove(b"Popup");
+    if is_new || editor.author.is_some() {
+        dict.set(
+            "T",
+            Object::String(
+                encode_pdf_text_string(editor.author.as_deref().unwrap_or("")),
+                StringFormat::Hexadecimal,
+            ),
+        );
+    }
+    if is_new || editor.created_at.is_some() {
+        dict.set(
+            "CreationDate",
+            Object::string_literal(shape_pdf_date(editor.created_at, modified_at).into_bytes()),
+        );
+    }
 }
 
 #[allow(dead_code)]
@@ -1436,13 +1820,23 @@ impl PageAnnotationIndex {
         );
         self.named_text_notes
             .iter()
-            .chain(self.named_free_text.iter())
             .filter_map(|(object_id, note_name)| {
                 let matches = note_name == &exact_name
                     || (delete.created_at.is_none_or(|created_at| created_at == 0)
                         && note_name.starts_with(&stable_prefix));
                 matches.then_some(*object_id)
             })
+            .chain(
+                self.named_free_text
+                    .iter()
+                    .filter_map(|(object_id, note_name)| {
+                        let matches = note_name == stable_key
+                            || note_name == &exact_name
+                            || (delete.created_at.is_none_or(|created_at| created_at == 0)
+                                && note_name.starts_with(&stable_prefix));
+                        matches.then_some(*object_id)
+                    }),
+            )
             .collect()
     }
 }
@@ -1728,6 +2122,9 @@ pub(crate) fn annotation_matches_stable_delete_name(
     let Some(note_name) = target_dict.get(b"NM").ok().and_then(pdf_string_to_text) else {
         return Ok(false);
     };
+    if target_subtype == "freetext" && note_name == stable_key {
+        return Ok(true);
+    }
     let exact_name = replayable_free_text_note_name_from_parts(stable_key, delete.created_at);
     if note_name == exact_name {
         return Ok(true);
@@ -2286,5 +2683,68 @@ mod tests {
             index.first_free_text_named("named-free-text"),
             Some(free_text_id)
         );
+    }
+
+    #[test]
+    fn stable_key_delete_matches_raw_names_only_on_free_text() {
+        let index = PageAnnotationIndex {
+            annots: Vec::new(),
+            annotation_refs: HashSet::new(),
+            first_text_note_by_name: HashMap::new(),
+            named_text_notes: vec![((10, 0), "same-key".to_string())],
+            first_free_text_by_name: HashMap::new(),
+            named_free_text: vec![((20, 0), "same-key".to_string())],
+            dirty: false,
+        };
+        let delete = AnnotationDelete {
+            page_index: 0,
+            object_number: None,
+            generation_number: None,
+            stable_key: Some("same-key".to_string()),
+            created_at: None,
+        };
+
+        assert_eq!(index.matching_stable_delete_refs(&delete), vec![(20, 0)]);
+    }
+
+    #[test]
+    fn default_appearance_tokenizer_clamps_a_trailing_escape() {
+        let bytes = b"(unterminated\\";
+        let tokens = tokenize_default_appearance(bytes);
+
+        assert_eq!(tokens, vec![(0, bytes.len())]);
+    }
+
+    #[test]
+    fn default_appearance_tokenizer_advances_past_a_stray_closing_delimiter() {
+        let bytes = b"> /Helv 16 Tf";
+        let tokens = tokenize_default_appearance(bytes);
+
+        assert_eq!(
+            tokens
+                .iter()
+                .map(|&(start, end)| &bytes[start..end])
+                .collect::<Vec<_>>(),
+            vec![b">".as_slice(), b"/Helv", b"16", b"Tf"]
+        );
+    }
+
+    #[test]
+    fn patch_default_appearance_appends_a_font_when_existing_size_is_not_numeric() {
+        let patched = patch_default_appearance(Some(b"/Helv nope Tf"), 16.0, [0.1, 0.2, 0.3]);
+        let patched = std::str::from_utf8(&patched).unwrap();
+
+        assert!(patched.contains("/Helv nope Tf"));
+        assert!(patched.contains("/Helv 16 Tf"));
+    }
+
+    #[test]
+    fn patch_default_appearance_does_not_replace_a_malformed_color_operand() {
+        let patched = patch_default_appearance(Some(b"/Helv 12 Tf 0 0 rg"), 16.0, [0.1, 0.2, 0.3]);
+        let patched = std::str::from_utf8(&patched).unwrap();
+
+        assert!(patched.contains("/Helv 16 Tf 0 0 rg"));
+        assert!(patched.contains("/Helv 16 Tf"));
+        assert!(patched.contains("0.1 0.2 0.3 rg"));
     }
 }

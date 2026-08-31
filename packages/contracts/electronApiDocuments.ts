@@ -590,7 +590,7 @@ export interface IPdfNativeFreeTextNote {
     createdAt?: number | null;
 }
 
-export interface IPdfNativeFreeTextEditor {
+export interface IPdfNativeTextBoxMutation {
     pageIndex: TPageIndex;
     stableKey: string;
     /** Existing PDF object ref when this mutation updates imported FreeText. */
@@ -600,8 +600,11 @@ export interface IPdfNativeFreeTextEditor {
     rotation: 0 | 90 | 180 | 270;
     fontSize: number;
     color: [number, number, number];
+    author?: string | null;
+    createdAt?: number | null;
+    modifiedAt?: number | null;
 }
-
+export type IPdfNativeFreeTextEditor = IPdfNativeTextBoxMutation;
 export interface IPdfNativeAnnotationDelete {
     pageIndex: TPageIndex;
     objectNumber?: number;
@@ -609,18 +612,14 @@ export interface IPdfNativeAnnotationDelete {
     stableKey?: string;
     createdAt?: number | null;
 }
-
 export interface IPdfNativeNoteChanges {
     updates?: IPdfNoteTextUpdate[];
     geometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes?: IPdfNativeFreeTextNote[];
     deletes?: IPdfNativeAnnotationDelete[];
 }
-
 export type TPdfNativePageLabelStyle = TPdfPageLabelStyle;
-
 export type IPdfNativePageLabelRange = IPdfPageLabelRange;
-
 export type IPdfNativePageLabelsMutation = IPdfPageLabelsMutation;
 
 export interface IPdfNativeBookmarksMutation {
@@ -704,6 +703,7 @@ export interface IPdfNativePlacedImage extends IPdfBox {
 }
 
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
+    textBoxes?: IPdfNativeTextBoxMutation[];
     freeTextEditors?: IPdfNativeFreeTextEditor[];
     pageLabels?: IPdfNativePageLabelsMutation;
     bookmarks?: IPdfNativeBookmarksMutation;

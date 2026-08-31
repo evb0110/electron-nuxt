@@ -152,7 +152,8 @@ pub(crate) struct NativeMutationContinuation {
 #[serde(rename_all = "camelCase")]
 pub(crate) enum NativeMutationContinuationFamily {
     Notes,
-    FreeTextEditors,
+    #[serde(alias = "freeTextEditors")]
+    TextBoxes,
     PageLabels,
     Bookmarks,
     Shapes,
@@ -843,8 +844,9 @@ pub(crate) struct NativeMutationsFile {
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) free_text_notes: Vec<FreeTextNote>,
     #[serde(default)]
+    #[serde(rename = "textBoxes", alias = "freeTextEditors")]
     #[serde(deserialize_with = "deserialize_collection")]
-    pub(crate) free_text_editors: Vec<FreeTextEditor>,
+    pub(crate) text_boxes: Vec<TextBoxMutation>,
     #[serde(default)]
     #[serde(deserialize_with = "deserialize_collection")]
     pub(crate) deletes: Vec<AnnotationDelete>,
@@ -903,7 +905,7 @@ pub(crate) type FreeTextNote = TextNote;
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub(crate) struct FreeTextEditor {
+pub(crate) struct TextBoxMutation {
     pub(crate) page_index: u32,
     pub(crate) stable_key: String,
     #[serde(default)]
@@ -913,6 +915,12 @@ pub(crate) struct FreeTextEditor {
     pub(crate) rotation: u16,
     pub(crate) font_size: f64,
     pub(crate) color: [u8; 3],
+    #[serde(default)]
+    pub(crate) author: Option<String>,
+    #[serde(default)]
+    pub(crate) created_at: Option<u64>,
+    #[serde(default)]
+    pub(crate) modified_at: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -1110,6 +1118,7 @@ mod protocol_schema_tests {
     fn canonical_mutation_fixture_round_trips_and_rejects_unknown_fields() {
         let source = include_str!("../../protocol-fixtures/pdf-page-ops-save-mutations.json");
         let parsed: NativeMutationsFile = serde_json::from_str(source).unwrap();
+        assert_eq!(parsed.text_boxes.len(), 1);
         assert_eq!(parsed.placed_images.len(), 1);
 
         let with_unknown = source.replacen("{", r#"{"unknownField":true,"#, 1);

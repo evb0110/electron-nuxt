@@ -1459,7 +1459,9 @@ describe('createDocumentsPreloadFileClient', () => {
                         height: 0.0016,
                     },
                 })),
-                freeTextEditors: Array.from({length: cap.freeTextEditors + 1}, (_, index) => ({
+                // Keep an old renderer payload here to prove the preload
+                // normalizes the compatibility key to textBoxes.
+                freeTextEditors: Array.from({length: cap.textBoxes + 1}, (_, index) => ({
                     ...createNativeFreeTextEditor(),
                     stableKey: `editor-${index}`,
                 })),
@@ -1519,7 +1521,7 @@ describe('createDocumentsPreloadFileClient', () => {
             updates: unknown[];
             geometryUpdates: unknown[];
             freeTextNotes: unknown[];
-            freeTextEditors: unknown[];
+            textBoxes: unknown[];
             deletes: unknown[];
             pageLabels: {ranges: unknown[]};
             bookmarks: {items: unknown[]};
@@ -1530,7 +1532,7 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(normalizedPayload.updates).toHaveLength(cap.noteTextUpdates + 1);
         expect(normalizedPayload.geometryUpdates).toHaveLength(cap.noteGeometryUpdates + 1);
         expect(normalizedPayload.freeTextNotes).toHaveLength(cap.noteChanges + 1);
-        expect(normalizedPayload.freeTextEditors).toHaveLength(cap.freeTextEditors + 1);
+        expect(normalizedPayload.textBoxes).toHaveLength(cap.textBoxes + 1);
         expect(normalizedPayload.deletes).toHaveLength(cap.noteChanges + 1);
         expect(normalizedPayload.pageLabels.ranges).toHaveLength(cap.pageLabelRanges + 1);
         expect(normalizedPayload.bookmarks.items).toHaveLength(cap.bookmarkItems + 1);
@@ -1546,7 +1548,7 @@ describe('createDocumentsPreloadFileClient', () => {
             stableKey: `note-${cap.noteChanges}`,
             text: `Editor note ${cap.noteChanges}`,
         });
-        expect(normalizedPayload.freeTextEditors.at(-1)).toMatchObject({stableKey: `editor-${cap.freeTextEditors}`});
+        expect(normalizedPayload.textBoxes.at(-1)).toMatchObject({stableKey: `editor-${cap.textBoxes}`});
         expect(normalizedPayload.deletes.at(-1)).toMatchObject({objectNumber: cap.noteChanges + 1});
         expect(normalizedPayload.pageLabels.ranges.at(-1)).toMatchObject({
             startPage: cap.pageLabelRanges + 1,

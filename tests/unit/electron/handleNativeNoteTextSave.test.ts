@@ -1583,7 +1583,7 @@ describe('handleNativeNoteTextSave', () => {
                     generationNumber: 0,
                     text: `Updated note ${index}`,
                 })),
-                freeTextEditors: Array.from({length: cap.freeTextEditors + 1}, (_, index) => ({
+                textBoxes: Array.from({length: cap.textBoxes + 1}, (_, index) => ({
                     ...createNativeFreeTextEditor(),
                     stableKey: `editor-${index}`,
                 })),
@@ -1631,8 +1631,8 @@ describe('handleNativeNoteTextSave', () => {
         expect(payloads.length).toBeGreaterThan(1);
         expect(payloads.reduce((count, payload) => count + ((payload.updates as unknown[] | undefined)?.length ?? 0), 0))
             .toBe(cap.noteTextUpdates + 1);
-        expect(payloads.reduce((count, payload) => count + ((payload.freeTextEditors as unknown[] | undefined)?.length ?? 0), 0))
-            .toBe(cap.freeTextEditors + 1);
+        expect(payloads.reduce((count, payload) => count + ((payload.textBoxes as unknown[] | undefined)?.length ?? 0), 0))
+            .toBe(cap.textBoxes + 1);
         expect(payloads.reduce((count, payload) => count + ((payload.pageLabels as {ranges?: unknown[]} | undefined)?.ranges?.length ?? 0), 0))
             .toBe(cap.pageLabelRanges + 1);
         expect(payloads.reduce((count, payload) => count + ((payload.bookmarks as {items?: unknown[]} | undefined)?.items?.length ?? 0), 0))
@@ -1646,9 +1646,9 @@ describe('handleNativeNoteTextSave', () => {
         expect(payloads.flatMap(payload => (payload.updates as Array<{objectNumber?: number}> | undefined) ?? [])
             .map(update => update.objectNumber))
             .toEqual(Array.from({length: cap.noteTextUpdates + 1}, (_, index) => index + 1));
-        expect(payloads.flatMap(payload => (payload.freeTextEditors as Array<{stableKey?: string}> | undefined) ?? [])
+        expect(payloads.flatMap(payload => (payload.textBoxes as Array<{stableKey?: string}> | undefined) ?? [])
             .map(editor => editor.stableKey))
-            .toEqual(Array.from({length: cap.freeTextEditors + 1}, (_, index) => `editor-${index}`));
+            .toEqual(Array.from({length: cap.textBoxes + 1}, (_, index) => `editor-${index}`));
         expect(payloads.flatMap(payload => (payload.pageLabels as {ranges?: Array<{startPage?: number}>} | undefined)?.ranges ?? [])
             .map(range => range.startPage))
             .toEqual(Array.from({length: cap.pageLabelRanges + 1}, (_, index) => index + 1));
@@ -1666,7 +1666,7 @@ describe('handleNativeNoteTextSave', () => {
             .toEqual(Array.from({length: cap.placedImages + 1}, (_, index) => `image-${index}`));
         for (const payload of payloads) {
             expect((payload.updates as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.noteTextUpdates);
-            expect((payload.freeTextEditors as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.freeTextEditors);
+            expect((payload.textBoxes as unknown[] | undefined)?.length ?? 0).toBeLessThanOrEqual(cap.textBoxes);
             expect((payload.pageLabels as {ranges?: unknown[]} | undefined)?.ranges?.length ?? 0).toBeLessThanOrEqual(cap.pageLabelRanges);
             expect((payload.bookmarks as {items?: unknown[]} | undefined)?.items?.length ?? 0).toBeLessThanOrEqual(cap.bookmarkItems);
             expect((payload.shapes as {shapes?: unknown[]} | undefined)?.shapes?.length ?? 0).toBeLessThanOrEqual(cap.shapes);
@@ -1678,7 +1678,7 @@ describe('handleNativeNoteTextSave', () => {
             payload.continuation as {family?: string} | undefined
         )?.family))).toEqual(new Set([
             'notes',
-            'freeTextEditors',
+            'textBoxes',
             'pageLabels',
             'bookmarks',
             'shapes',

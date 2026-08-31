@@ -278,10 +278,10 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
-    if !mutations.free_text_editors.is_empty() {
-        upsert_free_text_editors_with_counter(
+    if !mutations.text_boxes.is_empty() {
+        upsert_text_boxes_with_counter(
             document,
-            &mutations.free_text_editors,
+            &mutations.text_boxes,
             modified_at,
             &mut annotation_visits,
             &mut identity_bindings,
@@ -343,6 +343,79 @@ pub(crate) fn apply_native_mutations_incremental_with_bindings(
     )
 }
 
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) struct NativeMutationBytesResult {
+    pub(crate) data: Vec<u8>,
+    pub(crate) page_count: u32,
+    pub(crate) identity_bindings: Vec<AnnotationIdentityBinding>,
+}
+
+/// Apply one validated mutation payload to an in-memory PDF and append the
+/// resulting revision to the original bytes. Browser saves must keep the
+/// native writer's incremental semantics, even though they cannot use paths.
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn append_native_mutations_to_bytes(
+    input: &[u8],
+    mutations: &NativeMutationsFile,
+    modified_at: &str,
+) -> Result<NativeMutationBytesResult> {
+    if input.len() > PAGE_OP_WASM_MAX_INPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM input exceeds the input admission ceiling",
+        ));
+    }
+    let document = load_browser_pdf(input)?;
+    let page_count = u32::try_from(document.get_pages().len())
+        .map_err(|_| "PDF page count exceeds the WASM response range")?;
+    let mut incremental = IncrementalDocument::from_document(
+        document,
+        u64::try_from(input.len())?,
+        input.last().copied(),
+    );
+    let mut identity_bindings = Vec::new();
+    apply_native_mutations_incremental_with_bindings(
+        &mut incremental,
+        mutations,
+        modified_at,
+        &mut identity_bindings,
+    )?;
+    let revision = build_incremental_revision(&mut incremental)?;
+    let expected_object_ids = collect_incremental_append_object_ids(&incremental);
+    validate_incremental_append_bytes(
+        &revision,
+        u64::try_from(input.len())?,
+        incremental.get_prev_documents().xref_start,
+        &expected_object_ids,
+    )?;
+    validate_appended_revision_postconditions(
+        &AppendedRevision::new(&incremental),
+        mutations,
+        modified_at,
+    )?;
+    validate_annotation_identity_bindings(&identity_bindings)?;
+    let output_len = input.len().checked_add(revision.len()).ok_or_else(|| {
+        domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        )
+    })?;
+    if output_len > PAGE_OP_WASM_MAX_OUTPUT_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Page-op WASM output exceeds the admission ceiling",
+        ));
+    }
+    let mut data = Vec::with_capacity(output_len);
+    data.extend_from_slice(input);
+    data.extend_from_slice(&revision);
+    Ok(NativeMutationBytesResult {
+        data,
+        page_count,
+        identity_bindings,
+    })
+}
+
 fn apply_native_mutations_incremental_internal(
     incremental: &mut IncrementalDocument,
     mutations: &NativeMutationsFile,
@@ -368,10 +441,10 @@ fn apply_native_mutations_incremental_internal(
             &mut identity_bindings,
         )?;
     }
-    if !mutations.free_text_editors.is_empty() {
-        upsert_free_text_editors_incremental_with_counter(
+    if !mutations.text_boxes.is_empty() {
+        upsert_text_boxes_incremental_with_counter(
             incremental,
-            &mutations.free_text_editors,
+            &mutations.text_boxes,
             modified_at,
             &mut annotation_visits,
             &mut identity_bindings,
@@ -635,6 +708,15 @@ pub(crate) fn write_annotation_identity_bindings_report(
 fn serialize_annotation_identity_bindings_report(
     bindings: &[AnnotationIdentityBinding],
 ) -> Result<Vec<u8>> {
+    validate_annotation_identity_bindings(bindings)?;
+    let bytes = serde_json::to_vec(bindings)?;
+    if bytes.len() > MAX_ANNOTATION_IDENTITY_REPORT_BYTES {
+        return Err("Native annotation identity binding report is too large".into());
+    }
+    Ok(bytes)
+}
+
+fn validate_annotation_identity_bindings(bindings: &[AnnotationIdentityBinding]) -> Result<()> {
     if bindings.len() > MAX_ANNOTATION_IDENTITY_BINDINGS {
         return Err("Native annotation identity binding report exceeds its item limit".into());
     }
@@ -666,11 +748,7 @@ fn serialize_annotation_identity_bindings_report(
             );
         }
     }
-    let bytes = serde_json::to_vec(bindings)?;
-    if bytes.len() > MAX_ANNOTATION_IDENTITY_REPORT_BYTES {
-        return Err("Native annotation identity binding report is too large".into());
-    }
-    Ok(bytes)
+    Ok(())
 }
 
 /// The non-append CLI form still has path-backed semantics. Seed its requested
@@ -1389,10 +1467,27 @@ pub(crate) fn validate_incremental_append_output(
     output.seek(SeekFrom::Start(previous_len))?;
     let mut appended_bytes = Vec::new();
     output.read_to_end(&mut appended_bytes)?;
+    validate_incremental_append_bytes(
+        &appended_bytes,
+        previous_len,
+        previous_xref_start,
+        expected_object_ids,
+    )
+}
+
+fn validate_incremental_append_bytes(
+    appended_bytes: &[u8],
+    previous_len: u64,
+    previous_xref_start: usize,
+    expected_object_ids: &[ObjectId],
+) -> Result<()> {
     if appended_bytes.is_empty() {
         return Err("Native incremental append produced no revision bytes".into());
     }
-    let eof_offset = find_last_bytes(&appended_bytes, b"%%EOF")
+    let final_len = previous_len
+        .checked_add(u64::try_from(appended_bytes.len())?)
+        .ok_or("Native incremental append length overflow")?;
+    let eof_offset = find_last_bytes(appended_bytes, b"%%EOF")
         .ok_or("Native incremental append is missing an EOF marker")?;
     if !appended_bytes[eof_offset + b"%%EOF".len()..]
         .iter()
@@ -1401,7 +1496,7 @@ pub(crate) fn validate_incremental_append_output(
         return Err("Native incremental append has trailing bytes after EOF".into());
     }
 
-    let prev_offset = parse_number_after_last_marker(&appended_bytes, b"/Prev")
+    let prev_offset = parse_number_after_last_marker(appended_bytes, b"/Prev")
         .ok_or("Native incremental append is missing a /Prev pointer")?;
     if prev_offset != u64::try_from(previous_xref_start)? {
         return Err(
@@ -1409,7 +1504,7 @@ pub(crate) fn validate_incremental_append_output(
         );
     }
 
-    let startxref_offset = parse_number_after_last_marker(&appended_bytes, b"startxref")
+    let startxref_offset = parse_number_after_last_marker(appended_bytes, b"startxref")
         .ok_or("Native incremental append is missing startxref")?;
     if startxref_offset < previous_len || startxref_offset >= final_len {
         return Err("Native incremental append startxref is outside the appended revision".into());
@@ -1420,12 +1515,12 @@ pub(crate) fn validate_incremental_append_output(
         .get(xref_relative_offset..)
         .is_some_and(|bytes| bytes.starts_with(b"xref"))
     {
-        parse_incremental_xref_table(&appended_bytes, xref_relative_offset)?
+        parse_incremental_xref_table(appended_bytes, xref_relative_offset)?
     } else {
-        parse_incremental_xref_stream(&appended_bytes, xref_relative_offset)?
+        parse_incremental_xref_stream(appended_bytes, xref_relative_offset)?
     };
     validate_expected_incremental_objects(
-        &appended_bytes,
+        appended_bytes,
         previous_len,
         expected_object_ids,
         &xref_entries,

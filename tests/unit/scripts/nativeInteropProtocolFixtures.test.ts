@@ -13,7 +13,17 @@ describe('native interop golden protocol fixtures', () => {
     it('keeps the TS mutation validator aligned with the Rust sidecar fixture', async () => {
         const fixturePath = resolve(process.cwd(), 'native/protocol-fixtures/pdf-page-ops-save-mutations.json');
         const fixture = JSON.parse(await readFile(fixturePath, 'utf8')) as unknown;
-        const sidecarFixture = fixture as {placedImages: Array<Record<string, unknown>>};
+        const sidecarFixture = fixture as {
+            placedImages: Array<Record<string, unknown>>;
+            textBoxes: Array<Record<string, unknown>>;
+        };
+        expect(sidecarFixture.textBoxes).toHaveLength(1);
+        expect(sidecarFixture.textBoxes[0]).toMatchObject({
+            stableKey: 'fixture-text-box',
+            author: 'Ada Lovelace',
+            createdAt: 1780000000000,
+            modifiedAt: 1780000060000,
+        });
         const [placedImage] = sidecarFixture.placedImages;
         expect(Object.keys(placedImage ?? {}).sort()).toEqual([
             'byteLength',
@@ -45,6 +55,7 @@ describe('native interop golden protocol fixtures', () => {
         }, 'golden fixture', {errorKind: 'error'});
 
         expect(normalized.placedImages).toHaveLength(1);
+        expect(normalized.textBoxes).toEqual(sidecarFixture.textBoxes);
         expect(normalized.placedImages?.[0]).toMatchObject({
             mimeType: 'image/jpeg',
             pageIndex: 0,

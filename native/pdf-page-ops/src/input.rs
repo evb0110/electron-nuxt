@@ -3,7 +3,8 @@ use super::*;
 const MAX_NOTE_TEXT_UPDATES: usize = 256;
 const MAX_NOTE_GEOMETRY_UPDATES: usize = 256;
 const MAX_NOTE_CHANGES: usize = 256;
-const MAX_FREE_TEXT_EDITORS: usize = 256;
+const MAX_TEXT_BOXES: usize = 256;
+const MAX_TEXT_BOX_TEXT_BYTES: usize = 64 * 1024;
 const MAX_PAGE_LABEL_RANGES: usize = 2_048;
 
 pub(crate) fn parse_margin(value: &str, label: &str) -> Result<f64> {
@@ -96,29 +97,43 @@ pub(crate) fn validate_free_text_notes(notes: &[FreeTextNote]) -> Result<()> {
     validate_text_notes(notes)
 }
 
-pub(crate) fn validate_free_text_editors(editors: &[FreeTextEditor]) -> Result<()> {
+pub(crate) fn validate_text_boxes(editors: &[TextBoxMutation]) -> Result<()> {
+    if editors.len() > MAX_TEXT_BOXES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            format!("Too many text boxes (maximum {MAX_TEXT_BOXES})"),
+        ));
+    }
     for editor in editors {
         if editor.stable_key.trim().is_empty() || editor.stable_key.len() > 512 {
-            return Err("Invalid FreeText editor stable key".into());
+            return Err("Invalid text box stable key".into());
+        }
+        if editor
+            .annotation_id
+            .as_deref()
+            .is_some_and(|value| parse_pdfjs_annotation_object_id(value).is_none())
+        {
+            return Err("Invalid text box annotation id".into());
+        }
+        if editor.text.len() > MAX_TEXT_BOX_TEXT_BYTES {
+            return Err("Text box text exceeds the 64 KiB admission ceiling".into());
         }
         if !editor.rect.iter().all(|coordinate| coordinate.is_finite())
             || editor.rect[2] <= editor.rect[0]
             || editor.rect[3] <= editor.rect[1]
         {
-            return Err("Invalid FreeText editor rectangle".into());
+            return Err("Invalid text box rectangle".into());
         }
         if !matches!(editor.rotation, 0 | 90 | 180 | 270) {
-            return Err("Invalid FreeText editor rotation".into());
+            return Err("Invalid text box rotation".into());
         }
         if !editor.font_size.is_finite() || editor.font_size <= 0.0 || editor.font_size > 512.0 {
-            return Err("Invalid FreeText editor font size".into());
+            return Err("Invalid text box font size".into());
         }
         if !editor.text.chars().all(|character| {
             character == '\n' || character == '\t' || (' '..='~').contains(&character)
         }) {
-            return Err(
-                "FreeText editor text is unsupported by the bounded Helvetica appearance".into(),
-            );
+            return Err("Text box text is unsupported by the bounded Helvetica appearance".into());
         }
     }
     Ok(())
@@ -566,11 +581,32 @@ pub(crate) fn validate_placed_images(images: &[PlacedImage]) -> Result<()> {
 
 pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> {
     let parsed: NativeMutationsFile = read_json_sidecar(path, "native PDF mutations")?;
+    validate_native_mutations(parsed)
+}
+
+#[cfg(any(test, all(target_family = "wasm", target_os = "unknown")))]
+pub(crate) fn read_native_mutations_bytes(bytes: &[u8]) -> Result<NativeMutationsFile> {
+    if bytes.len() > MAX_SIDECAR_BYTES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Native PDF mutation payload exceeds the admission ceiling",
+        ));
+    }
+    let parsed = serde_json::from_slice(bytes).map_err(|error| {
+        domain_error(
+            NativeErrorCode::InvalidRequest,
+            format!("Invalid native PDF mutation payload: {error}"),
+        )
+    })?;
+    validate_native_mutations(parsed)
+}
+
+fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutationsFile> {
     if parsed.updates.is_empty()
         && parsed.geometry_updates.is_empty()
         && parsed.notes.is_empty()
         && parsed.free_text_notes.is_empty()
-        && parsed.free_text_editors.is_empty()
+        && parsed.text_boxes.is_empty()
         && parsed.deletes.is_empty()
         && parsed.page_labels.is_none()
         && parsed.bookmarks.is_none()
@@ -589,7 +625,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
     validate_note_geometry_updates(&parsed.geometry_updates)?;
     validate_text_notes(&parsed.notes)?;
     validate_free_text_notes(&parsed.free_text_notes)?;
-    validate_free_text_editors(&parsed.free_text_editors)?;
+    validate_text_boxes(&parsed.text_boxes)?;
     validate_annotation_deletes(&parsed.deletes)?;
     let note_count = parsed
         .notes
@@ -601,12 +637,6 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
         note_count,
         parsed.deletes.len(),
     )?;
-    if parsed.free_text_editors.len() > MAX_FREE_TEXT_EDITORS {
-        return Err(domain_error(
-            NativeErrorCode::TooLarge,
-            format!("Too many FreeText editors (maximum {MAX_FREE_TEXT_EDITORS})"),
-        ));
-    }
     if let Some(page_labels) = &parsed.page_labels {
         validate_page_labels_mutation(page_labels)?;
     }
@@ -625,7 +655,7 @@ pub(crate) fn read_native_mutations(path: &Path) -> Result<NativeMutationsFile> 
         parsed.geometry_updates.len(),
         parsed.notes.len(),
         parsed.free_text_notes.len(),
-        parsed.free_text_editors.len(),
+        parsed.text_boxes.len(),
         parsed.deletes.len(),
         parsed.placed_images.len(),
     ])?;
@@ -662,7 +692,7 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
     add(mutations.geometry_updates.len());
     add(mutations.notes.len());
     add(mutations.free_text_notes.len());
-    add(mutations.free_text_editors.len());
+    add(mutations.text_boxes.len());
     add(mutations.deletes.len());
     if let Some(page_labels) = &mutations.page_labels {
         add(page_labels.ranges.len());
@@ -777,9 +807,7 @@ fn validate_native_mutation_continuation(mutations: &NativeMutationsFile) -> Res
                 || !mutations.free_text_notes.is_empty()
                 || !mutations.deletes.is_empty()
         }
-        NativeMutationContinuationFamily::FreeTextEditors => {
-            !mutations.free_text_editors.is_empty()
-        }
+        NativeMutationContinuationFamily::TextBoxes => !mutations.text_boxes.is_empty(),
         NativeMutationContinuationFamily::PageLabels => mutations.page_labels.is_some(),
         NativeMutationContinuationFamily::Bookmarks => mutations.bookmarks.is_some(),
         NativeMutationContinuationFamily::Shapes => mutations.shapes.is_some(),
@@ -870,9 +898,15 @@ fn validate_native_mutation_text_budget(mutations: &NativeMutationsFile) -> Resu
             consume_text_bytes(&mut total, value)?;
         }
     }
-    for editor in &mutations.free_text_editors {
+    for editor in &mutations.text_boxes {
         consume_text_bytes(&mut total, &editor.stable_key)?;
+        if let Some(annotation_id) = editor.annotation_id.as_deref() {
+            consume_text_bytes(&mut total, annotation_id)?;
+        }
         consume_text_bytes(&mut total, &editor.text)?;
+        if let Some(author) = editor.author.as_deref() {
+            consume_text_bytes(&mut total, author)?;
+        }
     }
     for delete in &mutations.deletes {
         if let Some(stable_key) = delete.stable_key.as_deref() {
@@ -1063,6 +1097,28 @@ mod bounded_input_tests {
             .expect("aggregate budget errors should carry a native error");
         assert_eq!(native_error.code, NativeErrorCode::TooLarge);
         assert!(native_error.message.contains("aggregate admission ceiling"));
+    }
+
+    #[test]
+    fn native_mutations_accept_the_text_boxes_alias_but_reject_both_keys() {
+        let editor = r#"{"pageIndex":0,"stableKey":"box","text":"text","rect":[1,1,20,20],"rotation":0,"fontSize":12,"color":[0,0,0]}"#;
+        let canonical = format!(r#"{{"textBoxes":[{editor}]}}"#);
+        let legacy = format!(r#"{{"freeTextEditors":[{editor}]}}"#);
+        let duplicate = format!(r#"{{"textBoxes":[{editor}],"freeTextEditors":[{editor}]}}"#);
+
+        let mut canonical: NativeMutationsFile = serde_json::from_str(&canonical).unwrap();
+        assert_eq!(canonical.text_boxes.len(), 1);
+        let legacy: NativeMutationsFile = serde_json::from_str(&legacy).unwrap();
+        assert_eq!(legacy.text_boxes.len(), 1);
+        let error = match serde_json::from_str::<NativeMutationsFile>(&duplicate) {
+            Ok(_) => panic!("canonical and legacy text-box keys must not coexist"),
+            Err(error) => error,
+        };
+        assert!(error.to_string().contains("duplicate field"));
+
+        canonical.text_boxes[0].annotation_id = Some("not-a-pdf-reference".to_string());
+        let error = validate_text_boxes(&canonical.text_boxes).unwrap_err();
+        assert_eq!(error.to_string(), "Invalid text box annotation id");
     }
 
     #[test]

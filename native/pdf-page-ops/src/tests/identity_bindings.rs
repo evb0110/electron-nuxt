@@ -18,8 +18,8 @@
         }
     }
 
-    fn binding_editor() -> FreeTextEditor {
-        FreeTextEditor {
+    fn binding_editor() -> TextBoxMutation {
+        TextBoxMutation {
             page_index: 0,
             stable_key: "uid:0:text-box-one".to_string(),
             annotation_id: None,
@@ -28,6 +28,9 @@
             rotation: 0,
             font_size: 12.0,
             color: [0, 0, 255],
+            author: None,
+            created_at: None,
+            modified_at: None,
         }
     }
 
@@ -55,7 +58,7 @@
             &mut Some(&mut bindings),
         )
         .unwrap();
-        upsert_free_text_editors_with_counter(
+        upsert_text_boxes_with_counter(
             &mut document,
             &[binding_editor()],
             "D:20260830130000Z",
@@ -87,7 +90,7 @@
             &mut Some(&mut bindings),
         )
         .unwrap();
-        upsert_free_text_editors_incremental_with_counter(
+        upsert_text_boxes_incremental_with_counter(
             &mut incremental,
             &[binding_editor()],
             "D:20260830130000Z",
@@ -111,7 +114,7 @@
             &mut None,
         )
         .unwrap();
-        upsert_free_text_editors_with_counter(
+        upsert_text_boxes_with_counter(
             &mut document,
             &[binding_editor()],
             "D:20260830130000Z",
@@ -131,7 +134,7 @@
             .any(|name| name.starts_with("evb-note:uid:0:note-one:created:")));
         assert!(annotation_names
             .iter()
-            .any(|name| name == "evb-freetext:uid:0:text-box-one"));
+            .any(|name| name == "uid:0:text-box-one"));
     }
 
     #[test]
@@ -168,7 +171,7 @@
             &pdf_path,
             &NativeMutationsFile {
                 free_text_notes: vec![note],
-                free_text_editors: vec![editor],
+                text_boxes: vec![editor],
                 ..NativeMutationsFile::default()
             },
             "D:20260830130000Z",

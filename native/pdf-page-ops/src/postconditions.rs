@@ -25,11 +25,7 @@ pub(crate) fn validate_appended_revision_postconditions(
         &mutations.free_text_notes,
         modified_at,
     )?;
-    validate_free_text_editor_document_postconditions(
-        document,
-        &mutations.free_text_editors,
-        modified_at,
-    )?;
+    validate_text_box_document_postconditions(document, &mutations.text_boxes, modified_at)?;
     validate_annotation_delete_document_postconditions(document, &mutations.deletes)?;
     if let Some(page_labels) = &mutations.page_labels {
         if mutations.continuation.as_ref().is_some_and(|continuation| {
@@ -360,9 +356,9 @@ pub(crate) fn validate_text_note_document_postconditions(
     Ok(())
 }
 
-pub(crate) fn validate_free_text_editor_document_postconditions(
+pub(crate) fn validate_text_box_document_postconditions(
     document: &impl PdfObjectSource,
-    editors: &[FreeTextEditor],
+    editors: &[TextBoxMutation],
     modified_at: &str,
 ) -> Result<()> {
     if editors.is_empty() {
@@ -376,8 +372,8 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .ok_or("Invalid FreeText editor page index")?;
         let page_id = page_resolver.page_id(document, page_number)?;
         let page_view = resolve_page_view(document, page_id)?;
-        let expected_rect = validate_free_text_editor_rect(editor, page_view)?;
-        let expected_name = free_text_editor_name(editor);
+        let expected_rect = validate_text_box_rect(editor, page_view)?;
+        let expected_name = text_box_name(editor);
         let page_annotation_refs = get_page_annots(document, page_id)?
             .iter()
             .filter_map(|object| object.as_reference().ok())
@@ -413,12 +409,28 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .into());
         }
         let dict = document.dictionary(matching_refs[0])?;
-        validate_annotation_text_fields(dict, &editor.text, modified_at, "FreeText editor")?;
+        let effective_modified_at = shape_pdf_date(editor.modified_at, modified_at);
+        validate_annotation_text_fields(
+            dict,
+            &editor.text,
+            &effective_modified_at,
+            "FreeText editor",
+        )?;
+        if editor.author.is_some() {
+            validate_optional_author(dict, editor.author.as_deref(), "FreeText editor")?;
+        }
+        if let Some(created_at) = editor.created_at {
+            let actual_creation_date = dict
+                .get(b"CreationDate")
+                .ok()
+                .and_then(pdf_string_to_text)
+                .ok_or("FreeText editor is missing creation timestamp")?;
+            if actual_creation_date != shape_pdf_date(Some(created_at), modified_at) {
+                return Err("FreeText editor creation timestamp did not match".into());
+            }
+        }
         let actual_rect = parse_rect(dict.get(b"Rect")?)?;
         validate_rect_approximately(actual_rect, expected_rect, "FreeText editor Rect")?;
-        if dict.get(b"Popup").is_ok() {
-            return Err("FreeText editor unexpectedly contains a Popup".into());
-        }
         let rotation = dict.get(b"Rotate")?.as_i64()?;
         if rotation != i64::from(editor.rotation) {
             return Err("FreeText editor rotation did not match the requested rotation".into());
@@ -428,10 +440,78 @@ pub(crate) fn validate_free_text_editor_document_postconditions(
             .ok()
             .and_then(|object| object.as_str().ok())
             .ok_or("FreeText editor is missing DA")?;
-        if !String::from_utf8_lossy(default_appearance).contains("/Helv") {
-            return Err("FreeText editor DA is missing Helvetica".into());
-        }
+        let expected_color = editor.color.map(|component| f64::from(component) / 255.0);
+        validate_text_box_default_appearance(default_appearance, editor.font_size, expected_color)?;
         validate_appearance(document, dict)?;
+    }
+    Ok(())
+}
+
+fn validate_text_box_default_appearance(
+    default_appearance: &[u8],
+    expected_font_size: f64,
+    expected_color: [f64; 3],
+) -> Result<()> {
+    const EPSILON: f64 = 0.0001;
+
+    let tokens = tokenize_default_appearance(default_appearance);
+    let mut actual_font_size = None;
+    let mut actual_color = None;
+    for (index, &(start, end)) in tokens.iter().enumerate() {
+        let token = &default_appearance[start..end];
+        if token == b"Tf" {
+            let size = index
+                .checked_sub(1)
+                .and_then(|operand_index| tokens.get(operand_index))
+                .and_then(|&(operand_start, operand_end)| {
+                    std::str::from_utf8(&default_appearance[operand_start..operand_end])
+                        .ok()
+                        .and_then(|value| value.parse::<f64>().ok())
+                });
+            if let Some(size) = size.filter(|value| value.is_finite() && *value > 0.0) {
+                actual_font_size = Some(size);
+            }
+        } else if token == b"rg" {
+            let Some(first_operand) = index.checked_sub(3) else {
+                continue;
+            };
+            let mut color = [0.0; 3];
+            let mut operands_are_valid = true;
+            for (component, &(operand_start, operand_end)) in
+                color.iter_mut().zip(tokens[first_operand..index].iter())
+            {
+                let value = std::str::from_utf8(&default_appearance[operand_start..operand_end])
+                    .ok()
+                    .and_then(|value| value.parse::<f64>().ok())
+                    .filter(|value| value.is_finite() && (0.0..=1.0).contains(value));
+                let Some(value) = value else {
+                    operands_are_valid = false;
+                    break;
+                };
+                *component = value;
+            }
+            if operands_are_valid {
+                actual_color = Some(color);
+            }
+        }
+    }
+
+    let Some(actual_font_size) = actual_font_size else {
+        return Err("FreeText editor DA is missing Tf operands".into());
+    };
+    if (actual_font_size - expected_font_size).abs() > EPSILON {
+        return Err("FreeText editor DA font size did not match the requested size".into());
+    }
+
+    let Some(actual_color) = actual_color else {
+        return Err("FreeText editor DA is missing rg operands".into());
+    };
+    if actual_color
+        .into_iter()
+        .zip(expected_color)
+        .any(|(actual, expected)| (actual - expected).abs() > EPSILON)
+    {
+        return Err("FreeText editor DA color did not match the requested color".into());
     }
     Ok(())
 }
@@ -1287,4 +1367,45 @@ fn validate_new_markup_target(
         .ok_or("New text-markup annotation is missing Rect")?;
     validate_rect_approximately(actual_rect, expected_rect, "Text-markup annotation Rect")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_box_default_appearance_requires_requested_font_size_and_color() {
+        let expected_color = [17.0 / 255.0, 24.0 / 255.0, 39.0 / 255.0];
+        validate_text_box_default_appearance(
+            b"/Courier 18 Tf 0.0667 0.0941 0.1529 rg 2 Tc",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+
+        assert!(validate_text_box_default_appearance(
+            b"/Courier 17 Tf 0.0667 0.0941 0.1529 rg",
+            18.0,
+            expected_color,
+        )
+        .is_err());
+        assert!(validate_text_box_default_appearance(
+            b"/Courier 18 Tf 0.0667 0.0941 rg",
+            18.0,
+            expected_color,
+        )
+        .is_err());
+        validate_text_box_default_appearance(
+            b"/Helv invalid Tf 0 0 rg /Helv 18 Tf 0.0667 0.0941 0.1529 rg",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+        validate_text_box_default_appearance(
+            b"/Helv 18 Tf 0.0667 0.0941 0.1529 rg /Helv invalid Tf",
+            18.0,
+            expected_color,
+        )
+        .unwrap();
+    }
 }
