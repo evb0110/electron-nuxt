@@ -1,0 +1,198 @@
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_7fe07412ad5143::t_7a5824b65ad6a6 48-49,54,465,470,476-477
+  s_7fe07412ad5143::t_640ddf3613bce8 35-37,40,42-44,46-47
+  s_7fe07412ad5143::t_7fba3368556b24 75,239-240,256,271-276,311,318,323-324,343,352-353,394
+  s_7fe07412ad5143::t_31e196188e549c 355-359,489-491,494,498-500,539-541,543-554
+  s_7fe07412ad5143::t_4a3a24e92ecdd7 456
+  s_7fe07412ad5143::t_1be45b124b91f3 38-39,41,45
+packages/contracts/documentsPlatformFeatureSchemas.ts
+  s_7fe07412ad5143::t_199ba139dcf305 566-568,594-595,597
+  s_7fe07412ad5143::t_c92ef78956ea3c 570-573,579-584,603-607
+  s_7fe07412ad5143::t_77b76f904740dc 575-578,599-602
+  s_7fe07412ad5143::t_c70c01aabc3117 565,593
+  s_7fe07412ad5143::t_7e93251873517e 569,574,596,598
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_7fe07412ad5143::t_1fabaa84336028 776-914
+  s_7fe07412ad5143::t_cca809cee3ba13 116,119
+  s_7fe07412ad5143::t_37055599722bed 2,32,79-86,134-137
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_7fe07412ad5143::t_12c81dfebb0037 1045,1052
+  s_7fe07412ad5143::t_9419c47d8f46fb 72,1050,1056
+app/modules/workspace-shell/composables/document-session/isPdfPasswordFailureResult.ts
+  s_7fe07412ad5143::t_3d92aa763d217a 1-11
+packages/i18n-app/messages/nl.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1474-1479
+packages/contracts/electronApiDocuments.ts
+  s_7fe07412ad5143::t_92f1794ee72f35 358
+  s_7fe07412ad5143::t_c92ef78956ea3c 968-969
+packages/i18n-app/messages/ptBr.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1485-1490
+tests/unit/app/modules/workspace-shell/composables/useDocumentPasswordPrompt.test.ts
+  s_7fe07412ad5143::t_cdfb4df40e72f1 1-75,91
+  s_7fe07412ad5143::t_131a758e9a1698 76-90
+packages/contracts/shared.ts
+  s_7fe07412ad5143::t_cfdd5b9e8d0ae4 99
+electron/features/documents/documentsService.ts
+  s_7fe07412ad5143::t_12c81dfebb0037 96,102
+packages/i18n-app/messages/it.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1474-1479
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_7fe07412ad5143::t_249b945956bc5c 43,743,767
+  s_7fe07412ad5143::t_f0aac374887351 715,718,720,726,741-742,746-749,765-766,768-771
+  s_7fe07412ad5143::t_82c67cc09159c1 353,359
+  s_7fe07412ad5143::t_2affa80d1c9525 744-745
+tests/unit/contracts/pdfDecryptSchemas.test.ts
+  s_7fe07412ad5143::t_cc87f77710de9c 85-104
+packages/contracts/pdfOpenFileSchemas.ts
+  s_7fe07412ad5143::t_3dfcb6c4ea9d13 46,58
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_7fe07412ad5143::t_cd76e3ced3123a 106-108,112
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_7fe07412ad5143::t_a24da128fecbdd 209,251-258,283-286
+  s_7fe07412ad5143::t_2b7c680379ed14 310,313,531,534
+  s_7fe07412ad5143::t_cf264171b063c0 58,92-96,122-125
+  s_7fe07412ad5143::t_2884ca792c0087 396
+  s_7fe07412ad5143::t_3d92aa763d217a 53-57
+  s_7fe07412ad5143::t_bb400f05aa8eaf 52,282,385-395,397-404,458,641
+app/platform/browser-api/browserWorkingCopyService.ts
+  s_7fe07412ad5143::t_48cc7373642792 20-23
+  s_7fe07412ad5143::t_2f91caf6b3f78d 142-143,145-146,148
+  s_7fe07412ad5143::t_1b7d73a38c644d 189,191-207,209-210,212,214-217
+  s_7fe07412ad5143::t_5b278dcd519223 103
+  s_7fe07412ad5143::t_b8c81f38bc0f7d 188,190,208,211,213,218
+  s_7fe07412ad5143::t_734ad460ef6f26 40,44-55,61-68,70-75,77-96,98-102,105-108,129,147,149
+  s_7fe07412ad5143::t_31e196188e549c 56-60
+  s_7fe07412ad5143::t_9d6b43aecdb9ab 24-27,41-43
+  s_7fe07412ad5143::t_946f8d46d7c897 19,28-30
+  s_7fe07412ad5143::t_d56c7ef20e4230 155
+  s_7fe07412ad5143::t_5a3197151c3057 111-120,144
+  s_7fe07412ad5143::t_653540a7398969 104
+  s_7fe07412ad5143::t_a154026c7a3b6b 109-110
+app/modules/workspace-shell/components/DocumentPasswordDialog.vue
+  s_7fe07412ad5143::t_9af26a85484698 1-20,22-28,30-39,41-45,47-53,55-56,64-65,67-73,75-78,80-84,86-87
+  s_7fe07412ad5143::t_e38a7fe8e26ddf 29,40,46
+  s_7fe07412ad5143::t_30bd4e321e0bd6 54
+  s_7fe07412ad5143::t_481ffd2cc69715 21
+  s_7fe07412ad5143::t_6632addd1d9265 57-63,66,74,79,85
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_7fe07412ad5143::t_b09af3bc55c213 27
+  s_7fe07412ad5143::t_7abd461ef49863 16,28,147-165,171
+packages/i18n-app/messages/en.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1474-1478
+  s_7fe07412ad5143::t_31e196188e549c 1479
+electron/features/documents/main/openInputPaths.service.ts
+  s_7fe07412ad5143::t_9f9b130e8efad5 273
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_7fe07412ad5143::t_ad5d7e25fe92b7 156
+  s_7fe07412ad5143::t_6632addd1d9265 131
+app/modules/workspace-shell/composables/useDocumentPasswordPrompt.ts
+  s_7fe07412ad5143::t_4e0f49fa1a6c31 6-9,11-16,29-30,35,42-45,58,69
+  s_7fe07412ad5143::t_fc34c0180395c3 28
+  s_7fe07412ad5143::t_65d2f1c082bb9b 1-5,10,17-27,31-34,36-41,46-57,59-68
+tests/unit/electron/preloadFileClient.test.ts
+  s_7fe07412ad5143::t_8ff0adb9475c2e 23,187-206
+  s_7fe07412ad5143::t_539dfbc214f2d3 207-208
+packages/i18n-app/messages/es.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1474-1479
+app/modules/workspace-shell/composables/usePdfFile.ts
+  s_7fe07412ad5143::t_f761ec4726bed2 18,25
+  s_7fe07412ad5143::t_b1cf84adc54353 118-120
+packages/i18n-app/messages/pt.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1485-1490
+app/modules/workspace-shell/composables/document-session/classifyDocumentOpenError.ts
+  s_7fe07412ad5143::t_3d92aa763d217a 1-21
+electron/features/documents/main/documentWorkingCopyHandlers.ts
+  s_7fe07412ad5143::t_12c81dfebb0037 66,90
+  s_7fe07412ad5143::t_31e196188e549c 13-16,21-30,75,83,98,105
+electron/file-access/isPdfFileEncrypted.ts
+  s_7fe07412ad5143::t_48cc7373642792 1-59
+packages/i18n-app/messages/ru.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1509-1514
+electron/features/documents/appendWorkingCopyPassword.ts
+  s_7fe07412ad5143::t_473e11a43cc7ef 1-15
+  s_7fe07412ad5143::t_d81d9931cc66ea 16-26
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_7fe07412ad5143::t_1f473eeb5a83b4 379-381,383
+tests/unit/electron/workingCopy.test.ts
+  s_7fe07412ad5143::t_8ff0adb9475c2e 30,110-116,119-128,130-132
+  s_7fe07412ad5143::t_7497aaf4056de3 502-509,511-528
+  s_7fe07412ad5143::t_77e11230a53d10 117-118,129
+  s_7fe07412ad5143::t_f7c1aaa36845c7 484-492,494-501
+  s_7fe07412ad5143::t_ce2bb1eafc00dd 531-553,555-583
+  s_7fe07412ad5143::t_f13417294930f8 133-134,529-530
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_7fe07412ad5143::t_83ac4037d51008 16,21,152
+packages/contracts/settings.ts
+  s_7fe07412ad5143::t_cfdd5b9e8d0ae4 67,235-236
+  s_7fe07412ad5143::t_5dc11dd41cdda2 237
+packages/i18n-app/messages/fr.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1485-1490
+electron/file-access/workingCopyCreation.ts
+  s_7fe07412ad5143::t_2d36079b29a91d 14-17,454-459,463-471,473-481
+  s_7fe07412ad5143::t_31e196188e549c 126-130,308-310,373-375,460-462
+  s_7fe07412ad5143::t_6df6e913b04049 166,178,207,270-275
+  s_7fe07412ad5143::t_79145b4690a11e 286,307,311,354,372,376,472
+  s_7fe07412ad5143::t_b09af3bc55c213 23
+  s_7fe07412ad5143::t_12cc20d9d7f849 116,124-125,131-136
+tests/unit/app/platform/browserWorkingCopyService.test.ts
+  s_7fe07412ad5143::t_76dcbd58997f93 1-12,15-41,46-48,53-77,82-106,111-134,139-173,175-178,202-205,209,218-219,221-222,244-245,272
+  s_7fe07412ad5143::t_887d7a53a89a39 179-200
+  s_7fe07412ad5143::t_dab79f35615a41 246-262,266-271
+  s_7fe07412ad5143::t_16e05c0f671cd9 206-208,210-212,217,220
+  s_7fe07412ad5143::t_01ec18ef9cef72 174
+  s_7fe07412ad5143::t_9d6b43aecdb9ab 14,223-243
+  s_7fe07412ad5143::t_2af5a01cef32b6 201
+  s_7fe07412ad5143::t_ed4c8790bb953e 13
+  s_7fe07412ad5143::t_249b945956bc5c 42-45,49-52,78-81,107-110,135-138,213-216,263-265
+app/platform/browser-api/browserPdfValidation.ts
+  s_7fe07412ad5143::t_48cc7373642792 8,12
+app/modules/workspace-shell/composables/document-session/openPdfAfterPasswordPrompt.ts
+  s_7fe07412ad5143::t_feae3b4f10647e 1,4-28,30-87,89-117
+  s_7fe07412ad5143::t_1aa046023cf7ef 2-3
+  s_7fe07412ad5143::t_2884ca792c0087 29,88
+tests/fixtures/electron/password-protected.pdf.b64
+  s_7fe07412ad5143::t_3d872eea403174 1
+packages/contracts/pdfDecryptSchemas.ts
+  s_7fe07412ad5143::t_e7321822865a22 54,60-72
+  s_7fe07412ad5143::t_1a3a1e2187df4d 55-57
+packages/pdf-core/index.ts
+  s_7fe07412ad5143::t_48cc7373642792 3,9
+app/utils/browserSettingsPersistence.ts
+  s_7fe07412ad5143::t_cfdd5b9e8d0ae4 144-146
+tests/unit/electron/openInputPaths.test.ts
+  s_7fe07412ad5143::t_b1e33eea80b363 218
+packages/pdf-core/pdfConformanceHelpers.ts
+  s_7fe07412ad5143::t_48cc7373642792 11-12,35-36
+  s_7fe07412ad5143::t_228e6137709060 37-38
+tests/unit/electron/workingCopyDecryption.test.ts
+  s_7fe07412ad5143::t_453c234b5c1aa3 2,9-17,19-20,24-25,29-32,35,37-40,47,52-67,73-76,78,85-93,98-99,101,103-106,108,114-115,121-122,124,126-128,130,136
+  s_7fe07412ad5143::t_ad85739e3f0812 22,27,41-44,48-51,68-72,94,118
+  s_7fe07412ad5143::t_c818688c98ddcf 116-117
+  s_7fe07412ad5143::t_6415ee0160990e 28
+tests/unit/electron/inProcessIpcRoundTrip.test.ts
+  s_7fe07412ad5143::t_028e62bb346303 159
+tests/unit/app/platform/browserPageOpsWasm.test.ts
+  s_7fe07412ad5143::t_8ddfb91f6824e4 613
+  s_7fe07412ad5143::t_71361c2e4e6d3d 334
+  s_7fe07412ad5143::t_ebfa79dbc50e0f 308-310,313-314,320,336-337
+  s_7fe07412ad5143::t_180ada360ab622 318-319
+  s_7fe07412ad5143::t_9bc7d032ee58bc 130-137,306-307,311-312,315-317,321-333,335
+packages/i18n-app/messages/de.ts
+  s_7fe07412ad5143::t_4656d7dd3167e8 1474-1479
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "13f09bc1a5e437ecbd7c0e1aa95e1570b885a4cf",
+  "prompts": {},
+  "sessions": {
+    "s_7fe07412ad5143": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053f1-8791-7880-94f2-4cc9164f385c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
