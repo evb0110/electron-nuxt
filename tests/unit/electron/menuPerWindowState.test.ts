@@ -431,6 +431,33 @@ describe('menu per-window document state', () => {
         expect(window.webContents.send).toHaveBeenCalledWith('menu:toggleContinuousScroll');
     });
 
+    it('shows whole-document view rotation commands separately from page mutation', () => {
+        const window = mocks.createWindow(1, 'Window');
+        mocks.windows.push(window);
+        mocks.focusWindow(window);
+        setupMenu();
+
+        setMenuDocumentState(1, {
+            hasDocument: true,
+            canSave: false,
+            interactive: true,
+            supportsPdfMutation: false,
+            canMutatePages: false,
+            supportsViewRotation: true,
+            viewRotation: 90,
+        });
+
+        const viewItems = getViewMenuSubmenu(getLastMenuTemplate());
+        expect(viewItems.find(item => item.label === 'menu.rotateViewClockwise')).toMatchObject({enabled: true});
+        expect(viewItems.find(item => item.label === 'menu.rotateViewCounterclockwise')).toMatchObject({enabled: true});
+        expect(getPagesMenuSubmenu(getLastMenuTemplate())).toHaveLength(0);
+
+        viewItems.find(item => item.label === 'menu.rotateViewClockwise')?.click?.({}, window);
+        viewItems.find(item => item.label === 'menu.rotateViewCounterclockwise')?.click?.({}, window);
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:viewRotationCw');
+        expect(window.webContents.send).toHaveBeenCalledWith('menu:viewRotationCcw');
+    });
+
     it('disables View commands while the active document is still opening', () => {
         const window = mocks.createWindow(1, 'Window');
         mocks.windows.push(window);

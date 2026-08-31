@@ -15,7 +15,7 @@ import {
 } from '@contracts/settings';
 import type { ISettingsData } from '@contracts/shared';
 import {
-    safeGetLocalStorageItem,
+    readLocalStorageItem,
     safeSetLocalStorageItem,
 } from '@app/utils/localStorage';
 import {
@@ -24,6 +24,7 @@ import {
     BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     BROWSER_THEME_COOKIE_KEY,
     expireLegacyBrowserSettingsCookie,
+    assertSupportedBrowserSettingsPayload,
     isValidBrowserSettingsStoragePayload,
     isValidLegacyBrowserSettingsPayload,
     parseBrowserSettingsPayload,
@@ -35,8 +36,15 @@ import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
 let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
 
+interface IBrowserSettingsReadResult {
+    settings: ISettingsData;
+    persisted: boolean;
+}
+
 function writeBrowserSettingsToStorage(nextSettings: ISettingsData) {
-    safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings));
+    if (!safeSetLocalStorageItem(SETTINGS_STORAGE_KEY, JSON.stringify(nextSettings))) {
+        throw new Error('Failed to persist browser settings to localStorage');
+    }
 }
 
 function readBrowserSettingsCookies() {
@@ -70,28 +78,51 @@ function readBrowserSettingsCookies() {
     };
 }
 
-function readBrowserSettingsFromStorage() {
-    const rawSettings = safeGetLocalStorageItem(SETTINGS_STORAGE_KEY);
-    if (!rawSettings) {
-        return null;
-    }
-
-    try {
-        if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
+function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } = {}) {
+    const result = readLocalStorageItem(SETTINGS_STORAGE_KEY);
+    if (result.status === 'unavailable') {
+        if (options.allowUnavailable) {
             return null;
         }
-        return sanitizeSettings(JSON.parse(rawSettings));
-    } catch {
+        throw result.error;
+    }
+    if (result.status === 'absent') {
         return null;
     }
+
+    const rawSettings = result.value;
+    assertSupportedBrowserSettingsPayload(rawSettings);
+    if (!isValidBrowserSettingsStoragePayload(rawSettings)) {
+        return null;
+    }
+    return sanitizeSettings(JSON.parse(rawSettings));
 }
 
-function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData) {
+function readLatestBrowserSettingsForSave() {
+    const persistedSettings = readBrowserSettingsFromStorage();
+    if (persistedSettings) {
+        return persistedSettings;
+    }
+
+    if (browserSettingsLoaded) {
+        return settingsState;
+    }
+
+    return readAndMigrateBrowserSettings()?.settings
+        ?? { ...DEFAULT_SETTINGS };
+}
+
+function writeBrowserSettingsBootstrapCookies(
+    nextSettings: ISettingsData,
+    options: {expireLegacySettingsCookie?: boolean} = {},
+) {
     if (typeof document === 'undefined') {
         return;
     }
 
-    expireLegacyBrowserSettingsCookie();
+    if (options.expireLegacySettingsCookie !== false) {
+        expireLegacyBrowserSettingsCookie();
+    }
     const secureAttribute = typeof location !== 'undefined' && location.protocol === 'https:'
         ? '; Secure'
         : '';
@@ -99,25 +130,47 @@ function writeBrowserSettingsBootstrapCookies(nextSettings: ISettingsData) {
     document.cookie = `${BROWSER_THEME_COOKIE_KEY}=${encodeURIComponent(nextSettings.theme)}; Path=/; Max-Age=${BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS}; SameSite=Lax${secureAttribute}`;
 }
 
-function readAndMigrateBrowserSettings() {
+function readAndMigrateBrowserSettings(options: { allowUnavailable?: boolean } = {}): IBrowserSettingsReadResult | null {
+    const persistedSettings = readBrowserSettingsFromStorage(options);
     const cookieSnapshot = readBrowserSettingsCookies();
     if (cookieSnapshot && cookieSnapshot.rawSettings !== null) {
+        assertSupportedBrowserSettingsPayload(cookieSnapshot.rawSettings);
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(cookieSnapshot.rawSettings);
         if (isValidLegacyCookie) {
+            if (persistedSettings) {
+                expireLegacyBrowserSettingsCookie();
+                return {
+                    persisted: true,
+                    settings: persistedSettings,
+                };
+            }
             const legacySettings = parseBrowserSettingsPayload(
                 cookieSnapshot.rawSettings,
                 cookieSnapshot.fallbackSettings,
             );
-            writeBrowserSettingsToStorage(legacySettings);
-            expireLegacyBrowserSettingsCookie();
-            return legacySettings;
+            let persisted = false;
+            try {
+                writeBrowserSettingsToStorage(legacySettings);
+                expireLegacyBrowserSettingsCookie();
+                persisted = true;
+            } catch (error) {
+                if (!options.allowUnavailable) {
+                    throw error;
+                }
+            }
+            return {
+                persisted,
+                settings: legacySettings,
+            };
         }
         expireLegacyBrowserSettingsCookie();
     }
 
-    const persistedSettings = readBrowserSettingsFromStorage();
     if (persistedSettings) {
-        return persistedSettings;
+        return {
+            persisted: true,
+            settings: persistedSettings,
+        };
     }
 
     if (cookieSnapshot) {
@@ -125,36 +178,47 @@ function readAndMigrateBrowserSettings() {
             null,
             cookieSnapshot.fallbackSettings,
         );
-        writeBrowserSettingsToStorage(bootstrapSettings);
-        return bootstrapSettings;
+        let persisted = false;
+        try {
+            writeBrowserSettingsToStorage(bootstrapSettings);
+            persisted = true;
+        } catch (error) {
+            if (!options.allowUnavailable) {
+                throw error;
+            }
+        }
+        return {
+            persisted,
+            settings: bootstrapSettings,
+        };
     }
     return null;
 }
 
 export const browserSettingsCapability: ISettingsCapability = {
     get() {
-        if (!browserSettingsLoaded) {
-            settingsState = readAndMigrateBrowserSettings()
-                ?? { ...DEFAULT_SETTINGS };
-            browserSettingsLoaded = true;
-            writeBrowserSettingsBootstrapCookies(settingsState);
-        }
-        return Promise.resolve(sanitizeSettings(settingsState));
+        return Promise.resolve().then(() => {
+            if (!browserSettingsLoaded) {
+                const migration = readAndMigrateBrowserSettings({allowUnavailable: true});
+                settingsState = migration?.settings ?? { ...DEFAULT_SETTINGS };
+                writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
+                browserSettingsLoaded = true;
+            }
+            return sanitizeSettings(settingsState);
+        });
     },
     save(settings) {
-        const currentSettings = browserSettingsLoaded
-            ? settingsState
-            : readAndMigrateBrowserSettings()
-                ?? { ...DEFAULT_SETTINGS };
-        const nextSettings = sanitizeSettings({
-            ...currentSettings,
-            ...settings,
+        return Promise.resolve().then(() => {
+            const currentSettings = readLatestBrowserSettingsForSave();
+            const nextSettings = sanitizeSettings({
+                ...currentSettings,
+                ...settings,
+            });
+            writeBrowserSettingsToStorage(nextSettings);
+            writeBrowserSettingsBootstrapCookies(nextSettings);
+            settingsState = nextSettings;
+            browserSettingsLoaded = true;
         });
-        settingsState = nextSettings;
-        browserSettingsLoaded = true;
-        writeBrowserSettingsToStorage(nextSettings);
-        writeBrowserSettingsBootstrapCookies(nextSettings);
-        return Promise.resolve(undefined);
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {
         return Promise.resolve([]);

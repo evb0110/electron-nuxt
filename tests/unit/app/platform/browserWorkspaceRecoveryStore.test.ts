@@ -11,6 +11,7 @@ import {
     loadBrowserWorkspaceRecoveries,
     loadBrowserWorkspaceRecovery,
     saveBrowserWorkspaceRecovery,
+    touchBrowserWorkspaceRecovery,
 } from '@app/platform/browser/browserWorkspaceRecoveryStore';
 import { FakeIndexedDbFactory } from '@tests/unit/app/platform/browserPlatformTestDoubles';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
@@ -116,6 +117,30 @@ describe('browserWorkspaceRecoveryStore', () => {
                 ownerId: 'window:20',
                 generation: 1,
             }));
+    });
+
+    it('heartbeats an existing owner without advancing its generation', async () => {
+        await saveBrowserWorkspaceRecovery(
+            'window:heartbeat',
+            0,
+            checkpoint,
+            ['browser://documents/recovery.pdf'],
+        );
+        const before = await loadBrowserWorkspaceRecovery('window:heartbeat');
+        expect(before).not.toBeNull();
+
+        await expect(touchBrowserWorkspaceRecovery('window:heartbeat', 1)).resolves.toEqual({
+            saved: true,
+            generation: 1,
+        });
+        await expect(loadBrowserWorkspaceRecovery('window:heartbeat')).resolves.toEqual(expect.objectContaining({
+            generation: 1,
+            updatedAt: expect.any(Number),
+        }));
+        await expect(touchBrowserWorkspaceRecovery('window:heartbeat', 2)).resolves.toEqual({
+            saved: false,
+            generation: 1,
+        });
     });
 
     it('moves an orphan journal to a fresh owner in one compare-and-swap transaction', async () => {

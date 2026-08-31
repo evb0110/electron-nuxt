@@ -4,6 +4,7 @@ import type {
 } from '@app/types/annotations';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -58,6 +59,7 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
             ? 'custom'
             : zoomState.value.axis === 'height' ? 'fit-height' : 'fit-width'),
         viewMode: computed<TPdfViewMode>(() => props.viewMode ?? 'single'),
+        viewRotation: computed<TPdfViewRotation>(() => props.viewRotation ?? 0),
         isResizing: computed(() => props.isResizing ?? false),
         showAnnotations: computed(() => !hasShowAnnotationsProp || props.showAnnotations !== false),
         annotationTool: computed<TAnnotationTool>(() => props.annotationTool ?? 'none'),

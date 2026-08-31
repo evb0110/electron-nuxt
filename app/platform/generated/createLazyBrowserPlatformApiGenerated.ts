@@ -45,6 +45,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const settingsOnDebugLogMethod = lazyEvent(pathDescriptors.settings.onDebugLog.path);
     const settingsRendererLogMethod = lazyVoid(pathDescriptors.settings.rendererLog.path);
     const systemOnShutdownSaveFlushRequestMethod = lazyEvent(pathDescriptors.system.onShutdownSaveFlushRequest.path);
+    const systemOnWindowCloseRequestMethod = lazyEvent(pathDescriptors.system.onWindowCloseRequest.path);
     const windowTabsNotifyRendererReadyMethod = lazyVoid(pathDescriptors.windowTabs.notifyRendererReady.path);
     const documentPickerOpenDocumentDialogMethod = lazyAsync(pathDescriptors.documentPicker.openDocumentDialog.path);
     const documentPickerOpenCombineDialogMethod = lazyAsync(pathDescriptors.documentPicker.openCombineDialog.path);
@@ -120,6 +121,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentMenuOnMenuViewModeSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeSingle.path);
     const documentMenuOnMenuViewModeFacingMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacing.path);
     const documentMenuOnMenuViewModeFacingFirstSingleMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewModeFacingFirstSingle.path);
+    const documentMenuOnMenuViewRotationCwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewRotationCw.path);
+    const documentMenuOnMenuViewRotationCcwMethod = lazyEvent(pathDescriptors.documentMenu.onMenuViewRotationCcw.path);
     const documentMenuOnMenuToggleAssistantMethod = lazyEvent(pathDescriptors.documentMenu.onMenuToggleAssistant.path);
     const documentMenuOnMenuUndoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuUndo.path);
     const documentMenuOnMenuRedoMethod = lazyEvent(pathDescriptors.documentMenu.onMenuRedo.path);
@@ -232,6 +235,7 @@ export function createLazyBrowserPlatformApiGenerated({
     const windowTabsDiscardWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.discardWorkspaceCheckpoint.path);
     const windowTabsResumeWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.resumeWorkspaceCheckpoint.path);
     const windowTabsClaimWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.claimWorkspaceCheckpoint.path);
+    const windowTabsAcknowledgeWorkspaceCheckpointMethod = lazyAsync(pathDescriptors.windowTabs.acknowledgeWorkspaceCheckpoint.path);
     const windowTabsOnIncomingTransferMethod = lazyEvent(pathDescriptors.windowTabs.onIncomingTransfer.path);
     const windowTabsOnWindowActionMethod = lazyEvent(pathDescriptors.windowTabs.onWindowAction.path);
     const windowTabsOnMenuNewTabMethod = lazyEvent(pathDescriptors.windowTabs.onMenuNewTab.path);
@@ -252,6 +256,7 @@ export function createLazyBrowserPlatformApiGenerated({
     },
     system: {
         onShutdownSaveFlushRequest: systemOnShutdownSaveFlushRequestMethod,
+        onWindowCloseRequest: systemOnWindowCloseRequestMethod,
         getMemoryInfo: systemGetMemoryInfoMethod,
     },
     windowTabs: {
@@ -266,6 +271,7 @@ export function createLazyBrowserPlatformApiGenerated({
         discardWorkspaceCheckpoint: windowTabsDiscardWorkspaceCheckpointMethod,
         resumeWorkspaceCheckpoint: windowTabsResumeWorkspaceCheckpointMethod,
         claimWorkspaceCheckpoint: windowTabsClaimWorkspaceCheckpointMethod,
+        acknowledgeWorkspaceCheckpoint: windowTabsAcknowledgeWorkspaceCheckpointMethod,
         onIncomingTransfer: windowTabsOnIncomingTransferMethod,
         onWindowAction: windowTabsOnWindowActionMethod,
         onMenuNewTab: windowTabsOnMenuNewTabMethod,
@@ -366,6 +372,8 @@ export function createLazyBrowserPlatformApiGenerated({
         onMenuViewModeSingle: documentMenuOnMenuViewModeSingleMethod,
         onMenuViewModeFacing: documentMenuOnMenuViewModeFacingMethod,
         onMenuViewModeFacingFirstSingle: documentMenuOnMenuViewModeFacingFirstSingleMethod,
+        onMenuViewRotationCw: documentMenuOnMenuViewRotationCwMethod,
+        onMenuViewRotationCcw: documentMenuOnMenuViewRotationCcwMethod,
         onMenuToggleAssistant: documentMenuOnMenuToggleAssistantMethod,
         onMenuUndo: documentMenuOnMenuUndoMethod,
         onMenuRedo: documentMenuOnMenuRedoMethod,

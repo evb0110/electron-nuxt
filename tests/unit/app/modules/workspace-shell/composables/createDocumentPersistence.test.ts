@@ -147,7 +147,7 @@ function createMixedNativeMarkupAndShapeMutations(): IPdfNativeMutationSet {
             rewriteShapeState: true,
             shapes: [{
                 type: 'rectangle',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 x: 0.2,
                 y: 0.3,
                 width: 0.2,

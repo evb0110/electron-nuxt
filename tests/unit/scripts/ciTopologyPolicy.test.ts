@@ -34,6 +34,7 @@ type TTsConfigJsonWithGlobs = Simplify<SetRequired<TsConfigJson, 'exclude' | 'in
 
 interface IWorkflowStep {
     'continue-on-error'?: boolean;
+    env?: Record<string, unknown>;
     id?: string;
     if?: string;
     name?: string;
@@ -368,6 +369,7 @@ describe('CI topology policy', () => {
             'app/composables/useAnalytics.ts',
             'app/modules/pdf-viewer/annotations/**',
             'app/modules/pdf-viewer/engine/**',
+            'app/modules/pdf-viewer/runtime/annotations/**',
             'app/modules/pdf-viewer/public.ts',
             'app/modules/pdf-viewer/runtime/save/**',
             'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
@@ -423,6 +425,7 @@ describe('CI topology policy', () => {
             'tests/e2e/electron/**',
             'tests/integration/native/**',
             'tests/unit/app/services/pdf-save/**',
+            'tests/unit/app/modules/pdf-viewer/runtime/annotations/**',
             'tests/unit/electron/documentFileWriteAtomic*.test.ts',
             'vitest.config.ts',
             'vitest.shared.config.ts',
@@ -595,7 +598,7 @@ describe('CI topology policy', () => {
         const manualQuality = workflowJob(workflow, 'manual_quality');
         expect(manualQuality).toContain('if: ${{ github.event_name == \'workflow_dispatch\' }}');
         expect(manualQuality).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(manualQuality).toContain('run: pnpm run check:wasm:portable');
+        expect(manualQuality).toContain('run: pnpm run check:wasm:strict');
         expectSplitQualitySteps(manualQuality);
         expect(manualQuality).toContain('run: pnpm run test:coverage');
         expect(manualQuality).toContain('run: node scripts/ci-install-dependencies.mjs --frozen-lockfile');
@@ -607,6 +610,7 @@ describe('CI topology policy', () => {
 
     it('keeps expensive PR and release-push checks path-filtered from checked-in policy', async () => {
         const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const jobs = parseWorkflowJobs(workflow);
         const testsTsconfig = await readTsConfigJsonWithGlobs('tests/tsconfig.json');
         const sharedVitestConfig = await readProjectFile('vitest.shared.config.ts');
 
@@ -632,23 +636,22 @@ describe('CI topology policy', () => {
         const nativePdfIntegration = workflowJob(workflow, 'pr_native_pdf_integration');
         expect(nativePdfIntegration).toContain('run: pnpm run build:pdf-page-ops');
         expect(nativePdfIntegration).toContain('run: pnpm exec vitest run --project native-integration');
-        const xlargeAcceptance = workflowJob(workflow, 'pr_xlarge_pdf_acceptance');
-        expect(xlargeAcceptance).toContain('EVB_XLARGE_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-large-2646-pages.pdf');
-        expect(xlargeAcceptance).toContain('EVB_EXACT_FIXTURE_PROFILE: xlargeZaliznyak2646');
-        expect(xlargeAcceptance).toContain('EVB_E2E_XLARGE_PDF_FIXTURE');
-        expect(xlargeAcceptance).toContain('xlargeDocumentAcceptance.e2e.test.ts');
-        expect(xlargeAcceptance).toContain('runs-on: ubuntu-latest');
-        const exactFixture = workflowJob(workflow, 'pr_exact_fixture_save');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-small-882-pages.pdf');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_MAX_BYTES');
-        expect(exactFixture).toContain('EVB_EXACT_FIXTURE_TIMEOUT_MS');
-        expect(exactFixture).toContain('environment: exact-pdf-fixtures');
-        expect(exactFixture).toContain('scripts/ci/stageExactPdfFixture.ts');
-        expect(exactFixture).toContain('EVB_E2E_REQUIRE_EXACT_ZALIZNYAK');
-        expect(exactFixture).toContain('largePdfAnnotationSave.e2e.test.ts');
-        expect(exactFixture).not.toContain('$GITHUB_OUTPUT');
-        expect(exactFixture).not.toContain('continue-on-error: true');
+        expect(Object.keys(jobs)).not.toEqual(expect.arrayContaining([
+            'pr_xlarge_pdf_acceptance',
+            'pr_exact_fixture_save',
+        ]));
+        const requiredJobs = requiredPrPushJobs(jobs);
+        expect(JSON.stringify([...requiredJobs].map(jobName => jobs[jobName]))).not.toMatch(
+            /fixture|ovh|cloud\/files|xlarge/iu,
+        );
+        const parsedJobConfiguration = JSON.stringify(jobs);
+        expect(parsedJobConfiguration).not.toMatch(
+            /exact-pdf-fixtures|ovh\.net|\/api\/cloud\/files|xlargeZaliznyak2646/iu,
+        );
+        const manualLargePdfStep = jobs.nightly_electron_e2e_large_pdf?.steps
+            ?.find(step => step.run === 'pnpm run test:e2e:electron:large');
+        expect(manualLargePdfStep?.env).toEqual({EVB_EXACT_FIXTURE_PROFILE: 'localZaliznyak882'});
+        expect(manualLargePdfStep?.env?.EVB_EXACT_FIXTURE_PROFILE).not.toContain('${{');
         const blockingSmokeSource = await readProjectFile('tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts');
         expect(blockingSmokeSource).toContain('createLargeScannedFixturePdf');
         expect(blockingSmokeSource).toContain('blocking pressure annotation');
@@ -685,7 +688,7 @@ describe('CI topology policy', () => {
         expect(gatesOk).toContain('SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}');
         expect(gatesOk).toContain('[\'pr_scan_cleanup_oracles\', process.env.SCAN_CLEANUP_EXPORT_CHANGED]');
         expect(sharedVitestConfig).toContain('tests/unit/landing/**/*.test.ts');
-        expect(testsTsconfig.exclude).toContain('./unit/landing/**/*.ts');
+        expect(testsTsconfig.exclude).not.toContain('./unit/landing/**/*.ts');
     });
 
     it('pins scan-cleanup oracle enforcement and Linux arm64 execution', async () => {
@@ -818,6 +821,9 @@ describe('CI topology policy', () => {
         expect(nativeVerifyIndex).toBeGreaterThan(extractIndex);
         expect(contentsVerifyIndex).toBeGreaterThan(nativeVerifyIndex);
         expect(storeWorkflow).toContain('".tmp/store-appx-${{ matrix.arch }}"');
+        expect(storeWorkflow).toContain('Add-AppxPackage -Path $packagePath');
+        expect(storeWorkflow).toContain('Start-Process -FilePath "shell:AppsFolder\\$appUserModelId"');
+        expect(storeWorkflow).toContain('Remove-AppxPackage -Package');
     });
 
     it('verifies release build artifacts before upload', async () => {
@@ -850,11 +856,11 @@ describe('CI topology policy', () => {
         expect(verifyStep).not.toContain('CSC_LINK');
         expect(verifyStep).not.toContain('WIN_CSC_LINK');
         expect(workflow).toContain('value: ${{ jobs.build.outputs.artifact_ready }}');
-        expect(buildJob).toContain('continue-on-error: ${{ inputs.advisory }}');
+        expect(buildJob).not.toContain('continue-on-error: ${{ inputs.advisory }}');
         expect(buildJob).toContain('artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}');
         expect(buildJob).toContain('if: ${{ always() }}');
         expect(buildJob).toContain(
-            'artifact_ready=${{ steps.upload_artifacts.outcome == \'success\' }}',
+            'artifact_ready=${{ steps.upload_artifacts.outcome == \'success\' && (runner.os != \'Windows\' || steps.nsis_journey.outcome == \'success\') }}',
         );
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
@@ -948,7 +954,7 @@ describe('CI topology policy', () => {
         expect(supplementalWindowsArm).toContain('platform: win');
         expect(supplementalWindowsArm).toContain('arch: arm64');
         expect(supplementalWindowsArm).toContain('artifact_group: supplemental-win-arm64');
-        expect(supplementalWindowsArm).toContain('advisory: true');
+        expect(supplementalWindowsArm).not.toContain('advisory:');
         // Runner provisioning has one owner: the setup-release-env composite
         // action. MSYS2 install, export, and tool verification live there and
         // must have completed before the Windows bundle step runs.
@@ -1061,8 +1067,6 @@ describe('CI topology policy', () => {
             pr_changed_areas: 5, // measured <1m
             pr_electron_blocking_smoke: 30, // measured 4.0m; Electron boot variance
             pr_electron_native_save_reopen: 35, // native mutation plus fresh Electron process
-            pr_exact_fixture_save: 60, // exact fixture staging and save/reopen
-            pr_xlarge_pdf_acceptance: 60, // Linux 2,646-page fixture save/reopen
             pr_landing_quality: 15, // measured ~7m
             pr_native_build_safety: 35, // measured 18.9m cold-cache
             pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture
@@ -1120,7 +1124,8 @@ describe('CI topology policy', () => {
         expect(releaseDependencyInstallIndex).toBeLessThan(releaseArtifactDownloadIndex);
         expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
         expect(publishJob).toContain('gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes');
-        expect(publishJob).toContain('gh release upload "$RELEASE_TAG" "$source" --clobber');
+        expect(publishJob).not.toContain('--clobber');
+        expect(publishJob).toContain('gh release upload "$RELEASE_TAG" "$source"');
         expect(publishJob).toContain('grep -Fqx \'SHA256SUMS\'');
         expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
         expect(publishJob).toContain('release-checksums.mjs verify downloaded-assets');
@@ -1238,13 +1243,15 @@ describe('CI topology policy', () => {
         expect(promoteJob).toContain('for attempt in 1 2 3; do');
         expect(promoteJob).toContain('timeout 600s node scripts/release/publish-release-mirror.mjs');
         expect(promoteJob).toContain('sleep 30');
-        expect(promoteJob).toContain('Stable mirror activation did not complete within the bounded reconciliation window.');
+        expect(promoteJob).toContain('Stable mirror activation did not complete within the bounded reconciliation window; the publisher attempted rollback.');
         expect(promoteJob).toContain('name: Activate verified mirror channel');
+        expect(promoteJob).toContain('node scripts/release/publish-release-mirror.mjs');
         expect(promoteJob).toContain('gh release edit "$RELEASE_TAG" --draft=false');
         const activationIndex = promoteJob.indexOf('name: Activate verified mirror channel');
         const promotionIndex = promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false');
         expect(activationIndex).toBeGreaterThanOrEqual(0);
         expect(promotionIndex).toBeGreaterThan(activationIndex);
+        expect(promoteJob).toContain('rollback');
         expect(promoteJob).toContain('Release channels did not converge.');
         expect(promoteJob).toContain('exit 1');
         expect(promoteJob).toContain('GITHUB_PROMOTION_STATUS=\'already public\'');
@@ -1486,7 +1493,7 @@ describe('CI topology policy', () => {
         expect(workflow).not.toContain('github.event_name == \'schedule\'');
         expect(workflow).toContain('name: Manual Maintenance Gates');
         expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: rustup target add wasm32-unknown-unknown');
-        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:portable');
+        expect(workflowJob(workflow, 'nightly_maintenance')).toContain('run: pnpm run check:wasm:strict');
         expectSplitQualitySteps(workflowJob(workflow, 'nightly_maintenance'));
         expect(workflow).toContain('run: pnpm run test:rust');
         // The real-corpus suite is manual-only: two blocking days, ~18
@@ -1786,7 +1793,7 @@ describe('CI topology policy', () => {
         expect(workflow).toContain('run: pnpm run test:coverage');
         expectNoExactRunStep(workflowJob(workflow, 'manual_quality'), 'pnpm run test:unit');
         expectNoExactRunStep(workflowJob(workflow, 'nightly_maintenance'), 'pnpm run test:unit');
-        expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
+        expect(packageJson).toContain('"test:coverage": "vitest run --coverage --project unit-core --project unit-app --project unit-electron --project unit-scripts --project unit-policy --project unit-static-architecture --project unit-landing && pnpm exec tsx scripts/checkCoverageRatchet.ts && pnpm exec tsx scripts/checkZeroExecutionCoverage.ts"');
         expect(packageJson).not.toContain('"test:coverage:run"');
         expect(packageJson).not.toContain('"check:coverage:zero-execution"');
         expect(packageJson).not.toContain('"check:coverage:ratchet"');

@@ -103,6 +103,21 @@
                         </header>
 
                         <div
+                            v-if="recentFilesResolved && recentFilesError"
+                            class="recent-load-error"
+                            role="alert"
+                        >
+                            <span>{{ t('errors.recent.load') }}: {{ recentFilesError }}</span>
+                            <UButton
+                                color="neutral"
+                                variant="soft"
+                                size="sm"
+                                :label="t('common.retry')"
+                                @click="emit('retry-recent')"
+                            />
+                        </div>
+
+                        <div
                             v-if="shouldShowRecentTable"
                             class="recent-table app-scrollbar app-scroll-region--balanced"
                             :class="{ 'recent-table--compact': !shouldShowRecentLocationColumn }"
@@ -224,7 +239,7 @@
                             </div>
                         </div>
 
-                        <div v-else class="recent-empty">
+                        <div v-else-if="!recentFilesError" class="recent-empty">
                             <UIcon
                                 :name="recentFiles.length === 0 ? 'i-ph-folder-open' : 'i-ph-magnifying-glass'"
                                 class="recent-empty-icon"
@@ -322,6 +337,7 @@ const CombinePdfPage = defineAsyncComponent(
 const {
     recentFiles,
     recentFilesResolved = true,
+    recentFilesError = null,
     openBatchProgress = null,
     openInProgress = false,
     isRecentOpenReady = () => true,
@@ -332,6 +348,7 @@ const {
 } = defineProps<{
     recentFiles: IRecentFile[];
     recentFilesResolved?: boolean | undefined;
+    recentFilesError?: string | null | undefined;
     openBatchProgress?: IPdfOpenBatchProgress | null | undefined;
     openInProgress?: boolean | undefined;
     isRecentOpenReady?: ((file: IRecentFile) => boolean) | undefined;
@@ -340,7 +357,6 @@ const {
     startSection?: TStartSection | undefined;
     openCombineResult?: (result: TOpenFileResult) => Promise<boolean>;
 }>();
-
 const emit = defineEmits<{
     'update:start-section': [section: TStartSection];
     'open-file': [];
@@ -348,8 +364,8 @@ const emit = defineEmits<{
     'remove-recent': [file: IRecentFile];
     'reveal-recent': [file: IRecentFile];
     'clear-recent': [];
+    'retry-recent': [];
 }>();
-
 const { t } = useTypedI18n();
 const recentSkeletonRows = 5;
 const recentFilesHeadingId = useId();
@@ -358,14 +374,12 @@ const recentSearch = ref('');
 const activeSection = ref<TStartSection>(startSection);
 const clearHistoryDialogOpen = ref(false);
 const recentFilesBeforeOpen = shallowRef<readonly IRecentFile[] | null>(null);
-
 const rootRef = ref<HTMLElement | null>(null);
 const { width: rootWidth } = useElementSize(rootRef);
 const isRecentControlsCompact = computed(() => rootWidth.value > 0 && rootWidth.value <= 520);
 const recentClearLabelProps = computed(() => (
     isRecentControlsCompact.value ? {} : { label: t('emptyState.clearHistory') }
 ));
-
 const displayedRecentFiles = computed(() => recentFilesBeforeOpen.value ?? recentFiles);
 const filteredRecentFiles = computed(() => {
     const query = recentSearch.value.trim().toLocaleLowerCase();
@@ -721,6 +735,18 @@ watch(() => openInProgress, (isOpening) => {
     flex-wrap: wrap;
     justify-content: space-between;
     padding: var(--app-start-recent-header-padding);
+}
+
+.recent-load-error {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--app-start-recent-header-gap);
+    flex: 0 0 auto;
+    padding: var(--app-start-recent-header-padding);
+    border-top: 1px solid var(--app-start-row-divider);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-secondary);
 }
 
 .recent-title {

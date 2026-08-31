@@ -373,22 +373,24 @@ export function createAssistantAppServerNotificationController(options: IAssista
                     'usage',
                     'outputTokens',
                 ]);
-            if (inputTokens !== null && outputTokens !== null) {
-                const cachedInputTokens = getNestedNumber(params, [
-                    'turn',
-                    'usage',
-                    'cachedInputTokens',
-                ])
-                    ?? getNestedNumber(params, [
+            const usage = inputTokens !== null && outputTokens !== null
+                ? (() => {
+                    const cachedInputTokens = getNestedNumber(params, [
+                        'turn',
                         'usage',
                         'cachedInputTokens',
-                    ]);
-                session.turnPresentation.usage = {
-                    inputTokens,
-                    outputTokens,
-                    ...(cachedInputTokens === null ? {} : {cachedInputTokens}),
-                };
-            }
+                    ])
+                        ?? getNestedNumber(params, [
+                            'usage',
+                            'cachedInputTokens',
+                        ]);
+                    return {
+                        inputTokens,
+                        outputTokens,
+                        ...(cachedInputTokens === null ? {} : {cachedInputTokens}),
+                    };
+                })()
+                : null;
             if (!bindNotificationTurn(session, turnId, {allowStaleScope: true})) {
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
@@ -412,6 +414,9 @@ export function createAssistantAppServerNotificationController(options: IAssista
             )) {
                 options.logger.info('Ignoring stale assistant turn completion.');
                 return;
+            }
+            if (usage) {
+                session.turnPresentation.usage = usage;
             }
             options.codexProviderRuntime.runtimeState = 'ready';
             for (const message of session.messages) {
@@ -555,34 +560,38 @@ export function createAssistantAppServerNotificationController(options: IAssista
 
         if (method === 'error') {
             const session = getNotificationChatSession(params);
-            options.codexProviderRuntime.lastError = isRecord(params) && isRecord(params.error) && typeof params.error.message === 'string'
-                ? params.error.message
+            const errorMessage = isRecord(params) && isRecord(params.error) && typeof params.error.message === 'string'
+                && params.error.message.trim().length > 0
+                ? params.error.message.trim()
                 : 'Codex assistant turn failed.';
             if (session) {
-                session.lastError = options.codexProviderRuntime.lastError;
                 if (shouldDropNotificationForTurn(session, params, {allowStaleScope: true})) {
                     options.logger.info('Ignoring stale assistant error notification.');
                     return;
                 }
+                options.codexProviderRuntime.lastError = errorMessage;
+                session.lastError = errorMessage;
                 options.errorSessionTurn(
                     session,
                     session.turnOwner.generation,
-                    options.codexProviderRuntime.lastError,
+                    errorMessage,
                     getNotificationTurnId(params),
                 );
+            } else {
+                options.codexProviderRuntime.lastError = errorMessage;
             }
             options.codexProviderRuntime.runtimeState = 'error';
             if (session) {
-                options.reconcileFailedTurnMessages(session, options.codexProviderRuntime.lastError);
+                options.reconcileFailedTurnMessages(session, errorMessage);
                 options.addMessage(session, {
                     role: 'system',
-                    text: options.codexProviderRuntime.lastError,
-                    error: options.codexProviderRuntime.lastError,
+                    text: errorMessage,
+                    error: errorMessage,
                 });
             }
             options.publishAssistantEvent({
                 type: 'error',
-                error: options.codexProviderRuntime.lastError,
+                error: errorMessage,
             }, session?.scope ?? options.getRememberedScope(), session ?? options.currentCodexSelection());
         }
     }

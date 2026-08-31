@@ -124,9 +124,12 @@
         <div v-show="!activeToolPage" id="editor-global-status-host" class="editor-global-status-host" />
         <DirtyTabCloseDialog
             :open="dirtyTabCloseDialogOpen"
+            :mode="dirtyTabCloseDialogMode"
             :target-name="dirtyTabCloseTargetName"
             @update:open="dirtyTabCloseDialogOpen = $event"
             @confirm="confirmDirtyTabClose"
+            @discard="resolveDirtyTabCloseDialog('discard')"
+            @save="resolveDirtyTabCloseDialog('save')"
         />
         <DocumentPasswordDialog />
         <UnencryptedSaveDialog
@@ -174,6 +177,7 @@ import { useAppShellUpdatesDialog } from '@app/modules/workspace-shell/composabl
 import { useAppShellWorkspaceRouting } from '@app/modules/workspace-shell/composables/useAppShellWorkspaceRouting';
 import { useExternalFileDrop } from '@app/modules/workspace-shell/composables/useExternalFileDrop';
 import { useDirtyTabCloseDialog } from '@app/modules/workspace-shell/composables/useDirtyTabCloseDialog';
+import { useNativeWindowCloseHandshake } from '@app/modules/workspace-shell/composables/useNativeWindowCloseHandshake';
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { useAppShellMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { useWorkspaceShellState } from '@app/modules/workspace-shell/composables/useWorkspaceShellState';
@@ -214,12 +218,10 @@ import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
 import { resolveDocumentRefBackend } from '@app/utils/documentRef';
 traceRendererStartup('index.vue script setup start');
 useDirectOpenAutomationDispatcherShell();
-
 // User-initiated surfaces load on first open; split policy: warmupDesktopViewerChunks.ts.
 const AgentAssistantPanel = defineAsyncComponent(() =>
     import('@app/modules/agent-panel/public/component-exports/agentAssistantPanel').then(module => module.AgentAssistantPanel));
 const CombinePdfPage = defineAsyncComponent(() => import('@app/components/combine/CombinePdfPage.vue'));
-
 const editorPanesManager = useEditorPanesManager();
 const {
     panes,
@@ -244,9 +246,7 @@ const {
     findDirectionalPane,
     moveTabToPane,
 } = editorPanesManager;
-
 ensureAtLeastOneTab();
-
 const { t } = useTypedI18n();
 const {
     settings: appSettings,
@@ -343,12 +343,13 @@ const {
     installUpdateNow,
     skipUpdateVersion,
 } = useAppUpdates();
-
 const {
     dirtyTabCloseDialogOpen,
+    dirtyTabCloseDialogMode,
     dirtyTabCloseTargetName,
     confirmDirtyTabClose,
     requestDirtyTabCloseConfirmation,
+    requestDirtyWindowCloseConfirmation,
     resolveDirtyTabCloseDialog,
 } = useDirtyTabCloseDialog({tabs});
 const {
@@ -367,6 +368,11 @@ const {
     workspaceRefs,
 } = useWorkspaceDocumentSessions({
     activeTabId,
+    tabs,
+});
+useNativeWindowCloseHandshake({
+    documentSessionsByTabId,
+    requestDirtyCloseConfirmation: requestDirtyWindowCloseConfirmation,
     tabs,
 });
 useBrowserDirtyUnloadGuard(() => isBrowserRuntime.value && Object.values(documentSessionsByTabId.value)
@@ -423,23 +429,19 @@ function updateTab(tabId: string, updates: Partial<ITab>) {
     updateTabInState(tabId, updates);
     seedSessionTabDocumentRecord(tabId, updates);
 }
-
 function removeTabFromState(tabId: string) {
     removeSessionDocumentRecord(tabId);
     removeTabFromLifecycleState(tabId);
 }
-
 function closeTabInState(paneId: string, tabId: string) {
     removeSessionDocumentRecord(tabId);
     closeTabInLifecycleState(paneId, tabId);
 }
-
 function handleDocumentRecordUpdate(tabId: string, record: IWorkspaceDocumentRecord) {
     setSessionWorkspaceDocumentRecord(tabId, record);
     const sessionRecord = getDocumentRecord(tabId) ?? record;
     updateTabInState(tabId, sessionRecord.tab);
 }
-
 const {
     listeners: fallbackToolbarCommandListeners,
     run: runFallbackWorkspaceCommand,
@@ -451,7 +453,6 @@ function handleToggleFullscreen() {
     if (!fullscreenSupported.value || (!isFullscreen.value && !activeWorkspaceHasDocument())) {
         return;
     }
-
     setZenMode(!isFullscreen.value);
 }
 function applyZenModeState(state: IHostZenModeState) {

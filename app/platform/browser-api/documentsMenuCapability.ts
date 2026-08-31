@@ -51,6 +51,8 @@ export const browserDocumentsMenuCapability = {
     onMenuViewModeSingle: noopUnsubscribe,
     onMenuViewModeFacing: noopUnsubscribe,
     onMenuViewModeFacingFirstSingle: noopUnsubscribe,
+    onMenuViewRotationCw: noopUnsubscribe,
+    onMenuViewRotationCcw: noopUnsubscribe,
     onMenuToggleAssistant: noopUnsubscribe,
     onMenuUndo: noopUnsubscribe,
     onMenuRedo: noopUnsubscribe,

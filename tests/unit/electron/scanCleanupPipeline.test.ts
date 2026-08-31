@@ -947,6 +947,36 @@ describe('scan cleanup pipeline', () => {
         expect(resolver.resolve(2)).toEqual({});
     });
 
+    it('does not require an ink anchor when matched page size is disabled', () => {
+        const contentBox = {
+            xNormalized: 0.1,
+            yNormalized: 0.2,
+            widthNormalized: 0.7,
+            heightNormalized: 0.6,
+            rotationDegrees: 0 as const,
+        };
+        const evidence = {'1': {
+            pageNumber: 1,
+            rotationDegrees: 0 as const,
+            layoutClassification: 'single-uncut-page' as const,
+            outputs: {full: {contentBox}},
+        }};
+        const inkWithoutMatchedPageSize = {
+            ...options,
+            matchPageSize: false,
+            pageAlignment: 'ink' as const,
+        };
+        const report = vi.fn();
+        const resolver = createPagePlanResolver({
+            options: inkWithoutMatchedPageSize,
+            layoutByPage: {'1': 'single-uncut-page'},
+            pagePlanEvidenceByPage: evidence,
+        }, report, 'final');
+
+        expect(resolver.resolve(1)).toEqual({automaticContentBoxes: {full: contentBox}});
+        expect(report).not.toHaveBeenCalled();
+    });
+
     it('refuses a pinned ink page when its durable anchor was evicted', () => {
         const contentBox = {
             xNormalized: 0.1,

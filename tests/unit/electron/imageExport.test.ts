@@ -1150,6 +1150,8 @@ describe('image export', () => {
         expect(mocks.runCommand).toHaveBeenCalledWith('/native/evb-pdf-image-combine', [
             '--format',
             'png',
+            '--dpi',
+            '300',
             '--output',
             expect.stringMatching(/page-1\.png$/u),
             '--',

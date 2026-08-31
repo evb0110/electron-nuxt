@@ -74,9 +74,13 @@ import {
     validateRenderedImagePageFiles,
 } from '@electron/features/image-export/main/imageExportResourceLimits';
 import {
+    buildOutputPathWithSuffix,
     buildMultiPageTiffOutputPaths,
     resolveOutputPathConflicts,
 } from '@electron/features/image-export/main/imageExportPathPlanning';
+import {addPngPhysicalResolution} from '@electron/features/image-export/main/addPngPhysicalResolution';
+import {canUseLocalTiffCombineFallback} from '@electron/features/image-export/main/canUseLocalTiffCombineFallback';
+import {TiffCombineWorkerStartupError} from '@electron/features/image-export/main/tiffCombineWorkerStartupError';
 import {
     createPdfInfoPageSizeStreamScanner,
     parsePdfInfoPageSizeLine,
@@ -114,6 +118,7 @@ const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
 const QPDF_TIMEOUT_MS = 2 * 60 * 1000;
+const DEFAULT_RENDER_DPI = 300;
 const PDF_EXPORT_DPI_PROBE_SAMPLE_PAGES = 8;
 const PDF_EXPORT_PPM_CONVERT_CONCURRENCY = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_CONVERT_CONCURRENCY', 4, 1, 16);
 const PDF_EXPORT_RENDER_CHUNK_PAGES = parseIntegerEnv('EVB_PDF_IMAGE_EXPORT_RENDER_CHUNK_PAGES', 25, 1, 100);
@@ -167,20 +172,20 @@ export function normalizeImageExportPath(filePath: string, fallbackFormat: TImag
     normalizedPath: string;
     format: TImageExportFormat;
 } {
-    const trimmedPath = filePath.trim();
-    const extension = extname(trimmedPath).toLowerCase();
+    const extension = extname(filePath).toLowerCase();
 
     if (extension === '.png' || extension === '.jpg' || extension === '.jpeg' || extension === '.tif' || extension === '.tiff') {
-        const format = parseImageExportFormat(trimmedPath);
+        const format = parseImageExportFormat(filePath);
         return {
-            normalizedPath: trimmedPath,
+            normalizedPath: buildOutputPathWithSuffix(filePath, ''),
             format,
         };
     }
 
     const format = fallbackFormat;
+    const pathWithExtension = `${filePath}${resolveFormatExtension(format)}`;
     return {
-        normalizedPath: `${trimmedPath}${resolveFormatExtension(format)}`,
+        normalizedPath: buildOutputPathWithSuffix(pathWithExtension, ''),
         format,
     };
 }
@@ -315,6 +320,7 @@ async function tryConvertRenderedPpmToPngNative(
     pngPath: string,
     signal?: AbortSignal,
     cancelGroup?: string,
+    dpi = DEFAULT_RENDER_DPI,
 ) {
     if (isNativePdfImageCombineDisabled()) {
         return false;
@@ -329,6 +335,8 @@ async function tryConvertRenderedPpmToPngNative(
         await runNativeToolCommand(binaryPath, [
             '--format',
             'png',
+            '--dpi',
+            String(dpi),
             '--output',
             pngPath,
             '--',
@@ -352,9 +360,10 @@ export async function convertRenderedPpmToPng(
     sourcePath: string,
     signal?: AbortSignal,
     cancelGroup?: string,
+    dpi = DEFAULT_RENDER_DPI,
 ) {
     const pngPath = sourcePath.replace(/\.ppm$/i, '.png');
-    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup)) {
+    if (await tryConvertRenderedPpmToPngNative(sourcePath, pngPath, signal, cancelGroup, dpi)) {
         return pngPath;
     }
 
@@ -378,7 +387,7 @@ export async function convertRenderedPpmToPng(
         depth: 8,
         data: grayscaleData ?? image.data,
     });
-    await writeFile(pngPath, pngBytes);
+    await writeFile(pngPath, addPngPhysicalResolution(pngBytes, dpi));
     await unlink(sourcePath).catch(() => undefined);
     return pngPath;
 }
@@ -668,6 +677,7 @@ async function renderPdfToTempPages(
     }
 
     await runNativeToolCommand(paths.pdftoppm, [
+        '-cropbox',
         ...toPdftoppmFormatArgs(renderFormat),
         '-r',
         String(renderDpi),
@@ -704,7 +714,7 @@ async function renderPdfToTempPages(
     if (renderFormat === 'ppm') {
         await forEachConcurrent(pageFiles, PDF_EXPORT_PPM_CONVERT_CONCURRENCY, async (pageFile) => {
             throwIfAborted(signal);
-            pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup);
+            pageFile.path = await convertRenderedPpmToPng(pageFile.path, signal, cancelGroup, renderDpi);
         });
     }
 
@@ -942,36 +952,8 @@ function resolveTiffCombineWorkerPath() {
     return resolveUnpackedWorkerPath(__dirname, TIFF_COMBINE_WORKER_FILENAME);
 }
 
-class TiffCombineWorkerStartupError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = 'TiffCombineWorkerStartupError';
-    }
-}
-
 function decodeUndefinedWorkerResult(data: unknown): undefined | null {
     return data === undefined ? undefined : null;
-}
-
-async function canUseLocalTiffCombineFallback(pagePaths: string[]) {
-    if (pagePaths.length > TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES) {
-        return false;
-    }
-
-    let totalBytes = 0;
-    for (const pagePath of pagePaths) {
-        const pageStat = await stat(pagePath);
-        if (!pageStat.isFile()) {
-            return false;
-        }
-
-        totalBytes += pageStat.size;
-        if (totalBytes > TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES) {
-            return false;
-        }
-    }
-
-    return true;
 }
 
 function getTiffCombineFallbackDisabledError() {
@@ -986,10 +968,12 @@ async function runLocalTiffCombine(
     outputPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
+    defaultDpi = DEFAULT_RENDER_DPI,
 ) {
     throwIfAborted(signal);
     await measureElectronPerfAsync('image-export:tiffCombineLocal', () => combinePagesIntoMultiPageTiffLocal(pagePaths, outputPath, {
         deleteSourcePages,
+        defaultDpi,
         ...(signal ? { signal } : {}),
     }), {
         thresholdMs: 25,
@@ -1006,6 +990,7 @@ async function combinePagesIntoMultiPageTiff(
     outputPath: string,
     signal?: AbortSignal,
     deleteSourcePages = false,
+    defaultDpi = DEFAULT_RENDER_DPI,
 ) {
     throwIfAborted(signal);
     const tempOutputPath = makeSiblingTempPath(outputPath);
@@ -1015,13 +1000,17 @@ async function combinePagesIntoMultiPageTiff(
 
     try {
         if (!existsSync(workerPath)) {
-            if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+            if (!(await canUseLocalTiffCombineFallback(
+                pagePaths,
+                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+            ))) {
                 logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback at ${workerPath}`);
                 throw getTiffCombineFallbackDisabledError();
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: missing worker at ${workerPath}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
             throwIfAborted(signal);
             await atomicReplace(tempOutputPath, outputPath);
             replacedOutput = true;
@@ -1033,6 +1022,7 @@ async function combinePagesIntoMultiPageTiff(
                 workerPath,
                 workerData: {
                     deleteSourcePages,
+                    defaultDpi,
                     pagePaths,
                     outputPath: tempOutputPath,
                 },
@@ -1066,13 +1056,17 @@ async function combinePagesIntoMultiPageTiff(
                 throw error;
             }
 
-            if (!(await canUseLocalTiffCombineFallback(pagePaths))) {
+            if (!(await canUseLocalTiffCombineFallback(
+                pagePaths,
+                TIFF_COMBINE_LOCAL_FALLBACK_MAX_PAGES,
+                TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES,
+            ))) {
                 logger.warn(`TIFF combine worker unavailable, refusing unsafe local fallback: ${error.message}`);
                 throw getTiffCombineFallbackDisabledError();
             }
 
             logger.warn(`TIFF combine worker unavailable, falling back to local combine: ${error.message}`);
-            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages);
+            await runLocalTiffCombine(pagePaths, tempOutputPath, signal, deleteSourcePages, defaultDpi);
         }
 
         throwIfAborted(signal);
@@ -1144,6 +1138,7 @@ export async function exportPdfAsMultiPageTiff(
                     const tiffPageDescriptors = await readTiffPageDescriptors(
                         renderedPageFiles.map(pageFile => pageFile.path),
                         options.signal,
+                        renderDpi,
                     );
                     const tiffPageGroups = splitTiffPageDescriptorsForClassicLimit(tiffPageDescriptors);
                     for (const tiffPageGroup of tiffPageGroups) {
@@ -1157,6 +1152,7 @@ export async function exportPdfAsMultiPageTiff(
                             stagedPath,
                             options.signal,
                             true,
+                            renderDpi,
                         );
                         stagedGroupPaths.push(stagedPath);
                         combinedGroupCount += 1;

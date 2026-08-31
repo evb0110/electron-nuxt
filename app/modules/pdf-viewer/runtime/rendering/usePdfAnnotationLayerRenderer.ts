@@ -472,7 +472,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             const simpleLinkService = {
                 pagesCount: deps.numPages.value,
                 page: deps.currentPage.value,
-                rotation: 0,
+                rotation: viewport.rotation,
                 isInPresentationMode: false,
                 externalLinkEnabled: true,
                 goToDestination: async () => {},

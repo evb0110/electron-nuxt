@@ -16,8 +16,10 @@ import { usePdfThumbnailSelection } from '@app/modules/pdf-viewer/thumbnails/use
 
 function createSelectionHarness(options: {
     currentPage?: number;
+    keyboardMove?: 'move' | 'reorder';
     renderedPages?: number[];
     scrollPageIntoKeyboardView?: (page: number) => void | Promise<void>;
+    selectedPages?: number[];
     totalPages?: number;
     pageSelection?: TPageSelection | null;
 } = {}) {
@@ -30,7 +32,7 @@ function createSelectionHarness(options: {
         4,
         5,
     ]);
-    const selectedPages = ref([
+    const selectedPages = ref(options.selectedPages ?? [
         2,
         4,
     ]);
@@ -42,6 +44,8 @@ function createSelectionHarness(options: {
     const onPageSelectionChange = vi.fn((selection: TPageSelection) => {
         selectedPageSelection.value = selection;
     });
+    const onMove = vi.fn();
+    const onReorder = vi.fn();
     const focusPageElement = vi.fn();
     const onGoToPage = vi.fn();
     const onContextMenu = vi.fn();
@@ -55,6 +59,8 @@ function createSelectionHarness(options: {
         markUserInteraction: vi.fn(),
         onContextMenu,
         onGoToPage,
+        ...(options.keyboardMove === 'move' ? {onMove} : {}),
+        ...(options.keyboardMove === 'reorder' ? {onReorder} : {}),
         onSelectionRefused,
         onSelectedPagesChange,
         ...(options.pageSelection === undefined
@@ -74,6 +80,8 @@ function createSelectionHarness(options: {
         onGoToPage,
         onContextMenu,
         onPageSelectionChange,
+        onMove,
+        onReorder,
         onSelectionRefused,
         onSelectedPagesChange,
         renderedPages,
@@ -381,6 +389,69 @@ describe('usePdfThumbnailSelection', () => {
 
         expect(focusPageElement).not.toHaveBeenCalled();
         expect(selection.rovingFocusPage.value).toBe(2);
+    });
+
+    it('moves the focused selected pages with Alt+ArrowDown in the page model', () => {
+        const {
+            onMove,
+            selection,
+        } = createSelectionHarness({
+            currentPage: 2,
+            keyboardMove: 'move',
+            pageSelection: {
+                kind: 'explicit',
+                pageCount: 5,
+                pages: [
+                    2,
+                    4,
+                ],
+            },
+        });
+
+        const event = keyEvent('ArrowDown', {altKey: true});
+        selection.handleContainerKeyDown(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(onMove).toHaveBeenCalledWith({
+            pageCount: 5,
+            ranges: [
+                {
+                    startPage: 2,
+                    endPage: 2,
+                },
+                {
+                    startPage: 4,
+                    endPage: 4,
+                },
+            ],
+            insertAt: 5,
+        });
+    });
+
+    it('builds the legacy reorder permutation for Alt+ArrowUp', () => {
+        const {
+            onReorder,
+            selection,
+        } = createSelectionHarness({
+            currentPage: 2,
+            keyboardMove: 'reorder',
+            selectedPages: [
+                2,
+                3,
+            ],
+        });
+
+        const event = keyEvent('ArrowUp', {altKey: true});
+        selection.handleContainerKeyDown(event);
+
+        expect(event.defaultPrevented).toBe(true);
+        expect(onReorder).toHaveBeenCalledWith([
+            2,
+            3,
+            1,
+            4,
+            5,
+        ]);
     });
 
     it('keeps a million-page shift selection in the model instead of a legacy array', () => {

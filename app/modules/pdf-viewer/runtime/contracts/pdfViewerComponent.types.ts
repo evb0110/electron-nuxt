@@ -13,6 +13,7 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import type {
     PDFDocumentProxy,
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -39,6 +40,7 @@ export interface IPdfViewerProps {
     dragMode?: boolean | undefined;
     fitMode?: TFitMode | undefined;
     viewMode?: TPdfViewMode | undefined;
+    viewRotation?: TPdfViewRotation | undefined;
     continuousScroll?: boolean | undefined;
     isActive?: boolean | undefined;
     isResizing?: boolean | undefined;

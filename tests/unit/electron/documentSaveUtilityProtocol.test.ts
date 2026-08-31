@@ -46,8 +46,8 @@ function createStagedArtifact(overrides: {
             qpdfResult: {
                 isValid: true,
                 tool: 'qpdf',
-                errors: [],
-                warnings: ['recoverable qpdf warning'],
+                errors: [] as string[],
+                warnings: ['recoverable qpdf warning'] as string[],
             },
             ...(overrides.changedObjectRefsSha256 === undefined
                 ? {}

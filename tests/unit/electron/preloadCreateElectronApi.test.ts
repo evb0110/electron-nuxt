@@ -9,7 +9,10 @@ import {
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
-import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
+import {
+    CORE_IPC_EVENT_CHANNELS,
+    CORE_IPC_SEND_CHANNELS,
+} from '@electron/platform-ipc/coreContract';
 import {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
     type IHostResourceProfileSnapshot,
@@ -239,6 +242,81 @@ describe('createElectronApi', () => {
         expect(typeof api.pageOps.rotate).toBe('function');
         expect(typeof api.imageExport.exportPdfToImages).toBe('function');
         expect(typeof api.system.getMemoryInfo).toBe('function');
+    });
+
+    it('forwards one renderer close decision and reports when no handler remains', async () => {
+        const {
+            api,
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
+        if (!api.system.onWindowCloseRequest) {
+            throw new Error('Expected the native window close hook to be available');
+        }
+
+        const callback = vi.fn(() => 'discard' as const);
+        const unsubscribe = api.system.onWindowCloseRequest(callback);
+        const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.windowCloseRequest);
+        if (!listener) {
+            throw new Error('Expected native window close listener to be registered');
+        }
+
+        listener({}, {requestId: 'close-1'});
+        await vi.waitFor(() => {
+            expect(ipcRenderer.send).toHaveBeenCalledWith(
+                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                {
+                    decision: 'discard',
+                    requestId: 'close-1',
+                },
+            );
+        });
+        expect(callback).toHaveBeenCalledWith({requestId: 'close-1'});
+
+        unsubscribe();
+        ipcRenderer.send.mockClear();
+        listener({}, {requestId: 'close-2'});
+        await vi.waitFor(() => {
+            expect(ipcRenderer.send).toHaveBeenCalledWith(
+                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                {
+                    requestId: 'close-2',
+                    status: 'unavailable',
+                    reason: 'no-handler',
+                },
+            );
+        });
+    });
+
+    it('reports a renderer close handler failure without converting it to cancel', async () => {
+        const {
+            api,
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
+        if (!api.system.onWindowCloseRequest) {
+            throw new Error('Expected the native window close hook to be available');
+        }
+        api.system.onWindowCloseRequest(() => {
+            throw new Error('dialog unavailable');
+        });
+
+        const listener = listeners.get(CORE_IPC_EVENT_CHANNELS.windowCloseRequest);
+        if (!listener) {
+            throw new Error('Expected native window close listener to be registered');
+        }
+        listener({}, {requestId: 'close-error'});
+
+        await vi.waitFor(() => {
+            expect(ipcRenderer.send).toHaveBeenCalledWith(
+                CORE_IPC_SEND_CHANNELS.windowCloseResponse,
+                {
+                    requestId: 'close-error',
+                    status: 'unavailable',
+                    reason: 'handler-error',
+                },
+            );
+        });
     });
 
     it('forwards token-bound workspace checkpoint discard and resume calls', async () => {

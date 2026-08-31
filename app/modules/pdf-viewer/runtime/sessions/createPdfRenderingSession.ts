@@ -6,6 +6,7 @@ import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfil
 import type * as PdfUi from '@app/types/pdfUi';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -67,6 +68,7 @@ export interface ICreatePdfRenderingSessionOptions {
     zoomMode: Vue.ComputedRef<TZoomMode>;
     fitMode: Vue.ComputedRef<TFitMode>;
     viewMode: Vue.ComputedRef<TPdfViewMode>;
+    viewRotation?: Vue.ComputedRef<TPdfViewRotation>;
     continuousScroll: Vue.ComputedRef<boolean>;
     outputScale: Vue.Ref<number>;
     rasterDisplayProfile: Vue.ComputedRef<TPdfRasterDisplayProfile | null>;
@@ -103,6 +105,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     const performanceProfile = getPerformanceProfile();
     const canvasRenderer = usePdfCanvasRenderer({
         outputScale: options.outputScale,
+        ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         defaultMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
     });
     const pageRenderState = createPdfPageRenderState();
@@ -130,9 +133,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         canvasHost: HTMLDivElement;
         render: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>;
     }
-    function getRenderDocumentToken() {
-        return `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
-    }
+    const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
     function getMountedRasterTarget(pageNumber: number) {
         const root = options.viewerContainer.value;
         const container = root ? getPageContainer(root, pageNumber - 1) : null;
@@ -334,9 +335,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 return false;
             }
             pageCanvases.set(pageNumber, prepared.render.canvas);
-            if (previousCanvas && previousCanvas !== prepared.render.canvas) {
-                canvasRenderer.cleanupCanvas(previousCanvas);
-            }
+            if (previousCanvas && previousCanvas !== prepared.render.canvas) canvasRenderer.cleanupCanvas(previousCanvas);
             initialVisual.handlePageCanvasMounted({
                 openSurfaceGeneration: prepared.job.renderOptions.openSurfaceGeneration ?? 0,
                 documentRevision: prepared.job.renderOptions.openSurfaceRevision ?? documentSession.openSurfaceRevision,
@@ -372,9 +371,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         },
         release(pageNumber) {
             resolveViewportRasterWaiters(pageNumber);
-            if (!isViewportRasterDemanded(pageNumber)) {
-                clearAuthoritativePage(pageNumber, false);
-            }
+            if (!isViewportRasterDemanded(pageNumber)) clearAuthoritativePage(pageNumber, false);
         },
     };
     function buildViewportRasterJobs(
@@ -462,9 +459,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             job.renderOptions = pageRenderOptions;
             job.targetOutputScale = outputScale;
             job.targetScale = scale;
-            if (rasterState !== 'in-flight') {
-                job.rasterState = rasterState;
-            }
+            if (rasterState !== 'in-flight') job.rasterState = rasterState;
             viewportRasterJobs.set(demand.renderKey, job);
             jobs.push(job);
         }
@@ -596,6 +591,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         container: options.viewerContainer,
         document: documentSession,
         viewport,
+        ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         isActive: rasterOperational,
         outputScale: options.outputScale,
         showAnnotations: options.showAnnotations,
@@ -763,8 +759,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         documentSession.cleanupPageCache();
     }
     function isPageVisualReady(pageNumber: number) {
-        void renderedPageStateVersion.value;
-        return isCommittedVisual(pageNumber);
+        void renderedPageStateVersion.value; return isCommittedVisual(pageNumber);
     }
     let frameId: number | null = null;
     let activeMandatoryRasterId: number | null = null;
@@ -991,6 +986,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         zoom: options.zoom,
         fitMode: options.fitMode,
         viewMode: options.viewMode,
+        ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         isResizing: options.isResizing,
         continuousScroll: options.continuousScroll,
         getVisibleRange: viewport.getVisibleRange,
@@ -1183,6 +1179,9 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
         renderedPageStateVersion,
         isPageVisualReady,
+        getCommittedPageScale: (pageNumber: number) => isCommittedVisual(pageNumber, false)
+            ? pageRenderState.getSlot(pageNumber).targetScale
+            : null,
         isPageRenderedForClass: (pageNumber: number) => isCommittedVisual(pageNumber, false),
         isPageRenderFailed: (pageNumber: number) => {
             const slot = pageRenderState.getSlot(pageNumber);

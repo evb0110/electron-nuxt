@@ -279,7 +279,7 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         ]);
     });
 
-    it('keeps imported sticky-note moves out of PDF.js live storage', () => {
+    it('keeps imported sticky-note moves out of PDF.js live storage while publishing dirty state', () => {
         const comment: IAnnotationCommentSummary = {
             ...createComment(),
             annotationId: '12R',
@@ -321,7 +321,7 @@ describe('useAnnotationMutationService canonical command ordering', () => {
 
         expect(options.moveCanonicalAnchor).toHaveBeenCalledOnce();
         expect(findEditorForComment).not.toHaveBeenCalled();
-        expect(markModified).not.toHaveBeenCalled();
+        expect(markModified).toHaveBeenCalledOnce();
     });
 
     it('does not enqueue duplicate overlay work when a connected highlight owns its paint', () => {

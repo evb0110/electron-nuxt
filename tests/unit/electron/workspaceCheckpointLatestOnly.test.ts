@@ -154,7 +154,7 @@ describe('workspace checkpoint latest-only writer', () => {
         expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(3);
     });
 
-    it('drains pending saves before claim removes the checkpoint', async () => {
+    it('drains pending saves before claim retains the checkpoint for acknowledgement', async () => {
         const firstGate = deferred();
         const secondGate = deferred();
         mocks.atomicReplace
@@ -167,6 +167,7 @@ describe('workspace checkpoint latest-only writer', () => {
                 mocks.persisted = mocks.staged.get(source) ?? null;
             });
         const {
+            acknowledgeWorkspaceCheckpoint,
             claimWorkspaceCheckpoint,
             saveWorkspaceCheckpoint,
         } = await import('@electron/workspaceCheckpointStore');
@@ -185,6 +186,7 @@ describe('workspace checkpoint latest-only writer', () => {
             latest,
         ]);
         await expect(claim).resolves.toMatchObject({capturedAt: 2});
+        await expect(acknowledgeWorkspaceCheckpoint(20)).resolves.toBe(true);
         expect(mocks.persisted).toBeNull();
     });
 
@@ -278,12 +280,12 @@ describe('workspace checkpoint latest-only writer', () => {
         await retiringRendererSave;
         await saveWorkspaceCheckpoint(createCheckpoint(3), 10);
         expect(mocks.persisted).toBeNull();
-        expect(mocks.atomicReplace).toHaveBeenCalledOnce();
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
 
         resumeWorkspaceCheckpoint(10, discardToken);
         await saveWorkspaceCheckpoint(createCheckpoint(4), 10);
         expect(JSON.parse(mocks.persisted ?? '{}').checkpoint.capturedAt).toBe(4);
-        expect(mocks.atomicReplace).toHaveBeenCalledTimes(2);
+        expect(mocks.atomicReplace).toHaveBeenCalledTimes(3);
     });
 
     it('rejects a stale resume token after a newer discard', async () => {

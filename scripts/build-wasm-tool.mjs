@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import {
     mkdir,
     readFile,
+    writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -17,6 +18,10 @@ import {
     getWasmArtifactByCrateName,
     WASM_TARGET,
 } from './wasm-artifacts.mjs';
+import {
+    computeWasmSourceFingerprint,
+    stampWasmArtifact,
+} from './wasm-fingerprint.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const usage = `Usage: node scripts/build-wasm-tool.mjs <tool> [--dry-run]
@@ -112,7 +117,13 @@ export async function runWasmToolBuilder(argv = process.argv.slice(2)) {
 
     await mkdir(path.dirname(plan.destinationPath), {recursive: true});
     await copyCargoArtifactVerified(sourcePath, plan.destinationPath);
-    const wasmBytes = await readFile(plan.destinationPath);
+    const rawWasmBytes = await readFile(plan.destinationPath);
+    const fingerprint = await computeWasmSourceFingerprint(artifact, {
+        projectRoot,
+        rustflags: plan.rustflags ?? '',
+    });
+    const wasmBytes = stampWasmArtifact(rawWasmBytes, fingerprint);
+    await writeFile(plan.destinationPath, wasmBytes);
     const wasmModule = new WebAssembly.Module(wasmBytes);
     const exportNames = new Set(WebAssembly.Module.exports(wasmModule).map(entry => entry.name));
     const missingExports = plan.requiredExports.filter(name => !exportNames.has(name));

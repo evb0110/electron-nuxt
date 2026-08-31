@@ -24,6 +24,10 @@ function getGeneratedProtocolVersion(binaryName) {
 // the native win-arm64 release lane. The verifier retains a named fallback gap
 // for callers that inspect a Windows ARM64 bundle from a non-ARM host.
 const PACKAGED_TOOL_SMOKE_POLICY = {
+    'pdf-print-dialog': {
+        allowedExitCodes: new Set([0]),
+        expectedOutputTokens: ['evb-pdf-print-dialog'],
+    },
     'evb-pdf-image-combine': {
         allowedExitCodes: new Set([0]),
         expectedOutputTokens: ['evb-pdf-image-combine'],

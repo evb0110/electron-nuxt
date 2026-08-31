@@ -95,6 +95,12 @@ const EXPECTED_RERENDER_POLICY = {
         resize: false,
         zoomRestore: false,
     },
+    [PDF_RERENDER_SOURCE.ViewRotation]: {
+        anchored: true,
+        minimalBuffer: false,
+        resize: true,
+        zoomRestore: false,
+    },
     [PDF_RERENDER_SOURCE.ZoomChange]: {
         anchored: true,
         minimalBuffer: true,

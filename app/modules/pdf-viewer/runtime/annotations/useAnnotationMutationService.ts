@@ -296,6 +296,12 @@ export const useAnnotationMutationService = (
         const persistThroughNativeGeometry = input.comment.source === 'pdf'
             && input.comment.hasNote === true
             && isPdfBackedFreeTextComment(input.comment);
+        if (persistThroughNativeGeometry) {
+            // Native geometry moves do not touch PDF.js annotationStorage.
+            // Publish the dirty edge explicitly so Save observes the canonical
+            // mutation while its projection is still settling.
+            options.markModified();
+        }
         options.handleMarkerMove(input.comment, input.rect, {...(!persistThroughNativeGeometry ? {
             markEditorPending: (updated, original, markerRect) => {
                 const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);

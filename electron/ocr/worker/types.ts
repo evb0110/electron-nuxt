@@ -51,6 +51,8 @@ export interface IOcrFileResult {
     pageData: IOcrPageWithWords | null;
     pdfPath: string | null;
     error?: string;
+    /** The worker stopped before proving that Tesseract's native tree died. */
+    terminationUnproven?: string;
 }
 
 export interface IOcrWorkerStartPayload {

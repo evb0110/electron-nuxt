@@ -22,6 +22,7 @@ import {
     scanCleanupPreferenceRecord,
     type IScanCleanupDocumentPreferencePatch,
     type IScanCleanupGlobalPreferences,
+    type IScanCleanupGlobalPreferencePatch,
     type IScanCleanupLegacyStorageExport,
 } from '@contracts/scanCleanupSettings';
 import {attachScanCleanupPageOverrideDefaults} from '@contracts/scanCleanupPageOverrides';
@@ -38,7 +39,7 @@ export const SCAN_CLEANUP_PREFERENCES_PERSISTENCE_DEBOUNCE_MS = 300;
 
 export interface IScanCleanupPreferenceStorage {
     get: (key: string) => string | null;
-    set: (key: string, value: string) => void;
+    set: (key: string, value: string) => boolean | undefined;
 }
 
 const browserStorage: IScanCleanupPreferenceStorage = {
@@ -102,10 +103,29 @@ export function saveScanCleanupPreferences(
         outputMode?: unknown;
         runOcrAfterCleanup?: unknown;
     };
-    storage.set(SETTINGS_KEY, JSON.stringify({
+    const committed = storage.set(SETTINGS_KEY, JSON.stringify({
         ...globalPreferences,
         marginsMm: decodeScanCleanupMarginsMm(value.marginsMm),
     }));
+    if (committed === false) {
+        throw new Error('Failed to persist scan-cleanup preferences');
+    }
+}
+
+export function saveScanCleanupPreferencesPatch(
+    patch: IScanCleanupGlobalPreferencePatch,
+    storage: IScanCleanupPreferenceStorage = browserStorage,
+) {
+    const current = loadScanCleanupPreferences(storage);
+    const next: IScanCleanupGlobalPreferences = {
+        ...current,
+        ...patch,
+        marginsMm: patch.marginsMm === undefined
+            ? current.marginsMm
+            : decodeScanCleanupMarginsMm(patch.marginsMm, current.marginsMm),
+    };
+    saveScanCleanupPreferences(next, storage);
+    return next;
 }
 
 export function dismissScanCleanupFirstRunGuidance(

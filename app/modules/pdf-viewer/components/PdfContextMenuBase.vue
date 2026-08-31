@@ -1,10 +1,16 @@
 <template>
     <div
         v-if="visible"
+        ref="menuElement"
         class="pdf-context-menu-base app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
         :class="`pdf-context-menu-base--${variant}`"
         :style="resolvedStyle"
+        role="menu"
+        aria-orientation="vertical"
+        :aria-label="accessibleLabel || t('toolbar.appMenu')"
+        tabindex="-1"
         @click.stop
+        @keydown="handleMenuKeydown"
     >
         <slot />
     </div>
@@ -20,6 +26,7 @@ interface IProps {
     variant?: TVariant;
     zIndex?: number | string;
     minWidth?: string;
+    accessibleLabel?: string;
 }
 
 const {
@@ -27,6 +34,8 @@ const {
     variant = 'grid',
     zIndex = 'var(--app-pdf-context-menu-z-index)',
     minWidth = '',
+    accessibleLabel = '',
+    visible,
 } = defineProps<IProps>();
 
 const resolvedStyle = computed(() => {
@@ -40,6 +49,119 @@ const resolvedStyle = computed(() => {
     }
 
     return style;
+});
+
+const { t } = useTypedI18n();
+const menuElement = ref<HTMLElement | null>(null);
+let previouslyFocusedElement: HTMLElement | null = null;
+let pointerFocusPending = false;
+let pointerFocusResetTimer: ReturnType<typeof setTimeout> | null = null;
+
+function getMenuItems() {
+    return Array.from(
+        menuElement.value?.querySelectorAll<HTMLElement>(
+            'button:not(:disabled), a[href], [role="menuitem"], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+    ).filter(element => !element.hasAttribute('disabled') && !element.hasAttribute('aria-hidden'));
+}
+
+function focusMenuEntry() {
+    (getMenuItems()[0] ?? menuElement.value)?.focus({preventScroll: true});
+}
+
+function handleMenuKeydown(event: KeyboardEvent) {
+    if (![
+        'ArrowDown',
+        'ArrowUp',
+        'Home',
+        'End',
+    ].includes(event.key)) {
+        return;
+    }
+
+    const items = getMenuItems();
+    if (items.length === 0) {
+        event.preventDefault();
+        menuElement.value?.focus({preventScroll: true});
+        return;
+    }
+
+    event.preventDefault();
+    const activeIndex = items.indexOf(document.activeElement as HTMLElement);
+    const nextIndex = event.key === 'Home'
+        ? 0
+        : event.key === 'End'
+            ? items.length - 1
+            : (activeIndex < 0 ? 0 : activeIndex + (event.key === 'ArrowUp' ? -1 : 1) + items.length) % items.length;
+    items[nextIndex]?.focus({preventScroll: true});
+}
+
+function containMenuFocus(event: FocusEvent) {
+    const target = event.target;
+    if (pointerFocusPending) {
+        pointerFocusPending = false;
+        return;
+    }
+    if (visible && target instanceof Node && !menuElement.value?.contains(target)) {
+        focusMenuEntry();
+    }
+}
+
+function markPointerFocus() {
+    pointerFocusPending = true;
+    if (pointerFocusResetTimer !== null) {
+        clearTimeout(pointerFocusResetTimer);
+    }
+    pointerFocusResetTimer = setTimeout(() => {
+        pointerFocusPending = false;
+        pointerFocusResetTimer = null;
+    }, 0);
+}
+
+function removeFocusListeners() {
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('focusin', containMenuFocus);
+        document.removeEventListener('pointerdown', markPointerFocus, true);
+    }
+    pointerFocusPending = false;
+    if (pointerFocusResetTimer !== null) {
+        clearTimeout(pointerFocusResetTimer);
+        pointerFocusResetTimer = null;
+    }
+}
+
+function restoreFocus() {
+    const element = previouslyFocusedElement;
+    previouslyFocusedElement = null;
+    if (element?.isConnected) {
+        void nextTick(() => element.focus({preventScroll: true}));
+    }
+}
+
+watch(() => visible, (isVisible) => {
+    if (!isVisible) {
+        removeFocusListeners();
+        restoreFocus();
+        return;
+    }
+
+    if (typeof document !== 'undefined') {
+        const activeElement = document.activeElement;
+        if (activeElement instanceof HTMLElement && activeElement !== menuElement.value) {
+            previouslyFocusedElement = activeElement;
+        }
+        document.addEventListener('focusin', containMenuFocus);
+        document.addEventListener('pointerdown', markPointerFocus, true);
+    }
+    void nextTick(focusMenuEntry);
+}, {
+    flush: 'post',
+    immediate: true,
+});
+
+onBeforeUnmount(() => {
+    removeFocusListeners();
+    restoreFocus();
 });
 </script>
 

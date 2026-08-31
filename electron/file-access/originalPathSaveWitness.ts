@@ -456,21 +456,36 @@ export async function captureOriginalPathSaveWitness(
     try {
         const snapshot = await captureHandleSnapshot(handle);
         const handleStat = await handle.stat({bigint: true});
+        let contentFingerprintVerified = false;
         if (!expectationMatchesStat(expected, handleStat)) {
-            const restored = await restoreAppPublishedOriginalExpectation(
-                workingPath,
-                originalPath,
-                senderWebContentsId,
-                expected,
-                handleStat,
-            );
-            if (!restored) {
-                await handle.close().catch(() => undefined);
-                return null;
+            if (
+                process.platform === 'win32'
+                && expected.contentFingerprint !== undefined
+                && handleStat.isFile()
+                && handleStat.size <= BigInt(SAVE_WITNESS_FULL_HASH_MAX_BYTES)
+            ) {
+                contentFingerprintVerified = await matchesExpectedContentFingerprint(
+                    originalPath,
+                    expected,
+                    handleStat,
+                );
             }
-            expected = restored;
+            if (!contentFingerprintVerified) {
+                const restored = await restoreAppPublishedOriginalExpectation(
+                    workingPath,
+                    originalPath,
+                    senderWebContentsId,
+                    expected,
+                    handleStat,
+                );
+                if (!restored) {
+                    await handle.close().catch(() => undefined);
+                    return null;
+                }
+                expected = restored;
+            }
         }
-        if (!await matchesExpectedContentFingerprint(originalPath, expected, handleStat)) {
+        if (!contentFingerprintVerified && !await matchesExpectedContentFingerprint(originalPath, expected, handleStat)) {
             await handle.close().catch(() => undefined);
             return null;
         }
@@ -572,6 +587,16 @@ export async function originalPathSaveBaseMatches(
     } catch {
         return false;
     }
-    return expectationMatchesStat(expected, actual)
-        && await matchesExpectedContentFingerprint(originalPath, expected, actual);
+    if (expectationMatchesStat(expected, actual)) {
+        return matchesExpectedContentFingerprint(originalPath, expected, actual);
+    }
+    if (
+        process.platform !== 'win32'
+        || expected.contentFingerprint === undefined
+        || !actual.isFile()
+        || actual.size > BigInt(SAVE_WITNESS_FULL_HASH_MAX_BYTES)
+    ) {
+        return false;
+    }
+    return matchesExpectedContentFingerprint(originalPath, expected, actual);
 }

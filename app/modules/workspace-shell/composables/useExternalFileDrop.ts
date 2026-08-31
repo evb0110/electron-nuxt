@@ -2,8 +2,12 @@ import { useEventListener } from '@vueuse/core';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import { getErrorMessage } from '@contracts/getErrorMessage';
-import { getDocumentPickerCapability } from '@app/utils/platformDocuments';
+import {
+    getDocumentPickerCapability,
+    getDocumentWorkingCopyCapability,
+} from '@app/utils/platformDocuments';
 import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IUseExternalFileDropOptions {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
@@ -64,6 +68,9 @@ async function getDroppedDocumentPaths(
             if (isSupportedWorkspaceDocumentPath(path)) {
                 seen.add(path);
                 paths.push(path);
+            } else {
+                await getDocumentWorkingCopyCapability().cleanupFile(path)
+                    .catch(() => undefined);
             }
         }
     }
@@ -98,7 +105,14 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
             return;
         }
 
-        await openPathsInAppropriateTab(paths);
+        try {
+            await openPathsInAppropriateTab(paths);
+        } catch (error) {
+            await Promise.allSettled(paths.map(path => (
+                getDocumentWorkingCopyCapability().cleanupFile(path)
+            )));
+            throw error;
+        }
     }
 
     function shouldHandleDropEvent(event: DragEvent) {
@@ -133,6 +147,9 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                     return;
                 }
                 await processDroppedPaths(paths, tokenAtSchedule);
+            })
+            .catch(error => {
+                BrowserLogger.error('external-file-drop', 'Failed to process dropped files', error);
             });
     }
 

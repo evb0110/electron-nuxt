@@ -4,6 +4,7 @@ import type {
     PDFDocumentProxy,
     TFitMode,
 } from '@app/types/pdfContracts';
+import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
 import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
@@ -34,6 +35,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         zoomMode,
         fitMode,
         viewMode,
+        viewRotation: providedViewRotation,
         isResizing,
         continuousScroll,
         getVisibleRange,
@@ -64,6 +66,7 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         consumeSuppressedZoomRerender,
         transactionController,
     } = options;
+    const viewRotation = providedViewRotation ?? computed<TPdfViewRotation>(() => 0);
 
     let reRenderSyncRunId = 0;
     let fitModeRunId = 0;
@@ -662,7 +665,13 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         })
         : null;
 
-    watch(viewMode, async () => {
+    watch([
+        viewMode,
+        viewRotation,
+    ], async ([
+        targetViewMode,
+        targetViewRotation,
+    ], previous) => {
         const runId = ++viewModeRunId;
         const document = pdfDocument.value;
         const activeNavigationAnchorPage = navigationAnchorPage?.value ?? null;
@@ -673,7 +682,9 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             return;
         }
 
-        const targetViewMode = viewMode.value;
+        const previousViewRotation = previous?.[1];
+        const rotationChanged = previousViewRotation !== undefined
+            && targetViewRotation !== previousViewRotation;
         resetContinuousScrollState();
         const updated = computeFitWidthScale(viewerContainer.value);
         if (updated) {
@@ -681,8 +692,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
 
         void cancelInFlightPageRenders?.();
-        await reRenderAllVisiblePages(getVisibleRange, {rerenderSource: PDF_RERENDER_SOURCE.ViewMode});
-        if (!isViewerAsyncRunActive(runId, viewModeRunId, document) || viewMode.value !== targetViewMode) {
+        await reRenderAllVisiblePages(getVisibleRange, {rerenderSource: rotationChanged
+            ? PDF_RERENDER_SOURCE.ViewRotation
+            : PDF_RERENDER_SOURCE.ViewMode});
+        if (
+            !isViewerAsyncRunActive(runId, viewModeRunId, document)
+            || viewMode.value !== targetViewMode
+            || viewRotation.value !== targetViewRotation
+        ) {
             return;
         }
         syncHorizontalScrollAfterLayoutUpdate();

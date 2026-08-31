@@ -65,6 +65,26 @@ describe('useDirtyTabCloseDialog', () => {
         expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
     });
 
+    it('resolves a native window close with an explicit decision', async () => {
+        const target = createTab('target', 'Zaliznyak.pdf', 'generation-1');
+        const {
+            dialog,
+            tabs,
+        } = createHarness([target]);
+
+        const decision = dialog.requestDirtyWindowCloseConfirmation();
+        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
+        expect(dialog.dirtyTabCloseDialogMode.value).toBe('window');
+
+        tabs.value = [];
+        await nextTick();
+        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(true);
+
+        dialog.resolveDirtyTabCloseDialog('save');
+        await expect(decision).resolves.toBe('save');
+        expect(dialog.dirtyTabCloseDialogOpen.value).toBe(false);
+    });
+
     it('falls back to new-tab label and resolves false on external close', async () => {
         const tabs = ref([]);
         const dialog = useDirtyTabCloseDialog({tabs});

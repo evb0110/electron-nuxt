@@ -18,8 +18,8 @@ import {
     booleanResult,
     bytesResult,
     cancelOpenBatchArgs,
-    cancelPagePreviewArgs,
-    cancelPagePreviewResult,
+    cancellationResult,
+    cancelRequestArgs,
     cloneStagedNativeMutationArgs,
     commitNativeMutationsArgs,
     createWorkingCopyFromDataArgs,
@@ -63,6 +63,7 @@ import {
     pathArgs,
     pdfDataArgs,
     pdfPathArgs,
+    printPdfDataArgs,
     printPdfPathArgs,
     readFileArgs,
     readFileRangeArgs,
@@ -84,6 +85,7 @@ import {
     type TDocumentMethodArgs,
     type TDocumentMethodResult,
 } from '@contracts/documentsPlatformFeatureSchemas';
+import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
 import {
     beginPdfAnnotationIndexArgs,
     cancelPdfAnnotationIndexArgs,
@@ -463,8 +465,8 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
         },
         cancelPdfNativePagePreview: {
             ...defineIpcMethod(
-                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelPagePreviewArgs,
-                cancelPagePreviewResult, 'cancelPdfNativePagePreview', 'sender',
+                'cancelPdfNativePagePreview', 'pdf:nativePagePreview:cancel', cancelRequestArgs,
+                cancellationResult, 'cancelPdfNativePagePreview', 'sender',
             ),
             ...electronImplementedOptional,
         },
@@ -858,17 +860,34 @@ export const DOCUMENT_PDF_PLATFORM_FEATURE = definePlatformFeature({
             'openPdfInDefaultAppPath', 'sender',
         ),
         printPdfData: defineIpcMethod(
-            'printPdfData', 'pdf:printData', pdfDataArgs,
+            'printPdfData', 'pdf:printData', printPdfDataArgs,
             s.fromParser(decodePrintResult, () => ({success: true})),
             'printPdfData', 'sender',
         ),
+        cancelPdfPrint: {
+            ...defineIpcMethod(
+                'cancelPdfPrint', 'pdf:print:cancel', cancelRequestArgs,
+                cancellationResult, 'cancelPdfPrint', 'sender',
+            ),
+            ...electronImplementedOptional,
+        },
         printPdfPath: defineIpcMethod(
             'printPdfPath', 'pdf:printPath', printPdfPathArgs,
             s.fromParser(decodePrintResult, () => ({success: true})),
             'printPdfPath', 'sender',
         ),
     },
-    events: {},
+    events: {onNativePrintDialogOpened: {
+        ...defineEvent(
+            'onNativePrintDialogOpened',
+            'pdf:print:native-dialog-opened',
+            s.fromParser(
+                decodePdfNativePrintDialogOpenedEvent,
+                () => ({requestId: 'print-request'}),
+            ),
+        ),
+        ...electronImplementedOptional,
+    }},
 });
 
 export const DOCUMENT_RECENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
@@ -965,6 +984,8 @@ export const DOCUMENT_MENU_PLATFORM_FEATURE = definePlatformFeature({
         onMenuViewModeSingle: defineEvent('onMenuViewModeSingle', 'menu:viewModeSingle', noPayload),
         onMenuViewModeFacing: defineEvent('onMenuViewModeFacing', 'menu:viewModeFacing', noPayload),
         onMenuViewModeFacingFirstSingle: defineEvent('onMenuViewModeFacingFirstSingle', 'menu:viewModeFacingFirstSingle', noPayload),
+        onMenuViewRotationCw: defineEvent('onMenuViewRotationCw', 'menu:viewRotationCw', noPayload),
+        onMenuViewRotationCcw: defineEvent('onMenuViewRotationCcw', 'menu:viewRotationCcw', noPayload),
         onMenuToggleAssistant: defineEvent('onMenuToggleAssistant', 'menu:toggleAssistant', noPayload),
         onMenuUndo: defineEvent('onMenuUndo', 'menu:undo', noPayload),
         onMenuRedo: defineEvent('onMenuRedo', 'menu:redo', noPayload),

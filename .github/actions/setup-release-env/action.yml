@@ -81,6 +81,11 @@ runs:
       with:
         path: ${{ runner.temp }}/win-bundle-cache
         key: ${{ inputs.windows-bundle-cache-key }}-${{ hashFiles('scripts/bundle-tools-windows.sh') }}
+        # Bundler logic changes must not discard already verified archives for
+        # the same platform and pinned tool versions. The script verifies
+        # every restored archive before using it.
+        restore-keys: |
+          ${{ inputs.windows-bundle-cache-key }}-
 
     - name: Install dependencies
       if: inputs.install-dependencies == 'true'

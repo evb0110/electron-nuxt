@@ -1,6 +1,7 @@
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TPdfZoomState,
     TZoomMode,
@@ -136,6 +137,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         }
     }, {flush: 'sync'});
     const viewMode = ref<TPdfViewMode>(initialState?.viewMode ?? 'single');
+    const viewRotation = ref<TPdfViewRotation>(initialState?.viewRotation ?? 0);
     const currentPage = ref(Math.max(1, Math.trunc(initialState?.currentPage ?? 1)));
     const totalPages = ref(0);
     const pdfDocument = shallowRef<PDFDocumentProxy | null>(null);
@@ -187,6 +189,7 @@ export const useWorkspaceViewerShellState = (initialState?: ITabViewSessionState
         zoomMode,
         fitMode,
         viewMode,
+        viewRotation,
         currentPage,
         totalPages,
         pdfDocument,

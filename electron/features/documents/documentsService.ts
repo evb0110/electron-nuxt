@@ -24,6 +24,7 @@ import type {
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
     IPdfOptimizeResult,
+    IPdfPathPrintOptions,
     IPdfPathValidationOptions,
     IPdfSaveAsOptions,
     IPdfSerializedSaveOptions,
@@ -36,6 +37,7 @@ import type {
     IPdfAnnotationParseOptions,
     IPdfAnnotationParseResult,
     IPdfAnnotationParseSession,
+    IPdfDataPrintOptions,
     IPdfEmbeddedShapeIndexChunk,
     IPdfEmbeddedShapeIndexChunkOptions,
     IPdfEmbeddedShapeIndexOptions,
@@ -65,6 +67,7 @@ export interface IDocumentsSenderIdContext {
 }
 
 export interface IDocumentsWindowContext {
+    onNativePrintDialogOpened?: (requestId: string) => void;
     senderId?: number;
     window: BrowserWindow | null;
 }
@@ -248,12 +251,16 @@ export interface IDocumentsService {
         success: boolean;
         error?: string;
     }>;
-    printPdfData: (context: IDocumentsWindowContext, data: Uint8Array, fileName?: string) => Promise<{
+    printPdfData: (context: IDocumentsWindowContext, data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
     }>;
-    printPdfPath: (context: IDocumentsWindowContext, filePath: string, fileName?: string, pageNumbers?: number[]) => Promise<{
+    cancelPdfPrint: (
+        context: IDocumentsSenderIdContext,
+        requestId: string,
+    ) => Promise<{canceled: boolean}>;
+    printPdfPath: (context: IDocumentsWindowContext, filePath: string, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;

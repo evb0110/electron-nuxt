@@ -86,6 +86,45 @@ describePosix('terminateProcessTree (posix)', () => {
         expect(killCalls.some(call => call.signal === 'SIGKILL')).toBe(false);
     });
 
+    it('falls back to the direct PID when no process group exists', async () => {
+        const pid = makeTestPid(4342);
+        let directAlive = true;
+        const killCalls: Array<{
+            pid: number;
+            signal: NodeJS.Signals | 0 | undefined;
+        }> = [];
+        vi.spyOn(processTreeRuntime, 'kill').mockImplementation(((targetPid, signal?: NodeJS.Signals | 0) => {
+            killCalls.push({
+                pid: targetPid,
+                signal,
+            });
+            if (signal === 0) {
+                if (targetPid === -pid) {
+                    throw new Error('ESRCH: process group was never created');
+                }
+                if (targetPid === pid && directAlive) {
+                    return true;
+                }
+                throw new Error('ESRCH');
+            }
+            if (targetPid === pid && signal === 'SIGTERM') {
+                directAlive = false;
+            }
+            return true;
+        }) as typeof processTreeRuntime.kill);
+
+        await expect(terminateProcessTree(pid, {
+            graceMs: 0,
+            preferProcessGroup: true,
+        })).resolves.toBe(true);
+
+        expect(killCalls).toContainEqual({
+            pid,
+            signal: 'SIGTERM',
+        });
+        expect(killCalls.some(call => call.pid === -pid && call.signal !== 0)).toBe(false);
+    });
+
     it('finishes the detached process group after its leader exits', async () => {
         const pid = makeTestPid(4343);
         let originalTargetAlive = true;

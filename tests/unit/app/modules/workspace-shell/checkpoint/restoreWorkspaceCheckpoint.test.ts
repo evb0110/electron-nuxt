@@ -19,11 +19,13 @@ describe('restoreWorkspaceCheckpoint', () => {
             handleFitHeight: vi.fn(),
             handleToggleContinuousScroll: vi.fn(),
             handleViewModeFacing: vi.fn(),
+            setViewRotation: vi.fn(),
             getToolbarSnapshot: () => ({
                 continuousScroll: true,
                 viewerCapabilities: {
                     continuousScroll: true,
                     viewMode: true,
+                    viewRotation: true,
                 },
             }),
             getAutomationStateSnapshot: () => ({
@@ -73,6 +75,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 zoomMode: 'custom',
                 continuousScroll: false,
                 viewMode: 'facing',
+                viewRotation: 90,
             }],
         }, {
             tabs,
@@ -92,6 +95,7 @@ describe('restoreWorkspaceCheckpoint', () => {
         expect(workspace.setCustomZoomFromDisplay).toHaveBeenCalledWith(1.4);
         expect(workspace.handleToggleContinuousScroll).toHaveBeenCalledOnce();
         expect(workspace.handleViewModeFacing).toHaveBeenCalledOnce();
+        expect(workspace.setViewRotation).toHaveBeenCalledWith(90);
         expect(activateTab).toHaveBeenCalledWith('restored-tab');
     });
 

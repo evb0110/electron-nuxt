@@ -64,6 +64,7 @@ import {
 import {searchWorkerService} from '@electron/features/search/public';
 import {
     createWindow,
+    configureNativeWindowCloseHandshake,
     hasWindows,
 } from '@electron/window';
 import {
@@ -472,6 +473,12 @@ shutdownCoordinator = createShutdownCoordinator({
     },
     runBestEffortCleanupSteps: shutdownPhaseRunners.runBestEffortCleanupSteps,
 });
+const shouldBypassWindowClose = () => Boolean(
+    shutdownCoordinator?.isGracefulQuitInProgress()
+    || shutdownCoordinator?.isFatalShutdownInProgress()
+    || shutdownCoordinator?.isQuittingAfterCleanup(),
+);
+configureNativeWindowCloseHandshake({shouldBypass: shouldBypassWindowClose});
 // Install fatal process handlers only after the coordinator exists. A synchronous
 // startup exception before this point keeps Node's default fail-fast behavior.
 process.on('unhandledRejection', (reason) => {

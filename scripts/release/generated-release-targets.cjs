@@ -215,6 +215,33 @@ const manifest = JSON.parse(String.raw`{
             ]
         },
         {
+            "binaryName": null,
+            "id": "pdf-print-dialog",
+            "label": "macOS PDF print dialog helper",
+            "packagedEntries": [
+                {
+                    "id": "pdf-print-dialog",
+                    "label": "pdf-print-dialog binary",
+                    "pathSegments": [
+                        "bin",
+                        "pdf-print-dialog{exeSuffix}"
+                    ],
+                    "platforms": [
+                        "darwin"
+                    ],
+                    "type": "file"
+                }
+            ],
+            "protocolVersion": null,
+            "sourceRootSegments": [
+                ".tmp",
+                "pdf-print-dialog"
+            ],
+            "stagedRootSegments": [
+                "pdf-print-dialog"
+            ]
+        },
+        {
             "binaryName": "evb-pdf-image-combine",
             "id": "pdf-image-combine",
             "label": "PDF image combine native tool",
@@ -381,6 +408,9 @@ const manifest = JSON.parse(String.raw`{
             ],
             [
                 "djvulibre"
+            ],
+            [
+                "pdf-print-dialog"
             ],
             [
                 "pdf-image-combine"

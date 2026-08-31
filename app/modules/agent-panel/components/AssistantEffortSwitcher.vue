@@ -7,26 +7,26 @@
     >
         <button
             type="button"
-            class="assistant-effort-switcher-button"
+            class="assistant-mode-switcher-button"
             :aria-label="ariaLabel"
             :disabled="disabled"
         >
             <UIcon
                 name="i-ph-gauge"
-                class="assistant-effort-switcher-icon"
+                class="assistant-mode-switcher-icon"
             />
-            <span class="assistant-effort-switcher-value">{{ effortLabel(selectedEffort) }}</span>
+            <span class="assistant-mode-switcher-value">{{ effortLabel(selectedEffort) }}</span>
             <UIcon
                 name="i-ph-caret-up-down"
-                class="assistant-effort-switcher-indicator"
+                class="assistant-mode-switcher-indicator"
             />
         </button>
 
         <template #content>
-            <div class="assistant-effort-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
-                <span class="assistant-effort-switcher-section-label">{{ t('assistant.reasoning') }}</span>
+            <div class="assistant-mode-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
+                <span class="assistant-mode-switcher-section-label">{{ t('assistant.reasoning') }}</span>
                 <div
-                    class="assistant-effort-switcher-list"
+                    class="assistant-mode-switcher-list"
                     role="radiogroup"
                     :aria-label="t('assistant.reasoningEffort')"
                 >
@@ -35,7 +35,7 @@
                         :key="effort"
                         type="button"
                         :class="[
-                            'assistant-effort-switcher-option',
+                            'assistant-mode-switcher-option',
                             { 'is-active': effort === selectedEffort },
                         ]"
                         role="radio"
@@ -48,7 +48,7 @@
                         <UIcon
                             v-if="effort === selectedEffort"
                             name="i-ph-check"
-                            class="assistant-effort-switcher-check"
+                            class="assistant-mode-switcher-check"
                         />
                     </button>
                 </div>
@@ -123,137 +123,4 @@ function isKnownEffort(effort: TAgentAssistantEffort): effort is TAgentAssistant
 }
 </script>
 
-<style scoped>
-.assistant-effort-switcher-button {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--app-space-sm);
-    max-width: 100%;
-    min-width: 0;
-    height: var(--app-assistant-control-height);
-    padding: 0 var(--app-space-2xl);
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: var(--app-radius-md);
-    background: var(--app-toolbar-group-bg);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-tight);
-    cursor: pointer;
-    user-select: none;
-    transition:
-        background-color var(--app-transition-fast),
-        border-color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast);
-}
-
-.assistant-effort-switcher-button:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-    border-color: var(--app-toolbar-control-hover-border);
-}
-
-.assistant-effort-switcher-button:focus {
-    outline: none;
-}
-
-.assistant-effort-switcher-button:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-}
-
-.assistant-effort-switcher-button:disabled {
-    opacity: var(--app-toolbar-control-disabled-opacity);
-    cursor: default;
-}
-
-.assistant-effort-switcher-icon {
-    flex: 0 0 auto;
-    width: 0.9rem;
-    height: 0.9rem;
-    color: var(--ui-text-muted);
-}
-
-.assistant-effort-switcher-value {
-    min-width: 0;
-    overflow: hidden;
-    font-weight: var(--app-font-weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.assistant-effort-switcher-indicator {
-    flex: 0 0 auto;
-    width: 0.9rem;
-    height: 0.9rem;
-    color: var(--ui-text-muted);
-}
-
-.assistant-effort-switcher-menu {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    width: min(12rem, var(--app-overlay-viewport-width));
-    max-width: var(--app-overlay-viewport-width);
-    padding: var(--app-space-md);
-    background: var(--app-toolbar-group-bg);
-    user-select: none;
-}
-
-.assistant-effort-switcher-section-label {
-    padding: 0 var(--app-space-2xs);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-micro);
-    font-weight: var(--app-font-weight-semibold);
-    line-height: var(--app-line-height-tight);
-    text-transform: uppercase;
-}
-
-.assistant-effort-switcher-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-}
-
-.assistant-effort-switcher-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-space-3xl);
-    min-height: var(--app-assistant-control-height);
-    min-width: 0;
-    padding: 0 var(--app-space-3xl);
-    border-radius: var(--app-radius-sm);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    line-height: 1.15;
-    text-align: left;
-    cursor: pointer;
-    transition: background-color var(--app-transition-fast);
-}
-
-.assistant-effort-switcher-option:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-}
-
-.assistant-effort-switcher-option:focus {
-    outline: none;
-}
-
-.assistant-effort-switcher-option:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-}
-
-.assistant-effort-switcher-option.is-active {
-    background: var(--app-toolbar-control-hover-bg);
-    font-weight: var(--app-font-weight-semibold);
-}
-
-.assistant-effort-switcher-option:disabled {
-    cursor: default;
-}
-
-.assistant-effort-switcher-check {
-    flex: 0 0 auto;
-    width: 0.95rem;
-    height: 0.95rem;
-    color: var(--ui-primary);
-}
-</style>
+<style scoped src="./AssistantModeSwitcher.css"></style>

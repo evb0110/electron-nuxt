@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    AGENT_OCR_PAGE_SEGMENTATION_MODES,
     AGENT_OCR_RUN_INPUT_SCHEMA,
     parseAgentOcrRunOptions,
 } from '@contracts/agentOcr';
@@ -26,6 +27,8 @@ describe('agent OCR contract', () => {
             'replace-evb',
             'replace-all',
         ]);
+        expect(AGENT_OCR_RUN_INPUT_SCHEMA.properties.pageSegmentationMode.enum)
+            .toEqual(AGENT_OCR_PAGE_SEGMENTATION_MODES);
         expect(AGENT_OCR_RUN_INPUT_SCHEMA.additionalProperties).toBe(false);
     });
 
@@ -74,5 +77,12 @@ describe('agent OCR contract', () => {
             open: 'yes',
         })).toEqual({});
         expect(parseAgentOcrRunOptions(null)).toEqual({});
+    });
+
+    it('does not advertise OSD-only Tesseract modes as output OCR modes', () => {
+        expect(parseAgentOcrRunOptions({pageSegmentationMode: 0})).toEqual({});
+        expect(parseAgentOcrRunOptions({pageSegmentationMode: 2})).toEqual({});
+        expect(parseAgentOcrRunOptions({pageSegmentationMode: 12})).toEqual({});
+        expect(parseAgentOcrRunOptions({pageSegmentationMode: 13})).toEqual({pageSegmentationMode: 13});
     });
 });

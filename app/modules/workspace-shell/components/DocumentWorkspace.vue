@@ -361,6 +361,7 @@
             :current-page="currentPage"
             :view-mode="viewMode"
             :supports-advanced-print-options="supportsAdvancedPrintOptions"
+            :supports-first-page-single-print-layout="supportsFirstPageSinglePrintLayout"
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :show-convert-dialog="showConvertDialog"
             :djvu-path="djvuSourcePath"
@@ -830,6 +831,7 @@ const {
     printError,
     printStatus,
     supportsAdvancedPrintOptions,
+    supportsFirstPageSinglePrintLayout,
 } = printWorkflow;
 const {
     canUndo,

@@ -1,5 +1,6 @@
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
@@ -28,6 +29,8 @@ export interface ITabViewSessionState {
     zoomMode: TZoomMode;
     fitMode: TFitMode;
     viewMode: TPdfViewMode;
+    /** Optional for sessions written before whole-document view rotation. */
+    viewRotation?: TPdfViewRotation;
     showSidebar: boolean;
     /** Optional for checkpoints written before the shared sidebar session existed. */
     sidebarTab?: TDocumentSidebarTab;

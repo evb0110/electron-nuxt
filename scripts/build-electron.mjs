@@ -23,6 +23,10 @@ const initialBundleOptions = {
     define: buildGitShaDefine,
 };
 
+if (process.platform === 'darwin') {
+    execFileSync('bash', ['scripts/build-macos-pdf-print-dialog.sh'], {stdio: 'inherit'});
+}
+
 function resolveBuildGitSha() {
     const gitOptions = {
         encoding: 'utf8',

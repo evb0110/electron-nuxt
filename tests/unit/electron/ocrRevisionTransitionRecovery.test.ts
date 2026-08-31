@@ -136,4 +136,31 @@ describe('OCR revision transition crash recovery', () => {
         await expect(recoverPreparedOcrRevisionTransition(workingCopyPath))
             .rejects.toThrow('Invalid OCR revision transition recovery journal');
     });
+
+    it('fails closed when the OCR transition journal cannot be read', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-ocr-transition-unreadable-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        const journalPath = `${workingCopyPath}.ocr-transition.json`;
+        await mkdir(journalPath);
+
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_UNREADABLE',
+            journalPath,
+        });
+    });
+
+    it('fails closed on a truncated OCR transition journal', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-ocr-transition-truncated-'));
+        const workingCopyPath = join(root, 'working.pdf');
+        const journalPath = `${workingCopyPath}.ocr-transition.json`;
+        await writeFile(journalPath, '{"version":1');
+
+        await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).rejects.toMatchObject({
+            name: 'DocumentRecoveryJournalError',
+            code: 'DOCUMENT_RECOVERY_JOURNAL_INVALID',
+            journalPath,
+        });
+        await expect(readFile(journalPath, 'utf8')).resolves.toBe('{"version":1');
+    });
 });

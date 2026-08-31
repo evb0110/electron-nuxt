@@ -1,8 +1,10 @@
 import {
+    mkdirSync,
     mkdtempSync,
     readFileSync,
     readdirSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'fs';
 import { tmpdir } from 'os';
@@ -19,7 +21,10 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
-import { AssistantChatPersistence } from '@electron/features/agent/assistantChatPersistence';
+import {
+    AssistantChatPersistence,
+    AssistantChatPersistenceError,
+} from '@electron/features/agent/assistantChatPersistence';
 import { createAssistantChatSessionStore } from '@electron/features/agent/assistantChatSessionStore';
 import { createAssistantSessionTurnCoordinator } from '@electron/features/agent/createAssistantSessionTurnCoordinator';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
@@ -88,6 +93,21 @@ afterEach(() => {
 });
 
 describe('assistant chat session store persistence', () => {
+    it('keeps visible history after the old inactivity window passes', () => {
+        const store = createAssistantChatSessionStore({
+            persistence: false,
+            maxEntries: 4,
+        });
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'history must remain visible',
+        });
+        session.lastAccessedAtMs = Date.now() - 2 * 60 * 60 * 1000;
+
+        expect(store.getSession(scope, selection)?.messages.map(message => message.text)).toEqual(['history must remain visible']);
+    });
+
     it('writes JSONL transcripts and recovers messages', async () => {
         const rootDir = createTempRoot();
         const persistence = createPersistence(rootDir);
@@ -417,6 +437,79 @@ describe('assistant chat session store persistence', () => {
 
         const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
         expect(recoveredStore.getMessages(longScope, selection).map(message => message.text)).toEqual(['long key']);
+    });
+
+    it('keeps oversized snapshots within the byte cap and recovers their full history', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxSessionBytes: 64 * 1024});
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        const largeText = 'large transcript '.repeat(10_000);
+
+        store.addMessage(session, {
+            role: 'user',
+            text: largeText,
+        });
+        await store.flushPersistenceForTests();
+
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        expect(statSync(transcriptPath).size).toBeLessThanOrEqual(64 * 1024);
+        expect(readFileSync(transcriptPath, 'utf8')).toContain('session-snapshot-ref');
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual([largeText]);
+    });
+
+    it('rejects a failed flush while retaining the pending snapshot for retry', async () => {
+        const rootDir = createTempRoot();
+        const errors: unknown[] = [];
+        const persistence = createPersistence(rootDir, {onError: (_message, error) => errors.push(error)});
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+        store.addMessage(session, {
+            role: 'user',
+            text: 'retry me',
+        });
+        const transcriptPath = persistence.sessionPath(store.keyForSession(session));
+        mkdirSync(transcriptPath);
+
+        await expect(store.flushPersistenceForTests()).rejects.toBeInstanceOf(AssistantChatPersistenceError);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]).toMatchObject({
+            code: 'write-failed',
+            retryable: true,
+            pendingKeys: [store.keyForSession(session)],
+        });
+
+        rmSync(transcriptPath, {
+            recursive: true,
+            force: true,
+        });
+        await store.flushPersistenceForTests();
+        const recoveredStore = createAssistantChatSessionStore({persistence: createPersistence(rootDir)});
+        expect(recoveredStore.getMessages(scope, selection).map(message => message.text)).toEqual(['retry me']);
+    });
+
+    it('retains only the configured number of archived transcripts', async () => {
+        const rootDir = createTempRoot();
+        const persistence = createPersistence(rootDir, {maxArchives: 2});
+        const store = createAssistantChatSessionStore({persistence});
+        const session = store.getSession(scope, selection, {create: true});
+
+        for (const index of [
+            1,
+            2,
+            3,
+        ]) {
+            store.addMessage(session, {
+                role: 'user',
+                text: `archive-${index}`,
+            });
+            session.messages.length = 0;
+            store.resetSessionTranscript(session, 'reset');
+            await store.flushPersistenceForTests();
+        }
+
+        expect(readdirSync(join(rootDir, 'archive')).filter(entry => entry.endsWith('.jsonl'))).toHaveLength(2);
     });
 
     it('exposes a production persistence flush that drains queued snapshots', async () => {

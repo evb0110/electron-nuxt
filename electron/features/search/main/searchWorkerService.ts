@@ -504,6 +504,7 @@ export class SearchWorkerService {
                     reason: `Search request ${request.requestId} timed out`,
                     rejectionError: error,
                     expectedState: state,
+                    shutdownWorker: true,
                 });
             } else {
                 request.reject(error);
@@ -574,6 +575,7 @@ export class SearchWorkerService {
             this.cleanupSenderState(state.senderId, {
                 terminateWorker: true,
                 reason: 'Search worker idle timeout',
+                shutdownWorker: true,
             });
         }, workerIdleTtlMs);
         state.idleCleanupTimer.unref?.();
@@ -649,6 +651,7 @@ export class SearchWorkerService {
                 terminateWorker: true,
                 reason: `Search worker did not acknowledge cancellation for request ${request.requestId}`,
                 expectedState: state,
+                shutdownWorker: true,
             });
         }, SEARCH_CANCEL_ACK_TIMEOUT_MS);
         request.cancellationFallbackTimeout.unref?.();
@@ -747,7 +750,7 @@ export class SearchWorkerService {
                 this.workerTerminationPromises.delete(state.worker);
             });
         this.workerTerminationPromises.set(state.worker, terminationPromise);
-        void terminationPromise;
+        void terminationPromise.catch(() => undefined);
     }
 
     private cleanupSenderState(
@@ -885,6 +888,7 @@ export class SearchWorkerService {
             terminateWorker: true,
             reason: `Search worker protocol error for request ${requestId}`,
             expectedState: state,
+            shutdownWorker: true,
         });
     }
 
@@ -936,6 +940,7 @@ export class SearchWorkerService {
                 reason: `Search worker error: ${error.message}`,
                 rejectionError: toSearchIpcError(error, 'SEARCH_WORKER_ERROR', true),
                 expectedState: state,
+                shutdownWorker: true,
             });
         });
         worker.on('exit', (code) => {
@@ -973,7 +978,8 @@ export class SearchWorkerService {
             this.clearIdleCleanupTimer(state);
             return state;
         }
-        if (this.senderSearchStates.size >= maxActiveSenderWorkers) {
+        const occupiedWorkerSlots = this.senderSearchStates.size + this.workerTerminationPromises.size;
+        if (occupiedWorkerSlots >= maxActiveSenderWorkers) {
             const reusableState = this.findReusableIdleState();
             if (reusableState) {
                 const previousSenderId = reusableState.senderId;

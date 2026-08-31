@@ -88,7 +88,8 @@ has_ci_bundler_for_tag() {
       [ -f "scripts/bundle-tesseract-macos.sh" ] \
         && [ -f "scripts/bundle-leptonica-unpaper-macos.sh" ] \
         && [ -f "scripts/bundle-pdf-tools-macos.sh" ] \
-        && [ -f "scripts/bundle-djvu-macos.sh" ]
+        && [ -f "scripts/bundle-djvu-macos.sh" ] \
+        && [ -f "scripts/build-macos-pdf-print-dialog.sh" ]
       ;;
     linux-arm64|linux-x64)
       [ -f "scripts/bundle-tools-linux.sh" ]

@@ -10,6 +10,8 @@ import { withPageStageTimeout } from '@app/modules/pdf-viewer/engine/pdf-page-re
 import type { IPageRenderStallPayload } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 import type { TPdfPageOperationSettlementCapture } from '@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender';
+import type { TPdfViewRotation } from '@contracts/shared';
+import { resolvePdfPageViewportRotation } from '@app/utils/pdfViewRotation';
 
 interface ICanvasRenderResult {
     canvas: HTMLCanvasElement;
@@ -67,12 +69,15 @@ interface ICanvasScale {
 
 export const usePdfCanvasRenderer = (deps: {
     outputScale: MaybeRefOrGetter<number>;
+    viewRotation?: MaybeRefOrGetter<TPdfViewRotation>;
     defaultMaxCanvasPixels?: number | undefined;
 }) => {
     const {
         outputScale,
+        viewRotation,
         defaultMaxCanvasPixels,
     } = deps;
+    const effectiveViewRotation = viewRotation ?? (() => 0);
 
     function getOutputScale() {
         const value = toValue(outputScale);
@@ -246,7 +251,13 @@ export const usePdfCanvasRenderer = (deps: {
         scale: number,
         options?: IRenderCanvasOptions,
     ): Promise<IPreparedCanvasRender | null> {
-        const viewport = pdfPage.getViewport({ scale });
+        const viewport = pdfPage.getViewport({
+            scale,
+            rotation: resolvePdfPageViewportRotation(
+                pdfPage.rotate,
+                toValue(effectiveViewRotation),
+            ),
+        });
         const userUnit = viewport.userUnit ?? 1;
         const totalScaleFactor = scale * userUnit;
         const rawDims = viewport.rawDims as {

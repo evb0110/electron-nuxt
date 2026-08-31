@@ -10,7 +10,7 @@ import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { collectTextMarkupElementCandidates } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectTextMarkupElementCandidates';
-import { scoreTextMarkupVisualCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/scoreTextMarkupVisualCandidate';
+import { scoreTextMarkupSvgCandidate } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/collectMatchingTextMarkupVisuals';
 
 interface IScoredHighlightVisualCandidate extends IHighlightVisualCandidate {matched: boolean;}
 
@@ -66,47 +66,6 @@ function getDrawLayerHighlightSvgs(pageContainer: HTMLElement) {
     )).filter(svg => !svg.classList.contains('pdf-highlight-composite-overlay'));
 }
 
-function toHighlightVisualCandidate(
-    context: ITextMarkupCandidateContext,
-    pageContainer: HTMLElement,
-    svg: SVGElement,
-    targetRects: IAnnotationMarkerRect[],
-): IScoredHighlightVisualCandidate | null {
-    const svgRect = context.getRectForElement(pageContainer, svg);
-    if (!svgRect) {
-        return null;
-    }
-
-    let best: IScoredHighlightVisualCandidate | null = null;
-    targetRects.forEach((targetRect) => {
-        const score = scoreTextMarkupVisualCandidate(svgRect, targetRect);
-        const candidate: IScoredHighlightVisualCandidate = {
-            axisOverlap: score.axisOverlap,
-            distance: score.distance,
-            iou: score.iou,
-            matched: score.matched,
-            svg,
-        };
-        if (
-            !best
-            || candidate.iou > best.iou
-            || (
-                candidate.iou === best.iou
-                && Number(candidate.axisOverlap) > Number(best.axisOverlap)
-            )
-            || (
-                candidate.iou === best.iou
-                && candidate.axisOverlap === best.axisOverlap
-                && candidate.distance < best.distance
-            )
-        ) {
-            best = candidate;
-        }
-    });
-
-    return best;
-}
-
 function pickBetterHighlightVisualCandidate(
     current: IScoredHighlightVisualCandidate | null,
     candidate: IScoredHighlightVisualCandidate,
@@ -134,7 +93,7 @@ function removeBestMatchingHighlightVisual(
 
     let bestCandidate: IScoredHighlightVisualCandidate | null = null;
     for (const svg of getDrawLayerHighlightSvgs(pageContainer)) {
-        const candidate = toHighlightVisualCandidate(context, pageContainer, svg, targetRects);
+        const candidate = scoreTextMarkupSvgCandidate(context, pageContainer, svg, targetRects);
         if (!candidate) {
             continue;
         }

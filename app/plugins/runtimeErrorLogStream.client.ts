@@ -3,42 +3,17 @@ import {
     createDebugLogRuntimeErrorReport,
     isUiReportableDebugLog,
 } from '@app/utils/runtimeErrorFilter';
-import type {
-    TLocale,
-    TTranslateFn,
-} from '@i18n-app';
-import {
-    DEFAULT_LOCALE,
-    formatTranslationLeaf,
-    getNestedTranslationLeaf,
-    isLocaleMessageSource,
-    normalizeTranslationParams,
-} from '@i18n-core';
+import type {TLocale} from '@i18n-app';
+import {isLocaleMessageSource} from '@i18n-core';
 import {
     isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge,
 } from '@app/utils/platform';
+import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
 
 type TRuntimeErrorLogStreamWindow = Window & { __evbRuntimeErrorLogStreamState?: IRuntimeErrorLogStreamState };
-
-function createPluginTranslate(
-    getLocaleMessages: (locale: TLocale) => Record<string, unknown>,
-    getLocale: () => TLocale | null | undefined,
-): TTranslateFn {
-    const t: TTranslateFn = (key, ...args) => {
-        const params = normalizeTranslationParams(args[0]);
-        const locale = getLocale() ?? DEFAULT_LOCALE;
-        const leaf = getNestedTranslationLeaf(getLocaleMessages(locale), key)
-            ?? getNestedTranslationLeaf(getLocaleMessages(DEFAULT_LOCALE), key)
-            ?? key;
-
-        return formatTranslationLeaf(leaf, params, locale);
-    };
-
-    return t;
-}
 
 async function waitForRuntimeErrorLogBridge() {
     const routePath = typeof window === 'undefined'
@@ -89,7 +64,7 @@ export default defineNuxtPlugin((nuxtApp) => {
 
         cleanedUp = true;
         cleanupDebugLogSubscription();
-        window.removeEventListener('beforeunload', onBeforeUnload);
+        window.removeEventListener('pagehide', onPageHide);
         if (nuxtApp.vueApp.unmount === guardedUnmount) {
             nuxtApp.vueApp.unmount = originalUnmount;
         }
@@ -101,12 +76,14 @@ export default defineNuxtPlugin((nuxtApp) => {
         cleanup();
         originalUnmount();
     }
-    function onBeforeUnload() {
-        cleanup();
+    function onPageHide(event: PageTransitionEvent) {
+        if (!event.persisted) {
+            cleanup();
+        }
     }
 
     windowWithState.__evbRuntimeErrorLogStreamState = {cleanup};
-    window.addEventListener('beforeunload', onBeforeUnload, { once: true });
+    window.addEventListener('pagehide', onPageHide);
     nuxtApp.vueApp.unmount = guardedUnmount;
 
     nuxtApp.hook('app:mounted', () => {

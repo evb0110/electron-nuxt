@@ -61,7 +61,7 @@ download() {
     local label="$2"
     if [ -z "$expected_sha256" ]; then
       echo "Error: Missing SHA256 pin for release-critical archive $label"
-      exit 1
+      return 1
     fi
 
     local actual_sha256
@@ -70,13 +70,15 @@ download() {
       echo "Error: SHA256 mismatch for $label"
       echo "  expected: $expected_sha256"
       echo "  actual:   $actual_sha256"
-      exit 1
+      return 1
     fi
   }
 
   if [ -s "$cache_path" ]; then
     echo "  Using cache: $cache_key"
-    verify_sha256 "$cache_path" "$cache_key"
+    if ! verify_sha256 "$cache_path" "$cache_key"; then
+      return 1
+    fi
     cp "$cache_path" "$dest"
     return
   fi
@@ -88,9 +90,22 @@ download() {
     # silently depending on upstream availability.
     echo "::warning::Windows native-tool cache miss for $cache_key; downloading from upstream with pinned checksum verification."
   fi
-  local temp_cache="${cache_path}.part-$$"
-  curl -fSL --retry 3 --retry-delay 5 -o "$temp_cache" "$url"
-  verify_sha256 "$temp_cache" "$cache_key"
+  # Keep the partial archive at a stable path. A connection reset must resume
+  # the bytes already received instead of restarting a large SourceForge
+  # transfer from zero. The outer retry loop also covers curl versions that do
+  # not classify an interrupted transfer as retryable.
+  local temp_cache="${cache_path}.part"
+  if ! "$SCRIPT_DIR/release/run-with-retries.sh" 5 10 "Windows native archive download ($cache_key)" \
+    curl -fSL --show-error --retry 3 --retry-all-errors --retry-delay 5 \
+    --retry-max-time 1800 --connect-timeout 30 --max-time 3600 \
+    --continue-at - -o "$temp_cache" "$url"; then
+    echo "Error: Unable to download $cache_key after resumable retries"
+    return 1
+  fi
+  if ! verify_sha256 "$temp_cache" "$cache_key"; then
+    rm -f "$temp_cache"
+    return 1
+  fi
   mv "$temp_cache" "$cache_path"
   cp "$cache_path" "$dest"
 }

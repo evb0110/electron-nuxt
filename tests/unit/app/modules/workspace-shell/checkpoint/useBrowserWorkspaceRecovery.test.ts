@@ -26,6 +26,10 @@ const mocks = vi.hoisted(() => ({
         saved: true,
         generation: 4,
     })),
+    touchRecovery: vi.fn(async (_ownerId: string, generation: number) => ({
+        saved: true,
+        generation,
+    })),
 }));
 
 vi.mock('vue', async (importOriginal) => {
@@ -52,6 +56,7 @@ vi.mock('@app/platform/browser/browserWorkspaceRecoveryStore', () => ({
     clearBrowserWorkspaceRecovery: mocks.clearRecovery,
     loadBrowserWorkspaceRecovery: mocks.loadRecovery,
     saveBrowserWorkspaceRecovery: mocks.saveRecovery,
+    touchBrowserWorkspaceRecovery: mocks.touchRecovery,
 }));
 vi.mock('@app/platform/browserWindowTabs', () => ({getBrowserWindowRecoveryOwnerId: () => 'window:1'}));
 vi.mock('@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint', () => ({buildWorkspaceCheckpoint: mocks.buildCheckpoint}));
@@ -95,6 +100,10 @@ describe('useBrowserWorkspaceRecovery', () => {
         mocks.buildCheckpoint.mockReturnValue(makeCheckpoint());
         mocks.createStoredDocument.mockResolvedValue('browser://documents/new-recovery.pdf');
         mocks.saveRecovery.mockResolvedValue({
+            saved: true,
+            generation: 4,
+        });
+        mocks.touchRecovery.mockResolvedValue({
             saved: true,
             generation: 4,
         });
@@ -387,7 +396,12 @@ describe('useBrowserWorkspaceRecovery', () => {
         await vi.advanceTimersByTimeAsync(750);
         expect(createRecoverySnapshotBytes).toHaveBeenCalledTimes(1);
 
-        await vi.advanceTimersByTimeAsync(30_000);
+        await vi.advanceTimersByTimeAsync(9_999);
+        expect(mocks.touchRecovery).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(mocks.touchRecovery).toHaveBeenCalledWith('window:1', 4);
+
+        await vi.advanceTimersByTimeAsync(20_000);
 
         expect(createRecoverySnapshotBytes).toHaveBeenCalledTimes(1);
         expect(mocks.saveRecovery).toHaveBeenCalledTimes(1);

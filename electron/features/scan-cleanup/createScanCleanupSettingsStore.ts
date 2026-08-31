@@ -448,6 +448,15 @@ export function createScanCleanupSettingsStore(options: IScanCleanupSettingsStor
             if (request.settings !== undefined) {
                 state.settings = request.settings;
             }
+            if (request.settingsPatch !== undefined) {
+                state.settings = {
+                    ...state.settings,
+                    ...request.settingsPatch,
+                    ...(request.settingsPatch.marginsMm === undefined
+                        ? {}
+                        : {marginsMm: cloneScanCleanupPreferenceValue(request.settingsPatch.marginsMm)}),
+                };
+            }
             const document = request.document;
             if (document) {
                 const sourceSha256 = document.sourceSha256.toLowerCase();

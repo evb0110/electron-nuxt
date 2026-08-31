@@ -99,6 +99,21 @@ export function runGuardedTask(
 export function runDetached(
     task: () => Promise<unknown>,
     options: IGuardAsyncOptions,
-) {
-    runGuardedTask(task, options);
+): Promise<void> {
+    let pending: Promise<unknown>;
+    try {
+        pending = task();
+    } catch (error) {
+        runGuardAsyncErrorHandler(error, options);
+        logGuardAsyncError(error, options);
+        return Promise.resolve();
+    }
+
+    return pending.then(
+        () => undefined,
+        (error) => {
+            runGuardAsyncErrorHandler(error, options);
+            logGuardAsyncError(error, options);
+        },
+    );
 }

@@ -1,13 +1,19 @@
 <template>
     <div
         v-if="active"
+        ref="overlayRef"
         class="crop-overlay is-active"
+        role="dialog"
+        aria-modal="true"
+        :aria-label="hintLabel"
+        tabindex="0"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointercancel="cancelSelection"
         @contextmenu="handleContextMenu"
         @wheel="handleWheel"
+        @keydown="handleKeyboardKey"
     >
         <div
             v-if="selectionRect"
@@ -25,7 +31,9 @@ import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
+import { pdfCropSelectionKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfCropSelection';
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 const {
@@ -34,6 +42,8 @@ const {
     hintLabel,
 } = defineProps<IRegionSelectionOverlayBaseProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
+const overlayRef = ref<HTMLElement | null>(null);
+const keyboardController = inject(pdfCropSelectionKeyboardKey, null);
 
 const {
     handlePointerDown,
@@ -58,6 +68,13 @@ const selectionStyle = computed(() => regionRectStyle(selectionRect));
 function cancelSelection() {
     emit('cancel');
 }
+
+const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
+    isActive: () => active,
+    overlayRef,
+    keyboardController,
+    onCancel: cancelSelection,
+});
 </script>
 
 <style scoped>
@@ -73,6 +90,11 @@ function cancelSelection() {
 .crop-overlay.is-active {
     pointer-events: auto;
     cursor: crosshair;
+}
+
+.crop-overlay:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: -2px;
 }
 
 .crop-selection {

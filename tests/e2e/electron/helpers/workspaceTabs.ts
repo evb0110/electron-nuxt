@@ -6,7 +6,7 @@ import {waitForTabCount} from '@tests/e2e/electron/helpers/waitForTabCount';
 export async function createNewWorkspaceTab(session: IElectronE2ESession) {
     const nextCount = await session.page.$$eval('.tab-list .tab[data-tab-id]', tabs => tabs.length + 1);
     const clicked = await session.page.evaluate(() => {
-        const button = document.querySelector<HTMLButtonElement>('.tab-list .tab-new');
+        const button = document.querySelector<HTMLButtonElement>('.tab-bar .tab-new');
         button?.click();
         return Boolean(button);
     });

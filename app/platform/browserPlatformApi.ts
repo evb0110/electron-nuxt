@@ -30,6 +30,7 @@ const browserSystemSyncBindings = {getMemoryInfo: () => null} satisfies TFeature
 const browserSystemApi: IPlatformApi['system'] = {
     ...browserSystemSyncBindings,
     onShutdownSaveFlushRequest: () => () => {},
+    onWindowCloseRequest: () => () => {},
 };
 const browserShellApi: IPlatformApi['shell'] = { openExternal(url: string) {
     if (typeof window === 'undefined') {

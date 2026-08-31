@@ -69,10 +69,7 @@ vi.mock('@electron/utils/abort', () => ({abortErrorFromSignal: (signal: AbortSig
     : new Error('aborted')}));
 
 const revisionToken = requireDocumentRevisionToken('drt1:annotation-parse-host-test');
-const context = {
-    senderId: 7,
-    sender: {},
-};
+const context = {senderId: 7};
 
 function createSidecar() {
     return [
@@ -286,10 +283,7 @@ describe('PDF annotation parse main session', () => {
             {expectedDocumentRevisionToken: revisionToken},
         );
         await expect(readPdfAnnotationParseChunk(
-            {
-                senderId: 8,
-                sender: {},
-            },
+            {senderId: 8},
             session.sessionId,
             0,
         )).rejects.toThrow(/another sender/iu);

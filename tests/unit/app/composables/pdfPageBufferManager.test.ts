@@ -28,6 +28,27 @@ function createPageContainerRoot(pageNumbers: number[]) {
     });
 }
 
+function createStyledPageContainerRoot(pageNumbers: number[]) {
+    function createStyle() {
+        const customProperties = new Map<string, string>();
+        return {
+            setProperty: (name: string, value: string) => customProperties.set(name, value),
+            getPropertyValue: (name: string) => customProperties.get(name) ?? '',
+        };
+    }
+    const containers = pageNumbers.map(pageNumber => cast<HTMLElement>({
+        dataset: {page: String(pageNumber)},
+        style: createStyle(),
+    }));
+    const root = cast<HTMLElement>({querySelectorAll: (selector: string) => (
+        selector === '.page_container' ? containers : []
+    )});
+    return {
+        containers,
+        root,
+    };
+}
+
 describe('pdfPageBufferManager.getPageContainer', () => {
     it('finds mounted page containers by data-page', () => {
         const root = createPageContainerRoot([
@@ -52,27 +73,13 @@ describe('pdfPageBufferManager.getPageContainer', () => {
     });
 
     it('sizes mounted placeholders from each page metric instead of one shared size', () => {
-        function createStyle() {
-            const customProperties = new Map<string, string>();
-            return {
-                setProperty: (name: string, value: string) => customProperties.set(name, value),
-                getPropertyValue: (name: string) => customProperties.get(name) ?? '',
-            };
-        }
-        const containers = [
-            cast<HTMLElement>({
-                dataset: { page: '1' },
-                style: createStyle(),
-            }),
-            cast<HTMLElement>({
-                dataset: { page: '2' },
-                style: createStyle(),
-            }),
-        ];
-
-        const root = cast<HTMLElement>({ querySelectorAll: (selector: string) => (
-            selector === '.page_container' ? containers : []
-        ) });
+        const {
+            containers,
+            root,
+        } = createStyledPageContainerRoot([
+            1,
+            2,
+        ]);
 
         setupPagePlaceholderSizes(root, [
             {
@@ -95,5 +102,32 @@ describe('pdfPageBufferManager.getPageContainer', () => {
         expect(containers[0]?.style.getPropertyValue('--total-scale-factor')).toBe(
             'calc(var(--scale-factor, 1) * var(--user-unit, 1))',
         );
+    });
+
+    it('accepts a committed scale per page while navigation changes the global scale', () => {
+        const {
+            containers,
+            root,
+        } = createStyledPageContainerRoot([
+            1,
+            2,
+        ]);
+
+        setupPagePlaceholderSizes(root, [
+            {
+                width: 100,
+                height: 200,
+            },
+            {
+                width: 50,
+                height: 80,
+            },
+        ], 2, pageNumber => pageNumber === 1 ? 1.5 : 2);
+
+        expect(containers[0]?.style.width).toBe('150px');
+        expect(containers[0]?.style.height).toBe('300px');
+        expect(containers[0]?.style.getPropertyValue('--scale-factor')).toBe('1.5');
+        expect(containers[1]?.style.width).toBe('100px');
+        expect(containers[1]?.style.height).toBe('160px');
     });
 });

@@ -36,10 +36,10 @@ vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({
             complete: (...args: unknown[]) => mocks.complete(...args),
         };
     },
-    cancelMainOperationsForOwner: (ownerWebContentsId: number) => {
+    cancelMainOperationsForOwner: (ownerWebContentsId: number, reason: string) => {
         mocks.registrations.forEach((registration, index) => {
             if (registration.ownerWebContentsId === ownerWebContentsId) {
-                mocks.controllers[index]?.abort(new Error('renderer lifecycle ended'));
+                mocks.controllers[index]?.abort(new Error(reason));
             }
         });
     },
@@ -155,5 +155,57 @@ describe('workingCopyMutationQueue telemetry', () => {
         await expect(second).rejects.toThrow('renderer lifecycle ended');
         expect(secondStage).not.toHaveBeenCalled();
         expect(mocks.complete).toHaveBeenCalledTimes(2);
+    });
+
+    it('waits for mutation-start preparation before invoking the operation', async () => {
+        const {
+            enqueueWorkingCopyMutation,
+            onWorkingCopyMutationStarting,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const preparation = deferred<undefined>();
+        const operation = vi.fn(async () => undefined);
+        const unsubscribe = onWorkingCopyMutationStarting(() => preparation.promise);
+
+        try {
+            const mutation = enqueueWorkingCopyMutation('/tmp/Book.pdf', operation);
+            await Promise.resolve();
+
+            expect(operation).not.toHaveBeenCalled();
+            preparation.resolve(undefined);
+
+            await expect(mutation).resolves.toBeUndefined();
+            expect(operation).toHaveBeenCalledOnce();
+        } finally {
+            unsubscribe();
+        }
+    });
+
+    it('rechecks cancellation after mutation-start preparation', async () => {
+        const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const {
+            enqueueWorkingCopyMutation,
+            onWorkingCopyMutationStarting,
+        } = await import('@electron/file-access/workingCopyMutationQueue');
+        const preparation = deferred<undefined>();
+        const operation = vi.fn(async () => undefined);
+        let preparationSignal: AbortSignal | undefined;
+        const unsubscribe = onWorkingCopyMutationStarting((_path, signal) => {
+            preparationSignal = signal;
+            return preparation.promise;
+        });
+
+        try {
+            const mutation = enqueueWorkingCopyMutation('/tmp/Book.pdf', operation, {ownerWebContentsId: 42});
+            await Promise.resolve();
+
+            cancelMainOperationsForOwner(42, 'renderer lifecycle ended');
+            expect(preparationSignal?.aborted).toBe(true);
+            preparation.resolve(undefined);
+
+            await expect(mutation).rejects.toThrow('renderer lifecycle ended');
+            expect(operation).not.toHaveBeenCalled();
+        } finally {
+            unsubscribe();
+        }
     });
 });

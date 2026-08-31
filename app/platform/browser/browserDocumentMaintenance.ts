@@ -25,9 +25,10 @@ import {
     parseChunkKey,
 } from '@app/platform/browser/browserDocumentChunks';
 import {
-    hasRecentFilesStorageSnapshot,
     pruneRecentFiles,
     readRecentFilesFromStorage,
+    tryHasRecentFilesStorageSnapshot,
+    tryReadRecentFilesFromStorage,
     writeRecentFilesToStorage,
 } from '@app/platform/browser/browserRecentFilesStore';
 import type {
@@ -37,6 +38,35 @@ import type {
 import type { IBrowserPersistedDocumentRecordsLoadResult } from '@app/platform/browser/browserPersistedDocumentRecordsLoadResult';
 import { yieldToBrowser } from '@app/utils/yieldToBrowser';
 import { loadBrowserWorkspaceRecoveryLeasedRefs } from '@app/platform/browser/browserWorkspaceRecoveryStore';
+
+const BROWSER_STAGED_CHUNK_GRACE_MS = 10 * 60 * 1_000;
+
+function isRecentlyCreatedChunkGeneration(generation: string | undefined) {
+    if (!generation) {
+        return false;
+    }
+    const timestampPrefix = generation.split('-', 1)[0];
+    if (!timestampPrefix) {
+        return false;
+    }
+    const createdAt = Number.parseInt(timestampPrefix, 36);
+    if (!Number.isFinite(createdAt)) {
+        return false;
+    }
+    const age = Date.now() - createdAt;
+    return age >= 0 && age <= BROWSER_STAGED_CHUNK_GRACE_MS;
+}
+
+function hasActivePendingChunkGeneration(record: IBrowserPersistedDocumentRecord) {
+    if (!record.pendingChunkGeneration) {
+        return false;
+    }
+    if (typeof record.pendingChunkUpdatedAt === 'number') {
+        const age = Date.now() - record.pendingChunkUpdatedAt;
+        return age >= 0 && age <= BROWSER_STAGED_CHUNK_GRACE_MS;
+    }
+    return isRecentlyCreatedChunkGeneration(record.pendingChunkGeneration);
+}
 
 export async function loadBrowserPersistedDocumentRecordsResult(): Promise<IBrowserPersistedDocumentRecordsLoadResult> {
     const rawKeysResult = await loadAllRecordKeysAvailability();
@@ -129,6 +159,16 @@ export async function sweepBrowserDocumentMaintenance(
         record.ref,
         record,
     ]));
+    const pendingChunkGenerationsByRef = new Map(
+        records
+            .filter(hasActivePendingChunkGeneration)
+            .flatMap(record => record.pendingChunkGeneration
+                ? [[
+                    record.ref,
+                    record.pendingChunkGeneration,
+                ] as const]
+                : []),
+    );
     const rawChunkKeysResult = await loadAllChunkKeysAvailability();
     if (!rawChunkKeysResult.available) {
         return;
@@ -140,8 +180,10 @@ export async function sweepBrowserDocumentMaintenance(
             return parsedKey ? [parsedKey] : [];
         })
         : [];
-    const currentRecentFiles = hasRecentFilesStorageSnapshot()
-        ? readRecentFilesFromStorage()
+    const storedRecentFiles = tryReadRecentFilesFromStorage();
+    const currentRecentFiles = tryHasRecentFilesStorageSnapshot()
+        && storedRecentFiles
+        ? storedRecentFiles
         : buildRecentFilesFromPersistedRecords(records);
     const {
         recentFiles,
@@ -169,11 +211,13 @@ export async function sweepBrowserDocumentMaintenance(
         ))
         .filter(record => !recoveryLeasedRefs.has(record.ref))
         .filter((record) => !pendingRefs.has(record.ref))
+        .filter(record => !hasActivePendingChunkGeneration(record))
         .map(record => record.ref);
     const chunkIndicesByRef = collectChunkIndicesByRef(chunkKeys);
     const brokenChunkRefs = records
         .filter((record) => isBrokenChunkedRecord(record, chunkIndicesByRef))
         .filter((record) => !pendingRefs.has(record.ref))
+        .filter(record => !hasActivePendingChunkGeneration(record))
         .map((record) => record.ref);
     const refsToRemoveSet = new Set([
         ...refsToRemove,
@@ -195,8 +239,16 @@ export async function sweepBrowserDocumentMaintenance(
         'readwrite',
         (transaction, setResult) => {
             const recoveryStore = transaction.objectStore(WORKSPACE_RECOVERY_STORE);
+            const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
+            const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
             const recoveriesRead = recoveryStore.getAll();
-            recoveriesRead.onsuccess = () => {
+            const documentsRead = documentsStore.getAll();
+            let recoveryReadComplete = false;
+            let documentsReadComplete = false;
+            const process = () => {
+                if (!recoveryReadComplete || !documentsReadComplete) {
+                    return;
+                }
                 const leasedRefs = new Set<string>();
                 if (Array.isArray(recoveriesRead.result)) {
                     for (const record of recoveriesRead.result) {
@@ -214,21 +266,67 @@ export async function sweepBrowserDocumentMaintenance(
                         }
                     }
                 }
-                const finalRefs = new Set(Array.from(refsToRemoveSet).filter(
-                    ref => !leasedRefs.has(ref),
-                ));
-                const documentsStore = transaction.objectStore(DOCUMENTS_STORE);
-                const chunksStore = transaction.objectStore(DOCUMENT_CHUNKS_STORE);
+                const transactionRecords = Array.isArray(documentsRead.result)
+                    ? documentsRead.result.flatMap((value: unknown) => {
+                        const record = toPersistedDocumentRecord(value);
+                        return record ? [record] : [];
+                    })
+                    : records;
+                const transactionRecordsByRef = new Map(transactionRecords.map(record => [
+                    record.ref,
+                    record,
+                ]));
+                const transactionPendingChunkGenerationsByRef = new Map(
+                    transactionRecords
+                        .filter(hasActivePendingChunkGeneration)
+                        .flatMap(record => record.pendingChunkGeneration
+                            ? [[
+                                record.ref,
+                                record.pendingChunkGeneration,
+                            ] as const]
+                            : []),
+                );
+                const transactionNonWorkingDependentCounts = countNonWorkingDependents(transactionRecords);
+                const transactionBrokenChunkRefs = new Set(
+                    transactionRecords
+                        .filter(record => (
+                            brokenChunkRefs.includes(record.ref)
+                            && isBrokenChunkedRecord(record, chunkIndicesByRef)
+                        ))
+                        .map(record => record.ref),
+                );
+                const brokenChunkRefsSet = new Set(brokenChunkRefs);
+                const finalRefs = new Set(Array.from(refsToRemoveSet).filter(ref => {
+                    if (leasedRefs.has(ref) || transactionPendingChunkGenerationsByRef.has(ref)) {
+                        return false;
+                    }
+                    const transactionRecord = transactionRecordsByRef.get(ref);
+                    if (!transactionRecord) {
+                        return false;
+                    }
+                    if (brokenChunkRefsSet.has(ref)) {
+                        return transactionBrokenChunkRefs.has(ref);
+                    }
+                    return shouldRemovePersistedRecord(
+                        transactionRecord,
+                        recentRefs,
+                        transactionNonWorkingDependentCounts,
+                    );
+                }));
                 finalRefs.forEach(ref => documentsStore.delete(ref));
                 for (const chunkKey of chunkKeys) {
                     if (pendingRefs.has(chunkKey.ref)) continue;
-                    const record = recordsByRef.get(chunkKey.ref);
+                    const pendingGeneration = transactionPendingChunkGenerationsByRef.get(chunkKey.ref)
+                        ?? pendingChunkGenerationsByRef.get(chunkKey.ref);
+                    if (pendingGeneration === chunkKey.generation) continue;
+                    const record = transactionRecordsByRef.get(chunkKey.ref)
+                        ?? recordsByRef.get(chunkKey.ref);
                     const shouldDelete = !record
                         || finalRefs.has(chunkKey.ref)
                         || record.storageMode !== 'chunked'
                         || chunkKey.generation !== (record.chunkGeneration ?? undefined)
                         || chunkKey.index >= (record.chunkCount ?? 0);
-                    if (shouldDelete) {
+                    if (shouldDelete && !isRecentlyCreatedChunkGeneration(chunkKey.generation)) {
                         chunksStore.delete(createChunkKey(
                             chunkKey.ref,
                             chunkKey.index,
@@ -238,6 +336,14 @@ export async function sweepBrowserDocumentMaintenance(
                 }
                 setResult(finalRefs);
             };
+            recoveriesRead.onsuccess = () => {
+                recoveryReadComplete = true;
+                process();
+            };
+            documentsRead.onsuccess = () => {
+                documentsReadComplete = true;
+                process();
+            };
         },
     );
     if (!deletedRefs) {
@@ -245,10 +351,13 @@ export async function sweepBrowserDocumentMaintenance(
     }
     deletedRefs.forEach(ref => entries.delete(ref));
     if (deletedRefs.size > 0) {
-        const remainingRecentFiles = readRecentFilesFromStorage().filter(
-            (candidate) => !deletedRefs.has(candidate.originalPath),
-        );
-        writeRecentFilesToStorage(remainingRecentFiles);
+        const storedRecentFilesAfterDelete = tryReadRecentFilesFromStorage();
+        if (storedRecentFilesAfterDelete) {
+            const remainingRecentFiles = storedRecentFilesAfterDelete.filter(
+                (candidate) => !deletedRefs.has(candidate.originalPath),
+            );
+            writeRecentFilesToStorage(remainingRecentFiles);
+        }
     }
 }
 

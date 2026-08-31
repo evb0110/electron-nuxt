@@ -245,6 +245,21 @@ describe('atomicReplace', () => {
         expect(mocks.sync).not.toHaveBeenCalled();
     });
 
+    it('surfaces a Windows deny-delete destination error before promoting the temp file', async () => {
+        setPlatform('win32');
+        const denyDelete = Object.assign(new Error('sharing violation'), {code: 'EACCES'});
+        mocks.rename.mockRejectedValueOnce(denyDelete);
+        const { atomicReplace } = await import('@electron/utils/atomicReplace');
+
+        await expect(atomicReplace('C:\\out\\tmp.pdf', 'C:\\out\\extract.pdf'))
+            .rejects.toBe(denyDelete);
+        expect(mocks.rename).toHaveBeenCalledOnce();
+        expect(mocks.rename).toHaveBeenCalledWith(
+            'C:\\out\\extract.pdf',
+            expect.stringContaining('C:\\out\\extract.pdf.bak-'),
+        );
+    });
+
     it('keeps the destination readable when Windows cannot remove the moved-aside file', async () => {
         setPlatform('win32');
         mocks.unlink.mockRejectedValueOnce(Object.assign(new Error('in use'), { code: 'EBUSY' }));

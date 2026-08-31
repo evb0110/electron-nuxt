@@ -11,6 +11,7 @@ import {
 import {tmpdir} from 'node:os';
 import path, {resolve} from 'node:path';
 import {pathToFileURL} from 'node:url';
+import {execFileSync} from 'node:child_process';
 import {
     describe,
     expect,
@@ -24,7 +25,9 @@ interface IPreparedPrivateDeploySource {
 }
 
 interface IPrivateDeployModule {
+    buildVercelRollbackArgs: (deploymentUrl: string) => string[];
     buildPrivateDeployArgs: (sourceRoot: string, rawArgs?: string[]) => string[];
+    extractVercelDeploymentUrl: (output: string) => string | null;
     parsePrivateDeployOptions: (rawArgs?: string[]) => {
         deployArgs: string[];
         deployTarget: string;
@@ -35,14 +38,18 @@ interface IPrivateDeployModule {
         projectRoot?: string;
     }) => IPreparedPrivateDeploySource;
     quoteWindowsShellArg: (arg: string) => string;
+    runPrivateVercelDeploy: (options?: Record<string, unknown>) => Promise<number>;
 }
 
 const {
+    buildVercelRollbackArgs,
     buildPrivateDeployArgs,
+    extractVercelDeploymentUrl,
     parsePrivateDeployOptions,
     promoteLandingVercelOutput,
     preparePrivateDeploySource,
     quoteWindowsShellArg,
+    runPrivateVercelDeploy,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
@@ -50,7 +57,6 @@ const {
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
 
-    mkdirSync(path.join(projectRoot, '.git'), {recursive: true});
     mkdirSync(path.join(projectRoot, '.vercel'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'app'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'landing', '.vercel'), {recursive: true});
@@ -58,7 +64,7 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'native'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'packages', 'contracts'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'scripts', 'lib'), {recursive: true});
-    writeFileSync(path.join(projectRoot, '.git', 'config'), '[core]\n');
+    writeFileSync(path.join(projectRoot, '.gitignore'), '.vercel/\n.env.local\n.devkit/\nMEMORIES.md\n');
     writeFileSync(path.join(projectRoot, '.env.local'), 'SECRET=value\n');
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
     writeFileSync(path.join(projectRoot, '.vercel', 'project.json'), '{"projectId":"project"}\n');
@@ -101,7 +107,49 @@ function createProjectFixture() {
     );
     writeFileSync(path.join(projectRoot, '.vercelignore'), 'native/\napp/keep.txt\n# comment\n');
 
+    execFileSync('git', [
+        'init',
+        '--quiet',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        'config',
+        'user.email',
+        'deploy-test@example.test',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        'config',
+        'user.name',
+        'Deploy Test',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        'add',
+        '--all',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        '-c',
+        'commit.gpgSign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'fixture',
+    ], {cwd: projectRoot});
+
     return projectRoot;
+}
+
+function commitFixtureChanges(projectRoot: string) {
+    execFileSync('git', [
+        'add',
+        '--all',
+    ], {cwd: projectRoot});
+    execFileSync('git', [
+        '-c',
+        'commit.gpgSign=false',
+        'commit',
+        '--quiet',
+        '-m',
+        'fixture update',
+    ], {cwd: projectRoot});
 }
 
 describe('private Vercel deployment source', () => {
@@ -158,7 +206,9 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -179,6 +229,7 @@ describe('private Vercel deployment source', () => {
             writeFileSync(path.join(projectRoot, 'app', 'MEMORIES.md'), '# local scratch\n');
             writeFileSync(path.join(projectRoot, 'AGENTS.mdx'), '# ordinary document\n');
             writeFileSync(path.join(projectRoot, 'app', 'memories-overview.md'), '# ordinary document\n');
+            commitFixtureChanges(projectRoot);
 
             prepared = preparePrivateDeploySource({projectRoot});
 
@@ -201,7 +252,27 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('refuses to deploy an uncommitted tracked-source snapshot', () => {
+        const projectRoot = createProjectFixture();
+
+        try {
+            writeFileSync(path.join(projectRoot, 'app', 'unreviewed.ts'), 'export const unsafe = true;\n');
+            expect(() => preparePrivateDeploySource({projectRoot})).toThrow(
+                'Web deploy source must be a clean tracked Git snapshot',
+            );
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -227,6 +298,68 @@ describe('private Vercel deployment source', () => {
             '--yes',
             '--archive=zip',
         ]);
+    });
+
+    it('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
+        const projectRoot = createProjectFixture();
+        const calls: Array<{
+            args: string[];
+            command: string
+        }> = [];
+
+        try {
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: async () => ({
+                    ok: false,
+                    status: 503,
+                }),
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    calls.push({
+                        args,
+                        command,
+                    });
+                    return calls.length === 1
+                        ? {
+                            stderr: '',
+                            stdout: 'Production: https://evb-viewer-test.vercel.app\n',
+                            status: 0,
+                        }
+                        : {status: 0};
+                },
+            })).rejects.toThrow('The failed deployment was rolled back.');
+
+            expect(calls.map(call => call.args)).toEqual([
+                expect.arrayContaining(['deploy']),
+                [
+                    'rollback',
+                    'https://evb-viewer-test.vercel.app',
+                    '--yes',
+                ],
+            ]);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('extracts deployment URLs and builds an explicit rollback command', () => {
+        expect(extractVercelDeploymentUrl('ready at https://viewer-abc.vercel.app')).toBe(
+            'https://viewer-abc.vercel.app',
+        );
+        expect(buildVercelRollbackArgs('https://viewer-abc.vercel.app')).toEqual([
+            'rollback',
+            'https://viewer-abc.vercel.app',
+            '--yes',
+        ]);
+        expect(() => buildVercelRollbackArgs('')).toThrow('deployment URL is required');
     });
 
     it('preserves the landing workspace and uses its separate project linkage', () => {
@@ -263,7 +396,9 @@ describe('private Vercel deployment source', () => {
             prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });
@@ -304,7 +439,9 @@ describe('private Vercel deployment source', () => {
         } finally {
             rmSync(projectRoot, {
                 force: true,
+                maxRetries: 5,
                 recursive: true,
+                retryDelay: 20,
             });
         }
     });

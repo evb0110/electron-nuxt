@@ -2,6 +2,7 @@
 set -euo pipefail
 
 source "$(dirname "$0")/release/platform-arch.sh"
+source "$(dirname "$0")/release/packaged-native-root-set.sh"
 
 if [ "$#" -lt 2 ] || [ "$#" -gt 3 ]; then
   echo "Usage: $0 <platform: mac|win|linux> <arch: x64|arm64> [release-dir]"
@@ -71,8 +72,8 @@ echo "Verifying packaged native tools in: $native_tool_root"
 # staging generator, and the afterPack hook never drift on their target lists.
 packaged_family_roots=()
 while IFS=$'\037' read -r entry_scope staged_root _relative_path _entry_type _entry_label _entry_id; do
-  if [ "$entry_scope" = "native" ] && [[ " ${packaged_family_roots[*]} " != *" $staged_root "* ]]; then
-    packaged_family_roots+=("$staged_root")
+  if [ "$entry_scope" = "native" ]; then
+    append_packaged_family_root "$staged_root"
   fi
 done < "$release_entries_file"
 
@@ -532,6 +533,7 @@ if [ "$platform" = "mac" ]; then
   run_macos_packaged_tool_smoke "pdfinfo" "$(packaged_entry_path pdfinfo)" -v
   run_macos_packaged_tool_smoke "pdftoppm" "$(packaged_entry_path pdftoppm)" -v
   run_macos_packaged_tool_smoke "pdftotext" "$(packaged_entry_path pdftotext)" -v
+  run_macos_packaged_tool_smoke "pdf-print-dialog" "$(packaged_entry_path pdf-print-dialog)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine" "$(packaged_entry_path evb-pdf-image-combine)" --version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-protocol" "$(packaged_entry_path evb-pdf-image-combine)" --protocol-version
   run_macos_packaged_tool_smoke "evb-pdf-image-combine-compact-manifest" "$(packaged_entry_path evb-pdf-image-combine)" --compact-manifest

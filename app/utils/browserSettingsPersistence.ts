@@ -1,7 +1,9 @@
 import { omit } from 'es-toolkit/object';
 import {
+    assertSupportedSettingsSchema,
     DEFAULT_SETTINGS,
     sanitizeSettings,
+    UnsupportedSettingsSchemaError,
 } from '@contracts/settings';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
@@ -60,19 +62,33 @@ function hasExpectedSettingsShape(
         || typeof value.defaultZoomPreset !== 'string'
         || typeof value.defaultViewMode !== 'string'
         || typeof value.defaultContinuousScroll !== 'boolean'
-        || typeof value.defaultAnnotationColor !== 'string'
-        || typeof value.uiScale !== 'string'
-        || typeof value.tabMemoryPolicy !== 'string'
-        || typeof value.performanceMode !== 'string'
-        || typeof value.optimizePdfOnSaveAs !== 'boolean'
-        || typeof value.assistantPanelEnabled !== 'boolean') {
+        || typeof value.defaultAnnotationColor !== 'string') {
+        return false;
+    }
+
+    const optionalBooleanFields = [
+        'optimizePdfOnSaveAs',
+        'assistantPanelEnabled',
+        'agentMcpEnabled',
+        'suppressDefaultViewerPrompt',
+    ];
+    if (optionalBooleanFields.some(key => Object.hasOwn(value, key) && typeof value[key] !== 'boolean')) {
+        return false;
+    }
+    const optionalStringFields = [
+        'uiScale',
+        'tabMemoryPolicy',
+        'performanceMode',
+        'skippedUpdateVersion',
+    ];
+    if (optionalStringFields.some(key => Object.hasOwn(value, key) && typeof value[key] !== 'string')) {
         return false;
     }
 
     return !requireBrowserOnlyFields || (
         isAppLocale(value.locale)
         && isAppTheme(value.theme)
-        && typeof value.agentMcpEnabled === 'boolean'
+        && (!Object.hasOwn(value, 'agentMcpEnabled') || typeof value.agentMcpEnabled === 'boolean')
     );
 }
 
@@ -82,6 +98,22 @@ export function isValidLegacyBrowserSettingsPayload(raw: unknown) {
 
 export function isValidBrowserSettingsStoragePayload(raw: unknown) {
     return hasExpectedSettingsShape(parseRawBrowserSettingsPayload(raw), true);
+}
+
+export function assertSupportedBrowserSettingsPayload(raw: unknown) {
+    assertSupportedSettingsSchema(parseRawBrowserSettingsPayload(raw));
+}
+
+export function isFutureBrowserSettingsPayload(raw: unknown) {
+    try {
+        assertSupportedBrowserSettingsPayload(raw);
+        return false;
+    } catch (error) {
+        if (error instanceof UnsupportedSettingsSchemaError) {
+            return true;
+        }
+        return false;
+    }
 }
 
 function isAppLocale(value: unknown): value is TAppLocale {
@@ -105,11 +137,22 @@ function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> |
     ]);
 }
 
+function parseStoredBrowserSettingsSnapshot(raw: string | null) {
+    if (raw === null || !isValidBrowserSettingsStoragePayload(raw)) {
+        return null;
+    }
+
+    const parsed = parseRawBrowserSettingsPayload(raw);
+    return parsed ? sanitizeSettings(parsed) : null;
+}
+
 export function parseBrowserSettingsPayload(
     raw: unknown,
     fallback: Partial<ISettingsData> | null = null,
 ) {
-    const parsed = omitCookieBackedSettingsFields(parseRawBrowserSettingsPayload(raw));
+    const rawSettings = parseRawBrowserSettingsPayload(raw);
+    assertSupportedSettingsSchema(rawSettings);
+    const parsed = omitCookieBackedSettingsFields(rawSettings);
     const normalizedFallback = fallback ? { ...fallback } : null;
     if (normalizedFallback && !isAppLocale(normalizedFallback.locale)) {
         delete normalizedFallback.locale;
@@ -160,44 +203,97 @@ export function expireLegacyBrowserSettingsCookie() {
     document.cookie = `${BROWSER_SETTINGS_COOKIE_KEY}=; Path=/; Max-Age=0; SameSite=Lax${secureAttribute}`;
 }
 
-function readRawSettingsCookie(): string | null {
+function readBrowserSettingsCookies() {
     if (typeof document === 'undefined') {
         return null;
     }
 
-    const cookies = document.cookie.split(';');
-    for (const cookie of cookies) {
+    let rawSettings: string | null = null;
+    let locale: TAppLocale | undefined;
+    let theme: TAppTheme | undefined;
+    for (const cookie of document.cookie.split(';')) {
         const separatorIndex = cookie.indexOf('=');
         if (separatorIndex === -1) {
             continue;
         }
 
         const name = cookie.slice(0, separatorIndex).trim();
+        const value = safeDecodeURIComponent(cookie.slice(separatorIndex + 1).trim());
         if (name === BROWSER_SETTINGS_COOKIE_KEY) {
-            return safeDecodeURIComponent(cookie.slice(separatorIndex + 1).trim());
+            rawSettings = value;
+        } else if (name === BROWSER_LOCALE_COOKIE_KEY && isAppLocale(value)) {
+            locale = value;
+        } else if (name === BROWSER_THEME_COOKIE_KEY && isAppTheme(value)) {
+            theme = value;
         }
     }
 
-    return null;
+    if (rawSettings === null && locale === undefined && theme === undefined) {
+        return null;
+    }
+
+    return {
+        rawSettings,
+        fallbackSettings: {
+            ...(locale === undefined ? {} : {locale}),
+            ...(theme === undefined ? {} : {theme}),
+        } satisfies Partial<ISettingsData>,
+    };
 }
 
 export function readBrowserPerformanceModeSnapshot(): TPerformanceMode {
-    const legacyCookie = readRawSettingsCookie();
+    const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    if (storageSnapshot !== null && isFutureBrowserSettingsPayload(storageSnapshot)) {
+        assertSupportedBrowserSettingsPayload(storageSnapshot);
+    }
+    const existingStorageSettings = parseStoredBrowserSettingsSnapshot(storageSnapshot);
+    const cookieSnapshot = readBrowserSettingsCookies();
+    const legacyCookie = cookieSnapshot?.rawSettings ?? null;
     if (legacyCookie !== null) {
         const isValidLegacyCookie = isValidLegacyBrowserSettingsPayload(legacyCookie);
         if (isValidLegacyCookie) {
-            const migratedSettings = parseBrowserSettingsPayload(legacyCookie);
-            safeSetLocalStorageItem(
+            const cookieSettings = parseBrowserSettingsPayload(
+                legacyCookie,
+                cookieSnapshot?.fallbackSettings,
+            );
+            const migratedSettings = existingStorageSettings
+                ? sanitizeSettings({
+                    ...cookieSettings,
+                    ...existingStorageSettings,
+                    ...cookieSnapshot?.fallbackSettings,
+                })
+                : cookieSettings;
+            const committed = safeSetLocalStorageItem(
                 BROWSER_SETTINGS_STORAGE_KEY,
                 JSON.stringify(migratedSettings),
             );
-            expireLegacyBrowserSettingsCookie();
+            if (committed) {
+                expireLegacyBrowserSettingsCookie();
+            }
             return migratedSettings.performanceMode;
         }
-        expireLegacyBrowserSettingsCookie();
+        if (!isFutureBrowserSettingsPayload(legacyCookie)) {
+            expireLegacyBrowserSettingsCookie();
+        }
+    } else if (cookieSnapshot) {
+        // Locale and theme cookies are only a partial migration. Start with
+        // the committed settings snapshot so an early performance-mode read
+        // cannot erase settings saved by the main settings capability.
+        const migratedSettings = sanitizeSettings({
+            ...existingStorageSettings,
+            ...cookieSnapshot.fallbackSettings,
+        });
+        const committed = safeSetLocalStorageItem(
+            BROWSER_SETTINGS_STORAGE_KEY,
+            JSON.stringify(migratedSettings),
+        );
+        if (committed) {
+            expireLegacyBrowserSettingsCookie();
+        }
+        return migratedSettings.performanceMode;
     }
 
-    const storageSnapshot = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    assertSupportedBrowserSettingsPayload(storageSnapshot);
     if (isValidBrowserSettingsStoragePayload(storageSnapshot)) {
         return parseBrowserSettingsPayload(storageSnapshot).performanceMode;
     }

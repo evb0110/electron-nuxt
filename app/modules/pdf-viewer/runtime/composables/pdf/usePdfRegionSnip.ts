@@ -1,4 +1,7 @@
-import type { Ref } from 'vue';
+import type {
+    InjectionKey,
+    Ref,
+} from 'vue';
 import {
     useEventListener,
     useTimeoutFn,
@@ -13,10 +16,16 @@ import type {
 } from '@app/utils/document-viewer/region-geometry/regionGeometryTypes';
 import { getRectHeight } from '@app/utils/document-viewer/region-geometry/getRectHeight';
 import { getRectWidth } from '@app/utils/document-viewer/region-geometry/getRectWidth';
+import { toClientRect } from '@app/utils/document-viewer/region-geometry/toClientRect';
 import { toLocalRect } from '@app/utils/document-viewer/region-geometry/toLocalRect';
 import type { ISnipPointerPayload } from '@app/modules/pdf-viewer/engine/pdf-region-drag/snipPointerPayload';
 import { createSelectionPointerDragHandlers } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionPointerDragHandlers';
 import { createSelectionRectFromPointerDrag } from '@app/modules/pdf-viewer/engine/pdf-region-drag/createSelectionRectFromPointerDrag';
+import {
+    clampKeyboardSelection,
+    createKeyboardSelection as createKeyboardSelectionInBounds,
+    updateKeyboardSelection as updateKeyboardSelectionInBounds,
+} from '@app/utils/document-viewer/region-geometry/keyboardSelection';
 import { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';
 import { writePngBlobToClipboard } from '@app/modules/pdf-viewer/engine/pdf-region-clipboard/writePngBlobToClipboard';
 
@@ -28,6 +37,14 @@ interface IBadgePosition {
     x: number;
     y: number;
 }
+
+export interface IPdfRegionSnipKeyboardController {handleKeyboardKey: (event: KeyboardEvent) => boolean;}
+
+export const pdfRegionSnipKeyboardKey: InjectionKey<IPdfRegionSnipKeyboardController> = Symbol(
+    'pdf-region-snip-keyboard',
+);
+
+const MIN_KEYBOARD_SELECTION_SIZE = 8;
 
 export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     const state = ref<TSnipState>('idle');
@@ -41,6 +58,8 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
     let pendingResolver: ((result: boolean) => void) | null = null;
     let captureSessionEpoch = 0;
     const isEscapeCancelActive = ref(false);
+    let keyboardSelection: IClientRect | null = null;
+    let keyboardOverlayRect: IOverlayRect | null = null;
     const escapeKeyTarget = computed(() => (
         isEscapeCancelActive.value && typeof window !== 'undefined'
             ? window
@@ -66,6 +85,8 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         captureSessionEpoch += 1;
         detachEscapeListener();
         dragStartPoint = null;
+        keyboardSelection = null;
+        keyboardOverlayRect = null;
         state.value = options.nextState ?? 'idle';
 
         const resolver = pendingResolver;
@@ -122,6 +143,85 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         return selection.clientRect;
     }
 
+    function getOverlayRect(): IOverlayRect | null {
+        const container = options.viewerContainer.value;
+        if (!container) {
+            return null;
+        }
+        const rect = toClientRect(container.getBoundingClientRect());
+        return {
+            left: rect.left,
+            top: rect.top,
+            width: getRectWidth(rect),
+            height: getRectHeight(rect),
+        };
+    }
+
+    function toOverlayClientRect(overlayRect: IOverlayRect): IClientRect {
+        return {
+            left: overlayRect.left,
+            top: overlayRect.top,
+            right: overlayRect.left + overlayRect.width,
+            bottom: overlayRect.top + overlayRect.height,
+        };
+    }
+
+    function createKeyboardSelection(overlayRect: IOverlayRect) {
+        const selection = createKeyboardSelectionInBounds(
+            toOverlayClientRect(overlayRect),
+            MIN_KEYBOARD_SELECTION_SIZE,
+        );
+        keyboardSelection = selection;
+        keyboardOverlayRect = overlayRect;
+        selectionRect.value = toLocalRect(selection, overlayRect);
+        return selection;
+    }
+
+    function rebaseKeyboardSelection(overlayRect: IOverlayRect) {
+        if (keyboardSelection && keyboardOverlayRect) {
+            const previousOverlayRect = toOverlayClientRect(keyboardOverlayRect);
+            const nextOverlayRect = toOverlayClientRect(overlayRect);
+            const previousWidth = getRectWidth(previousOverlayRect);
+            const previousHeight = getRectHeight(previousOverlayRect);
+            const nextWidth = getRectWidth(nextOverlayRect);
+            const nextHeight = getRectHeight(nextOverlayRect);
+            const rebased = previousWidth > 0 && previousHeight > 0 && nextWidth > 0 && nextHeight > 0
+                ? {
+                    left: nextOverlayRect.left + (keyboardSelection.left - previousOverlayRect.left) * nextWidth / previousWidth,
+                    right: nextOverlayRect.left + (keyboardSelection.right - previousOverlayRect.left) * nextWidth / previousWidth,
+                    top: nextOverlayRect.top + (keyboardSelection.top - previousOverlayRect.top) * nextHeight / previousHeight,
+                    bottom: nextOverlayRect.top + (keyboardSelection.bottom - previousOverlayRect.top) * nextHeight / previousHeight,
+                }
+                : {
+                    left: keyboardSelection.left + nextOverlayRect.left - previousOverlayRect.left,
+                    right: keyboardSelection.right + nextOverlayRect.left - previousOverlayRect.left,
+                    top: keyboardSelection.top + nextOverlayRect.top - previousOverlayRect.top,
+                    bottom: keyboardSelection.bottom + nextOverlayRect.top - previousOverlayRect.top,
+                };
+            keyboardSelection = clampKeyboardSelection(rebased, nextOverlayRect);
+        }
+        keyboardOverlayRect = overlayRect;
+    }
+
+    function updateKeyboardSelection(event: KeyboardEvent) {
+        const overlayRect = getOverlayRect();
+        if (!overlayRect) {
+            return null;
+        }
+        rebaseKeyboardSelection(overlayRect);
+        let selection = keyboardSelection ?? createKeyboardSelection(overlayRect);
+        selection = updateKeyboardSelectionInBounds(
+            selection,
+            toOverlayClientRect(overlayRect),
+            event,
+            MIN_KEYBOARD_SELECTION_SIZE,
+        );
+        keyboardSelection = selection;
+        keyboardOverlayRect = overlayRect;
+        selectionRect.value = toLocalRect(selection, overlayRect);
+        return selection;
+    }
+
     function setSuccessVisuals(outputRect: IClientRect, overlayRect: IOverlayRect) {
         const localRect = toLocalRect(outputRect, overlayRect);
         const badgeHeight = 28;
@@ -134,16 +234,15 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         };
     }
 
-    async function completeSelection(payload: ISnipPointerPayload) {
+    async function completeSelectionRect(selection: IClientRect, overlayRect: IOverlayRect) {
         const sessionEpoch = captureSessionEpoch;
         const isCurrentSession = () => captureSessionEpoch === sessionEpoch;
         const viewerContainer = options.viewerContainer.value;
-        if (!dragStartPoint || !viewerContainer) {
+        if (!viewerContainer) {
             cancelCapture();
             return;
         }
 
-        const selection = updateSelectionFromPointer(payload, dragStartPoint);
         const selectionWidth = getRectWidth(selection);
         const selectionHeight = getRectHeight(selection);
         if (selectionWidth < 2 || selectionHeight < 2) {
@@ -169,7 +268,7 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
 
             selectionRect.value = null;
             state.value = 'success';
-            setSuccessVisuals(capture.outputRect, payload.overlayRect);
+            setSuccessVisuals(capture.outputRect, overlayRect);
 
             clearSuccessTimer();
             startSuccessTimer();
@@ -181,6 +280,49 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
             resetOverlayVisuals();
             resolveSession(false, { nextState: 'error' });
         }
+    }
+
+    async function completeSelection(payload: ISnipPointerPayload) {
+        if (!dragStartPoint) {
+            cancelCapture();
+            return;
+        }
+        const selection = updateSelectionFromPointer(payload, dragStartPoint);
+        await completeSelectionRect(selection, payload.overlayRect);
+    }
+
+    function handleKeyboardKey(event: KeyboardEvent) {
+        if (state.value !== 'selecting') {
+            return false;
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            cancelCapture();
+            return true;
+        }
+        if (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar') {
+            event.preventDefault();
+            const overlayRect = getOverlayRect();
+            if (overlayRect) {
+                rebaseKeyboardSelection(overlayRect);
+                const selection = keyboardSelection ?? createKeyboardSelection(overlayRect);
+                void completeSelectionRect(selection, overlayRect);
+            } else {
+                cancelCapture();
+            }
+            return true;
+        }
+        if (![
+            'ArrowLeft',
+            'ArrowRight',
+            'ArrowUp',
+            'ArrowDown',
+        ].includes(event.key)) {
+            return false;
+        }
+        event.preventDefault();
+        updateKeyboardSelection(event);
+        return true;
     }
 
     const pointerDragHandlers = createSelectionPointerDragHandlers({
@@ -213,6 +355,8 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         clearSuccessTimer();
         resetOverlayVisuals();
         dragStartPoint = null;
+        keyboardSelection = null;
+        keyboardOverlayRect = null;
         captureSessionEpoch += 1;
         state.value = 'selecting';
         attachEscapeCancel();
@@ -228,6 +372,8 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         detachEscapeListener();
     });
 
+    provide(pdfRegionSnipKeyboardKey, {handleKeyboardKey});
+
     return {
         state,
         isActive,
@@ -239,5 +385,6 @@ export const usePdfRegionSnip = (options: IUsePdfRegionSnipOptions) => {
         onPointerMove: pointerDragHandlers.onPointerMove,
         onPointerEnd: pointerDragHandlers.onPointerEnd,
         cancelCapture,
+        handleKeyboardKey,
     };
 };

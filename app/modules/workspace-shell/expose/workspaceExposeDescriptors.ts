@@ -443,6 +443,35 @@ export const workspaceExposeCommandRegistry = defineWorkspaceExposeCommandRegist
         },
     },
     {
+        name: 'handleViewRotationCw',
+        kind: 'sync',
+        group: 'view',
+        real: 'custom',
+        deferred: 'mountWaitSyncVoid',
+        menu: {
+            actionName: 'view-rotation-cw',
+            register: 'onMenuViewRotationCw',
+        },
+    },
+    {
+        name: 'handleViewRotationCcw',
+        kind: 'sync',
+        group: 'view',
+        real: 'custom',
+        deferred: 'mountWaitSyncVoid',
+        menu: {
+            actionName: 'view-rotation-ccw',
+            register: 'onMenuViewRotationCcw',
+        },
+    },
+    {
+        name: 'setViewRotation',
+        kind: 'sync',
+        group: 'view',
+        real: 'custom',
+        deferred: 'mountWaitSyncVoid',
+    },
+    {
         name: 'handleDeletePages',
         kind: 'sync',
         toolbar: {eventName: 'delete-pages'},

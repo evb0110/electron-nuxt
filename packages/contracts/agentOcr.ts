@@ -27,6 +27,25 @@ const AGENT_OCR_SUPERSESSION_POLICIES = [
     'replace-evb',
     'replace-all',
 ] as const satisfies readonly TOcrTextSupersessionPolicy[];
+export const AGENT_OCR_PAGE_SEGMENTATION_MODES = [
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    13,
+] as const;
+
+export type TOcrPageSegmentationMode = typeof AGENT_OCR_PAGE_SEGMENTATION_MODES[number];
+
+export function isSupportedPageSegmentationMode(value: unknown): value is TOcrPageSegmentationMode {
+    return typeof value === 'number'
+        && AGENT_OCR_PAGE_SEGMENTATION_MODES.includes(value as TOcrPageSegmentationMode);
+}
 
 export type TAgentOcrPageRange = typeof AGENT_OCR_PAGE_RANGES[number];
 
@@ -36,7 +55,7 @@ export interface IAgentOcrRunOptions {
     languages?: string[];
     qualityProfile?: TOcrQualityProfile;
     preprocessingMode?: TOcrPreprocessingMode;
-    pageSegmentationMode?: number;
+    pageSegmentationMode?: TOcrPageSegmentationMode;
     supersessionPolicy?: TOcrTextSupersessionPolicy;
     replaceAllAcknowledged?: boolean;
     open?: boolean;
@@ -71,9 +90,8 @@ export const AGENT_OCR_RUN_INPUT_SCHEMA = {
         },
         pageSegmentationMode: {
             type: 'integer',
-            minimum: 0,
-            maximum: 13,
-            description: 'Optional Tesseract page segmentation mode from 0 to 13.',
+            enum: AGENT_OCR_PAGE_SEGMENTATION_MODES,
+            description: 'Optional Tesseract page segmentation mode supported by EVB output OCR.',
         },
         supersessionPolicy: {
             type: 'string',
@@ -136,10 +154,7 @@ export function parseAgentOcrRunOptions(value: unknown): IAgentOcrRunOptions {
         ...(isOneOf(AGENT_OCR_PREPROCESSING_MODES, value.preprocessingMode)
             ? {preprocessingMode: value.preprocessingMode}
             : {}),
-        ...(typeof value.pageSegmentationMode === 'number'
-            && Number.isInteger(value.pageSegmentationMode)
-            && value.pageSegmentationMode >= 0
-            && value.pageSegmentationMode <= 13
+        ...(isSupportedPageSegmentationMode(value.pageSegmentationMode)
             ? {pageSegmentationMode: value.pageSegmentationMode}
             : {}),
         ...(isOneOf(AGENT_OCR_SUPERSESSION_POLICIES, value.supersessionPolicy)

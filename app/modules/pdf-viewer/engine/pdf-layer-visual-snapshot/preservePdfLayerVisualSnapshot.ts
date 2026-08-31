@@ -1,14 +1,15 @@
-import { pdfLayerVisualSnapshotActiveClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotActiveClass';
 import { pdfLayerVisualSnapshotClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotClass';
-import { pdfLayerVisualSnapshotSourceClass } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotSourceClass';
-import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
+import {
+    activatePdfLayerVisualSnapshotHost,
+    createPdfLayerVisualSnapshotRelease,
+    disablePdfLayerVisualSnapshotInteractivity,
+    hidePdfLayerVisualSnapshotSource,
+} from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotDom';
 
 interface IPdfLayerVisualSnapshotOptions {
     excludeSelectors?: string[] | undefined;
     suppressLiveContentWhenEmpty?: boolean | undefined;
 }
-
-const activeSnapshotHostCounts = new WeakMap<Element, number>();
 
 function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
@@ -23,37 +24,6 @@ function getChildren(element: Element | null | undefined) {
     return element?.children
         ? Array.from(element.children)
         : [];
-}
-
-function disableSnapshotInteractivity(snapshot: Element) {
-    snapshot.setAttribute('aria-hidden', 'true');
-    if (snapshot instanceof HTMLElement) {
-        snapshot.inert = true;
-    }
-
-    queryAll<HTMLElement>(snapshot, 'a, button, input, select, textarea, [tabindex]')
-        .forEach((element) => {
-            element.tabIndex = -1;
-        });
-}
-
-function createRelease(
-    snapshots: Element[],
-    restoreOriginals: Array<() => void> = [],
-): TPdfLayerVisualSnapshotRelease | null {
-    if (snapshots.length === 0 && restoreOriginals.length === 0) {
-        return null;
-    }
-
-    let released = false;
-    return () => {
-        if (released) {
-            return;
-        }
-        released = true;
-        snapshots.forEach(snapshot => snapshot.remove());
-        restoreOriginals.forEach(restoreOriginal => restoreOriginal());
-    };
 }
 
 function removeExcludedSnapshotContent(
@@ -71,43 +41,10 @@ function isSnapshotElement(element: Element) {
         || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
 }
 
-function activateVisualSnapshotHost(host: HTMLElement) {
-    const nextCount = (activeSnapshotHostCounts.get(host) ?? 0) + 1;
-    activeSnapshotHostCounts.set(host, nextCount);
-    host.classList.add(pdfLayerVisualSnapshotActiveClass);
-
-    return () => {
-        const currentCount = activeSnapshotHostCounts.get(host) ?? 1;
-        const remainingCount = Math.max(0, currentCount - 1);
-        if (remainingCount > 0) {
-            activeSnapshotHostCounts.set(host, remainingCount);
-            return;
-        }
-        activeSnapshotHostCounts.delete(host);
-        host.classList.remove(pdfLayerVisualSnapshotActiveClass);
-    };
-}
-
 function hideLiveLayerSnapshotSources(layer: HTMLElement) {
     return getChildren(layer)
         .filter(child => !isSnapshotElement(child))
-        .map(child => hideLiveElementDuringSnapshot(child as HTMLElement | SVGElement));
-}
-
-function hideLiveElementDuringSnapshot(element: HTMLElement | SVGElement) {
-    const hadHiddenSourceClass = element.classList.contains(pdfLayerVisualSnapshotSourceClass);
-    const previousVisibility = element.style.visibility;
-    element.classList.add(pdfLayerVisualSnapshotSourceClass);
-    element.style.visibility = 'hidden';
-    return () => {
-        if ('isConnected' in element && !element.isConnected) {
-            return;
-        }
-        if (!hadHiddenSourceClass) {
-            element.classList.remove(pdfLayerVisualSnapshotSourceClass);
-        }
-        element.style.visibility = previousVisibility;
-    };
+        .map(child => hidePdfLayerVisualSnapshotSource(child as HTMLElement | SVGElement));
 }
 
 export function preservePdfLayerVisualSnapshot(
@@ -129,9 +66,9 @@ export function preservePdfLayerVisualSnapshot(
         return null;
     }
     snapshot.classList.add(pdfLayerVisualSnapshotClass);
-    disableSnapshotInteractivity(snapshot);
+    disablePdfLayerVisualSnapshotInteractivity(snapshot);
     const restoreOriginals = [
-        activateVisualSnapshotHost(layer),
+        activatePdfLayerVisualSnapshotHost(layer),
         ...hideLiveLayerSnapshotSources(layer),
     ];
     try {
@@ -142,5 +79,5 @@ export function preservePdfLayerVisualSnapshot(
         restoreOriginals.forEach(restore => restore());
         throw error;
     }
-    return createRelease(hasSnapshotContent ? [snapshot] : [], restoreOriginals);
+    return createPdfLayerVisualSnapshotRelease(hasSnapshotContent ? [snapshot] : [], restoreOriginals);
 }

@@ -14,6 +14,7 @@ import type {
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
@@ -55,6 +56,7 @@ export interface IWorkspaceToolbarSnapshot {
     zoomMode: TZoomMode;
     fitMode: TFitMode;
     viewMode: TPdfViewMode;
+    viewRotation: TPdfViewRotation;
     currentPage: number;
     totalPages: number;
     selectedPageCount?: number;
@@ -77,6 +79,7 @@ export interface IWorkspaceViewerCapabilities {
     sidebar: boolean;
     continuousScroll: boolean;
     viewMode: boolean;
+    viewRotation: boolean;
 }
 
 export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapabilities {
@@ -96,6 +99,7 @@ export function createDefaultWorkspaceViewerCapabilities(): IWorkspaceViewerCapa
         sidebar: false,
         continuousScroll: false,
         viewMode: false,
+        viewRotation: false,
     };
 }
 
@@ -136,6 +140,7 @@ export function createDefaultWorkspaceToolbarSnapshot(): IWorkspaceToolbarSnapsh
         zoomMode: 'custom',
         fitMode: 'width',
         viewMode: 'single',
+        viewRotation: 0,
         currentPage: 1,
         totalPages: 0,
         selectedPageCount: 0,
@@ -191,6 +196,9 @@ export interface IWorkspaceViewPort {
     handleViewModeSingle: () => void;
     handleViewModeFacing: () => void;
     handleViewModeFacingFirstSingle: () => void;
+    handleViewRotationCw: () => void;
+    handleViewRotationCcw: () => void;
+    setViewRotation: (rotation: TPdfViewRotation) => void;
 }
 
 export interface IWorkspacePageOpsPort {

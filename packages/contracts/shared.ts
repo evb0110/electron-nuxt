@@ -72,7 +72,11 @@ export type TPdfZoomState =
 export type TDocumentViewMode = 'single' | 'facing' | 'facing-first-single';
 /** @deprecated Use TDocumentViewMode in format-neutral code. */
 export type TPdfViewMode = TDocumentViewMode;
+/** Quarter-turn projection applied to the whole PDF viewer, without editing the PDF. */
+export type TPdfViewRotation = 0 | 90 | 180 | 270;
 export type TPrintOrientation = 'auto' | 'portrait' | 'landscape';
+// Keeps pdf-lib path composition below the measured release-fixture ceiling.
+export const PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES = 768 * 1024 * 1024;
 export type TDefaultZoomPreset = 'fit-width' | 'fit-height' | '100' | '125' | '150';
 
 export type TAppTheme = 'light' | 'dark';

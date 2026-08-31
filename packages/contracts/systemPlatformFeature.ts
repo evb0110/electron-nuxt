@@ -33,8 +33,34 @@ export interface IShutdownSaveFlushResponse {
     flushedWorkingCopyPaths?: string[];
 }
 
-interface ISystemLifecycleCapability {onShutdownSaveFlushRequest: (
-    callback: () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse,
-) => () => void;}
+export type TWindowCloseDecision = 'save' | 'discard' | 'cancel';
+
+export type TWindowCloseUnavailableReason =
+    | 'no-handler'
+    | 'multiple-handlers'
+    | 'handler-error'
+    | 'invalid-decision';
+
+export interface IWindowCloseRequest {requestId: string;}
+
+export type IWindowCloseResponse = {
+    decision: TWindowCloseDecision;
+    requestId: string;
+} | {
+    requestId: string;
+    status: 'unavailable';
+    reason: TWindowCloseUnavailableReason;
+};
+
+export type TWindowCloseRequestHandler = (
+    request: IWindowCloseRequest,
+) => Promise<TWindowCloseDecision> | TWindowCloseDecision;
+
+interface ISystemLifecycleCapability {
+    onShutdownSaveFlushRequest: (
+        callback: () => Promise<IShutdownSaveFlushResponse> | IShutdownSaveFlushResponse,
+    ) => () => void;
+    onWindowCloseRequest?: (callback: TWindowCloseRequestHandler) => () => void;
+}
 
 export type ISystemCapability = TFeatureCapability<typeof SYSTEM_PLATFORM_FEATURE> & ISystemLifecycleCapability;

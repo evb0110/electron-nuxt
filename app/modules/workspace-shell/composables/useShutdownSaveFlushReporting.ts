@@ -2,10 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
-import {
-    tryOnScopeDispose,
-    useEventListener,
-} from '@vueuse/core';
+import {tryOnScopeDispose} from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IShutdownSaveFlushResponse,
@@ -40,8 +37,31 @@ export function preventBrowserUnloadWhenDirty(
 
 export const useBrowserDirtyUnloadGuard = (hasPendingUnsavedChanges: () => boolean) => {
     const targetWindow = typeof window === 'undefined' ? undefined : window;
-    useEventListener(targetWindow, 'beforeunload', (event: BeforeUnloadEvent) => {
+    if (!targetWindow) {
+        return;
+    }
+
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
         preventBrowserUnloadWhenDirty(event, hasPendingUnsavedChanges());
+    };
+    let beforeUnloadAttached = false;
+
+    const syncBeforeUnloadListener = (isDirty: boolean) => {
+        if (isDirty && !beforeUnloadAttached) {
+            targetWindow.addEventListener('beforeunload', handleBeforeUnload);
+            beforeUnloadAttached = true;
+        } else if (!isDirty && beforeUnloadAttached) {
+            targetWindow.removeEventListener('beforeunload', handleBeforeUnload);
+            beforeUnloadAttached = false;
+        }
+    };
+
+    const stopWatching = watch(hasPendingUnsavedChanges, syncBeforeUnloadListener, {immediate: true});
+    tryOnScopeDispose(() => {
+        stopWatching();
+        if (beforeUnloadAttached) {
+            targetWindow.removeEventListener('beforeunload', handleBeforeUnload);
+        }
     });
 };
 

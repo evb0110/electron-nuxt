@@ -13,6 +13,7 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePageLabelState } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState';
 import { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
+import { PAGE_LABEL_DENSE_READ_MAX_PAGES } from '@app/utils/document-viewer/pageLabels';
 import { cast } from '@tests/helpers/cast';
 
 function createDeferred<T>() {
@@ -329,10 +330,12 @@ describe('usePageLabelState', () => {
         expect(onPageLabelsSaved).toHaveBeenCalledOnce();
     });
 
-    it('keeps xlarge document labels lazy after PDF.js returns the full array', async () => {
-        const totalPages = 1_000_000;
-        const labels = Array.from({length: totalPages}, (_, index) => String(index + 1));
-        const pdfDocument = createPdfDocumentRef(totalPages, async () => labels);
+    it('does not request a dense PDF.js label array for xlarge documents', async () => {
+        const totalPages = PAGE_LABEL_DENSE_READ_MAX_PAGES + 1;
+        const getPageLabels = vi.fn(async () => {
+            throw new Error('xlarge PDF.js label reads must stay bounded');
+        });
+        const pdfDocument = createPdfDocumentRef(totalPages, getPageLabels);
         const state = usePageLabelState({
             pdfDocument,
             totalPages: ref(totalPages),
@@ -341,6 +344,7 @@ describe('usePageLabelState', () => {
 
         await state.syncPageLabelsFromDocument(pdfDocument.value);
 
+        expect(getPageLabels).not.toHaveBeenCalled();
         expect(state.pageLabels.value).toBeNull();
         expect(state.pageLabelRanges.value).toEqual([{
             startPage: 1,

@@ -1,4 +1,5 @@
 import {
+    degrees,
     PDFDocument,
     PDFName,
 } from 'pdf-lib';
@@ -37,8 +38,13 @@ interface IPrintEmbeddedPage {
     pageNumber: number;
     width: number;
     height: number;
+    displayWidth: number;
+    displayHeight: number;
+    rotation: TPdfPageRotation;
     embeddedPage: PDFEmbeddedPage;
 }
+
+type TPdfPageRotation = 0 | 90 | 180 | 270;
 
 interface IPreferredSinglePagePrintSheet {
     key: 'a4' | 'letter';
@@ -108,6 +114,32 @@ function toPageBoundingBox(box: IPdfPageBox): PageBoundingBox {
     };
 }
 
+function normalizePdfPageRotation(angle: number): TPdfPageRotation {
+    const normalizedAngle = ((angle % 360) + 360) % 360;
+
+    if (normalizedAngle === 90 || normalizedAngle === 180 || normalizedAngle === 270) {
+        return normalizedAngle;
+    }
+
+    return 0;
+}
+
+function resolveDisplayedPageDimensions(
+    width: number,
+    height: number,
+    rotation: TPdfPageRotation,
+) {
+    return rotation === 90 || rotation === 270
+        ? {
+            width: height,
+            height: width,
+        }
+        : {
+            width,
+            height,
+        };
+}
+
 export function buildPrintSpreadGroups(
     pageNumbers: number[],
     viewMode: TPdfViewMode,
@@ -160,18 +192,39 @@ export function canPrintSourcePdfDirectly(
         && (!options.pageNumbers || options.pageNumbers.length === 0);
 }
 
-function buildSpreadPages(
+function buildSpreadSlots(
     groups: number[][],
     embeddedPagesByNumber: Map<number, IPrintEmbeddedPage>,
+    viewMode: TPdfViewMode,
 ) {
-    return groups.map(group => group
-        .map((pageNumber) => {
+    return groups.map((group, groupIndex) => {
+        const pages = group.map((pageNumber) => {
             const embeddedPage = embeddedPagesByNumber.get(pageNumber);
             if (!embeddedPage) {
                 throw new Error(`Missing printable page ${pageNumber}`);
             }
             return embeddedPage;
-        }));
+        });
+
+        if (viewMode === 'single' || pages.length > 1) {
+            return pages;
+        }
+
+        const page = pages[0];
+        if (!page) {
+            throw new Error('Missing printable spread page');
+        }
+
+        return viewMode === 'facing-first-single' && groupIndex === 0
+            ? [
+                null,
+                page,
+            ]
+            : [
+                page,
+                null,
+            ];
+    });
 }
 
 function resolvePreferredSinglePagePrintSheet(
@@ -277,6 +330,7 @@ async function embedPrintablePages(
     }
 
     const visibleBoxes = sourcePages.map(resolvePdfLibPageViewBox);
+    const rotations = sourcePages.map(sourcePage => normalizePdfPageRotation(sourcePage.getRotation().angle));
     const embeddedPages = await targetPdf.embedPages(
         sourcePages,
         visibleBoxes.map(toPageBoundingBox),
@@ -288,12 +342,62 @@ async function embedPrintablePages(
             throw new Error('Unable to prepare printable page');
         }
 
+        const visibleBox = visibleBoxes[index]!;
+        const rotation = rotations[index]!;
+        const displayedDimensions = resolveDisplayedPageDimensions(
+            visibleBox.width,
+            visibleBox.height,
+            rotation,
+        );
+
         return {
             pageNumber,
-            width: visibleBoxes[index]!.width,
-            height: visibleBoxes[index]!.height,
+            width: visibleBox.width,
+            height: visibleBox.height,
+            displayWidth: displayedDimensions.width,
+            displayHeight: displayedDimensions.height,
+            rotation,
             embeddedPage,
         };
+    });
+}
+
+function drawEmbeddedPrintablePage(
+    targetPage: PDFPage,
+    page: IPrintEmbeddedPage,
+    x: number,
+    y: number,
+    scale: number,
+) {
+    const width = page.width * scale;
+    const height = page.height * scale;
+    let drawX = x;
+    let drawY = y;
+    let drawRotation = 0;
+
+    // PDF /Rotate is clockwise, while drawPage rotates counterclockwise.
+    switch (page.rotation) {
+        case 90:
+            drawY += width;
+            drawRotation = -90;
+            break;
+        case 180:
+            drawX += width;
+            drawY += height;
+            drawRotation = 180;
+            break;
+        case 270:
+            drawX += height;
+            drawRotation = 90;
+            break;
+    }
+
+    targetPage.drawPage(page.embeddedPage, {
+        x: drawX,
+        y: drawY,
+        width,
+        height,
+        rotate: degrees(drawRotation),
     });
 }
 
@@ -313,8 +417,8 @@ async function buildPaperFittedSinglePagePdf(
         }
 
         const preferredSheet = resolveDefaultA4PrintSheet(
-            embeddedPage.width,
-            embeddedPage.height,
+            embeddedPage.displayWidth,
+            embeddedPage.displayHeight,
             orientation,
         );
         const availableWidth = Math.max(
@@ -326,21 +430,22 @@ async function buildPaperFittedSinglePagePdf(
             preferredSheet.height - SINGLE_PAGE_PRINT_SAFE_MARGIN_PT * 2,
         );
         const drawScale = Math.min(
-            availableWidth / Math.max(1, embeddedPage.width),
-            availableHeight / Math.max(1, embeddedPage.height),
+            availableWidth / Math.max(1, embeddedPage.displayWidth),
+            availableHeight / Math.max(1, embeddedPage.displayHeight),
         );
         const targetPage = targetPdf.addPage([
             preferredSheet.width,
             preferredSheet.height,
         ]);
-        const drawWidth = embeddedPage.width * drawScale;
-        const drawHeight = embeddedPage.height * drawScale;
-        targetPage.drawPage(embeddedPage.embeddedPage, {
-            x: (preferredSheet.width - drawWidth) / 2,
-            y: (preferredSheet.height - drawHeight) / 2,
-            width: drawWidth,
-            height: drawHeight,
-        });
+        const drawWidth = embeddedPage.displayWidth * drawScale;
+        const drawHeight = embeddedPage.displayHeight * drawScale;
+        drawEmbeddedPrintablePage(
+            targetPage,
+            embeddedPage,
+            (preferredSheet.width - drawWidth) / 2,
+            (preferredSheet.height - drawHeight) / 2,
+            drawScale,
+        );
     }
 }
 
@@ -354,8 +459,13 @@ function shouldNormalizeSinglePagePdfForPrint(
             width,
             height,
         } = resolvePdfLibPageViewBox(sourcePage);
+        const rotation = normalizePdfPageRotation(sourcePage.getRotation().angle);
+        const displayedDimensions = resolveDisplayedPageDimensions(width, height, rotation);
         return shouldNormalizeSinglePageForPrint(
-            resolvePreferredSinglePagePrintSheet(width, height),
+            resolvePreferredSinglePagePrintSheet(
+                displayedDimensions.width,
+                displayedDimensions.height,
+            ),
         );
     });
 }
@@ -428,24 +538,26 @@ export async function buildPrintablePdfData(
             throw new Error(`Unable to embed page ${pageNumber} for printing`);
         }
 
-        embeddedPagesByNumber.set(pageNumber, {
-            pageNumber,
-            width: embeddedPage.width,
-            height: embeddedPage.height,
-            embeddedPage: embeddedPage.embeddedPage,
-        });
+        embeddedPagesByNumber.set(pageNumber, embeddedPage);
     }
 
     const spreadGroups = buildPrintSpreadGroups(normalizedPageNumbers, options.viewMode);
-    const spreads = buildSpreadPages(spreadGroups, embeddedPagesByNumber);
+    const spreads = buildSpreadSlots(
+        spreadGroups,
+        embeddedPagesByNumber,
+        options.viewMode,
+    );
 
     for (const spread of spreads) {
-        const naturalWidth = spread.reduce((total, page) => total + page.width, 0);
-        const naturalHeight = Math.max(...spread.map(page => page.height));
+        const visiblePages = spread.filter(page => page !== null);
+        const blankSlotWidth = visiblePages[0]?.displayWidth ?? 1;
+        const slotWidths = spread.map(page => page?.displayWidth ?? blankSlotWidth);
+        const naturalWidth = slotWidths.reduce((total, width) => total + width, 0);
+        const naturalHeight = Math.max(...visiblePages.map(page => page.displayHeight));
         const preferredSheet = resolveDefaultA4PrintSheet(
             naturalWidth,
             naturalHeight,
-            options.orientation,
+            options.orientation === 'auto' ? 'landscape' : options.orientation,
         );
         const {
             width: pageWidth,
@@ -462,16 +574,20 @@ export async function buildPrintablePdfData(
         const topInset = (pageHeight - naturalHeight * scale) / 2;
         let cursorX = leftInset;
 
-        for (const page of spread) {
-            const drawWidth = page.width * scale;
-            const drawHeight = page.height * scale;
-            targetPage.drawPage(page.embeddedPage, {
-                x: cursorX,
-                y: pageHeight - topInset - drawHeight,
-                width: drawWidth,
-                height: drawHeight,
-            });
-            cursorX += drawWidth;
+        for (let slotIndex = 0; slotIndex < spread.length; slotIndex += 1) {
+            const page = spread[slotIndex];
+            const slotWidth = slotWidths[slotIndex]! * scale;
+            if (page) {
+                const drawHeight = page.displayHeight * scale;
+                drawEmbeddedPrintablePage(
+                    targetPage,
+                    page,
+                    cursorX,
+                    pageHeight - topInset - drawHeight,
+                    scale,
+                );
+            }
+            cursorX += slotWidth;
         }
     }
 

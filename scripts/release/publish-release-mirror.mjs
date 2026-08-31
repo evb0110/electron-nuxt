@@ -19,10 +19,10 @@ import {
     S3Client,
 } from '@aws-sdk/client-s3';
 import {isSupplementalReleaseAsset} from './policy.mjs';
+import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
 
 const RELEASE_PREFIX = 'evb-viewer/releases/';
 const CHANNEL_KEY = 'evb-viewer/channels/stable.json';
-const RELEASE_TAG_PATTERN = /^v\d+\.\d+\.\d+(?:[-.][0-9A-Za-z][0-9A-Za-z.-]*)?$/;
 const RETAINED_RELEASE_COUNT = 4;
 
 export async function publishReleaseMirror({
@@ -122,8 +122,34 @@ export async function publishReleaseMirror({
     if (publishChannel) {
         // Publish the mutable channel pointer last, after every immutable object
         // has been uploaded and verified. Clients cannot discover a partial release.
-        await publishStableChannel(client, bucket, manifest, releaseTag, environment);
-        prunedTags = await pruneOldReleases(client, bucket, releaseTag);
+        const previousChannel = await readStableChannel(client, bucket);
+        let stableChannelMutationAttempted = false;
+        try {
+            stableChannelMutationAttempted = await publishStableChannel(
+                client,
+                bucket,
+                manifest,
+                releaseTag,
+                environment,
+            );
+            prunedTags = await pruneOldReleases(client, bucket, releaseTag);
+        } catch (error) {
+            if (previousChannel && (
+                stableChannelMutationAttempted
+                || error?.stableChannelMutationAttempted === true
+            )) {
+                try {
+                    await restoreStableChannel(client, bucket, previousChannel);
+                } catch (rollbackError) {
+                    throw new Error(
+                        `Mirror publication failed and stable-channel rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                        {cause: error},
+                    );
+                }
+                console.error(`Mirror publication failed; stable channel rolled back to ${previousChannel.tag}.`);
+            }
+            throw error;
+        }
         console.log(`Mirror published ${releaseTag}; retained ${RETAINED_RELEASE_COUNT} releases${
             prunedTags.length ? ` and pruned ${prunedTags.join(', ')}` : ''
         }`);
@@ -264,6 +290,19 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
 async function publishStableChannel(client, bucket, body, releaseTag, environment) {
     const sha256 = createHash('sha256').update(body).digest('hex');
     const size = Buffer.byteLength(body);
+    let stableChannelMutationAttempted = false;
+    const markStableChannelMutation = (error) => {
+        if (!stableChannelMutationAttempted) {
+            return error;
+        }
+        if (error && typeof error === 'object') {
+            error.stableChannelMutationAttempted = true;
+            return error;
+        }
+        const wrapped = new Error(String(error), {cause: error});
+        wrapped.stableChannelMutationAttempted = true;
+        return wrapped;
+    };
     for (let attempt = 1; attempt <= 5; attempt += 1) {
         const current = await readStableChannel(client, bucket);
         if (
@@ -276,7 +315,7 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
             );
         }
         if (current?.size === size && current.sha256 === sha256) {
-            return;
+            return false;
         }
         if (current && !current.etag) {
             throw new Error('Stable mirror object response has no ETag; refusing an unguarded update');
@@ -294,14 +333,20 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
                     ? {IfMatch: current.etag}
                     : {IfNoneMatch: '*'}),
             }));
+            // The pointer may have changed even if verification fails. Keep
+            // the outer transaction informed so it can restore the old value.
+            stableChannelMutationAttempted = true;
             await verifyUpload(client, bucket, CHANNEL_KEY, size, sha256);
-            return;
+            return true;
         } catch (error) {
             if (!isConditionalWriteConflict(error)) {
-                throw error;
+                throw markStableChannelMutation(error);
             }
             if (attempt === 5) {
-                throw new Error('Stable mirror channel changed repeatedly during publication', {cause: error});
+                throw markStableChannelMutation(new Error(
+                    'Stable mirror channel changed repeatedly during publication',
+                    {cause: error},
+                ));
             }
             await delay(25 * attempt);
         }
@@ -336,11 +381,34 @@ async function readStableChannel(client, bucket) {
         throw new Error('Stable mirror object has an invalid release tag');
     }
     return {
+        body: raw,
         etag: response.ETag,
         sha256: createHash('sha256').update(raw).digest('hex'),
         size: Buffer.byteLength(raw),
         tag,
     };
+}
+
+async function restoreStableChannel(client, bucket, previousChannel) {
+    const current = await readStableChannel(client, bucket);
+    if (current?.sha256 === previousChannel.sha256) {
+        return;
+    }
+    if (!current?.etag) {
+        throw new Error('Stable mirror rollback found no guarded current channel object');
+    }
+
+    await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: CHANNEL_KEY,
+        Body: previousChannel.body,
+        ContentLength: previousChannel.size,
+        ContentType: 'application/json; charset=utf-8',
+        CacheControl: 'no-cache, no-store, must-revalidate',
+        Metadata: {sha256: previousChannel.sha256},
+        IfMatch: current.etag,
+    }));
+    await verifyUpload(client, bucket, CHANNEL_KEY, previousChannel.size, previousChannel.sha256);
 }
 
 async function pruneOldReleases(client, bucket, protectedTag) {

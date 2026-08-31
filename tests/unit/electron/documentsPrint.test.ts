@@ -7,8 +7,10 @@ import {
     vi,
 } from 'vitest';
 import {
+    copyFileSync,
     existsSync,
     mkdirSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'fs';
@@ -17,6 +19,7 @@ import { pathToFileURL } from 'url';
 import type * as NodeCrypto from 'crypto';
 import type * as FsPromises from 'fs/promises';
 import {cancelMainOperationsForOwner} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => {
     const browserWindowInstances: MockBrowserWindow[] = [];
@@ -88,8 +91,18 @@ const mocks = vi.hoisted(() => {
         appGetPath: vi.fn(() => '/tmp'),
         browserWindowInstances,
         openPath: vi.fn(async () => ''),
+        runtimePlatform: 'linux' as NodeJS.Platform,
         printSurfaceBitmap: paintedBitmap,
         printHandler,
+        openMacOsPdfPrintDialog: vi.fn(async (
+            _path: string,
+            options?: {onNativeDialogOpened?: () => void},
+        ) => {
+            options?.onNativeDialogOpened?.();
+            return {success: true};
+        }),
+        buildPrintablePdfPath: vi.fn(async () => ({bytes: 1})),
+        copyFile: vi.fn<(sourcePath: string, outputPath: string) => Promise<void>>(async (_sourcePath, _outputPath) => {}),
         pdfPageCount: 1,
         pdfPageSize: {
             width: 612,
@@ -152,6 +165,7 @@ vi.mock('fs/promises', async (importOriginal) => ({
     stat: mocks.stat,
     unlink: mocks.unlink,
     writeFile: mocks.writeFile,
+    copyFile: mocks.copyFile,
 }));
 
 vi.mock('crypto', async (importOriginal) => {
@@ -177,6 +191,9 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 vi.mock('@electron/file-access/workingCopyMaterialization', () => ({ensureWorkingCopyMaterialized: (...args: unknown[]) => mocks.ensureWorkingCopyMaterialized(...args)}));
 vi.mock('@electron/features/page-ops/main/qpdf', () => ({extractPages: mocks.extractPages}));
 vi.mock('@electron/features/page-ops/public', () => ({extractPages: mocks.extractPages}));
+vi.mock('@electron/features/documents/main/buildPrintablePdfPath', () => ({buildPrintablePdfPath: mocks.buildPrintablePdfPath}));
+vi.mock('@electron/utils/openMacOsPdfPrintDialog', () => ({openMacOsPdfPrintDialog: mocks.openMacOsPdfPrintDialog}));
+vi.mock('@electron/utils/getPrintRuntimePlatform', () => ({getPrintRuntimePlatform: () => mocks.runtimePlatform}));
 vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => ({
     pdfinfo: '/mock/pdfinfo',
     pdftoppm: '/mock/pdftoppm',
@@ -196,6 +213,7 @@ vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({
 }) }));
 
 const {
+    handleCancelPdfPrint,
     handleOpenPdfInDefaultAppData,
     handleOpenPdfInDefaultAppPath,
     handlePrintPdfData,
@@ -209,6 +227,23 @@ const {
 
 const tempRoot = '/tmp/evb-viewer-test-profile';
 const validPdfBytes = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
+const multiPagePdfBytes = Buffer.from([
+    '%PDF-1.7',
+    '1 0 obj',
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    'endobj',
+    '2 0 obj',
+    '<< /Type /Pages /Count 2 /Kids [3 0 R 4 0 R] >>',
+    'endobj',
+    '3 0 obj',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>',
+    'endobj',
+    '4 0 obj',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>',
+    'endobj',
+    '%%EOF',
+    '',
+].join('\n'));
 const senderId = 72;
 const windowContext = {
     senderId,
@@ -222,10 +257,20 @@ describe('documents print', () => {
         process.env.EVB_APP_TEMP_NAMESPACE = 'test-profile';
         vi.clearAllMocks();
         mocks.browserWindowInstances.length = 0;
+        mocks.runtimePlatform = 'linux';
         mocks.MockBrowserWindow.emitReadyToShowByDefault = true;
         mocks.printSurfaceBitmap = Buffer.alloc(4 * 4 * 4, 255);
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
+        mocks.openMacOsPdfPrintDialog.mockImplementation(async (
+            _path: string,
+            options?: {onNativeDialogOpened?: () => void},
+        ) => {
+            options?.onNativeDialogOpened?.();
+            return {success: true};
+        });
+        mocks.buildPrintablePdfPath.mockResolvedValue({bytes: validPdfBytes.byteLength});
+        mocks.copyFile.mockResolvedValue(undefined);
         mocks.pdfPageCount = 1;
         mocks.pdfPageSize = {
             width: 612,
@@ -272,7 +317,14 @@ describe('documents print', () => {
         mocks.runNativeToolCommand.mockImplementation(async (_command: string, args: string[]) => (
             args[0] === '-jpeg'
                 ? {}
-                : {stdout: `Pages: ${mocks.pdfPageCount}\nPage size: ${mocks.pdfPageSize.width} x ${mocks.pdfPageSize.height} pts\n`}
+                : {stdout: [
+                    `Pages: ${mocks.pdfPageCount}`,
+                    ...Array.from({length: Math.min(mocks.pdfPageCount, 100)}, (_, index) => [
+                        `Page ${index + 1} size: ${mocks.pdfPageSize.width} x ${mocks.pdfPageSize.height} pts`,
+                        `Page ${index + 1} CropBox: 0 0 ${mocks.pdfPageSize.width} ${mocks.pdfPageSize.height}`,
+                        `Page ${index + 1} rot: 0`,
+                    ]).flat(),
+                ].join('\n')}
         ));
         mocks.printHandler.mockImplementation((
             _options: unknown,
@@ -310,8 +362,10 @@ describe('documents print', () => {
         for (let index = 0; index < 40; index += 1) {
             await Promise.resolve();
         }
-        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
-        await vi.advanceTimersByTimeAsync(2_000);
+        if (mocks.browserWindowInstances.length > 0) {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(2_000);
+        }
         return promise;
     }
 
@@ -328,6 +382,7 @@ describe('documents print', () => {
         expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledWith(sourcePdfPath, {
             ownerWebContentsId: senderId,
             reason: 'print-external',
+            signal: expect.any(AbortSignal),
         });
         expect(mocks.browserWindowInstances).toHaveLength(1);
         expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({
@@ -354,41 +409,48 @@ describe('documents print', () => {
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
     });
 
-    it.runIf(process.platform === 'darwin')('keeps the macOS PDF plugin window hidden until its surface paints and settles', async () => {
-        vi.useFakeTimers();
-        mocks.MockBrowserWindow.emitReadyToShowByDefault = false;
-        mocks.printSurfaceBitmap = Buffer.alloc(0);
-        const resultPromise = handlePrintPdfPath(
+    it('uses the macOS PDFKit helper without creating a BrowserWindow', async () => {
+        mocks.runtimePlatform = 'darwin';
+        const onNativePrintDialogOpened = vi.fn();
+
+        await expect(handlePrintPdfPath(
+            {
+                ...windowContext,
+                onNativePrintDialogOpened,
+            },
+            sourcePdfPath,
+            'source.pdf',
+            {
+                requestId: 'mac-print-request',
+                viewMode: 'single',
+                orientation: 'auto',
+            },
+        )).resolves.toEqual({success: true});
+
+        expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+            sourcePdfPath,
+            expect.objectContaining({
+                onNativeDialogOpened: expect.any(Function),
+                signal: expect.any(AbortSignal),
+            }),
+        );
+        expect(onNativePrintDialogOpened).toHaveBeenCalledWith('mac-print-request');
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+    });
+
+    it('returns the native macOS helper error without opening a BrowserWindow', async () => {
+        mocks.runtimePlatform = 'darwin';
+        mocks.openMacOsPdfPrintDialog.mockRejectedValue(new Error('Native print helper failed'));
+
+        await expect(handlePrintPdfPath(
             windowContext,
             sourcePdfPath,
             'source.pdf',
-        );
-
-        for (let index = 0; index < 40; index += 1) {
-            await Promise.resolve();
-        }
-
-        const printWindow = mocks.browserWindowInstances[0];
-        expect(printWindow?.loadURL).toHaveBeenCalled();
-        expect(printWindow?.showInactive).not.toHaveBeenCalled();
-
-        await vi.advanceTimersByTimeAsync(2_000);
-        expect(printWindow?.showInactive).not.toHaveBeenCalled();
-
-        printWindow?.emit('ready-to-show');
-        await Promise.resolve();
-        await vi.advanceTimersByTimeAsync(500);
-        expect(printWindow?.showInactive).not.toHaveBeenCalled();
-
-        mocks.printSurfaceBitmap = Buffer.alloc(4 * 4 * 4, 255);
-        await vi.advanceTimersByTimeAsync(250);
-        expect(printWindow?.showInactive).not.toHaveBeenCalled();
-
-        await vi.advanceTimersByTimeAsync(2_000);
-        await expect(resultPromise).resolves.toEqual({success: true});
-        expect(printWindow?.showInactive).toHaveBeenCalledTimes(1);
-        expect(printWindow?.setOpacity).not.toHaveBeenCalledWith(0);
-        expect(printWindow?.hide).toHaveBeenCalledTimes(1);
+        )).resolves.toEqual({
+            success: false,
+            error: 'Native print helper failed',
+        });
+        expect(mocks.browserWindowInstances).toHaveLength(0);
     });
 
     it('accepts captured print pixels regardless of page color', () => {
@@ -422,40 +484,174 @@ describe('documents print', () => {
         expect(result).toEqual({success: true});
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.pdfDocumentLoad).not.toHaveBeenCalled();
-        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL(sourcePdfPath).toString(),
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                sourcePdfPath,
+                expect.objectContaining({signal: expect.any(AbortSignal)}),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+                pathToFileURL(sourcePdfPath).toString(),
+            );
+
+            await vi.runOnlyPendingTimersAsync();
+            expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        }
+    });
+
+    it('fails closed before composing an oversized advanced-layout path', async () => {
+        mocks.stat
+            .mockResolvedValueOnce({
+                ctimeMs: 0,
+                isFile: () => true,
+                mtimeMs: 0,
+                size: validPdfBytes.byteLength,
+            })
+            .mockResolvedValueOnce({
+                ctimeMs: 0,
+                isFile: () => true,
+                mtimeMs: 0,
+                size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES + 1,
+            });
+
+        await expect(handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'oversized-layout.pdf',
+            {
+                viewMode: 'facing',
+                orientation: 'auto',
+            },
+        )).rejects.toThrow('PDF is too large for advanced print layout');
+
+        expect(mocks.buildPrintablePdfPath).not.toHaveBeenCalled();
+        expect(mocks.openMacOsPdfPrintDialog).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+    });
+
+    it('composes facing-page layout before printing one transformed page per sheet', async () => {
+        vi.useFakeTimers();
+        mocks.runtimePlatform = 'darwin';
+        const onNativePrintDialogOpened = vi.fn();
+        const resultPromise = handlePrintPdfPath(
+            {
+                ...windowContext,
+                onNativePrintDialogOpened,
+            },
+            sourcePdfPath,
+            'facing.pdf',
+            {
+                viewMode: 'facing',
+                orientation: 'landscape',
+                requestId: 'facing-print-request',
+            },
         );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({success: true});
+        expect(mocks.extractPages).not.toHaveBeenCalled();
+        const transformedPath = `${tempRoot}/print-layout-print-job-id-facing.pdf`;
+        expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
+            inputPath: sourcePdfPath,
+            outputPath: transformedPath,
+            printOptions: {
+                viewMode: 'facing',
+                orientation: 'landscape',
+                requestId: 'facing-print-request',
+            },
+            signal: expect.any(AbortSignal),
+        });
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                transformedPath,
+                expect.objectContaining({
+                    onNativeDialogOpened: expect.any(Function),
+                    signal: expect.any(AbortSignal),
+                }),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+                pathToFileURL(transformedPath).toString(),
+            );
+            expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+                expect.not.objectContaining({pagesPerSheet: expect.anything()}),
+                expect.any(Function),
+            );
+        }
+        expect(onNativePrintDialogOpened).toHaveBeenCalledOnce();
+        expect(onNativePrintDialogOpened).toHaveBeenCalledWith('facing-print-request');
 
         await vi.runOnlyPendingTimersAsync();
-        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        expect(mocks.unlink).toHaveBeenCalledWith(transformedPath);
+    });
+
+    it('supports first-page-single layout through the printable PDF compositor', async () => {
+        vi.useFakeTimers();
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'first-single.pdf',
+            {
+                viewMode: 'facing-first-single',
+                orientation: 'auto',
+            },
+        );
+        const result = await settleNativePrint(resultPromise);
+
+        expect(result).toEqual({success: true});
+        const transformedPath = `${tempRoot}/print-layout-print-job-id-first-single.pdf`;
+        expect(mocks.buildPrintablePdfPath).toHaveBeenCalledWith({
+            inputPath: sourcePdfPath,
+            outputPath: transformedPath,
+            printOptions: {
+                viewMode: 'facing-first-single',
+                orientation: 'auto',
+            },
+            signal: expect.any(AbortSignal),
+        });
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                transformedPath,
+                expect.objectContaining({signal: expect.any(AbortSignal)}),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+                pathToFileURL(transformedPath).toString(),
+            );
+            expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+                expect.not.objectContaining({pagesPerSheet: expect.anything()}),
+                expect.any(Function),
+            );
+        }
+
+        await vi.runOnlyPendingTimersAsync();
+        expect(mocks.unlink).toHaveBeenCalledWith(transformedPath);
     });
 
     it('uses the env-gated print-to-PDF smoke mode without opening the native dialog', async () => {
         process.env.EVB_PRINT_DIALOG_TEST_MODE = 'print-to-pdf';
-        process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH = '/tmp/print-smoke-output.pdf';
-        vi.useFakeTimers();
+        const smokeOutputPath = join(sourcePdfWorkDir, 'print-smoke-output.pdf');
+        process.env.EVB_PRINT_DIALOG_TEST_OUTPUT_PATH = smokeOutputPath;
+        writeFileSync(sourcePdfPath, multiPagePdfBytes);
+        mocks.copyFile.mockImplementationOnce(async (sourcePath: string, outputPath: string) => {
+            copyFileSync(sourcePath, outputPath);
+        });
 
-        const resultPromise = handlePrintPdfPath(
+        const result = await handlePrintPdfPath(
             windowContext,
             sourcePdfPath,
             'source.pdf',
         );
-        const result = await settleNativePrint(resultPromise);
 
         expect(result).toEqual({ success: true });
-        expect(mocks.browserWindowInstances[0]?.webContents.print).not.toHaveBeenCalled();
-        expect(mocks.browserWindowInstances[0]?.webContents.printToPDF).toHaveBeenCalledWith({printBackground: true});
-        expect(mocks.writeFile).toHaveBeenCalledWith(
-            '/tmp/print-smoke-output.pdf',
-            Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n'),
-        );
-        expect(mocks.browserWindowInstances[0]?.close).not.toHaveBeenCalled();
-        expect(mocks.browserWindowInstances[0]?.showInactive).not.toHaveBeenCalled();
-        expect(mocks.browserWindowInstances[0]?.webContents.capturePage).not.toHaveBeenCalled();
-
-        await vi.runOnlyPendingTimersAsync();
-
-        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        expect(mocks.copyFile).toHaveBeenCalledWith(sourcePdfPath, smokeOutputPath);
+        expect(readFileSync(smokeOutputPath)).toEqual(multiPagePdfBytes);
+        expect(mocks.writeFile).not.toHaveBeenCalledWith(smokeOutputPath, expect.anything());
+        expect(mocks.openMacOsPdfPrintDialog).not.toHaveBeenCalled();
+        expect(mocks.browserWindowInstances).toHaveLength(0);
     });
 
     it('prints managed DjVu PDFs through a rasterized HTML surface', async () => {
@@ -483,7 +679,14 @@ describe('documents print', () => {
         expect(mocks.pdfDocumentLoad).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.objectContaining({
                 commandLabel: 'pdfinfo(print-raster)',
                 maxStdoutBytes: 64 * 1024,
@@ -493,6 +696,7 @@ describe('documents print', () => {
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdftoppm',
             [
+                '-cropbox',
                 '-jpeg',
                 '-r',
                 '180',
@@ -554,7 +758,14 @@ describe('documents print', () => {
 
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.any(Object),
         );
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(
@@ -589,7 +800,14 @@ describe('documents print', () => {
         expect(mocks.readFile).not.toHaveBeenCalled();
         expect(mocks.runNativeToolCommand).toHaveBeenCalledWith(
             '/mock/pdfinfo',
-            [sourcePdfPath],
+            [
+                '-box',
+                '-f',
+                '1',
+                '-l',
+                '100',
+                sourcePdfPath,
+            ],
             expect.any(Object),
         );
         expect(mocks.runNativeToolCommand).not.toHaveBeenCalledWith(
@@ -632,10 +850,15 @@ describe('documents print', () => {
 
     it('writes temporary PDF bytes before opening the native print dialog', async () => {
         vi.useFakeTimers();
+        const onNativePrintDialogOpened = vi.fn();
         const resultPromise = handlePrintPdfData(
-            windowContext,
+            {
+                ...windowContext,
+                onNativePrintDialogOpened,
+            },
             validPdfBytes,
             'document.pdf',
+            {requestId: 'print-data-request'},
         );
         const result = await settleNativePrint(resultPromise);
 
@@ -644,13 +867,54 @@ describe('documents print', () => {
             `${tempRoot}/print-data-print-job-id-document.pdf`,
             Buffer.from(validPdfBytes),
         );
-        expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: 'document'}));
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                `${tempRoot}/print-data-print-job-id-document.pdf`,
+                expect.objectContaining({
+                    onNativeDialogOpened: expect.any(Function),
+                    signal: expect.any(AbortSignal),
+                }),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.options).toEqual(expect.objectContaining({title: 'document'}));
+        }
+        expect(onNativePrintDialogOpened).toHaveBeenCalledOnce();
+        expect(onNativePrintDialogOpened).toHaveBeenCalledWith('print-data-request');
         expect(mocks.unlink).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
-        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        if (mocks.runtimePlatform !== 'darwin') {
+            expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        }
         expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
+    });
+
+    it('cancels a data print before opening the native dialog', async () => {
+        const write = Promise.withResolvers<undefined>();
+        mocks.writeFile.mockImplementationOnce(() => write.promise);
+        const printPromise = handlePrintPdfData(
+            windowContext,
+            validPdfBytes,
+            'document.pdf',
+            {requestId: 'cancel-data-print'},
+        );
+        await vi.waitFor(() => expect(mocks.writeFile).toHaveBeenCalledOnce());
+
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-data-print',
+        )).resolves.toEqual({canceled: true});
+        write.resolve(undefined);
+
+        await expect(printPromise).rejects.toMatchObject({message: 'PDF print canceled'});
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-data-print-job-id-document.pdf`);
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-data-print',
+        )).resolves.toEqual({canceled: false});
     });
 
     it('extracts requested pages to a temporary PDF before opening the native print dialog', async () => {
@@ -659,7 +923,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         const result = await settleNativePrint(resultPromise);
 
@@ -673,22 +941,33 @@ describe('documents print', () => {
                 signal: expect.any(AbortSignal),
             }),
         );
-        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL(`${tempRoot}/print-pages-print-job-id-source.pdf`).toString(),
-        );
-        expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
-            expect.objectContaining({pageRanges: [{
-                from: 0,
-                to: 0,
-            }]}),
-            expect.any(Function),
-        );
+        const selectedPagesPath = `${tempRoot}/print-pages-print-job-id-source.pdf`;
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                selectedPagesPath,
+                expect.objectContaining({signal: expect.any(AbortSignal)}),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+                pathToFileURL(selectedPagesPath).toString(),
+            );
+            expect(mocks.browserWindowInstances[0]?.webContents.print).toHaveBeenCalledWith(
+                expect.objectContaining({pageRanges: [{
+                    from: 0,
+                    to: 0,
+                }]}),
+                expect.any(Function),
+            );
+        }
         expect(mocks.unlink).not.toHaveBeenCalled();
 
         await vi.runOnlyPendingTimersAsync();
 
-        expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
-        expect(mocks.unlink).toHaveBeenCalledWith(`${tempRoot}/print-pages-print-job-id-source.pdf`);
+        if (mocks.runtimePlatform !== 'darwin') {
+            expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+        }
+        expect(mocks.unlink).toHaveBeenCalledWith(selectedPagesPath);
     });
 
     it('cancels selected-page print when the renderer ends during materialization', async () => {
@@ -709,7 +988,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
 
@@ -719,6 +1002,40 @@ describe('documents print', () => {
         await expect(printPromise).rejects.toMatchObject({message: 'Renderer lifecycle ended'});
         expect(mocks.extractPages).not.toHaveBeenCalled();
         expect(mocks.browserWindowInstances).toHaveLength(0);
+    });
+
+    it('cancels a direct path print by its sender-scoped request ID', async () => {
+        const materialization = Promise.withResolvers<undefined>();
+        mocks.ensureWorkingCopyMaterialized.mockImplementationOnce(async (path: string, options: {signal?: AbortSignal}) => {
+            await materialization.promise;
+            options.signal?.throwIfAborted();
+            return {
+                logicalRef: path,
+                physicalWorkingCopyPath: path,
+                sourceFingerprint: '',
+            };
+        });
+        const printPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+            {
+                viewMode: 'single',
+                orientation: 'auto',
+                requestId: 'cancel-path-print',
+            },
+        );
+        await vi.waitFor(() => expect(mocks.ensureWorkingCopyMaterialized).toHaveBeenCalledOnce());
+
+        await expect(handleCancelPdfPrint(
+            {senderId},
+            'cancel-path-print',
+        )).resolves.toEqual({canceled: true});
+        materialization.resolve(undefined);
+
+        await expect(printPromise).rejects.toMatchObject({message: 'PDF print canceled'});
+        expect(mocks.browserWindowInstances).toHaveLength(0);
+        expect(mocks.cancelNativeCommandGroup).not.toHaveBeenCalled();
     });
 
     it('cancels selected-page extraction when the renderer ends during qpdf work', async () => {
@@ -738,7 +1055,11 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         await vi.waitFor(() => expect(mocks.extractPages).toHaveBeenCalledOnce());
 
@@ -759,14 +1080,18 @@ describe('documents print', () => {
             windowContext,
             sourcePdfPath,
             'source.pdf',
-            [4],
+            {
+                pageNumbers: [4],
+                viewMode: 'single',
+                orientation: 'auto',
+            },
         );
         for (let index = 0; index < 40; index += 1) {
             await Promise.resolve();
         }
         // The paint probe only runs where the plugin window is compositor-visible (macOS).
         expect(mocks.browserWindowInstances[0]?.webContents.capturePage)
-            .toHaveBeenCalledTimes(process.platform === 'darwin' ? 1 : 0);
+            .toHaveBeenCalledTimes(mocks.runtimePlatform === 'darwin' ? 1 : 0);
 
         cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
         await vi.advanceTimersByTimeAsync(250);
@@ -876,9 +1201,17 @@ describe('documents print', () => {
             'source.pdf',
         )).resolves.toEqual({success: true});
 
-        expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
-            pathToFileURL(materializedPath).toString(),
-        );
+        if (mocks.runtimePlatform === 'darwin') {
+            expect(mocks.openMacOsPdfPrintDialog).toHaveBeenCalledWith(
+                materializedPath,
+                expect.objectContaining({signal: expect.any(AbortSignal)}),
+            );
+            expect(mocks.browserWindowInstances).toHaveLength(0);
+        } else {
+            expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalledWith(
+                pathToFileURL(materializedPath).toString(),
+            );
+        }
         expect(mocks.openPath).toHaveBeenCalledWith(materializedPath);
     });
 

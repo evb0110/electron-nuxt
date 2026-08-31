@@ -57,6 +57,21 @@ describe('file-backed scan-cleanup settings store', () => {
         expect(JSON.parse(await readFile(filePath, 'utf8'))).toEqual(initial);
     });
 
+    it('merges a global patch with fields written by another settings client', async () => {
+        const filePath = await createStoreFile();
+        const initial = createDefaultScanCleanupSettingsFile();
+        initial.settings.readingOrder = 'rtl';
+        await writeFile(filePath, `${JSON.stringify(initial)}\n`, 'utf8');
+        const store = createScanCleanupSettingsStore({filePath});
+
+        const updated = await store.update({settingsPatch: {firstRunGuidanceDismissed: true}});
+
+        expect(updated.settings).toMatchObject({
+            readingOrder: 'rtl',
+            firstRunGuidanceDismissed: true,
+        });
+    });
+
     it('quarantines malformed JSON, preserves its bytes, and atomically writes defaults', async () => {
         const filePath = await createStoreFile();
         const corruptRaw = '{"schemaVersion":1,"settings":';

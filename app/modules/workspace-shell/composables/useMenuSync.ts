@@ -93,6 +93,8 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             continuousScroll: toolbar?.continuousScroll ?? false,
             supportsViewMode: capabilities?.viewMode === true && !openingPreviewInteractive,
             viewMode: toolbar?.viewMode ?? 'single',
+            supportsViewRotation: capabilities?.viewRotation === true && !openingPreviewInteractive,
+            viewRotation: toolbar?.viewRotation ?? 0,
             isActualSizeActive,
             isFitWidthActive: toolbar?.isFitWidthActive ?? false,
             isFitHeightActive: toolbar?.isFitHeightActive ?? false,

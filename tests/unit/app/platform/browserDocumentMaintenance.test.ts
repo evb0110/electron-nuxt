@@ -21,19 +21,27 @@ const documentIdbMocks = vi.hoisted(() => ({
             result: unknown;
             onsuccess?: () => void;
         };
+        const documentsRequest = {result: []} as {
+            result: unknown;
+            onsuccess?: () => void;
+        };
         const transaction = {objectStore: (name: string) => ({
-            getAll: () => recoveryRequest,
+            getAll: () => name.includes('document') ? documentsRequest : recoveryRequest,
             delete: name.includes('chunk')
                 ? chunkMocks.deleteChunkRecord
                 : documentIdbMocks.deleteRecord,
         })};
         run(transaction, value => { result = value; });
         recoveryRequest.onsuccess?.();
+        documentsRequest.onsuccess?.();
         return result;
     }),
 }));
 
 const chunkMocks = vi.hoisted(() => ({
+    createChunkKey: vi.fn((ref: string, index: number, generation?: string) => (
+        generation ? `${ref}::${generation}::${index}` : `${ref}::${index}`
+    )),
     deleteChunkRecord: vi.fn(async () => undefined),
     loadAllChunkKeys: vi.fn(async () => []),
     loadAllChunkKeysAvailability: vi.fn(async () => ({
@@ -56,6 +64,8 @@ const recentFilesStoreMocks = vi.hoisted(() => ({
         timestamp: number;
         fileSize: number;
     }> => []),
+    tryHasRecentFilesStorageSnapshot: vi.fn(() => false),
+    tryReadRecentFilesFromStorage: vi.fn(() => []),
     writeRecentFilesToStorage: vi.fn(),
 }));
 const recoveryMocks = vi.hoisted(() => ({loadBrowserWorkspaceRecoveryLeasedRefs: vi.fn(async () => new Set<string>())}));
@@ -246,5 +256,87 @@ describe('browserDocumentMaintenance', () => {
         await sweepBrowserDocumentMaintenance(new Map());
 
         expect(documentIdbMocks.deleteRecord).not.toHaveBeenCalledWith(ref);
+    });
+
+    it('retains a freshly staged generation while another window finishes its metadata commit', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/staged.pdf';
+        const generation = `${Date.now().toString(36)}-staged-generation`;
+        const chunkKey = `${ref}::${generation}::0`;
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: {
+                ref,
+                fileName: 'staged.pdf',
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                data: new Uint8Array(),
+                fileSize: 0,
+                updatedAt: 1,
+                storageMode: 'inline',
+                chunkCount: 0,
+                chunkSize: 4,
+            },
+        });
+        chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [chunkKey],
+        });
+        chunkMocks.parseChunkKey.mockReturnValue({
+            ref,
+            index: 0,
+            generation,
+        });
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(chunkMocks.parseChunkKey).toHaveBeenCalledWith(chunkKey);
+        expect(chunkMocks.deleteChunkRecord).not.toHaveBeenCalled();
+    });
+
+    it('deletes an orphaned stale chunk generation', async () => {
+        const { sweepBrowserDocumentMaintenance } = await import('@app/platform/browser/browserDocumentMaintenance');
+        const ref = 'browser://documents/stale.pdf';
+        const generation = `${(Date.now() - 11 * 60 * 1_000).toString(36)}-stale-generation`;
+        const chunkKey = `${ref}::${generation}::0`;
+        documentIdbMocks.loadAllRecordKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [ref],
+        });
+        documentIdbMocks.loadRecordAvailability.mockResolvedValue({
+            available: true,
+            value: {
+                ref,
+                fileName: 'stale.pdf',
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                data: new Uint8Array(),
+                fileSize: 0,
+                updatedAt: 1,
+                storageMode: 'inline',
+                chunkCount: 0,
+                chunkSize: 4,
+            },
+        });
+        chunkMocks.loadAllChunkKeysAvailability.mockResolvedValue({
+            available: true,
+            value: [chunkKey],
+        });
+        chunkMocks.parseChunkKey.mockReturnValue({
+            ref,
+            index: 0,
+            generation,
+        });
+
+        await sweepBrowserDocumentMaintenance(new Map());
+
+        expect(chunkMocks.parseChunkKey).toHaveBeenCalledWith(chunkKey);
+        expect(chunkMocks.deleteChunkRecord).toHaveBeenCalledWith(chunkKey);
     });
 });

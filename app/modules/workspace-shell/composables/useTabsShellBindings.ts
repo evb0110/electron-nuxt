@@ -525,7 +525,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             }
             if (workspaceCheckpoint) {
                 traceRendererStartup('tabs shell restoring workspace checkpoint', {tabCount: workspaceCheckpoint.tabs.length});
-                await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
+                const failedCheckpointPaths = await restoreWorkspaceCheckpoint(workspaceCheckpoint, {
                     tabs,
                     workspaceRefs,
                     restoreGraph: restoreWorkspaceCheckpointGraph,
@@ -534,6 +534,15 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 });
                 if (isDisposed) {
                     return;
+                }
+                if (failedCheckpointPaths.length === 0) {
+                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint?.();
+                } else {
+                    BrowserLogger.warn(
+                        'tabs-shell',
+                        'Workspace checkpoint restore was incomplete; keeping recovery evidence',
+                        {failedPathCount: failedCheckpointPaths.length},
+                    );
                 }
             }
 

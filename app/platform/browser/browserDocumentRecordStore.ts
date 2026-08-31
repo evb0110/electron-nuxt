@@ -34,6 +34,7 @@ import {
 } from '@app/platform/browser/browserDocumentRevision';
 import { BrowserDocumentMutationQueue } from '@app/platform/browser/browserDocumentMutationQueue';
 import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
+import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import type {
     IDocumentRevisionChangedEvent,
     IDocumentRevisionInfo,
@@ -82,6 +83,7 @@ async function readFileHandleBytes(
         return {
             size: file.size,
             lastModified: file.lastModified,
+            file,
             bytes: new Uint8Array(await file.slice(start, end).arrayBuffer()),
         };
     }
@@ -89,17 +91,28 @@ async function readFileHandleBytes(
     return {
         size: file.size,
         lastModified: file.lastModified,
+        file,
         bytes: new Uint8Array(await file.arrayBuffer()),
     };
 }
 
-async function readFileHandleMetadata(handle: FileSystemFileHandle) {
+export async function readFileHandleMetadata(handle: FileSystemFileHandle) {
     await ensureFileHandleReadPermission(handle);
     const file = await handle.getFile();
     return {
         size: file.size,
         lastModified: file.lastModified,
+        file,
     };
+}
+
+function readFileSnapshotBytes(file: File, offset?: number, length?: number) {
+    if (typeof offset === 'number' && typeof length === 'number') {
+        const start = Math.max(0, offset);
+        const end = Math.max(start, start + Math.max(0, length));
+        return file.slice(start, end).arrayBuffer().then(bytes => new Uint8Array(bytes));
+    }
+    return file.arrayBuffer().then(bytes => new Uint8Array(bytes));
 }
 
 export class BrowserDocumentRecordStore {
@@ -125,6 +138,44 @@ export class BrowserDocumentRecordStore {
 
     protected attachEntry(entry: IBrowserDocumentEntry) {
         this.entries.set(entry.ref, entry);
+    }
+
+    protected async findPersistedFileHandleRef(handle: FileSystemFileHandle) {
+        const result = await loadBrowserPersistedDocumentRecordsResult();
+        if (!result.available) {
+            return null;
+        }
+
+        for (const record of result.records) {
+            if (record.kind !== 'source' || !record.saveHandle) {
+                continue;
+            }
+
+            let sameEntry = record.saveHandle === handle;
+            if (!sameEntry && typeof record.saveHandle.isSameEntry === 'function') {
+                try {
+                    sameEntry = await record.saveHandle.isSameEntry(handle);
+                } catch {
+                    sameEntry = false;
+                }
+            }
+            if (!sameEntry && typeof handle.isSameEntry === 'function') {
+                try {
+                    sameEntry = await handle.isSameEntry(record.saveHandle);
+                } catch {
+                    sameEntry = false;
+                }
+            }
+            if (!sameEntry) {
+                continue;
+            }
+
+            const entry = await this.ensureEntry(record.ref);
+            if (entry) {
+                return record.ref;
+            }
+        }
+        return null;
     }
 
     /**
@@ -263,7 +314,7 @@ export class BrowserDocumentRecordStore {
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             return this.stat(entry.sourceRef);
         }
-        if (entry.storageMode === 'handle' && entry.saveHandle) {
+        if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
             await this.refreshHandleBackedEntry(entry);
         }
         return {
@@ -276,7 +327,7 @@ export class BrowserDocumentRecordStore {
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             return this.getContentSignature(entry.sourceRef);
         }
-        if (entry.storageMode === 'handle' && entry.saveHandle) {
+        if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
             await this.refreshHandleBackedEntry(entry);
         }
 
@@ -294,13 +345,13 @@ export class BrowserDocumentRecordStore {
         const entry = await this.requireEntry(ref);
         if (entry.storageMode === 'source-proxy' && entry.sourceRef) {
             const sourceEntry = await this.requireEntry(entry.sourceRef);
-            if (sourceEntry.storageMode === 'handle' && sourceEntry.saveHandle) {
+            if (sourceEntry.saveHandle && (sourceEntry.sourceWitness || sourceEntry.storageMode === 'handle')) {
                 await this.refreshHandleBackedEntry(sourceEntry);
             }
             return createBrowserDocumentRevisionInfo(sourceEntry, ref);
         }
 
-        if (entry.storageMode === 'handle' && entry.saveHandle) {
+        if (entry.saveHandle && (entry.sourceWitness || entry.storageMode === 'handle')) {
             await this.refreshHandleBackedEntry(entry);
         }
 
@@ -348,6 +399,8 @@ export class BrowserDocumentRecordStore {
         await this.runRefMutation(ref, () => this.removeUnlocked(ref));
     }
 
+    protected onDocumentRemoved(_ref: string) {}
+
     private async removeUnlocked(ref: string) {
         await this.removeDocumentRecordUnlocked(ref);
         await this.removeRecentFile(ref);
@@ -361,6 +414,7 @@ export class BrowserDocumentRecordStore {
             await clearPendingBrowserDocumentChunks(entry);
             await clearBrowserDocumentExternalChunkStorage(entry);
         }
+        this.onDocumentRemoved(ref);
         this.dropLoadedEntry(ref);
         await deleteRecord(ref);
     }
@@ -471,34 +525,28 @@ export class BrowserDocumentRecordStore {
 
     private async refreshHandleBackedEntry(
         entry: IBrowserDocumentEntry,
-        metadata?: {
-            size: number;
-            lastModified: number;
-        },
     ) {
-        if (!entry.saveHandle && !metadata) {
+        if (!entry.saveHandle) {
             return;
         }
 
-        const saveHandle = entry.saveHandle;
-        const resolvedMetadata = metadata ?? (saveHandle
-            ? await readFileHandleMetadata(saveHandle)
-            : null);
-        if (!resolvedMetadata) {
-            return;
-        }
-        const contentToken = `handle:${resolvedMetadata.size}:${resolvedMetadata.lastModified}`;
+        const resolvedMetadata = await readFileHandleMetadata(entry.saveHandle);
+        const contentToken = await createBrowserFileContentWitness(resolvedMetadata.file);
         if (
             entry.fileSize === resolvedMetadata.size
+            && entry.fileLastModified === resolvedMetadata.lastModified
             && entry.contentToken === contentToken
         ) {
+            entry.fileSnapshot = resolvedMetadata.file;
             return;
         }
 
         const previousToken = createBrowserDocumentRevisionInfo(entry).token;
         entry.fileSize = resolvedMetadata.size;
+        entry.fileLastModified = resolvedMetadata.lastModified;
         entry.updatedAt = Date.now();
         entry.contentToken = contentToken;
+        entry.fileSnapshot = resolvedMetadata.file;
         entry.contentRevision = getBrowserDocumentEntryContentRevision(entry) + 1;
         await persistRecord(createPersistedBrowserDocumentRecord(entry, entry.data, false));
         this.emitRevisionChangeForEntry(entry, previousToken, 'browser-handle-refresh');
@@ -512,18 +560,23 @@ export class BrowserDocumentRecordStore {
                 }
                 return this.read(entry.sourceRef);
             case 'handle': {
+                if (
+                    entry.fileSnapshot
+                    && entry.fileSnapshot.size === entry.fileSize
+                    && entry.fileSnapshot.lastModified === entry.fileLastModified
+                ) {
+                    return readFileSnapshotBytes(entry.fileSnapshot);
+                }
                 if (!entry.saveHandle) {
                     return cloneBytes(entry.data);
                 }
                 const {
-                    size,
-                    lastModified,
+                    file,
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle);
-                await this.refreshHandleBackedEntry(entry, {
-                    size,
-                    lastModified,
-                });
+                entry.fileSnapshot = file;
+                entry.fileSize = file.size;
+                entry.fileLastModified = file.lastModified;
                 return bytes;
             }
             case 'chunked': {
@@ -553,18 +606,23 @@ export class BrowserDocumentRecordStore {
                 }
                 return this.readRange(entry.sourceRef, start, rangeLength);
             case 'handle': {
+                if (
+                    entry.fileSnapshot
+                    && entry.fileSnapshot.size === entry.fileSize
+                    && entry.fileSnapshot.lastModified === entry.fileLastModified
+                ) {
+                    return readFileSnapshotBytes(entry.fileSnapshot, start, rangeLength);
+                }
                 if (!entry.saveHandle) {
                     return entry.data.slice(start, end);
                 }
                 const {
-                    size,
-                    lastModified,
+                    file,
                     bytes,
                 } = await readFileHandleBytes(entry.saveHandle, start, rangeLength);
-                await this.refreshHandleBackedEntry(entry, {
-                    size,
-                    lastModified,
-                });
+                entry.fileSnapshot = file;
+                entry.fileSize = file.size;
+                entry.fileLastModified = file.lastModified;
                 return bytes;
             }
             case 'chunked': {

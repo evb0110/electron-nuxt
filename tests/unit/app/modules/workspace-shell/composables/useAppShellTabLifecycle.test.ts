@@ -33,6 +33,8 @@ import {requireDocumentRevisionToken} from '@contracts';
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => ({useRuntimeErrorReports: () => ({reportRuntimeError: vi.fn()})}));
 
+vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
+
 function createDocumentRevision(
     token: string,
     documentRef: string,

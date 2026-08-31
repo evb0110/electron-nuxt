@@ -104,7 +104,19 @@ const STALE_WORK_DIR_SCAN_LIMIT = (() => {
     return Math.min(parsed, 10_000);
 })();
 
+let staleWorkingCopyCleanupBlockedReason: string | null = null;
+let staleWorkingCopyCleanupPromise: Promise<void> | null = null;
+
 export interface ICleanupStaleWorkingCopyDirectoriesOptions {statConcurrency?: number;}
+
+/**
+ * A checkpoint read failure leaves recovery evidence in place, so stale
+ * directory cleanup must not guess that the corresponding work copy is safe
+ * to remove during this process.
+ */
+export function blockStaleWorkingCopyDirectoryCleanup(reason: string) {
+    staleWorkingCopyCleanupBlockedReason ??= reason;
+}
 
 function getWorkingCopyLogicalPath(
     mapPath: string,
@@ -125,12 +137,21 @@ function isRegisteredWorkingCopyDirectory(workDir: string) {
         ) === normalizedDirectory);
 }
 
-export async function cleanupStaleWorkingCopyDirectories(
+async function performCleanupStaleWorkingCopyDirectories(
     options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
 ): Promise<{
     removedDirectories: number;
     removedOcrDirectories: number;
 }> {
+    if (staleWorkingCopyCleanupBlockedReason) {
+        logger.warn(
+            `Skipped stale working-copy cleanup because recovery preservation is required: ${staleWorkingCopyCleanupBlockedReason}`,
+        );
+        return {
+            removedDirectories: 0,
+            removedOcrDirectories: 0,
+        };
+    }
     let removedDirectories = 0;
     let removedOcrDirectories = 0;
     const now = Date.now();
@@ -177,6 +198,9 @@ export async function cleanupStaleWorkingCopyDirectories(
 
     await Promise.all(Array.from({length: workerCount}, async () => {
         while (nextBackupCleanupIndex < candidates.length) {
+            if (staleWorkingCopyCleanupBlockedReason) {
+                return;
+            }
             const candidateIndex = nextBackupCleanupIndex;
             nextBackupCleanupIndex += 1;
             const candidate = candidates[candidateIndex];
@@ -195,10 +219,20 @@ export async function cleanupStaleWorkingCopyDirectories(
         }
     }));
 
+    if (staleWorkingCopyCleanupBlockedReason) {
+        return {
+            removedDirectories,
+            removedOcrDirectories,
+        };
+    }
+
     let nextCandidateIndex = 0;
 
     await Promise.all(Array.from({length: workerCount}, async () => {
         while (nextCandidateIndex < candidates.length) {
+            if (staleWorkingCopyCleanupBlockedReason) {
+                return;
+            }
             const candidateIndex = nextCandidateIndex;
             nextCandidateIndex += 1;
             const candidate = candidates[candidateIndex];
@@ -223,8 +257,14 @@ export async function cleanupStaleWorkingCopyDirectories(
                 continue;
             }
 
+            if (staleWorkingCopyCleanupBlockedReason) {
+                return;
+            }
             if (await safeRemoveDirectory(workDir)) {
                 removedDirectories += 1;
+            }
+            if (staleWorkingCopyCleanupBlockedReason) {
+                return;
             }
             if (await safeRemoveDirectory(`${workDir}.ocr`)) {
                 removedOcrDirectories += 1;
@@ -245,6 +285,23 @@ export async function cleanupStaleWorkingCopyDirectories(
         removedDirectories,
         removedOcrDirectories,
     };
+}
+
+export function cleanupStaleWorkingCopyDirectories(
+    options: ICleanupStaleWorkingCopyDirectoriesOptions = {},
+): Promise<{
+    removedDirectories: number;
+    removedOcrDirectories: number;
+}> {
+    const previousCleanup = staleWorkingCopyCleanupPromise ?? Promise.resolve();
+    const currentCleanup = previousCleanup.then(() => performCleanupStaleWorkingCopyDirectories(options));
+    const settledCleanup = currentCleanup.then(() => undefined, () => undefined);
+    staleWorkingCopyCleanupPromise = settledCleanup;
+    return currentCleanup.finally(() => {
+        if (staleWorkingCopyCleanupPromise === settledCleanup) {
+            staleWorkingCopyCleanupPromise = null;
+        }
+    });
 }
 
 function isPathWithin(parentPath: string, candidatePath: string) {

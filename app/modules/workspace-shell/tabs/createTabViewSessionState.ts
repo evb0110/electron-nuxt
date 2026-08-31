@@ -14,6 +14,7 @@ export function createTabViewSessionState(
         zoomMode: snapshot.zoomMode,
         fitMode: snapshot.fitMode,
         viewMode: snapshot.viewMode,
+        viewRotation: snapshot.viewRotation,
         showSidebar: snapshot.showSidebar,
         sidebarTab: snapshot.sidebarTab ?? 'thumbnails',
         sidebarWidth: snapshot.sidebarWidth ?? 272,

@@ -63,6 +63,7 @@ interface IViewportAuthorityDependencies {
     ): unknown;
     onPositionCommitted?(commit: IPdfViewportPositionCommit): void;
     awaitVisual(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
+    beforeApply?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     postArrival?(request: IPdfNavigationRequest, signal: AbortSignal): Promise<void>;
     clearDemand?(intentId: string): void;
 }
@@ -250,6 +251,8 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
                     assertCurrent(next, signal, expectedGeometryRevision);
                 }
             }
+            await deps.beforeApply?.(next, signal);
+            assertCurrentIntent(next, signal);
             phase.value = 'applying';
             const applied = deps.apply(next, commit);
             committedAnchor.value = commit.anchor;

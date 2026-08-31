@@ -1,15 +1,43 @@
 <template>
-    <div class="settings-grid">
+    <div
+        v-if="!isLoaded || settingsLoadFailed"
+        class="settings-state"
+        :role="settingsLoadFailed ? 'alert' : 'status'"
+        aria-live="polite"
+    >
+        <UAlert
+            :color="settingsLoadFailed ? 'error' : 'neutral'"
+            variant="soft"
+            icon="i-ph-warning-circle"
+            :description="settingsLoadFailed
+                ? `${t('errors.settings.load')}: ${settingsLoadError ?? t('errors.runtime.description')}`
+                : t('common.loading')"
+        />
+        <UButton
+            v-if="settingsLoadFailed"
+            color="neutral"
+            variant="outline"
+            :label="t('common.retry')"
+            :loading="settingsLoadPending"
+            @click="retrySettingsLoad"
+        />
+    </div>
+
+    <div
+        class="settings-grid"
+        :aria-busy="!isLoaded"
+        :inert="!isLoaded ? true : undefined"
+    >
         <section class="settings-card">
             <SettingsGeneralPanel
                 :settings="settings"
                 :locale-items="localeItems"
                 :selected-flag-icon="selectedFlagIcon"
-                @update:author-name="updateSetting('authorName', $event)"
-                @update:suppress-unencrypted-save-notice="updateSetting('suppressUnencryptedSaveNotice', $event)"
+                @update:author-name="updateSettingSafely('authorName', $event)"
+                @update:suppress-unencrypted-save-notice="updateSettingSafely('suppressUnencryptedSaveNotice', $event)"
                 @update:theme="applyTheme"
                 @update:locale="applyLocale"
-                @update:ui-scale="updateSetting('uiScale', $event)"
+                @update:ui-scale="updateSettingSafely('uiScale', $event)"
             />
         </section>
 
@@ -25,8 +53,8 @@
                 @update:view-mode="applyViewMode"
                 @update:scroll-mode="applyScrollMode"
                 @update:tab-memory-policy="applyTabMemoryPolicy"
-                @update:annotation-color="updateSetting('defaultAnnotationColor', $event)"
-                @update:optimize-pdf-on-save-as="updateSetting('optimizePdfOnSaveAs', $event)"
+                @update:annotation-color="updateSettingSafely('defaultAnnotationColor', $event)"
+                @update:optimize-pdf-on-save-as="updateSettingSafely('optimizePdfOnSaveAs', $event)"
             />
         </section>
 
@@ -70,10 +98,32 @@
             />
         </section>
     </div>
+
+    <div
+        v-if="settingsSaveStatus === 'retry-pending' || settingsSaveError"
+        class="settings-save-error"
+        role="alert"
+        aria-live="assertive"
+    >
+        <UAlert
+            color="error"
+            variant="soft"
+            icon="i-ph-warning"
+            :description="settingsSaveError ? `${t('status.saveFailed')}: ${settingsSaveError}` : t('status.saveFailed')"
+        />
+        <UButton
+            color="neutral"
+            variant="outline"
+            :label="t('common.retry')"
+            :loading="settingsSaveStatus === 'saving'"
+            @click="retrySettingsSave"
+        />
+    </div>
 </template>
 
 <script setup lang="ts">
 import type {
+    ISettingsData,
     TAppLocale,
     TAppTheme,
     TDefaultZoomPreset,
@@ -202,8 +252,13 @@ const colorMode = useColorMode();
 const toast = useToast();
 const {
     settings,
+    isLoaded,
     load,
+    loadOrThrow,
+    settingsLoadError,
     save,
+    settingsSaveError,
+    settingsSaveStatus,
     updateSetting,
 } = useSettings();
 const {
@@ -221,7 +276,15 @@ const assistantState = ref<IAgentAssistantState | null>(null);
 const assistantDeviceCode = ref('');
 const assistantAction = ref<'refresh' | 'install' | 'login' | 'cancel' | null>(null);
 const isAssistantBusy = computed(() => assistantAction.value !== null);
+const settingsLoadFailed = ref(false);
+const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
+
+watch(isLoaded, (loaded) => {
+    if (loaded) {
+        settingsLoadFailed.value = false;
+    }
+});
 let unsubscribeAssistantEvent: (() => void) | null = null;
 let disposed = false;
 const shortcutsDescription = computed(() => isDesktopRuntime.value
@@ -341,7 +404,37 @@ const shortcutItems = computed(() => {
     ];
 });
 
+async function retrySettingsLoad() {
+    if (settingsLoadPending.value) {
+        return;
+    }
+    settingsLoadPending.value = true;
+    settingsLoadFailed.value = false;
+    try {
+        await loadOrThrow();
+        settingsLoadFailed.value = !isLoaded.value;
+    } catch {
+        settingsLoadFailed.value = true;
+    } finally {
+        settingsLoadPending.value = false;
+    }
+}
+
+async function retrySettingsSave() {
+    await save();
+}
+
+function updateSettingSafely<K extends keyof ISettingsData>(key: K, value: ISettingsData[K]) {
+    if (!isLoaded.value) {
+        return;
+    }
+    updateSetting(key, value);
+}
+
 function applyTheme(theme: TAppTheme) {
+    if (!isLoaded.value) {
+        return;
+    }
     colorMode.preference = theme;
     updateSetting('theme', theme);
 }
@@ -371,6 +464,9 @@ function isPerformanceMode(value: string): value is TPerformanceMode {
 }
 
 function applyZoomPreset(preset: string | { value: string }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const value = readSelectValue(preset);
     if (isDefaultZoomPreset(value)) {
         updateSetting('defaultZoomPreset', value);
@@ -378,6 +474,9 @@ function applyZoomPreset(preset: string | { value: string }) {
 }
 
 function applyViewMode(mode: string | { value: string }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const value = readSelectValue(mode);
     if (isPdfViewMode(value)) {
         updateSetting('defaultViewMode', value);
@@ -385,11 +484,17 @@ function applyViewMode(mode: string | { value: string }) {
 }
 
 function applyScrollMode(mode: boolean | { value: boolean }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const value = typeof mode === 'boolean' ? mode : mode.value;
     updateSetting('defaultContinuousScroll', value);
 }
 
 function applyTabMemoryPolicy(policy: string | { value: string }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const value = readSelectValue(policy);
     if (isTabMemoryPolicy(value)) {
         updateSetting('tabMemoryPolicy', value);
@@ -397,6 +502,9 @@ function applyTabMemoryPolicy(policy: string | { value: string }) {
 }
 
 function applyPerformanceMode(mode: string | { value: string }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const value = readSelectValue(mode);
     if (isPerformanceMode(value)) {
         updateSetting('performanceMode', value);
@@ -404,6 +512,9 @@ function applyPerformanceMode(mode: string | { value: string }) {
 }
 
 async function applyLocale(locale: string | { value: string }) {
+    if (!isLoaded.value) {
+        return;
+    }
     const code = readSelectValue(locale);
     if (isAppLocale(code)) {
         await setLocale(code);
@@ -479,6 +590,9 @@ async function cancelAssistantLogin() {
 }
 
 async function updateAssistantPanelEnabled(enabled: boolean) {
+    if (!isLoaded.value) {
+        return;
+    }
     updateSetting('assistantPanelEnabled', enabled);
     assistantPanelPreferenceSave = save().finally(() => {
         assistantPanelPreferenceSave = null;
@@ -606,6 +720,9 @@ function openAgentMcpInstall() {
 }
 
 onMounted(() => {
+    if (!isLoaded.value) {
+        void retrySettingsLoad();
+    }
     void ensureUpdatesInitialized();
     void refreshAgentMcpStatus();
     if (isDesktopRuntime.value) {
@@ -638,6 +755,14 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
+.settings-state,
+.settings-save-error {
+    display: flex;
+    flex-direction: column;
+    gap: var(--app-space-3xl);
+    margin-block-end: var(--app-space-12xl);
+}
+
 .settings-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));

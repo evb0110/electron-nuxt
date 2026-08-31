@@ -9,6 +9,7 @@ import {
     createProcessDeathRecovery,
     DOCUMENT_FINGERPRINT_SERVICE_NAME,
     DOCUMENT_SAVE_SERVICE_NAME,
+    PDF_PRINT_LAYOUT_SERVICE_NAME,
     PROCESS_SAFE_MODE_ARGUMENT,
 } from '@electron/processDeathRecovery';
 import {
@@ -126,6 +127,22 @@ describe('processDeathRecovery', () => {
         );
     });
 
+    it('keeps normal PDF print layout utility teardown out of the error channel', () => {
+        const fixture = createFixture();
+
+        expect(fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 15,
+            serviceName: PDF_PRINT_LAYOUT_SERVICE_NAME,
+        }).action).toBe('logged');
+
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledWith(
+            '[process-death] Utility process gone (EVB PDF print layout, reason=killed, exitCode=15)',
+        );
+    });
+
     it('still reports a utility process that failed on its own', () => {
         const fixture = createFixture();
 
@@ -142,9 +159,10 @@ describe('processDeathRecovery', () => {
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
 
-    // Only the two document save utilities are the app's to kill. A signal that
-    // ended any other utility process came from outside the app, which is a
-    // fault the user should see.
+    // Only named utility processes that the app forks are expected to be
+    // terminated during ordinary teardown. A signal that ended any other
+    // utility process came from outside the app, which is a fault the user
+    // should see.
     it('still reports a killed utility process the app did not fork', () => {
         const fixture = createFixture();
 

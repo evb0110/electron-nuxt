@@ -10,14 +10,8 @@ import type {
     TBrowserPageOpsWorkerRequest,
     TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
-import type {
-    IPageGeometry,
-    IPdfBox,
-} from '@contracts/shared';
-import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {decodePageGeometry} from '@contracts/decodePageGeometry';
+import {isRecord} from '@contracts/runtimeGuards';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import { settleBrowserWorkerResult } from '@app/platform/browser-api/settleBrowserWorkerResult';
 import type { IPendingBrowserWorkerRequest } from '@app/platform/browser-api/settleBrowserWorkerResult';
@@ -211,50 +205,6 @@ function decodePdfConformanceFacts(data: unknown): IBrowserPdfConformanceFacts |
         };
     }
     return null;
-}
-
-function decodePdfBox(value: unknown): IPdfBox | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        !isFiniteNumber(value.x)
-        || !isFiniteNumber(value.y)
-        || !isFiniteNumber(value.width)
-        || !isFiniteNumber(value.height)
-    ) {
-        return null;
-    }
-    return {
-        x: value.x,
-        y: value.y,
-        width: value.width,
-        height: value.height,
-    };
-}
-
-function decodePageGeometry(data: unknown): IPageGeometry | null {
-    if (!isRecord(data) || !isFiniteNumber(data.rotation)) {
-        return null;
-    }
-
-    const mediaBox = decodePdfBox(data.mediaBox);
-    if (!mediaBox) {
-        return null;
-    }
-
-    const cropBox = data.cropBox === null
-        ? null
-        : decodePdfBox(data.cropBox);
-    if (cropBox === null && data.cropBox !== null) {
-        return null;
-    }
-
-    return {
-        mediaBox,
-        cropBox,
-        rotation: data.rotation,
-    };
 }
 
 function decodePageOpsWorkerResult<K extends TBrowserPageOpsWorkerRequestType>(

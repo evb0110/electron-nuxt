@@ -542,10 +542,7 @@ async function seedFromPdftotext(
         }
         const errMsg = getErrorMessage(pdfTextErr);
         log.warn(`Failed to extract text with pdftotext: ${errMsg}`);
-        return {
-            pagesByNumber,
-            hasText,
-        };
+        throw pdfTextErr;
     }
 }
 

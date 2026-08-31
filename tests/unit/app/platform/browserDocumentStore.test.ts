@@ -75,6 +75,70 @@ describe('BrowserDocumentStore', () => {
         });
     });
 
+    it('dedupes a reopened physical file handle across browser windows', async () => {
+        const persistedHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'same-entry.pdf',
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
+            isSameEntry: vi.fn(async () => false),
+        });
+        const reopenedHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'same-entry.pdf',
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'same-entry.pdf')),
+            isSameEntry: vi.fn(async (candidate: FileSystemFileHandle) => candidate === persistedHandle),
+        });
+        const firstWindow = new BrowserDocumentStore();
+        const firstRef = await firstWindow.registerFile(
+            new File([Uint8Array.of(1)], 'same-entry.pdf', {type: 'application/pdf'}),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: persistedHandle,
+            },
+        );
+
+        const secondWindow = new BrowserDocumentStore();
+        const secondRef = await secondWindow.registerFile(
+            new File([Uint8Array.of(1)], 'same-entry.pdf', {type: 'application/pdf'}),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: reopenedHandle,
+            },
+        );
+
+        expect(secondRef).toBe(firstRef);
+        expect(reopenedHandle.isSameEntry).toHaveBeenCalledWith(persistedHandle);
+    });
+
+    it('forgets a replaced file handle before deduping a later registration', async () => {
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'replaced.pdf',
+            getFile: vi.fn(async () => new File([Uint8Array.of(1)], 'replaced.pdf')),
+        });
+        const store = new BrowserDocumentStore();
+        const originalFile = new File([Uint8Array.of(1)], 'replaced.pdf', {type: 'application/pdf'});
+        const originalRef = await store.registerFile(originalFile, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: handle,
+        });
+
+        await store.registerFile(originalFile, {saveHandle: null});
+        const nextRef = await store.registerFile(
+            new File([Uint8Array.of(1)], 'replaced.pdf', {type: 'application/pdf'}),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+            },
+        );
+
+        expect(nextRef).not.toBe(originalRef);
+    });
+
     it('uses the latest save name when refreshing recent files', async () => {
         const handle = cast<FileSystemFileHandle>({
             kind: 'file',
@@ -178,6 +242,75 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(secondRef)).resolves.toEqual(Uint8Array.of(4, 5, 6));
     });
 
+    it('dedupes two handles for the same physical browser file', async () => {
+        const firstFile = new File([Uint8Array.of(1, 2, 3)], 'same-entry.pdf', { type: 'application/pdf' });
+        const secondFile = new File([Uint8Array.of(4, 5, 6)], 'same-entry.pdf', { type: 'application/pdf' });
+        const firstHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'same-entry.pdf',
+            isSameEntry: vi.fn(async () => true),
+        });
+        const secondHandle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'same-entry.pdf',
+        });
+        const store = new BrowserDocumentStore();
+
+        const firstRef = await store.registerFile(firstFile, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: firstHandle,
+        });
+        const secondRef = await store.registerFile(secondFile, {
+            kind: 'source',
+            saveKind: 'pdf',
+            saveHandle: secondHandle,
+        });
+
+        expect(secondRef).toBe(firstRef);
+        await store.touchRecentFile(secondRef);
+        expect(store.getRecentFiles().map(file => file.originalPath)).toEqual([firstRef]);
+        await expect(store.read(firstRef)).resolves.toEqual(Uint8Array.of(1, 2, 3));
+    });
+
+    it('rejects a same-size same-mtime source replacement using the content witness', async () => {
+        let currentBytes = Uint8Array.of(1, 2, 3, 4);
+        const getFile = vi.fn(async () => new File(
+            [currentBytes],
+            'witness.pdf',
+            {
+                type: 'application/pdf',
+                lastModified: 11,
+            },
+        ));
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'witness.pdf',
+            getFile,
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.registerFile(
+            new File([currentBytes], 'witness.pdf', {
+                type: 'application/pdf',
+                lastModified: 11,
+            }),
+            {
+                kind: 'source',
+                saveKind: 'pdf',
+                saveHandle: handle,
+            },
+        );
+        const revision = await store.getDocumentRevision(ref);
+
+        currentBytes = Uint8Array.of(9, 8, 7, 6);
+
+        await expect(store.assertDocumentRevisionCurrent(ref, revision.token))
+            .rejects
+            .toMatchObject({code: 'STALE_REVISION'});
+        await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
+        expect(getFile).toHaveBeenCalled();
+    });
+
     it('rejects document creation when durable IndexedDB writes cannot commit', async () => {
         vi.stubGlobal('indexedDB', undefined);
         const store = new BrowserDocumentStore();
@@ -229,6 +362,18 @@ describe('BrowserDocumentStore', () => {
 
         await expect(store.read(workingRef)).resolves.toEqual(bytes);
         await expect(store.read(sourceRef)).resolves.toEqual(bytes);
+    });
+
+    it('keeps a memory-only working copy usable when IndexedDB is unavailable', async () => {
+        const bytes = Uint8Array.of(2, 4, 6);
+        vi.stubGlobal('indexedDB', undefined);
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.registerFile(new File([bytes], 'volatile.pdf', {type: 'application/pdf'}));
+
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+
+        expect((await store.requireEntry(workingRef)).memoryOnly).toBe(true);
+        await expect(store.read(workingRef)).resolves.toEqual(bytes);
     });
 
     it('rolls back an in-memory write when the durable write cannot commit', async () => {
@@ -763,6 +908,45 @@ describe('BrowserDocumentStore', () => {
         });
     });
 
+    it('uses one browser File snapshot for sequential handle range reads', async () => {
+        const firstFile = new File([Uint8Array.of(1, 2, 3, 4)], 'snapshot.pdf', {
+            type: 'application/pdf',
+            lastModified: 21,
+        });
+        const replacementFile = new File([Uint8Array.of(9, 9, 9, 9)], 'snapshot.pdf', {
+            type: 'application/pdf',
+            lastModified: 22,
+        });
+        const getFile = vi.fn()
+            .mockResolvedValueOnce(firstFile)
+            .mockResolvedValueOnce(replacementFile);
+        const handle = cast<FileSystemFileHandle>({
+            kind: 'file',
+            name: 'snapshot.pdf',
+            getFile,
+        });
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'snapshot.pdf',
+            new Uint8Array(),
+            {
+                ...PDF_SOURCE_OPTIONS,
+                kind: 'output',
+                saveHandle: handle,
+                storageMode: 'handle',
+            },
+        );
+        await store.replaceWithHandleBackedDocument(ref, {
+            fileSize: firstFile.size,
+            saveHandle: handle,
+            saveName: 'snapshot.pdf',
+        });
+
+        await expect(store.readRange(ref, 0, 2)).resolves.toEqual(Uint8Array.of(1, 2));
+        await expect(store.readRange(ref, 2, 2)).resolves.toEqual(Uint8Array.of(3, 4));
+        expect(getFile).toHaveBeenCalledOnce();
+    });
+
     it('mirrors picked source bytes even when a save handle is present', async () => {
         const bytes = Uint8Array.of(3, 1, 4);
         const handle = cast<FileSystemFileHandle>({
@@ -982,6 +1166,59 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).resolves.toEqual(Uint8Array.of(1, 2, 3, 4));
     });
 
+    it('persists a cross-window lease for manually written chunks until finalize', async () => {
+        const store = new BrowserDocumentStore();
+        const ref = await store.createStoredDocument(
+            'cross-window-output.pdf',
+            new Uint8Array(),
+            {
+                mimeType: 'application/pdf',
+                kind: 'output',
+                retention: 'transient',
+                saveKind: 'pdf',
+            },
+        );
+
+        await store.prepareChunkedDocument(ref, {chunkSize: 4});
+        await store.writeChunk(ref, 0, Uint8Array.of(1, 2, 3, 4));
+
+        const database = indexedDbFactory.getDatabase('evb-viewer-browser-documents');
+        const persistedRecord = database?.getStoreRecords('documents').get(ref);
+        expect(persistedRecord).toEqual(expect.objectContaining({
+            pendingChunkGeneration: expect.any(String),
+            pendingChunkCount: 1,
+            pendingChunkSize: 4,
+            pendingFileSize: 4,
+            pendingChunkUpdatedAt: expect.any(Number),
+        }));
+
+        const otherWindowStore = new BrowserDocumentStore();
+        await otherWindowStore.createStoredDocument(
+            'maintenance-trigger.pdf',
+            Uint8Array.of(9),
+            {
+                mimeType: 'application/pdf',
+                kind: 'working',
+                saveKind: 'pdf',
+            },
+        );
+
+        const chunkRecords = Array.from(database?.getStoreRecords('document-chunks').values() ?? []);
+        expect(chunkRecords).toEqual(expect.arrayContaining([expect.objectContaining({
+            ref,
+            index: 0,
+        })]));
+        await expect(otherWindowStore.read(ref)).resolves.toEqual(new Uint8Array());
+
+        await store.finalizeChunkedDocument(ref, {
+            fileSize: 4,
+            chunkCount: 1,
+            chunkSize: 4,
+        });
+        const finalizedRecord = database?.getStoreRecords('documents').get(ref);
+        expect(finalizedRecord).not.toHaveProperty('pendingChunkGeneration');
+    });
+
     it('rejects full reads for browser documents above the in-memory safety limit', async () => {
         const bytes = new Uint8Array(BROWSER_MAX_FULL_READ_BYTES + 1);
         bytes[0] = 5;
@@ -992,6 +1229,37 @@ describe('BrowserDocumentStore', () => {
         await expect(store.read(ref)).rejects.toThrow('Browser document is too large to load fully into memory');
         await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(5));
         await expect(store.readRange(ref, bytes.byteLength - 1, 1)).resolves.toEqual(Uint8Array.of(8));
+    });
+
+    it('keeps an oversized picked file range-readable without reading the whole file in memory', async () => {
+        const fileSize = BROWSER_MAX_FULL_READ_BYTES + 1;
+        const fullRead = vi.fn(async () => {
+            throw new Error('full file read should not be used');
+        });
+        const slice = vi.fn((start: number, _end: number) => ({arrayBuffer: async () => Uint8Array.of(start === 0 ? 5 : 8).buffer}));
+        const file = cast<File>({
+            name: 'oversized.pdf',
+            type: 'application/pdf',
+            size: fileSize,
+            lastModified: 31,
+            arrayBuffer: fullRead,
+            slice,
+        });
+        vi.stubGlobal('indexedDB', undefined);
+        const store = new BrowserDocumentStore();
+
+        const ref = await store.registerFile(file, {
+            kind: 'source',
+            saveKind: 'pdf',
+        });
+
+        const entry = await store.requireEntry(ref);
+        expect(entry.memoryOnly).toBe(true);
+        expect(entry.storageMode).toBe('handle');
+        expect(fullRead).not.toHaveBeenCalled();
+        await expect(store.readRange(ref, 0, 1)).resolves.toEqual(Uint8Array.of(5));
+        await expect(store.readRange(ref, fileSize - 1, 1)).resolves.toEqual(Uint8Array.of(8));
+        await expect(store.read(ref)).rejects.toThrow('Browser document is too large to load fully into memory');
     });
 
     it('clears partial chunk records when chunked output is aborted', async () => {

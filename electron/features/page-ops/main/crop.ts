@@ -10,13 +10,9 @@ import {
 import { fileURLToPath } from 'url';
 import type {
     ICropMargins,
-    IPdfBox,
     IPageGeometry,
 } from '@contracts/shared';
-import {
-    isFiniteNumber,
-    isRecord,
-} from '@contracts/runtimeGuards';
+import {decodePageGeometry} from '@contracts/decodePageGeometry';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import {
@@ -71,50 +67,6 @@ function decodeUndefinedResult(data: unknown): undefined | null {
     return data === undefined ? undefined : null;
 }
 
-
-function decodePdfBox(value: unknown): IPdfBox | null {
-    if (!isRecord(value)) {
-        return null;
-    }
-    if (
-        !isFiniteNumber(value.x)
-        || !isFiniteNumber(value.y)
-        || !isFiniteNumber(value.width)
-        || !isFiniteNumber(value.height)
-    ) {
-        return null;
-    }
-    return {
-        x: value.x,
-        y: value.y,
-        width: value.width,
-        height: value.height,
-    };
-}
-
-function decodePageGeometryResult(data: unknown): IPageGeometry | null {
-    if (!isRecord(data) || !isFiniteNumber(data.rotation)) {
-        return null;
-    }
-
-    const mediaBox = decodePdfBox(data.mediaBox);
-    if (!mediaBox) {
-        return null;
-    }
-
-    const cropBox = data.cropBox === null
-        ? null
-        : decodePdfBox(data.cropBox);
-    if (cropBox === null && data.cropBox !== null) {
-        return null;
-    }
-
-    return {
-        mediaBox,
-        cropBox,
-        rotation: data.rotation,
-    };
-}
 
 async function runCropWorkerTask<T>(
     workerInput: TCropWorkerInput,
@@ -237,7 +189,7 @@ async function tryGetPageGeometryWithNativePageOps(
             }
             const resultJson = await readFile(outputPath, 'utf8');
             throwIfAborted(signal);
-            const result = decodePageGeometryResult(JSON.parse(resultJson));
+            const result = decodePageGeometry(JSON.parse(resultJson));
             if (!result) {
                 throw new Error('Native page geometry returned an invalid result');
             }

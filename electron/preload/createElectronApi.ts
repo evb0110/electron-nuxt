@@ -16,6 +16,11 @@ import type {
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type {
+    TWindowCloseDecision,
+    TWindowCloseUnavailableReason,
+    TWindowCloseRequestHandler,
+} from '@contracts/systemPlatformFeature';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
@@ -57,6 +62,7 @@ import {
     type ICoreEventMap,
     type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
+    decodeWindowCloseRequest,
 } from '@electron/platform-ipc/coreContract';
 
 const preloadStartupStart = Date.now();
@@ -177,6 +183,7 @@ export function createElectronApi(
         dirtyWorkingCopyPaths?: string[];
         flushedWorkingCopyPaths?: string[];
     }>();
+    const windowCloseCallbacks = new Set<TWindowCloseRequestHandler>();
     const pendingRendererFileOpenAllows = new Map<string, {
         token: string;
         promise: Promise<boolean>;
@@ -343,6 +350,61 @@ export function createElectronApi(
         })();
     });
 
+    ipcRenderer.on(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, (_event, payload: unknown) => {
+        const request = decodeWindowCloseRequest(payload);
+        if (!request) {
+            return;
+        }
+
+        void (async () => {
+            const callbacks = Array.from(windowCloseCallbacks);
+            const callback = callbacks.length === 1 ? callbacks[0] : undefined;
+            let response: {
+                requestId: string;
+                decision?: TWindowCloseDecision;
+                status?: 'unavailable';
+                reason?: TWindowCloseUnavailableReason;
+            };
+            if (callback) {
+                try {
+                    const candidate = await callback(request);
+                    if (candidate === 'save' || candidate === 'discard' || candidate === 'cancel') {
+                        response = {
+                            decision: candidate,
+                            requestId: request.requestId,
+                        };
+                    } else {
+                        response = {
+                            requestId: request.requestId,
+                            status: 'unavailable',
+                            reason: 'invalid-decision',
+                        };
+                    }
+                } catch (error) {
+                    console.warn(`[preload] Window close decision failed: ${getErrorMessage(error)}`);
+                    response = {
+                        requestId: request.requestId,
+                        status: 'unavailable',
+                        reason: 'handler-error',
+                    };
+                }
+            } else {
+                console.warn(`[preload] Window close decision unavailable; callback count: ${callbacks.length}`);
+                response = {
+                    requestId: request.requestId,
+                    status: 'unavailable',
+                    reason: callbacks.length === 0 ? 'no-handler' : 'multiple-handlers',
+                };
+            }
+
+            try {
+                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.windowCloseResponse, response);
+            } catch (error) {
+                console.warn(`[preload] Window close response failed: ${getErrorMessage(error)}`);
+            }
+        })();
+    });
+
     const documentPicker = createPlatformFeaturePreloadClient(
         ipcRenderer,
         DOCUMENT_PICKER_PLATFORM_FEATURE,
@@ -506,7 +568,13 @@ export function createElectronApi(
         openPdfInDefaultAppData: baseDocuments.openPdfInDefaultAppData,
         openPdfInDefaultAppPath: baseDocuments.openPdfInDefaultAppPath,
         printPdfData: baseDocuments.printPdfData,
+        ...(baseDocuments.cancelPdfPrint
+            ? {cancelPdfPrint: baseDocuments.cancelPdfPrint}
+            : {}),
         printPdfPath: baseDocuments.printPdfPath,
+        ...(baseDocuments.onNativePrintDialogOpened
+            ? {onNativePrintDialogOpened: baseDocuments.onNativePrintDialogOpened}
+            : {}),
     } satisfies IDocumentsPdfCapability;
     const api = {
         manifest: ELECTRON_PLATFORM_MANIFEST,
@@ -546,6 +614,12 @@ export function createElectronApi(
                 shutdownSaveFlushCallbacks.add(callback);
                 return () => {
                     shutdownSaveFlushCallbacks.delete(callback);
+                };
+            },
+            onWindowCloseRequest: (callback) => {
+                windowCloseCallbacks.add(callback);
+                return () => {
+                    windowCloseCallbacks.delete(callback);
                 };
             },
         },

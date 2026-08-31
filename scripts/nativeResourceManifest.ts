@@ -31,6 +31,7 @@ export const NATIVE_TOOL_RESOURCE_FAMILY_IDS = [
     'djvulibre',
     'pdf-image-combine',
     'pdf-page-ops',
+    'pdf-print-dialog',
     'pdf-search',
     'scan-cleanup',
 ] as const;
@@ -238,6 +239,16 @@ export const NATIVE_TOOL_RESOURCE_FAMILIES: readonly INativeToolResourceFamily[]
             'djvulibre',
         ],
         stagedRootSegments: ['djvulibre'],
+    },
+    {
+        id: 'pdf-print-dialog',
+        label: 'macOS PDF print dialog helper',
+        packagedEntries: [packagedBinary('pdf-print-dialog', ['darwin'])],
+        sourceRootSegments: [
+            '.tmp',
+            'pdf-print-dialog',
+        ],
+        stagedRootSegments: ['pdf-print-dialog'],
     },
     ...GENERATED_RUST_NATIVE_TOOL_PROTOCOLS.map(tool => ({
         id: tool.resourceFamilyId,

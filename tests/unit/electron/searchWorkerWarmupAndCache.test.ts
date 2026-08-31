@@ -459,6 +459,66 @@ describe('search worker warmup and cache behavior', () => {
         expect(resultProgressMessages[1]?.results).toHaveLength(1);
     });
 
+    it('marks an exact-limit stream as truncated when a later unknown-count page arrives', async () => {
+        const limitPage: IIndexedSearchPageForTest = {
+            pageNumber: 1,
+            text: `${'needle '.repeat(100)}\n`,
+        };
+        const laterPage: IIndexedSearchPageForTest = {
+            pageNumber: 2,
+            text: 'needle on a later page',
+        };
+        mocks.buildSearchIndex.mockImplementation(async (
+            _pdfPath: string,
+            _pageData: unknown[],
+            options: IBuildSearchIndexOptionsForTest,
+        ) => {
+            options.onPageIndexed?.(limitPage);
+            options.onPageIndexed?.(laterPage);
+            return {
+                schemaVersion: 7,
+                documentRevision: {token: DOCUMENT_REVISION},
+                pdfPath: TEST_PDF_PATH,
+                createdAt: Date.now(),
+                pages: [
+                    limitPage,
+                    laterPage,
+                ],
+            };
+        });
+
+        await import('@electron/search/worker');
+        const handleMessage = mocks.messageHandlers.get('message');
+        handleMessage?.({
+            type: 'search',
+            payload: {
+                requestId: 'stream-limit-1',
+                pdfPath: TEST_PDF_PATH,
+                documentRevision: DOCUMENT_REVISION,
+                query: 'needle',
+            },
+        });
+
+        await vi.waitFor(() => {
+            expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+                type: 'complete',
+                requestId: 'stream-limit-1',
+                response: expect.objectContaining({
+                    results: expect.any(Array),
+                    truncated: true,
+                }),
+            }));
+        });
+
+        expect(mocks.postedMessages).toContainEqual(expect.objectContaining({
+            type: 'progress',
+            requestId: 'stream-limit-1',
+            results: [],
+            resultsStartIndex: 100,
+            truncated: true,
+        }));
+    });
+
     it('evicts the oldest cached index once the default cache budget is exceeded', async () => {
         await import('@electron/search/worker');
         const handleMessage = mocks.messageHandlers.get('message');

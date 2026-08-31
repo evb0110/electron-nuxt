@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menu',
+        'readerToolbar': 'Barra degli strumenti del documento',
         'openPdf': 'Apri file',
         'save': 'Salva',
         'saveAs': 'Salva con nome…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Schede dei documenti',
         'newTab': 'Nuova scheda',
         'unsavedChanges': 'Modifiche non salvate',
         'closeTab': 'Chiudi scheda',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'Preparazione {processed}/{total}',
         'confirmCloseDirtyTitle': 'Chiudere la scheda con modifiche non salvate?',
         'confirmCloseDirtyDescription': '"{name}" ha modifiche non salvate. Le modifiche verranno scartate alla chiusura.',
+        'confirmCloseWindowDirtyTitle': 'Chiudere la finestra con modifiche non salvate?',
+        'confirmCloseWindowDirtyDescription': 'Ci sono modifiche non salvate. Salvale prima di chiudere la finestra, scartale o annulla.',
+        'discardChanges': 'Scarta modifiche',
         'transferErrors': {
             'noTargetPane': 'Nella finestra di destinazione non è disponibile alcun pannello di destinazione.',
             'noTargetTab': 'Nella finestra di destinazione non è disponibile alcuna scheda di destinazione.',
@@ -961,6 +966,8 @@ export default {
         'extractSelectedPages': 'Estrai pagine selezionate...',
         'rotateClockwise': 'Ruota in senso orario',
         'rotateCounterclockwise': 'Ruota in senso antiorario',
+        'rotateViewClockwise': 'Ruota la vista in senso orario',
+        'rotateViewCounterclockwise': 'Ruota la vista in senso antiorario',
         'insertPages': 'Inserisci pagine...',
         'view': 'Vista',
         'zoomIn': 'Aumenta zoom',
@@ -1176,6 +1183,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Azioni pagina',
+        'outlineMenu': 'Azioni segnalibro',
+        'annotationMenu': 'Azioni annotazione',
         'openPopUpNote': 'Apri nota a comparsa',
         'copyTextToClipboard': 'Copia testo negli appunti',
         'copySelectionToClipboard': 'Copia selezione negli appunti',
@@ -1559,11 +1569,13 @@ export default {
             'loadDescription': 'Prova a caricare di nuovo l’area di lavoro.',
             'loadDescriptionWithMessage': 'Prova a caricare di nuovo l’area di lavoro. ({message})',
         },
+        'settings': {'load': 'Impossibile caricare le impostazioni'},
         'runtime': {
             'title': 'Qualcosa è andato storto',
             'description': 'L’app ha riscontrato un errore imprevisto e potrebbe non funzionare correttamente finché non viene ricaricata.',
             'startupTitle': 'Avvio dell’app non riuscito',
             'startupDescription': 'L’app non è riuscita a completare l’avvio. Ricaricala e riprova.',
+            'recentGeometryWarmupTitle': 'Anteprima dei file recenti non disponibile',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'Ricarica app',
             'copy': 'Copia dettagli',

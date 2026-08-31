@@ -102,5 +102,10 @@ export async function handleCreateWorkingCopyFromPath(
         warningContext: 'createWorkingCopyFromPath',
     }, context.senderId);
 
-    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, context.senderId, {password: validatedPassword});
+    return createWorkingCopyFromPath(
+        sourcePath,
+        trustedOriginalPath,
+        context.senderId,
+        validatedPassword === undefined ? {} : {password: validatedPassword},
+    );
 }

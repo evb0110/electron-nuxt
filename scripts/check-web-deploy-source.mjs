@@ -3,6 +3,7 @@ import {
     readdir,
     readFile,
 } from 'node:fs/promises';
+import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -166,12 +167,71 @@ function shouldSkipSourcePath(dirent, relativeDirectory) {
     return isExcludedWebDeploySourcePath(dirent.name, relativeDirectory);
 }
 
-export async function collectWebDeploySourceStats({projectRoot = defaultProjectRoot} = {}) {
+export function getTrackedWebDeploySourcePaths(projectRoot = defaultProjectRoot) {
+    const output = execFileSync('git', [
+        'ls-files',
+        '-z',
+    ], {
+        cwd: projectRoot,
+        encoding: 'buffer',
+    });
+    return output.toString('utf8').split('\0').filter(Boolean);
+}
+
+export function assertCleanTrackedWebDeploySource(projectRoot = defaultProjectRoot) {
+    const output = execFileSync('git', [
+        'status',
+        '--porcelain=v1',
+        '--untracked-files=all',
+    ], {
+        cwd: projectRoot,
+        encoding: 'utf8',
+    }).trim();
+    if (output) {
+        throw new Error(
+            `Web deploy source must be a clean tracked Git snapshot; uncommitted paths were found:\n${output}`,
+        );
+    }
+}
+
+function shouldIncludeTrackedPath(relativePath) {
+    const normalizedPath = relativePath.replaceAll('\\', '/');
+    const segments = normalizedPath.split('/');
+    if (segments.slice(0, -1).some(isExcludedWebDeploySourceDirectoryName)) {
+        return false;
+    }
+    return !isExcludedWebDeploySourcePath(
+        segments.at(-1),
+        segments.slice(0, -1).join('/'),
+    );
+}
+
+export async function collectWebDeploySourceStats({
+    projectRoot = defaultProjectRoot,
+    trackedOnly = true,
+} = {}) {
     const stats = {
         byteLength: 0,
         fileCount: 0,
         symlinkPaths: [],
     };
+
+    async function addFile(absolutePath, relativePath) {
+        const fileStat = await lstat(absolutePath);
+        if (fileStat.isSymbolicLink()) {
+            stats.symlinkPaths.push(relativePath);
+            return;
+        }
+        if (fileStat.isFile()) {
+            stats.byteLength += fileStat.size;
+            stats.fileCount += 1;
+            return;
+        }
+        if (fileStat.isDirectory()) {
+            throw new Error(`Tracked web deploy path is a directory entry: ${relativePath}`);
+        }
+        throw new Error(`Tracked web deploy path is not a regular file: ${relativePath}`);
+    }
 
     async function walk(directory, relativeDirectory = '') {
         const entries = await readdir(directory, {withFileTypes: true});
@@ -185,24 +245,27 @@ export async function collectWebDeploySourceStats({projectRoot = defaultProjectR
             const absolutePath = path.join(directory, dirent.name);
             const fileStat = await lstat(absolutePath);
 
-            if (fileStat.isSymbolicLink()) {
-                stats.symlinkPaths.push(relativePath);
-                continue;
-            }
-
             if (fileStat.isDirectory()) {
                 await walk(absolutePath, relativePath);
                 continue;
             }
 
             if (fileStat.isFile()) {
-                stats.byteLength += fileStat.size;
-                stats.fileCount += 1;
+                await addFile(absolutePath, relativePath);
             }
         }
     }
 
-    await walk(projectRoot);
+    if (trackedOnly) {
+        for (const relativePath of getTrackedWebDeploySourcePaths(projectRoot)) {
+            if (!shouldIncludeTrackedPath(relativePath)) {
+                continue;
+            }
+            await addFile(path.join(projectRoot, relativePath), relativePath);
+        }
+    } else {
+        await walk(projectRoot);
+    }
 
     return stats;
 }
@@ -211,11 +274,19 @@ export async function validateWebDeploySource({
     maxBytes = MAX_WEB_DEPLOY_SOURCE_BYTES,
     maxFiles = MAX_WEB_DEPLOY_SOURCE_FILES,
     projectRoot = defaultProjectRoot,
+    requireCleanTrackedSource = true,
+    trackedOnly = true,
 } = {}) {
+    if (requireCleanTrackedSource) {
+        assertCleanTrackedWebDeploySource(projectRoot);
+    }
     const vercelIgnoreContent = await readFile(path.join(projectRoot, '.vercelignore'), 'utf8');
     validateVercelIgnoreEntries(vercelIgnoreContent);
 
-    const stats = await collectWebDeploySourceStats({projectRoot});
+    const stats = await collectWebDeploySourceStats({
+        projectRoot,
+        trackedOnly,
+    });
 
     if (stats.symlinkPaths.length > 0) {
         throw new Error(`Web deploy source contains symlinks: ${stats.symlinkPaths.join(', ')}`);

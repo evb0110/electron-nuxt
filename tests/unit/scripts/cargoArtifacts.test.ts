@@ -211,6 +211,42 @@ describe('Cargo artifact staging', () => {
         });
     });
 
+    it('applies static CRT only to a release native binary, not its proc-macro dependencies', () => {
+        const target = {
+            binaryExtension: '',
+            cargoTargetArgs: [],
+            platform: 'linux',
+            platformArch: 'linux-x64',
+        };
+        const tool = getGeneratedNativeToolResource('pdf-page-ops');
+        const normal = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            target,
+            tool,
+        });
+        const release = createNativeToolBuildPlan({
+            projectRoot: '/repo',
+            staticLinuxCrt: true,
+            target,
+            tool,
+        });
+
+        expect(normal.cargoArgs[0]).toBe('build');
+        expect(normal.cargoArgs).not.toContain('target-feature=+crt-static');
+        expect(release.cargoArgs).toEqual([
+            'rustc',
+            '--manifest-path',
+            'native/pdf-page-ops/Cargo.toml',
+            '--release',
+            '--locked',
+            '--bin',
+            'evb-pdf-page-ops',
+            '--',
+            '-C',
+            'target-feature=+crt-static',
+        ]);
+    });
+
     it('uses Cargo metadata as the authority for a shared workspace target directory', () => {
         const runCommand = vi.fn(() => ({
             status: 0,

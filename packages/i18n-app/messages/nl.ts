@@ -593,6 +593,7 @@ export default {
     },
     'toolbar': {
         'appMenu': 'Menu',
+        'readerToolbar': 'Documentwerkbalk',
         'openPdf': 'Bestand openen',
         'save': 'Opslaan',
         'saveAs': 'Opslaan als…',
@@ -618,6 +619,7 @@ export default {
         'docxSavedDescription': '{name}',
     },
     'tabs': {
+        'tabListLabel': 'Documenttabbladen',
         'newTab': 'Nieuw tabblad',
         'unsavedChanges': 'Niet-opgeslagen wijzigingen',
         'closeTab': 'Tabblad sluiten',
@@ -627,6 +629,9 @@ export default {
         'preparingBatch': 'Voorbereiden {processed}/{total}',
         'confirmCloseDirtyTitle': 'Tabblad sluiten met niet-opgeslagen wijzigingen?',
         'confirmCloseDirtyDescription': '"{name}" heeft niet-opgeslagen wijzigingen. Wijzigingen worden verworpen bij het sluiten.',
+        'confirmCloseWindowDirtyTitle': 'Venster sluiten met niet-opgeslagen wijzigingen?',
+        'confirmCloseWindowDirtyDescription': 'Er zijn niet-opgeslagen wijzigingen. Sla ze op voordat u het venster sluit, verwerp ze of annuleer.',
+        'discardChanges': 'Wijzigingen verwerpen',
         'transferErrors': {
             'noTargetPane': 'Er is geen doelpaneel beschikbaar in het bestemmingsvenster.',
             'noTargetTab': 'Er is geen doeltabblad beschikbaar in het bestemmingsvenster.',
@@ -961,6 +966,8 @@ export default {
         'extractSelectedPages': 'Geselecteerde pagina\'s extraheren...',
         'rotateClockwise': 'Rechtsom draaien',
         'rotateCounterclockwise': 'Linksom draaien',
+        'rotateViewClockwise': 'Weergave rechtsom draaien',
+        'rotateViewCounterclockwise': 'Weergave linksom draaien',
         'insertPages': 'Pagina\'s invoegen...',
         'view': 'Weergave',
         'zoomIn': 'Inzoomen',
@@ -1176,6 +1183,9 @@ export default {
         }),
     },
     'contextMenu': {
+        'pageMenu': 'Pagina-acties',
+        'outlineMenu': 'Bladwijzeracties',
+        'annotationMenu': 'Annotatieacties',
         'openPopUpNote': 'Pop-upnotitie openen',
         'copyTextToClipboard': 'Tekst naar klembord kopiëren',
         'copySelectionToClipboard': 'Selectie naar klembord kopiëren',
@@ -1559,11 +1569,13 @@ export default {
             'loadDescription': 'Probeer de werkruimte opnieuw te laden.',
             'loadDescriptionWithMessage': 'Probeer de werkruimte opnieuw te laden. ({message})',
         },
+        'settings': {'load': 'Instellingen konden niet worden geladen'},
         'runtime': {
             'title': 'Er is iets misgegaan',
             'description': 'De app kreeg een onverwachte fout en werkt mogelijk pas weer goed nadat deze opnieuw is geladen.',
             'startupTitle': 'Starten van de app mislukt',
             'startupDescription': 'De app kon niet volledig opstarten. Laad opnieuw en probeer het nog eens.',
+            'recentGeometryWarmupTitle': 'Voorbeeld van recente bestanden niet beschikbaar',
             'electronPlatformContract': 'The desktop bridge is stale or incompatible. Restart the app to load the current preload contract.',
             'reload': 'App opnieuw laden',
             'copy': 'Details kopiëren',

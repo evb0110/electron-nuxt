@@ -1,17 +1,27 @@
 <template>
     <div
         v-if="open"
+        ref="overlayElement"
         class="app-progress-overlay"
-        role="status"
-        aria-live="polite"
+        :role="modal ? 'dialog' : 'status'"
+        :aria-modal="modal ? 'true' : undefined"
+        :aria-labelledby="modal ? titleId : undefined"
+        :aria-describedby="modal ? descriptionIds : undefined"
+        :aria-live="modal ? undefined : 'polite'"
+        tabindex="-1"
+        @keydown="handleKeydown"
     >
         <div class="app-progress-overlay-card">
             <AppSpinner size="lg" tone="primary" />
-            <div class="app-progress-overlay-title">
+            <div
+                :id="titleId"
+                class="app-progress-overlay-title"
+            >
                 {{ title }}
             </div>
             <div
                 v-if="detail"
+                :id="detailId"
                 class="app-progress-overlay-detail"
             >
                 {{ detail }}
@@ -28,6 +38,7 @@
             </div>
             <div
                 v-if="subDetail"
+                :id="subDetailId"
                 class="app-progress-overlay-sub-detail"
             >
                 {{ subDetail }}
@@ -56,16 +67,167 @@ interface IAppProgressOverlayProps {
     detail?: string;
     subDetail?: string;
     cancelLabel?: string;
+    modal?: boolean;
 }
 
 const {
     cancelLabel = '',
     detail = '',
+    modal = false,
+    open,
     subDetail = '',
     value,
 } = defineProps<IAppProgressOverlayProps>();
 
 const emit = defineEmits<{cancel: [];}>();
+const overlayElement = ref<HTMLElement | null>(null);
+const titleId = useId();
+const detailId = useId();
+const subDetailId = useId();
+const descriptionIds = computed(() => [
+    detail ? detailId : null,
+    subDetail ? subDetailId : null,
+].filter((id): id is string => id !== null).join(' ') || undefined);
+
+let previouslyFocusedElement: HTMLElement | null = null;
+const inertSiblings = new Map<HTMLElement, boolean>();
+
+function getFocusableElements() {
+    return Array.from(
+        overlayElement.value?.querySelectorAll<HTMLElement>(
+            'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+    ).filter(element => (
+        !element.hasAttribute('disabled')
+        && element.getAttribute('aria-hidden') !== 'true'
+    ));
+}
+
+function applyModalInert() {
+    const overlay = overlayElement.value;
+    const parent = overlay?.parentElement;
+    if (!parent) {
+        return;
+    }
+    for (const sibling of Array.from(parent.children)) {
+        if (sibling === overlay || !(sibling instanceof HTMLElement)) {
+            continue;
+        }
+        if (!inertSiblings.has(sibling)) {
+            inertSiblings.set(sibling, sibling.inert);
+        }
+        sibling.inert = true;
+    }
+}
+
+function restoreModalInert() {
+    for (const [
+        element,
+        wasInert,
+    ] of inertSiblings) {
+        element.inert = wasInert;
+    }
+    inertSiblings.clear();
+}
+
+function focusModalEntry() {
+    const focusableElements = getFocusableElements();
+    (focusableElements[0] ?? overlayElement.value)?.focus({preventScroll: true});
+}
+
+function containOverlayFocus(event: FocusEvent) {
+    const target = event.target;
+    if (open && modal && target instanceof Node && !overlayElement.value?.contains(target)) {
+        focusModalEntry();
+    }
+}
+
+function restoreFocus() {
+    const element = previouslyFocusedElement;
+    previouslyFocusedElement = null;
+    if (element?.isConnected) {
+        void nextTick(() => element.focus({preventScroll: true}));
+    }
+}
+
+function handleKeydown(event: KeyboardEvent) {
+    if (!modal) {
+        return;
+    }
+    if (event.key === 'Escape') {
+        if (!cancelLabel) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        emit('cancel');
+        return;
+    }
+    if (event.key !== 'Tab') {
+        return;
+    }
+
+    const focusableElements = getFocusableElements();
+    if (focusableElements.length === 0) {
+        event.preventDefault();
+        overlayElement.value?.focus({preventScroll: true});
+        return;
+    }
+
+    event.preventDefault();
+    const activeIndex = focusableElements.indexOf(document.activeElement as HTMLElement);
+    const nextIndex = activeIndex < 0
+        ? event.shiftKey
+            ? focusableElements.length - 1
+            : 0
+        : (activeIndex + (event.shiftKey ? -1 : 1) + focusableElements.length) % focusableElements.length;
+    focusableElements[nextIndex]?.focus({preventScroll: true});
+}
+
+watch(
+    [
+        () => open,
+        () => modal,
+    ],
+    ([
+        isOpen,
+        isModal,
+    ]) => {
+        if (!isOpen || !isModal) {
+            if (typeof document !== 'undefined') {
+                document.removeEventListener('focusin', containOverlayFocus);
+            }
+            restoreModalInert();
+            restoreFocus();
+            return;
+        }
+        if (typeof document !== 'undefined') {
+            const activeElement = document.activeElement;
+            if (activeElement instanceof HTMLElement && activeElement !== overlayElement.value) {
+                previouslyFocusedElement = activeElement;
+            }
+            document.addEventListener('focusin', containOverlayFocus);
+        }
+        void nextTick(() => {
+            if (open && modal) {
+                applyModalInert();
+                focusModalEntry();
+            }
+        });
+    },
+    {
+        flush: 'post',
+        immediate: true,
+    },
+);
+
+onBeforeUnmount(() => {
+    if (typeof document !== 'undefined') {
+        document.removeEventListener('focusin', containOverlayFocus);
+    }
+    restoreModalInert();
+    restoreFocus();
+});
 
 const formattedPercent = computed(() => typeof value === 'number' && Number.isFinite(value)
     ? `${clamp(Math.round(value), 0, 100)}%`

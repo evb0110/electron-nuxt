@@ -29,6 +29,7 @@ describe('window tabs platform feature schemas', () => {
             discardWorkspaceCheckpoint: 'workspace:checkpointDiscard',
             resumeWorkspaceCheckpoint: 'workspace:checkpointResume',
             claimWorkspaceCheckpoint: 'workspace:checkpointClaim',
+            acknowledgeWorkspaceCheckpoint: 'workspace:checkpointAcknowledge',
         });
         expect(WINDOW_TABS_PLATFORM_FEATURE.eventChannels).toEqual({
             onIncomingTransfer: 'tabs:incomingTransfer',
@@ -40,7 +41,7 @@ describe('window tabs platform feature schemas', () => {
             onMenuMoveTabToPane: 'menu:moveTabToPane',
             onMenuCopyTabToPane: 'menu:copyTabToPane',
         });
-        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(18);
+        expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods).toHaveLength(19);
         expect(WINDOW_TABS_PLATFORM_FEATURE.platformDescriptors.methods)
             .not.toContainEqual(expect.objectContaining({path: [
                 'windowTabs',
@@ -58,6 +59,7 @@ describe('window tabs platform feature schemas', () => {
         expect(codecs[channels.resumeWorkspaceCheckpoint]!.decodeResult(undefined)).toBeUndefined();
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(checkpoint)).toEqual(checkpoint);
         expect(codecs[channels.claimWorkspaceCheckpoint]!.decodeResult(null)).toBeNull();
+        expect(codecs[channels.acknowledgeWorkspaceCheckpoint]!.decodeArgs([])).toEqual([]);
         expect(codecs[channels.acknowledgePendingExternalOpenPaths]!.decodeArgs([['/tmp/a.pdf']]))
             .toEqual([['/tmp/a.pdf']]);
     });

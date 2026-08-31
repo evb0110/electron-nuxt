@@ -2,6 +2,9 @@
     <div
         ref="pageContainer"
         class="page_container"
+        role="group"
+        :aria-label="t('pageOps.pageTarget', {page})"
+        :aria-busy="showSkeleton && !rendered && !renderFailed ? 'true' : undefined"
         :class="{
             'page_container--spread-single': spreadSingle,
             'page_container--buffered': buffered,
@@ -120,6 +123,7 @@ const {
     placedImage = null,
     placedImageBusy = false,
 } = defineProps<IProps>();
+const { t } = useTypedI18n();
 const emit = defineEmits<{
     'page-container-mounted': [page: number];
     'page-container-unmounted': [page: number];

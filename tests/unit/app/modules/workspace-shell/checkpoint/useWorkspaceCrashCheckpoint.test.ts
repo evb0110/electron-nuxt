@@ -25,6 +25,7 @@ function deferred() {
 
 const mocks = vi.hoisted(() => ({
     buildIndex: 0,
+    buildWorkspaceCheckpoint: vi.fn(),
     onBeforeUnmount: (() => {}) as () => void,
     saveWorkspaceCheckpoint: vi.fn(),
     tier: 'high' as THostResourceTier,
@@ -45,15 +46,7 @@ vi.mock('vue', async (importOriginal) => {
         },
     };
 });
-vi.mock('@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint', () => ({buildWorkspaceCheckpoint: () => ({
-    version: 1,
-    capturedAt: mocks.buildIndex += 1,
-    activePaneId: null,
-    activeTabId: null,
-    layout: null,
-    panes: [],
-    tabs: [],
-})}));
+vi.mock('@app/modules/workspace-shell/checkpoint/buildWorkspaceCheckpoint', () => ({buildWorkspaceCheckpoint: mocks.buildWorkspaceCheckpoint}));
 vi.mock('@app/utils/platformWindowTabs', () => ({getWindowTabsCapability: () => ({saveWorkspaceCheckpoint: mocks.saveWorkspaceCheckpoint})}));
 vi.mock('@app/utils/platform', () => ({waitForDesktopPlatformBridge: vi.fn(async () => {})}));
 vi.mock('@app/utils/performanceProfile', () => ({getPerformanceProfile: () => ({tier: mocks.tier})}));
@@ -68,6 +61,15 @@ describe('useWorkspaceCrashCheckpoint', () => {
         vi.useFakeTimers();
         mocks.buildIndex = 0;
         mocks.tier = 'high';
+        mocks.buildWorkspaceCheckpoint.mockImplementation(() => ({
+            version: 1,
+            capturedAt: mocks.buildIndex += 1,
+            activePaneId: null,
+            activeTabId: null,
+            layout: null,
+            panes: [],
+            tabs: [],
+        }));
     });
 
     afterEach(() => {
@@ -135,6 +137,30 @@ describe('useWorkspaceCrashCheckpoint', () => {
         await Promise.resolve();
         await Promise.resolve();
         expect(mocks.saveWorkspaceCheckpoint).toHaveBeenCalledTimes(2);
+        expect(mocks.saveWorkspaceCheckpoint.mock.calls[1]?.[0]).toMatchObject({capturedAt: 2});
+    });
+
+    it('retries the same checkpoint once after a transient save failure', async () => {
+        mocks.saveWorkspaceCheckpoint
+            .mockRejectedValueOnce(new Error('transient checkpoint failure'))
+            .mockResolvedValueOnce(undefined);
+
+        await mountCheckpointWriter();
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(mocks.saveWorkspaceCheckpoint).toHaveBeenCalledTimes(2);
+        expect(mocks.saveWorkspaceCheckpoint.mock.calls[1]?.[0]).toMatchObject({capturedAt: 1});
+    });
+
+    it('keeps the last persisted checkpoint when capture fails', async () => {
+        mocks.buildWorkspaceCheckpoint.mockImplementationOnce(() => {
+            throw Object.assign(new Error('workspace snapshot unavailable'), {code: 'WORKSPACE_CHECKPOINT_CAPTURE_FAILED'});
+        });
+
+        await mountCheckpointWriter();
+        await vi.advanceTimersByTimeAsync(500);
+
+        expect(mocks.saveWorkspaceCheckpoint).not.toHaveBeenCalled();
     });
 
     it('cancels an unstarted debounce and pending latest save on unmount', async () => {

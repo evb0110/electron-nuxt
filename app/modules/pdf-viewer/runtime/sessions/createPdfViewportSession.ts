@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -84,6 +85,7 @@ interface IPdfViewportReloadPlacement {
 export interface ICreatePdfViewportSessionOptions {
     document: TPdfDocumentSession;
     isPageFreshlyRenderedForNavigation: (pageNumber: number) => boolean;
+    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
     performancePolicy: IPdfRenderPerformancePolicy;
     maxBufferCanvasPixels: number;
@@ -94,6 +96,7 @@ export interface ICreatePdfViewportSessionOptions {
     zoomMode: ComputedRef<TZoomMode>;
     fitMode: ComputedRef<TFitMode>;
     viewMode: ComputedRef<TPdfViewMode>;
+    viewRotation?: ComputedRef<TPdfViewRotation>;
     continuousScroll: ComputedRef<boolean>;
     bufferPages: ComputedRef<number>;
     isActive: ComputedRef<boolean>;
@@ -120,6 +123,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pageMetrics,
         pageMetricsVersion,
     } = documentSession;
+    const viewRotation = options.viewRotation ?? computed<TPdfViewRotation>(() => 0);
     const chassisAuthority = options.chassisAuthority;
     const viewportWritePort = options.viewportWritePort;
     const pageSlots = createPdfPageSlotRegistry();
@@ -149,6 +153,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         options.zoomMode,
         options.fitMode,
         options.viewMode,
+        viewRotation,
         numPages,
         pageMetrics,
         pageMetricsVersion,
@@ -172,6 +177,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         end: 1,
     });
     const viewportLayoutMetrics = shallowRef<IPdfPageLayoutMetrics | null>(null);
+    const pageLayoutScaleResolver = shallowRef<((pageNumber: number) => number) | null>(null);
     function seedPreparedOpeningFitScale() {
         if (!chassisAuthority) {
             return false;
@@ -201,8 +207,10 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 totalPages: numPages.value,
                 fallbackWidth: baseWidth,
                 fallbackHeight: baseHeight,
+                viewRotation: viewRotation.value,
             }),
             scale.effectiveScale.value,
+            pageNumber => pageLayoutScaleResolver.value?.(pageNumber) ?? scale.effectiveScale.value,
         );
     }
     function getNavigationRenderTargetPage() {
@@ -397,6 +405,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewerContainer: options.viewerContainer,
         bufferPages: options.bufferPages,
         viewMode: options.viewMode,
+        viewRotation,
         numPages,
         currentPage,
         continuousScroll: options.continuousScroll,
@@ -408,6 +417,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         scaledMargin: scale.scaledMargin,
         visibleRange,
         navigationAnchorPage: singlePageScroll.navigationAnchorPage,
+        navigationVisualHandoffTargetPage: singlePageScroll.navigationVisualHandoffTargetPage,
+        getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage,
         zoomVirtualizationFreeze,
         scaleContainerStyle: scale.containerStyle,
@@ -415,6 +426,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         viewportWritePort,
         classState: options.classState,
     });
+    pageLayoutScaleResolver.value = viewModel.getPageLayoutScale;
     const openVirtualSurfaceGeometry = usePdfOpenVirtualSurfaceGeometry({
         chassisAuthority,
         continuousScroll: options.continuousScroll,
@@ -829,6 +841,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             currentPage.value,
             scale.effectiveScale.value,
             options.viewMode.value,
+            viewRotation.value,
             numPages.value,
             pageMetricsVersion.value,
         ] as const,

@@ -18,6 +18,7 @@ import {
     getPageMetricMaximum,
     isSparsePageMetricCollection,
     normalizePageMetrics,
+    projectPdfPageMetricForView,
     PDF_PAGE_METRICS_DENSE_LIMIT,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
@@ -225,6 +226,83 @@ describe('pdfPageLayout', () => {
                 height: 520,
             },
         ]);
+    });
+
+    it('projects layout dimensions for view rotation without changing source metrics', () => {
+        const sourceMetric = {
+            width: 600,
+            height: 800,
+            rotation: 90,
+            userUnit: 2,
+        } satisfies IPdfPageMetric;
+
+        expect(projectPdfPageMetricForView(sourceMetric, 90)).toEqual({
+            width: 800,
+            height: 600,
+            rotation: 90,
+            userUnit: 2,
+        });
+        expect(projectPdfPageMetricForView(sourceMetric, 270)).toEqual({
+            width: 800,
+            height: 600,
+            rotation: 90,
+            userUnit: 2,
+        });
+        expect(projectPdfPageMetricForView(sourceMetric, 180)).toEqual(sourceMetric);
+        expect(sourceMetric).toEqual({
+            width: 600,
+            height: 800,
+            rotation: 90,
+            userUnit: 2,
+        });
+    });
+
+    it('uses projected dimensions for dense and sparse normalized layout metrics', () => {
+        const dense = normalizePageMetrics({
+            pageMetrics: [{
+                width: 600,
+                height: 800,
+            }],
+            totalPages: 1,
+            fallbackWidth: 600,
+            fallbackHeight: 800,
+            viewRotation: 90,
+        });
+        expect(dense).toEqual([{
+            width: 800,
+            height: 600,
+        }]);
+
+        const sparseMetrics: IPdfPageMetric[] = [];
+        sparseMetrics[0] = {
+            width: 600,
+            height: 800,
+        };
+        sparseMetrics[100_000] = {
+            width: 700,
+            height: 500,
+        };
+        const sparse = normalizePageMetrics({
+            pageMetrics: sparseMetrics,
+            totalPages: 100_001,
+            fallbackWidth: 600,
+            fallbackHeight: 800,
+            viewRotation: 90,
+        });
+        expect(sparse[0]).toEqual({
+            width: 800,
+            height: 600,
+        });
+        expect(sparse[1]).toEqual({
+            width: 800,
+            height: 600,
+        });
+        expect(sparse[100_000]).toEqual({
+            width: 500,
+            height: 700,
+        });
+        expect(getPageMetricMaximum(sparse, 'width')).toBe(800);
+        expect(getPageMetricMaximum(sparse, 'height')).toBe(700);
     });
 
     it('clones a million-page public metric snapshot without iterating sparse holes', () => {

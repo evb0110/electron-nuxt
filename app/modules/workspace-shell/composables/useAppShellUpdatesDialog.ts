@@ -66,7 +66,7 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
             case 'error':
                 return t('updates.errorDescription', { message: options.updatesDialog.value.message ?? t('updates.unknownError') });
             case 'unsupported':
-                return t('updates.unsupportedDescription');
+                return options.updatesDialog.value.message ?? t('updates.unsupportedDescription');
             default:
                 return t('updates.checkingDescription');
         }

@@ -182,6 +182,14 @@ describe('workingCopyDirectory', () => {
         const replacementPath = join(root, 'replacement.pdf');
         writeFileSync(sourcePath, Buffer.alloc(3 * 1024 * 1024 + 17, 41));
         writeFileSync(replacementPath, Buffer.alloc(3 * 1024 * 1024 + 17, 97));
+        let notifyFirstRead!: () => void;
+        const firstReadStarted = new Promise<void>(resolve => {
+            notifyFirstRead = resolve;
+        });
+        let releaseFirstRead!: () => void;
+        const firstReadRelease = new Promise<void>(resolve => {
+            releaseFirstRead = resolve;
+        });
         try {
             vi.doMock('fs/promises', async importOriginal => {
                 const original = await importOriginal<typeof FsPromises>();
@@ -191,8 +199,13 @@ describe('workingCopyDirectory', () => {
                         const handle = await original.open(...args);
                         if (args[0] === sourcePath && args[1] === 'r') {
                             const read = handle.read.bind(handle);
+                            let isFirstRead = true;
                             handle.read = (async (...readArgs: Parameters<typeof handle.read>) => {
-                                await new Promise<void>(resolveRead => setImmediate(resolveRead));
+                                if (isFirstRead) {
+                                    isFirstRead = false;
+                                    notifyFirstRead();
+                                    await firstReadRelease;
+                                }
                                 return read(...readArgs);
                             }) as typeof handle.read;
                         }
@@ -203,10 +216,10 @@ describe('workingCopyDirectory', () => {
             vi.resetModules();
             const {copyFileFromStableSource} = await import('@electron/file-access/workingCopyDirectory');
             const copy = copyFileFromStableSource(sourcePath, targetPath);
-            setImmediate(() => {
-                renameSync(sourcePath, join(root, 'old-source.pdf'));
-                renameSync(replacementPath, sourcePath);
-            });
+            await firstReadStarted;
+            renameSync(sourcePath, join(root, 'old-source.pdf'));
+            renameSync(replacementPath, sourcePath);
+            releaseFirstRead();
 
             await expect(copy).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
             expect(() => readFileSync(targetPath)).toThrow();

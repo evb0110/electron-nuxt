@@ -194,6 +194,46 @@ describe('prioritized document page metrics', () => {
         ]);
     });
 
+    it('bounds sparse hydration to the current visible priority pages', async () => {
+        const {
+            calls,
+            source,
+        } = createSource(1_000_000);
+
+        const metrics = await hydrateRemainingDocumentPageMetrics({
+            source,
+            initialPage: 500_000,
+            initialMetric: {
+                widthPoints: 600,
+                heightPoints: 800,
+                rotation: 0,
+            },
+            signal: new AbortController().signal,
+            isCurrent: () => true,
+            concurrency: 1,
+            getPriorityPages: () => [
+                500_000,
+                499_999,
+                500_001,
+                500_002,
+                499_998,
+            ],
+            maxHydratedPages: 3,
+        });
+
+        expect(calls).toEqual([
+            499_999,
+            500_001,
+            500_002,
+        ]);
+        expect(metrics).not.toBeNull();
+        if (!metrics || !isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('expected sparse metrics');
+        }
+        expect(metrics.exactPageCount).toBe(4);
+        expect(metrics).toHaveLength(1_000_000);
+    });
+
     it('keeps nearest-first scheduling practical for very large scans', async () => {
         const {
             calls,

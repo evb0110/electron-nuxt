@@ -220,6 +220,13 @@ export const WINDOW_TABS_PLATFORM_FEATURE = definePlatformFeature({
             result: nullableWorkspaceCheckpoint,
             main: 'claimWorkspaceCheckpoint',
         }),
+        acknowledgeWorkspaceCheckpoint: defineForwardedPlatformMethod({
+            name: 'acknowledgeWorkspaceCheckpoint',
+            channel: 'workspace:checkpointAcknowledge',
+            args: noArgs,
+            result: voidResult,
+            main: 'acknowledgeWorkspaceCheckpoint',
+        }),
     },
     events: {
         onIncomingTransfer: defineForwardedPlatformEvent({

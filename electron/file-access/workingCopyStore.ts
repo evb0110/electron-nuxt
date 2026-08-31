@@ -6,6 +6,7 @@ import {
     realpathSync,
     type BigIntStats,
 } from 'fs';
+import {spawnSync} from 'node:child_process';
 import {
     open,
     stat,
@@ -101,6 +102,7 @@ const RETIRED_WORKING_COPY_TTL_MS = (() => {
 })();
 const WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
 const WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
+const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
 function stripWindowsExtendedLengthPrefix(filePath: string) {
     if (filePath.startsWith('\\\\?\\UNC\\')) {
@@ -139,17 +141,66 @@ function isWindowsPathLike(filePath: string) {
     return /^[a-zA-Z]:[\\/]/.test(normalizedPath) || normalizedPath.startsWith('\\\\');
 }
 
+function resolveWindowsCaseSensitiveDirectory(directoryPath: string) {
+    let currentPath = directoryPath;
+    while (currentPath && currentPath !== win32.dirname(currentPath)) {
+        try {
+            const realDirectoryPath = realpathSync.native(currentPath);
+            if (windowsCaseSensitivityByDirectory.has(realDirectoryPath)) {
+                return windowsCaseSensitivityByDirectory.get(realDirectoryPath)!;
+            }
+            const result = spawnSync(
+                'fsutil.exe',
+                [
+                    'file',
+                    'queryCaseSensitiveInfo',
+                    realDirectoryPath,
+                ],
+                {
+                    encoding: 'utf8',
+                    windowsHide: true,
+                    timeout: 1_000,
+                },
+            );
+            const output = `${String(result.stdout ?? '')}\n${String(result.stderr ?? '')}`;
+            const caseSensitive = /case sensitive attribute .* is enabled/iu.test(output)
+                ? true
+                : /case sensitive attribute .* is disabled/iu.test(output)
+                    ? false
+                    : null;
+            windowsCaseSensitivityByDirectory.set(realDirectoryPath, caseSensitive);
+            return caseSensitive;
+        } catch {
+            currentPath = win32.dirname(currentPath);
+        }
+    }
+    return false;
+}
+
 export function normalizePathForLookup(filePath: string) {
-    const trimmedPath = filePath.trim();
-    if (!trimmedPath) {
+    if (!filePath || filePath.trim().length === 0) {
         return '';
     }
 
-    if (isWindowsPathLike(trimmedPath)) {
-        return win32.resolve(stripWindowsExtendedLengthPrefix(trimmedPath)).toLowerCase();
+    if (isWindowsPathLike(filePath)) {
+        const resolvedWindowsPath = win32.resolve(stripWindowsExtendedLengthPrefix(filePath));
+        try {
+            // Native realpath resolves ordinary Windows case-insensitive aliases while
+            // retaining distinct spellings in a case-sensitive directory.
+            return realpathSync.native(resolvedWindowsPath);
+        } catch {
+            // For a missing leaf, ask Windows for the nearest existing directory's
+            // case-sensitivity flag. Only the ordinary case-insensitive result is
+            // folded; an unknown or case-sensitive share keeps its spelling.
+            const caseSensitive = resolveWindowsCaseSensitiveDirectory(win32.dirname(resolvedWindowsPath));
+            if (caseSensitive === true || caseSensitive === null) {
+                return resolvedWindowsPath;
+            }
+            return resolvedWindowsPath.toLowerCase();
+        }
     }
 
-    const resolvedPath = resolve(trimmedPath);
+    const resolvedPath = resolve(filePath);
     const stableResolvedPath = process.platform === 'darwin' && (
         resolvedPath === '/var'
         || resolvedPath.startsWith('/var/')

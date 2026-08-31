@@ -45,6 +45,7 @@
             <PdfEmptyState
                 :recent-files="recentFiles"
                 :recent-files-resolved="isResolved"
+                :recent-files-error="recentFilesError"
                 :open-batch-progress="null"
                 :open-in-progress="isOpenUiBusy"
                 :is-recent-open-ready="isRecentFileOpenReady"
@@ -58,6 +59,7 @@
                 @remove-recent="handleRemoveRecentFromPlaceholder"
                 @reveal-recent="handleRevealRecentFromPlaceholder"
                 @clear-recent="handleClearRecentFromPlaceholder"
+                @retry-recent="handleRetryRecentFilesFromPlaceholder"
             />
         </div>
 
@@ -215,11 +217,22 @@ const splitCacheSession = computed(() => createWorkspaceSplitCacheSessionState(a
 const {
     recentFiles,
     isResolved,
+    error: recentFilesError,
     loadRecentFiles,
+    retryRecentFiles,
     removeRecentFile,
     removeRecentFileIfMissing,
     clearRecentFiles,
 } = useRecentFiles();
+
+async function handleRetryRecentFilesFromPlaceholder() {
+    try {
+        await retryRecentFiles();
+    } catch (error) {
+        BrowserLogger.warn('recent-open', 'Failed to retry recent files', error);
+    }
+}
+
 const hasMountedWorkspace = computed(() => mountedWorkspace.value !== null);
 const hasWorkspaceChunkLoadError = computed(() => workspaceChunkLoadError.value !== null);
 const workspaceRenderKey = computed(() => `${tabId}:${workspaceRenderNonce.value}`);

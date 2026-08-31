@@ -46,6 +46,14 @@ pub struct CompressedPng {
     pub icc_profile: Option<Vec<u8>>,
 }
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PngMetadata {
+    pub width: u32,
+    pub height: u32,
+    pub color_type: PngColorType,
+    pub dpi: Option<u32>,
+    pub icc_profile: Option<Vec<u8>>,
+}
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DecodedRaster {
     pub gray: GrayImage,
     pub rgb: RgbImage,
@@ -98,6 +106,19 @@ pub fn read_png_passthrough<R: Read>(
         icc_profile: parsed.icc_profile,
     })
 }
+pub fn read_png_metadata<R: Read>(
+    reader: R,
+    limits: PassthroughLimits,
+) -> Result<PngMetadata, RasterError> {
+    let parsed = walk_chunks(reader, WalkMode::Metadata(limits))?;
+    Ok(PngMetadata {
+        width: parsed.header.width,
+        height: parsed.header.height,
+        color_type: parsed.header.color_type,
+        dpi: parsed.dpi,
+        icc_profile: parsed.icc_profile,
+    })
+}
 pub fn read_png_dimensions<R: Read>(
     reader: R,
     limits: DecodeLimits,
@@ -125,6 +146,23 @@ pub fn decode_png_gray<R: Read>(reader: R, limits: DecodeLimits) -> Result<GrayI
     pixels.for_each_row(|y, row| write_png_row(gray.row_mut(y), None, row, color_type))?;
     Ok(gray)
 }
+
+/// Decodes a PNG to opaque RGB pixels. Alpha-bearing input is composited onto
+/// white so callers that write PDF/JPEG output never silently discard it.
+pub fn decode_png_composited_rgb<R: Read>(
+    reader: R,
+    limits: DecodeLimits,
+) -> Result<RgbImage, RasterError> {
+    let pixels = PngPixels::read(reader, limits)?;
+    let (width, height, color_type) = (pixels.width, pixels.height, pixels.color_type);
+    let mut rgb = RgbImage::new(width, height, [255; 3]);
+    pixels.for_each_row(|y, row| {
+        let rgb_row = &mut rgb.data_mut()[y * width * 3..(y + 1) * width * 3];
+        write_composited_rgb_row(rgb_row, row, color_type);
+    })?;
+    Ok(rgb)
+}
+
 /// Inflated, still-filtered PNG samples: everything both decoders share before
 /// they differ in which planes they materialize.
 struct PngPixels {
@@ -211,12 +249,53 @@ fn write_png_row(
         }
     }
 }
+
+fn composite_channel(value: u8, alpha: u8) -> u8 {
+    ((u32::from(value) * u32::from(alpha) + 255 * u32::from(255 - alpha) + 127) / 255) as u8
+}
+
+fn write_composited_rgb_row(target: &mut [u8], source: &[u8], color_type: PngColorType) {
+    match color_type {
+        PngColorType::Gray8 => {
+            for (pixel, value) in target.chunks_exact_mut(3).zip(source.iter().copied()) {
+                pixel.fill(value);
+            }
+        }
+        PngColorType::GrayAlpha8 => {
+            for (pixel, source_pixel) in target.chunks_exact_mut(3).zip(source.chunks_exact(2)) {
+                pixel.fill(composite_channel(source_pixel[0], source_pixel[1]));
+            }
+        }
+        PngColorType::Rgb8 => {
+            target.copy_from_slice(source);
+        }
+        PngColorType::Rgba8 => {
+            for (pixel, source_pixel) in target.chunks_exact_mut(3).zip(source.chunks_exact(4)) {
+                pixel[0] = composite_channel(source_pixel[0], source_pixel[3]);
+                pixel[1] = composite_channel(source_pixel[1], source_pixel[3]);
+                pixel[2] = composite_channel(source_pixel[2], source_pixel[3]);
+            }
+        }
+    }
+}
+
 fn luma(pixel: &[u8]) -> u8 {
     ((u32::from(pixel[0]) * 77 + u32::from(pixel[1]) * 150 + u32::from(pixel[2]) * 29 + 128) >> 8)
         as u8
 }
 pub fn write_png<W: Write>(writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
-    write_png_impl(writer, pixels, Compression::default(), false)
+    write_png_impl(writer, pixels, Compression::default(), false, None)
+}
+
+pub fn write_png_with_dpi<W: Write>(
+    writer: W,
+    pixels: PixelBuffer<'_>,
+    dpi: u32,
+) -> Result<W, RasterError> {
+    if dpi == 0 {
+        return Err(RasterError::invalid("PNG DPI must be non-zero"));
+    }
+    write_png_impl(writer, pixels, Compression::default(), false, Some(dpi))
 }
 
 /// Encodes a lossless PNG for a managed intermediate raster.
@@ -226,7 +305,7 @@ pub fn write_png<W: Write>(writer: W, pixels: PixelBuffer<'_>) -> Result<W, Rast
 /// search. The Up filter keeps scan rows compact while fast DEFLATE preserves
 /// every sample exactly.
 pub fn write_png_fast<W: Write>(writer: W, pixels: PixelBuffer<'_>) -> Result<W, RasterError> {
-    write_png_impl(writer, pixels, Compression::fast(), true)
+    write_png_impl(writer, pixels, Compression::fast(), true, None)
 }
 
 fn write_png_impl<W: Write>(
@@ -234,6 +313,7 @@ fn write_png_impl<W: Write>(
     pixels: PixelBuffer<'_>,
     compression: Compression,
     filter_up: bool,
+    dpi: Option<u32>,
 ) -> Result<W, RasterError> {
     let (width, height, stride, data, color_type) = match pixels {
         PixelBuffer::Gray {
@@ -301,6 +381,14 @@ fn write_png_impl<W: Write>(
     ihdr.extend_from_slice(&height_u32.to_be_bytes());
     ihdr.extend_from_slice(&[8, color_type as u8, 0, 0, 0]);
     write_chunk(&mut writer, b"IHDR", &ihdr)?;
+    if let Some(dpi) = dpi {
+        let pixels_per_meter = ((f64::from(dpi) / METERS_PER_INCH).round() as u32).max(1);
+        let mut phys = [0u8; 9];
+        phys[..4].copy_from_slice(&pixels_per_meter.to_be_bytes());
+        phys[4..8].copy_from_slice(&pixels_per_meter.to_be_bytes());
+        phys[8] = 1;
+        write_chunk(&mut writer, b"pHYs", &phys)?;
+    }
     write_chunk(&mut writer, b"IDAT", &compressed)?;
     write_chunk(&mut writer, b"IEND", &[])?;
     Ok(writer)
@@ -633,6 +721,7 @@ fn read_ppm_byte<R: Read>(reader: &mut R) -> Result<Option<u8>, RasterError> {
 #[derive(Clone, Copy)]
 enum WalkMode {
     Dimensions(DecodeLimits),
+    Metadata(PassthroughLimits),
     Passthrough(PassthroughLimits),
     Decode(DecodeLimits),
 }
@@ -666,6 +755,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
     let mut header = None;
     let mut dpi = None;
     let mut idat = Vec::new();
+    let mut idat_len = 0usize;
     let mut icc_profile = None;
     loop {
         let mut chunk_header = [0u8; 8];
@@ -687,31 +777,37 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
             b"pHYs" if length == 9 => {
                 let mut data = [0u8; 9];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                if matches!(mode, WalkMode::Passthrough(_)) {
+                if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) {
                     dpi = read_phys_dpi(&data);
                 }
             }
-            b"iCCP" if matches!(mode, WalkMode::Passthrough(_)) => {
+            b"iCCP" if matches!(mode, WalkMode::Passthrough(_) | WalkMode::Metadata(_)) => {
                 if icc_profile.is_some() {
                     return Err(RasterError::invalid("Duplicate PNG iCCP profile"));
                 }
-                let WalkMode::Passthrough(limits) = mode else {
-                    unreachable!()
+                let max_icc_profile_bytes = match mode {
+                    WalkMode::Passthrough(limits) | WalkMode::Metadata(limits) => {
+                        limits.max_icc_profile_bytes
+                    }
+                    _ => unreachable!(),
                 };
-                if length > limits.max_icc_profile_bytes {
+                if length > max_icc_profile_bytes {
                     return Err(RasterError::invalid(format!(
                         "PNG compressed ICC profile exceeds the {}-byte safety limit",
-                        limits.max_icc_profile_bytes
+                        max_icc_profile_bytes
                     )));
                 }
                 let mut data = vec![0; length];
                 read_chunk_bytes(&mut reader, &mut data, &mut hasher)?;
-                icc_profile = Some(decode_icc_profile(&data, limits.max_icc_profile_bytes)?);
+                icc_profile = Some(decode_icc_profile(&data, max_icc_profile_bytes)?);
             }
             b"IDAT" => {
                 let parsed_header =
                     header.ok_or_else(|| RasterError::invalid("PNG IDAT appeared before IHDR"))?;
                 let compressed_limit = match mode {
+                    WalkMode::Metadata(_) => {
+                        max_png_compressed_length(parsed_header.expected_data_len()?)?
+                    }
                     WalkMode::Passthrough(_) => {
                         max_png_compressed_length(parsed_header.expected_data_len()?)?
                     }
@@ -722,8 +818,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                         ));
                     }
                 };
-                let end = idat
-                    .len()
+                let end = idat_len
                     .checked_add(length)
                     .ok_or_else(|| RasterError::invalid("PNG compressed payload overflow"))?;
                 if end > compressed_limit {
@@ -731,11 +826,16 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
                         "PNG compressed image data exceeds the {compressed_limit}-byte safety limit"
                     )));
                 }
-                idat.try_reserve_exact(length)
-                    .map_err(|_| RasterError::invalid("Unable to reserve PNG image data"))?;
-                let start = idat.len();
-                idat.resize(end, 0);
-                read_chunk_bytes(&mut reader, &mut idat[start..], &mut hasher)?;
+                if matches!(mode, WalkMode::Metadata(_)) {
+                    skip_chunk_bytes(&mut reader, length, &mut hasher)?;
+                } else {
+                    idat.try_reserve_exact(length)
+                        .map_err(|_| RasterError::invalid("Unable to reserve PNG image data"))?;
+                    let start = idat.len();
+                    idat.resize(end, 0);
+                    read_chunk_bytes(&mut reader, &mut idat[start..], &mut hasher)?;
+                }
+                idat_len = end;
             }
             b"IEND" => {
                 if length != 0 {
@@ -762,7 +862,7 @@ fn walk_chunks<R: Read>(mut reader: R, mode: WalkMode) -> Result<WalkedPng, Rast
         }
         if &kind == b"IEND" {
             let header = parsed_header.ok_or_else(|| RasterError::invalid("Missing PNG IHDR"))?;
-            if idat.is_empty() {
+            if idat_len == 0 {
                 return Err(RasterError::invalid("Missing PNG image data"));
             }
             return Ok(WalkedPng {
@@ -789,7 +889,7 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
         }
     };
     let (max_pixels, max_dimension) = match mode {
-        WalkMode::Passthrough(limits) => (limits.max_pixels, None),
+        WalkMode::Metadata(limits) | WalkMode::Passthrough(limits) => (limits.max_pixels, None),
         WalkMode::Dimensions(limits) | WalkMode::Decode(limits) => {
             (limits.max_pixels, Some(limits.max_dimension))
         }
@@ -813,14 +913,6 @@ fn parse_header(data: &[u8; 13], mode: WalkMode) -> Result<PngHeader, RasterErro
         return Err(RasterError::invalid(
             "Only non-interlaced 8-bit grayscale/RGB/RGBA PNG is supported",
         ));
-    }
-    if matches!(mode, WalkMode::Passthrough(_))
-        && !matches!(color_type, PngColorType::Gray8 | PngColorType::Rgb8)
-    {
-        return Err(RasterError::invalid(format!(
-            "Unsupported PNG color type: {}",
-            color_type as u8
-        )));
     }
     Ok(PngHeader {
         width,

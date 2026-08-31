@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { cast } from '@tests/helpers/cast';
 import {
     effectScope,
     ref,
@@ -334,6 +335,7 @@ describe('usePdfSinglePageNavigationController', () => {
                 })).toBe(true);
             }
             expect(controller.navigationAnchorPage.value).toBe(4);
+            expect(controller.navigationVisualHandoffTargetPage.value).toBe(4);
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
             expect(preventDefault).toHaveBeenCalledTimes(3);
             expect(requestSurfacePageNavigation.mock.calls).toEqual([
@@ -345,6 +347,9 @@ describe('usePdfSinglePageNavigationController', () => {
             preparation.resolve();
             await vi.waitFor(() => {
                 expect(controller.viewportAuthority.currentPage.value).toBe(4);
+            });
+            await vi.waitFor(() => {
+                expect(controller.navigationVisualHandoffTargetPage.value).toBeNull();
             });
             expect(viewportWrites.writes).toHaveLength(1);
             expect(controller.handleWheel({
@@ -582,7 +587,7 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('transfers an unresolved page destination into an immediate fit intent', async () => {
+    it('keeps a resolved named-destination handoff through immediate fit absorption', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -600,6 +605,8 @@ describe('usePdfSinglePageNavigationController', () => {
         pageSlots.markMounted(1);
         pageSlots.markMounted(2);
         const metricPreparation = createDeferred();
+        const visualPreparation = createDeferred();
+        const freshPages = new Set([1]);
         const layout = buildPageLayoutMetrics({
             pageMetrics: Array.from({length: 2}, () => ({
                 width: 600,
@@ -633,13 +640,21 @@ describe('usePdfSinglePageNavigationController', () => {
                 viewMode: ref('single'),
                 continuousScroll: ref(true),
                 isLoading: ref(false),
-                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                pdfDocument: shallowRef(cast<PDFDocumentProxy>({
+                    numPages: 2,
+                    getDestination: vi.fn(async () => null),
+                    getPageIndex: vi.fn(async () => 1),
+                    getPage: vi.fn(),
+                })),
                 getMostVisiblePage: vi.fn(() => 1),
                 scrollToPageInternal: vi.fn(),
                 updateVisibleRange: vi.fn(),
                 updateCurrentPage: vi.fn(() => 1),
-                renderVisiblePages: vi.fn(async () => undefined),
-                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                renderVisiblePages: vi.fn(async (range) => {
+                    await visualPreparation.promise;
+                    freshPages.add(range.start);
+                }),
+                isPageFreshlyRenderedForNavigation: page => freshPages.has(page),
                 visibleRange: ref({
                     start: 1,
                     end: 1,
@@ -662,32 +677,44 @@ describe('usePdfSinglePageNavigationController', () => {
                 throw new Error('Expected navigation controller');
             }
 
-            expect(controller.scrollToPage(2)).toBe(true);
-            await vi.waitFor(() => {
-                expect(controller.viewportAuthority.pendingTargetPage.value).toBe(2);
-            });
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'named-dest',
+                    destination: [1],
+                },
+                alignment: 'page-top',
+                readiness: 'page-canvas',
+                source: 'bookmark',
+                supersession: 'latest-wins',
+            })).toBe(true);
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
 
             const fit = controller.submitViewportStateIntent('fit');
             expect(controller.viewportAuthority.activeIntent.value).toMatchObject({
                 kind: 'fit',
-                anchor: {page: 2},
                 navigation: {target: {
-                    kind: 'page',
-                    page: 2,
+                    kind: 'named-dest',
+                    destination: [1],
                 }},
             });
-            expect(controller.viewportAuthority.pendingAnchorPage.value).toBe(2);
             metricPreparation.resolve();
+
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
+                    .toBe('cancelled');
+            });
+            // The authority records cancellation before the detached task's
+            // finally block runs. Cross a macrotask to prove that stale cleanup
+            // cannot clear the fit intent's transferred handoff.
+            await new Promise(resolve => setTimeout(resolve, 0));
+            expect(controller.navigationVisualHandoffTargetPage.value).toBe(2);
+            visualPreparation.resolve();
 
             await expect(fit).resolves.toMatchObject({
                 outcome: 'settled',
                 positionCommit: {page: 2},
             });
-            await vi.waitFor(() => {
-                expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
-                    .toBe('cancelled');
-            });
+            expect(controller.navigationVisualHandoffTargetPage.value).toBeNull();
             expect(viewportWrites.writes).toHaveLength(1);
             expect(prepareNavigationLayout).toHaveBeenCalledWith(
                 2,

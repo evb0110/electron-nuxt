@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- Session transcript recovery and blob reachability share one persistence transaction. */
+
 import {
     createHash,
     randomBytes,
@@ -50,20 +52,31 @@ import {
     isAssistantTurnActive,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import {fsyncParentDirectory} from '@electron/utils/atomicReplace';
+import {AssistantChatSnapshotStorage} from '@electron/features/agent/assistantChatSnapshotStorage';
+import {
+    pruneAssistantChatSnapshotBlobs,
+    pruneAssistantChatSnapshotBlobsSync,
+} from '@electron/features/agent/assistantChatSnapshotBlobMaintenance';
+import {
+    pruneAssistantChatArchives,
+    pruneAssistantChatArchivesSync,
+} from '@electron/features/agent/pruneAssistantChatArchives';
 
 const ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION = 1;
 const ASSISTANT_CHAT_STORAGE_DIR = 'assistant-chat';
 const ASSISTANT_CHAT_SESSION_DIR = 'sessions';
 const ASSISTANT_CHAT_ARCHIVE_DIR = 'archive';
 const ASSISTANT_CHAT_SESSION_FILE_PREFIX = 'v2-';
+const ASSISTANT_CHAT_SNAPSHOT_BLOB_DIR = 'blobs';
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSION_BYTES = 2 * 1024 * 1024;
 const DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS = 64;
+const DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES = 128;
 const DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS = 300;
 const ASSISTANT_CHAT_INTERRUPTED_ERROR = 'Assistant turn interrupted because EVB Viewer closed before it completed.';
 
 const logger = createLogger('assistant-chat-persistence');
 
-interface IPersistedAssistantChatSession {
+export interface IPersistedAssistantChatSession {
     provider: TAgentAssistantProviderId;
     scope: IAgentAssistantChatScope;
     model: string;
@@ -106,7 +119,49 @@ type TPersistedAssistantChatRecord =
         type: 'session-reset';
         key: string;
         writtenAt: string;
+    }
+    | {
+        schemaVersion: typeof ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION;
+        type: 'session-snapshot-ref';
+        keyDigest: string;
+        writtenAt: string;
+        blobFile: string;
+        sha256: string;
+        sizeBytes: number;
     };
+
+export type TAssistantChatPersistenceFailureCode =
+    | 'write-failed'
+    | 'maintenance-failed'
+    | 'snapshot-too-large';
+
+export class AssistantChatPersistenceError extends Error {
+    readonly code: TAssistantChatPersistenceFailureCode;
+    readonly sessionKey: string;
+    readonly pendingKeys: readonly string[];
+    readonly retryable: boolean;
+
+    constructor(
+        code: TAssistantChatPersistenceFailureCode,
+        sessionKey: string,
+        message: string,
+        pendingKeys: readonly string[] = [sessionKey],
+        cause?: unknown,
+    ) {
+        super(message);
+        this.name = 'AssistantChatPersistenceError';
+        this.code = code;
+        this.sessionKey = sessionKey;
+        this.pendingKeys = [...new Set(pendingKeys)];
+        this.retryable = code !== 'snapshot-too-large';
+        if (cause !== undefined) {
+            Object.defineProperty(this, 'cause', {
+                configurable: true,
+                value: cause,
+            });
+        }
+    }
+}
 
 export interface IRecoveredAssistantChatSession {
     key: string;
@@ -124,6 +179,7 @@ export interface IAssistantChatPersistenceOptions {
     rootDir?: string;
     maxSessionBytes?: number;
     maxSessions?: number;
+    maxArchives?: number;
     snapshotDebounceMs?: number;
     now?: () => number;
     onError?: (message: string, error: unknown) => void;
@@ -133,6 +189,7 @@ interface IPendingAssistantChatSnapshot {
     ready: boolean;
     record: TPersistedAssistantChatRecord;
     timer: ReturnType<typeof setTimeout> | null;
+    failure: AssistantChatPersistenceError | undefined;
 }
 
 export function readBoundedIntegerEnv(name: string, fallback: number, minimum: number, maximum?: number) {
@@ -158,6 +215,15 @@ function readAssistantChatMaxSessions() {
         DEFAULT_ASSISTANT_CHAT_MAX_SESSIONS,
         1,
         512,
+    );
+}
+
+function readAssistantChatMaxArchives() {
+    return readBoundedIntegerEnv(
+        'EVB_ASSISTANT_CHAT_MAX_ARCHIVES',
+        DEFAULT_ASSISTANT_CHAT_MAX_ARCHIVES,
+        1,
+        4_096,
     );
 }
 
@@ -239,39 +305,10 @@ async function atomicWriteJsonFile(filePath: string, payload: unknown) {
     await fsyncParentDirectory(filePath);
 }
 
-async function atomicWriteJsonLineFile(filePath: string, payload: unknown) {
-    await mkdir(dirname(filePath), { recursive: true });
-    const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    await writeFile(tempPath, `${JSON.stringify(payload)}\n`, 'utf8');
-    const handle = await open(tempPath, 'r');
-    try {
-        await handle.sync();
-    } finally {
-        await handle.close();
-    }
-    await rename(tempPath, filePath);
-    await fsyncParentDirectory(filePath);
-}
-
 function atomicWriteJsonFileSync(filePath: string, payload: unknown) {
     mkdirSync(dirname(filePath), { recursive: true });
     const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
     writeFileSync(tempPath, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
-    let fd: number | null = null;
-    try {
-        fd = openSync(tempPath, 'r');
-        fsyncSyncBestEffort(fd);
-    } finally {
-        safeCloseSync(fd);
-    }
-    renameSync(tempPath, filePath);
-    fsyncParentDirectorySync(filePath);
-}
-
-function atomicWriteJsonLineFileSync(filePath: string, payload: unknown) {
-    mkdirSync(dirname(filePath), { recursive: true });
-    const tempPath = join(dirname(filePath), `.${basename(filePath)}.${randomSuffix()}.tmp`);
-    writeFileSync(tempPath, `${JSON.stringify(payload)}\n`, 'utf8');
     let fd: number | null = null;
     try {
         fd = openSync(tempPath, 'r');
@@ -517,6 +554,22 @@ function parsePersistedRecord(line: string): TPersistedAssistantChatRecord | nul
     ) {
         return parsed as TPersistedAssistantChatRecord;
     }
+    if (
+        parsed.type === 'session-snapshot-ref'
+        && typeof parsed.keyDigest === 'string'
+        && /^[a-f0-9]{64}$/u.test(parsed.keyDigest)
+        && typeof parsed.writtenAt === 'string'
+        && typeof parsed.blobFile === 'string'
+        && /^[a-f0-9]{64}\.json$/u.test(parsed.blobFile)
+        && typeof parsed.sha256 === 'string'
+        && /^[a-f0-9]{64}$/u.test(parsed.sha256)
+        && typeof parsed.sizeBytes === 'number'
+        && Number.isSafeInteger(parsed.sizeBytes)
+        && parsed.sizeBytes >= 0
+        && parsed.sizeBytes > 0
+    ) {
+        return parsed as TPersistedAssistantChatRecord;
+    }
     return null;
 }
 
@@ -543,7 +596,10 @@ function interruptRecoveredSession(session: IPersistedAssistantChatSession): IPe
     return session;
 }
 
-function createSnapshotRecord(key: string, session: IAssistantChatPersistenceSession): TPersistedAssistantChatRecord {
+function createSnapshotRecord(
+    key: string,
+    session: IAssistantChatPersistenceSession,
+): Extract<TPersistedAssistantChatRecord, {type: 'session-snapshot'}> {
     return {
         schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,
         type: 'session-snapshot',
@@ -556,7 +612,7 @@ function createSnapshotRecord(key: string, session: IAssistantChatPersistenceSes
 function createPersistedSnapshotRecord(
     key: string,
     session: IPersistedAssistantChatSession,
-): TPersistedAssistantChatRecord {
+): Extract<TPersistedAssistantChatRecord, {type: 'session-snapshot'}> {
     return {
         schemaVersion: ASSISTANT_CHAT_PERSISTENCE_SCHEMA_VERSION,
         type: 'session-snapshot',
@@ -570,9 +626,12 @@ export class AssistantChatPersistence {
     readonly rootDir: string;
     readonly sessionsDir: string;
     readonly archiveDir: string;
+    readonly blobsDir: string;
     readonly indexPath: string;
     private readonly maxSessionBytes: number;
     private readonly maxSessions: number;
+    private readonly maxArchives: number;
+    private readonly snapshotStorage: AssistantChatSnapshotStorage<IPersistedAssistantChatSession, 1>;
     private readonly snapshotDebounceMs: number;
     private readonly now: () => number;
     private readonly onError: (message: string, error: unknown) => void;
@@ -580,15 +639,18 @@ export class AssistantChatPersistence {
     private readonly pendingSnapshots = new Map<string, IPendingAssistantChatSnapshot>();
     private readonly activeSnapshotCounts = new Map<string, number>();
     private writeQueue: Promise<void> = Promise.resolve();
+    private writeOutcome: Promise<void> = Promise.resolve();
     private maintenanceQueue: Promise<void> = Promise.resolve();
 
     constructor(options: IAssistantChatPersistenceOptions = {}) {
         this.rootDir = options.rootDir ?? getDefaultAssistantChatPersistenceRoot();
         this.sessionsDir = join(this.rootDir, ASSISTANT_CHAT_SESSION_DIR);
         this.archiveDir = join(this.rootDir, ASSISTANT_CHAT_ARCHIVE_DIR);
+        this.blobsDir = join(this.rootDir, ASSISTANT_CHAT_SNAPSHOT_BLOB_DIR);
         this.indexPath = join(this.rootDir, 'index.json');
         this.maxSessionBytes = options.maxSessionBytes ?? readAssistantChatMaxSessionBytes();
         this.maxSessions = options.maxSessions ?? readAssistantChatMaxSessions();
+        this.maxArchives = options.maxArchives ?? readAssistantChatMaxArchives();
         this.snapshotDebounceMs = options.snapshotDebounceMs ?? DEFAULT_ASSISTANT_CHAT_SNAPSHOT_DEBOUNCE_MS;
         this.now = options.now ?? Date.now;
         this.onError = options.onError ?? ((message, error) => {
@@ -596,6 +658,16 @@ export class AssistantChatPersistence {
         });
         mkdirSync(this.sessionsDir, { recursive: true });
         mkdirSync(this.archiveDir, { recursive: true });
+        this.snapshotStorage = new AssistantChatSnapshotStorage<IPersistedAssistantChatSession, 1>({
+            blobsDir: this.blobsDir,
+            maxSessionBytes: this.maxSessionBytes,
+            createTooLargeError: (key, message) => new AssistantChatPersistenceError(
+                'snapshot-too-large',
+                key,
+                message,
+            ),
+            parseRecord: parsePersistedRecord,
+        });
     }
 
     sessionPath(key: string): string {
@@ -639,6 +711,8 @@ export class AssistantChatPersistence {
             }
         }
         this.pruneRecoveredSessionsSync(recovered);
+        pruneAssistantChatArchivesSync(this.archiveDir, this.maxArchives, this.onError);
+        this.pruneSnapshotBlobsSync();
         return recovered;
     }
 
@@ -662,11 +736,15 @@ export class AssistantChatPersistence {
             await mkdir(this.archiveDir, { recursive: true });
             const archivedPath = join(
                 this.archiveDir,
-                `${basename(sourcePath, '.jsonl')}.${reason}.${this.now()}.jsonl`,
+                `${basename(sourcePath, '.jsonl')}.${reason}.${this.now()}.${randomSuffix()}.jsonl`,
             );
             await rename(sourcePath, archivedPath);
             await fsyncParentDirectory(sourcePath);
-            await this.runMaintenance(() => this.writeIndex());
+            await this.runMaintenance(async () => {
+                await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
+                await this.writeIndex();
+                await this.pruneSnapshotBlobs();
+            });
         });
     }
 
@@ -674,7 +752,11 @@ export class AssistantChatPersistence {
     removeSession(key: string): void {
         this.enqueueAfterSnapshots(key, async () => {
             await rm(this.sessionPath(key), { force: true });
-            await this.runMaintenance(() => this.writeIndex());
+            await this.runMaintenance(async () => {
+                await pruneAssistantChatArchives(this.archiveDir, this.maxArchives, this.onError);
+                await this.writeIndex();
+                await this.pruneSnapshotBlobs();
+            });
         });
     }
 
@@ -688,18 +770,26 @@ export class AssistantChatPersistence {
         return this.flushUntilIdle();
     }
 
-    private enqueue(key: string, task: () => Promise<void>): void {
-        const previous = this.writeQueue;
-        const next = previous.catch(() => undefined).then(task).catch((error: unknown) => {
-            this.onError(`Failed to persist assistant chat session "${key}"`, error);
+    private enqueue(key: string, task: () => Promise<void>, requirePreviousSuccess = false): Promise<void> {
+        const previous = requirePreviousSuccess ? this.writeOutcome : this.writeQueue;
+        const next = previous.then(task).catch((error: unknown) => {
+            const typedError = this.toPersistenceError(key, error);
+            try {
+                this.onError(`Failed to persist assistant chat session "${key}"`, typedError);
+            } catch {
+                // Error reporting cannot change the durable write outcome.
+            }
+            throw typedError;
         });
+        this.writeOutcome = next;
         this.writeQueue = next.catch(() => undefined);
         this.queues.set(key, next);
-        void next.finally(() => {
+        void next.then(() => undefined, () => undefined).finally(() => {
             if (this.queues.get(key) === next) {
                 this.queues.delete(key);
             }
         });
+        return next;
     }
 
     private setPendingSnapshot(key: string, record: TPersistedAssistantChatRecord, durable: boolean) {
@@ -711,9 +801,11 @@ export class AssistantChatPersistence {
             ready: false,
             record,
             timer: null,
+            failure: undefined,
         };
         pending.record = record;
         pending.timer = null;
+        pending.failure = undefined;
         if (durable || pending.ready) {
             pending.ready = true;
             this.pendingSnapshots.set(key, pending);
@@ -729,7 +821,7 @@ export class AssistantChatPersistence {
         this.pendingSnapshots.set(key, pending);
     }
 
-    private forcePendingSnapshot(key: string, allowConcurrent = false) {
+    private forcePendingSnapshot(key: string, allowConcurrent = false, allowRetry = false) {
         const pending = this.pendingSnapshots.get(key);
         if (!pending) {
             return;
@@ -739,27 +831,42 @@ export class AssistantChatPersistence {
             pending.timer = null;
         }
         pending.ready = true;
-        this.schedulePendingSnapshot(key, allowConcurrent);
+        if (allowRetry) {
+            pending.failure = undefined;
+        }
+        this.schedulePendingSnapshot(key, allowConcurrent, allowRetry);
     }
 
-    private schedulePendingSnapshot(key: string, allowConcurrent = false) {
+    private schedulePendingSnapshot(key: string, allowConcurrent = false, allowRetry = false) {
         const pending = this.pendingSnapshots.get(key);
         const activeCount = this.activeSnapshotCounts.get(key) ?? 0;
-        if (!pending?.ready || activeCount > 0 && !allowConcurrent) {
+        if (!pending?.ready || pending.failure && !allowRetry || activeCount > 0 && !allowConcurrent) {
             return;
         }
-        this.pendingSnapshots.delete(key);
         this.activeSnapshotCounts.set(key, activeCount + 1);
-        this.enqueue(key, async () => {
-            await this.appendRecord(key, pending.record);
+        const record = pending.record;
+        const activeWrite = this.enqueue(key, async () => {
+            await this.appendRecord(key, record);
             await this.runMaintenance(async () => {
                 await this.compactOversizedSession(key);
                 await this.pruneSessions();
                 await this.writeIndex();
+                await this.pruneSnapshotBlobs();
             });
         });
-        const activeWrite = this.queues.get(key);
-        void activeWrite?.finally(() => {
+        void activeWrite.catch((error: unknown) => {
+            const current = this.pendingSnapshots.get(key);
+            if (current?.record === record) {
+                current.failure = this.toPersistenceError(key, error);
+                current.ready = true;
+            }
+        });
+        void activeWrite.then(() => {
+            const current = this.pendingSnapshots.get(key);
+            if (current?.record === record) {
+                this.pendingSnapshots.delete(key);
+            }
+        }, () => undefined).finally(() => {
             const remaining = (this.activeSnapshotCounts.get(key) ?? 1) - 1;
             if (remaining === 0) {
                 this.activeSnapshotCounts.delete(key);
@@ -771,8 +878,8 @@ export class AssistantChatPersistence {
     }
 
     private enqueueAfterSnapshots(key: string, task: () => Promise<void>) {
-        this.forcePendingSnapshot(key, true);
-        this.enqueue(key, task);
+        this.forcePendingSnapshot(key, true, true);
+        void this.enqueue(key, task, true).catch(() => undefined);
     }
 
     private async runMaintenance(task: () => Promise<void>) {
@@ -785,16 +892,23 @@ export class AssistantChatPersistence {
         const results: unknown[] = [];
         for (;;) {
             for (const key of this.pendingSnapshots.keys()) {
-                this.forcePendingSnapshot(key);
+                this.forcePendingSnapshot(key, false, true);
             }
             const pending = [
                 ...this.queues.values(),
                 this.writeQueue,
                 this.maintenanceQueue,
             ];
-            await Promise.all(pending).then(values => {
-                results.push(...values);
-            });
+            const settled = await Promise.allSettled(pending);
+            for (const result of settled) {
+                if (result.status === 'fulfilled') {
+                    results.push(result.value);
+                }
+            }
+            const failure = settled.find((result): result is PromiseRejectedResult => result.status === 'rejected');
+            if (failure) {
+                throw failure.reason;
+            }
             if (
                 this.queues.size === 0
                 && this.pendingSnapshots.size === 0
@@ -816,13 +930,40 @@ export class AssistantChatPersistence {
     private async appendRecord(key: string, record: TPersistedAssistantChatRecord) {
         await mkdir(this.sessionsDir, { recursive: true });
         const filePath = this.sessionPath(key);
-        await appendFile(filePath, `${JSON.stringify(record)}\n`, 'utf8');
+        const storageRecord = await this.snapshotStorage.prepareRecordForStorage(record, key);
+        await appendFile(filePath, `${JSON.stringify(storageRecord)}\n`, 'utf8');
         const handle = await open(filePath, 'r');
         try {
             await handle.sync();
         } finally {
             await handle.close();
         }
+    }
+
+    private toPersistenceError(key: string, error: unknown) {
+        if (error instanceof AssistantChatPersistenceError) {
+            return new AssistantChatPersistenceError(
+                error.code,
+                error.sessionKey,
+                error.message,
+                [...new Set([
+                    ...error.pendingKeys,
+                    ...this.pendingSnapshots.keys(),
+                    key,
+                ])],
+                error,
+            );
+        }
+        return new AssistantChatPersistenceError(
+            'write-failed',
+            key,
+            `Assistant chat persistence failed for "${key}": ${getErrorMessage(error)}`,
+            [...new Set([
+                ...this.pendingSnapshots.keys(),
+                key,
+            ])],
+            error,
+        );
     }
 
     private async compactOversizedSession(key: string) {
@@ -849,7 +990,11 @@ export class AssistantChatPersistence {
             await rm(filePath, { force: true });
             return;
         }
-        await atomicWriteJsonLineFile(filePath, createPersistedSnapshotRecord(key, recovered.session));
+        await this.snapshotStorage.writeBoundedSnapshot(
+            filePath,
+            createPersistedSnapshotRecord(key, recovered.session),
+            key,
+        );
     }
 
     private recoverSessionFile(filePath: string, expectedKey?: string): IRecoveredAssistantChatSessionFile | null {
@@ -873,23 +1018,34 @@ export class AssistantChatPersistence {
                     && key !== null
                     && lastSession !== null
                 ) {
-                    atomicWriteJsonLineFileSync(
+                    this.snapshotStorage.writeBoundedSnapshotSync(
                         filePath,
                         createPersistedSnapshotRecord(key, lastSession),
+                        key,
                     );
                     break;
                 }
                 throw new Error('Assistant chat transcript contains a malformed persisted record.');
             }
+            const resolvedSnapshot = record.type === 'session-snapshot-ref'
+                ? this.snapshotStorage.readSnapshotBlobSync(record)
+                : record.type === 'session-snapshot'
+                    ? {
+                        key: record.key,
+                        session: record.session,
+                    }
+                    : null;
+            const recordKey = resolvedSnapshot?.key ?? (record.type === 'session-reset' ? record.key : null);
             if (
-                (expectedKey !== undefined && record.key !== expectedKey)
-                || (key !== null && record.key !== key)
+                recordKey === null
+                || (expectedKey !== undefined && recordKey !== expectedKey)
+                || (key !== null && recordKey !== key)
             ) {
                 throw new Error('Assistant chat transcript contains records for different session keys.');
             }
-            key = record.key;
-            if (record.type === 'session-snapshot') {
-                lastSession = record.session;
+            key = recordKey;
+            if (resolvedSnapshot) {
+                lastSession = resolvedSnapshot.session;
             }
             if (record.type === 'session-reset') {
                 lastSession = null;
@@ -930,6 +1086,30 @@ export class AssistantChatPersistence {
         await this.writeIndex();
     }
 
+    private async pruneSnapshotBlobs() {
+        await pruneAssistantChatSnapshotBlobs(
+            [
+                this.sessionsDir,
+                this.archiveDir,
+            ],
+            this.blobsDir,
+            parsePersistedRecord,
+            this.onError,
+        );
+    }
+
+    private pruneSnapshotBlobsSync() {
+        pruneAssistantChatSnapshotBlobsSync(
+            [
+                this.sessionsDir,
+                this.archiveDir,
+            ],
+            this.blobsDir,
+            parsePersistedRecord,
+            this.onError,
+        );
+    }
+
     private pruneRecoveredSessionsSync(recovered: IRecoveredAssistantChatSession[]) {
         if (recovered.length <= this.maxSessions) {
             return;
@@ -953,7 +1133,16 @@ export class AssistantChatPersistence {
             lastAccessedAtMs: number;
             sizeBytes: number;
         }> = [];
-        for (const entry of await readdir(this.sessionsDir, { withFileTypes: true }).catch(() => [])) {
+        let sessionEntries;
+        try {
+            sessionEntries = await readdir(this.sessionsDir, { withFileTypes: true });
+        } catch (error) {
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                return entries;
+            }
+            throw error;
+        }
+        for (const entry of sessionEntries) {
             if (!entry.isFile()) {
                 continue;
             }

@@ -53,6 +53,25 @@ describe('settings corruption quarantine', () => {
         expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Quarantined corrupt settings'));
     });
 
+    it('preserves a valid settings file from a future schema without quarantining it', async () => {
+        mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-future-schema-'));
+        const settingsPath = join(mocks.userDataPath, 'settings.json');
+        const futureContent = JSON.stringify({
+            version: 99,
+            authorName: 'Future user',
+            futureSetting: true,
+        });
+        writeFileSync(settingsPath, futureContent);
+        const {loadSettings} = await import('@electron/settings');
+
+        await expect(loadSettings()).rejects.toMatchObject({
+            code: 'unsupported-settings-schema',
+            version: 99,
+        });
+        expect(readFileSync(settingsPath, 'utf-8')).toBe(futureContent);
+        expect(readdirSync(mocks.userDataPath)).toEqual(['settings.json']);
+    });
+
     it('preserves the existing target and removes staged data when atomic promotion fails', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-atomic-failure-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');

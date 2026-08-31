@@ -35,7 +35,7 @@ export async function searchDocumentTextProvider(options: {
     signal: AbortSignal;
     onProgress?: ((progress: IDocumentSearchProgress) => void) | undefined;
 }): Promise<IDocumentSearchResponse> {
-    const query = options.query.trim();
+    const query = options.query;
     if (!query) {
         return {
             results: [],

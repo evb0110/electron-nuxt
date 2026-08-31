@@ -206,6 +206,101 @@ describe('createDocumentsPreloadFileClient', () => {
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
 
+    it('validates and forwards native path print layout options', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async () => ({success: true})),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const options = {
+            pageNumbers: [
+                2,
+                5,
+            ],
+            viewMode: 'facing' as const,
+            orientation: 'landscape' as const,
+            requestId: 'print-request-1',
+        };
+
+        await expect(client.printPdfPath('/tmp/document.pdf', undefined, options))
+            .resolves.toEqual({success: true});
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfPrintPath,
+            '/tmp/document.pdf',
+            undefined,
+            options,
+        );
+        expect(() => client.printPdfPath('/tmp/document.pdf', undefined, {
+            ...options,
+            pageNumbers: [0],
+        })).toThrow('printPdfPath.options.pageNumbers[0] must be a positive safe integer');
+        expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
+    });
+
+    it('validates and forwards native data print handoff options', async () => {
+        const ipcRenderer = {
+            invoke: vi.fn(async (channel: string) => channel === DOCUMENTS_CHANNELS.pdfPrintCancel
+                ? {canceled: true}
+                : {success: true}),
+            postMessage: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const data = Uint8Array.of(1, 2, 3);
+        const options = {requestId: 'print-data-request-1'};
+
+        await expect(client.printPdfData(data, 'document.pdf', options))
+            .resolves.toEqual({success: true});
+        await expect(client.cancelPdfPrint?.(' print-data-request-1 '))
+            .resolves.toEqual({canceled: true});
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfPrintData,
+            data,
+            'document.pdf',
+            options,
+        );
+        expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+            DOCUMENTS_CHANNELS.pdfPrintCancel,
+            'print-data-request-1',
+        );
+        expect(() => client.printPdfData(data, 'document.pdf', {requestId: ''}))
+            .toThrow('printPdfData.options.requestId must be a non-empty bounded string');
+        expect(() => client.cancelPdfPrint?.(''))
+            .toThrow('cancelPdfPrint.requestId must not be empty');
+        expect(ipcRenderer.invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('drops malformed native print-dialog events and removes the subscribed listener', () => {
+        const listeners = new Map<string, (_event: unknown, payload: unknown) => void>();
+        const ipcRenderer = {
+            invoke: vi.fn(),
+            postMessage: vi.fn(),
+            on: vi.fn((channel: string, handler: (_event: unknown, payload: unknown) => void) => {
+                listeners.set(channel, handler);
+                return undefined as never;
+            }),
+            removeListener: vi.fn(),
+        } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
+        const client = createDocumentsPreloadFileClient(ipcRenderer);
+        const callback = vi.fn();
+        const unsubscribe = client.onNativePrintDialogOpened?.(callback);
+        const listener = listeners.get(DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened);
+        if (!listener) {
+            throw new Error('Expected native print-dialog listener');
+        }
+
+        listener({}, {requestId: ''});
+        listener({}, {requestId: 'x'.repeat(129)});
+        listener({}, {requestId: 'print-request-1'});
+        unsubscribe?.();
+
+        expect(callback).toHaveBeenCalledOnce();
+        expect(callback).toHaveBeenCalledWith({requestId: 'print-request-1'});
+        expect(ipcRenderer.removeListener).toHaveBeenCalledWith(
+            DOCUMENTS_EVENT_CHANNELS.nativePrintDialogOpened,
+            listener,
+        );
+    });
+
     it('closes the PDF persistence port when posting a streamed chunk fails', async () => {
         const port1 = new FakeMessagePort();
         const port2 = new FakeMessagePort();

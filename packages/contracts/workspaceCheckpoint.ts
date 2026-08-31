@@ -1,6 +1,7 @@
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@contracts/shared';
@@ -20,6 +21,7 @@ export interface IWorkspaceCheckpointTab {
     zoomMode: TZoomMode | null;
     continuousScroll?: boolean | null;
     viewMode?: TPdfViewMode | null;
+    viewRotation?: TPdfViewRotation | null;
 }
 
 export interface IWorkspaceCheckpointPane {
@@ -47,6 +49,12 @@ const VIEW_MODES = new Set<TPdfViewMode>([
     'single',
     'facing',
     'facing-first-single',
+]);
+const VIEW_ROTATIONS = new Set<TPdfViewRotation>([
+    0,
+    90,
+    180,
+    270,
 ]);
 
 function decodeNullableString(value: unknown) {
@@ -157,12 +165,20 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             : candidate.viewMode === null ? null
                 : typeof candidate.viewMode === 'string' && VIEW_MODES.has(candidate.viewMode as TPdfViewMode)
                     ? candidate.viewMode as TPdfViewMode : undefined;
+        const viewRotation = candidate.viewRotation === undefined
+            ? undefined
+            : candidate.viewRotation === null ? null
+                : typeof candidate.viewRotation === 'number'
+                    && Number.isSafeInteger(candidate.viewRotation)
+                    && VIEW_ROTATIONS.has(candidate.viewRotation as TPdfViewRotation)
+                    ? candidate.viewRotation as TPdfViewRotation : undefined;
         if (typeof candidate.tabId !== 'string' || paneId === undefined || fileName === undefined
             || sourceRef === undefined || workingCopyRef === undefined || typeof candidate.isDirty !== 'boolean'
             || requiresSaveAsOnFirstSave === null
             || typeof candidate.isDjvu !== 'boolean' || currentPage === undefined || zoom === undefined || zoomMode === undefined
             || (candidate.continuousScroll !== undefined && continuousScroll === undefined)
-            || (candidate.viewMode !== undefined && viewMode === undefined)) {
+            || (candidate.viewMode !== undefined && viewMode === undefined)
+            || (candidate.viewRotation !== undefined && viewRotation === undefined)) {
             return null;
         }
         tabs.push({
@@ -179,6 +195,7 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             zoomMode,
             ...(continuousScroll === undefined ? {} : {continuousScroll}),
             ...(viewMode === undefined ? {} : {viewMode}),
+            ...(viewRotation === undefined ? {} : {viewRotation}),
         });
     }
     return {

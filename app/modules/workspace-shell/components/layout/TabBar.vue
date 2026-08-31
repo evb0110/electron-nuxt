@@ -1,6 +1,12 @@
 <template>
     <div ref="tabBarRef" class="tab-bar">
-        <div class="tab-list" role="tablist" data-tab-list>
+        <div
+            class="tab-list"
+            role="tablist"
+            aria-orientation="horizontal"
+            :aria-label="t('tabs.tabListLabel')"
+            data-tab-list
+        >
             <div
                 v-for="(tab, index) in tabs"
                 :key="tab.id"
@@ -15,7 +21,10 @@
                 :aria-label="resolveTabTitle(tab)"
                 :aria-description="tab.isDirty ? t('tabs.unsavedChanges') : undefined"
                 :aria-selected="tab.id === activeTabId"
-                :tabindex="tab.id === activeTabId ? 0 : -1"
+                :aria-posinset="index + 1"
+                :aria-setsize="tabs.length"
+                :tabindex="tab.id === (focusedTabId ?? activeTabId) ? 0 : -1"
+                @focus="handleTabFocus(tab.id)"
                 @click="handleTabClick(tab.id)"
                 @auxclick.prevent="handleAuxClick($event, tab.id)"
                 @keydown="handleTabKeydown($event, tab.id)"
@@ -35,21 +44,24 @@
                     :class="{ 'is-visible': tab.id === activeTabId }"
                     :aria-label="t('tabs.closeTab')"
                     :disabled="!canCloseTabs"
+                    :tabindex="tab.id === activeTabId && canCloseTabs ? 0 : -1"
                     @pointerdown.stop
                     @click.stop="requestClose(tab.id)"
+                    @keydown.enter.stop
+                    @keydown.space.stop
                 >
                     <Icon name="ph:x" size="14" />
                 </button>
             </div>
-            <button
-                type="button"
-                class="tab-new"
-                :aria-label="t('tabs.newTab')"
-                @click="handleNewTab"
-            >
-                <Icon name="ph:plus" size="14" />
-            </button>
         </div>
+        <button
+            type="button"
+            class="tab-new"
+            :aria-label="t('tabs.newTab')"
+            @click="handleNewTab"
+        >
+            <Icon name="ph:plus" size="14" />
+        </button>
     </div>
 
     <UDropdownMenu
@@ -144,6 +156,17 @@ function handleNewTab() {
 }
 
 const tabBarRef = useTemplateRef<HTMLElement>('tabBarRef');
+const focusedTabId = ref<string | null>(null);
+
+watch(
+    () => tabs.map(tab => tab.id),
+    (tabIds) => {
+        if (focusedTabId.value !== null && !tabIds.includes(focusedTabId.value)) {
+            focusedTabId.value = null;
+        }
+    },
+    {flush: 'post'},
+);
 const contextMenu = ref<{
     visible: boolean;
     x: number;
@@ -441,7 +464,42 @@ function handleTabClick(tabId: string) {
     emit('activate', tabId);
 }
 
+function handleTabFocus(tabId: string) {
+    focusedTabId.value = tabId;
+}
+
 function handleTabKeydown(event: KeyboardEvent, tabId: string) {
+    const tabIndex = tabs.findIndex(tab => tab.id === tabId);
+    if (tabIndex < 0) {
+        return;
+    }
+
+    const direction = event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+        ? -1
+        : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+            ? 1
+            : 0;
+    const targetIndex = direction !== 0
+        ? (tabIndex + direction + tabs.length) % tabs.length
+        : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+                ? tabs.length - 1
+                : null;
+    if (targetIndex !== null && targetIndex !== tabIndex) {
+        const targetTab = tabs[targetIndex];
+        if (!targetTab) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        closeTabContextMenu();
+        focusedTabId.value = targetTab.id;
+        tabBarRef.value?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(targetTab.id)}"]`)
+            ?.focus({preventScroll: true});
+        return;
+    }
+
     if (event.key !== 'Enter' && event.key !== ' ') {
         return;
     }
@@ -670,6 +728,12 @@ useEventListener(window, 'keydown', (event) => {
 
 .tab-close:disabled {
     opacity: 0.35;
+}
+
+.tab-close:focus-visible {
+    opacity: 1;
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: 2px;
 }
 
 .tab.is-dirty .tab-close:disabled {

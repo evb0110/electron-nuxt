@@ -1,4 +1,7 @@
-import { app } from 'electron';
+import {
+    app,
+    webContents,
+} from 'electron';
 import {
     readFile,
     rm,
@@ -31,6 +34,7 @@ import {
     type TWorkingCopyBackingErrorCode,
     type TWorkingCopyRole,
 } from '@electron/file-access/workingCopyStore';
+import {blockStaleWorkingCopyDirectoryCleanup} from '@electron/file-access/workingCopyCleanup';
 
 const log = createLogger('workspace-checkpoint-store');
 
@@ -50,6 +54,7 @@ interface IStoredLazyWorkingCopy {
 interface IStoredWorkspaceCheckpoint {
     version: 1;
     ownerWebContentsId: number;
+    claimedByWebContentsId?: number;
     checkpoint: IWorkspaceCheckpoint;
     lazyWorkingCopies?: IStoredLazyWorkingCopy[];
 }
@@ -78,11 +83,41 @@ let pendingLatestCheckpointSave: IPendingWorkspaceCheckpointSave | null = null;
 let trailingCheckpointSave: ITrailingWorkspaceCheckpointSave | null = null;
 let lastCheckpointSaveStartedAtMs = 0;
 let checkpointBarrierQueue: Promise<unknown> = Promise.resolve();
+let claimedWorkspaceCheckpointOwnerWebContentsId: number | null = null;
+let claimedWorkspaceCheckpointPath: string | null = null;
 const discardedCheckpointOwnerGenerations = new Map<number, string>();
 let nextDiscardedCheckpointOwnerGeneration = 1;
 
+class WorkspaceCheckpointReadError extends Error {
+    public readonly code = 'WORKSPACE_CHECKPOINT_READ_FAILED' as const;
+    public readonly checkpointPath: string;
+    public override readonly cause: unknown;
+
+    public constructor(checkpointPath: string, cause: unknown) {
+        super(`Workspace checkpoint could not be read: ${checkpointPath}`);
+        this.name = 'WorkspaceCheckpointReadError';
+        this.checkpointPath = checkpointPath;
+        this.cause = cause;
+    }
+}
+
 function getStoragePath() {
     return join(app.getPath('userData'), 'workspace-checkpoint.json');
+}
+
+function releaseClaimIfOwnerDestroyed(newOwnerWebContentsId: number) {
+    if (
+        claimedWorkspaceCheckpointOwnerWebContentsId === null
+        || claimedWorkspaceCheckpointOwnerWebContentsId === newOwnerWebContentsId
+        || claimedWorkspaceCheckpointPath !== getStoragePath()
+    ) {
+        return;
+    }
+    const claimedOwner = webContents?.fromId(claimedWorkspaceCheckpointOwnerWebContentsId);
+    if (claimedOwner?.isDestroyed() === true || claimedOwner === undefined) {
+        claimedWorkspaceCheckpointOwnerWebContentsId = null;
+        claimedWorkspaceCheckpointPath = null;
+    }
 }
 
 const BACKING_ERROR_CODES = new Set<TWorkingCopyBackingErrorCode>([
@@ -178,7 +213,15 @@ function decodeLazyWorkingCopy(value: unknown): IStoredLazyWorkingCopy | null {
 }
 
 function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | null {
-    if (!isRecord(value) || value.version !== 1 || !Number.isSafeInteger(value.ownerWebContentsId)) {
+    if (
+        !isRecord(value)
+        || value.version !== 1
+        || !Number.isSafeInteger(value.ownerWebContentsId)
+        || (
+            value.claimedByWebContentsId !== undefined
+            && !Number.isSafeInteger(value.claimedByWebContentsId)
+        )
+    ) {
         return null;
     }
     const checkpoint = decodeWorkspaceCheckpoint(value.checkpoint);
@@ -201,6 +244,9 @@ function decodeStoredCheckpoint(value: unknown): IStoredWorkspaceCheckpoint | nu
     return {
         version: 1,
         ownerWebContentsId: value.ownerWebContentsId as number,
+        ...(value.claimedByWebContentsId === undefined
+            ? {}
+            : {claimedByWebContentsId: value.claimedByWebContentsId as number}),
         checkpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
     };
@@ -519,6 +565,10 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
     const stored: IStoredWorkspaceCheckpoint = {
         version: 1,
         ownerWebContentsId,
+        ...(claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
+            && claimedWorkspaceCheckpointPath === getStoragePath()
+            ? {claimedByWebContentsId: ownerWebContentsId}
+            : {}),
         checkpoint: canonicalCheckpoint,
         ...(lazyWorkingCopies.length === 0 ? {} : {lazyWorkingCopies}),
     };
@@ -540,6 +590,17 @@ export async function saveWorkspaceCheckpoint(checkpoint: IWorkspaceCheckpoint, 
 
 export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
     return enqueueWorkspaceCheckpointBarrier(async () => {
+        releaseClaimIfOwnerDestroyed(newOwnerWebContentsId);
+        if (
+            claimedWorkspaceCheckpointPath === getStoragePath()
+            && claimedWorkspaceCheckpointOwnerWebContentsId !== null
+            && claimedWorkspaceCheckpointOwnerWebContentsId !== newOwnerWebContentsId
+        ) {
+            // A renderer is already restoring this checkpoint. Keeping the file
+            // in place makes a crash retryable, but a second live renderer must
+            // not steal its working copies mid-restore.
+            return null;
+        }
         let raw: string;
         try {
             raw = await readFile(getStoragePath(), 'utf-8');
@@ -548,10 +609,14 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 // No checkpoint has been written yet: the normal clean-startup case.
                 return null;
             }
-            // A permission or transient I/O failure is not corruption; log it but
-            // leave the file in place rather than quarantining a file we could not read.
+            // A permission or transient I/O failure is not corruption. Keep the
+            // evidence and stop stale cleanup before surfacing a typed failure.
+            const checkpointPath = getStoragePath();
+            blockStaleWorkingCopyDirectoryCleanup(
+                `workspace checkpoint read failed at ${checkpointPath}`,
+            );
             log.error(`Failed to read workspace checkpoint: ${error instanceof Error ? error.message : String(error)}`);
-            return null;
+            throw new WorkspaceCheckpointReadError(checkpointPath, error);
         }
 
         let stored: IStoredWorkspaceCheckpoint | null = null;
@@ -636,13 +701,84 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
                 }
             }
         }
-        await rm(getStoragePath(), {force: true});
+        // Keep the checkpoint until the renderer has reopened every tab and
+        // explicitly acknowledges success. The owner marker is persisted so a
+        // main-process restart can distinguish an in-progress restore from an
+        // old, untouched checkpoint without deleting recovery evidence early.
+        await writeStoredWorkspaceCheckpoint({
+            ...stored,
+            claimedByWebContentsId: newOwnerWebContentsId,
+            checkpoint: canonicalCheckpoint,
+        });
+        claimedWorkspaceCheckpointOwnerWebContentsId = newOwnerWebContentsId;
+        claimedWorkspaceCheckpointPath = getStoragePath();
         return canonicalCheckpoint;
     });
 }
 
+export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
+    return enqueueWorkspaceCheckpointBarrier(async () => {
+        const storagePath = getStoragePath();
+        let raw: string;
+        try {
+            raw = await readFile(storagePath, 'utf-8');
+        } catch (error) {
+            if (isErrnoException(error) && error.code === 'ENOENT') {
+                if (
+                    claimedWorkspaceCheckpointPath === storagePath
+                    && claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
+                ) {
+                    claimedWorkspaceCheckpointOwnerWebContentsId = null;
+                    claimedWorkspaceCheckpointPath = null;
+                }
+                return false;
+            }
+            blockStaleWorkingCopyDirectoryCleanup(`workspace checkpoint acknowledgement read failed at ${storagePath}`);
+            throw new WorkspaceCheckpointReadError(storagePath, error);
+        }
+        let stored: IStoredWorkspaceCheckpoint | null = null;
+        try {
+            stored = decodeStoredCheckpoint(JSON.parse(raw));
+        } catch (error) {
+            await quarantineCorruptWorkspaceCheckpoint(
+                `acknowledgement parse failure: ${error instanceof Error ? error.message : String(error)}`,
+            );
+            throw new WorkspaceCheckpointReadError(storagePath, error);
+        }
+        if (!stored) {
+            const decodeError = new Error('Workspace checkpoint schema decode returned no checkpoint');
+            await quarantineCorruptWorkspaceCheckpoint(
+                `acknowledgement schema failure: ${decodeError.message}`,
+            );
+            throw new WorkspaceCheckpointReadError(storagePath, decodeError);
+        }
+        if (
+            stored.claimedByWebContentsId !== ownerWebContentsId
+            && !(
+                claimedWorkspaceCheckpointPath === storagePath
+                && claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
+            )
+        ) {
+            throw new Error('Workspace checkpoint acknowledgement is not owned by this renderer');
+        }
+        await rm(storagePath, {force: true});
+        if (
+            claimedWorkspaceCheckpointPath === storagePath
+            && claimedWorkspaceCheckpointOwnerWebContentsId === ownerWebContentsId
+        ) {
+            claimedWorkspaceCheckpointOwnerWebContentsId = null;
+            claimedWorkspaceCheckpointPath = null;
+        }
+        return true;
+    });
+}
+
 export function clearWorkspaceCheckpoint() {
-    return enqueueWorkspaceCheckpointBarrier(() => rm(getStoragePath(), {force: true}));
+    return enqueueWorkspaceCheckpointBarrier(async () => {
+        await rm(getStoragePath(), {force: true});
+        claimedWorkspaceCheckpointOwnerWebContentsId = null;
+        claimedWorkspaceCheckpointPath = null;
+    });
 }
 
 export async function discardWorkspaceCheckpoint(ownerWebContentsId: number) {

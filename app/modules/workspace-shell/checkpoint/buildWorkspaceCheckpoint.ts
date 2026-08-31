@@ -20,7 +20,23 @@ interface IBuildWorkspaceCheckpointOptions {
     getPaneByTabId(tabId: string): IEditorPaneState | null;
 }
 
-function readWorkspaceDocumentRefs(workspace: IWorkspaceExpose | null) {
+export class WorkspaceCheckpointCaptureError extends Error {
+    public readonly code = 'WORKSPACE_CHECKPOINT_CAPTURE_FAILED' as const;
+    public readonly tabId: string;
+    public override readonly cause: unknown;
+
+    public constructor(tabId: string, cause: unknown) {
+        super(`Workspace checkpoint could not capture document state for tab ${tabId}`);
+        this.name = 'WorkspaceCheckpointCaptureError';
+        this.tabId = tabId;
+        this.cause = cause;
+    }
+}
+
+function readWorkspaceDocumentRefs(
+    workspace: IWorkspaceExpose | null,
+    tabId: string,
+) {
     try {
         const snapshot = workspace?.getAutomationStateSnapshot();
         return {
@@ -28,12 +44,8 @@ function readWorkspaceDocumentRefs(workspace: IWorkspaceExpose | null) {
             workingCopyRef: snapshot?.workingCopyPath ?? null,
             requiresSaveAsOnFirstSave: snapshot?.requiresSaveAsOnFirstSave ?? false,
         };
-    } catch {
-        return {
-            sourceRef: null,
-            workingCopyRef: null,
-            requiresSaveAsOnFirstSave: false,
-        };
+    } catch (error) {
+        throw new WorkspaceCheckpointCaptureError(tabId, error);
     }
 }
 
@@ -60,7 +72,7 @@ export function buildWorkspaceCheckpoint(
         tabs: workspaceSnapshot.tabs.map((snapshot) => {
             const tab = tabById.get(snapshot.tabId);
             const workspace = options.workspaceRefs.value.get(snapshot.tabId) ?? null;
-            const documentRefs = readWorkspaceDocumentRefs(workspace);
+            const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
             const toolbar = options.documentRecordsByTabId.value[snapshot.tabId]?.toolbarSnapshot
                 ?? (() => {
                     try {
@@ -83,6 +95,7 @@ export function buildWorkspaceCheckpoint(
                 zoomMode: toolbar?.hasPdf ? toolbar.zoomMode : null,
                 continuousScroll: toolbar?.hasPdf ? toolbar.continuousScroll : null,
                 viewMode: toolbar?.hasPdf ? toolbar.viewMode : null,
+                viewRotation: toolbar?.hasPdf ? toolbar.viewRotation : null,
             };
         }),
     };

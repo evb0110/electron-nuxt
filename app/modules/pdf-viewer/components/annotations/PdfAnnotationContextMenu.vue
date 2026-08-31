@@ -5,6 +5,7 @@
         :style="style"
         variant="grid"
         min-width="var(--app-context-menu-preferred-width)"
+        :accessible-label="t('contextMenu.annotationMenu')"
     >
         <template v-if="menu.comment">
             <p class="pdf-context-menu__section-title">
@@ -19,6 +20,7 @@
                 v-if="canOpenNote && !isImageComment"
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="openNote"
             >
                 {{ t('contextMenu.openPopUpNote') }}
@@ -27,6 +29,7 @@
                 v-if="!isImageComment"
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 :disabled="!canCopy"
                 @click="copyText"
             >
@@ -54,6 +57,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action pdf-context-menu__action--danger"
+                role="menuitem"
                 @click="deleteAnnotation"
             >
                 {{ deleteLabel }}
@@ -68,6 +72,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 :disabled="!canCopySelection"
                 @click="copySelectionText"
             >
@@ -76,6 +81,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="markupHighlight"
             >
                 {{ t('contextMenu.highlight') }}
@@ -83,6 +89,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="markupUnderline"
             >
                 {{ t('contextMenu.underline') }}
@@ -90,6 +97,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="markupStrikethrough"
             >
                 {{ t('contextMenu.strikethrough') }}
@@ -97,6 +105,7 @@
             <button
                 type="button"
                 class="pdf-context-menu__action"
+                role="menuitem"
                 @click="markupSquiggly"
             >
                 {{ t('contextMenu.squiggly') }}
@@ -110,6 +119,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="!canCreateFree"
             @click="createFreeNote"
         >
@@ -119,6 +129,7 @@
             v-if="menu.hasSelection"
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             @click="createSelectionNote"
         >
             {{ t('contextMenu.addNoteToSelection') }}
@@ -130,6 +141,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="!canInsertImage"
             @click="insertImageFromFile"
         >
@@ -138,6 +150,7 @@
         <button
             type="button"
             class="pdf-context-menu__action"
+            role="menuitem"
             :disabled="!canInsertImage"
             @click="pasteImageFromClipboard"
         >

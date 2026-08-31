@@ -11,6 +11,7 @@ export const PDF_RERENDER_SOURCE = {
     ResizeSettle: 'resize-settle',
     Unknown: 'unknown',
     ViewMode: 'view-mode',
+    ViewRotation: 'view-rotation',
     ZoomChange: 'zoom-change',
     ZoomGestureChange: 'zoom-gesture-change',
     ZoomMode: 'zoom-mode',
@@ -100,6 +101,12 @@ const PDF_RERENDER_SOURCE_POLICY = {
     [PDF_RERENDER_SOURCE.ViewMode]: {
         anchoredCurrentPageSync: false,
         resize: false,
+        useMinimalRenderBuffer: false,
+        zoomRestore: false,
+    },
+    [PDF_RERENDER_SOURCE.ViewRotation]: {
+        anchoredCurrentPageSync: true,
+        resize: true,
         useMinimalRenderBuffer: false,
         zoomRestore: false,
     },

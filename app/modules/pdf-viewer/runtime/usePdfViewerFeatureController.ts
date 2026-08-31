@@ -63,6 +63,7 @@ export const usePdfViewerFeatureController = (
         fitMode,
         zoomMode,
         viewMode,
+        viewRotation,
         isResizing,
         showAnnotations,
         annotationTool,
@@ -168,6 +169,7 @@ export const usePdfViewerFeatureController = (
         zoomMode,
         fitMode,
         viewMode,
+        viewRotation,
         continuousScroll,
         bufferPages,
         isActive,
@@ -176,6 +178,9 @@ export const usePdfViewerFeatureController = (
         outputScale,
         isPageFreshlyRenderedForNavigation: pageNumber => (
             renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false
+        ),
+        getCommittedPageScale: pageNumber => (
+            renderingSessionRef.value?.getCommittedPageScale?.(pageNumber) ?? null
         ),
         selectionMarkupStyle,
         classState: {
@@ -264,6 +269,7 @@ export const usePdfViewerFeatureController = (
         zoomMode,
         fitMode,
         viewMode,
+        viewRotation,
         continuousScroll,
         outputScale,
         rasterDisplayProfile,

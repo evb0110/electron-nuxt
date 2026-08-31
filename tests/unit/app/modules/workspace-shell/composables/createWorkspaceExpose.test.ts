@@ -67,6 +67,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         zoomMode: ref('custom'),
         fitMode: ref('width'),
         viewMode: ref('single'),
+        viewRotation: ref(0),
         currentPage: ref(1),
         handleFitMode: vi.fn(),
         handleGoToPage: vi.fn(),
@@ -205,6 +206,24 @@ describe('createWorkspaceExpose', () => {
         await exposed.handleSave();
 
         expect(deps.handleSave).toHaveBeenCalledOnce();
+    });
+
+    it('steps whole-document view rotation without invoking page mutation', () => {
+        const viewRotation = ref<0 | 90 | 180 | 270>(0);
+        const handlePageRotate = vi.fn();
+        const exposed = createWorkspaceExpose(createDeps({
+            hasPdf: ref(true),
+            viewRotation,
+            handlePageRotate,
+        }));
+
+        exposed.handleViewRotationCw();
+        exposed.handleViewRotationCw();
+        exposed.handleViewRotationCcw();
+
+        expect(viewRotation.value).toBe(90);
+        expect(exposed.getToolbarSnapshot().viewRotation).toBe(90);
+        expect(handlePageRotate).not.toHaveBeenCalled();
     });
 
     it('ignores save shortcuts when the toolbar save command is disabled', async () => {

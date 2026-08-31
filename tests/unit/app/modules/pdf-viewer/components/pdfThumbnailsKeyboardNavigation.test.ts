@@ -325,15 +325,26 @@ describe('PdfThumbnails keyboard navigation', () => {
         expect(goToPage).toEqual([]);
         expect(tabStopPages(host)).toEqual([3]);
 
-        const toggle = currentRow.querySelector<HTMLElement>('.pdf-thumbnail-selection-toggle')!;
-        expect(toggle.getAttribute('aria-hidden')).toBe('true');
-        expect(toggle.getAttribute('role')).toBeNull();
+        const toggle = currentRow.querySelector<HTMLButtonElement>('.pdf-thumbnail-selection-toggle')!;
+        expect(toggle.tagName).toBe('BUTTON');
+        expect(toggle.getAttribute('aria-hidden')).toBeNull();
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+        expect(toggle.getAttribute('aria-label')).toContain('pageOps.selectPage');
+
+        toggle.focus();
+        const keyboardEvent = pressKey(toggle, 'Enter');
+        await nextTick();
+        expect(keyboardEvent.defaultPrevented).toBe(false);
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+
         toggle.click();
         await nextTick();
-        expect(state.selectedPages).toEqual([
-            2,
-            3,
-        ]);
+        expect(toggle.getAttribute('aria-pressed')).toBe('true');
+
+        toggle.click();
+        await nextTick();
+        expect(toggle.getAttribute('aria-pressed')).toBe('false');
+        expect(state.selectedPages).toEqual([2]);
         expect(goToPage).toEqual([]);
     });
 

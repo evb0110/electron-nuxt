@@ -1,4 +1,4 @@
-import { app } from 'electron';
+import {app} from 'electron';
 import electronUpdater, {CancellationToken} from 'electron-updater';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -24,7 +24,6 @@ import {
     normalizeVersion,
 } from '@electron/updates/versionCompare';
 import { checkMacCodeSignature } from '@electron/updates/checkMacCodeSignature';
-import { decodeLatestReleaseTag } from '@electron/updates/decodeLatestReleaseTag';
 import {
     getSuppressedUpdateVersion,
     markUpdateInstallPending,
@@ -33,6 +32,7 @@ import {
 } from '@electron/updateHealthMarker';
 import { runDetached } from '@electron/utils/runDetached';
 import { resolveApplicationVersion } from '@electron/appVersion';
+import { fetchLatestReleaseMetadataVersion } from '@electron/updates/fetchLatestReleaseMetadataVersion';
 
 const { autoUpdater } = electronUpdater;
 
@@ -61,6 +61,7 @@ let resolvedReleaseFeedBaseUrl = GITHUB_RELEASE_DOWNLOAD_BASE_URL;
 interface IUpdaterCheckDecision {
     shouldCheck: boolean;
     targetVersion: string | null;
+    errorMessage?: string;
 }
 
 const defaultStatus: IAppUpdateStatus = {
@@ -240,36 +241,6 @@ async function writeSkippedVersion(version: string | null) {
     });
 }
 
-async function fetchLatestMetadataVersion() {
-    const errors: string[] = [];
-    for (const metadataUrl of [
-        config.updates.metadataUrl,
-        config.updates.mirrorMetadataUrl,
-    ]) {
-        try {
-            const response = await fetch(metadataUrl, {
-                headers: {accept: 'application/json'},
-                signal: AbortSignal.timeout(METADATA_REQUEST_TIMEOUT_MS),
-            });
-
-            if (!response.ok) {
-                throw new Error(`Metadata endpoint responded with ${response.status}`);
-            }
-
-            const payload: unknown = await response.json();
-            const latestTag = normalizeVersion(decodeLatestReleaseTag(payload));
-            if (!latestTag) {
-                throw new Error('Metadata endpoint did not return release.tag');
-            }
-            return latestTag;
-        } catch (error) {
-            errors.push(`${metadataUrl}: ${getErrorMessage(error)}`);
-        }
-    }
-
-    throw new Error(`All update metadata sources failed (${errors.join('; ')})`);
-}
-
 function getUpdaterMetadataAssetName() {
     if (process.platform === 'win32') {
         return 'latest.yml';
@@ -288,22 +259,13 @@ function getUpdaterReleaseFeedUrl(version: string, baseUrl = resolvedReleaseFeed
     return `${baseUrl}/${encodeURIComponent(getReleaseTag(version))}`;
 }
 
-function configureUpdaterFeed(targetVersion: string | null) {
-    if (targetVersion) {
-        autoUpdater.setFeedURL({
-            provider: 'generic',
-            url: getUpdaterReleaseFeedUrl(targetVersion),
-            // GitHub release downloads redirect through S3, whose responses do
-            // not support electron-updater's multi-range request format.
-            useMultipleRangeRequest: false,
-        });
-        return;
-    }
-
+function configureUpdaterFeed(targetVersion: string) {
     autoUpdater.setFeedURL({
-        provider: 'github',
-        owner: GITHUB_RELEASE_OWNER,
-        repo: GITHUB_RELEASE_REPOSITORY,
+        provider: 'generic',
+        url: getUpdaterReleaseFeedUrl(targetVersion),
+        // GitHub release downloads redirect through S3, whose responses do
+        // not support electron-updater's multi-range request format.
+        useMultipleRangeRequest: false,
     });
 }
 
@@ -336,8 +298,8 @@ async function hasUpdaterMetadataForVersion(version: string) {
             errors.push(`${baseUrl}: ${getErrorMessage(error)}`);
         }
     }
-    if (errors.length === 2) {
-        throw new Error(`All updater feeds failed (${errors.join('; ')})`);
+    if (errors.length > 0) {
+        throw new Error(`Updater feed verification was inconclusive (${errors.join('; ')})`);
     }
     return false;
 }
@@ -384,7 +346,7 @@ async function maybeClearSupersededDownloadedVersion() {
     }
 
     try {
-        const latestVersion = await fetchLatestMetadataVersion();
+        const latestVersion = await fetchLatestReleaseMetadataVersion(config.updates.metadataUrl, logger);
         const comparison = compareVersions(latestVersion, downloadedVersion);
         if (comparison < 0) {
             logger.warn(
@@ -542,7 +504,13 @@ function setAutoUpdaterListeners() {
 
     const onUpdaterError = (error: unknown) => {
         approvedDownloadAndInstallVersion = null;
-        logger.error(`Updater error: ${getErrorMessage(error)}`);
+        const failedOperation = status.phase === 'downloading'
+            ? 'Update download failed'
+            : status.phase === 'downloaded'
+                ? 'Update installation failed'
+                : 'Update check failed';
+        const message = `${failedOperation}: ${getErrorMessage(error)}`;
+        logger.error(message);
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
             setIdleStatus('auto');
@@ -554,7 +522,7 @@ function setAutoUpdaterListeners() {
             origin: 'manual',
             version: pendingVersion,
             percent: null,
-            message: getErrorMessage(error),
+            message,
         });
     };
     autoUpdater.on('error', onUpdaterError);
@@ -634,13 +602,14 @@ function setAutoUpdaterListeners() {
                 message: null,
             });
         } catch (error) {
-            logger.error(`Failed to process downloaded update event: ${getErrorMessage(error)}`);
+            const message = `Update install preparation failed: ${getErrorMessage(error)}`;
+            logger.error(message);
             updateStatus({
                 phase: 'error',
                 origin: currentCheckOrigin,
                 version: pendingVersion,
                 percent: null,
-                message: getErrorMessage(error),
+                message,
             });
         }
     };
@@ -656,15 +625,16 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
     resolvedReleaseFeedBaseUrl = GITHUB_RELEASE_DOWNLOAD_BASE_URL;
 
     try {
-        latestVersion = await fetchLatestMetadataVersion();
+        latestVersion = await fetchLatestReleaseMetadataVersion(config.updates.metadataUrl, logger);
     } catch (error) {
         const message = isAbortError(error)
             ? 'Timed out while checking for updates.'
-            : getErrorMessage(error);
+            : `Update check failed: ${getErrorMessage(error)}`;
         logger.warn(`Unable to query update metadata: ${message}`);
         return {
-            shouldCheck: true,
+            shouldCheck: false,
             targetVersion: null,
+            errorMessage: message,
         };
     }
 
@@ -692,17 +662,19 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
             pendingVersion = null;
             return {
                 shouldCheck: false,
-                targetVersion: null,
+                targetVersion: latestVersion,
+                errorMessage: `Update ${latestVersion} is available, but its ${getUpdaterMetadataAssetName()} feed is not published. Download the release manually.`,
             };
         }
     } catch (error) {
         const message = isAbortError(error)
             ? 'Timed out while checking updater metadata.'
-            : getErrorMessage(error);
+            : `Update feed verification failed: ${getErrorMessage(error)}`;
         logger.warn(`Unable to verify updater metadata for ${latestVersion}: ${message}`);
         return {
-            shouldCheck: true,
+            shouldCheck: false,
             targetVersion: null,
+            errorMessage: message,
         };
     }
 
@@ -806,6 +778,20 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
         currentCheckPromise = (async () => {
             const decision = await resolveUpdaterCheckDecision();
             if (!decision.shouldCheck) {
+                if (decision.errorMessage && origin === 'manual') {
+                    updateStatus({
+                        phase: 'error',
+                        origin,
+                        version: decision.targetVersion ?? pendingVersion ?? getCurrentVersion(),
+                        percent: null,
+                        message: decision.errorMessage,
+                    });
+                    return;
+                }
+                if (decision.errorMessage) {
+                    setIdleStatus('auto');
+                    return;
+                }
                 if (origin === 'manual') {
                     updateStatus({
                         phase: 'no-update',
@@ -825,19 +811,21 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 // release. Point electron-updater at that release's directory
                 // so GitHub's independently mutable `latest` pointer cannot
                 // make a stale client download an intermediate version first.
+                if (!decision.targetVersion) {
+                    throw new Error('Update metadata selected no target release.');
+                }
                 configureUpdaterFeed(decision.targetVersion);
                 await autoUpdater.checkForUpdates();
             } catch (error) {
-                logger.error(`checkForUpdates failed: ${getErrorMessage(error)}`);
-                if (origin === 'manual') {
-                    updateStatus({
-                        phase: 'error',
-                        origin: 'manual',
-                        version: pendingVersion,
-                        percent: null,
-                        message: getErrorMessage(error),
-                    });
-                }
+                const message = `Update check failed: ${getErrorMessage(error)}`;
+                logger.error(message);
+                updateStatus({
+                    phase: 'error',
+                    origin,
+                    version: pendingVersion,
+                    percent: null,
+                    message,
+                });
             }
         })().finally(() => {
             currentCheckPromise = null;
@@ -845,16 +833,15 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
 
         await currentCheckPromise;
     } catch (error) {
-        logger.error(`checkForUpdates internal failure: ${getErrorMessage(error)}`);
-        if (origin === 'manual') {
-            updateStatus({
-                phase: 'error',
-                origin: 'manual',
-                version: pendingVersion,
-                percent: null,
-                message: getErrorMessage(error),
-            });
-        }
+        const message = `Update check failed: ${getErrorMessage(error)}`;
+        logger.error(message);
+        updateStatus({
+            phase: 'error',
+            origin,
+            version: pendingVersion,
+            percent: null,
+            message,
+        });
     }
 }
 
@@ -874,7 +861,7 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
             async () => {
                 const marker = await recordPendingUpdateStartup(currentVersion);
                 if (marker && !marker.installationApplied) {
-                    const message = `Update ${marker.pendingVersion} could not be installed; version ${currentVersion} was relaunched`;
+                    const message = `Update installation failed: ${marker.pendingVersion} could not be installed; version ${currentVersion} was relaunched`;
                     logger.error(message);
                     updateStatus({
                         phase: 'error',
@@ -988,8 +975,8 @@ export function downloadAvailableUpdate() {
             if (approvedDownloadAndInstallVersion === candidateVersion) {
                 approvedDownloadAndInstallVersion = null;
             }
-            const message = getErrorMessage(error);
-            logger.error(`downloadUpdate failed: ${message}`);
+            const message = `Update download failed: ${getErrorMessage(error)}`;
+            logger.error(message);
             updateStatus({
                 phase: 'error',
                 origin: 'manual',
@@ -1023,7 +1010,7 @@ export async function installDownloadedUpdate() {
         validateDownloadedUpdateForInstall(candidateVersion);
     } catch (error) {
         clearDownloadedCandidate(candidateVersion);
-        const message = `Downloaded update validation failed: ${getErrorMessage(error)}`;
+        const message = `Update installation failed: ${getErrorMessage(error)}`;
         logger.error(message);
         updateStatus({
             phase: 'error',

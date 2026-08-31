@@ -629,6 +629,9 @@ describe('browser page-ops WASM fast path', () => {
         assertSuccessfulWasmMutation(mergedResult);
 
         const mergedCatalog = await wasm.run('readCatalog', {data: mergedResult.data});
+        if (mergedCatalog === null || 'status' in mergedCatalog) {
+            throw new Error('Expected a successful browser page-ops catalog read');
+        }
         expect(mergedCatalog.bookmarks).toHaveLength(2);
         expect(mergedCatalog.bookmarks.map(bookmark => bookmark.pageIndex)).toEqual([
             2,

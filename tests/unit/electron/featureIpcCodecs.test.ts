@@ -71,6 +71,72 @@ describe('feature IPC codec maps', () => {
         expect(() => codec?.decodeArgs([['/tmp/reported-open.pdf']])).toThrow('expected 0 arguments, received 1');
     });
 
+    it('preserves native path print layout options when the filename is omitted', () => {
+        const options = {
+            pageNumbers: [
+                2,
+                5,
+            ],
+            viewMode: 'facing',
+            orientation: 'landscape',
+            requestId: 'print-request-1',
+        } as const;
+        const codec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintPath];
+
+        expect(codec.decodeArgs([
+            '/tmp/document.pdf',
+            undefined,
+            options,
+        ])).toEqual([
+            '/tmp/document.pdf',
+            undefined,
+            options,
+        ]);
+        expect(() => codec.decodeArgs([
+            '/tmp/document.pdf',
+            'document.pdf',
+            {
+                ...options,
+                orientation: 'diagonal',
+            },
+        ])).toThrow('options.orientation is invalid');
+    });
+
+    it('preserves native data print handoff options when the filename is omitted', () => {
+        const data = Uint8Array.of(1, 2, 3);
+        const options = {requestId: 'print-data-request-1'};
+        const codec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintData];
+
+        expect(codec.decodeArgs([
+            data,
+            undefined,
+            options,
+        ])).toEqual([
+            data,
+            undefined,
+            options,
+        ]);
+        expect(() => codec.decodeArgs([
+            data,
+            'document.pdf',
+            {requestId: ''},
+        ])).toThrow('options.requestId must be a non-empty bounded string');
+
+        const cancelCodec = DOCUMENTS_IPC_CODECS[DOCUMENTS_CHANNELS.pdfPrintCancel];
+        expect(cancelCodec.decodeArgs(['print-data-request-1'])).toEqual(['print-data-request-1']);
+        expect(cancelCodec.decodeResult({canceled: true})).toEqual({canceled: true});
+        expect(() => cancelCodec.decodeArgs([])).toThrow('expected 1 arguments');
+    });
+
+    it('validates native print-dialog handoff events', () => {
+        const event = DOCUMENT_PDF_PLATFORM_FEATURE.events.onNativePrintDialogOpened;
+
+        expect(event.payload.decode({requestId: 'print-request-1'})).toEqual({requestId: 'print-request-1'});
+        expect(() => event.payload.decode({requestId: ''})).toThrow(
+            'native print dialog event requestId must be a non-empty bounded string',
+        );
+    });
+
     it('validates working-copy backing status once at the generated IPC boundary', () => {
         const channel = DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.getWorkingCopyBackingStatus;
         const validStatus = {

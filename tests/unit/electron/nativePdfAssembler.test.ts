@@ -64,7 +64,7 @@ const mocks = vi.hoisted(() => {
         ]);
     });
     const rm = vi.fn(async () => undefined);
-    const writeFile = vi.fn(async () => undefined);
+    const writeFile = vi.fn(async (_path: string, _data: string, _encoding: 'utf8') => undefined);
     const stat = vi.fn(async () => ({size: 3}));
     const statfs = vi.fn(async () => ({
         bavail: 1_000_000,
@@ -235,7 +235,11 @@ describe('tryCreatePdfFromInputPathsNative', () => {
             expect.stringContaining('Second'),
             'utf8',
         );
-        const mutationJson = mocks.writeFile.mock.calls.at(-1)?.[1] as string;
+        const mutationWrite = mocks.writeFile.mock.calls.at(-1);
+        if (!mutationWrite) {
+            throw new Error('Expected the native assembler mutation file write');
+        }
+        const mutationJson = mutationWrite[1];
         expect(mutationJson).toContain('"pageIndex":1');
     });
 

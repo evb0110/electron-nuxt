@@ -859,6 +859,7 @@ export function syncBrowserWindowTitle() {
 
 export const browserWindowTabsCapability: IWindowTabsCapability = {
     async saveWorkspaceCheckpoint() {},
+    async acknowledgeWorkspaceCheckpoint() {},
     discardWorkspaceCheckpoint: () => Promise.resolve('1'),
     async resumeWorkspaceCheckpoint() {},
     claimWorkspaceCheckpoint: async () => {

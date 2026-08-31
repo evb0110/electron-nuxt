@@ -1,14 +1,28 @@
 <template>
     <div
+        class="snip-live-region sr-only"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+    >
+        {{ badgePosition ? copiedLabel : '' }}
+    </div>
+    <div
         v-if="shouldRender"
+        ref="overlayRef"
         class="snip-overlay"
         :class="{ 'is-active': active }"
+        :role="active ? 'dialog' : undefined"
+        :aria-modal="active ? 'true' : undefined"
+        :aria-label="active ? hintLabel : undefined"
+        :tabindex="active ? 0 : -1"
         @pointerdown="handlePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointercancel="cancelSelection"
         @contextmenu="handleContextMenu"
         @wheel="handleWheel"
+        @keydown="handleKeyboardKey"
     >
         <div
             v-if="selectionRect"
@@ -40,7 +54,9 @@ import type {
     IRegionSelectionOverlayBaseProps,
     IRegionSelectionOverlayEmits,
 } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSelectionOverlay';
+import { pdfRegionSnipKeyboardKey } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import { useEmittedPdfRegionSelectionOverlay } from '@app/modules/pdf-viewer/runtime/composables/pdf/useEmittedPdfRegionSelectionOverlay';
+import { usePdfSelectionOverlayFocus } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSelectionOverlayFocus';
 import { regionRectStyle } from '@app/modules/pdf-viewer/engine/region-selection/regionRectStyle';
 
 interface IProps {
@@ -64,6 +80,8 @@ const {
     copiedLabel,
 } = defineProps<IProps>();
 const emit = defineEmits<IRegionSelectionOverlayEmits>();
+const overlayRef = ref<HTMLElement | null>(null);
+const keyboardController = inject(pdfRegionSnipKeyboardKey, null);
 
 const {
     handlePointerDown,
@@ -99,6 +117,13 @@ const badgeStyle = computed<CSSProperties>(() => {
 function cancelSelection() {
     emit('cancel');
 }
+
+const {handleKeyboardKey} = usePdfSelectionOverlayFocus({
+    isActive: () => active,
+    overlayRef,
+    keyboardController,
+    onCancel: cancelSelection,
+});
 </script>
 
 <style scoped>
@@ -114,6 +139,11 @@ function cancelSelection() {
 .snip-overlay.is-active {
     pointer-events: auto;
     cursor: crosshair;
+}
+
+.snip-overlay:focus-visible {
+    outline: 2px solid var(--app-toolbar-focus-ring);
+    outline-offset: -2px;
 }
 
 .snip-selection,

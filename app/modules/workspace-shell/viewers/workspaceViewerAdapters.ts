@@ -34,6 +34,7 @@ const PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     sidebar: true,
     continuousScroll: true,
     viewMode: true,
+    viewRotation: true,
 };
 
 const NATIVE_PDF_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
@@ -54,6 +55,7 @@ const DJVU_VIEWER_CAPABILITIES: IWorkspaceViewerCapabilities = {
     sidebar: true,
     continuousScroll: true,
     viewMode: false,
+    viewRotation: false,
 };
 
 function createDjvuLifecycleHooks(context: IWorkspaceViewerLifecycleContext): IWorkspaceViewerLifecycleHooks {

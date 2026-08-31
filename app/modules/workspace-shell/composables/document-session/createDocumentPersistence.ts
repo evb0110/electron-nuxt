@@ -642,7 +642,7 @@ export function createDocumentPersistence(
                             saveMode: requestedSaveMode,
                         });
                         if (!state.isActiveWorkingCopy(nextWorkingPath)) {
-                            runDetached(
+                            void runDetached(
                                 () => getDocumentWorkingCopyCapability().cleanupFile(nextWorkingPath),
                                 {
                                     category: 'background-diagnostic',

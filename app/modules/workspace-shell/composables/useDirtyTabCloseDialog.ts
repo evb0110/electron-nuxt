@@ -3,6 +3,9 @@ import type { ITab } from '@app/types/tabs';
 
 interface IUseDirtyTabCloseDialogDeps {tabs: Ref<ITab[]>;}
 
+type TDirtyCloseDecision = 'save' | 'discard' | 'cancel';
+export type TDirtyCloseDialogMode = 'tab' | 'window';
+
 interface IDirtyTabCloseTarget {
     id: string;
     documentInstanceId: ITab['documentInstanceId'] | null;
@@ -17,7 +20,8 @@ export const useDirtyTabCloseDialog = (
     const dirtyTabCloseDialogOpen = ref(false);
     const dirtyTabCloseTargetId = ref<string | null>(null);
     const dirtyTabCloseTarget = ref<IDirtyTabCloseTarget | null>(null);
-    let dirtyTabCloseDialogResolver: ((confirmed: boolean) => void) | null = null;
+    const dirtyTabCloseDialogMode = ref<TDirtyCloseDialogMode>('tab');
+    let dirtyTabCloseDialogResolver: ((decision: TDirtyCloseDecision) => void) | null = null;
 
     const dirtyTabCloseTargetName = computed(() => dirtyTabCloseTarget.value?.name ?? t('tabs.newTab'));
 
@@ -28,13 +32,15 @@ export const useDirtyTabCloseDialog = (
             && (tab.documentInstanceId ?? null) === target.documentInstanceId;
     }
 
-    function resolveDirtyTabCloseDialog(confirmed: boolean) {
+    function resolveDirtyTabCloseDialog(decision: TDirtyCloseDecision | boolean) {
         const resolver = dirtyTabCloseDialogResolver;
         dirtyTabCloseDialogResolver = null;
         dirtyTabCloseTargetId.value = null;
         dirtyTabCloseDialogOpen.value = false;
         if (resolver) {
-            resolver(confirmed);
+            resolver(typeof decision === 'boolean'
+                ? decision ? 'discard' : 'cancel'
+                : decision);
         }
     }
 
@@ -58,13 +64,32 @@ export const useDirtyTabCloseDialog = (
             name: tab.fileName,
         };
         dirtyTabCloseTargetId.value = tabId;
+        dirtyTabCloseDialogMode.value = 'tab';
+        const confirmation = new Promise<boolean>((resolve) => {
+            dirtyTabCloseDialogResolver = decision => resolve(decision === 'discard');
+        });
         dirtyTabCloseDialogOpen.value = true;
-        return new Promise<boolean>((resolve) => {
+        return confirmation;
+    }
+
+    function requestDirtyWindowCloseConfirmation() {
+        if (dirtyTabCloseDialogResolver) {
+            resolveDirtyTabCloseDialog('cancel');
+        }
+        dirtyTabCloseDialogMode.value = 'window';
+        dirtyTabCloseTarget.value = null;
+        dirtyTabCloseTargetId.value = null;
+        const confirmation = new Promise<TDirtyCloseDecision>((resolve) => {
             dirtyTabCloseDialogResolver = resolve;
         });
+        dirtyTabCloseDialogOpen.value = true;
+        return confirmation;
     }
 
     watch(() => {
+        if (dirtyTabCloseDialogMode.value !== 'tab') {
+            return null;
+        }
         const target = dirtyTabCloseTarget.value;
         const tab = target ? tabs.value.find(candidate => candidate.id === target.id) : undefined;
         return tab ? [
@@ -75,6 +100,9 @@ export const useDirtyTabCloseDialog = (
             null,
         ];
     }, () => {
+        if (dirtyTabCloseDialogMode.value !== 'tab') {
+            return;
+        }
         if (dirtyTabCloseDialogResolver && !isCurrentTarget(
             dirtyTabCloseTarget.value
                 ? tabs.value.find(candidate => candidate.id === dirtyTabCloseTarget.value?.id)
@@ -92,10 +120,12 @@ export const useDirtyTabCloseDialog = (
 
     return {
         dirtyTabCloseDialogOpen,
+        dirtyTabCloseDialogMode,
         dirtyTabCloseTargetId,
         dirtyTabCloseTargetName,
         confirmDirtyTabClose,
         requestDirtyTabCloseConfirmation,
+        requestDirtyWindowCloseConfirmation,
         resolveDirtyTabCloseDialog,
     };
 };

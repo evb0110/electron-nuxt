@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 const mocks = vi.hoisted(() => {
     class MockBrowserWindow {
@@ -37,6 +38,8 @@ const mocks = vi.hoisted(() => {
             forcefullyCrashRenderer: vi.fn(),
             getURL: vi.fn(() => 'evb-viewer://app/electron'),
             executeJavaScript: vi.fn(async () => undefined),
+            isDestroyed: vi.fn(() => this.destroyed),
+            send: vi.fn(),
             on: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
                 const existing = this.handlers.get(`webContents:${event}`) ?? [];
                 existing.push(handler);
@@ -70,6 +73,14 @@ const mocks = vi.hoisted(() => {
         destroy = vi.fn(() => {
             this.destroyed = true;
             this.emit('closed');
+        });
+
+        close = vi.fn(() => {
+            const event = {preventDefault: vi.fn()};
+            this.emit('close', event);
+            if (event.preventDefault.mock.calls.length === 0) {
+                this.destroy();
+            }
         });
 
         focus = vi.fn();
@@ -143,6 +154,10 @@ const mocks = vi.hoisted(() => {
             focus: vi.fn(),
             isPackaged: true,
         },
+        ipcMain: {
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        },
         clearCache: vi.fn(async () => {}),
         dialog: { showMessageBox: vi.fn(async () => ({ response: 0 })) },
         loadURL: vi.fn(async (_url?: string) => {}),
@@ -182,6 +197,7 @@ vi.mock('electron', () => ({
     BrowserWindow: mocks.BrowserWindow,
     app: mocks.app,
     dialog: mocks.dialog,
+    ipcMain: mocks.ipcMain,
     session: {defaultSession: {clearCache: mocks.clearCache}},
     shell: {openExternal: mocks.openExternal},
 }));
@@ -229,6 +245,22 @@ describe('window runtime readiness', () => {
             preload: expect.stringMatching(/preload\.cjs$/u),
         })}));
         expect(window?.setMenuBarVisibility).not.toHaveBeenCalled();
+    });
+
+    it('blocks a native close until the renderer returns a decision', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({showStartupPlaceholder: false});
+
+        const window = mocks.BrowserWindow.windows[0];
+        const closeEvent = {preventDefault: vi.fn()};
+        window?.emit('close', closeEvent);
+
+        expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
+        expect(window?.webContents.send).toHaveBeenCalledWith(
+            CORE_IPC_EVENT_CHANNELS.windowCloseRequest,
+            expect.objectContaining({requestId: expect.any(String)}),
+        );
     });
 
     it('keeps the native menu bar visible on macOS windows', async () => {

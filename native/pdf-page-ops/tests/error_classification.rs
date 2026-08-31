@@ -180,6 +180,45 @@ fn pdf_conformance_accepts_only_valid_qpdf_warning_output() {
 
 #[cfg(unix)]
 #[test]
+fn pdf_conformance_accepts_legacy_qpdf_json_and_rejects_invalid_trailer_sizes() {
+    const VALID_STRUCTURE: &str = r#"{"version":1,"objects":{"trailer":{"/Size":3,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog","/Title":"Legacy title"}}}"#;
+    const MISSING_SIZE: &str =
+        r#"{"version":1,"objects":{"trailer":{"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"}}}"#;
+    const NON_INTEGER_SIZE: &str = r#"{"version":1,"objects":{"trailer":{"/Size":"/three","/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"}}}"#;
+    const UNDERSIZED: &str = r#"{"version":1,"objects":{"trailer":{"/Size":2,"/Root":"1 0 R"},"1 0 R":{"/Type":"/Catalog"},"2 0 R":null}}"#;
+    let input = path("qpdf-legacy-input", "pdf");
+    let output = path("qpdf-legacy-output", "json");
+    let qpdf = path("qpdf-legacy", "sh");
+    let mut document = Document::with_version("1.4");
+    let catalog_id = document.add_object(dictionary! { "Type" => "Catalog" });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input).unwrap();
+
+    write_fake_qpdf(&qpdf, 0, VALID_STRUCTURE);
+    let result = run_pdf_conformance(&input, &output, &qpdf);
+    assert!(
+        result.status.success(),
+        "legacy qpdf JSON was rejected: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let facts: Value = serde_json::from_slice(&read(&output).unwrap()).unwrap();
+    assert_eq!(facts["isSigned"], false);
+
+    for structure in [MISSING_SIZE, NON_INTEGER_SIZE, UNDERSIZED] {
+        write_fake_qpdf(&qpdf, 0, structure);
+        assert_eq!(
+            error_code(&run_pdf_conformance(&input, &output, &qpdf)),
+            "native-failure"
+        );
+    }
+
+    for candidate in [input, output, qpdf] {
+        let _ = remove_file(candidate);
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn pdf_conformance_output_is_safe_for_same_path_and_hardlink_output() {
     const VALID_STRUCTURE: &str = r#"{"qpdf":[{"jsonversion":2,"pdfversion":"1.4","maxobjectid":1},{"trailer":{"value":{"/Root":"1 0 R"}},"obj:1 0 R":{"value":{"/Type":"/Catalog"}}}]}"#;
     let qpdf = path("qpdf-alias", "sh");

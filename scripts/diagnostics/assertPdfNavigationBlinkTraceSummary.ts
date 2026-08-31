@@ -6,12 +6,17 @@ export const MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX = 2;
 interface IPdfNavigationBlinkAssertionSummary {
     bodyCanvasReadyAtMs: number | null;
     bodyVisualReadyAtMs: number | null;
+    finalTargetPage: number | null;
+    lastClickAtMs: number | null;
     latePostClickSwapCount: number;
     maxCenteredBlankAfterClickRunMs: number;
     maxIntermediateVisualAfterClickRunMs: number;
     maxToolbarBodyLagMs: number;
     nonFinalPagedCommitAfterFinalRequestCount: number;
     nonFinalWorkspacePageAcceptAfterFinalRequestCount: number;
+    outgoingVisualGeometryBaselineFound: boolean;
+    outgoingVisualGeometryHeightDeltaPx: number;
+    outgoingVisualGeometryWidthDeltaPx: number;
     postReadyUnstableSampleCount: number;
     rasterSchedulerSnapshots: unknown[];
     skeletonAfterVisualSampleCount: number;
@@ -95,6 +100,23 @@ export function assertPdfNavigationBlinkTraceSummary(summary: IPdfNavigationBlin
         failures.push(
             `target feedback geometry changed by width=${summary.targetFeedbackWidthDeltaPx}px`
             + ` height=${summary.targetFeedbackHeightDeltaPx}px`
+            + ` exceeding ${MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX}px`,
+        );
+    }
+    if (
+        summary.lastClickAtMs !== null
+        && summary.finalTargetPage !== null
+        && !summary.outgoingVisualGeometryBaselineFound
+    ) {
+        failures.push('no outgoing visual geometry baseline was captured before the navigation click');
+    }
+    if (
+        summary.outgoingVisualGeometryHeightDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+        || summary.outgoingVisualGeometryWidthDeltaPx > MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX
+    ) {
+        failures.push(
+            `outgoing committed visual geometry changed by width=${summary.outgoingVisualGeometryWidthDeltaPx}px`
+            + ` height=${summary.outgoingVisualGeometryHeightDeltaPx}px before target arrival`
             + ` exceeding ${MAX_ASSERTED_TARGET_FEEDBACK_GEOMETRY_DELTA_PX}px`,
         );
     }

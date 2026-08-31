@@ -11,6 +11,7 @@ interface IUsePlatformHydratedStateOptions<T> {
     onError?: (error: unknown) => void;
     shouldRetry?: (error: unknown) => boolean;
     retryDelayMs?: number;
+    maxAutomaticRetries?: number;
     markResolvedOnError?: (error: unknown) => boolean;
 }
 
@@ -29,14 +30,20 @@ type TPlatformHydratedLoadResult<T> =
     | IPlatformHydratedLoadSuccess<T>
     | IPlatformHydratedLoadFailure;
 
-interface IPlatformHydratedLoadRecord { promise: Promise<TPlatformHydratedLoadResult<unknown>> | null; }
+interface IPlatformHydratedLoadRecord {
+    promise: Promise<TPlatformHydratedLoadResult<unknown>> | null;
+    consecutiveFailures: number;
+}
 
 const loadRecords = new Map<string, IPlatformHydratedLoadRecord>();
 
 function getLoadRecord(key: string) {
     let record = loadRecords.get(key);
     if (!record) {
-        record = { promise: null };
+        record = {
+            promise: null,
+            consecutiveFailures: 0,
+        };
         loadRecords.set(key, record);
     }
     return record;
@@ -90,6 +97,7 @@ export const usePlatformHydratedState = <T>(
                 if (!supersededByLocalWrite) {
                     state.value = nextValue;
                 }
+                loadRecord.consecutiveFailures = 0;
                 isResolved.value = true;
                 return {
                     ok: true,
@@ -97,6 +105,7 @@ export const usePlatformHydratedState = <T>(
                     supersededByLocalWrite,
                 } satisfies IPlatformHydratedLoadSuccess<T>;
             } catch (loadError) {
+                loadRecord.consecutiveFailures += 1;
                 error.value = options.getErrorMessage?.(loadError)
                     ?? getErrorMessage(loadError);
                 if (options.markResolvedOnError?.(loadError) ?? false) {
@@ -135,14 +144,37 @@ export const usePlatformHydratedState = <T>(
         }
 
         options.onError?.(result.error);
-        const shouldRetry = options.shouldRetry?.(result.error) ?? false;
-        if (!shouldRetry && (options.markResolvedOnError?.(result.error) ?? false)) {
+        const wantsRetry = options.shouldRetry?.(result.error) ?? false;
+        const maxAutomaticRetries = options.maxAutomaticRetries;
+        const automaticRetriesExhausted = wantsRetry
+            && typeof maxAutomaticRetries === 'number'
+            && loadRecord.consecutiveFailures > Math.max(0, Math.floor(maxAutomaticRetries));
+        const shouldRetry = wantsRetry && !automaticRetriesExhausted;
+        if (
+            !shouldRetry
+            && (
+                automaticRetriesExhausted
+                || (options.markResolvedOnError?.(result.error) ?? false)
+            )
+        ) {
             isResolved.value = true;
         }
         if (shouldRetry) {
             scheduleRetry();
         }
         return null;
+    }
+
+    async function retryNow() {
+        if (isDisposed) {
+            return null;
+        }
+        clearRetryTimer();
+        if (!loadRecord.promise) {
+            loadRecord.consecutiveFailures = 0;
+            isResolved.value = false;
+        }
+        return load();
     }
 
     if (getCurrentScope()) {
@@ -158,6 +190,7 @@ export const usePlatformHydratedState = <T>(
         isResolved,
         error,
         load,
+        retryNow,
         clearRetryTimer,
     };
 };

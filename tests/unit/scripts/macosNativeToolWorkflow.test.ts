@@ -19,6 +19,7 @@ import {
 import { getNativeSourceMatrixCheckEntries } from '@scripts/nativeResourceManifest';
 
 const platformArchHelperPath = resolve(process.cwd(), 'scripts/release/platform-arch.sh');
+const packagedNativeRootSetPath = resolve(process.cwd(), 'scripts/release/packaged-native-root-set.sh');
 const sourceMatrixScriptPath = resolve(process.cwd(), 'scripts/check-native-tools-source-matrix.sh');
 
 async function readProjectFile(path: string) {
@@ -199,6 +200,30 @@ describe('macOS native tool workflow', () => {
         expect(verifier).toContain('Ad-hoc macOS app execution was killed by provenance policy');
     });
 
+    it('deduplicates packaged native roots with an empty array under nounset', () => {
+        const output = execFileSync('/bin/bash', [
+            '--noprofile',
+            '--norc',
+            '-u',
+            '-c',
+            [
+                'source "$1"',
+                'packaged_family_roots=()',
+                'append_packaged_family_root qpdf',
+                'append_packaged_family_root qpdf',
+                'append_packaged_family_root poppler',
+                'printf "%s\\n" "${packaged_family_roots[@]}"',
+            ].join('\n'),
+            'bash',
+            packagedNativeRootSetPath,
+        ], {encoding: 'utf8'});
+
+        expect(output.trim().split('\n')).toEqual([
+            'qpdf',
+            'poppler',
+        ]);
+    });
+
     it('keeps packaged unpaper required outside Windows and smoke-tested on macOS', async () => {
         const verifier = await readProjectFile('scripts/verify-packaged-native-tools.sh');
         const bundleUnpaper = await readProjectFile('scripts/bundle-leptonica-unpaper-macos.sh');
@@ -375,6 +400,7 @@ describe('macOS native tool workflow', () => {
         expect(sourceMatrix).toContain('nativeResourceManifestCli.ts');
         expect(sourceMatrix).toContain('source-matrix "$tag"');
         expect(sourceMatrix).toContain('echo "  CI-GEN  $label: $path"');
+        expect(sourceMatrix).toContain('[ -f "scripts/build-macos-pdf-print-dialog.sh" ]');
         expect(verifier).toContain('Absolute symlink in $label');
     });
 

@@ -34,7 +34,9 @@ import {
 } from '@contracts/runtimeGuards';
 import type {
     IRecentFile,
+    TPdfViewRotation,
     TPdfViewMode,
+    TPrintOrientation,
 } from '@contracts/shared';
 import type {
     IPdfConformanceAnalysisOptions,
@@ -54,7 +56,6 @@ import type {
 } from '@contracts/pdfDecryptSchemas';
 import type {TPdfOpenFileFailureResult} from '@contracts/pdfOpenFileResults';
 export type TOpenBatchProgressOperation = 'document-open' | 'page-insert';
-
 export interface IDocumentChunkReadOptions {
     chunkBytes?: number;
     signal?: AbortSignal;
@@ -64,7 +65,14 @@ export interface IDocumentChunkReadResult {
     bytesRead: number;
     chunks: number;
 }
-
+export interface IPdfPathPrintOptions {
+    pageNumbers?: number[];
+    requestId?: string;
+    viewMode: TPdfViewMode;
+    orientation: TPrintOrientation;
+}
+export interface IPdfDataPrintOptions {requestId?: string;}
+export interface IPdfNativePrintDialogOpenedEvent {requestId: string;}
 /** A PDF indirect-object reference returned by the native annotation index. */
 export interface IPdfAnnotationIndexObjectRef {
     objectNumber: number;
@@ -756,7 +764,8 @@ export interface IDocumentSaveFailureResult {
     ok: false;
     reason: TDocumentSaveFailureReason;
     message?: string;
-    externalWriteCommitted?: boolean;
+    /** null means a timed-out browser writer may still commit later. */
+    externalWriteCommitted?: boolean | null;
     workingCopySyncRequired?: boolean;
     validation?: IPdfValidationResult | null;
 }
@@ -810,6 +819,8 @@ export interface IApplicationMenuDocumentState {
     continuousScroll?: boolean;
     supportsViewMode?: boolean;
     viewMode?: TPdfViewMode;
+    supportsViewRotation?: boolean;
+    viewRotation?: TPdfViewRotation;
     isActualSizeActive?: boolean;
     isFitWidthActive?: boolean;
     isFitHeightActive?: boolean;
@@ -844,6 +855,8 @@ export interface IDocumentsMenuCapability {
     onMenuViewModeSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacing: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuViewModeFacingFirstSingle: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewRotationCw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
+    onMenuViewRotationCcw: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuToggleAssistant: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuUndo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
     onMenuRedo: (callback: TMenuEventCallback) => TMenuEventUnsubscribe;
@@ -945,18 +958,22 @@ export interface IDocumentsFileCapability {
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    printPdfData: (data: Uint8Array, fileName?: string) => Promise<{
+    printPdfData: (data: Uint8Array, fileName?: string, options?: IPdfDataPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
-    printPdfPath: (path: TDocumentRef, fileName?: string, pageNumbers?: number[]) => Promise<{
+    cancelPdfPrint?: (requestId: string) => Promise<{canceled: boolean}>;
+    printPdfPath: (path: TDocumentRef, fileName?: string, options?: IPdfPathPrintOptions) => Promise<{
         success: boolean;
         canceled?: boolean;
         error?: string;
         unsupportedReason?: TPlatformUnsupportedReason;
     }>;
+    onNativePrintDialogOpened?: (
+        callback: (event: IPdfNativePrintDialogOpenedEvent) => void,
+    ) => TMenuEventUnsubscribe;
     writeFile: (path: TDocumentRef, data: Uint8Array, options?: IDocumentMutationRevisionOptions) => Promise<boolean>;
     replaceWorkingCopyFromPath: (
         workingCopyPath: TDocumentRef,
@@ -1153,15 +1170,15 @@ export interface IDocumentsPdfValidationCapability extends Pick<
     | 'validatePdfData'
     | 'validatePdfPath'
 > {}
-
 export interface IDocumentsPdfExternalCapability extends Pick<
     IDocumentsFileCapability,
     | 'openPdfInDefaultAppData'
     | 'openPdfInDefaultAppPath'
     | 'printPdfData'
+    | 'cancelPdfPrint'
     | 'printPdfPath'
+    | 'onNativePrintDialogOpened'
 > {}
-
 export interface IDocumentsPdfPersistenceCapability extends Pick<
     IDocumentsFileCapability,
     | 'savePdfAs'

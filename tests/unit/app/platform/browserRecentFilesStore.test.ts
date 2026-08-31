@@ -5,7 +5,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import { BrowserRecentFilesStore } from '@app/platform/browser/browserRecentFilesStore';
+import {
+    BrowserRecentFilesStorageUnavailableError,
+    BrowserRecentFilesStore,
+} from '@app/platform/browser/browserRecentFilesStore';
 import { BROWSER_MAX_RECENT_FILES } from '@app/platform/browser/browserDocumentConstants';
 import { BROWSER_RECENT_FILES_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
@@ -128,7 +131,8 @@ describe('BrowserRecentFilesStore', () => {
         };
         const store = new BrowserRecentFilesStore(repository);
 
-        await store.touchRecentFile('browser://documents/new.pdf');
+        await expect(store.touchRecentFile('browser://documents/new.pdf'))
+            .rejects.toBeInstanceOf(BrowserRecentFilesStorageUnavailableError);
 
         expect(repository.cleanupEvictedRecentRefs).not.toHaveBeenCalled();
         expect(JSON.parse(

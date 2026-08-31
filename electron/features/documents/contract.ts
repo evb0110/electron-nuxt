@@ -71,6 +71,7 @@ export const DOCUMENTS_CHANNELS = {
     pdfOpenInDefaultAppData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppData,
     pdfOpenInDefaultAppPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.openPdfInDefaultAppPath,
     pdfPrintData: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfData,
+    pdfPrintCancel: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.cancelPdfPrint,
     pdfPrintPath: DOCUMENT_PDF_PLATFORM_FEATURE.invokeChannels.printPdfPath,
     fileWrite: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.writeFile,
     fileReplaceWorkingCopyFromPath: DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.replaceWorkingCopyFromPath,
@@ -106,6 +107,7 @@ export const DOCUMENTS_CHANNELS = {
 
 export const DOCUMENTS_EVENT_CHANNELS = {
     documentRevisionChanged: DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onDocumentRevisionChanged,
+    nativePrintDialogOpened: DOCUMENT_PDF_PLATFORM_FEATURE.eventChannels.onNativePrintDialogOpened,
     workingCopyBackingStatusChanged:
         DOCUMENT_FILES_PLATFORM_FEATURE.eventChannels.onWorkingCopyBackingStatusChanged,
 } as const;

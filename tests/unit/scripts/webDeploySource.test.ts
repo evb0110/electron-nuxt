@@ -22,13 +22,18 @@ interface IWebDeploySourceStats {
 
 interface IWebDeploySourceModule {
     REQUIRED_VERCELIGNORE_ENTRIES: string[];
-    collectWebDeploySourceStats: (options?: { projectRoot?: string }) => Promise<IWebDeploySourceStats>;
+    collectWebDeploySourceStats: (options?: {
+        projectRoot?: string;
+        trackedOnly?: boolean;
+    }) => Promise<IWebDeploySourceStats>;
     isExcludedWebDeploySourcePath: (fileName: string, relativeDirectory?: string) => boolean;
     validateVercelIgnoreEntries: (content: string, requiredEntries?: string[]) => unknown;
     validateWebDeploySource: (options?: {
         maxBytes?: number;
         maxFiles?: number;
         projectRoot?: string;
+        requireCleanTrackedSource?: boolean;
+        trackedOnly?: boolean;
     }) => Promise<IWebDeploySourceStats>;
 }
 
@@ -97,7 +102,10 @@ describe('web deploy source policy', () => {
                 await writeFile(path.join(tempRoot, relativePath), '# notes\n', 'utf8');
             }
 
-            const stats = await collectWebDeploySourceStats({projectRoot: tempRoot});
+            const stats = await collectWebDeploySourceStats({
+                projectRoot: tempRoot,
+                trackedOnly: false,
+            });
 
             // .vercelignore, app/index.ts, AGENTS.mdx, MEMORIES.mdx,
             // docs-site/memories-overview.md.
@@ -146,7 +154,10 @@ describe('web deploy source policy', () => {
             await writeFile(path.join(tempRoot, 'tmp', 'pdfs', 'local-proof.pdf'), Buffer.alloc(1024 * 1024));
             await writeFile(path.join(tempRoot, 'electron-builder.yml'), 'appId: test\n', 'utf8');
 
-            const stats = await collectWebDeploySourceStats({projectRoot: tempRoot});
+            const stats = await collectWebDeploySourceStats({
+                projectRoot: tempRoot,
+                trackedOnly: false,
+            });
 
             expect(stats.fileCount).toBe(2);
             expect(stats.byteLength).toBeLessThan(16 * 1024);
@@ -164,6 +175,8 @@ describe('web deploy source policy', () => {
             await expect(validateWebDeploySource({
                 maxFiles: 1,
                 projectRoot: tempRoot,
+                requireCleanTrackedSource: false,
+                trackedOnly: false,
             })).rejects.toThrow('Web deploy source has too many files: 2 > 1');
         } finally {
             await rm(tempRoot, {

@@ -59,8 +59,10 @@
             :text="getThumbnailSelectionLabel(page)"
             :delay-duration="400"
           >
-            <span
-              aria-hidden="true"
+            <button
+              type="button"
+              :aria-pressed="isSelected(page)"
+              :aria-label="getThumbnailSelectionLabel(page)"
               class="pdf-thumbnail-selection-toggle"
               :class="{ 'is-selected': isSelected(page) }"
               @mousedown.stop
@@ -71,7 +73,7 @@
                 name="i-ph-check"
                 class="pdf-thumbnail-selection-icon"
               />
-            </span>
+            </button>
           </AppTooltip>
         </template>
         <span class="pdf-thumbnail-skeleton" aria-hidden="true" />
@@ -245,11 +247,9 @@ const virtualWrapperStyle = computed(() => {
 watch(() => currentPage, page => {
     setActiveScrollSegmentForPage(page);
 }, {immediate: true});
-
 function getThumbnailCanvasStyle(page: number) {
     return createThumbnailCanvasStyle(thumbnailLayout.value.getPageAspect(page));
 }
-
 function getThumbnailStyle(page: number) {
     return createThumbnailItemStyle(getThumbnailTop(page));
 }
@@ -284,9 +284,7 @@ const {
             filePaths,
         }),
 });
-
 const { t } = useTypedI18n();
-
 const {
     handleContainerFocusIn,
     handleContainerKeyDown,
@@ -306,6 +304,8 @@ const {
     markUserInteraction,
     onContextMenu: payload => emit('page-context-menu', payload),
     onGoToPage: page => emit('go-to-page', page, {navigationSource: 'thumbnail'}),
+    onMove: hasPageSelectionModel ? (move: TPageMoveOperation) => emit('move', move) : undefined,
+    onReorder: newOrder => emit('reorder', newOrder),
     onSelectedPagesChange: pages => emit('update:selected-pages', pages),
     onPageSelectionChange: hasPageSelectionModel ? (selection: TPageSelection) => emit('update:selected-page-selection', selection) : undefined,
     renderedPages: virtualPages,
@@ -320,7 +320,6 @@ function getThumbnailSelectionLabel(page: number) {
         ? t('pageOps.deselectPage', { page: formatPageIndicatorWithOptions(page, pageLabels ?? null) })
         : t('pageOps.selectPage', { page: formatPageIndicatorWithOptions(page, pageLabels ?? null) });
 }
-
 function getCanvas(pageNum: number): HTMLCanvasElement | null {
     if (!containerRef.value) {
         return null;
@@ -330,7 +329,6 @@ function getCanvas(pageNum: number): HTMLCanvasElement | null {
     );
     return thumbnail?.querySelector('canvas') ?? null;
 }
-
 function getThumbnailElement(pageNum: number) {
     if (!containerRef.value) {
         return null;
@@ -339,7 +337,6 @@ function getThumbnailElement(pageNum: number) {
         `.pdf-thumbnail[data-page="${pageNum}"]`,
     );
 }
-
 function markUserInteraction(reason: string) {
     const now = Date.now();
     lastUserInteractionAtMs = now;
@@ -358,7 +355,6 @@ function markUserInteraction(reason: string) {
         totalPages: totalPages,
     });
 }
-
 function isRecentProgrammaticScroll() {
     return (Date.now() - lastProgrammaticScrollAtMs) < DOCUMENT_THUMBNAIL_PROGRAMMATIC_SCROLL_GUARD_MS;
 }

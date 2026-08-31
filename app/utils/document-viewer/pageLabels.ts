@@ -14,7 +14,7 @@ const DOCUMENT_PAGE_LABEL_STYLE_VALUES = [
  * every page count, including documents above this boundary.
  */
 export const PAGE_LABEL_SMALL_COMPATIBILITY_MAX_PAGES = 200;
-
+export const PAGE_LABEL_DENSE_READ_MAX_PAGES = 100_000;
 /** Maximum number of labels returned by one bounded window read. */
 export const PAGE_LABEL_MAX_WINDOW_PAGES = 128;
 

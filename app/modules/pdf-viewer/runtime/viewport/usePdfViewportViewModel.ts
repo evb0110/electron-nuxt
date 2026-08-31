@@ -9,6 +9,7 @@ import { usePdfViewerVirtualization } from '@app/modules/pdf-viewer/runtime/comp
 import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 import type {
     TFitMode,
+    TPdfViewRotation,
     TPdfViewMode,
     TZoomMode,
 } from '@app/types/pdfContracts';
@@ -21,6 +22,7 @@ interface IUsePdfViewportViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
+    viewRotation?: ComputedRef<TPdfViewRotation>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
     continuousScroll: ComputedRef<boolean>;
@@ -35,6 +37,8 @@ interface IUsePdfViewportViewModelOptions {
         end: number;
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
+    navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
+    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -55,6 +59,7 @@ interface IUsePdfViewportViewModelOptions {
 }
 
 export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions) => {
+    const viewRotation = options.viewRotation ?? computed<TPdfViewRotation>(() => 0);
     const fitWidthHorizontalScrollLocked = ref(false);
     const viewportDimensionVersion = ref(0);
     let writeSequence = 0;
@@ -92,6 +97,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         performancePolicy: options.performancePolicy,
         bufferPages: options.bufferPages,
         viewMode: options.viewMode,
+        viewRotation,
         numPages: options.numPages,
         currentPage: options.currentPage,
         continuousScroll: options.continuousScroll,
@@ -103,6 +109,8 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         scaledMargin: options.scaledMargin,
         visibleRange: options.visibleRange,
         navigationAnchorPage: options.navigationAnchorPage,
+        navigationVisualHandoffTargetPage: options.navigationVisualHandoffTargetPage,
+        getCommittedPageScale: options.getCommittedPageScale,
         resizeTransitionAnchorPage: options.resizeTransitionAnchorPage,
         zoomVirtualizationFreeze: options.zoomVirtualizationFreeze,
     });
@@ -127,7 +135,9 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             pageMetrics: options.pageMetrics.value,
             currentPage: options.currentPage.value,
             viewMode: options.viewMode.value,
+            viewRotation: viewRotation.value,
             effectiveScale: options.effectiveScale.value,
+            getScaleForPage: virtualization.getPageLayoutScale,
             scaledMargin: options.scaledMargin.value,
         });
 
@@ -184,11 +194,13 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
             fitMode: options.classState.fitMode.value,
             pageNumber: options.currentPage.value,
             viewMode: options.viewMode.value,
+            viewRotation: viewRotation.value,
             numPages: options.numPages.value,
             basePageWidth: options.basePageWidth.value,
             basePageHeight: options.basePageHeight.value,
             pageMetrics: options.pageMetrics.value,
             effectiveScale: options.effectiveScale.value,
+            getScaleForPage: virtualization.getPageLayoutScale,
             scaledMargin: options.scaledMargin.value,
             epsilon: HORIZONTAL_SCROLL_CLAMP_EPSILON_PX,
         });

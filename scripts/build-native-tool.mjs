@@ -30,6 +30,7 @@ Use --dry-run to resolve and print the build plan without invoking Cargo.`;
 
 export function createNativeToolBuildPlan({
     projectRoot: root,
+    staticLinuxCrt = false,
     target,
     tool,
 }) {
@@ -38,12 +39,21 @@ export function createNativeToolBuildPlan({
     return {
         binaryName,
         cargoArgs: [
-            'build',
+            staticLinuxCrt ? 'rustc' : 'build',
             '--manifest-path',
             manifestPath,
             '--release',
             '--locked',
             ...target.cargoTargetArgs,
+            ...(staticLinuxCrt
+                ? [
+                    '--bin',
+                    tool.binaryName,
+                    '--',
+                    '-C',
+                    'target-feature=+crt-static',
+                ]
+                : []),
         ],
         destinationPath: path.join(root, '.tmp', tool.stagingName, target.platformArch, 'bin', binaryName),
         manifestPath,
@@ -217,9 +227,12 @@ export async function runNativeToolBuilder(argv = process.argv.slice(2)) {
 
     const tools = await resolveTools(request);
     const target = getRequestedNativeRustTarget();
+    const staticLinuxCrt = target.platform === 'linux'
+        && process.env.EVB_NATIVE_TARGET_PLATFORM !== undefined;
     const plans = tools.map(tool => ({
         ...createNativeToolBuildPlan({
             projectRoot,
+            staticLinuxCrt,
             target,
             tool,
         }),

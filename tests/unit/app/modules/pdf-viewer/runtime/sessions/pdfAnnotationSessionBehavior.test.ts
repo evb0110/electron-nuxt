@@ -17,6 +17,7 @@ import {
     type ICommitPdfAnnotationParseToStoreOptions,
 } from '@app/modules/pdf-viewer/runtime/sessions/commitPdfAnnotationParseToStore';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import type {IPdfAnnotationParseResult} from '@contracts/pdfAnnotationParseTypes';
 
 const root = process.cwd();
@@ -45,7 +46,7 @@ function writerParseResult(): IPdfAnnotationParseResult {
         pageCount: 1,
         entities: [{
             kind: 'text-box',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             objectNumber: 11,
             generationNumber: 0,
             name: 'writer-text-box',
@@ -65,7 +66,7 @@ function writerParseResult(): IPdfAnnotationParseResult {
         }],
         foreign: [{
             kind: 'foreign',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             objectNumber: 12,
             generationNumber: 0,
             name: 'link-12',

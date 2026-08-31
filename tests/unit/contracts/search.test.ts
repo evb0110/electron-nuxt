@@ -15,6 +15,7 @@ const {
     collectSearchMatchWords,
     findPdfSearchMatches,
     iteratePdfSearchMatches,
+    SearchRegexLimitError,
 } = pdfSearchCore;
 
 describe('contracts search compatibility exports', () => {
@@ -365,8 +366,35 @@ describe('findPdfSearchMatches', () => {
             .toThrow('pattern is too complex for document search');
         expect(() => findPdfSearchMatches('aaaaaaaaaaaaaaaa!', '(?:a|aa)+$', { useRegex: true }))
             .toThrow('pattern is too complex for document search');
+        expect(() => findPdfSearchMatches('a'.repeat(100), 'a*a*a*a*a*a*a*a*b', { useRegex: true }))
+            .toThrow('pattern is too complex for document search');
         expect(() => findPdfSearchMatches('alpha alpha', '(alpha) \\1', { useRegex: true }))
             .toThrow('pattern is too complex for document search');
+    });
+
+    it('allows safe regexes with several separated quantifiers', () => {
+        expect(findPdfSearchMatches(
+            'abc-123-def',
+            '[a-z]+-\\d+-[a-z]+',
+            {useRegex: true},
+        )).toEqual([{
+            startOffset: 0,
+            endOffset: 11,
+        }]);
+    });
+
+    it('applies the regex execution budget to precompiled matchers', () => {
+        const originalNow = Date.now;
+        let now = 10_000;
+        Date.now = () => now;
+        try {
+            const iterator = iteratePdfSearchMatches('a'.repeat(100), /a+/u, {useRegex: true});
+            expect(iterator.next().done).toBe(false);
+            now += 251;
+            expect(() => iterator.next()).toThrow(SearchRegexLimitError);
+        } finally {
+            Date.now = originalNow;
+        }
     });
 
     it('uses Unicode-aware whole-word boundaries', () => {

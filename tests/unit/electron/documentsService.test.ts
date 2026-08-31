@@ -131,10 +131,7 @@ describe('documents service working-copy backing status', () => {
         };
         mocks.parsePdfAnnotations.mockResolvedValue(result);
         const service = createDocumentsService();
-        const context = {
-            senderId: 7,
-            sender: {},
-        };
+        const context = {senderId: 7};
 
         await expect(service.parsePdfAnnotations(
             context,

@@ -28,6 +28,9 @@ export interface IWorkingCopyMutationQueueOptions {
 
 const workingCopyMutationQueue = new Map<string, IWorkingCopyMutationQueueEntry>();
 const activeWorkingCopyMutations = new Map<string, IWorkingCopyMutationQueueEntry>();
+const workingCopyMutationStartingListeners = new Set<
+    (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>
+>();
 const workingCopyMutationListeners = new Set<(workingCopyPath: string) => void>();
 
 export interface IWorkingCopyMutationOperation {
@@ -42,6 +45,35 @@ export function onWorkingCopyMutationSettled(listener: (workingCopyPath: string)
     return () => {
         workingCopyMutationListeners.delete(listener);
     };
+}
+
+export function onWorkingCopyMutationStarting(
+    listener: (workingCopyPath: string, signal: AbortSignal) => void | Promise<void>,
+) {
+    workingCopyMutationStartingListeners.add(listener);
+    return () => {
+        workingCopyMutationStartingListeners.delete(listener);
+    };
+}
+
+// A starting listener may hold a mutation until resources that would block its
+// replacement have been released. Settled listeners run after the operation,
+// so they cannot provide this ordering guarantee.
+function notifyWorkingCopyMutationStarting(workingCopyPath: string, signal: AbortSignal) {
+    let pending: Promise<void> | undefined;
+    for (const listener of workingCopyMutationStartingListeners) {
+        if (pending) {
+            pending = pending
+                .then(() => listener(workingCopyPath, signal))
+                .then(() => undefined);
+            continue;
+        }
+        const result = listener(workingCopyPath, signal);
+        if (result) {
+            pending = Promise.resolve(result).then(() => undefined);
+        }
+    }
+    return pending;
 }
 
 function notifyWorkingCopyMutationSettled(workingCopyPath: string) {
@@ -172,6 +204,15 @@ export function enqueueWorkingCopyMutation<T>(
                 } : null,
             })}`);
             try {
+                const preparation = notifyWorkingCopyMutationStarting(workingCopyPath, mutationOperation.signal);
+                if (preparation) {
+                    await preparation;
+                }
+                if (mutationOperation.signal.aborted) {
+                    throw mutationOperation.signal.reason instanceof Error
+                        ? mutationOperation.signal.reason
+                        : new Error('Working-copy mutation canceled');
+                }
                 return await runWithWorkingCopyMutationCommitSignal(mutationOperation, () => operation(mutationOperation));
             } finally {
                 const durationMs = Math.round((performance.now() - grantedAt) * 10) / 10;

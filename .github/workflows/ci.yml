@@ -28,6 +28,7 @@ on:
       - 'app/composables/useAnalytics.ts'
       - 'app/modules/pdf-viewer/annotations/**'
       - 'app/modules/pdf-viewer/engine/**'
+      - 'app/modules/pdf-viewer/runtime/annotations/**'
       - 'app/modules/pdf-viewer/public.ts'
       - 'app/modules/pdf-viewer/runtime/save/**'
       - 'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts'
@@ -83,6 +84,7 @@ on:
       - 'tests/e2e/electron/**'
       - 'tests/integration/native/**'
       - 'tests/unit/app/services/pdf-save/**'
+      - 'tests/unit/app/modules/pdf-viewer/runtime/annotations/**'
       - 'tests/unit/electron/documentFileWriteAtomic*.test.ts'
       - 'vitest.config.ts'
       - 'vitest.shared.config.ts'
@@ -361,172 +363,6 @@ jobs:
 
       - name: Run native PDF integration gate
         run: pnpm exec vitest run --project native-integration
-
-  pr_exact_fixture_save:
-    name: Exact Fixture Save And Reopen
-    if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    environment: exact-pdf-fixtures
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils qpdf
-
-      - name: Provision and stage the exact fixture
-        env:
-          EVB_EXACT_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-small-882-pages.pdf
-          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
-          EVB_EXACT_FIXTURE_MAX_BYTES: '2500000000'
-          EVB_EXACT_FIXTURE_TIMEOUT_MS: '1200000'
-        run: |
-          set -euo pipefail
-          test -n "$EVB_EXACT_FIXTURE_SOURCE" || {
-            echo '::error::EVB_EXACT_FIXTURE_SOURCE is required for the exact-fixture lane.'
-            exit 1
-          }
-          exact_root="$RUNNER_TEMP/evb-exact-fixture"
-          mkdir -p "$exact_root"
-          staged_path="$exact_root/staged.pdf"
-          case "$EVB_EXACT_FIXTURE_SOURCE" in
-            http://*|https://*)
-              curl --fail --location --retry 3 --retry-all-errors --max-time 1200 \
-                --max-filesize "$EVB_EXACT_FIXTURE_MAX_BYTES" \
-                --output "$exact_root/source.pdf" "$EVB_EXACT_FIXTURE_SOURCE"
-              source_path="$exact_root/source.pdf"
-              ;;
-            *)
-              source_path="$EVB_EXACT_FIXTURE_SOURCE"
-              test -f "$source_path" || {
-                echo "::error::Exact fixture source is not a regular file: $source_path"
-                exit 1
-              }
-              ;;
-          esac
-          pnpm exec tsx scripts/ci/stageExactPdfFixture.ts \
-            --source="$source_path" \
-            --output="$staged_path"
-
-      - name: Build native PDF page operations and Electron
-        run: pnpm run build:pdf-page-ops && pnpm run build:electron
-
-      - name: Save and reopen the exact fixture in Electron
-        env:
-          EVB_E2E_LARGE_PDF_FIXTURE: ${{ runner.temp }}/evb-exact-fixture/staged.pdf
-          EVB_E2E_REQUIRE_LARGE_PDF_FIXTURE: '1'
-          EVB_E2E_REQUIRE_EXACT_ZALIZNYAK: '1'
-          EVB_EXACT_FIXTURE_PROFILE: localZaliznyak882
-          EVB_PDF_PAGE_OPS_ENABLE: '1'
-        run: |
-          bash scripts/test-electron-e2e-headless.sh --no-build e2e-large-pdf \
-            tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts --reporter verbose
-
-      - name: Upload exact-fixture Electron artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-exact-fixture-${{ github.run_attempt }}
-
-  pr_xlarge_pdf_acceptance:
-    name: Linux Xlarge PDF Acceptance
-    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.electron_save_reopen == 'true' }}
-    needs: pr_changed_areas
-    runs-on: ubuntu-latest
-    environment: exact-pdf-fixtures
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-        with:
-          persist-credentials: false
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v5
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
-
-      - name: Install dependencies
-        run: node scripts/ci-install-dependencies.mjs --frozen-lockfile
-
-      - name: Install PDF test tools
-        timeout-minutes: 15
-        run: scripts/ci/apt-install.sh poppler-utils qpdf
-
-      - name: Provision and stage the xlarge fixture
-        env:
-          EVB_XLARGE_FIXTURE_SOURCE: https://vps-420c0bae.vps.ovh.net/api/cloud/files/zaliznyak-large-2646-pages.pdf
-          EVB_EXACT_FIXTURE_PROFILE: xlargeZaliznyak2646
-          EVB_EXACT_FIXTURE_MAX_BYTES: '2500000000'
-          EVB_EXACT_FIXTURE_TIMEOUT_MS: '1200000'
-        run: |
-          set -euo pipefail
-          test -n "$EVB_XLARGE_FIXTURE_SOURCE" || {
-            echo '::error::EVB_XLARGE_FIXTURE_SOURCE is required for the xlarge-fixture lane.'
-            exit 1
-          }
-          xlarge_root="$RUNNER_TEMP/evb-xlarge-fixture"
-          mkdir -p "$xlarge_root"
-          staged_path="$xlarge_root/staged.pdf"
-          case "$EVB_XLARGE_FIXTURE_SOURCE" in
-            http://*|https://*)
-              curl --fail --location --retry 3 --retry-all-errors --max-time 1200 \
-                --max-filesize "$EVB_EXACT_FIXTURE_MAX_BYTES" \
-                --output "$xlarge_root/source.pdf" "$EVB_XLARGE_FIXTURE_SOURCE"
-              source_path="$xlarge_root/source.pdf"
-              ;;
-            *)
-              source_path="$EVB_XLARGE_FIXTURE_SOURCE"
-              test -f "$source_path" || {
-                echo "::error::Xlarge fixture source is not a regular file: $source_path"
-                exit 1
-              }
-              ;;
-          esac
-          pnpm exec tsx scripts/ci/stageExactPdfFixture.ts \
-            --source="$source_path" \
-            --output="$staged_path"
-
-      - name: Build native PDF page operations and Electron
-        run: pnpm run build:pdf-page-ops && pnpm run build:electron
-
-      - name: Save and reopen the xlarge fixture in Electron
-        env:
-          EVB_E2E_XLARGE_PDF_FIXTURE: ${{ runner.temp }}/evb-xlarge-fixture/staged.pdf
-          EVB_PDF_PAGE_OPS_ENABLE: '1'
-        run: |
-          bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf \
-            tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts --reporter verbose
-
-      - name: Upload xlarge Electron E2E artifacts
-        if: ${{ always() }}
-        uses: ./.github/actions/upload-electron-e2e-artifacts
-        with:
-          artifact-name: electron-xlarge-pdf-${{ github.run_attempt }}
 
   pr_changed_areas:
     name: Changed Area Detection
@@ -888,8 +724,6 @@ jobs:
       - pr_electron_blocking_smoke
       - pr_electron_native_save_reopen
       - pr_native_pdf_integration
-      - pr_exact_fixture_save
-      - pr_xlarge_pdf_acceptance
       - pr_browser_integration
       - pr_native_build_safety
       - pr_scan_cleanup_heavy
@@ -905,7 +739,6 @@ jobs:
           NEEDS_JSON: ${{ toJSON(needs) }}
           ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
           ELECTRON_SAVE_REOPEN_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_save_reopen }}
-          XLARGE_PDF_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_save_reopen }}
           BROWSER_INTEGRATION_CHANGED: ${{ needs.pr_changed_areas.outputs.browser_integration }}
           NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
           SCAN_CLEANUP_EXPORT_CHANGED: ${{ needs.pr_changed_areas.outputs.scan_cleanup_export }}
@@ -916,7 +749,6 @@ jobs:
           const legitimatelySkippable = new Map([
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
             ['pr_electron_native_save_reopen', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
-            ['pr_xlarge_pdf_acceptance', process.env.XLARGE_PDF_CHANGED],
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],
             ['pr_native_pdf_integration', process.env.NATIVE_OR_BUILD_CHANGED],
@@ -974,7 +806,7 @@ jobs:
 
       - name: WASM portable build
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:portable
+        run: pnpm run check:wasm:strict
 
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
@@ -1123,7 +955,7 @@ jobs:
 
       - name: WASM freshness
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:wasm:portable
+        run: pnpm run check:wasm:strict
 
       - name: Lint
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}

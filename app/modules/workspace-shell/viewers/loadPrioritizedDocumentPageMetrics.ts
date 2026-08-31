@@ -28,6 +28,8 @@ export interface IDocumentPageMetricsCollection extends ILazyIndexedCollection<I
     readonly isSparseDocumentPageMetrics: true;
     readonly exactPageCount: number;
     readonly hasExact: (pageNumber: number) => boolean;
+    readonly getEstimated: (pageNumber: number) => IDocumentPageMetrics;
+    readonly getExactPageNumbers: () => readonly number[];
     readonly setExact: (pageNumber: number, metric: IDocumentPageMetrics) => void;
     readonly mergeExact: (
         updates: ReadonlyMap<number, IDocumentPageMetrics>,
@@ -94,6 +96,16 @@ function createSparseDocumentPageMetrics(
             configurable: false,
             enumerable: false,
             value: (pageNumber: number) => Number.isInteger(pageNumber) && exactMetrics.has(pageNumber),
+        },
+        getEstimated: {
+            configurable: false,
+            enumerable: false,
+            value: () => safeFallbackMetric,
+        },
+        getExactPageNumbers: {
+            configurable: false,
+            enumerable: false,
+            value: () => [...exactMetrics.keys()].sort((left, right) => left - right),
         },
         setExact: {
             configurable: false,
@@ -213,12 +225,14 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
     signal: AbortSignal;
     isCurrent: () => boolean;
     getPriorityPage?: () => number;
+    getPriorityPages?: () => readonly number[];
     loadMetric?: (
         pageNumber: number,
         signal: AbortSignal,
     ) => Promise<IDocumentPageMetrics>;
     onMetric?: (pageNumber: number, metric: IDocumentPageMetrics) => void;
     concurrency?: number;
+    maxHydratedPages?: number;
 }) {
     const {
         source,
@@ -227,9 +241,11 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         signal,
         isCurrent,
         getPriorityPage = () => initialPage,
+        getPriorityPages,
         loadMetric = (pageNumber, activeSignal) => source.getPageMetrics(pageNumber, activeSignal),
         onMetric,
         concurrency = 4,
+        maxHydratedPages = Number.POSITIVE_INFINITY,
     } = options;
     const pageCount = normalizePageCount(source.pageCount);
     const safeInitialPage = normalizePageNumber(initialPage, pageCount);
@@ -249,6 +265,10 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
     let upperCursor = safeInitialPage + 1;
     const inFlightPages = new Set<number>();
     let hydratedMetricCount = 0;
+    let scheduledMetricCount = 0;
+    const hydrationLimit = Number.isFinite(maxHydratedPages)
+        ? Math.max(0, Math.trunc(maxHydratedPages))
+        : Number.POSITIVE_INFINITY;
     const isUnavailable = (pageNumber: number) => (
         pageNumber === safeInitialPage
         || (sparseMetrics?.hasExact(pageNumber) ?? exactMetrics?.has(pageNumber) ?? false)
@@ -286,15 +306,47 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         upperCursor += 1;
         return selectedPage;
     };
+    const takePriorityPage = () => {
+        const requestedPages = getPriorityPages?.() ?? [];
+        const seenPages = new Set<number>();
+        for (const requestedPage of requestedPages) {
+            if (!Number.isFinite(requestedPage)) {
+                continue;
+            }
+            const pageNumber = normalizePageNumber(requestedPage, pageCount);
+            if (
+                seenPages.has(pageNumber)
+                || isUnavailable(pageNumber)
+            ) {
+                continue;
+            }
+            seenPages.add(pageNumber);
+            inFlightPages.add(pageNumber);
+            return pageNumber;
+        }
+        return null;
+    };
     const takeNextPage = () => {
+        if (scheduledMetricCount >= hydrationLimit) {
+            return null;
+        }
+        if (getPriorityPages) {
+            const selectedPriorityPage = takePriorityPage();
+            if (selectedPriorityPage !== null) {
+                scheduledMetricCount += 1;
+                return selectedPriorityPage;
+            }
+        }
         const priorityPage = resolvePriorityPage();
         if (priorityPage !== safeInitialPage && !isUnavailable(priorityPage)) {
             inFlightPages.add(priorityPage);
+            scheduledMetricCount += 1;
             return priorityPage;
         }
         const selectedPage = takeCursorPage(priorityPage);
         if (selectedPage !== null) {
             inFlightPages.add(selectedPage);
+            scheduledMetricCount += 1;
         }
         return selectedPage;
     };
@@ -337,6 +389,7 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         METRIC_HYDRATION_MAX_CONCURRENCY,
         normalizedConcurrency,
         Math.max(0, pageCount - 1),
+        hydrationLimit,
     );
     const workers: Array<Promise<void>> = [];
     for (let workerIndex = 0; workerIndex < workerCount; workerIndex += 1) {

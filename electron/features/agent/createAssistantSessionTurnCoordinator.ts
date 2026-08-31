@@ -8,6 +8,7 @@ import {
     completeAssistantTurn,
     errorAssistantTurn,
     getAssistantTurnScope,
+    isAssistantTurnActive,
     markAssistantTurnInterrupting,
     markAssistantTurnRunning,
     supersedeAssistantTurn,
@@ -147,6 +148,13 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         }
     }
 
+    function releaseClaimedSessionTurn(session: IAssistantChatSession, generation: number) {
+        if (session.turnOwner.generation !== generation || !isAssistantTurnActive(session.turnOwner)) {
+            return;
+        }
+        supersedeSessionTurn(session);
+    }
+
     function rememberStateScope(
         scope: IAgentAssistantChatScope | null,
         selection = options.sessionStore.getRememberedSelection(),
@@ -161,6 +169,7 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
         interruptSessionTurn,
         markSessionTurnRunning,
         rememberStateScope,
+        releaseClaimedSessionTurn,
         supersedeSessionTurn,
         supersedeSessionTurnWithError,
     };

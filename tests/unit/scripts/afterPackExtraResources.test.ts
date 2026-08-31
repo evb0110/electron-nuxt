@@ -334,6 +334,17 @@ describe('afterPack extraResources preflight', () => {
                 type: 'directory',
             }),
             expect.objectContaining({
+                label: 'macOS PDF print dialog helper (darwin-arm64)',
+                sourcePath: path.join('/repo', '.tmp', 'pdf-print-dialog', 'darwin-arm64'),
+                stagedPath: path.join(
+                    '/app/EVB Viewer.app/Contents/Resources',
+                    'pdf-print-dialog',
+                    'darwin-arm64',
+                ),
+                tag: 'darwin-arm64',
+                type: 'directory',
+            }),
+            expect.objectContaining({
                 label: 'PDF image combine native tool (darwin-arm64)',
                 sourcePath: path.join('/repo', '.tmp', 'pdf-image-combine', 'darwin-arm64'),
                 stagedPath: path.join('/app/EVB Viewer.app/Contents/Resources', 'pdf-image-combine', 'darwin-arm64'),

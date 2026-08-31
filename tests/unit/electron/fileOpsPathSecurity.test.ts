@@ -976,6 +976,44 @@ describe('fileOps path security', () => {
         expect(close).toHaveBeenCalledTimes(1);
     });
 
+    it('rejects a lazy-original range when the source changes after a full range read', async () => {
+        const entry = lazyOriginalEntry();
+        const close = vi.fn(async () => {});
+        const read = vi.fn(async (buffer: Buffer, offset: number) => {
+            buffer.set([
+                4,
+                5,
+            ], offset);
+            return {bytesRead: 2};
+        });
+        mocks.resolveAllowedReadPath.mockResolvedValue(null);
+        mocks.getWorkingCopyBackingEntry.mockReturnValue(entry);
+        mocks.captureWorkingCopyAdmissionSnapshot
+            .mockResolvedValueOnce(entry.admissionSnapshot)
+            .mockResolvedValueOnce({
+                size: 123n,
+                mtimeNs: 2_000_000n,
+            });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        await expect(
+            handleFileReadRange(readContext, '/tmp/electron-test/lazy.pdf', 0, 2),
+        ).rejects.toMatchObject({code: 'SOURCE_BACKING_CHANGED'});
+
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.transitionWorkingCopyBackingState).toHaveBeenCalledWith(
+            '/tmp/electron-test/lazy.pdf',
+            7,
+            'lazy-original',
+            expect.objectContaining({sourceBackingErrorCode: 'SOURCE_BACKING_CHANGED'}),
+        );
+        await clearCachedRangeReadHandlesForTests();
+        expect(close).toHaveBeenCalledTimes(1);
+    });
+
     it('fails lazy-original reads with a typed unavailable error', async () => {
         mocks.resolveAllowedReadPath.mockResolvedValue(null);
         mocks.getWorkingCopyBackingEntry.mockReturnValue(lazyOriginalEntry());
@@ -1113,7 +1151,7 @@ describe('fileOps path security', () => {
 
         expect(mocks.open).toHaveBeenCalledTimes(1);
         expect(mocks.open).toHaveBeenCalledWith('/Users/alice/Documents/file.pdf', 'r');
-        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(2);
+        expect(mocks.captureWorkingCopyAdmissionSnapshot).toHaveBeenCalledTimes(4);
         expect(close).not.toHaveBeenCalled();
 
         await mocks.backingSwapCacheInvalidator?.(
@@ -1225,6 +1263,83 @@ describe('fileOps path security', () => {
         });
     });
 
+    it('closes cached range read handles before a working copy mutation starts', async () => {
+        const events: string[] = [];
+        const close = vi.fn(async () => {
+            events.push('close');
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read: vi.fn(async (buffer: Buffer) => {
+                buffer.fill(3);
+                return {bytesRead: buffer.byteLength};
+            }),
+        });
+
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => {
+            events.push('mutation');
+        });
+
+        expect(events).toEqual([
+            'close',
+            'mutation',
+        ]);
+    });
+
+    it('blocks range-read reopen until a Windows deny-delete mutation failure settles', async () => {
+        const firstClose = vi.fn(async () => {});
+        const secondClose = vi.fn(async () => {});
+        const firstRead = vi.fn(async (buffer: Buffer) => {
+            buffer.fill(3);
+            return {bytesRead: buffer.byteLength};
+        });
+        const secondRead = vi.fn(async (buffer: Buffer) => {
+            buffer.fill(4);
+            return {bytesRead: buffer.byteLength};
+        });
+        mocks.open
+            .mockResolvedValueOnce({
+                close: firstClose,
+                read: firstRead,
+            })
+            .mockResolvedValueOnce({
+                close: secondClose,
+                read: secondRead,
+            });
+
+        await handleFileReadRange(readContext, '/tmp/electron-test/safe.pdf', 0, 2);
+
+        const mutationStarted = deferred<undefined>();
+        const releaseMutation = deferred<undefined>();
+        const denyDelete = Object.assign(new Error('sharing violation'), {code: 'EACCES'});
+        const mutation = enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => {
+            mutationStarted.resolve(undefined);
+            await releaseMutation.promise;
+            throw denyDelete;
+        });
+        await mutationStarted.promise;
+
+        const rangeRead = handleFileReadRange(
+            readContext,
+            '/tmp/electron-test/safe.pdf',
+            0,
+            2,
+        );
+        await waitForSettledQueueTurn();
+        expect(mocks.open).toHaveBeenCalledTimes(1);
+
+        releaseMutation.resolve(undefined);
+        await expect(mutation).rejects.toBe(denyDelete);
+        await expect(rangeRead).resolves.toEqual(new Uint8Array([
+            4,
+            4,
+        ]));
+        expect(mocks.open).toHaveBeenCalledTimes(2);
+        expect(firstClose).toHaveBeenCalledOnce();
+        expect(secondClose).not.toHaveBeenCalled();
+    });
+
     it('invalidates cached range handles across macOS temp path aliases', async () => {
         const aliasPath = '/var/folders/evb/safe.pdf';
         const canonicalPath = '/private/var/folders/evb/safe.pdf';
@@ -1285,12 +1400,13 @@ describe('fileOps path security', () => {
             2,
         );
         await vi.waitFor(() => expect(mocks.open).toHaveBeenCalledTimes(1));
-        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
+        const mutation = enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
         firstOpen.resolve({
             close: firstClose,
             read: firstRead,
         });
 
+        await expect(mutation).resolves.toBeUndefined();
         await expect(rangeRead).resolves.toEqual(new Uint8Array([
             9,
             9,
@@ -1301,7 +1417,7 @@ describe('fileOps path security', () => {
         expect(secondClose).not.toHaveBeenCalled();
     });
 
-    it('defers invalidation close until the active range read releases its handle', async () => {
+    it('waits for an active range read to release before a mutation starts', async () => {
         const readResult = deferred<{bytesRead: number}>();
         const close = vi.fn(async () => {});
         const read = vi.fn((buffer: Buffer) => {
@@ -1320,16 +1436,63 @@ describe('fileOps path security', () => {
             2,
         );
         await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
-        await enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => undefined);
+        let mutationStarted = false;
+        const mutation = enqueueWorkingCopyMutation('/tmp/electron-test/safe.pdf', async () => {
+            mutationStarted = true;
+        });
         await waitForSettledQueueTurn();
 
         expect(close).not.toHaveBeenCalled();
+        expect(mutationStarted).toBe(false);
         readResult.resolve({bytesRead: 2});
         await expect(rangeRead).resolves.toEqual(new Uint8Array([
             4,
             4,
         ]));
         expect(close).toHaveBeenCalledTimes(1);
+        await expect(mutation).resolves.toBeUndefined();
+        expect(mutationStarted).toBe(true);
+    });
+
+    it('cancels a mutation without waiting forever for an active range read', async () => {
+        const {cancelMainOperationsForOwner} = await import('@electron/operation-lifecycle/mainOperationLifecycle');
+        const readResult = deferred<{bytesRead: number}>();
+        const close = vi.fn(async () => {});
+        const read = vi.fn((buffer: Buffer) => {
+            buffer.fill(4);
+            return readResult.promise;
+        });
+        mocks.open.mockResolvedValue({
+            close,
+            read,
+        });
+
+        const rangeRead = handleFileReadRange(
+            readContext,
+            '/tmp/electron-test/safe.pdf',
+            0,
+            2,
+        );
+        await vi.waitFor(() => expect(read).toHaveBeenCalledOnce());
+        const mutationBody = vi.fn(async () => undefined);
+        const mutation = enqueueWorkingCopyMutation(
+            '/tmp/electron-test/safe.pdf',
+            mutationBody,
+            {ownerWebContentsId: 42},
+        );
+        await waitForSettledQueueTurn();
+
+        cancelMainOperationsForOwner(42, 'renderer lifecycle ended');
+        await expect(mutation).rejects.toThrow('renderer lifecycle ended');
+        expect(mutationBody).not.toHaveBeenCalled();
+        expect(close).not.toHaveBeenCalled();
+
+        readResult.resolve({bytesRead: 2});
+        await expect(rangeRead).resolves.toEqual(new Uint8Array([
+            4,
+            4,
+        ]));
+        await vi.waitFor(() => expect(close).toHaveBeenCalledOnce());
     });
 
     it('awaits active handle closure before completing backing-swap invalidation', async () => {

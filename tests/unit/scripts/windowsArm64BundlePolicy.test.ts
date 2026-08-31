@@ -50,4 +50,21 @@ describe('Windows ARM64 native bundle policy', () => {
         expect(sourceMatrix).toContain('libpango_training.dll');
         expect(sourceMatrix).toContain('ARM64 Windows bundler must not blindly copy MSYS2 DLLs');
     });
+
+    it('resumes interrupted verified archive downloads and restores older valid caches', () => {
+        const bundlerSource = readFileSync(bundleToolsWindowsPath, 'utf8');
+        const setupAction = readFileSync(
+            resolve(process.cwd(), '.github/actions/setup-release-env/action.yml'),
+            'utf8',
+        );
+
+        expect(bundlerSource).toContain('"$SCRIPT_DIR/release/run-with-retries.sh" 5 10');
+        expect(bundlerSource).toContain('--retry-all-errors');
+        expect(bundlerSource).toContain('--retry-max-time 1800');
+        expect(bundlerSource).toContain('--continue-at -');
+        expect(bundlerSource).toContain('local temp_cache="${cache_path}.part"');
+        expect(bundlerSource).toContain('rm -f "$temp_cache"');
+        expect(setupAction).toContain('restore-keys:');
+        expect(setupAction).toContain('${{ inputs.windows-bundle-cache-key }}-');
+    });
 });
