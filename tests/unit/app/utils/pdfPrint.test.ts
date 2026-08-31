@@ -296,8 +296,8 @@ describe('pdfPrint', () => {
             height: 595.28,
         });
         expect(printablePdf.getPage(1)?.getSize()).toEqual({
-            width: 595.28,
-            height: 841.89,
+            width: 841.89,
+            height: 595.28,
         });
     });
 
@@ -463,8 +463,8 @@ describe('pdfPrint', () => {
 
         const printablePdf = await PDFDocument.load(printablePdfData!);
         expect(printablePdf.getPage(0)?.getSize()).toEqual({
-            width: 595.28,
-            height: 841.89,
+            width: 841.89,
+            height: 595.28,
         });
     });
 

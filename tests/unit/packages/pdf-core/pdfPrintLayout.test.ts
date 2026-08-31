@@ -67,4 +67,41 @@ describe('pdf print layout', () => {
             height: 595.28,
         });
     });
+
+    it('keeps first-page-single spreads on uniform landscape sheets', async () => {
+        const sourcePdfData = await createRotatedSourcePdf([
+            0,
+            0,
+            0,
+            0,
+        ]);
+
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers: [
+                1,
+                2,
+                3,
+                4,
+            ],
+            viewMode: 'facing-first-single',
+            orientation: 'auto',
+        });
+
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPageCount()).toBe(3);
+        expect(printablePdf.getPages().map(page => page.getSize())).toEqual([
+            {
+                width: 841.89,
+                height: 595.28,
+            },
+            {
+                width: 841.89,
+                height: 595.28,
+            },
+            {
+                width: 841.89,
+                height: 595.28,
+            },
+        ]);
+    });
 });

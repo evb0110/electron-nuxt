@@ -458,7 +458,7 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
         timeoutMs: PRINT_ACCEPTANCE_TIMEOUT_MS,
     });
 
-    it('composes four pages as three facing-first-single sheets before native handoff', async () => {
+    it('composes first-page-single output as uniform landscape spreads before native handoff', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             throw new Error('Electron session is unavailable for the macOS print composition smoke');
@@ -522,6 +522,16 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
             expect(rasterMetrics.totalPixels).toBeGreaterThan(0);
             expect(rasterMetrics.nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
         }
+        const firstPageSheetPath = sheetPaths[0]!;
+        expect(inspectPrintedPageRaster(firstPageSheetPath, {
+            startXRatio: 0,
+            endXRatio: 0.5,
+        }).nonWhitePixels).toBeLessThan(MIN_PRINT_INK_PIXELS);
+        expect(inspectPrintedPageRaster(firstPageSheetPath, {
+            startXRatio: 0.5,
+            endXRatio: 1,
+        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+
         const facingSheetPath = sheetPaths[1]!;
         expect(inspectPrintedPageRaster(facingSheetPath, {
             startXRatio: 0,
@@ -531,5 +541,15 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
             startXRatio: 0.5,
             endXRatio: 1,
         }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+
+        const trailingPageSheetPath = sheetPaths[2]!;
+        expect(inspectPrintedPageRaster(trailingPageSheetPath, {
+            startXRatio: 0,
+            endXRatio: 0.5,
+        }).nonWhitePixels).toBeGreaterThan(MIN_PRINT_INK_PIXELS);
+        expect(inspectPrintedPageRaster(trailingPageSheetPath, {
+            startXRatio: 0.5,
+            endXRatio: 1,
+        }).nonWhitePixels).toBeLessThan(MIN_PRINT_INK_PIXELS);
     }, PRINT_ACCEPTANCE_TIMEOUT_MS);
 });
