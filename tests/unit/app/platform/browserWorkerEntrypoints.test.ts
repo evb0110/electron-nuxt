@@ -71,6 +71,15 @@ describe('browser worker entrypoints', {timeout: 20_000}, () => {
             status: 'success',
             data: new OversizedPdfBytes([0x25]),
         });
+        const validPngHeader = new Uint8Array(24);
+        validPngHeader.set([
+            0x89,
+            0x50,
+            0x4e,
+            0x47,
+        ], 0);
+        new DataView(validPngHeader.buffer).setUint32(16, 1);
+        new DataView(validPngHeader.buffer).setUint32(20, 1);
 
         await import('@app/platform/browser-api/browserPdfCombine.worker');
         expect(messageHandlers).toHaveLength(1);
@@ -79,7 +88,7 @@ describe('browser worker entrypoints', {timeout: 20_000}, () => {
             type: 'combinePdfs',
             payload: {inputs: [{
                 fileName: 'scan.png',
-                data: new Uint8Array([1]),
+                data: validPngHeader,
             }]},
         }} as MessageEvent<unknown>);
 

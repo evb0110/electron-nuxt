@@ -26,7 +26,7 @@ import {
     QPDF_TIMEOUT_MS,
     runQpdfCommand,
 } from '@electron/features/page-ops/publicNative';
-import {resolveNativePageOpsPath} from '@electron/features/page-ops/main/nativePageOpsPath';
+import {resolveNativePageOpsPath} from '@electron/features/page-ops/public/nativePageOpsPath';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {getPdfNativeToolPaths} from '@electron/pdf/nativeToolPaths';
 import { createLogger } from '@electron/utils/createLogger';
