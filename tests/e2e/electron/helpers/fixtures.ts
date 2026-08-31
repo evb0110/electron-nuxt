@@ -18,6 +18,7 @@ import {
     join,
     resolve,
 } from 'node:path';
+import {readFile} from 'node:fs/promises';
 import {
     PDFDocument,
     PDFHexString,
@@ -41,6 +42,7 @@ import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/en
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
 import { applyCombinedPdfPageLabels } from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+import { getAnnotationAuthor } from '@app/services/pdf/annotationMetadata';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const RUN_FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-run-fixtures');
@@ -92,6 +94,11 @@ const SCANNED_FIXTURE_BASE_DPI = 144;
 export interface IPdfAnnotationSummary {
     total: number;
     bySubtype: Record<string, number>;
+}
+
+export interface IPdfAnnotationDetails {
+    author: string | null;
+    subtype: string;
 }
 
 export interface IPdfPageSnapshot {
@@ -568,6 +575,17 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     const bytes = await doc.save();
     writeFileSync(filePath, bytes);
 
+    return filePath;
+}
+
+export async function createPasswordProtectedFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const encoded = readFileSync(
+        join(TRACKED_PROJECT_FIXTURE_DIR, 'password-protected.pdf.b64'),
+        'utf8',
+    );
+    writeFileSync(filePath, Buffer.from(encoded.trim(), 'base64'));
     return filePath;
 }
 
@@ -1526,30 +1544,43 @@ export async function createScannedTextFixturePdf(filename: string, text: string
     return filePath;
 }
 
-export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAnnotationSummary> {
+export async function readPdfAnnotationDetails(filePath: string): Promise<IPdfAnnotationDetails[]> {
     const document = await openPdfWithLowVerbosity(filePath);
-
-    const summary: IPdfAnnotationSummary = {
-        total: 0,
-        bySubtype: {},
-    };
+    const details: IPdfAnnotationDetails[] = [];
 
     try {
         for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
             const page = await document.getPage(pageNumber);
             const annotations = await page.getAnnotations();
-
-            summary.total += annotations.length;
             for (const annotation of annotations) {
-                const key = (annotation.subtype ?? 'Unknown').trim();
-                summary.bySubtype[key] = (summary.bySubtype[key] ?? 0) + 1;
+                details.push({
+                    author: getAnnotationAuthor(annotation),
+                    subtype: (annotation.subtype ?? 'Unknown').trim(),
+                });
             }
         }
     } finally {
         await document.destroy();
     }
 
-    return summary;
+    return details;
+}
+
+export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAnnotationSummary> {
+    const details = await readPdfAnnotationDetails(filePath);
+    const bySubtype: Record<string, number> = {};
+    for (const detail of details) {
+        bySubtype[detail.subtype] = (bySubtype[detail.subtype] ?? 0) + 1;
+    }
+    return {
+        total: details.length,
+        bySubtype,
+    };
+}
+
+export async function readPdfHasEncryptDictionary(filePath: string) {
+    const bytes = await readFile(filePath);
+    return bytes.includes(Buffer.from('/Encrypt', 'latin1'));
 }
 
 export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSnapshot[]> {

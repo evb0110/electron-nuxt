@@ -6,6 +6,7 @@ import {
 import { existsSync } from 'fs';
 import { join } from 'path';
 import { app } from 'electron';
+import { userInfo } from 'node:os';
 import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
@@ -41,6 +42,23 @@ function cloneSettings(settings: ISettingsData): ISettingsData {
     return {...settings};
 }
 
+function applyElectronDefaults(settings: ISettingsData): ISettingsData {
+    if (settings.authorName.trim()) {
+        return settings;
+    }
+    try {
+        const username = userInfo().username.trim();
+        return username
+            ? {
+                ...settings,
+                authorName: username,
+            }
+            : settings;
+    } catch {
+        return settings;
+    }
+}
+
 function parseSettingsPayload(content: string): unknown {
     const parsed: unknown = JSON.parse(content);
     return parsed;
@@ -66,7 +84,7 @@ async function writeSettingsAtomically(storagePath: string, settings: ISettingsD
 
 async function readSettingsFromStorage(storagePath: string) {
     if (!existsSync(storagePath)) {
-        return sanitizeSettings(DEFAULT_SETTINGS);
+        return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
     }
 
     let content: string;
@@ -74,21 +92,21 @@ async function readSettingsFromStorage(storagePath: string) {
         content = await readFile(storagePath, 'utf-8');
     } catch (err) {
         logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
-        return sanitizeSettings(DEFAULT_SETTINGS);
+        return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
     }
 
     try {
-        return sanitizeSettings(parseSettingsPayload(content));
+        return applyElectronDefaults(sanitizeSettings(parseSettingsPayload(content)));
     } catch (err) {
         logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
         try {
             const quarantinePath = await quarantineCorruptFile(storagePath);
-            await writeSettingsAtomically(storagePath, DEFAULT_SETTINGS);
+            await writeSettingsAtomically(storagePath, applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS)));
             logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
         } catch (recoveryError) {
             logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
         }
-        return sanitizeSettings(DEFAULT_SETTINGS);
+        return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
     }
 }
 

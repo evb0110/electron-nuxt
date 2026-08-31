@@ -6,6 +6,7 @@
                 :locale-items="localeItems"
                 :selected-flag-icon="selectedFlagIcon"
                 @update:author-name="updateSetting('authorName', $event)"
+                @update:suppress-unencrypted-save-notice="updateSetting('suppressUnencryptedSaveNotice', $event)"
                 @update:theme="applyTheme"
                 @update:locale="applyLocale"
                 @update:ui-scale="updateSetting('uiScale', $event)"

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Open flow stages picker, password, and PDF state transitions together. */
 import { clamp } from 'es-toolkit/math';
 import type {
     IAnalyticsDocumentScope,
@@ -365,6 +366,7 @@ export function createDocumentOpenFlow(
                 result,
             } satisfies TDocumentOpenOutcome;
         }
+        state.wasEncrypted.value = result.wasEncrypted === true;
         await trackOpenedDocument(result, openMethod);
         if (!isCurrentOpenRequest(openRequestId) || state.workingCopyPath.value !== result.workingPath) {
             await cleanupAbandonedPdfWorkingCopy(result, 'stale-pdf-track');

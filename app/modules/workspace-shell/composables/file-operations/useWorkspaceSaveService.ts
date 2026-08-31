@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Save route planning and completion stay centralized here. */
 import type {
     Ref,
     ShallowRef,
@@ -71,6 +72,10 @@ import {
     getSaveMode,
     requiresNativePathBackedSave,
 } from '@app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest';
+import {
+    type IUnencryptedSaveNoticeDependencies,
+    unencryptedSaveNoticeGate,
+} from '@app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate';
 const SLOW_SAVE_PHASE_WARN_MS = 5_000;
 const SLOW_SAVE_TOTAL_WARN_MS = 10_000;
 const MAX_STALE_REVISION_SAVE_RETRIES = 2;
@@ -85,7 +90,11 @@ export interface IWorkspaceSaveDependencies {
         workingCopyPath: Ref<TDocumentRef | null>;
         originalPath: Ref<TDocumentRef | null>;
         revisionToken: Ref<TDocumentRevisionToken | null>;
+        /** True only when the current document completed a password-protected open. */
+        wasEncrypted?: Ref<boolean>;
     };
+    /** UI and persistence hooks for the one-time unencrypted-save warning. */
+    unencryptedSaveNotice?: IUnencryptedSaveNoticeDependencies;
     annotations: {
         dirty: Ref<boolean>;
         markSaved: (opts?: {preserveLivePdfjsSession?: boolean}) => void;
@@ -938,6 +947,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         ?? runWithoutDocumentOperationLease;
     let saveOperations = 0;
     let saveQueueTail: Promise<void> = Promise.resolve();
+    const acknowledgedUnencryptedSaveSessions = new Set<string>();
 
     // A save that failed keeps its state until the workspace adopts a different
     // document or a fresh attempt supersedes it, so the status bar cannot
@@ -1099,6 +1109,22 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             ?? deps.persistence.trySaveEmbeddedNoteTextUpdates,
                         ),
                     });
+
+                    const unencryptedSaveAbort = await unencryptedSaveNoticeGate(
+                        deps,
+                        lastPlan,
+                        acknowledgedUnencryptedSaveSessions,
+                    );
+                    if (unencryptedSaveAbort) {
+                        indicator.value = false;
+                        saveSucceeded = await completeWorkspaceSave(
+                            lastPlan,
+                            unencryptedSaveAbort,
+                            deps,
+                        );
+                        reportSaveAbort(unencryptedSaveAbort);
+                        return saveSucceeded;
+                    }
 
                     try {
                         const result = await executeSavePlan(lastPlan, deps);

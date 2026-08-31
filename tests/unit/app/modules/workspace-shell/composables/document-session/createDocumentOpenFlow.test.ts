@@ -131,6 +131,15 @@ function createOpenFlowHarness(options: {
 }
 
 describe('createDocumentOpenFlow', () => {
+    it('clears the encryption witness when a document session closes', () => {
+        const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
+        state.wasEncrypted.value = true;
+
+        state.resetForClose();
+
+        expect(state.wasEncrypted.value).toBe(false);
+    });
+
     afterEach(() => {
         useDocumentPasswordPrompt().cancelPasswordPrompt();
     });
@@ -827,6 +836,7 @@ describe('createDocumentOpenFlow', () => {
             'correct-password',
         );
         expect(state.originalPath.value).toBe(protectedPath);
+        expect(state.wasEncrypted.value).toBe(true);
     });
 
     it('cancels a password open without retaining or persisting the password', async () => {
@@ -1142,6 +1152,7 @@ describe('createDocumentOpenFlow', () => {
             originalPath: '/stale.pdf',
             workingPath: '/tmp/stale-working.pdf',
             isGenerated: false,
+            wasEncrypted: true,
         };
         const freshResult: TOpenFileResult = {
             kind: 'pdf',
@@ -1172,6 +1183,7 @@ describe('createDocumentOpenFlow', () => {
         });
 
         expect(state.workingCopyPath.value).toBe('/tmp/fresh-working.pdf');
+        expect(state.wasEncrypted.value).toBe(false);
         expect(deps.cleanupAbandonedWorkingCopy).toHaveBeenCalledWith('/tmp/stale-working.pdf');
         expect(deps.cleanupAbandonedWorkingCopy).not.toHaveBeenCalledWith('/tmp/fresh-working.pdf');
     });

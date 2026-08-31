@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Workspace orchestration owns the cross-session composition root. */
 import type {
     ComputedRef,
     Ref,
@@ -15,6 +16,7 @@ import { usePageAnnotationActions } from '@app/modules/workspace-shell/composabl
 import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
 import {shouldClearPreservedAnnotationSourceDirty} from '@app/modules/workspace-shell/annotations/shouldClearPreservedAnnotationSourceDirty';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
+import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
 import { useWorkspaceDocumentControls } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentControls';
 import { useWorkspaceDocumentLifecycleEffects } from '@app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects';
@@ -134,6 +136,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         isDirty,
         pdfError,
+        wasEncrypted,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -210,7 +213,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeSearch,
         resetSearchCache,
     } = sidebarSearch;
-    const { settings: appSettings } = useSettings();
+    const {
+        settings: appSettings,
+        save: saveSettings,
+        updateSetting,
+    } = useSettings();
+    const unencryptedSaveNotice = useUnencryptedSaveNotice();
     const isSaving = ref(false);
     const isSavingAs = ref(false);
     const isHistoryBusy = ref(false);
@@ -451,6 +459,19 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             deps.documentSession.snapshot.value.identity.documentSessionKey
         )),
         documentRevisionToken,
+        wasEncrypted,
+        unencryptedSaveNotice: {
+            request: unencryptedSaveNotice.requestUnencryptedSaveNotice,
+            suppress: computed(() => appSettings.value.suppressUnencryptedSaveNotice === true),
+            updateSuppress: () => updateSetting('suppressUnencryptedSaveNotice', true),
+            resetSuppress: () => {
+                appSettings.value = {
+                    ...appSettings.value,
+                    suppressUnencryptedSaveNotice: false,
+                };
+            },
+            flushSettings: saveSettings,
+        },
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,

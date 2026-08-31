@@ -34,6 +34,22 @@ type TFileOperationsSaveControllerTestDeps =
         originalPath: IWorkspaceSaveDependencies['document']['originalPath'];
         documentSessionKey: IWorkspaceSaveDependencies['document']['sessionKey'];
         documentRevisionToken: IWorkspaceSaveDependencies['document']['revisionToken'];
+        wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
+        suppressUnencryptedSaveNotice?: NonNullable<
+            IWorkspaceSaveDependencies['unencryptedSaveNotice']
+        >['suppress'];
+        requestUnencryptedSaveNotice?: NonNullable<
+            IWorkspaceSaveDependencies['unencryptedSaveNotice']
+        >['request'];
+        updateSuppressUnencryptedSaveNotice?: NonNullable<
+            IWorkspaceSaveDependencies['unencryptedSaveNotice']
+        >['updateSuppress'];
+        resetSuppressUnencryptedSaveNotice?: NonNullable<
+            IWorkspaceSaveDependencies['unencryptedSaveNotice']
+        >['resetSuppress'];
+        flushSettings?: NonNullable<
+            IWorkspaceSaveDependencies['unencryptedSaveNotice']
+        >['flushSettings'];
         annotationDirty: IWorkspaceSaveDependencies['annotations']['dirty'];
         markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
         getAnnotationSaveStateToken?: IWorkspaceSaveDependencies['annotations']['getSaveStateToken'];
@@ -114,6 +130,16 @@ export function createDeferred<T>() {
 function createSaveDependencies(
     deps: TFileOperationsSaveControllerTestDeps,
 ): IWorkspaceSaveDependencies {
+    const unencryptedSaveNotice = deps.requestUnencryptedSaveNotice
+        ? {
+            request: deps.requestUnencryptedSaveNotice,
+            suppress: deps.suppressUnencryptedSaveNotice ?? ref(false),
+            updateSuppress: deps.updateSuppressUnencryptedSaveNotice ?? (() => undefined),
+            resetSuppress: deps.resetSuppressUnencryptedSaveNotice ?? (() => undefined),
+            flushSettings: deps.flushSettings ?? (async () => true),
+        }
+        : undefined;
+
     return {
         status: deps,
         document: {
@@ -121,7 +147,9 @@ function createSaveDependencies(
             workingCopyPath: deps.workingCopyPath,
             originalPath: deps.originalPath,
             revisionToken: deps.documentRevisionToken,
+            ...(deps.wasEncrypted ? {wasEncrypted: deps.wasEncrypted} : {}),
         },
+        ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
         annotations: {
             dirty: deps.annotationDirty,
             markSaved: deps.markAnnotationSaved,

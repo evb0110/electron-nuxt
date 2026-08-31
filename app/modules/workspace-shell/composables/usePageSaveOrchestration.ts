@@ -48,6 +48,8 @@ interface IPageSaveOrchestrationDeps {
     originalPath: Ref<TDocumentRef | null>;
     documentSessionKey: Ref<string | null>;
     documentRevisionToken: Ref<TDocumentRevisionToken | null>;
+    wasEncrypted?: NonNullable<IWorkspaceSaveDependencies['document']['wasEncrypted']>;
+    unencryptedSaveNotice?: NonNullable<IWorkspaceSaveDependencies['unencryptedSaveNotice']>;
     totalPages: Ref<number>;
     pageLabelsDirty: Ref<boolean>;
     pageLabelRanges: Ref<IPdfPageLabelRange[]>;
@@ -106,6 +108,8 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         originalPath,
         documentSessionKey,
         documentRevisionToken,
+        wasEncrypted,
+        unencryptedSaveNotice,
         totalPages,
         pageLabelsDirty,
         pageLabelRanges,
@@ -185,7 +189,9 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             workingCopyPath,
             originalPath,
             revisionToken: documentRevisionToken,
+            ...(wasEncrypted ? {wasEncrypted} : {}),
         },
+        ...(unencryptedSaveNotice ? {unencryptedSaveNotice} : {}),
         annotations: {
             dirty: annotationDirty,
             markSaved: markAnnotationSaved,

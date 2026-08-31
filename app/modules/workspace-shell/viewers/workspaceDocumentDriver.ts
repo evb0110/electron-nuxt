@@ -123,6 +123,8 @@ export interface IDocumentSessionState {
     pdfReloadSrc: Ref<TPdfSource | null>;
     pdfSrc: Ref<TPdfSource | null>;
     pendingDjvu: Ref<TDocumentRef | null>;
+    /** True only after the current document completed a password-protected open. */
+    wasEncrypted: Ref<boolean>;
     requiresSaveAsOnFirstSave: Ref<boolean>;
     workingCopyPath: Ref<TDocumentRef | null>;
     documentRevisionInfo: Ref<IDocumentRevisionInfo | null>;
@@ -150,6 +152,7 @@ export function createDocumentSessionState(
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
     const lastSaveMode = ref<TPdfSaveMode>('rewrite');
     const requiresSaveAsOnFirstSave = ref(false);
+    const wasEncrypted = ref(false);
     const pendingDjvu = ref<TDocumentRef | null>(null);
     const openBatchProgress = ref<IOpenBatchProgressState | null>(null);
     const fileName = computed(
@@ -174,6 +177,7 @@ export function createDocumentSessionState(
         pendingDjvu.value = null;
         openBatchProgress.value = null;
         requiresSaveAsOnFirstSave.value = false;
+        wasEncrypted.value = false;
         lastSaveMode.value = 'rewrite';
     }
 
@@ -196,6 +200,7 @@ export function createDocumentSessionState(
         pdfSrc,
         pendingDjvu,
         requiresSaveAsOnFirstSave,
+        wasEncrypted,
         resetForClose,
         workingCopyPath,
         documentRevisionInfo,
