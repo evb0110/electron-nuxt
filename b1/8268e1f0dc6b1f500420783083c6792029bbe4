@@ -1,0 +1,46 @@
+tests/unit/electron/cropWorkerCancellation.test.ts
+  s_f7d6dcf985d9f6::t_4e0dbb32e6bd66 9,13,15,34,39,45,47-48
+  s_f7d6dcf985d9f6::t_96b879471c19ce 16-21
+electron/features/page-ops/main/cropWorkerProtocol.ts
+  s_f7d6dcf985d9f6::t_96b879471c19ce 1
+tests/unit/electron/pdfCombineSharedNative.test.ts
+  s_f7d6dcf985d9f6::t_162221c26b46a4 258-261
+native/pdf-image-combine/src/main.rs
+  s_f7d6dcf985d9f6::t_2279e1f141f5dd 15,326-330,710-714
+  s_f7d6dcf985d9f6::t_9a8e29bb658e59 318
+  s_f7d6dcf985d9f6::t_162221c26b46a4 1446-1461
+native/pdf-page-ops/src/types.rs
+  s_f7d6dcf985d9f6::t_4a1072c816fe44 2-4,936
+native/evb-native-support/src/pdf_catalog.rs
+  s_f7d6dcf985d9f6::t_5d44f169eba103 143-149,173-180
+  s_f7d6dcf985d9f6::t_696392c32dd4b8 480
+  s_f7d6dcf985d9f6::t_040f1bd925dcee 487-490
+  s_f7d6dcf985d9f6::t_ef3c37d17a23b3 444,459,471
+  s_f7d6dcf985d9f6::t_8d71c8f3bfb4c2 446-449,473-476,479,485
+  s_f7d6dcf985d9f6::t_367d910b37421b 478,481-483
+  s_f7d6dcf985d9f6::t_aac40c5789c416 1,3,36-142,150-172,181-197,203-208
+  s_f7d6dcf985d9f6::t_c910ef3c01bb81 441-443,450-458,461,467-470,477,484,486,491
+  s_f7d6dcf985d9f6::t_d53aab05a86a0f 460,462-466
+  s_f7d6dcf985d9f6::t_2fbf68ac607879 18
+  s_f7d6dcf985d9f6::t_0c2d51e2ae8751 445,472
+electron/features/page-ops/main/crop.ts
+  s_f7d6dcf985d9f6::t_1a1694ac2bbe9a 339-344
+tests/unit/electron/bundleIntegrity.test.ts
+  s_f7d6dcf985d9f6::t_96b879471c19ce 80
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b18268e1f0dc6b1f500420783083c6792029bbe4",
+  "prompts": {},
+  "sessions": {
+    "s_f7d6dcf985d9f6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05877-01b8-7e53-9663-171e8c26a1a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
