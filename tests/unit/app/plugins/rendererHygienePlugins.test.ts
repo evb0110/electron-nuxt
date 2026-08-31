@@ -37,7 +37,6 @@ function installAutoImportStubs() {
     vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin);
     vi.stubGlobal('useRuntimeErrorReports', () => ({reportRuntimeError: mocks.reportRuntimeError}));
     vi.stubGlobal('useCookie', () => ({value: 'en'}));
-    vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
 }
 
 function createNuxtApp() {

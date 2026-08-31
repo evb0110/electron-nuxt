@@ -33,6 +33,10 @@ interface IWasmFreshnessModule {
     WASM_FRESHNESS_ARTIFACTS: IWasmFreshnessArtifact[];
     checkWasmFreshness: (options?: {
         artifacts?: IWasmFreshnessArtifact[];
+        computeFingerprint?: (artifact: IWasmFreshnessArtifact, options: {
+            projectRoot: string;
+            rustflags: string;
+        }) => Promise<string>;
         mode?: string;
         projectRoot?: string;
         runCommand?: (command: string, args: string[], options: {
@@ -75,6 +79,20 @@ const {
 const { REQUIRED_WEB_WASM_ASSETS } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/wasm-artifacts.mjs')).href
 ) as IWasmArtifactModule;
+const {
+    computeWasmSourceFingerprint,
+    getWasmArtifactFingerprint,
+    stampWasmArtifact,
+} = await import(
+    pathToFileURL(resolve(process.cwd(), 'scripts/wasm-fingerprint.mjs')).href
+) as {
+    computeWasmSourceFingerprint: (artifact: IWasmFreshnessArtifact, options: {
+        projectRoot: string;
+        rustflags: string;
+    }) => Promise<string>;
+    getWasmArtifactFingerprint: (wasmBytes: Uint8Array) => string | null;
+    stampWasmArtifact: (wasmBytes: Uint8Array, fingerprint: string) => Buffer;
+};
 
 const WASM_FRESHNESS_TEST_TIMEOUT_MS = 20_000;
 
@@ -114,6 +132,8 @@ describe('WASM freshness check', () => {
         const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
         const tempRoot = await createTempProject(artifact);
         const originalPublicBytes = readFileSync(path.join(tempRoot, artifact.publicRelativePath));
+        const fingerprint = getWasmArtifactFingerprint(originalPublicBytes);
+        expect(fingerprint).toMatch(/^[0-9a-f]{64}$/u);
         const runCommand = vi.fn(() => {
             const plan = getWasmFreshnessBuildPlan(artifact, {projectRoot: tempRoot});
             mkdirSync(path.dirname(plan.builtPath), {recursive: true});
@@ -123,6 +143,7 @@ describe('WASM freshness check', () => {
         try {
             const result = await checkWasmFreshness({
                 artifacts: [artifact],
+                computeFingerprint: async () => fingerprint!,
                 projectRoot: tempRoot,
                 runCommand,
             });
@@ -151,7 +172,7 @@ describe('WASM freshness check', () => {
         }
     }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
 
-    it('fails when the committed public WASM differs from the fresh build', async () => {
+    it('fails when the committed public WASM has an old source fingerprint', async () => {
         const artifact = {
             ...WASM_FRESHNESS_ARTIFACTS[0]!,
             builtFileName: 'fresh.wasm',
@@ -175,6 +196,7 @@ describe('WASM freshness check', () => {
 
             await expect(checkWasmFreshness({
                 artifacts: [artifact],
+                computeFingerprint: async () => 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
                 projectRoot: tempRoot,
                 runCommand,
             })).rejects.toThrow('Committed WASM artifacts are stale');
@@ -186,6 +208,35 @@ describe('WASM freshness check', () => {
             });
         }
     }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
+
+    it('changes the source fingerprint when native build input changes', async () => {
+        const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-wasm-fingerprint-'));
+        const sourcePath = path.join(tempRoot, 'native', 'source.rs');
+        const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
+
+        try {
+            await mkdir(path.dirname(sourcePath), {recursive: true});
+            writeFileSync(sourcePath, 'const VALUE: u8 = 1;\n');
+            const firstFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+            });
+            writeFileSync(sourcePath, 'const VALUE: u8 = 2;\n');
+            const secondFingerprint = await computeWasmSourceFingerprint(artifact, {
+                projectRoot: tempRoot,
+                rustflags: '',
+            });
+
+            expect(firstFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+            expect(secondFingerprint).toMatch(/^[0-9a-f]{64}$/u);
+            expect(secondFingerprint).not.toBe(firstFingerprint);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 
     it('allows byte differences in portable mode while still reporting freshness', async () => {
         const artifact = {
@@ -219,6 +270,40 @@ describe('WASM freshness check', () => {
                 mode: 'portable',
             })]);
             expect(readFileSync(publicPath)).toEqual(publicBytes);
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    }, WASM_FRESHNESS_TEST_TIMEOUT_MS);
+
+    it('accepts host-specific codegen when the committed source fingerprint is current', async () => {
+        const artifact = WASM_FRESHNESS_ARTIFACTS[0]!;
+        const tempRoot = await createTempProject(artifact);
+        const publicPath = path.join(tempRoot, artifact.publicRelativePath);
+        const publicBytes = readFileSync(publicPath);
+        const fingerprint = getWasmArtifactFingerprint(publicBytes);
+        expect(fingerprint).toMatch(/^[0-9a-f]{64}$/u);
+        const freshBytes = stampWasmArtifact(publicBytes, fingerprint!);
+        const runCommand = vi.fn(() => {
+            const plan = getWasmFreshnessBuildPlan(artifact, {projectRoot: tempRoot});
+            mkdirSync(path.dirname(plan.builtPath), {recursive: true});
+            writeFileSync(plan.builtPath, freshBytes);
+        });
+
+        try {
+            await expect(checkWasmFreshness({
+                artifacts: [artifact],
+                computeFingerprint: async () => fingerprint!,
+                projectRoot: tempRoot,
+                runCommand,
+            })).resolves.toEqual([expect.objectContaining({
+                byteFresh: false,
+                fingerprintFresh: true,
+                fresh: true,
+                mode: 'strict',
+            })]);
         } finally {
             await rm(tempRoot, {
                 force: true,

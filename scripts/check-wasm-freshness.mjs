@@ -10,6 +10,11 @@ import {
     WASM_ARTIFACTS,
     WASM_TARGET,
 } from './wasm-artifacts.mjs';
+import {
+    computeWasmSourceFingerprint,
+    getWasmArtifactFingerprint,
+    stampWasmArtifact,
+} from './wasm-fingerprint.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STRICT_MODE = 'strict';
@@ -113,6 +118,7 @@ export async function checkWasmFreshness({
     projectRoot = defaultProjectRoot,
     readFileImpl = readFile,
     runCommand = runCommandSync,
+    computeFingerprint = computeWasmSourceFingerprint,
 } = {}) {
     const normalizedMode = normalizeWasmFreshnessMode(mode);
     const mismatches = [];
@@ -132,19 +138,30 @@ export async function checkWasmFreshness({
         assertWasmExports(`${artifact.label} public artifact`, publicBytes, artifact.requiredExports);
         assertWasmExports(`${artifact.label} fresh build`, builtBytes, artifact.requiredExports);
 
-        const fresh = Buffer.compare(Buffer.from(publicBytes), Buffer.from(builtBytes)) === 0;
+        const sourceFingerprint = await computeFingerprint(artifact, {
+            projectRoot,
+            rustflags: plan.cargoEnv.RUSTFLAGS ?? '',
+        });
+        const fingerprint = getWasmArtifactFingerprint(publicBytes);
+        const fingerprintFresh = fingerprint === sourceFingerprint;
+        const stampedBuiltBytes = stampWasmArtifact(builtBytes, sourceFingerprint);
+        const byteFresh = Buffer.compare(Buffer.from(publicBytes), stampedBuiltBytes) === 0;
+        const fresh = normalizedMode === STRICT_MODE ? fingerprintFresh : byteFresh;
         results.push({
+            byteFresh,
             builtPath: plan.builtPath,
             builtByteLength: builtBytes.byteLength,
             byteLength: publicBytes.byteLength,
+            fingerprint,
+            fingerprintFresh,
             fresh,
             mode: normalizedMode,
             publicPath: plan.publicPath,
         });
 
-        if (normalizedMode === STRICT_MODE && !fresh) {
+        if (normalizedMode === STRICT_MODE && !fingerprintFresh) {
             mismatches.push(
-                `${artifact.label}: ${path.relative(projectRoot, plan.publicPath)} differs from ${path.relative(projectRoot, plan.builtPath)}`,
+                `${artifact.label}: ${path.relative(projectRoot, plan.publicPath)} has fingerprint ${fingerprint ?? 'missing'}, expected ${sourceFingerprint}`,
             );
         }
     }

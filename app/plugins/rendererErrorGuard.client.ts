@@ -1,5 +1,8 @@
 import type { ComponentPublicInstance } from 'vue';
+import type {TLocale} from '@i18n-app';
+import {isLocaleMessageSource} from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
 const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
@@ -115,7 +118,16 @@ export default defineNuxtPlugin((nuxtApp) => {
     }
 
     const { reportRuntimeError } = useRuntimeErrorReports();
-    const { t } = useTypedI18n();
+    const localeCookie = useCookie<TLocale>('i18n_redirected');
+    const t = createPluginTranslate(
+        (locale) => {
+            const composer: unknown = nuxtApp.$i18n;
+            return isLocaleMessageSource(composer)
+                ? composer.getLocaleMessage(locale)
+                : {};
+        },
+        () => localeCookie.value,
+    );
     const windowWithState = window as TRendererErrorGuardWindow;
     if (windowWithState.__evbRendererErrorGuardState) {
         return;
