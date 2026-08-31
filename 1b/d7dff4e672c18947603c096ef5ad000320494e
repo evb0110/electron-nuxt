@@ -1,0 +1,55 @@
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_a020a49c99c2c5::t_04dac81cfda91e 87
+  s_a020a49c99c2c5::t_fbeb832bea8abe 176,208,422
+  s_a020a49c99c2c5::t_97410c72566f2d 414
+tests/unit/app/composables/pdfPageBufferManager.test.ts
+  s_a020a49c99c2c5::t_b782316446dc48 43-45
+  s_a020a49c99c2c5::t_69fa7ade88eb45 117-124
+  s_a020a49c99c2c5::t_9bedef1f9fc26d 31-42,50-51
+  s_a020a49c99c2c5::t_e475707f61f1d8 46-49,76-82,108-114
+  s_a020a49c99c2c5::t_d88d8ef27fd1f6 106-107,115-116,125-132
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_a020a49c99c2c5::t_a2b1d8c4778160 246-253,278
+  s_a020a49c99c2c5::t_d88d8ef27fd1f6 234-245,254-277,279-288
+app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes.ts
+  s_a020a49c99c2c5::t_97410c72566f2d 32,44-47
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_a020a49c99c2c5::t_04dac81cfda91e 38
+  s_a020a49c99c2c5::t_97410c72566f2d 107
+  s_a020a49c99c2c5::t_4becef89c3c6cf 133,195
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_a020a49c99c2c5::t_d88d8ef27fd1f6 819,837
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolveHorizontalScrollClampForActiveSpread.ts
+  s_a020a49c99c2c5::t_4becef89c3c6cf 20,44
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_a020a49c99c2c5::t_4d9099d1746947 230-231
+  s_a020a49c99c2c5::t_04dac81cfda91e 68,667
+  s_a020a49c99c2c5::t_97410c72566f2d 128,183-212,219
+app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromMetrics.ts
+  s_a020a49c99c2c5::t_4becef89c3c6cf 17,46-57
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_a020a49c99c2c5::t_bc217e99ab7dfe 1183-1185
+  s_a020a49c99c2c5::t_af955a08fb52a2 133,764
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_a020a49c99c2c5::t_97410c72566f2d 180-182
+tests/unit/app/modules/pdf-viewer/usePdfViewportViewModel.test.ts
+  s_a020a49c99c2c5::t_d33e885c0c3a41 202-205,207,209-214
+  s_a020a49c99c2c5::t_51afc7c45ff67a 159-174,179-182
+  s_a020a49c99c2c5::t_4becef89c3c6cf 132-158,175-178,183-201,206,208,215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1bd7dff4e672c18947603c096ef5ad000320494e",
+  "prompts": {},
+  "sessions": {
+    "s_a020a49c99c2c5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0567f-c2a9-7121-b191-19eb8be7a25e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
