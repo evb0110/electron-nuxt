@@ -815,6 +815,7 @@ describe('CI topology policy', () => {
         expect(extractIndex).toBeGreaterThan(-1);
         expect(storeWorkflow).toContain('${env:ProgramFiles(x86)}');
         expect(storeWorkflow).toContain('Windows Kits\\10\\bin');
+        expect(storeWorkflow).toContain('needs-msys2: ${{ matrix.arch == \'arm64\' }}');
         expect(storeWorkflow).toContain('Where-Object { $_.FullName -match \'[\\\\/]x64[\\\\/]makeappx\\.exe$\' }');
         expect(storeWorkflow).toContain('& $makeAppxPath unpack /o /p $packages[0].FullName /d $extractDir');
         expect(storeWorkflow).not.toContain('tar.exe -xf $packages[0].FullName');
