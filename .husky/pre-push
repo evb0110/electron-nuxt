@@ -13,3 +13,5 @@ cat > "$push_updates_file" || {
 }
 
 node scripts/check-commit-attribution.mjs --pre-push "$1" "$2" < "$push_updates_file" || exit $?
+
+node scripts/pre-push-gate.mjs < "$push_updates_file" || exit $?

@@ -257,11 +257,15 @@ export function formatZeroExecutionCoverageResult(result: IZeroExecutionCoverage
 
     if (result.missingFiles.length > 0) {
         lines.push('Files missing from the coverage report (check coverage.include):');
-        lines.push(...result.missingFiles.map(file => `  ${file}`));
+        lines.push(...result.missingFiles.map(file => (
+            `  ${file}: add it to coverage.include or classify it as a NON_UNIT_COVERAGE_ENTRYPOINTS entry.`
+        )));
     }
     if (result.zeroExecutionFiles.length > 0) {
         lines.push('Production files with zero executed lines:');
-        lines.push(...result.zeroExecutionFiles.map(file => `  ${file}`));
+        lines.push(...result.zeroExecutionFiles.map(file => (
+            `  ${file}: add a unit test that imports and executes this file.`
+        )));
     }
     return lines.join('\n');
 }
