@@ -26,6 +26,7 @@ const EMPTY_ID_SET: ReadonlySet<string> = new Set<string>();
 
 interface IPdfAnnotationProjection {
     readonly hiddenAnnotationIds: Readonly<Ref<Set<string>>>;
+    readonly annotationProjectionReady: Readonly<Ref<boolean>>;
     readonly canvasHiddenAnnotationIds: Readonly<Ref<Set<string>>>;
     pageCommitted(pageNumber: number): void;
 }
@@ -50,6 +51,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const viewport = options.viewport;
     const projection = shallowRef<IPdfAnnotationProjection | null>(null);
     const hiddenAnnotationIds = computed(() => projection.value?.hiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
+    const annotationProjectionReady = computed(() => projection.value?.annotationProjectionReady.value ?? true);
     const canvasHiddenAnnotationIds = computed(() => projection.value?.canvasHiddenAnnotationIds.value ?? EMPTY_ID_SET as Set<string>);
     const {
         pdfDocument,
@@ -81,6 +83,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         pdfDocument,
         showAnnotations,
         hiddenAnnotationIds,
+        annotationProjectionReady,
         renderSupervisor,
         scrollToPage: pageNumber => {
             viewport.singlePageScroll.scrollToPage(pageNumber);
@@ -539,6 +542,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,
+        annotationProjectionReady,
         cancelPendingSearchScroll: searchController.invalidatePendingRequests,
         // The raster bakes pixels that survive until the page is re-rendered, so it
         // must follow the store alone. Deferring suppression until a managed shape's

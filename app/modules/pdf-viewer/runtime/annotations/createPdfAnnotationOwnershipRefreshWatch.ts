@@ -9,6 +9,7 @@ export function createPdfAnnotationOwnershipRefreshWatch(options: {
     viewport: TPdfViewportSession;
     rendering: TPdfRenderingSession;
     storeOwnedPdfAnnotationIds: Ref<ReadonlySet<string>>;
+    annotationProjectionReady: Ref<boolean>;
     nextTick: () => Promise<void>;
 }) {
     let refreshQueued = false;
@@ -53,7 +54,10 @@ export function createPdfAnnotationOwnershipRefreshWatch(options: {
     }
 
     return watch(
-        options.storeOwnedPdfAnnotationIds,
+        [
+            options.storeOwnedPdfAnnotationIds,
+            options.annotationProjectionReady,
+        ],
         scheduleRefresh,
         {
             flush: 'post',

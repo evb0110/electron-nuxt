@@ -612,6 +612,7 @@ export async function collectStickyNoteDebugState(page: Page) {
 
 export interface IAnnotationOwnershipDebugState {
     annotationStorage: {
+        reported: boolean;
         modifiedIds: string[];
         serializableEntryKeys: string[];
     };
@@ -628,6 +629,7 @@ export interface IAnnotationOwnershipDebugState {
 }
 
 interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {dirtyState?: {pdfJsAnnotationStorage?: {
+    reported?: boolean;
     modifiedIds?: string[];
     serializableEntryKeys?: string[];
 } | null;};}
@@ -660,6 +662,7 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
 
         return {
             annotationStorage: {
+                reported: false,
                 modifiedIds: [],
                 serializableEntryKeys: [],
             },
@@ -681,10 +684,11 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
     return {
         ...result,
         annotationStorage: {
+            reported: storage?.reported === true,
             modifiedIds: storage?.modifiedIds ?? [],
             serializableEntryKeys: storage?.serializableEntryKeys ?? [],
         },
-        storageAvailable: storage !== null && storage !== undefined,
+        storageAvailable: storage?.reported === true,
         workspaceState,
     };
 }

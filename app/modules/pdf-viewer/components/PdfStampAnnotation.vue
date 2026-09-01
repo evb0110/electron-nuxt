@@ -21,6 +21,7 @@
 <script setup lang="ts">
 import type { IPlacedImageEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const props = defineProps<{
     entity: IPlacedImageEntity;
@@ -33,9 +34,14 @@ let imageLoadGeneration = 0;
 async function resolveImage(entity: IPlacedImageEntity) {
     const generation = ++imageLoadGeneration;
     imageUrl.value = null;
-    const resolved = await annotationEditorSurface?.resolveStampImage?.(entity);
+    let resolved: string | null = null;
+    try {
+        resolved = await annotationEditorSurface?.resolveStampImage?.(entity) ?? null;
+    } catch (error) {
+        BrowserLogger.warn('pdf-annotations', 'Failed to resolve canonical stamp image', error);
+    }
     if (generation === imageLoadGeneration) {
-        imageUrl.value = resolved ?? null;
+        imageUrl.value = resolved;
     }
 }
 

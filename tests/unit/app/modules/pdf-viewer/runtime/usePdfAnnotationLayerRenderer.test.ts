@@ -125,6 +125,54 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationLayerRender).toHaveBeenCalledWith(expect.objectContaining({annotations: [expect.objectContaining({id: 'visible-1'})]}));
     });
 
+    it('keeps foreign links visible while the canonical ownership parse is pending', async () => {
+        const annotationProjectionReady = ref(false);
+        const renderer = createRenderer({annotationProjectionReady});
+        const pdfPage = createPageProxy([
+            {
+                id: 'link-1',
+                annotationType: 2,
+                noHTML: false,
+            },
+            {
+                id: 'owned-1',
+                annotationType: 10,
+                noHTML: false,
+            },
+        ]);
+        const annotationLayerDiv = document.createElement('div');
+
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            annotationLayerDiv,
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(annotationLayerRender).toHaveBeenLastCalledWith(expect.objectContaining({annotations: [expect.objectContaining({id: 'link-1'})]}));
+
+        annotationProjectionReady.value = true;
+        await renderer.renderAnnotationLayer(
+            pdfPage as never,
+            annotationLayerDiv,
+            {
+                width: 200,
+                height: 300,
+                rotation: 0,
+            } as never,
+            1,
+        );
+
+        expect(annotationLayerRender).toHaveBeenLastCalledWith(expect.objectContaining({annotations: expect.arrayContaining([
+            expect.objectContaining({id: 'link-1'}),
+            expect.objectContaining({id: 'owned-1'}),
+        ])}));
+    });
+
     it('leaves the existing layer untouched when a render is aborted', async () => {
         const pending = Promise.withResolvers<unknown[]>();
         const renderer = createRenderer();

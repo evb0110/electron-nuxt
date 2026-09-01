@@ -73,6 +73,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers';
 import { createPdfAnnotationStampImageResolver } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
 import { createPdfAnnotationOwnershipRefreshWatch } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch';
+import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
 import type {
     ICreateTextMarkupFromTextOptions,
     ICreateTextMarkupFromTextResult,
@@ -123,11 +124,8 @@ interface IAnnotationSnapshotDocumentIdentityInput {
     source: TPdfSource | null;
 }
 
-// A pathless Blob or File carries no durable name: two picks can share a name,
-// a size, and a timestamp while holding different bytes. Only the object itself
-// distinguishes them, so both the canonical store and the snapshot cache key on
-// the instance. Entries die with the Blob, and the `blob-instance:` prefix
-// cannot collide with a path.
+// Pathless sources are keyed by Blob instance because their metadata can collide.
+// The `blob-instance:` prefix avoids collisions with file paths.
 const annotationBlobIdentities = new WeakMap<Blob, string>();
 let nextAnnotationBlobIdentity = 0;
 
@@ -159,9 +157,8 @@ function resolveAnnotationStoreDocumentIdentity(
         : annotationDocumentKey(input.source);
 }
 
-// The snapshot cache keeps its own precedence: it survives working-copy
-// rewrites by preferring the original path, which the canonical store must not
-// do because its records describe the bytes PDF.js currently holds.
+// The snapshot cache prefers original paths across working-copy rewrites.
+// Canonical records must describe the bytes PDF.js currently holds.
 export function resolveAnnotationSnapshotDocumentIdentity(
     input: IAnnotationSnapshotDocumentIdentityInput,
 ) {
@@ -319,14 +316,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         stopAnnotationApplicationProjection = annotationApplication.value.store.subscribe(projectCanonicalAnnotations);
     }
     watch(annotationDocumentIdentity, resetAnnotationApplication, {immediate: true});
-    // Canonical annotations record edits against the bytes PDF.js currently holds.
-    // A save that materializes pending deletes, and a file-history undo of one,
-    // rewrite the working copy in place and reload the document under the same
-    // path, so the path-keyed identity above cannot see it. Every record —
-    // delete tombstones included — then describes bytes that are gone, and the
-    // commands that produced them can no longer be inverted.
-    // A reload clears the proxy before publishing the next one, so the swap is
-    // only visible against the last document actually loaded.
+    // Canonical records describe the bytes PDF.js currently holds. Save and
+    // file-history undo can rewrite the working copy in place and reload the
+    // same path, so path-keyed identity cannot identify the loaded document or
+    // preserve commands that invert edits. Reload clears the proxy before
+    // publishing the next one, so the swap only affects the loaded document.
     let lastLoadedPdfDocument = documentSession.pdfDocument.value;
     watch(documentSession.pdfDocument, (document) => {
         if (!document || document === lastLoadedPdfDocument) {
@@ -633,53 +627,19 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!textLayer) {
             return result(false, null, `Text was not found on page ${pageNumber}.`);
         }
-        const spans = Array.from(textLayer.querySelectorAll<HTMLElement>('span'));
-        const normalizedNeedle = target.caseSensitive === false ? requestedText.toLocaleLowerCase() : requestedText;
-        const text = spans.map(span => span.textContent ?? '').join('');
-        const haystack = target.caseSensitive === false ? text.toLocaleLowerCase() : text;
-        let cursor = 0;
-        let matchStart = -1;
-        for (let found = 0; found < occurrence; found += 1) {
-            matchStart = haystack.indexOf(normalizedNeedle, cursor);
-            if (matchStart < 0) {
-                return result(false, null, `Text was not found on page ${pageNumber}.`);
-            }
-            cursor = matchStart + normalizedNeedle.length;
-        }
-        if (target.wholeWord === true) {
-            const before = text[matchStart - 1] ?? '';
-            const after = text[matchStart + requestedText.length] ?? '';
-            if (/\w/u.test(before) || /\w/u.test(after)) {
-                return result(false, null, `Text was not found on page ${pageNumber}.`);
-            }
-        }
-        const matchEnd = matchStart + requestedText.length;
-        let offset = 0;
-        const range = document.createRange();
-        let hasRange = false;
-        spans.forEach((span) => {
-            const spanText = span.textContent ?? '';
-            const spanStart = offset;
-            const spanEnd = offset + spanText.length;
-            offset = spanEnd;
-            const start = Math.max(matchStart, spanStart);
-            const end = Math.min(matchEnd, spanEnd);
-            if (start >= end || !span.firstChild) {
-                return;
-            }
-            if (!hasRange) {
-                range.setStart(span.firstChild, start - spanStart);
-                hasRange = true;
-            }
-            range.setEnd(span.firstChild, end - spanStart);
+        const match = buildRangeFromPageText(pageContainer, {
+            text: requestedText,
+            occurrence,
+            caseSensitive: target.caseSensitive !== false,
+            wholeWord: target.wholeWord,
         });
-        if (!hasRange) {
+        if (!match) {
             return result(false, null, `Text was not found on page ${pageNumber}.`);
         }
-        const outcome = createSelectionMarkup(range, target.withNote === true, subtype);
+        const outcome = createSelectionMarkup(match.range, target.withNote === true, subtype);
         return result(
             outcome.status === 'created',
-            text.slice(matchStart, matchEnd),
+            match.matchedText,
             outcome.status === 'failed' ? outcome.reason : undefined,
         );
     }
@@ -971,8 +931,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         ...storeOwnedPdfAnnotationIds.value,
         ...managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds.value,
     ]));
+    const annotationProjectionReady = ref(!(options.workingCopyPath.value && options.documentRevisionToken.value && documentSession.pdfDocument.value));
     const detachProjection = rendering.attachAnnotationProjection({
         hiddenAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
+        annotationProjectionReady,
         canvasHiddenAnnotationIds,
         pageCommitted: managedEmbeddedPdfShapes.syncAfterPageRendered,
     });
@@ -981,6 +943,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         viewport,
         rendering,
         storeOwnedPdfAnnotationIds,
+        annotationProjectionReady,
         nextTick,
     });
     const scheduleSetAnnotationTool = (_tool: TAnnotationTool, _reason: string) => {};
@@ -1010,6 +973,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 && !isProvisionalRevisionFence
             )
         ) {
+            annotationProjectionReady.value = true;
             return;
         }
         writerParseAbortController?.abort();
@@ -1018,6 +982,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         writerParseAbortController = abortController;
         const targetStore = annotationApplication.value.store;
         const targetStoreMutationEpoch = targetStore.mutationEpoch;
+        let projectionCommitted = false;
         try {
             const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(
                 workingCopyPath,
@@ -1026,7 +991,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     signal: abortController.signal,
                 },
             );
-            commitPdfAnnotationParseToStore({
+            projectionCommitted = commitPdfAnnotationParseToStore({
                 result,
                 request,
                 currentRequest: writerParseRequest,
@@ -1046,6 +1011,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         } finally {
             if (writerParseAbortController === abortController) {
                 writerParseAbortController = null;
+                if (projectionCommitted && request === writerParseRequest && transition.isCurrent()) annotationProjectionReady.value = true;
             }
         }
     }
@@ -1055,6 +1021,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         if (transition.phase === 'invalidated') {
             cancelWriterParse();
+            annotationProjectionReady.value = true;
             annotations.commentSync.incrementSyncToken();
             annotations.highlight.clearSelectionCache();
             if (transition.reason === 'source-cleared' || transition.reason === 'empty-source') {
@@ -1063,6 +1030,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return;
         }
         if (transition.phase === 'ready') {
+            annotationProjectionReady.value = false;
             await feedStoreFromWriterParse(transition);
             return;
         }
@@ -1107,6 +1075,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         documentSession.pdfDocument.value,
     ] as const, (next, previous) => {
         if (next.some((value, index) => value !== previous[index])) {
+            annotationProjectionReady.value = false;
             cancelWriterParse();
         }
     }, {flush: 'sync'});

@@ -16,8 +16,20 @@
 
 <script setup lang="ts">
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
 const props = defineProps<{entity: AnnotationEntity | null;}>();
+
+function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarkerRect {
+    const right = value.left + value.width;
+    const bottom = value.top + value.height;
+    return {
+        left: Math.min(value.left, right),
+        top: Math.min(value.top, bottom),
+        width: Math.abs(value.width),
+        height: Math.abs(value.height),
+    };
+}
 
 const handles = [
     'nw',
@@ -36,7 +48,7 @@ const rect = computed(() => {
         return null;
     }
     return entity.kind === 'shape' || entity.kind === 'text-box' || entity.kind === 'placed-image'
-        ? entity.rect
+        ? normalizeSelectionRect(entity.rect)
         : null;
 });
 

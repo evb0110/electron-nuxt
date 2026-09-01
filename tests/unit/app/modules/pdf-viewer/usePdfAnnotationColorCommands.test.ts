@@ -142,4 +142,26 @@ describe('usePdfAnnotationColorCommands', () => {
 
         expect(commands.updateSelectedTextMarkupAnnotationColor('#22c55e')).toMatchObject({updated: false});
     });
+
+    it('does not mutate the comment cache for a deleted canonical markup', () => {
+        const harness = createHarness();
+        harness.application.store.delete(asAnnotationId('anno-markup'));
+
+        const result = harness.commands.updateTextMarkupAnnotationColor(harness.comment, '#22c55e');
+
+        expect(result).toMatchObject({updated: false});
+        expect(harness.annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
+        expect(harness.emitForcedAnnotationMutation).not.toHaveBeenCalled();
+    });
+
+    it('does not publish a color change when the store rejects the update', () => {
+        const harness = createHarness();
+        vi.spyOn(harness.application.store, 'updateTextMarkup').mockImplementation(() => undefined as never);
+
+        const result = harness.commands.updateTextMarkupAnnotationColor(harness.comment, '#22c55e');
+
+        expect(result).toMatchObject({updated: false});
+        expect(harness.annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
+        expect(harness.emitForcedAnnotationMutation).not.toHaveBeenCalled();
+    });
 });

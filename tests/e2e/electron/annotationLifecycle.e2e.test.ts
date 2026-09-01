@@ -1378,6 +1378,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(initial.legacyEditorLayerCount).toBe(0);
         expect(initial.staticNonLinkAnnotationCount).toBe(0);
         expect(initial.staticLinkHrefs).toEqual(['https://example.com/evb-viewer-surface']);
+        expect(initial.annotationStorage.reported).toBe(true);
         expect(initial.annotationStorage.modifiedIds).toEqual([]);
         expect(initial.annotationStorage.serializableEntryKeys).toEqual([]);
 
@@ -1471,6 +1472,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         ));
 
         const afterInteraction = await collectAnnotationOwnershipDebugState(page);
+        expect(afterInteraction.annotationStorage.reported).toBe(true);
         expect(afterInteraction.annotationStorage.modifiedIds).toEqual([]);
         expect(afterInteraction.annotationStorage.serializableEntryKeys).toEqual([]);
     }, 90_000);

@@ -139,6 +139,40 @@ function baseEntityFields() {
     };
 }
 
+function textMarkupStyle(
+    settings: IAnnotationSettings | null,
+    subtype: TMarkupSubtype,
+) {
+    if (!settings) {
+        return {
+            color: null,
+            opacity: null,
+        };
+    }
+    switch (subtype) {
+        case 'Underline':
+            return {
+                color: settings.underlineColor,
+                opacity: settings.underlineOpacity,
+            };
+        case 'StrikeOut':
+            return {
+                color: settings.strikethroughColor,
+                opacity: settings.strikethroughOpacity,
+            };
+        case 'Squiggly':
+            return {
+                color: settings.squigglyColor,
+                opacity: settings.squigglyOpacity,
+            };
+        case 'Highlight':
+            return {
+                color: settings.highlightColor,
+                opacity: settings.highlightOpacity,
+            };
+    }
+}
+
 export const usePdfAnnotationEditorSurface = (
     options: IUsePdfAnnotationEditorSurfaceOptions,
 ): IAnnotationEditorSurface => {
@@ -342,6 +376,7 @@ export const usePdfAnnotationEditorSurface = (
         overrides: Partial<Omit<ITextMarkupEntity, 'kind' | 'identity' | 'pageIndex' | 'revision' | 'persistedRevision' | 'deleted' | 'quadPoints'>> = {},
     ) {
         const subtype = overrides.subtype ?? 'Highlight' satisfies TMarkupSubtype;
+        const style = textMarkupStyle(options.settings.value, subtype);
         return store().createTextMarkup({
             kind: 'text-markup',
             identity: newIdentity(),
@@ -350,8 +385,8 @@ export const usePdfAnnotationEditorSurface = (
             subtype,
             contents: '',
             quadPoints,
-            color: options.settings.value?.highlightColor ?? null,
-            opacity: options.settings.value?.highlightOpacity ?? null,
+            color: style.color,
+            opacity: style.opacity,
             ...overrides,
         });
     }

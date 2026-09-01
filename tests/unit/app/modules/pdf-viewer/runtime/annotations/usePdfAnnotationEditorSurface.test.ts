@@ -191,4 +191,17 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(harness.surface.getEntitiesForPage(0)).toEqual([]);
         harness.stop();
     });
+
+    it('uses the selected subtype settings when creating text markup directly', () => {
+        const harness = createSurfaceHarness();
+
+        const created = harness.surface.createHighlightFromSelection(0, [rect], {subtype: 'Underline'});
+
+        expect(created).toMatchObject({
+            subtype: 'Underline',
+            color: DEFAULT_ANNOTATION_SETTINGS.underlineColor,
+            opacity: DEFAULT_ANNOTATION_SETTINGS.underlineOpacity,
+        });
+        harness.stop();
+    });
 });

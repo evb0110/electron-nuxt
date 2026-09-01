@@ -294,6 +294,12 @@
     vector-effect: non-scaling-stroke;
 }
 
+.pdfViewer .pdf-annotation-editor-shape__arrowhead {
+    fill: var(--annotation-stroke);
+    fill-opacity: var(--annotation-opacity);
+    stroke: none;
+}
+
 .pdfViewer .pdf-annotation-editor-surface__html {
     pointer-events: none;
 }

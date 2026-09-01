@@ -430,12 +430,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                         hasChanges: livePdfJsAnnotationChanges.hasChanges,
                         hasUnknownChanges: livePdfJsAnnotationChanges.hasUnknownChanges,
                         ids: [...livePdfJsAnnotationChanges.ids],
-                        ...(annotationStorageDebugState
-                            ? {
-                                modifiedIds: [...annotationStorageDebugState.modifiedIds],
-                                serializableEntryKeys: [...annotationStorageDebugState.serializableEntryKeys],
-                            }
-                            : {}),
+                        reported: annotationStorageDebugState?.reported ?? false,
+                        modifiedIds: [...annotationStorageDebugState?.modifiedIds ?? []],
+                        serializableEntryKeys: [...annotationStorageDebugState?.serializableEntryKeys ?? []],
                         replayableEditorNoteIds: [...livePdfJsAnnotationChanges.replayableEditorNoteIds],
                     }
                     : null,

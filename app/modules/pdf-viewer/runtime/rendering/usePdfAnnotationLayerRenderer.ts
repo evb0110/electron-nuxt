@@ -53,6 +53,18 @@ function annotationIdOf(annotation: unknown) {
     return typeof id === 'string' ? normalizePdfJsAnnotationId(id) : null;
 }
 
+function isLinkAnnotation(annotation: unknown) {
+    if (!annotation || typeof annotation !== 'object') {
+        return false;
+    }
+    const candidate = annotation as {
+        annotationType?: unknown;
+        subtype?: unknown;
+    };
+    return candidate.annotationType === 2
+        || (typeof candidate.subtype === 'string' && candidate.subtype.toLowerCase() === 'link');
+}
+
 function normalizedIds(ids: ReadonlySet<string> | undefined) {
     const normalized = new Set<string>();
     ids?.forEach((id) => {
@@ -105,6 +117,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     pdfDocument: Ref<PDFDocumentProxy | null>;
     showAnnotations: MaybeRefOrGetter<boolean>;
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>>;
+    annotationProjectionReady?: MaybeRefOrGetter<boolean>;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     getDocumentVersion?: (() => number) | undefined;
     scrollToPage?: (pageNumber: number) => void;
@@ -169,6 +182,14 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const visibleAnnotations = hiddenIds.size === 0
             ? annotations
             : annotations.filter(annotation => !hiddenIds.has(annotationIdOf(annotation) ?? ''));
+        // The writer parse is the authority for which PDF annotations the Vue
+        // surface owns. Until it finishes, keep foreign links usable but do
+        // not paint any other PDF.js annotation that may also be mounted by
+        // the canonical surface on the next render pass.
+        const projectionReady = toValue(deps.annotationProjectionReady ?? true);
+        const renderableAnnotations = projectionReady
+            ? visibleAnnotations
+            : visibleAnnotations.filter(isLinkAnnotation);
         const simpleLinkService = {
             pagesCount: deps.numPages.value,
             page: deps.currentPage.value,
@@ -243,7 +264,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
         await raceWithAnnotationAbort(
             Promise.resolve(renderPdfjsAnnotationLayer(annotationLayer, {
-                annotations: visibleAnnotations,
+                annotations: renderableAnnotations,
                 viewport,
                 div: annotationLayerDiv as HTMLDivElement,
                 page: pdfPage,
@@ -260,7 +281,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             return null;
         }
 
-        if (visibleAnnotations.length === 0) {
+        if (renderableAnnotations.length === 0) {
             annotationLayerDiv.innerHTML = '';
         }
         removeHiddenAnnotationElements(annotationLayerDiv, hiddenIds);

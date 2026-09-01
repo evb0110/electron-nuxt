@@ -107,6 +107,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         outputScale: options.outputScale,
         ...(options.viewRotation === undefined ? {} : {viewRotation: options.viewRotation}),
         defaultMaxCanvasPixels: performanceProfile.settledMaxCanvasPixels,
+        annotationProjectionReady: () => pageRenderer.annotationProjectionReady.value,
     });
     const pageRenderState = createPdfPageRenderState();
     const pageCanvases = new Map<number, HTMLCanvasElement>();

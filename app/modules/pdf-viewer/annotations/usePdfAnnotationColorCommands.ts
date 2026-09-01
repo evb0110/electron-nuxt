@@ -53,7 +53,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         const application = annotationApplication.value;
         const annotationId = application.annotationIdForSummary(comment);
         const entity = annotationId ? application.store.get(annotationId) : null;
-        return entity?.kind === 'text-markup' ? entity : null;
+        return entity?.kind === 'text-markup' && !entity.deleted ? entity : null;
     }
 
     function toTextMarkupProperties(entity: ITextMarkupEntity): ITextMarkupAnnotationProperties {
@@ -140,14 +140,14 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         }
         const sourceColor = comment.color ?? null;
         const didUpdate = entity ? updateTextMarkupEntityColor(entity, color) : false;
-        if (!entity) {
+        if (!entity || !didUpdate) {
             return noopColorMutationResult;
         }
         updateCachedAnnotationCommentColor(comment, color, { colorEdited: comment.colorEdited !== false });
-        emitForcedAnnotationMutation({ scheduleCommentSync: didUpdate });
+        emitForcedAnnotationMutation({ scheduleCommentSync: true });
         return createColorMutationResult(comment, color, {
-            updated: didUpdate,
-            shouldScheduleCommentSync: didUpdate,
+            updated: true,
+            shouldScheduleCommentSync: true,
             shouldRefreshPage: false,
             shouldApplyTextMarkupColor: false,
             sourceColor,
