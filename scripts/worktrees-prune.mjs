@@ -286,19 +286,7 @@ export async function pruneWorktrees(options) {
     };
 }
 
-async function isDirectCliInvocation() {
-    if (!process.argv[1]) {
-        return false;
-    }
-    const [
-        invokedPath,
-        modulePath,
-    ] = await Promise.all([
-        realpath(path.resolve(process.argv[1])).catch(() => null),
-        realpath(fileURLToPath(import.meta.url)).catch(() => null),
-    ]);
-    return invokedPath !== null && invokedPath === modulePath;
-}
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 const USAGE = [
     'Usage: pnpm worktrees:prune [--into=<ref>[,<ref>]] [--apply]',
@@ -309,7 +297,7 @@ const USAGE = [
     'that contains the current working directory.',
 ].join('\n');
 
-if (await isDirectCliInvocation()) {
+if (isMain) {
     try {
         const options = parseArgs(process.argv.slice(2));
         if (options.help) {
