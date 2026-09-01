@@ -11,6 +11,7 @@ import {LOAD_BEARING_COVERAGE_FILES} from '@scripts/checkCoverageRatchet';
 const DEFAULT_SUMMARY_PATH = 'coverage/coverage-summary.json';
 const COVERAGE_BASE_SHA_ENV = 'EVB_COVERAGE_BASE_SHA';
 const COVERAGE_HEAD_SHA_ENV = 'EVB_COVERAGE_HEAD_SHA';
+const WORKTREE_HEAD = 'WORKTREE';
 
 export interface ILineCoverageSummary {
     covered: number;
@@ -105,6 +106,30 @@ export function collectChangedProductionCoverageTargets({
         throw new Error(`${COVERAGE_BASE_SHA_ENV} and ${COVERAGE_HEAD_SHA_ENV} must be set together.`);
     }
 
+    const gitLines = (args: string[]) => execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+    }).split('\0').filter(Boolean);
+    if (headSha === WORKTREE_HEAD) {
+        const base = assertCommitSha(baseSha, COVERAGE_BASE_SHA_ENV);
+        return selectChangedProductionCoverageTargets([
+            ...gitLines([
+                'diff',
+                '--no-renames',
+                '--name-only',
+                '--diff-filter=ACMR',
+                '-z',
+                base,
+            ]),
+            ...gitLines([
+                'ls-files',
+                '--others',
+                '--exclude-standard',
+                '-z',
+            ]),
+        ]);
+    }
+
     const head = assertCommitSha(headSha, COVERAGE_HEAD_SHA_ENV);
     const requestedBase = assertCommitSha(baseSha, COVERAGE_BASE_SHA_ENV);
     const base = /^0+$/u.test(requestedBase)
@@ -117,18 +142,14 @@ export function collectChangedProductionCoverageTargets({
             encoding: 'utf8',
         }).trim()
         : requestedBase;
-    const changedFiles = execFileSync('git', [
+    return selectChangedProductionCoverageTargets(gitLines([
         'diff',
         '--no-renames',
         '--name-only',
         '--diff-filter=ACMR',
         '-z',
         `${base}...${head}`,
-    ], {
-        cwd: projectRoot,
-        encoding: 'utf8',
-    }).split('\0').filter(Boolean);
-    return selectChangedProductionCoverageTargets(changedFiles);
+    ]));
 }
 
 function assertFiniteNumber(value: unknown, label: string) {

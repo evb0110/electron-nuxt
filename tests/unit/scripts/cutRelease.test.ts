@@ -9,6 +9,7 @@ import {
     parseCutReleaseArgs,
     resumeRelease,
 } from '@scripts/release/cut-release.mjs';
+import {runReleasePreflight} from '@scripts/release/release-cut-preflight.mjs';
 
 const HEAD_SHA = 'a'.repeat(40);
 const PARENT_SHA = 'b'.repeat(40);
@@ -256,5 +257,34 @@ describe('cut-release', () => {
         };
 
         await expect(resumeRelease(options)).rejects.toThrow(/already public.*release:status/u);
+    });
+});
+
+describe('runReleasePreflight', () => {
+    it('runs the patch preconditions and reports the version step', async () => {
+        const calls: unknown[] = [];
+        const output: string[] = [];
+
+        const result = await runReleasePreflight({
+            assertPreconditions: async (options: unknown) => {
+                calls.push(options);
+                return {
+                    currentVersion: '1.2.3',
+                    headSha: HEAD_SHA,
+                    nextVersion: '1.2.4',
+                    upstream: UPSTREAM,
+                };
+            },
+            write: (message: string) => {
+                output.push(message);
+            },
+        });
+
+        expect(calls).toEqual([{
+            context: 'Release preflight',
+            level: 'patch',
+        }]);
+        expect(output).toEqual(['Release patch preflight passed: 1.2.3 -> 1.2.4 on origin/main.\n']);
+        expect(result.nextVersion).toBe('1.2.4');
     });
 });

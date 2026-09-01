@@ -69,6 +69,13 @@ smoke lane past its 30 s waits. The heavy stages therefore bound themselves:
 `VITEST_MAX_WORKERS=6` (weight 5; a fork spends part of its time waiting on
 I/O and coverage merging).
 
+`test.coverage` runs the same zero-execution tripwire scope as push CI. CI
+passes the push base and head; the local plan passes the merge base with
+`origin/main` as `EVB_COVERAGE_BASE_SHA` and `WORKTREE` as
+`EVB_COVERAGE_HEAD_SHA`, which covers committed, uncommitted, and untracked
+production files. A changed production file with zero executed lines fails
+the stage locally before it fails on `main`.
+
 `check:static:assets` measures the tracked deploy source. The deploy script
 requires a clean snapshot; the local gate passes `--allow-dirty` because an
 uncommitted worktree measures the same tracked files.

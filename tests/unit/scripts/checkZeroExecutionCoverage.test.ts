@@ -294,6 +294,22 @@ describe('zero-execution coverage tripwire', () => {
             headSha,
             projectRoot,
         })).toEqual(['app/components/Viewer.vue']);
+
+        await Promise.all([
+            writeFile(path.join(projectRoot, 'app/components/Modified.ts'), 'export const modified = true;\n', 'utf8'),
+            writeFile(path.join(projectRoot, 'app/components/Untracked.ts'), 'export const untracked = true;\n', 'utf8'),
+        ]);
+        runGit('add', 'app/components/Modified.ts');
+
+        expect(collectChangedProductionCoverageTargets({
+            baseSha,
+            headSha: 'WORKTREE',
+            projectRoot,
+        })).toEqual([
+            'app/components/Modified.ts',
+            'app/components/Untracked.ts',
+            'app/components/Viewer.vue',
+        ]);
     });
 
     it('marks a failed filesystem-backed tripwire run for process failure', async () => {

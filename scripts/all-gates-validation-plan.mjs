@@ -1,3 +1,34 @@
+import {execFileSync} from 'node:child_process';
+
+// Push CI checks zero-execution coverage for every production file changed
+// since the push base. Locally the base is the merge base with origin/main
+// and the head is the worktree, so uncommitted work meets the same rule.
+export function resolveLocalCoverageChangeScope({cwd = process.cwd()} = {}) {
+    try {
+        const base = execFileSync('git', [
+            'merge-base',
+            'HEAD',
+            'origin/main',
+        ], {
+            cwd,
+            encoding: 'utf8',
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        }).trim();
+        return /^[a-f\d]{40}$/u.test(base)
+            ? {
+                EVB_COVERAGE_BASE_SHA: base,
+                EVB_COVERAGE_HEAD_SHA: 'WORKTREE',
+            }
+            : {};
+    } catch {
+        return {};
+    }
+}
+
 function pnpmStage(id, scriptName, options = {}) {
     return {
         args: [
@@ -13,7 +44,10 @@ function pnpmStage(id, scriptName, options = {}) {
     };
 }
 
-export function createAllGatesValidationStages({cold = false} = {}) {
+export function createAllGatesValidationStages({
+    cold = false,
+    coverageChangeScope = resolveLocalCoverageChangeScope(),
+} = {}) {
     return [
         pnpmStage('build.prepare', 'generate:build-artifacts', {priority: 100}),
         pnpmStage('lint.full', cold ? 'lint:clean' : 'lint', {
@@ -34,7 +68,10 @@ export function createAllGatesValidationStages({cold = false} = {}) {
         }),
         pnpmStage('test.coverage', 'test:coverage', {
             dependsOn: ['build.prepare'],
-            env: {VITEST_MAX_WORKERS: '6'},
+            env: {
+                ...coverageChangeScope,
+                VITEST_MAX_WORKERS: '6',
+            },
             heavyWeight: 5,
             priority: 90,
             weight: 5,
