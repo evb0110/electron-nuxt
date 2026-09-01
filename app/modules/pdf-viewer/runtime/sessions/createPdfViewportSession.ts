@@ -525,11 +525,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             residentPages: [...new Set([
                 ...requiredPages,
                 ...nearbyPages,
-                // Semantic navigation protects the destination range, but
-                // the old physical viewport remains on screen until that
-                // destination raster is committed. Retain both demand sets
-                // so the scheduler cannot release the visible canvas in
-                // the short interval before mandatory rendering starts.
+                // Retain semantic and physical demand until the destination raster commits.
                 ...committedViewportPages,
             ])],
             mountedPages,

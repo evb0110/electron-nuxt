@@ -452,6 +452,8 @@ describe('pdfPageLayout', () => {
 
         expect(isSparsePageMetricCollection(normalized)).toBe(true);
         expect(normalized.length).toBe(totalPages);
+        expect(normalized[0]?.width).toBe(300);
+        expect(normalized[0]?.height).toBe(500);
         expect(Object.keys(normalized).filter(key => /^\d+$/u.test(key))).toEqual([]);
     });
 

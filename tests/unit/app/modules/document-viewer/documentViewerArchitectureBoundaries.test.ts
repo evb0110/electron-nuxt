@@ -130,7 +130,7 @@ describe('document viewer architecture boundaries', () => {
             /isActiveViewerLayoutResizing\s*=\s*computed\(\(\)\s*=>\s*\([\s\S]*?isTabTransitionBusy[\s\S]*?\)\);/u,
         );
         expect(workspace).toMatch(
-            /const\s+isDocumentSidebarActive\s*=\s*computed\(\(\)\s*=>\s*\([\s\S]*?surfaceMode\.value\s*===\s*'reader'[\s\S]*?isActiveViewerLayoutResizing\.value[\s\S]*?\);/u,
+            /const\s+isDocumentSidebarActive\s*=\s*computed\(\(\)\s*=>\s*\(\s*surfaceMode\.value\s*===\s*'reader'\s*&&\s*\(\s*isActive\s*\|\|\s*isRenderActive\s*\|\|\s*isActiveViewerLayoutResizing\.value\s*\)\s*\)\s*\);/u,
         );
         expect(workspace).toContain(':is-active="isDocumentSidebarActive"');
         expect(workspace).toMatch(

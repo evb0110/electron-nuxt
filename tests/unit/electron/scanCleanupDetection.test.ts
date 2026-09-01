@@ -215,6 +215,23 @@ describe('scan-cleanup detection renderer projection', () => {
         expect(decoded?.results.at(-1)).not.toHaveProperty('sourcePageMetadata');
         expect(decoded?.results.at(-1)).not.toHaveProperty('pagePlanEvidence');
         expect(decoded?.results.at(-1)).not.toHaveProperty('splitDiagnostics');
+        const lateRevision = decodeScanCleanupDetectionJobState({
+            ...state,
+            results: [
+                ...state.results.slice(-256),
+                {
+                    ...state.results[0],
+                    revision: 2,
+                    reconciled: true,
+                },
+            ],
+        });
+        expect(lateRevision?.results).toHaveLength(256);
+        expect(lateRevision?.results.at(-1)).toMatchObject({
+            pageNumber: 1,
+            revision: 2,
+            reconciled: true,
+        });
         expect(() => decodeScanCleanupDetectionJobState({
             ...state,
             resultCount: 256,

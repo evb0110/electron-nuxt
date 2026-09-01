@@ -783,10 +783,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
         ? new Map<number, IScanCleanupDetectionResult>()
         : null;
     // Large documents publish only the results recorded since the previous
-    // event: re-sorting a 20,000-page native batch on every page made the
-    // per-page cost grow with the batch and a 138,000-page analysis take
-    // three hours. The renderer keeps its own bounded view of recent
-    // classifications and the file-backed store holds the full set.
+    // event. Preserve append order so a late reconciliation update remains in
+    // the renderer's bounded tail even when it targets an early page. The
+    // file-backed store holds the full set.
     const recentResults: IScanCleanupDetectionResult[] = [];
     let lastLargePublishAt = 0;
     const publishedResults = () => compatibilityResults === null
@@ -794,7 +793,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
         : [...compatibilityResults.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
     const takePublishableResults = () => compatibilityResults === null
-        ? recentResults.splice(0).sort((left, right) => left.pageNumber - right.pageNumber)
+        ? recentResults.splice(0)
         : publishedResults();
     const shouldPublishLargeProgress = (terminal: boolean) => {
         if (compatibilityResults !== null || terminal) {

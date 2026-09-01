@@ -194,7 +194,7 @@ describe('prioritized document page metrics', () => {
         ]);
     });
 
-    it('bounds sparse hydration to the current visible priority pages', async () => {
+    it('does not hydrate sparse metrics in a large document', async () => {
         const {
             calls,
             source,
@@ -221,16 +221,12 @@ describe('prioritized document page metrics', () => {
             maxHydratedPages: 3,
         });
 
-        expect(calls).toEqual([
-            499_999,
-            500_001,
-            500_002,
-        ]);
+        expect(calls).toEqual([]);
         expect(metrics).not.toBeNull();
         if (!metrics || !isSparseDocumentPageMetrics(metrics)) {
             throw new Error('expected sparse metrics');
         }
-        expect(metrics.exactPageCount).toBe(4);
+        expect(metrics.exactPageCount).toBe(1);
         expect(metrics).toHaveLength(1_000_000);
     });
 

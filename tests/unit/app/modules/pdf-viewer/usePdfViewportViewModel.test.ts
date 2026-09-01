@@ -151,6 +151,7 @@ describe('usePdfViewportViewModel', () => {
 
         const viewModel = scope.run(() => usePdfViewportViewModel({
             performancePolicy,
+            isActive: computed(() => true),
             viewportWritePort: writePort.port,
             viewerContainer: ref(container),
             bufferPages: computed(() => 2),

@@ -190,30 +190,30 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         zoomMode,
     );
     Object.defineProperty(sparseLayouts, 'sumHeightRange', {
-            configurable: false,
-            enumerable: false,
-            value: (start: number, end: number) => {
-                const rangeStart = Math.max(0, Math.min(metrics.length, Math.trunc(start)));
-                const rangeEnd = Math.max(rangeStart, Math.min(metrics.length, Math.trunc(end)));
-                if (rangeStart >= rangeEnd) {
-                    return 0;
+        configurable: false,
+        enumerable: false,
+        value: (start: number, end: number) => {
+            const rangeStart = Math.max(0, Math.min(metrics.length, Math.trunc(start)));
+            const rangeEnd = Math.max(rangeStart, Math.min(metrics.length, Math.trunc(end)));
+            if (rangeStart >= rangeEnd) {
+                return 0;
+            }
+            let total = (rangeEnd - rangeStart) * fallbackLayout.height;
+            metrics.forEachExact((pageNumber, metric) => {
+                const index = pageNumber - 1;
+                if (index < rangeStart || index >= rangeEnd) {
+                    return;
                 }
-                let total = (rangeEnd - rangeStart) * fallbackLayout.height;
-                metrics.forEachExact((pageNumber, metric) => {
-                    const index = pageNumber - 1;
-                    if (index < rangeStart || index >= rangeEnd) {
-                        return;
-                    }
-                    total += resolveDocumentPageDisplayLayout(
-                        metric,
-                        availableHeight,
-                        availableWidth,
-                        manualZoom,
-                        zoomMode,
-                    ).height - fallbackLayout.height;
-                });
-                return total;
-            },
+                total += resolveDocumentPageDisplayLayout(
+                    metric,
+                    availableHeight,
+                    availableWidth,
+                    manualZoom,
+                    zoomMode,
+                ).height - fallbackLayout.height;
+            });
+            return total;
+        },
     });
     return sparseLayouts as TDocumentPageSourceLazyCollection<IDocumentPageDisplayLayout> & IDocumentPageDisplayLayoutCollection;
 }

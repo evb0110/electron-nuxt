@@ -882,7 +882,6 @@ useTabsShellBindings({
     handleWindowTabsAction,
     toggleAssistant: () => assistantPanel.toggle(),
 });
-
 traceRendererStartup('index.vue setup wiring complete');
 useAppShellLifecycle({
     dirtyTabCloseDialogOpen,
