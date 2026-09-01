@@ -15,6 +15,9 @@ describe('GitHub Actions YAML syntax', () => {
         expect(files).toContain('.github/workflows/ci.yml');
         expect(files).toContain('.github/workflows/build.yml');
         expect(files).toContain('.github/workflows/build-target.yml');
+        expect(files).toContain('.github/workflows/publish-chain.yml');
+        expect(files).toContain('.github/workflows/release-drill.yml');
+        expect(files).toContain('.github/workflows/release-supplemental.yml');
         expect(files).toContain('.github/actions/upload-electron-e2e-artifacts/action.yml');
     });
 

@@ -20,14 +20,21 @@ import {
 } from '@aws-sdk/client-s3';
 import {isSupplementalReleaseAsset} from './policy.mjs';
 import {hashFile} from './release-hash.mjs';
-import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
+import {
+    DRILL_TAG_PATTERN,
+    RELEASE_TAG_PATTERN,
+} from './releaseTag.mjs';
 
 const RELEASE_PREFIX = 'evb-viewer/releases/';
 const CHANNEL_KEY = 'evb-viewer/channels/stable.json';
+const DRILL_PREFIX = 'evb-viewer/drill/';
+const MIRROR_PREFIX_PATTERN = /^evb-viewer\/[a-z0-9./-]+\/$/u;
+const MIRROR_CHANNEL_KEY_PATTERN = /^evb-viewer\/[a-z0-9./-]+$/u;
 const RETAINED_RELEASE_COUNT = 4;
 
 export async function publishReleaseMirror({
     artifactDirectory,
+    drill = false,
     releaseTag,
     publishChannel = true,
     environment = process.env,
@@ -36,23 +43,16 @@ export async function publishReleaseMirror({
     if (!artifactDirectory || !releaseTag) {
         throw new Error('Usage: publish-release-mirror.mjs <artifact-directory> <release-tag>');
     }
-    if (!RELEASE_TAG_PATTERN.test(releaseTag)) {
+    const mirrorPaths = resolveMirrorPaths(environment, {drill});
+    const releaseTagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
+    if (!releaseTagPattern.test(releaseTag)) {
         throw new Error(`Invalid release tag: ${releaseTag}`);
     }
 
-    const endpoint = requireEnvironment(environment, 'MIRROR_S3_ENDPOINT');
-    const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
-    const client = providedClient ?? new S3Client({
-        endpoint,
-        region: environment.MIRROR_S3_REGION || 'ru-central1',
-        // Yandex implements the S3 API but not every optional AWS checksum mode.
-        requestChecksumCalculation: 'WHEN_REQUIRED',
-        responseChecksumValidation: 'WHEN_REQUIRED',
-        credentials: {
-            accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
-            secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
-        },
-    });
+    const {
+        bucket,
+        client,
+    } = createMirrorClient(environment, providedClient);
 
     const releaseVersion = releaseTag.slice(1);
     const artifactNames = (await readdir(artifactDirectory))
@@ -76,7 +76,7 @@ export async function publishReleaseMirror({
         }
 
         const sha256 = await hashFile(filePath);
-        const key = `${RELEASE_PREFIX}${releaseTag}/${name}`;
+        const key = `${mirrorPaths.releasePrefix}${releaseTag}/${name}`;
         const existingState = await immutableUploadState(client, bucket, key, fileStat.size, sha256);
         if (existingState === 'match') {
             console.log(`Already verified ${name} (${fileStat.size} bytes)`);
@@ -114,7 +114,7 @@ export async function publishReleaseMirror({
     await putImmutableJson(
         client,
         bucket,
-        `${RELEASE_PREFIX}${releaseTag}/manifest.json`,
+        `${mirrorPaths.releasePrefix}${releaseTag}/manifest.json`,
         manifest,
         'public, max-age=31536000, immutable',
     );
@@ -123,7 +123,12 @@ export async function publishReleaseMirror({
     if (publishChannel) {
         // Publish the mutable channel pointer last, after every immutable object
         // has been uploaded and verified. Clients cannot discover a partial release.
-        const previousChannel = await readStableChannel(client, bucket);
+        const previousChannel = await readStableChannel(
+            client,
+            bucket,
+            mirrorPaths.channelKey,
+            releaseTagPattern,
+        );
         let stableChannelMutationAttempted = false;
         try {
             stableChannelMutationAttempted = await publishStableChannel(
@@ -132,15 +137,29 @@ export async function publishReleaseMirror({
                 manifest,
                 releaseTag,
                 environment,
+                mirrorPaths.channelKey,
+                releaseTagPattern,
             );
-            prunedTags = await pruneOldReleases(client, bucket, releaseTag);
+            prunedTags = await pruneOldReleases(
+                client,
+                bucket,
+                releaseTag,
+                mirrorPaths.releasePrefix,
+                releaseTagPattern,
+            );
         } catch (error) {
             if (previousChannel && (
                 stableChannelMutationAttempted
                 || error?.stableChannelMutationAttempted === true
             )) {
                 try {
-                    await restoreStableChannel(client, bucket, previousChannel);
+                    await restoreStableChannel(
+                        client,
+                        bucket,
+                        previousChannel,
+                        mirrorPaths.channelKey,
+                        releaseTagPattern,
+                    );
                 } catch (rollbackError) {
                     throw new Error(
                         `Mirror publication failed and stable-channel rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
@@ -172,7 +191,85 @@ export function requireEnvironment(environment, name) {
     return value;
 }
 
+export function resolveMirrorPaths(environment = process.env, {drill = false} = {}) {
+    const releasePrefix = environment.MIRROR_RELEASE_PREFIX?.trim() || RELEASE_PREFIX;
+    const channelKey = environment.MIRROR_CHANNEL_KEY?.trim() || CHANNEL_KEY;
+
+    if (!MIRROR_PREFIX_PATTERN.test(releasePrefix)) {
+        throw new Error(`Invalid mirror release prefix: ${releasePrefix}`);
+    }
+    if (!MIRROR_CHANNEL_KEY_PATTERN.test(channelKey)) {
+        throw new Error(`Invalid mirror channel key: ${channelKey}`);
+    }
+    if (channelKey.split('/')[0] !== releasePrefix.split('/')[0]) {
+        throw new Error('Mirror channel key must use the same top-level folder as the release prefix');
+    }
+
+    if (drill) {
+        if (!releasePrefix.startsWith(DRILL_PREFIX)) {
+            throw new Error('Drill mirror publication requires an evb-viewer/drill/ release prefix');
+        }
+        if (!channelKey.startsWith(DRILL_PREFIX)) {
+            throw new Error('Drill mirror publication requires an evb-viewer/drill/ channel key');
+        }
+    } else if (releasePrefix !== RELEASE_PREFIX || channelKey !== CHANNEL_KEY) {
+        throw new Error('Production mirror publication requires the production release prefix and channel key');
+    }
+
+    return {
+        channelKey,
+        releasePrefix,
+    };
+}
+
+export async function cleanupMirrorPrefix({
+    environment = process.env,
+    prefix,
+    client: providedClient,
+}) {
+    const cleanupPrefix = validateDrillCleanupPrefix(prefix);
+    const {
+        bucket,
+        client,
+    } = createMirrorClient(environment, providedClient);
+    const objects = await listAllReleaseObjects(client, bucket, cleanupPrefix);
+    const keys = objects
+        .map(object => object.Key)
+        .filter(key => typeof key === 'string' && key.startsWith(cleanupPrefix));
+
+    await deleteMirrorObjects(client, bucket, keys, 'Mirror cleanup');
+
+    console.log(`Deleted ${keys.length} drill mirror objects under ${cleanupPrefix}`);
+    return {deletedKeys: keys};
+}
+
 export {hashFile};
+
+function createMirrorClient(environment, providedClient) {
+    const endpoint = requireEnvironment(environment, 'MIRROR_S3_ENDPOINT');
+    const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
+    return {
+        bucket,
+        client: providedClient ?? new S3Client({
+            endpoint,
+            region: environment.MIRROR_S3_REGION || 'ru-central1',
+            // Yandex implements the S3 API but not every optional AWS checksum mode.
+            requestChecksumCalculation: 'WHEN_REQUIRED',
+            responseChecksumValidation: 'WHEN_REQUIRED',
+            credentials: {
+                accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
+                secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
+            },
+        }),
+    };
+}
+
+function validateDrillCleanupPrefix(prefix) {
+    if (typeof prefix !== 'string' || !prefix.startsWith(DRILL_PREFIX) || !MIRROR_PREFIX_PATTERN.test(prefix)) {
+        throw new Error(`Refusing to clean a non-drill mirror prefix: ${prefix ?? ''}`);
+    }
+    return prefix;
+}
 
 async function objectMatches(client, bucket, key, expectedSize, expectedSha256) {
     const result = await client.send(new GetObjectCommand({
@@ -282,7 +379,15 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
     }), size, sha256);
 }
 
-async function publishStableChannel(client, bucket, body, releaseTag, environment) {
+async function publishStableChannel(
+    client,
+    bucket,
+    body,
+    releaseTag,
+    environment,
+    channelKey,
+    releaseTagPattern,
+) {
     const sha256 = createHash('sha256').update(body).digest('hex');
     const size = Buffer.byteLength(body);
     let stableChannelMutationAttempted = false;
@@ -299,7 +404,12 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
         return wrapped;
     };
     for (let attempt = 1; attempt <= 5; attempt += 1) {
-        const current = await readStableChannel(client, bucket);
+        const current = await readStableChannel(
+            client,
+            bucket,
+            channelKey,
+            releaseTagPattern,
+        );
         if (
             current
             && compareReleaseTags(releaseTag, current.tag) < 0
@@ -318,7 +428,7 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
         try {
             await client.send(new PutObjectCommand({
                 Bucket: bucket,
-                Key: CHANNEL_KEY,
+                Key: channelKey,
                 Body: body,
                 ContentLength: size,
                 ContentType: 'application/json; charset=utf-8',
@@ -331,7 +441,7 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
             // The pointer may have changed even if verification fails. Keep
             // the outer transaction informed so it can restore the old value.
             stableChannelMutationAttempted = true;
-            await verifyUpload(client, bucket, CHANNEL_KEY, size, sha256);
+            await verifyUpload(client, bucket, channelKey, size, sha256);
             return true;
         } catch (error) {
             if (!isConditionalWriteConflict(error)) {
@@ -348,12 +458,12 @@ async function publishStableChannel(client, bucket, body, releaseTag, environmen
     }
 }
 
-async function readStableChannel(client, bucket) {
+async function readStableChannel(client, bucket, channelKey, releaseTagPattern) {
     let response;
     try {
         response = await client.send(new GetObjectCommand({
             Bucket: bucket,
-            Key: CHANNEL_KEY,
+            Key: channelKey,
         }));
     } catch (error) {
         if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
@@ -372,7 +482,7 @@ async function readStableChannel(client, bucket) {
         throw new Error('Stable mirror object is not valid JSON', {cause: error});
     }
     const tag = parsed?.release?.tag;
-    if (typeof tag !== 'string' || !RELEASE_TAG_PATTERN.test(tag)) {
+    if (typeof tag !== 'string' || !releaseTagPattern.test(tag)) {
         throw new Error('Stable mirror object has an invalid release tag');
     }
     return {
@@ -384,8 +494,13 @@ async function readStableChannel(client, bucket) {
     };
 }
 
-async function restoreStableChannel(client, bucket, previousChannel) {
-    const current = await readStableChannel(client, bucket);
+async function restoreStableChannel(client, bucket, previousChannel, channelKey, releaseTagPattern) {
+    const current = await readStableChannel(
+        client,
+        bucket,
+        channelKey,
+        releaseTagPattern,
+    );
     if (current?.sha256 === previousChannel.sha256) {
         return;
     }
@@ -395,7 +510,7 @@ async function restoreStableChannel(client, bucket, previousChannel) {
 
     await client.send(new PutObjectCommand({
         Bucket: bucket,
-        Key: CHANNEL_KEY,
+        Key: channelKey,
         Body: previousChannel.body,
         ContentLength: previousChannel.size,
         ContentType: 'application/json; charset=utf-8',
@@ -403,13 +518,13 @@ async function restoreStableChannel(client, bucket, previousChannel) {
         Metadata: {sha256: previousChannel.sha256},
         IfMatch: current.etag,
     }));
-    await verifyUpload(client, bucket, CHANNEL_KEY, previousChannel.size, previousChannel.sha256);
+    await verifyUpload(client, bucket, channelKey, previousChannel.size, previousChannel.sha256);
 }
 
-async function pruneOldReleases(client, bucket, protectedTag) {
-    const objects = await listAllReleaseObjects(client, bucket);
-    const tags = [...new Set(objects.map(object => object.Key?.slice(RELEASE_PREFIX.length).split('/')[0]).filter(Boolean))]
-        .filter(tag => RELEASE_TAG_PATTERN.test(tag))
+async function pruneOldReleases(client, bucket, protectedTag, releasePrefix, releaseTagPattern) {
+    const objects = await listAllReleaseObjects(client, bucket, releasePrefix);
+    const tags = [...new Set(objects.map(object => object.Key?.slice(releasePrefix.length).split('/')[0]).filter(Boolean))]
+        .filter(tag => releaseTagPattern.test(tag))
         .sort(compareReleaseTags)
         .reverse();
     const retainedTags = new Set(tags.slice(0, RETAINED_RELEASE_COUNT));
@@ -417,31 +532,35 @@ async function pruneOldReleases(client, bucket, protectedTag) {
     const staleTags = tags.filter(tag => !retainedTags.has(tag));
     const staleKeys = objects
         .map(object => object.Key)
-        .filter(key => key && staleTags.some(tag => key.startsWith(`${RELEASE_PREFIX}${tag}/`)));
+        .filter(key => key && staleTags.some(tag => key.startsWith(`${releasePrefix}${tag}/`)));
 
-    for (let index = 0; index < staleKeys.length; index += 1_000) {
-        const batch = staleKeys.slice(index, index + 1_000);
+    await deleteMirrorObjects(client, bucket, staleKeys, 'Mirror pruning');
+    return staleTags;
+}
+
+async function deleteMirrorObjects(client, bucket, keys, label) {
+    for (let index = 0; index < keys.length; index += 1_000) {
+        const batch = keys.slice(index, index + 1_000);
         const result = await client.send(new DeleteObjectsCommand({
             Bucket: bucket,
             Delete: {
-                Objects: batch.map(Key => ({ Key })),
+                Objects: batch.map(Key => ({Key})),
                 Quiet: true,
             },
         }));
         if ((result.Errors ?? []).length > 0) {
-            throw new Error(`Mirror pruning failed for ${result.Errors.map(error => error.Key ?? 'unknown').join(', ')}`);
+            throw new Error(`${label} failed for ${result.Errors.map(error => error.Key ?? 'unknown').join(', ')}`);
         }
     }
-    return staleTags;
 }
 
-async function listAllReleaseObjects(client, bucket) {
+async function listAllReleaseObjects(client, bucket, releasePrefix) {
     const objects = [];
     let continuationToken;
     do {
         const page = await client.send(new ListObjectsV2Command({
             Bucket: bucket,
-            Prefix: RELEASE_PREFIX,
+            Prefix: releasePrefix,
             ContinuationToken: continuationToken,
         }));
         objects.push(...(page.Contents ?? []));
@@ -523,17 +642,30 @@ export function contentTypeFor(filename) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    const [
-        artifactDirectory,
-        releaseTag,
-        mode,
-    ] = process.argv.slice(2);
-    if (mode && mode !== '--stage') {
-        throw new Error(`Unknown mirror publish mode: ${mode}`);
+    const args = process.argv.slice(2);
+    if (args[0] === 'cleanup') {
+        if (args.length !== 2) {
+            throw new Error('Usage: publish-release-mirror.mjs cleanup <evb-viewer/drill/.../>');
+        }
+        await cleanupMirrorPrefix({prefix: args[1]});
+    } else {
+        const [
+            artifactDirectory,
+            releaseTag,
+            ...modes
+        ] = args;
+        const allowedModes = new Set([
+            '--drill',
+            '--stage',
+        ]);
+        if (modes.some(mode => !allowedModes.has(mode))) {
+            throw new Error(`Unknown mirror publish mode: ${modes.find(mode => !allowedModes.has(mode))}`);
+        }
+        await publishReleaseMirror({
+            artifactDirectory,
+            drill: modes.includes('--drill'),
+            releaseTag,
+            publishChannel: !modes.includes('--stage'),
+        });
     }
-    await publishReleaseMirror({
-        artifactDirectory,
-        releaseTag,
-        publishChannel: mode !== '--stage',
-    });
 }

@@ -1,0 +1,455 @@
+name: Supplemental release
+run-name: Supplemental release ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Public release tag to supplement (for example v1.2.3).
+        required: true
+        type: string
+      workflow_sha:
+        description: Optional trusted workflow revision containing release helpers.
+        required: false
+        type: string
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to supplement.
+        required: true
+        type: string
+      workflow_sha:
+        description: Trusted workflow revision containing release helpers.
+        required: false
+        default: ''
+        type: string
+      drill:
+        description: Attach drill stubs to a draft release without running platform builds.
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: release-supplemental-${{ inputs.tag }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '24.11.1'
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  resolve:
+    name: Resolve supplemental release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      tag: ${{ steps.resolve.outputs.tag }}
+      target_sha: ${{ steps.resolve.outputs.target_sha }}
+      version: ${{ steps.resolve.outputs.version }}
+      workflow_sha: ${{ steps.resolve.outputs.workflow_sha }}
+
+    steps:
+      - name: Checkout release helpers
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ inputs.workflow_sha || inputs.tag || github.sha }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+
+      - name: Verify release visibility and resolve target
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ inputs.tag }}
+          INPUT_WORKFLOW_SHA: ${{ inputs.workflow_sha }}
+          DRILL: ${{ inputs.drill }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$TAG" ]; then
+            echo '::error::A supplemental release tag is required.'
+            exit 1
+          fi
+          if [ "$DRILL" = 'true' ]; then
+            if [[ ! "$TAG" =~ ^v0[.]0[.]0-drill[.][0-9]+$ ]]; then
+              echo '::error::A drill release tag must be v0.0.0-drill.<run_id>.'
+              exit 1
+            fi
+          elif [[ ! "$TAG" =~ ^v[0-9]+[.][0-9]+[.][0-9]+$ ]]; then
+            echo '::error::A public supplemental release tag must be exactly vMAJOR.MINOR.PATCH.'
+            exit 1
+          fi
+
+          release_json="$(gh release view "$TAG" --json isDraft)"
+          is_draft="$(jq -r '.isDraft' <<< "$release_json")"
+          if [ "$DRILL" = 'true' ]; then
+            if [ "$is_draft" != 'true' ]; then
+              echo '::error::A supplemental drill requires a draft GitHub release.'
+              exit 1
+            fi
+            target_sha="${INPUT_WORKFLOW_SHA:-$GITHUB_SHA}"
+          else
+            if [ "$is_draft" = 'true' ]; then
+              echo "::error::GitHub release $TAG is still a draft. Supplemental assets require a public release."
+              exit 1
+            fi
+            git fetch --no-tags origin "refs/tags/$TAG:refs/tags/$TAG"
+            target_sha="$(git rev-parse --verify "$TAG^{commit}" 2>/dev/null || true)"
+          fi
+          if [[ ! "$target_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Could not resolve $TAG to one exact commit."
+            exit 1
+          fi
+
+          workflow_sha="${INPUT_WORKFLOW_SHA:-$target_sha}"
+          if [[ ! "$workflow_sha" =~ ^[0-9a-f]{40}$ ]]; then
+            echo '::error::workflow_sha must be an exact commit SHA.'
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "workflow_sha=$workflow_sha" >> "$GITHUB_OUTPUT"
+
+  release_credentials:
+    name: Validate supplemental release credentials
+    needs: resolve
+    if: ${{ !inputs.drill }}
+    runs-on: ubuntu-latest
+    environment: release
+    outputs:
+      submit_store: ${{ steps.channels.outputs.submit_store }}
+
+    steps:
+      - name: Validate public release credentials
+        id: channels
+        shell: bash
+        env:
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+          PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+          PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$CSC_LINK" ] || [ -z "$CSC_KEY_PASSWORD" ] \
+            || [ -z "$APPLE_API_KEY" ] || [ -z "$APPLE_API_KEY_ID" ] || [ -z "$APPLE_API_ISSUER" ]; then
+            echo '::error::Public supplemental builds require Developer ID signing and App Store Connect notarization credentials.'
+            exit 1
+          fi
+          if { [ -n "$WIN_CSC_LINK" ] && [ -z "$WIN_CSC_KEY_PASSWORD" ]; } \
+            || { [ -z "$WIN_CSC_LINK" ] && [ -n "$WIN_CSC_KEY_PASSWORD" ]; }; then
+            echo '::error::Partial Windows signing credentials detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither.'
+            exit 1
+          fi
+          submit_store=false
+          if [ -n "$PARTNER_TENANT_ID" ] && [ -n "$PARTNER_CLIENT_ID" ] && [ -n "$PARTNER_CLIENT_SECRET" ]; then
+            submit_store=true
+          else
+            echo '::notice::Complete Partner Center credentials are not configured; Store submission will be skipped.'
+          fi
+          echo "submit_store=$submit_store" >> "$GITHUB_OUTPUT"
+
+  build_win_arm64:
+    name: Package Supplemental Windows ARM64 Assets
+    needs:
+      - resolve
+      - release_credentials
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' }}
+    uses: ./.github/workflows/build-target.yml
+    with:
+      ref: ${{ needs.resolve.outputs.target_sha }}
+      release_environment: release
+      os: windows-11-arm
+      platform: win
+      arch: arm64
+      artifact_group: supplemental-win-arm64
+    secrets:
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+
+  build_mac_intel:
+    name: Package Supplemental macOS Intel Assets
+    needs:
+      - resolve
+      - release_credentials
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' }}
+    uses: ./.github/workflows/build-mac-intel.yml
+    with:
+      ref: ${{ needs.resolve.outputs.target_sha }}
+      release_environment: release
+    secrets:
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+
+  publish_store:
+    name: Package Microsoft Store AppX
+    needs: resolve
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' }}
+    uses: ./.github/workflows/store-appx.yml
+    with:
+      ref: ${{ needs.resolve.outputs.target_sha }}
+
+  attach_mac_intel:
+    name: Attach Supplemental macOS Intel Asset
+    needs:
+      - resolve
+      - build_mac_intel
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (inputs.drill || needs.build_mac_intel.result == 'success') }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout resolved release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve.outputs.target_sha }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+
+      - name: Download drill Intel stub
+        if: ${{ inputs.drill }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: supplemental-drill-mac-x64
+          path: artifacts
+
+      - name: Download built Intel artifact
+        if: ${{ !inputs.drill }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: supplemental-mac-x64
+          path: artifacts
+          merge-multiple: true
+
+      - name: Validate Intel ZIP
+        id: intel_asset
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"
+          if [ ! -f "$expected" ]; then
+            echo "::error::Supplemental Intel artifact did not contain $(basename "$expected")."
+            exit 1
+          fi
+          echo "expected=$expected" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Intel ZIP
+        if: ${{ !inputs.drill }}
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: ${{ steps.intel_asset.outputs.expected }}
+
+      - name: Attach Intel ZIP
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          EXPECTED_ASSET: ${{ steps.intel_asset.outputs.expected }}
+          DRILL: ${{ inputs.drill }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DRILL" = 'true' ]; then
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_ASSET" --drill
+          else
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_ASSET"
+          fi
+
+  attach_win_arm64:
+    name: Attach Supplemental Windows ARM64 Assets
+    needs:
+      - resolve
+      - build_win_arm64
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (inputs.drill || needs.build_win_arm64.result == 'success') }}
+    runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      attestations: write
+      contents: write
+      id-token: write
+
+    steps:
+      - name: Checkout resolved release
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ needs.resolve.outputs.target_sha }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          install-dependencies: 'false'
+
+      - name: Download drill Windows ARM64 stubs
+        if: ${{ inputs.drill }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: supplemental-drill-win-arm64
+          path: artifacts
+
+      - name: Download built Windows ARM64 artifact
+        if: ${{ !inputs.drill }}
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: supplemental-win-arm64
+          path: artifacts
+          merge-multiple: true
+
+      - name: Validate Windows ARM64 assets
+        id: win_arm64_assets
+        env:
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          installer="artifacts/EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe"
+          provenance="artifacts/EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json"
+          for expected in "$installer" "$provenance"; do
+            if [ ! -f "$expected" ]; then
+              echo "::error::Supplemental Windows ARM64 artifact did not contain $(basename "$expected")."
+              exit 1
+            fi
+          done
+          echo "installer=$installer" >> "$GITHUB_OUTPUT"
+          echo "provenance=$provenance" >> "$GITHUB_OUTPUT"
+
+      - name: Attest Windows ARM64 assets
+        if: ${{ !inputs.drill }}
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          subject-path: |
+            ${{ steps.win_arm64_assets.outputs.installer }}
+            ${{ steps.win_arm64_assets.outputs.provenance }}
+
+      - name: Attach Windows ARM64 assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          EXPECTED_INSTALLER: ${{ steps.win_arm64_assets.outputs.installer }}
+          EXPECTED_PROVENANCE: ${{ steps.win_arm64_assets.outputs.provenance }}
+          DRILL: ${{ inputs.drill }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$DRILL" = 'true' ]; then
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE" --drill
+          else
+            node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE"
+          fi
+
+  submit_store:
+    name: Reconcile Microsoft Store Submission
+    needs:
+      - resolve
+      - release_credentials
+      - build_win_arm64
+      - attach_win_arm64
+      - publish_store
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' && needs.release_credentials.outputs.submit_store == 'true' && needs.build_win_arm64.result == 'success' && needs.build_win_arm64.outputs.artifact_ready == 'true' && needs.attach_win_arm64.result == 'success' && needs.publish_store.result == 'success' }}
+    uses: ./.github/workflows/submit-store-appx.yml
+    with:
+      ref: ${{ needs.resolve.outputs.target_sha }}
+      enabled: true
+    secrets:
+      PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
+      PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
+      PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
+
+  summary:
+    name: Summarize supplemental release
+    needs:
+      - resolve
+      - release_credentials
+      - build_win_arm64
+      - build_mac_intel
+      - publish_store
+      - attach_win_arm64
+      - attach_mac_intel
+      - submit_store
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Write supplemental asset summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ needs.resolve.outputs.tag }}
+          VERSION: ${{ needs.resolve.outputs.version }}
+          DRILL: ${{ inputs.drill }}
+          WIN_ARM_BUILD_RESULT: ${{ needs.build_win_arm64.result }}
+          MAC_INTEL_BUILD_RESULT: ${{ needs.build_mac_intel.result }}
+          STORE_BUILD_RESULT: ${{ needs.publish_store.result }}
+          WIN_ARM_ATTACH_RESULT: ${{ needs.attach_win_arm64.result }}
+          MAC_INTEL_ATTACH_RESULT: ${{ needs.attach_mac_intel.result }}
+          STORE_SUBMIT_RESULT: ${{ needs.submit_store.result }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo '## Supplemental release'
+            echo
+            echo "- Tag: \`$TAG\`"
+            if [ "${DRILL:-false}" = 'true' ]; then
+              echo '- Mode: publish-chain drill'
+            else
+              echo '- Mode: public release'
+            fi
+            echo
+            echo '| Asset or lane | Build | Attach or submit |'
+            echo '| --- | --- | --- |'
+            echo "| Windows ARM64 | $WIN_ARM_BUILD_RESULT | $WIN_ARM_ATTACH_RESULT |"
+            echo "| macOS Intel | $MAC_INTEL_BUILD_RESULT | $MAC_INTEL_ATTACH_RESULT |"
+            echo "| Microsoft Store packages | $STORE_BUILD_RESULT | $STORE_SUBMIT_RESULT |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if ! release_json="$(gh release view "$TAG" --json assets 2>/dev/null)"; then
+            echo 'Release assets could not be read for the supplemental summary.' >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          remote_assets="$(jq -r '.assets[]?.name' <<< "$release_json")"
+          for expected in \
+            "EVB-Viewer-${VERSION}-x64.zip" \
+            "EVB-Viewer-${VERSION}-arm64-setup.exe" \
+            "EVB-Viewer-${VERSION}-win-arm64-provenance.json"; do
+            if grep -Fqx "$expected" <<< "$remote_assets"; then
+              echo "- Landed: \`$expected\`" >> "$GITHUB_STEP_SUMMARY"
+            else
+              echo "- Missing: \`$expected\`" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done

@@ -1,0 +1,217 @@
+import { createHash } from 'node:crypto';
+import {
+    mkdir,
+    readdir,
+    readFile,
+    stat,
+    writeFile,
+} from 'node:fs/promises';
+import {
+    basename,
+    join,
+    resolve,
+} from 'node:path';
+import { pathToFileURL } from 'node:url';
+import {
+    expectsUpdaterMetadata,
+    getLocalReleaseTargets,
+    getRequiredArtifactPatterns,
+} from './policy.mjs';
+import {DRILL_TAG_PATTERN} from './releaseTag.mjs';
+
+const DRILL_POLICY_ENV = Object.freeze({
+    EVB_RELEASE_HAS_MAC_SIGNING: 'true',
+    EVB_RELEASE_HAS_WINDOWS_SIGNING: 'true',
+});
+
+const TARGETS = Object.freeze([
+    {
+        arch: 'arm64',
+        artifactGroup: 'dist-mac-arm64',
+        platform: 'darwin',
+    },
+    {
+        arch: 'x64',
+        artifactGroup: 'dist-linux-x64',
+        platform: 'linux',
+    },
+    {
+        arch: 'arm64',
+        artifactGroup: 'dist-linux-arm64',
+        platform: 'linux',
+    },
+    {
+        arch: 'x64',
+        artifactGroup: 'dist-win-x64',
+        platform: 'win32',
+    },
+]);
+
+const DRILL_ASSET_BYTES = 4 * 1024;
+
+export async function makeDrillReleaseAssets(outputDirectory, version) {
+    validateDrillVersion(version);
+    if (!outputDirectory) {
+        throw new Error('Usage: make-drill-release-assets.mjs <outDir> <version>');
+    }
+
+    const root = resolve(outputDirectory);
+    await mkdir(root, {recursive: true});
+    const allArtifactNames = [];
+
+    for (const targetDefinition of TARGETS) {
+        const [target] = getLocalReleaseTargets({
+            arch: targetDefinition.arch,
+            platform: targetDefinition.platform,
+        });
+        const targetDirectory = join(root, targetDefinition.artifactGroup);
+        await mkdir(targetDirectory, {recursive: true});
+        const artifactNames = getTargetArtifactNames(target, version);
+        const requiredPatterns = getRequiredArtifactPatterns(target, DRILL_POLICY_ENV);
+        for (const pattern of requiredPatterns) {
+            if (!artifactNames.some(name => pattern.test(name))) {
+                throw new Error(
+                    `Drill asset set for ${targetDefinition.artifactGroup} does not satisfy ${pattern}`,
+                );
+            }
+        }
+
+        for (const name of artifactNames) {
+            await writeFile(
+                join(targetDirectory, name),
+                createDeterministicBytes(version, name),
+            );
+        }
+
+        const metadataName = getMetadataName(target, DRILL_POLICY_ENV);
+        if (metadataName) {
+            await writeFile(
+                join(targetDirectory, metadataName),
+                await createUpdaterMetadata(target, targetDirectory, version, artifactNames),
+            );
+        }
+        allArtifactNames.push(...await listFiles(targetDirectory));
+    }
+
+    return {
+        artifactNames: allArtifactNames.sort(),
+        outputDirectory: root,
+        targetGroups: TARGETS.map(target => target.artifactGroup),
+    };
+}
+
+function validateDrillVersion(version) {
+    if (typeof version !== 'string' || !DRILL_TAG_PATTERN.test(`v${version}`)) {
+        throw new Error(`Invalid drill version: ${version ?? ''}`);
+    }
+}
+
+function getTargetArtifactNames(target, version) {
+    const artifactPrefix = `EVB-Viewer-${version}-${target.arch}`;
+    switch (target.platform) {
+        case 'mac':
+            return [
+                `${artifactPrefix}.dmg`,
+                `${artifactPrefix}.zip`,
+                ...(expectsUpdaterMetadata(target, DRILL_POLICY_ENV)
+                    ? [
+                        `${artifactPrefix}.dmg.blockmap`,
+                        `${artifactPrefix}.zip.blockmap`,
+                    ]
+                    : []),
+            ];
+        case 'linux':
+            return [
+                `${artifactPrefix}.AppImage`,
+                `${artifactPrefix}.deb`,
+            ];
+        case 'win':
+            return [
+                `${artifactPrefix}-setup.exe`,
+                `EVB-Viewer-${version}-win-${target.arch}-provenance.json`,
+                ...(expectsUpdaterMetadata(target, DRILL_POLICY_ENV)
+                    ? [`${artifactPrefix}-setup.exe.blockmap`]
+                    : []),
+            ];
+        default:
+            throw new Error(`Unsupported drill target platform: ${target.platform}`);
+    }
+}
+
+function getMetadataName(target, environment) {
+    if (!expectsUpdaterMetadata(target, environment)) {
+        return null;
+    }
+    if (target.platform === 'mac') {
+        return 'latest-mac.yml';
+    }
+    if (target.platform === 'win') {
+        return 'latest.yml';
+    }
+    return null;
+}
+
+async function createUpdaterMetadata(target, targetDirectory, version, artifactNames) {
+    const updateArtifacts = artifactNames.filter(name => {
+        if (target.platform === 'mac') {
+            return name.endsWith('.dmg') || name.endsWith('.zip');
+        }
+        return name.endsWith('.exe');
+    });
+    const entries = await Promise.all(updateArtifacts.map(async (name) => {
+        const info = await getArtifactInfo(join(targetDirectory, name));
+        return {
+            name,
+            sha512: info.sha512,
+            size: info.size,
+        };
+    }));
+    const primary = entries.find(entry => entry.name.endsWith('.zip')) ?? entries[0];
+    return [
+        `version: ${version}`,
+        'files:',
+        ...entries.flatMap(entry => [
+            `  - url: ${entry.name}`,
+            `    sha512: ${entry.sha512}`,
+            `    size: ${entry.size}`,
+        ]),
+        `path: ${primary.name}`,
+        `sha512: ${primary.sha512}`,
+        '',
+    ].join('\n');
+}
+
+function createDeterministicBytes(version, name) {
+    const seed = `EVB Viewer publish-chain drill ${version} ${name}\n`;
+    return Buffer.from(seed.repeat(Math.ceil(DRILL_ASSET_BYTES / seed.length)).slice(0, DRILL_ASSET_BYTES));
+}
+
+async function getArtifactInfo(filePath) {
+    const contents = await readFile(filePath);
+    return {
+        sha512: createHash('sha512').update(contents).digest('base64'),
+        size: (await stat(filePath)).size,
+    };
+}
+
+async function listFiles(directory) {
+    const entries = await readdir(directory, {withFileTypes: true});
+    return entries
+        .filter(entry => entry.isFile())
+        .map(entry => basename(entry.name));
+}
+
+const isMain = process.argv[1]
+    && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (isMain) {
+    const [
+        outputDirectory,
+        version,
+        ...extraArguments
+    ] = process.argv.slice(2);
+    if (!outputDirectory || !version || extraArguments.length > 0) {
+        throw new Error('Usage: make-drill-release-assets.mjs <outDir> <version>');
+    }
+    await makeDrillReleaseAssets(outputDirectory, version);
+}
