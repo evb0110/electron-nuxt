@@ -275,6 +275,54 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(commit).toHaveBeenCalledOnce();
     });
 
+    it('leaves a pre-overlay PDF.js identity for the post-commit parse', async () => {
+        const application = new AnnotationApplication('pre-overlay-identity-document');
+        const capturedId = asAnnotationId('captured-frontier');
+        application.store.createNote({
+            kind: 'note',
+            identity: {id: capturedId},
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            contents: 'captured frontier note',
+            position: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.01,
+                height: 0.01,
+            },
+            color: '#ffcc00',
+            open: false,
+        });
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            annotationApplication: shallowRef(application),
+            materializePdfJsDocumentForInternalUse: vi.fn(async () => new Uint8Array([1])),
+        });
+
+        const result = await runSaveTransaction({mode: 'persist'});
+        const recordBinding = result.recordMaterializedIdentityBinding;
+        const commitAnnotationSave = result.commitAnnotationSave;
+        if (!recordBinding || !commitAnnotationSave) {
+            throw new Error('Expected an annotation save transaction');
+        }
+
+        expect(() => recordBinding({
+            annotationId: 'freetext-renderer-only',
+            pdfRef: '9 0 R',
+        })).not.toThrow();
+        expect(() => recordBinding({
+            annotationId: capturedId,
+            pdfRef: '10 0 R',
+        })).not.toThrow();
+        expect(() => commitAnnotationSave()).not.toThrow();
+        expect(application.store.get(asAnnotationId('freetext-renderer-only'))).toBeNull();
+        expect(application.store.get(capturedId)).toMatchObject({identity: {pdfRef: '10R'}});
+    });
+
     it('logs privacy-safe verification diagnostics before a rejected save propagates', async () => {
         const warn = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => undefined);
         const diagnostics = [{

@@ -27,6 +27,10 @@ import {
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
 
+const documentWorkingCopyMock = vi.hoisted(() => ({parsePdfAnnotations: vi.fn()}));
+
+vi.mock('@app/utils/platformDocuments', () => ({getDocumentWorkingCopyCapability: () => documentWorkingCopyMock}));
+
 type TSaveFixtureOverrides = Parameters<typeof createDeps>[0];
 interface IStrictNativeMutationRow {
     name: string;
@@ -44,6 +48,7 @@ interface IStrictNativeFailureRow {
 describe('workspaceSaveService native persistence', () => {
     beforeEach(() => {
         toastAddMock.mockClear();
+        documentWorkingCopyMock.parsePdfAnnotations.mockReset();
     });
 
     it('records native markup identity bindings before acknowledging the save', async () => {
@@ -123,6 +128,69 @@ describe('workspaceSaveService native persistence', () => {
             'record',
             'commit',
         ]);
+    });
+
+    it('parses native annotation mutations against the committed revision', async () => {
+        const initialRevision = requireDocumentRevisionToken('rev-1');
+        const committedRevision = requireDocumentRevisionToken('rev-2');
+        const documentRevisionToken = ref(initialRevision);
+        const parsed = cast({
+            documentRevisionToken: committedRevision,
+            pageCount: 1,
+            entities: [],
+            foreign: [],
+        });
+        documentWorkingCopyMock.parsePdfAnnotations.mockResolvedValue(parsed);
+        const replaceFromDocument = vi.fn();
+        const trySavePdfNativeMutations = vi.fn(async () => {
+            documentRevisionToken.value = committedRevision;
+            return {
+                success: true,
+                outPath: '/tmp/work.pdf',
+                saveMode: 'rewrite' as const,
+                didSaveAs: false,
+            };
+        });
+        const runSaveTransaction = vi.fn(async () => cast({
+            source: 'native-mutation-projection' as const,
+            baseBytes: null,
+            serializedBytes: null,
+            serializedResult: null,
+            nativeMutationProjection: {
+                canonicalAnnotationProgram: [],
+                mutations: {markup: {
+                    overrides: [],
+                    hints: [],
+                }},
+                noteTextUpdates: [],
+                freeTextNotes: [],
+                freeTextEditors: [],
+                annotationDeletes: [],
+                hasMetadataMutations: false,
+                hasShapeMutations: false,
+                hasMarkupMutations: true,
+                phase: 'native-markup',
+            },
+            fallbackDecision: {},
+            annotationSavePlan: {},
+            replaceFromDocument,
+        }));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            documentRevisionToken,
+            workingCopyPath: ref('/tmp/work.pdf'),
+            trySavePdfNativeMutations,
+            runSaveTransaction,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(documentWorkingCopyMock.parsePdfAnnotations).toHaveBeenCalledWith(
+            '/tmp/work.pdf',
+            {expectedDocumentRevisionToken: committedRevision},
+        );
+        expect(replaceFromDocument).toHaveBeenCalledWith(parsed);
     });
 
     const strictNativeMutationRows: readonly IStrictNativeMutationRow[] = [
