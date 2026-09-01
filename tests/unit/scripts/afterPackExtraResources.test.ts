@@ -42,6 +42,7 @@ interface IRequiredExtraResource {
 
 interface IAfterPackModule {
     makeTreeOwnerWritable: (rootPath: string) => void;
+    configureWindowsNsisArchiveFilter: (context: IAfterPackContext) => void;
     pruneChromiumLocales: (context: IAfterPackContext) => void;
     removeNativeBuildReceipts: (context: IAfterPackContext) => void;
     assertRequiredExtraResources: (context: IAfterPackContext, options?: {
@@ -57,6 +58,7 @@ interface IAfterPackModule {
 const requireScript = createRequire(import.meta.url);
 const {
     assertRequiredExtraResources,
+    configureWindowsNsisArchiveFilter,
     makeTreeOwnerWritable,
     pruneChromiumLocales,
     removeNativeBuildReceipts,
@@ -109,6 +111,30 @@ function captureErrorMessage(action: () => void) {
 }
 
 describe('afterPack extraResources preflight', () => {
+    it('forces the Nsis7z-compatible filter for Windows packaging', () => {
+        const previousFilter = process.env.ELECTRON_BUILDER_7Z_FILTER;
+
+        try {
+            delete process.env.ELECTRON_BUILDER_7Z_FILTER;
+            configureWindowsNsisArchiveFilter(createContext('win32', 'arm64', '/tmp/resources'));
+            expect(process.env.ELECTRON_BUILDER_7Z_FILTER).toBe('BCJ');
+
+            process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ2';
+            configureWindowsNsisArchiveFilter(createContext('win32', 'x64', '/tmp/resources'));
+            expect(process.env.ELECTRON_BUILDER_7Z_FILTER).toBe('BCJ');
+
+            process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ2';
+            configureWindowsNsisArchiveFilter(createContext('linux', 'arm64', '/tmp/resources'));
+            expect(process.env.ELECTRON_BUILDER_7Z_FILTER).toBe('BCJ2');
+        } finally {
+            if (previousFilter === undefined) {
+                delete process.env.ELECTRON_BUILDER_7Z_FILTER;
+            } else {
+                process.env.ELECTRON_BUILDER_7Z_FILTER = previousFilter;
+            }
+        }
+    });
+
     it('removes native build receipts from packaged runtime resources', async () => {
         const tempRoot = await mkdtemp(path.join(tmpdir(), 'evb-after-pack-receipts-'));
         const resourcesDir = path.join(tempRoot, 'app-out', 'resources');

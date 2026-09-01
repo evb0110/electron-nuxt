@@ -446,8 +446,8 @@ describe('pdfPageLayout', () => {
         const normalized = normalizePageMetrics({
             pageMetrics,
             totalPages,
-            fallbackWidth: 300,
-            fallbackHeight: 500,
+            fallbackWidth: 640,
+            fallbackHeight: 900,
         });
 
         expect(isSparsePageMetricCollection(normalized)).toBe(true);

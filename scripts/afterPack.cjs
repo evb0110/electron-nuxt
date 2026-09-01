@@ -354,7 +354,20 @@ function makeTreeOwnerWritable(rootPath) {
     }
 }
 
+function configureWindowsNsisArchiveFilter(context) {
+    if (context.electronPlatformName !== 'win32') {
+        return;
+    }
+
+    // electron-builder 26.15.x forces differential NSIS archives back to
+    // normal compression, so win.compression: store does not prevent 7za from
+    // emitting BCJ2 streams. The bundled Nsis7z extractor silently skips
+    // those PE entries. BCJ is supported by both sides.
+    process.env.ELECTRON_BUILDER_7Z_FILTER = 'BCJ';
+}
+
 exports.default = async function afterPack(context) {
+    configureWindowsNsisArchiveFilter(context);
     assertRequiredExtraResources(context);
     pruneChromiumLocales(context);
     removeNativeBuildReceipts(context);
@@ -380,6 +393,7 @@ exports.default = async function afterPack(context) {
     console.log('[afterPack] Restored original icon.icns (bypassing app-builder alpha corruption)');
 };
 exports.assertRequiredExtraResources = assertRequiredExtraResources;
+exports.configureWindowsNsisArchiveFilter = configureWindowsNsisArchiveFilter;
 exports.makeTreeOwnerWritable = makeTreeOwnerWritable;
 exports.pruneChromiumLocales = pruneChromiumLocales;
 exports.removeNativeBuildReceipts = removeNativeBuildReceipts;
