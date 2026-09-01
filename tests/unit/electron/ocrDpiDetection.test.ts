@@ -369,10 +369,10 @@ describe('ocr dpi detection', () => {
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(4);
         expect(peakProbes).toBe(4);
         expect(probeTimeouts).toEqual([
-            640_000,
-            640_000,
-            640_000,
-            640_000,
+            30_000,
+            30_000,
+            30_000,
+            30_000,
         ]);
         expect(progress.at(-1)).toEqual([
             4096,

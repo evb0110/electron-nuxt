@@ -499,6 +499,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             await vi.waitFor(() => {
                 expect(mounted.session.detection.terminalStatus.value).toBe('completed');
                 expect(mounted.session.detection.detectionEvidenceComplete.value).toBe(true);
+                expect(mounted.session.detection.progress.value?.totalUnits).toBe(3);
             });
         } finally {
             mounted.unmount();
