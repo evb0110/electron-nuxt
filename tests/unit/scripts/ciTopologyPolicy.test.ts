@@ -1018,6 +1018,8 @@ describe('CI topology policy', () => {
         const waitScript = await readProjectFile('scripts/release/wait-for-exact-sha-ci.mjs');
         expect(waitScript).toContain('/runs?head_sha=${targetSha}&branch=main&per_page=20');
         expect(waitScript).toContain('select(.name == "gates_ok")');
+        const releaseShared = await readProjectFile('scripts/release/shared.mjs');
+        expect(releaseShared).not.toMatch(/from ['"]es-toolkit\//u);
         // Policy, not a literal: the completion budget must stay ahead of the
         // slowest blocking CI job's declared timeout plus a queueing margin,
         // so growing CI can never silently outlive the release wait again.

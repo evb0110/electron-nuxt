@@ -5,13 +5,24 @@ import {
 } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-    compact,
-    difference,
-} from 'es-toolkit/array';
-import { delay } from 'es-toolkit/promise';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
+
+// The exact-SHA wait script imports this module before release jobs install
+// project dependencies. Keep these small helpers local so that safety checks
+// remain runnable from the workflow's dependency-free preparation job.
+function compact(values) {
+    return values.filter(Boolean);
+}
+
+function difference(values, excludedValues) {
+    const excluded = new Set(excludedValues);
+    return values.filter(value => !excluded.has(value));
+}
+
+function delay(milliseconds) {
+    return new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds));
+}
 
 export const VALID_RELEASE_LEVELS = new Set([
     'patch',
