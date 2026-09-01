@@ -130,5 +130,7 @@ export function isPdfNavigationReady(
     if (readiness === 'text-layer') {
         return Boolean(pageElement?.querySelector('.text-layer, .textLayer'));
     }
-    return Boolean(pageElement?.querySelector('.annotation-editor-layer, .annotationEditorLayer'));
+    return Boolean(pageElement?.querySelector(
+        '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',
+    ));
 }

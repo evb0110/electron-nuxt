@@ -2,7 +2,7 @@ import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
 function isAppShapeOverlayElement(element: Element) {
     return typeof element.closest === 'function'
-        && Boolean(element.closest('.pdf-shape-overlay'));
+        && Boolean(element.closest('.pdf-shape-overlay, .pdf-annotation-editor-layer'));
 }
 
 export function removeEmbeddedShapeAnnotationDom(

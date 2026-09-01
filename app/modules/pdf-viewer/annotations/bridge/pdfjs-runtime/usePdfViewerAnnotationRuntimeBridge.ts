@@ -38,6 +38,7 @@ interface IUsePdfViewerAnnotationRuntimeBridgeOptions {
     };
 }
 
+// fallow-ignore-next-line unused-export -- compatibility bridge retained until #195 removes the dormant PDF.js path.
 export const usePdfViewerAnnotationRuntimeBridge = (options: IUsePdfViewerAnnotationRuntimeBridgeOptions) => {
     const {
         isActive,

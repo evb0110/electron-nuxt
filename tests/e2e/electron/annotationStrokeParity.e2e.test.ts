@@ -150,7 +150,9 @@ async function countBlueStrokePixels(path: string) {
     return count;
 }
 
-describe('Electron and Playwright annotation stroke parity', () => {
+// This parity proof targets the retired PdfShapeOverlay. #191 will migrate it
+// to the unified editor layer when store-owned ink gestures land.
+describe.skip('Electron and Playwright annotation stroke parity', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: false,
         sessionName: () => `e2e-annotation-stroke-parity-${Date.now()}`,

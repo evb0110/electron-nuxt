@@ -43,7 +43,7 @@ function getElementAnnotationId(element: HTMLElement) {
 
 function isAppShapeOverlayElement(element: Element) {
     return typeof element.closest === 'function'
-        && Boolean(element.closest('.pdf-shape-overlay'));
+        && Boolean(element.closest('.pdf-shape-overlay, .pdf-annotation-editor-layer'));
 }
 
 function getOverlayCandidateAnnotationId(element: Element) {
@@ -53,8 +53,17 @@ function getOverlayCandidateAnnotationId(element: Element) {
     )
         ? (element as {dataset: {annotationId: string}}).dataset.annotationId
         : undefined;
+    const datasetPdfAnnotationId = (
+        'dataset' in element
+        && typeof (element as {dataset?: {pdfAnnotationId?: unknown}}).dataset?.pdfAnnotationId === 'string'
+    )
+        ? (element as {dataset: {pdfAnnotationId: string}}).dataset.pdfAnnotationId
+        : undefined;
     return normalizePdfJsAnnotationId(
-        datasetAnnotationId ?? element.getAttribute('data-annotation-id'),
+        datasetPdfAnnotationId
+            ?? element.getAttribute('data-pdf-annotation-id')
+            ?? datasetAnnotationId
+            ?? element.getAttribute('data-annotation-id'),
     );
 }
 
@@ -100,7 +109,7 @@ function hasVisibleSvgGeometry(element: Element) {
 
 function isOverlayCandidatePaintReady(element: Element) {
     const overlay = typeof element.closest === 'function'
-        ? element.closest('.pdf-shape-overlay.has-shapes')
+        ? element.closest('.pdf-shape-overlay.has-shapes, .pdf-annotation-editor-layer')
         : null;
     if (overlay && !isStyleVisible(overlay)) {
         return false;
@@ -119,7 +128,9 @@ function hasManagedShapeOverlayForAnnotation(
     }
 
     return Array.from(
-        pageContainer.querySelectorAll('.pdf-shape-overlay.has-shapes [data-annotation-id]'),
+        pageContainer.querySelectorAll(
+            '.pdf-shape-overlay.has-shapes [data-annotation-id], .pdf-annotation-editor-layer [data-annotation-id]',
+        ),
     ).some(element => (
         getOverlayCandidateAnnotationId(element) === normalizedAnnotationId
         && isOverlayCandidatePaintReady(element)

@@ -112,13 +112,13 @@ function createRenderedViewerContainer(options: {
         querySelectorAll: (selector: string) => NodeListOf<Element>;
     };
     pageContainer.querySelector = (selector: string) => {
-        if (selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0) {
+        if (selector.includes('.pdf-shape-overlay.has-shapes') && overlayElements.length > 0) {
             return {};
         }
         return null;
     };
     pageContainer.querySelectorAll = (selector: string) => (
-        selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+        selector.includes('.pdf-shape-overlay.has-shapes [data-annotation-id]')
             ? createFakeNodeList(overlayElements)
             : createFakeNodeList([])
     );

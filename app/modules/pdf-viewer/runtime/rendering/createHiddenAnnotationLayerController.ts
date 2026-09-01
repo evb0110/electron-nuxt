@@ -13,6 +13,7 @@ import type {
     IEditableAnnotationLike,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes';
 
+// fallow-ignore-next-line unused-export -- hidden-layer compensation remains for the #195 bridge cleanup.
 export function createHiddenAnnotationLayerController(options: {
     hiddenAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;
     managedAnnotationIds?: MaybeRefOrGetter<Set<string>> | undefined;

@@ -410,8 +410,8 @@ describe('annotation architecture boundaries', () => {
             'app/modules/pdf-viewer/runtime/composables/usePdfViewerMouseInteractions.ts',
         );
 
-        expect(session).toContain('application.store.applyTextMarkupSelection');
-        expect(session).toContain('application.store.createNote');
+        expect(session).toContain('annotationEditorSurface.createHighlightFromSelection');
+        expect(session).toContain('annotationEditorSurface.createNoteAt');
         expect(session).not.toContain('application.store.bindIdentity');
         expect(application).not.toContain('store.applyTextMarkupSelection');
         expect(application).not.toContain('store.createNote');

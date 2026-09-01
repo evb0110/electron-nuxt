@@ -4,6 +4,7 @@ export interface IPdfAnnotationRef {
 }
 
 const PDF_JS_ANNOTATION_REF_PATTERN = /^(\d+)R(?:(\d+))?$/iu;
+const PDF_NATIVE_ANNOTATION_REF_PATTERN = /^(\d+)\s+(\d+)\s+R$/iu;
 
 /** Parse the compact PDF.js annotation reference form, such as `42R0`. */
 export function parsePdfJsAnnotationRef(annotationId: string | null | undefined) {
@@ -48,5 +49,22 @@ export function normalizePdfJsAnnotationId(annotationId: string | null | undefin
     }
 
     const trimmed = annotationId?.trim();
+    const nativeMatch = trimmed?.match(PDF_NATIVE_ANNOTATION_REF_PATTERN);
+    if (nativeMatch) {
+        const objectNumber = Number(nativeMatch[1]);
+        const generationNumber = Number(nativeMatch[2]);
+        if (
+            Number.isSafeInteger(objectNumber)
+            && objectNumber > 0
+            && Number.isSafeInteger(generationNumber)
+            && generationNumber >= 0
+            && generationNumber <= 65_535
+        ) {
+            return formatPdfJsAnnotationRef({
+                objectNumber,
+                generationNumber,
+            });
+        }
+    }
     return trimmed && trimmed.length > 0 ? trimmed : null;
 }

@@ -601,12 +601,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         workingCopyPath: options.workingCopyPath,
         documentRevisionToken: options.documentRevisionToken,
         onPageRendered: options.markDelayedSkeletonPageRendered,
-        onPageLayersCommitted: (signal, fence) => {
-            if (!documentSession.isCurrent(fence)) {
-                return;
-            }
-            textMarkupPresentation.value?.notify(signal);
-        },
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
             queueFrame();
@@ -623,7 +617,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             prioritizeTextLayer: true,
         }),
     });
-    const textMarkupPresentation = shallowRef<NonNullable<Parameters<typeof pageRenderer.attachAnnotationProjection>[0]['textMarkupPresentation']> | null>(null);
     function bumpRenderVersion(reauthorizeCommittedCanvases = true) {
         renderVersion += 1;
         viewportDemandGeneration += 1;
@@ -1099,7 +1092,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             return;
         }
         if (transition.phase === 'loading') {
-            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             initialVisual.setPendingReadyToken(transition.fence.loadToken);
             initialVisual.reconcileInitialVisual();
             if (transition.plan.isSelectiveReload && transition.plan.pagesToInvalidate) {
@@ -1110,7 +1102,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 await cleanupRenderedPages();
             }
         } else if (transition.phase === 'invalidated') {
-            textMarkupPresentation.value?.notify({kind: 'document-invalidated'});
             initialVisual.setPendingReadyToken(null);
             pageRenderer.cancelPendingSearchScroll();
             await cancelInFlightRenders();
@@ -1167,10 +1158,6 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     });
     return {
         ...pageRenderer,
-        attachAnnotationProjection(attached: Parameters<typeof pageRenderer.attachAnnotationProjection>[0]) {
-            textMarkupPresentation.value = attached.textMarkupPresentation ?? null;
-            return pageRenderer.attachAnnotationProjection(attached, textMarkupPresentation);
-        },
         renderVisiblePages,
         reRenderAllVisiblePages,
         cancelInFlightRenders,

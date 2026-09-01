@@ -21,6 +21,38 @@ export interface IPdfLiveAnnotationChangeSummary {
     fingerprint: string;
 }
 
+/**
+ * Read-only diagnostics for proving that the retired PDF.js editor storage
+ * stays untouched while the canonical annotation surface is active.
+ */
+export interface IPdfAnnotationStorageDebugState {
+    modifiedIds: string[];
+    serializableEntryKeys: string[];
+}
+
+export function collectPdfJsAnnotationStorageDebugState(
+    document: PDFDocumentProxy | null | undefined,
+): IPdfAnnotationStorageDebugState {
+    const storage = getPdfJsAnnotationStorage(document);
+    if (!storage || typeof storage !== 'object') {
+        return {
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        };
+    }
+
+    const modifiedIds = storage.modifiedIds?.ids;
+    const serializableMap = storage.serializable?.map;
+    return {
+        modifiedIds: modifiedIds instanceof Set
+            ? Array.from(modifiedIds).map(String)
+            : [],
+        serializableEntryKeys: serializableMap instanceof Map
+            ? Array.from(serializableMap.keys()).map(String)
+            : [],
+    };
+}
+
 /** Unions two observations of the same annotation save work into one summary. */
 export function mergeLivePdfJsAnnotationChanges(
     left: IPdfLiveAnnotationChangeSummary,

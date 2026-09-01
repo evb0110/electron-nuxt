@@ -89,6 +89,7 @@ export function stopPdfjsAnnotationManagerEditing(manager: object) {
     return invokeManagerLifecycleMethod(manager, 'removeEditListeners');
 }
 
+// fallow-ignore-next-line unused-export -- compatibility facade retained until #195 removes the dormant PDF.js path.
 export function syncPdfjsCommentMarkerAnchor(editor: object, rect: IAnnotationMarkerRect) {
     return syncCommentMarkerAnchorEditor(editor, rect);
 }

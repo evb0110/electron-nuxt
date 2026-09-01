@@ -12,6 +12,7 @@ import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
     copyProjectFixture,
+    createCanonicalAnnotationSurfaceFixturePdf,
     createLinkOnlyFixturePdf,
     createMultiPageTextFixturePdf,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -19,6 +20,7 @@ import { createElectronE2ESessionFixture } from '@tests/e2e/electron/helpers/cre
 import {
     clickHistoryActionAcrossAnimationBoundaries,
     clickLatestVisibleNoteWindowClose,
+    collectAnnotationOwnershipDebugState,
     collectStickyNoteDebugState,
     createStickyNoteWithPointer,
     createFreeTextAnnotation,
@@ -1327,7 +1329,156 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await disconnectAnnotationUndoBoundaryProbe(session.page);
     });
 
-    it('creates and edits a FreeText annotation in the active workspace', async () => {
+    it('renders the canonical annotation surface once and keeps PDF.js read-only', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const { page } = session;
+        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
+            `annotation-lifecycle-${Date.now()}-canonical-surface.pdf`,
+        );
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        await page.waitForFunction(() => {
+            const layer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+            );
+            if (!layer) {
+                return false;
+            }
+            const kinds = Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-kind]'))
+                .map(entity => entity.dataset.annotationKind ?? '')
+                .sort();
+            return kinds.join(',') === 'note,placed-image,shape,text-box,text-markup'
+                && document.querySelectorAll(
+                    '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
+                    + '.editor-pane.is-active .page_container[data-page="1"] .annotationEditorLayer',
+                ).length === 0;
+        }, {timeout: 20_000});
+        await page.waitForFunction(() => {
+            const image = document.querySelector<HTMLImageElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp__image',
+            );
+            return Boolean(image?.complete && image.naturalWidth > 0 && image.naturalHeight > 0);
+        }, {timeout: 20_000});
+
+        const initial = await collectAnnotationOwnershipDebugState(page);
+        expect(initial.storageAvailable).toBe(true);
+        expect(initial.canonicalEntities).toHaveLength(5);
+        expect(initial.canonicalEntities.map(entity => entity.kind).sort()).toEqual([
+            'note',
+            'placed-image',
+            'shape',
+            'text-box',
+            'text-markup',
+        ]);
+        expect(initial.legacyEditorLayerCount).toBe(0);
+        expect(initial.staticNonLinkAnnotationCount).toBe(0);
+        expect(initial.staticLinkHrefs).toEqual(['https://example.com/evb-viewer-surface']);
+        expect(initial.annotationStorage.modifiedIds).toEqual([]);
+        expect(initial.annotationStorage.serializableEntryKeys).toEqual([]);
+
+        const clickEntity = async (kind: string) => {
+            const point = await page.evaluate((entityKind: string) => {
+                const entity = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="${entityKind}"]`,
+                );
+                if (!entity) {
+                    return null;
+                }
+                const rect = entity.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }, kind);
+            if (!point) {
+                throw new Error(`Canonical ${kind} entity was not mounted`);
+            }
+            await page.mouse.click(point.x, point.y);
+        };
+
+        await clickEntity('text-box');
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 1
+        ));
+        await page.keyboard.down('Shift');
+        await clickEntity('note');
+        await page.keyboard.up('Shift');
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 2
+        ));
+
+        const pagePoint = await page.evaluate(() => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"]',
+            );
+            if (!pageContainer) {
+                return null;
+            }
+            const rect = pageContainer.getBoundingClientRect();
+            const xRatios = [
+                0.96,
+                0.04,
+                0.5,
+                0.92,
+                0.08,
+            ];
+            const yRatios = [
+                0.9,
+                0.8,
+                0.7,
+                0.45,
+                0.4,
+                0.5,
+                0.6,
+            ];
+            for (const xRatio of xRatios) {
+                for (const yRatio of yRatios) {
+                    const x = rect.left + rect.width * xRatio;
+                    const y = Math.min(rect.top + rect.height * yRatio, window.innerHeight - 20);
+                    const target = document.elementFromPoint(x, y);
+                    if (
+                        !target
+                        || !pageContainer.contains(target)
+                        || target.closest('[data-annotation-id], a, button, input, textarea, [role="button"]')
+                    ) {
+                        continue;
+                    }
+                    return {
+                        x,
+                        y,
+                    };
+                }
+            }
+            return null;
+        });
+        if (!pagePoint) {
+            throw new Error('Canonical annotation fixture page was not mounted');
+        }
+        await page.mouse.click(pagePoint.x, pagePoint.y);
+        await page.waitForFunction(() => (
+            document.querySelectorAll(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ).length === 0
+        ));
+
+        const afterInteraction = await collectAnnotationOwnershipDebugState(page);
+        expect(afterInteraction.annotationStorage.modifiedIds).toEqual([]);
+        expect(afterInteraction.annotationStorage.serializableEntryKeys).toEqual([]);
+    }, 90_000);
+
+    // Retired with #185's live PDF.js editor detachment. Canonical creation,
+    // editing, note-anchor, markup, and history proofs return with #187, #188,
+    // #189, and #192 against the EVB editor layer.
+    it.skip('creates and edits a FreeText annotation in the active workspace', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1433,7 +1584,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForSidebarAnnotationCount(page, baselineCount);
     });
 
-    it('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
+    it.skip('saves a persisted sticky note edit a second time without replaying its hidden anchor', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1561,7 +1712,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForNoOpenNoteWindows(page);
     });
 
-    it('keeps the unsaved sticky note PDF.js anchor hidden and synced while dragging its marker', async () => {
+    it.skip('keeps the unsaved sticky note PDF.js anchor hidden and synced while dragging its marker', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1628,7 +1779,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(afterAnchor.boxShadow).toBe('none');
     });
 
-    it('undoes a sticky note created after a highlight without removing the highlight', async () => {
+    it.skip('undoes a sticky note created after a highlight without removing the highlight', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1660,7 +1811,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForHighlightEditorCount(page, baselineHighlightCount + 1);
     });
 
-    it('keeps highlight undo and redo coherent after saving', async () => {
+    it.skip('keeps highlight undo and redo coherent after saving', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1735,7 +1886,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(reboundIdentity?.stableKey).toMatch(/^ann:0:/u);
     });
 
-    it('keeps the saved highlight identity across an undo and redo', async () => {
+    it.skip('keeps the saved highlight identity across an undo and redo', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             throw new Error('Annotation lifecycle Electron E2E session failed to start');
@@ -1797,7 +1948,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
     });
 
-    it('restores a persisted highlight when undoing a saved sidebar delete', async () => {
+    it.skip('restores a persisted highlight when undoing a saved sidebar delete', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1859,7 +2010,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         await waitForActiveTabDirtyState(page, false);
     });
 
-    it('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
+    it.skip('keeps an undone toolbar highlight create removed across frames and the deferred sync', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -1944,7 +2095,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
     });
 
-    it('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
+    it.skip('restores the editor, DOM, and canonical entity when a deferred delete is undone', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -2017,7 +2168,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
     });
 
 
-    it('keeps an undone sticky note removed across frames and the deferred sync', async () => {
+    it.skip('keeps an undone sticky note removed across frames and the deferred sync', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;

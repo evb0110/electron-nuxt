@@ -47,7 +47,6 @@ function createOptions(
         resolveCanonicalAnnotationId: vi.fn(() => asAnnotationId('canonical-annotation')),
         setCanonicalNoteText: vi.fn(),
         deleteCanonicalAnnotation: vi.fn(),
-        setCanonicalColor: vi.fn(),
         moveCanonicalAnchor: vi.fn(),
         ...overrides,
     };
@@ -224,14 +223,11 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         expect(service.visualEffects.effects.value).toEqual([]);
     });
 
-    it('commits color and marker movement before their PDF.js projections', () => {
-        const colorEvents: string[] = [];
+    it('commits color and marker movement through the canonical path', () => {
         const moveEvents: string[] = [];
         const comment = createComment();
         const options = createOptions({
-            setCanonicalColor: vi.fn(() => colorEvents.push('store')),
             updateTextMarkupAnnotationColor: vi.fn(() => {
-                colorEvents.push('pdfjs');
                 return {
                     updated: true,
                     shouldScheduleCommentSync: false,
@@ -269,10 +265,6 @@ describe('useAnnotationMutationService canonical command ordering', () => {
             {source: 'user'},
         )).toBe(true);
 
-        expect(colorEvents).toEqual([
-            'store',
-            'pdfjs',
-        ]);
         expect(moveEvents).toEqual([
             'store',
             'pdfjs',
@@ -324,7 +316,7 @@ describe('useAnnotationMutationService canonical command ordering', () => {
         expect(markModified).toHaveBeenCalledOnce();
     });
 
-    it('does not enqueue duplicate overlay work when a connected highlight owns its paint', () => {
+    it('does not enqueue legacy visual work when the canonical store owns the paint', () => {
         const comment = {
             ...createComment(),
             annotationId: '14R0',
@@ -350,9 +342,6 @@ describe('useAnnotationMutationService canonical command ordering', () => {
             },
             {source: 'user'},
         )).toBe(true);
-        expect(service.visualEffects.effects.value).toEqual([expect.objectContaining({
-            kind: 'render-page-text-markup',
-            annotationId: '14R0',
-        })]);
+        expect(service.visualEffects.effects.value).toEqual([]);
     });
 });

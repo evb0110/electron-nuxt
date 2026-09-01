@@ -66,6 +66,12 @@ const DEFAULT_ANNOTATION_MODE = {
     ENABLE_STORAGE: 3,
 };
 
+const DEFAULT_IMAGE_KIND = {
+    GRAYSCALE_1BPP: 1,
+    RGB_24BPP: 2,
+    RGBA_32BPP: 3,
+};
+
 const DEFAULT_PIXELS_PER_INCH = {
     CSS: 96,
     PDF: 72,
@@ -441,6 +447,7 @@ export const AnnotationEditorType = getMergedRuntimeExport(
 export const AnnotationEditorUIManager = getRuntimeExport('AnnotationEditorUIManager');
 export const AnnotationMode = getMergedRuntimeExport('AnnotationMode', DEFAULT_ANNOTATION_MODE);
 export const DrawLayer = getRuntimeExport('DrawLayer');
+export const ImageKind = getMergedRuntimeExport('ImageKind', DEFAULT_IMAGE_KIND);
 export const PDFDateString = getRuntimeExport('PDFDateString');
 export const PixelsPerInch = getMergedRuntimeExport('PixelsPerInch', DEFAULT_PIXELS_PER_INCH);
 export const TextLayer = getRuntimeExport('TextLayer');
