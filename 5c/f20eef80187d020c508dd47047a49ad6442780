@@ -1,0 +1,29 @@
+app/components/document-viewer/DocumentSearchResults.vue
+  s_1fc5e9fc774ada::t_dac71586b84073 372-375,379-382
+  s_1fc5e9fc774ada::t_5faa791853fc67 386-387
+  s_1fc5e9fc774ada::t_97d4aca72d1769 237,309-319,388-393
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_1fc5e9fc774ada::t_621b28dd7cb999 2321-2334,2336-2347,2349-2360,2374,2404-2421,2423-2427,2429-2436,2477-2495,2498-2499
+  s_1fc5e9fc774ada::t_ab7621000832f3 2386-2390
+  s_1fc5e9fc774ada::t_0a8f29cc4822a5 2422,2428
+  s_1fc5e9fc774ada::t_5dcf42f815e340 2361-2373,2376-2385,2437-2476
+  s_1fc5e9fc774ada::t_90c247961f594f 2496-2497
+  s_1fc5e9fc774ada::t_d1c95c59c3677a 2400
+  s_1fc5e9fc774ada::t_e523fe1eabf03b 2335,2348,2375,2391-2399,2401-2403
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5cf20eef80187d020c508dd47047a49ad6442780",
+  "prompts": {},
+  "sessions": {
+    "s_1fc5e9fc774ada": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f11-c6d6-76e2-b4bf-f5606d82bc09",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
