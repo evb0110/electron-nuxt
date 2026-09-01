@@ -1,0 +1,21 @@
+scripts/worktrees-prune.mjs
+  s_cbcef7935f20a3::t_75b08387441271 289,300
+tests/unit/scripts/packageScripts.test.ts
+  s_cbcef7935f20a3::t_1d3f80ebc81017 177
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0c085e1db6f3a3339bf073601611ab62c4b3adad",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

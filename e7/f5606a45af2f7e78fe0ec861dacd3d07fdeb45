@@ -1,0 +1,22 @@
+tests/unit/scripts/githubActionsSyntax.test.ts
+  s_cbcef7935f20a3::t_4ce0f9417af579 45-72
+  s_cbcef7935f20a3::t_f537764aa3e175 6,12-13,38-44,73-74
+.github/workflows/store-appx.yml
+  s_cbcef7935f20a3::t_34b2feb0fd083e 217
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e7f5606a45af2f7e78fe0ec861dacd3d07fdeb45",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

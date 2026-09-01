@@ -1,0 +1,87 @@
+.github/workflows/publish-chain.yml
+  s_3b1e1727de4af3::t_80a7184c3c4fbf 1-86,91,93-268
+  s_3b1e1727de4af3::t_c4594231c3d717 87-90,92
+.github/workflows/release-artifacts.yml
+  s_3b1e1727de4af3::t_4889da46a11ab7 15-16,27-32,35-42,45-52,54-59,61-62,65
+  s_3b1e1727de4af3::t_c46b662056bd09 66
+  s_3b1e1727de4af3::t_030773cdcfe1f1 33-34,43-44,53,60
+.github/workflows/build-target.yml
+  s_3b1e1727de4af3::t_3ef3d6a1f09896 352,526-537
+.github/workflows/release.yml
+  s_3b1e1727de4af3::t_0339c48ea801e9 603-604
+  s_3b1e1727de4af3::t_efe8fc28e8e6da 550-551,559-564,566-567,570-571,574-577,580-581,585-587,596-599,602,605-614,616-617,621-623,627,629-635,640,642-646,648,650-655,658-659
+  s_3b1e1727de4af3::t_265cb8c440d2ab 180,186
+  s_3b1e1727de4af3::t_56e4dd742078f5 591-595,600-601
+.github/workflows/release-supplemental.yml
+  s_3b1e1727de4af3::t_ecbb852a9862e5 381
+  s_3b1e1727de4af3::t_b33a02b495d5a0 1-380,382-455
+scripts/release/publish-release-mirror.mjs
+  s_3b1e1727de4af3::t_90bf1d2e4a9d6c 407-410,412,431,444,461,466,485,498-501,503,513,521,524-527,535,557,563
+  s_3b1e1727de4af3::t_adb2c6c5c2eea1 645-656,661-669
+  s_3b1e1727de4af3::t_6ece94511e5064 194-239,241-245,248-272,670
+  s_3b1e1727de4af3::t_bde2b183d2f8fa 23-26,30-32,37,46-48,52-55,79,117,126-131,140,142-148,156-160,162
+  s_3b1e1727de4af3::t_c12f8b37b6efea 141,161,382-390,411,497,502
+  s_3b1e1727de4af3::t_9160a8b30171e6 657-660
+  s_cbcef7935f20a3::t_21203a5d8e7cc8 240,536-539,541-543,547,552
+  s_cbcef7935f20a3::t_d82a4e71e6b0dc 273
+.github/workflows/release-drill.yml
+  s_3b1e1727de4af3::t_c46b662056bd09 227-228,233-236
+  s_cbcef7935f20a3::t_fd53446fe4e822 137,142,144-153
+  s_3b1e1727de4af3::t_97f48579b69952 177,179
+  s_3b1e1727de4af3::t_5f0cdb65d932f5 1-136,138-141,143,154-176,178,180-226,229-232,237-242
+tests/unit/scripts/ensureGithubReleaseAssets.test.ts
+  s_3b1e1727de4af3::t_a2f635fc50771b 88-99
+  s_66a8ad62718e30::t_6ca844c100e7c9 86-87
+tests/unit/scripts/githubActionsSyntax.test.ts
+  s_3b1e1727de4af3::t_b5e0163861966e 18-20
+scripts/release/make-drill-release-assets.mjs
+  s_3b1e1727de4af3::t_120cb807b8c60f 1-3,6-89,91-153,155-189,191-207,213-217
+  s_3b1e1727de4af3::t_9160a8b30171e6 208-212
+  s_3b1e1727de4af3::t_69c4e9ad5a854b 4-5,90,154,190
+tests/unit/scripts/makeDrillReleaseAssets.test.ts
+  s_3b1e1727de4af3::t_6af5994cff82ce 2-67,72-78,99-102,104-106,108-110,141-156
+  s_3b1e1727de4af3::t_fbe9ea7953bdf5 79-85,88-89,95-98
+  s_3b1e1727de4af3::t_fe344b7e00624a 86
+  s_cbcef7935f20a3::t_44324b082104df 103,107
+  s_3b1e1727de4af3::t_9160a8b30171e6 1,68-71,87,90-94,111-140
+scripts/release/ensure-github-release-assets.mjs
+  s_3b1e1727de4af3::t_764a3b8107ccba 11-14,79,83,90-91,141-144,147
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_3b1e1727de4af3::t_3696fff5a3fe4f 25,29,62-123,127-149,154-180
+  s_3b1e1727de4af3::t_9160a8b30171e6 150-153
+  s_3b1e1727de4af3::t_d970a54a7d23f1 124-126
+scripts/release/releaseTag.mjs
+  s_3b1e1727de4af3::t_3e4778fd3a7f87 1-3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5370f0db1a06494cb6b9784ea05cf22f507fa002",
+  "prompts": {},
+  "sessions": {
+    "s_3b1e1727de4af3": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c82-82a6-7b61-91c4-711009b6995a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_66a8ad62718e30": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c82-ace4-7d33-af3c-23c5b1ce69dc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

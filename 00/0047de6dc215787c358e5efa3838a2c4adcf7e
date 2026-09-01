@@ -1,0 +1,20 @@
+tests/unit/scripts/storeAppxSubmissionPolicy.test.ts
+  s_b8c0c13085d970::t_8e6cb1c7ff7c67 95,97,99-100
+  s_b8c0c13085d970::t_aad4e4ea9888ce 96,98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "000047de6dc215787c358e5efa3838a2c4adcf7e",
+  "prompts": {},
+  "sessions": {
+    "s_b8c0c13085d970": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059ef-77b6-79e2-8673-87cd73da9d46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

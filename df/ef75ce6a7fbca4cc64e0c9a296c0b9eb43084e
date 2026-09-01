@@ -1,0 +1,49 @@
+docs/agents/workspace-hygiene.md
+  s_5510c4ed16ce9c::t_0b98e4aac8a557 1-36,40-65
+  s_5510c4ed16ce9c::t_15991c649c5cc8 37-39
+scripts/worktrees-prune.mjs
+  s_5510c4ed16ce9c::t_dd412ddcd57287 2,75-86,134-145,204-205,207,216,257-261
+  s_5510c4ed16ce9c::t_37bab92fdaa0bf 303-311,313-324
+  s_b412fd4cd3f576::t_c6c029587dc6da 1,3-22,27-63,68-69,74,87,92-93,98,103-108,114-118,125-133,146-147,154-161,175,177-179,186-191,197,202-203,206,208-215,217-240,245-247,252-256,262-263,269,273-277,287-302,312,325-326
+  s_5510c4ed16ce9c::t_ab37bb39536173 23-26,64-67,70-73,88-91,94-97,99-102,109-113,119-124,148-153,162-172,192-196,198-201,241-244,248-251,264-268,278-281,283-286
+  s_5510c4ed16ce9c::t_e959233957d26c 173-174,176,180-185,270-272,282
+package.json
+  s_b412fd4cd3f576::t_c6c029587dc6da 86
+scripts/electron-run/electronLaunch.ts
+  s_5510c4ed16ce9c::t_ee055b8f968d9f 20,170,172-174
+tests/unit/scripts/worktreesPrune.test.ts
+  s_5510c4ed16ce9c::t_a9297e71f18d8c 1-27,31-52,60,84-140
+  s_5510c4ed16ce9c::t_15401ce7f64028 28-30,53-59,61-83
+tests/unit/electron/sessionManagerAutomationArgs.test.ts
+  s_5510c4ed16ce9c::t_ab37bb39536173 1009-1032
+  s_5510c4ed16ce9c::t_0b98e4aac8a557 7-15,27,29-31,995-1008,1033-1079
+  s_b412fd4cd3f576::t_0b855de7176a9f 6,1080
+scripts/electron-run/electronRunLaunchConfig.ts
+  s_5510c4ed16ce9c::t_ee055b8f968d9f 5-6,8,10,15,351-505,511,514-520,522-531,536-549,553,557-558
+  s_5510c4ed16ce9c::t_37e78bcb107053 532
+  s_5510c4ed16ce9c::t_4bf71270ef75bb 550-552,554-556
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "dfef75ce6a7fbca4cc64e0c9a296c0b9eb43084e",
+  "prompts": {},
+  "sessions": {
+    "s_5510c4ed16ce9c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "15d2fd53-483d-423f-8f6d-6f6cbb64c73e",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
