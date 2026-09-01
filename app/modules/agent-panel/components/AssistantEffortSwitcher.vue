@@ -7,26 +7,26 @@
     >
         <button
             type="button"
-            class="assistant-mode-switcher-button"
+            class="assistant-switcher-trigger"
             :aria-label="ariaLabel"
             :disabled="disabled"
         >
             <UIcon
                 name="i-ph-gauge"
-                class="assistant-mode-switcher-icon"
+                class="assistant-switcher-trigger-icon"
             />
-            <span class="assistant-mode-switcher-value">{{ effortLabel(selectedEffort) }}</span>
+            <span class="assistant-switcher-trigger-value">{{ effortLabel(selectedEffort) }}</span>
             <UIcon
                 name="i-ph-caret-up-down"
-                class="assistant-mode-switcher-indicator"
+                class="assistant-switcher-trigger-caret"
             />
         </button>
 
         <template #content>
-            <div class="assistant-mode-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
-                <span class="assistant-mode-switcher-section-label">{{ t('assistant.reasoning') }}</span>
+            <div class="assistant-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
+                <span class="assistant-switcher-heading">{{ t('assistant.reasoning') }}</span>
                 <div
-                    class="assistant-mode-switcher-list"
+                    class="assistant-switcher-list"
                     role="radiogroup"
                     :aria-label="t('assistant.reasoningEffort')"
                 >
@@ -35,7 +35,7 @@
                         :key="effort"
                         type="button"
                         :class="[
-                            'assistant-mode-switcher-option',
+                            'assistant-switcher-option',
                             { 'is-active': effort === selectedEffort },
                         ]"
                         role="radio"
@@ -44,11 +44,11 @@
                         :disabled="disabled"
                         @click="onSelect(effort)"
                     >
-                        <span>{{ effortLabel(effort) }}</span>
+                        <span class="assistant-switcher-option-label">{{ effortLabel(effort) }}</span>
                         <UIcon
                             v-if="effort === selectedEffort"
                             name="i-ph-check"
-                            class="assistant-mode-switcher-check"
+                            class="assistant-switcher-check"
                         />
                     </button>
                 </div>
@@ -123,4 +123,4 @@ function isKnownEffort(effort: TAgentAssistantEffort): effort is TAgentAssistant
 }
 </script>
 
-<style scoped src="./AssistantModeSwitcher.css"></style>
+<style scoped src="./AssistantSwitcherMenu.css"></style>

@@ -7,26 +7,26 @@
     >
         <button
             type="button"
-            class="assistant-mode-switcher-button"
+            class="assistant-switcher-trigger"
             :aria-label="ariaLabel"
             :disabled="disabled"
         >
             <UIcon
                 name="i-ph-lightning"
-                class="assistant-mode-switcher-icon"
+                class="assistant-switcher-trigger-icon"
             />
-            <span class="assistant-mode-switcher-value">{{ speedLabel(selectedMode) }}</span>
+            <span class="assistant-switcher-trigger-value">{{ speedLabel(selectedMode) }}</span>
             <UIcon
                 name="i-ph-caret-up-down"
-                class="assistant-mode-switcher-indicator"
+                class="assistant-switcher-trigger-caret"
             />
         </button>
 
         <template #content>
-            <div class="assistant-mode-switcher-menu">
-                <span class="assistant-mode-switcher-section-label">{{ t('assistant.speed') }}</span>
+            <div class="assistant-switcher-menu">
+                <span class="assistant-switcher-heading">{{ t('assistant.speed') }}</span>
                 <div
-                    class="assistant-mode-switcher-list"
+                    class="assistant-switcher-list"
                     role="radiogroup"
                     :aria-label="t('assistant.speedMode')"
                 >
@@ -35,7 +35,7 @@
                         :key="mode"
                         type="button"
                         :class="[
-                            'assistant-mode-switcher-option',
+                            'assistant-switcher-option',
                             { 'is-active': mode === selectedMode },
                         ]"
                         role="radio"
@@ -44,11 +44,11 @@
                         :disabled="disabled"
                         @click="onSelect(mode)"
                     >
-                        <span>{{ speedLabel(mode) }}</span>
+                        <span class="assistant-switcher-option-label">{{ speedLabel(mode) }}</span>
                         <UIcon
                             v-if="mode === selectedMode"
                             name="i-ph-check"
-                            class="assistant-mode-switcher-check"
+                            class="assistant-switcher-check"
                         />
                     </button>
                 </div>
@@ -109,4 +109,4 @@ function onSelect(mode: TAgentAssistantSpeedMode) {
 }
 </script>
 
-<style scoped src="./AssistantModeSwitcher.css"></style>
+<style scoped src="./AssistantSwitcherMenu.css"></style>
