@@ -55,14 +55,15 @@ export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunn
         return null;
     }
     return workflowRuns
-        // ci.yml's push trigger is main-only, but require it explicitly so a
-        // future trigger change cannot widen what a release trusts. The API
-        // always supplies event; accepting an omitted value keeps the helper
-        // usable with the small fixtures used by the unit tests.
+        // Every push to main runs ci.yml and only push runs carry a gates_ok
+        // verdict (workflow_dispatch routes to the manual lanes). Require
+        // both explicitly so a future trigger change cannot widen what a
+        // release trusts. The API always supplies event; accepting an omitted
+        // value keeps the helper usable with the small unit-test fixtures.
         .filter(runInfo => runInfo
             && runInfo.head_sha === targetSha
             && runInfo.head_branch === 'main'
-            && (!runInfo.event || runInfo.event === 'push' || runInfo.event === 'workflow_dispatch'))
+            && (!runInfo.event || runInfo.event === 'push'))
         .sort((left, right) => (left.run_number ?? 0) - (right.run_number ?? 0))
         .at(-1) ?? null;
 }
@@ -109,20 +110,20 @@ function verifyByParent(targetSha, runCommand) {
     const parentRun = findLatestMatchingRun(parentSha, runCommand);
     if (!parentRun) {
         throw new Error(
-            `No CI run appeared for release parent ${parentSha}. `
-            + `Dispatch CI on it with \`pnpm run release:ci ${parentSha}\`.`,
+            `No CI run appeared for release parent ${parentSha}. Every push to main runs ci.yml; `
+            + 'check the Actions page for that commit before releasing.',
         );
     }
     if (parentRun.status !== 'completed') {
         throw new Error(
             `Release parent ${parentSha} has ${describeRun(parentRun)} in ${parentRun.status} state; `
-            + `wait for it to finish or run \`pnpm run release:ci ${parentSha}\`.`,
+            + 'wait for it to finish.',
         );
     }
     if (parentRun.conclusion !== 'success') {
         throw new Error(
             `Release parent ${parentSha} ${describeRun(parentRun)} concluded '${parentRun.conclusion}'. `
-            + `Dispatch CI on it with \`pnpm run release:ci ${parentSha}\` after fixing the failure.`,
+            + 'Fix the failure with a new green commit and version.',
         );
     }
 
@@ -236,79 +237,16 @@ export async function waitForExactShaCiGates(targetSha, {
     }
 }
 
-// workflow_dispatch only accepts a branch or tag ref, never a SHA, so the
-// dispatch always targets main and the caller proves main's tip is the SHA it
-// wants verified. The resulting run is an exact-SHA workflow_dispatch run,
-// which release.yml accepts even for a [skip ci] release commit.
-export function getCiWorkflowDispatchArgs() {
-    return [
-        'workflow',
-        'run',
-        'ci.yml',
-        '--ref',
-        'main',
-    ];
-}
-
-export function readRemoteMainSha(runCommand = defaultCommandRunner) {
-    return runCommand('git', [
-        'ls-remote',
-        'origin',
-        'refs/heads/main',
-    ]).split('\n')[0]?.split(/\s+/u)[0]?.trim() ?? '';
-}
-
-export function dispatchCiWorkflow(targetSha, {
-    runCommand = defaultCommandRunner,
-    stdout = process.stdout,
-} = {}) {
-    const remoteMainSha = readRemoteMainSha(runCommand);
-    if (remoteMainSha !== targetSha) {
-        throw new Error(
-            `ci.yml can only be dispatched for the current origin/main tip, which is ${remoteMainSha || 'unknown'}; `
-            + `${targetSha} needs a push run or a branch tip of its own.`,
-        );
-    }
-
-    const dispatchOutput = runCommand('gh', getCiWorkflowDispatchArgs());
-    if (dispatchOutput.length > 0) {
-        stdout.write(`${dispatchOutput}\n`);
-    }
-}
-
-export async function dispatchCiAndWait(targetSha, {
-    runCommand = defaultCommandRunner,
-    stdout = process.stdout,
-    waitForGates = waitForExactShaCiGates,
-} = {}) {
-    dispatchCiWorkflow(targetSha, {
-        runCommand,
-        stdout,
-    });
-    return waitForGates(targetSha, {runCommand});
-}
-
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
 if (isDirectCliRun) {
-    const isDispatchMode = process.argv[2] === '--dispatch';
-    const targetSha = isDispatchMode
-        ? process.argv[3] || defaultCommandRunner('git', [
-            'rev-parse',
-            'HEAD',
-        ])
-        : process.argv[2];
+    const targetSha = process.argv[2];
     if (!/^[0-9a-f]{40}$/u.test(targetSha ?? '')) {
-        process.stderr.write(
-            'Usage: wait-for-exact-sha-ci.mjs <40-char target sha> | --dispatch [40-char target sha]\n',
-        );
+        process.stderr.write('Usage: wait-for-exact-sha-ci.mjs <40-char target sha>\n');
         process.exit(1);
     }
-    const waitPromise = isDispatchMode
-        ? dispatchCiAndWait(targetSha)
-        : waitForExactShaCiGates(targetSha);
-    waitPromise
+    waitForExactShaCiGates(targetSha)
         .then(({id}) => {
             process.stdout.write(`::notice::Release target ${targetSha} passed exact-SHA CI run ${id}.\n`);
         })

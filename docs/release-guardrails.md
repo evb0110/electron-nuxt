@@ -13,7 +13,7 @@ here is required reading for an ordinary cut.
 - `pnpm run release:verify` is intentionally host-only for packaging. The release cutter relies on exact-SHA hosted CI for the cross-platform matrix.
 - Fresh installs follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
-- Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in the required local gate. Hosted CI runs for pull requests and package metadata changes. Long serial Electron E2E and PDF tab diagnostics are available only by manual workflow dispatch.
+- Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in the required local gate. Hosted CI runs for pull requests and every push to `main`. Long serial Electron E2E and PDF tab diagnostics are available only by manual workflow dispatch.
 
 ## Release invariants
 

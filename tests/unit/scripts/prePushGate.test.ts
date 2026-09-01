@@ -237,7 +237,7 @@ describe('pre-push gate', () => {
             .toBeGreaterThan(indexOf('pnpm exec vitest related --run --project unit-*'));
         expect(indexOf('pnpm run check:wasm:portable'))
             .toBeGreaterThan(indexOf('cargo fmt --manifest-path native/Cargo.toml --all --check'));
-        expect(indexOf('gh run list --branch main --workflow ci.yml --limit 1 --json conclusion,status,url'))
+        expect(indexOf('gh run list --branch main --workflow ci.yml --event push --limit 1 --json conclusion,status,url'))
             .toBeGreaterThan(indexOf('pnpm run check:wasm:portable'));
     });
 

@@ -35,16 +35,6 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
         },
         assertNodeBaselineFn: () => events.push('node'),
         assertTagAbsentFn: (tag: string) => events.push(`tag:${tag}`),
-        dispatchCiFn: (_headSha: string, runCommand: (command: string, args: string[]) => string) => {
-            events.push('dispatch-ci');
-            runCommand('gh', [
-                'workflow',
-                'run',
-                'ci.yml',
-                '--ref',
-                'main',
-            ]);
-        },
         events,
         findCiRunFn: () => ({
             conclusion: 'success',
@@ -100,32 +90,12 @@ describe('cut-release', () => {
         ]);
     });
 
-    it('dispatches CI on main before waiting when HEAD has no run', async () => {
-        const commands: string[] = [];
-        const options = createPreconditionOptions({
-            dispatchCiFn: (_headSha: string, runCommand: (command: string, args: string[]) => string) => {
-                commands.push('dispatch');
-                runCommand('gh', [
-                    'workflow',
-                    'run',
-                    'ci.yml',
-                    '--ref',
-                    'main',
-                ]);
-            },
-            findCiRunFn: () => null,
-            runCommand: (command: string, args: string[]) => {
-                commands.push(`${command} ${args.join(' ')}`);
-                return '';
-            },
-        });
+    it('waits for the push run when HEAD has none yet', async () => {
+        const options = createPreconditionOptions({findCiRunFn: () => null});
 
         await assertReleaseCutPreconditions(options);
 
-        expect(commands).toEqual([
-            'dispatch',
-            'gh workflow run ci.yml --ref main',
-        ]);
+        expect(options.events).toContain(`wait:${HEAD_SHA}`);
     });
 
     it('refuses a failed HEAD CI run with its URL', async () => {

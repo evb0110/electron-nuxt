@@ -13,7 +13,7 @@ Use `minor` or `major` when that is the intended version change.
 Before changing `package.json`, the cutter checks the following.
 
 - The checkout is clean, the branch is `main`, and `HEAD` equals freshly fetched `origin/main`.
-- `ci.yml` passed for that exact `HEAD`. A running check is awaited. If no run exists, the cutter dispatches `ci.yml` on `main` and waits for it.
+- `ci.yml` passed for that exact `HEAD`. A running check is awaited. Every push to `main` runs `ci.yml`, so a `HEAD` without a run is one whose run has not appeared yet; the cutter waits up to a minute for it.
 - The current-version GitHub release is not a draft, and the next tag does not exist.
 
 The cutter then writes only the new package version and creates `release: <version> [skip ci]`. The commit is pushed and `release.yml` is dispatched with that commit SHA. The command stops after the workflow appears and prints the run and release links.
@@ -52,7 +52,7 @@ Resume checks that `HEAD` is the version-only release commit and that it exists 
 
 | Failing job or area | Action |
 | --- | --- |
-| `prepare` or exact-SHA CI | Inspect the run URL. If neither the release commit nor its parent has a CI run, run `pnpm run release:ci` from the release commit while it is still the `origin/main` tip; `workflow_dispatch` only accepts a branch ref, so the dispatch runs on `main` and gives the release commit its own exact-SHA run. A target with code changes needs a new green commit and version. |
+| `prepare` or exact-SHA CI | Inspect the run URL. Every push to `main` runs `ci.yml`, so a release parent without a run means its push run was cancelled or never appeared; check the Actions page for that commit. Only push runs count; a `workflow_dispatch` run of `ci.yml` executes the manual lanes and carries no `gates_ok`. A target with code changes needs a new green commit and version. |
 | Core package, validate, checksum, mirror, or promotion job | Rerun failed jobs on the same run. If a stale draft remains, run `pnpm run release:resume` from the release commit. Do not create a new version for an infrastructure retry. |
 | macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. |
 | A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

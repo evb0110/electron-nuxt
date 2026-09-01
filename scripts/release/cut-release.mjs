@@ -2,7 +2,6 @@ import {fileURLToPath} from 'node:url';
 import path from 'node:path';
 import {formatArtifactGroupList} from './artifact-groups.mjs';
 import {
-    dispatchCiWorkflow,
     findLatestMatchingRun,
     waitForExactShaCiGates,
 } from './wait-for-exact-sha-ci.mjs';
@@ -168,7 +167,6 @@ async function assertHeadCiGreen({
     headSha,
     runCommand,
     findCiRunFn,
-    dispatchCiFn,
     waitForCiFn,
 }) {
     const currentRun = findCiRunFn(headSha, runCommand);
@@ -177,11 +175,6 @@ async function assertHeadCiGreen({
             `The ci.yml run for HEAD ${headSha} concluded '${currentRun.conclusion}'. `
             + `Refusing the release. Inspect: ${currentRun.html_url ?? currentRun.url ?? 'no URL'}`,
         );
-    }
-
-    if (!currentRun) {
-        process.stdout.write(`No ci.yml run exists for HEAD ${headSha}; dispatching CI on main.\n`);
-        dispatchCiFn(headSha, runCommand);
     }
 
     await waitForCiFn(headSha, runCommand);
@@ -227,9 +220,6 @@ export async function assertReleaseCutPreconditions(options = {}) {
     const findCiRunFn = options.findCiRunFn ?? (
         (headSha, commandRunner) => findLatestMatchingRun(headSha, commandRunner)
     );
-    const dispatchCiFn = options.dispatchCiFn ?? (
-        (headSha, commandRunner) => dispatchCiWorkflow(headSha, {runCommand: commandRunner})
-    );
     const waitForCiFn = options.waitForCiFn ?? (
         (headSha, commandRunner) => waitForExactShaCiGates(headSha, {runCommand: commandRunner})
     );
@@ -246,7 +236,6 @@ export async function assertReleaseCutPreconditions(options = {}) {
     const currentVersion = readVersionFn();
 
     await assertHeadCiGreen({
-        dispatchCiFn,
         findCiRunFn,
         headSha,
         runCommand,

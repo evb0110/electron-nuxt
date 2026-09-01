@@ -193,17 +193,12 @@ interface INativePdfSavePolicyModule {
     getNativePdfSaveDependencyPaths: () => string[];
 }
 
-interface IChangedAreaMatcherModule { matchesChangedAreaPattern: (filePath: string, pattern: string) => boolean }
-
 const {
     getCiChangedAreaPolicy,
     getNativePdfSaveDependencyPaths,
 } = await import(
     pathToFileURL(path.resolve(process.cwd(), 'scripts/release/policy.mjs')).href,
 ) as INativePdfSavePolicyModule;
-const {matchesChangedAreaPattern} = await import(
-    pathToFileURL(path.resolve(process.cwd(), 'scripts/ci/classify-changed-areas.mjs')).href,
-) as IChangedAreaMatcherModule;
 
 function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
     const requiredJobs = new Set<string>();
@@ -390,7 +385,7 @@ function runAffectedOracleBranch({
 }
 
 describe('CI topology policy', () => {
-    it('runs hosted push CI for package metadata and blocking Electron smoke changes without filtering required pull-request checks', async () => {
+    it('runs hosted push CI for every commit on main without filtering required pull-request checks', async () => {
         const triggers = parseWorkflowTriggers(await readProjectFile('.github/workflows/ci.yml'));
         const push = triggers.push;
         if (!isRecord(push)) {
@@ -398,103 +393,15 @@ describe('CI topology policy', () => {
         }
 
         expect(push.branches).toEqual(['main']);
-        expect(push.paths).toEqual([
-            '.github/workflows/ci.yml',
-            'package.json',
-            'pnpm-lock.yaml',
-            'pnpm-workspace.yaml',
-            '**/package.json',
-            '**/pnpm-workspace.yaml',
-            'native/**',
-            'native/evb-native-support/**',
-            'electron/**',
-            'scripts/build-native-tool.mjs',
-            'electron-builder.yml',
-            'app/composables/useAnalytics.ts',
-            'app/modules/pdf-viewer/annotations/**',
-            'app/modules/pdf-viewer/engine/**',
-            'app/modules/pdf-viewer/runtime/annotations/**',
-            'app/modules/pdf-viewer/public.ts',
-            'app/modules/pdf-viewer/runtime/save/**',
-            'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
-            'app/modules/pdf-viewer/serialization/**',
-            'app/modules/workspace-shell/automation/automationReadinessEvents.ts',
-            'app/modules/workspace-shell/composables/document-session/**',
-            'app/modules/workspace-shell/composables/document-session/createDocumentPersistResults.ts',
-            'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
-            'app/modules/workspace-shell/composables/document-session/nativePdfMutationCommit.ts',
-            'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            'app/modules/workspace-shell/composables/file-operations/**',
-            'app/modules/workspace-shell/composables/file-operations/workspaceSaveExecutionResult.ts',
-            'app/modules/workspace-shell/composables/file-operations/workspaceSavePlan.ts',
-            'app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest.ts',
-            'app/modules/workspace-shell/composables/usePageSaveOrchestration.ts',
-            'app/modules/workspace-shell/composables/usePdfFile.ts',
-            'app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts',
-            'app/modules/workspace-shell/composables/nativePdfMutationArtifact.ts',
-            'app/modules/workspace-shell/public/nativePdfMutationArtifact.ts',
-            'app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts',
-            'app/platform/browser-api/public.ts',
-            'app/platform/browser/browserDocumentConstants.ts',
-            'app/services/pdf-file/**',
-            'app/services/pdf-file/savePdfBytesAs.ts',
-            'app/services/pdf-file/savePdfBytesToWorkingCopy.ts',
-            'app/types/documentOperationKind.ts',
-            'app/types/**',
-            'app/types/pdfContracts.ts',
-            'app/types/pdfUi.ts',
-            'app/utils/asyncGuard.ts',
-            'app/utils/browserLogger.ts',
-            'app/utils/**',
-            'app/utils/documentBytes.ts',
-            'app/utils/documentRef.ts',
-            'app/utils/error.ts',
-            'app/utils/pdfDate.ts',
-            'app/utils/platformDocuments.ts',
-            'packages/contracts/documentPersistenceFrames.ts',
-            'packages/contracts/**',
-            'packages/contracts/document*.ts',
-            'packages/contracts/documentsPersistenceSchemas.ts',
-            'packages/contracts/documentsPlatformFeatureSchemas.ts',
-            'packages/contracts/electronApiDocuments.ts',
-            'packages/contracts/nativePdfMutations.ts',
-            'packages/pdf-core/index.ts',
-            'packages/pdf-core/**',
-            'packages/pdf-core/nativePdfMutationPolicy.ts',
-            'electron/preload/**',
-            'electron/platform-ipc/**',
-            'scripts/ci/**',
-            'scripts/release/**',
-            'scripts/test-electron-e2e-headless.sh',
-            'tests/e2e/electron/**',
-            'tests/integration/native/**',
-            'tests/unit/app/services/pdf-save/**',
-            'tests/unit/app/modules/pdf-viewer/runtime/annotations/**',
-            'tests/unit/electron/documentFileWriteAtomic*.test.ts',
-            'tests/unit/scripts/electronBuilderAsarUnpack.test.ts',
-            'vitest.config.ts',
-            'vitest.shared.config.ts',
-        ]);
+        // The release cutter trusts only exact-SHA push runs, so no path filter
+        // may leave a commit on main without one.
+        expect(push.paths).toBeUndefined();
         expect(push['paths-ignore']).toBeUndefined();
         expect(push.schedule).toBeUndefined();
 
         // GitHub leaves required checks pending when a pull-request workflow is
         // skipped by a path filter, so keep PR triggering unconditional.
         expect(triggers.pull_request).toBeNull();
-    });
-
-    it('keeps every canonical native-save dependency inside the push trigger', async () => {
-        const workflow = await readProjectFile('.github/workflows/ci.yml');
-        const push = parseWorkflowTriggers(workflow).push;
-        if (!isRecord(push) || !Array.isArray(push.paths) || !push.paths.every(item => typeof item === 'string')) {
-            throw new Error('The CI push trigger must expose string paths for native-save coverage.');
-        }
-        for (const dependency of getNativePdfSaveDependencyPaths()) {
-            expect(
-                push.paths.some(pattern => matchesChangedAreaPattern(dependency, pattern)),
-                `${dependency} is missing from the CI push trigger`,
-            ).toBe(true);
-        }
     });
 
     it('routes the canonical native-save graph through pressure, reopen, and native lanes', () => {

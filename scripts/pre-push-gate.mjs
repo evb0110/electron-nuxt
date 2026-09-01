@@ -519,6 +519,8 @@ export function runPrePushGate({
             'main',
             '--workflow',
             'ci.yml',
+            '--event',
+            'push',
             '--limit',
             '1',
             '--json',

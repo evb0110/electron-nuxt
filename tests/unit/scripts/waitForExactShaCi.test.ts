@@ -8,8 +8,6 @@ import {
     EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS,
     EXACT_SHA_CI_COMPLETION_TIMEOUT_MS,
     findLatestMatchingRun,
-    dispatchCiWorkflow,
-    getCiWorkflowDispatchArgs,
     waitForExactShaCiGates,
 } from '@scripts/release/wait-for-exact-sha-ci.mjs';
 
@@ -168,22 +166,8 @@ describe('waitForExactShaCiGates', () => {
         expect(Math.max(...harness.pollTimes)).toBeGreaterThanOrEqual(lateSuccessAtMs);
     });
 
-    it('accepts a workflow_dispatch run for the exact target', async () => {
-        const harness = createHarness(() => ({
-            conclusion: 'success',
-            event: 'workflow_dispatch',
-            gatesOk: 'success',
-            status: 'completed',
-        }));
-
-        await expect(waitForExactShaCiGates(TARGET_SHA, harness)).resolves.toEqual({
-            id: 424242,
-            url: RUN_URL,
-        });
-    });
-
     it('accepts a skipped-CI release commit after its version-only parent is green', async () => {
-        const harness = createParentVerificationHarness({parentEvent: 'workflow_dispatch'});
+        const harness = createParentVerificationHarness();
 
         await expect(waitForExactShaCiGates(TARGET_SHA, {
             ...harness,
@@ -212,12 +196,10 @@ describe('waitForExactShaCiGates', () => {
 
     it('fails closed and names the parent when the parent has no CI run', async () => {
         const harness = createParentVerificationHarness({parentRunMissing: true});
-        const expectedCommand = `pnpm run release:ci ${PARENT_SHA}`;
-
         await expect(waitForExactShaCiGates(TARGET_SHA, {
             ...harness,
             appearanceTimeoutMs: 0,
-        })).rejects.toThrow(new RegExp(`${PARENT_SHA}.*${expectedCommand}`, 'u'));
+        })).rejects.toThrow(new RegExp(`No CI run appeared for release parent ${PARENT_SHA}`, 'u'));
     });
 
     it('rejects a target whose diff is not exactly one package.json version line', async () => {
@@ -302,7 +284,7 @@ describe('waitForExactShaCiGates', () => {
         })).resolves.toMatchObject({id: 424242});
     });
 
-    it('filters CI runs to main push and workflow_dispatch events', () => {
+    it('filters CI runs to main push events', () => {
         const runs = JSON.stringify({workflow_runs: [
             {
                 event: 'schedule',
@@ -318,47 +300,16 @@ describe('waitForExactShaCiGates', () => {
                 id: 2,
                 run_number: 2,
             },
+            {
+                event: 'push',
+                head_branch: 'main',
+                head_sha: TARGET_SHA,
+                id: 3,
+                run_number: 1,
+            },
         ]});
 
-        expect(findLatestMatchingRun(TARGET_SHA, () => runs)?.id).toBe(2);
-    });
-
-    it('dispatches ci.yml on main only when main already points at the target', () => {
-        expect(getCiWorkflowDispatchArgs()).toEqual([
-            'workflow',
-            'run',
-            'ci.yml',
-            '--ref',
-            'main',
-        ]);
-
-        const commands: string[][] = [];
-        const runCommand = (command: string, args: string[]) => {
-            commands.push([
-                command,
-                ...args,
-            ]);
-            return command === 'git' ? `${TARGET_SHA}\trefs/heads/main` : '';
-        };
-        dispatchCiWorkflow(TARGET_SHA, {runCommand});
-        expect(commands).toEqual([
-            [
-                'git',
-                'ls-remote',
-                'origin',
-                'refs/heads/main',
-            ],
-            [
-                'gh',
-                'workflow',
-                'run',
-                'ci.yml',
-                '--ref',
-                'main',
-            ],
-        ]);
-
-        expect(() => dispatchCiWorkflow('b'.repeat(40), {runCommand})).toThrow(/current origin\/main tip/u);
+        expect(findLatestMatchingRun(TARGET_SHA, () => runs)?.id).toBe(3);
     });
 
     it('binds the default command runner to the same (command, args) contract as the harness', () => {

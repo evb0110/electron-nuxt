@@ -107,7 +107,6 @@
     "release:artifacts": "HUSKY=0 node scripts/release/build-artifacts.mjs",
     "release:cut": "HUSKY=0 node scripts/release/cut-release.mjs",
     "release:resume": "HUSKY=0 node scripts/release/cut-release.mjs --resume",
-    "release:ci": "HUSKY=0 node scripts/release/wait-for-exact-sha-ci.mjs --dispatch",
     "release:status": "node scripts/release/release-status.mjs",
     "db:generate": "pnpm --dir landing exec drizzle-kit generate --config ../drizzle.config.ts",
     "db:migrate": "pnpm --dir landing exec drizzle-kit migrate --config ../drizzle.config.ts",
