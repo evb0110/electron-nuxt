@@ -83,6 +83,7 @@
     "test:e2e:electron:headless": "pnpm run build:native:e2e && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --reporter verbose",
     "test:e2e:electron:watch": "bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --watch --reporter verbose",
     "electron:run": "tsx scripts/electronRun.ts",
+    "worktrees:prune": "node scripts/worktrees-prune.mjs",
     "electron:run:headless": "bash scripts/electron-run-headless.sh",
     "diag:pdf-navigation-blink-trace": "pnpm run build:electron && pnpm exec tsx scripts/diagnostics/pdfNavigationBlinkTrace.ts",
     "diag:ocr-profile-benchmark": "python3 scripts/devkit/ocr-profile-benchmark.py",

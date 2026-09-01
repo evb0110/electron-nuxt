@@ -17,7 +17,7 @@ import {
     buildElectronAutomationArgs,
     buildElectronExecutablePath,
     prepareAutomationAppEntry,
-    prepareMacOSHiddenAppBundle,
+    prepareSharedMacOSHiddenAppBundle,
     resolveAutomationRendererReadyEnv,
     resolveAutomationWindowEnv,
     sanitizeElectronLaunchEnv,
@@ -26,7 +26,6 @@ import {
 } from '@scripts/electron-run/electronRunLaunchConfig';
 import { getNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
 import { getActiveDevServerOutputTee } from '@scripts/electron-run/devServerOutputTee';
-import { E2E_RUN_ID_ENV } from '@scripts/electron-run/electronRunRunId';
 import {
     ELECTRON_SERVER_PATH,
     startNuxtServer,
@@ -168,17 +167,11 @@ function buildElectronLaunchPlan(cdpPort: number, mainJs: string, initialOpenPat
         );
     }
     const hiddenAutomationBundlePaths = launchViaHiddenMacApp
-        ? prepareMacOSHiddenAppBundle({
-            sourceAppPath: electronAppPath,
-            destinationRoot: join(
-                projectRoot,
-                '.devkit',
-                'tmp',
-                'electron-e2e-hidden-app',
-                process.env[E2E_RUN_ID_ENV] ?? getCurrentSessionName(),
-            ),
-        })
+        ? prepareSharedMacOSHiddenAppBundle({ sourceAppPath: electronAppPath })
         : null;
+    if (hiddenAutomationBundlePaths && hiddenAutomationBundlePaths.removedStaleBundleDirs.length > 0) {
+        console.log(`[electron-run] Removed ${hiddenAutomationBundlePaths.removedStaleBundleDirs.length} stale hidden Electron bundle dir(s).`);
+    }
     const launchCommand = launchViaHiddenMacApp
         ? hiddenAutomationBundlePaths!.executablePath
         : electronPath;
