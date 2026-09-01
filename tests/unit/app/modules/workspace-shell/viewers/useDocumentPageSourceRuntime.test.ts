@@ -221,6 +221,36 @@ describe('document page-source layout memory bounds', () => {
         });
     });
 
+    it('computes the last sparse page top without reading every page metric', () => {
+        const metrics = createProvisionalDocumentPageMetrics(138_000, {
+            widthPoints: 600,
+            heightPoints: 800,
+            rotation: 0,
+        });
+        if (!isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('Expected a sparse page metric collection');
+        }
+        const getMetric = vi.fn(metrics.get);
+        Object.defineProperty(metrics, 'get', {
+            configurable: true,
+            value: getMetric,
+        });
+
+        const displayLayouts = resolveDocumentPageDisplayLayoutsBounded(
+            metrics,
+            600,
+            800,
+            1,
+            'custom',
+        );
+        const pageTops = resolveDocumentPageTopsBounded(
+            resolveDocumentPageHeightsBounded(displayLayouts),
+        );
+
+        expect(pageTops.at(-1)).toBe(20 + (138_000 - 1) * 820);
+        expect(getMetric).toHaveBeenCalledTimes(0);
+    });
+
     it('keeps sparse zoom-anchor layouts lazy without mapping the document', () => {
         const metrics = createProvisionalDocumentPageMetrics(1_000_000, {
             widthPoints: 600,

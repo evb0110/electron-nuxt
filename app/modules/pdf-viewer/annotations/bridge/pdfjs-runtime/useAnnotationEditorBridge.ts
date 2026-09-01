@@ -89,6 +89,7 @@ interface IEditorBridgeDeps {
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
     numPages: Ref<number>;
     currentPage: Ref<number>;
+    getMountedPageNumbers?: () => readonly number[];
     effectiveScale: Ref<number>;
     annotationTool: Ref<TAnnotationTool>;
     annotationUiManager: ShallowRef<TAnnotationEditorUIManager | null>;
@@ -145,6 +146,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         pdfDocument,
         numPages,
         currentPage,
+        getMountedPageNumbers,
         effectiveScale,
         annotationTool,
         annotationUiManager,
@@ -414,6 +416,17 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         }
     }
 
+    function resolveMountedPageIndexes() {
+        const pageNumbers = getMountedPageNumbers?.() ?? [currentPage.value];
+        const pageIndexes = new Set<number>();
+        for (const pageNumber of pageNumbers) {
+            if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
+                pageIndexes.add(pageNumber - 1);
+            }
+        }
+        return pageIndexes;
+    }
+
     function updateDefaultParamsForAllEditorTypes(
         uiManager: TAnnotationEditorUIManager,
         type: TEditorParamType,
@@ -421,7 +434,10 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
     ) {
         const constructors = new Set<IPdfjsEditorConstructorLike>(registeredEditorTypes);
         if (constructors.size === 0) {
-            for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+            // PDF.js registers editor constructors when an annotation layer mounts.
+            // Its getEditors(pageIndex) iterator walks every editor, so never probe
+            // every document page while waiting for that registration.
+            for (const pageIndex of resolveMountedPageIndexes()) {
                 for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                     const ctor = getEditorConstructor(editor);
                     if (ctor) {

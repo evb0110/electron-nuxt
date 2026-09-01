@@ -330,6 +330,7 @@ const {
     documentRecordsByTabId,
     documentSessionsByTabId,
     applyViewState: applySessionViewState,
+    getSession: getDocumentSession,
     getDocumentRecord,
     removeDocumentRecord: removeSessionDocumentRecord,
     seedTabDocumentRecord: seedSessionTabDocumentRecord,
@@ -545,7 +546,6 @@ const {
 function handleShellToolbarOverflowSetViewMode(mode: TPdfViewMode) {
     handleShellToolbarOverflowSetViewModeInternal(mode, runFallbackWorkspaceCommand);
 }
-
 const updatesDialogBindings = reactive(useAppShellUpdatesDialog({
     updatesDialog,
     updatesDialogVersion,
@@ -870,6 +870,7 @@ useTabsShellBindings({
     beginOpenPathsInAppropriateTab,
     restoreWorkspaceCheckpointGraph,
     openPathInReservedTab,
+    getDocumentSession,
     clearRecentFiles,
     loadRecentFiles,
     isStartupOpenClaimPending,

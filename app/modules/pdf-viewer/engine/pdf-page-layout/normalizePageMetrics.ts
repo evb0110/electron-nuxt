@@ -33,10 +33,10 @@ export interface IPdfPageMetricCollection extends ILazyIndexedCollection<IPdfPag
 }
 
 export const PDF_PAGE_METRICS_CHUNK_SIZE = 256;
-// Keep the established dense behavior through the former product limit. The
-// sparse path starts above this boundary so ordinary desktop documents still
-// expose the same concrete normalized arrays and prefix tables.
-export const PDF_PAGE_METRICS_DENSE_LIMIT = 100_000;
+// Keep the established dense behavior for ordinary documents. Above this
+// boundary, page metrics remain sparse so a page arrival cannot rebuild a
+// page-count-sized layout graph in the renderer.
+export const PDF_PAGE_METRICS_DENSE_LIMIT = 20_000;
 
 interface IKnownMetricEntry {
     index: number;

@@ -129,7 +129,43 @@ describe('scan cleanup raster batch renderer', () => {
         expect(runCommand).not.toHaveBeenCalled();
     });
 
-    it('accepts the widened bounded process window without changing per-page limits', async () => {
+    it('rejects dimension and pixel-limit violations before starting Poppler', async () => {
+        const runCommand = vi.fn();
+        const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
+        const renderTarget = (limits: {
+            expectedHeightPx: number;
+            expectedWidthPx: number;
+            maxDimensionPx: number;
+            maxPixels: number;
+        }) => renderBatch({
+            dpi: 150,
+            log: vi.fn(),
+            pdftoppmBinary: '/pdftoppm',
+            signal: new AbortController().signal,
+            sourcePdfPath: '/source.pdf',
+            targets: [{
+                limits,
+                outputPath: '/page-1.png',
+                pageNumber: 1,
+            }],
+        });
+
+        await expect(renderTarget({
+            expectedHeightPx: 1,
+            expectedWidthPx: 101,
+            maxDimensionPx: 100,
+            maxPixels: 10_000,
+        })).rejects.toThrow('exceeds limits');
+        await expect(renderTarget({
+            expectedHeightPx: 11,
+            expectedWidthPx: 11,
+            maxDimensionPx: 100,
+            maxPixels: 100,
+        })).rejects.toThrow('exceeds limits');
+        expect(runCommand).not.toHaveBeenCalled();
+    });
+
+    it('accepts the 1,024-page manifest batch without changing per-page limits', async () => {
         const root = await mkdtemp(join(tmpdir(), 'scan-cleanup-raster-batch-test-'));
         roots.push(root);
         const runCommand = vi.fn(async (_binary: string, args: string[]) => {
@@ -137,7 +173,7 @@ describe('scan cleanup raster batch renderer', () => {
             const firstPage = Number(args[args.indexOf('-f') + 1]);
             const lastPage = Number(args[args.indexOf('-l') + 1]);
             expect(firstPage).toBe(1);
-            expect(lastPage).toBe(64);
+            expect(lastPage).toBe(1_024);
             await Promise.all(Array.from({length: lastPage - firstPage + 1}, (_, index) =>
                 writeFile(`${prefix}-${String(index + 1).padStart(4, '0')}.png`, PNG)));
             return {
@@ -147,7 +183,7 @@ describe('scan cleanup raster batch renderer', () => {
             };
         });
         const renderBatch = createScanCleanupRasterBatchRenderer(runCommand);
-        const targets = Array.from({length: 64}, (_, index) => ({
+        const targets = Array.from({length: 1_024}, (_, index) => ({
             limits: {
                 expectedHeightPx: 1,
                 expectedWidthPx: 1,
@@ -165,7 +201,7 @@ describe('scan cleanup raster batch renderer', () => {
             signal: new AbortController().signal,
             sourcePdfPath: '/source.pdf',
             targets,
-        })).resolves.toHaveLength(64);
+        })).resolves.toHaveLength(1_024);
         expect(runCommand).toHaveBeenCalledOnce();
     });
 });

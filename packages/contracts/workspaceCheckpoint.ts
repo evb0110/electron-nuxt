@@ -7,6 +7,8 @@ import type {
 } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 
+export type TWorkspaceCheckpointSurfaceMode = 'reader' | 'scan-cleanup';
+
 export interface IWorkspaceCheckpointTab {
     tabId: string;
     paneId: string | null;
@@ -22,6 +24,8 @@ export interface IWorkspaceCheckpointTab {
     continuousScroll?: boolean | null;
     viewMode?: TPdfViewMode | null;
     viewRotation?: TPdfViewRotation | null;
+    /** Persist only the active surface. Large scan-cleanup state stays file-backed. */
+    surfaceMode?: TWorkspaceCheckpointSurfaceMode;
 }
 
 export interface IWorkspaceCheckpointPane {
@@ -172,13 +176,19 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
                     && Number.isSafeInteger(candidate.viewRotation)
                     && VIEW_ROTATIONS.has(candidate.viewRotation as TPdfViewRotation)
                     ? candidate.viewRotation as TPdfViewRotation : undefined;
+        const surfaceMode: TWorkspaceCheckpointSurfaceMode | null | undefined = candidate.surfaceMode === undefined
+            ? undefined
+            : candidate.surfaceMode === 'reader' || candidate.surfaceMode === 'scan-cleanup'
+                ? candidate.surfaceMode
+                : null;
         if (typeof candidate.tabId !== 'string' || paneId === undefined || fileName === undefined
             || sourceRef === undefined || workingCopyRef === undefined || typeof candidate.isDirty !== 'boolean'
             || requiresSaveAsOnFirstSave === null
             || typeof candidate.isDjvu !== 'boolean' || currentPage === undefined || zoom === undefined || zoomMode === undefined
             || (candidate.continuousScroll !== undefined && continuousScroll === undefined)
             || (candidate.viewMode !== undefined && viewMode === undefined)
-            || (candidate.viewRotation !== undefined && viewRotation === undefined)) {
+            || (candidate.viewRotation !== undefined && viewRotation === undefined)
+            || (candidate.surfaceMode !== undefined && surfaceMode === null)) {
             return null;
         }
         tabs.push({
@@ -196,6 +206,7 @@ export function decodeWorkspaceCheckpoint(value: unknown): IWorkspaceCheckpoint 
             ...(continuousScroll === undefined ? {} : {continuousScroll}),
             ...(viewMode === undefined ? {} : {viewMode}),
             ...(viewRotation === undefined ? {} : {viewRotation}),
+            ...(surfaceMode === undefined || surfaceMode === null ? {} : {surfaceMode}),
         });
     }
     return {

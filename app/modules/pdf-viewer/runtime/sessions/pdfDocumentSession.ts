@@ -1022,6 +1022,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             const pageSource = createPdfPageSource({
                 documentRef: documentRef ?? (typeof source === 'string' ? source : 'memory://pdf'),
                 pdfDocument: document,
+                getPage: pageNumber => pageCache.getPage(pageNumber),
                 renderPage: request => renderPdfDocumentPageSource({
                     document,
                     request,

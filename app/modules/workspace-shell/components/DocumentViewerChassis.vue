@@ -78,6 +78,7 @@
                 ref="activeFeaturePackRef"
                 v-bind="$attrs"
                 :current-page="chassisAuthority.currentPage.value"
+                :mount-presentation="props.mountPresentation"
                 :is-resizing="props.isResizing"
                 @update:current-page="handleCurrentPageUpdate"
                 @update:total-pages="handleTotalPagesUpdate"
@@ -131,6 +132,7 @@ const props = defineProps<{
     sourceKind: TDocumentPageSourceKind;
     rendererKind?: 'pdfjs' | 'native-pdf' | 'page-source';
     currentPage?: number;
+    mountPresentation?: boolean;
     isResizing?: boolean;
 }>();
 const emit = defineEmits<{

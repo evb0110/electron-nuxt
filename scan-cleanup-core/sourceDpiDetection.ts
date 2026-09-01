@@ -33,17 +33,6 @@ function getUniqueValidPages(pages: readonly number[] | undefined) {
     ))).sort((a, b) => a - b);
 }
 
-function getPageProbeRange(pages: readonly number[]) {
-    if (pages.length === 0) {
-        return null;
-    }
-
-    return {
-        firstPage: pages[0] ?? 1,
-        lastPage: pages[pages.length - 1] ?? 1,
-    };
-}
-
 function getBoundedPageProbeRanges(pages: readonly number[]) {
     const ranges: Array<{
         firstPage: number;
@@ -99,22 +88,6 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
             label: 'full-document',
             contributesDocumentDpi: true,
             pageUnits: 1,
-        }];
-    }
-
-    const pageRange = getPageProbeRange(validPages);
-    if (!pageRange) {
-        return [];
-    }
-
-    const pageSpan = pageRange.lastPage - pageRange.firstPage + 1;
-    if (pageSpan <= PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN) {
-        return [{
-            args: buildPdfImagesListArgs(pdfPath, pageRange.firstPage, pageRange.lastPage),
-            timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            label: `${pageRange.firstPage}-${pageRange.lastPage}`,
-            contributesDocumentDpi: true,
-            pageUnits: validPages.length,
         }];
     }
 

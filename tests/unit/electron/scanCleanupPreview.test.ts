@@ -4746,11 +4746,10 @@ describe('scan cleanup preview', () => {
 
         await Promise.all(pages.map(page => rasterSource.getPageRaster(page.pageNumber)));
 
-        expect(deps.detectRasterPages).toHaveBeenCalledTimes(2);
-        expect(vi.mocked(deps.detectRasterPages).mock.calls.map(call => call[2])).toEqual([
-            pages.slice(0, 48).map(page => page.pageNumber),
-            pages.slice(48).map(page => page.pageNumber),
-        ]);
+        expect(deps.detectRasterPages).toHaveBeenCalledOnce();
+        expect(vi.mocked(deps.detectRasterPages).mock.calls[0]?.[2]).toEqual(
+            pages.map(page => page.pageNumber),
+        );
         await retention.dispose();
     });
 
@@ -4982,9 +4981,9 @@ describe('scan cleanup preview', () => {
         await service.dispose();
     });
 
-    it('bounds fallback raster probes and keeps only a scalar document DPI', async () => {
+    it('coalesces fallback raster probes into bounded streaming windows', async () => {
         const dir = await setup();
-        const pageSizes = Array.from({length: 100}, (_, index) => ({
+        const pageSizes = Array.from({length: 1_025}, (_, index) => ({
             ...DOCUMENT_PAGE_SIZES[0]!,
             pageNumber: index + 1,
         }));
@@ -5026,10 +5025,11 @@ describe('scan cleanup preview', () => {
 
         expect(rasters.every(raster => raster?.dpi === 280)).toBe(true);
         expect(source.documentDpi).toBe(280);
-        expect(probeCalls.every(pageNumbers => pageNumbers.length <= 48)).toBe(true);
-        expect(probeCalls.flat().sort((left, right) => left - right)).toEqual(
-            pageSizes.map(page => page.pageNumber),
-        );
+        expect(probeCalls).toHaveLength(2);
+        expect(probeCalls.every(pageNumbers => pageNumbers.length <= 1_024)).toBe(true);
+        const probedPages = probeCalls.flat().sort((left, right) => left - right);
+        expect(new Set(probedPages).size).toBe(pageSizes.length);
+        expect(probedPages).toEqual(pageSizes.map(page => page.pageNumber));
         await retention.release(document);
         await retention.dispose();
     });
@@ -6420,6 +6420,8 @@ describe('scan cleanup preview', () => {
                 service.subscribeDetectionJob(owner, started.jobId, detectionRequest),
             ]) {
                 expect(state?.results.length).toBeLessThanOrEqual(256);
+                expect(state?.progress.completedPageNumbers).toEqual([]);
+                expect(state?.progress.completedPageNumbersTruncated).toBe(true);
                 expect(state?.results).toEqual(expect.not.arrayContaining([
                     expect.objectContaining({pagePlanEvidence: expect.anything()}),
                     expect.objectContaining({sourcePageMetadata: expect.anything()}),
@@ -6445,6 +6447,8 @@ describe('scan cleanup preview', () => {
         expect(xlargeStates.length).toBeGreaterThan(0);
         expect(xlargeStates.at(-1)?.status).toBe('completed');
         expect(Math.max(...xlargeStates.map(state => state.results.length))).toBeLessThanOrEqual(256);
+        expect(xlargeStates.every(state => state.progress.completedPageNumbers?.length === 0)).toBe(true);
+        expect(xlargeStates.every(state => state.progress.completedPageNumbersTruncated === true)).toBe(true);
         expect(xlargeStates.flatMap(state => state.results)).toEqual(
             expect.not.arrayContaining([
                 expect.objectContaining({pagePlanEvidence: expect.anything()}),

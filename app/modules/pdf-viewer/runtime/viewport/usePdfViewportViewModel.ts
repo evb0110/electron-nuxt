@@ -19,6 +19,7 @@ import type { IPdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine
 
 interface IUsePdfViewportViewModelOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
+    isActive: ComputedRef<boolean>;
     viewerContainer: Ref<HTMLElement | null>;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
@@ -95,6 +96,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
 
     const virtualization = usePdfViewerVirtualization({
         performancePolicy: options.performancePolicy,
+        isActive: options.isActive,
         bufferPages: options.bufferPages,
         viewMode: options.viewMode,
         viewRotation,

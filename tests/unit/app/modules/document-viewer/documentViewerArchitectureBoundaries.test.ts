@@ -123,15 +123,16 @@ describe('document viewer architecture boundaries', () => {
         expect(alerts).toContain('<Transition name="document-status">');
     });
 
-    it('treats tab transitions as semantic viewer layout resizes', () => {
+    it('treats tab transitions as semantic viewer layout resizes and gates hidden sidebar work', () => {
         const workspace = read('app/modules/workspace-shell/components/DocumentWorkspace.vue');
 
         expect(workspace).toMatch(
             /isActiveViewerLayoutResizing\s*=\s*computed\(\(\)\s*=>\s*\([\s\S]*?isTabTransitionBusy[\s\S]*?\)\);/u,
         );
         expect(workspace).toMatch(
-            /:is-active="\s*isActive\s*\|\|\s*isRenderActive\s*\|\|\s*isActiveViewerLayoutResizing\s*"/u,
+            /const\s+isDocumentSidebarActive\s*=\s*computed\(\(\)\s*=>\s*\([\s\S]*?surfaceMode\.value\s*===\s*'reader'[\s\S]*?isActiveViewerLayoutResizing\.value[\s\S]*?\);/u,
         );
+        expect(workspace).toContain(':is-active="isDocumentSidebarActive"');
         expect(workspace).toMatch(
             /:is-resizing="\s*isActiveViewerLayoutResizing\s*\|\|\s*\(\s*isRenderActive\s*&&\s*!isActive\s*\)\s*"/u,
         );

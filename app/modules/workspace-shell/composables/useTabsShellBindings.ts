@@ -29,6 +29,8 @@ import { guardAsync } from '@app/utils/asyncGuard';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import type { ITab } from '@app/types/tabs';
 import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
+import type { TWorkspaceCheckpointSurfaceMode } from '@contracts/workspaceCheckpoint';
+import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
     getWorkspaceViewerChunkTargetsForPaths,
     scheduleDesktopViewerWarmup,
@@ -73,6 +75,7 @@ interface IUseTabsShellBindingsOptions extends ITabsMenuBindingDeps {
     beginOpenPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<TDocumentRef[]>;
     restoreWorkspaceCheckpointGraph: Parameters<typeof restoreWorkspaceCheckpoint>[1]['restoreGraph'];
     openPathInReservedTab: Parameters<typeof restoreWorkspaceCheckpoint>[1]['openPathInReservedTab'];
+    getDocumentSession?: (tabId: string) => IWorkspaceDocumentController | null;
 }
 
 export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
@@ -93,6 +96,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         beginOpenPathsInAppropriateTab,
         restoreWorkspaceCheckpointGraph,
         openPathInReservedTab,
+        getDocumentSession,
         clearRecentFiles,
         loadRecentFiles,
         checkForUpdates,
@@ -105,6 +109,16 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     } = options;
 
     const menuCleanups: Array<() => void> = [];
+    function restoreSurfaceMode(tabId: string, mode: TWorkspaceCheckpointSurfaceMode) {
+        const session = getDocumentSession?.(tabId);
+        if (!session) {
+            return;
+        }
+        session.applyViewState({
+            ...session.snapshot.value.viewState,
+            surfaceMode: mode,
+        });
+    }
     const debugHandleSave = () => activeWorkspace.value?.handleSave() ?? Promise.resolve();
     let installedTestApi: IEvbTestApi | null = null;
     let cleanupDirectOpenDelegate: (() => void) | null = null;
@@ -531,6 +545,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                     restoreGraph: restoreWorkspaceCheckpointGraph,
                     openPathInReservedTab,
                     activateTab,
+                    restoreSurfaceMode: getDocumentSession ? restoreSurfaceMode : undefined,
                 });
                 if (isDisposed) {
                     return;

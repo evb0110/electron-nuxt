@@ -79,6 +79,7 @@ interface IWorkspaceDocumentViewBindingOptions {
     documentSourceCurrentResultIndex: TReadableRef<number>;
     documentSourceSearchResults: TReadableRef<readonly IDocumentSearchMatch[]>;
     isInteractionActive: TReadableRef<boolean>;
+    mountPresentation: TReadableRef<boolean>;
     isRenderActive: TReadableRef<boolean>;
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     navigationFeedbackPage: Ref<number | null>;
@@ -511,14 +512,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         saveForExternalRead,
     });
-
     async function ensureWorkingCopyFreshForRead() {
         if (!hasPendingUnsavedChanges.value) {
             return true;
         }
         return saveForExternalRead();
     }
-
     const exportControls = useWorkspaceExport({
         workingCopyPath,
         sourceKind: computed(() => documentDriver.activeDocumentDriver.value?.source.kind ?? 'pdf'),
@@ -1046,6 +1045,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             fitMode,
             isAnySaving,
             isInteractionActive: options.isInteractionActive,
+            mountPresentation: options.mountPresentation,
             isRenderActive: options.isRenderActive,
             isWorkspaceLayoutResizing: options.isWorkspaceLayoutResizing,
             pageMatches: viewerSearchPageMatches,

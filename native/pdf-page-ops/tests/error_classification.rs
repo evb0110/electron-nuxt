@@ -403,6 +403,58 @@ fn page_geometry_reports_inherited_boxes_and_rotation() {
 }
 
 #[test]
+fn page_geometry_loads_a_path_pdf_above_the_byte_input_page_ceiling() {
+    const PAGE_COUNT: usize = 100_001;
+    struct RemoveOnDrop(PathBuf);
+
+    impl Drop for RemoveOnDrop {
+        fn drop(&mut self) {
+            let _ = remove_file(&self.0);
+        }
+    }
+
+    let input = RemoveOnDrop(path("large-page-count-input", "pdf"));
+    let output = RemoveOnDrop(path("large-page-count-output", "json"));
+    let mut document = Document::with_version("1.7");
+    let pages_id = document.new_object_id();
+    let page_id = document.add_object(dictionary! {
+        "Type" => "Page",
+        "Parent" => pages_id,
+        "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+    });
+    document.set_object(
+        pages_id,
+        dictionary! {
+            "Type" => "Pages",
+            "Kids" => vec![Object::Reference(page_id); PAGE_COUNT],
+            "Count" => i64::try_from(PAGE_COUNT).unwrap(),
+        },
+    );
+    let catalog_id = document.add_object(dictionary! {
+        "Type" => "Catalog",
+        "Pages" => pages_id,
+    });
+    document.trailer.set("Root", catalog_id);
+    document.save(&input.0).unwrap();
+
+    let result = run_page_geometry(&input.0, &output.0, PAGE_COUNT as u32);
+    assert!(
+        result.status.success(),
+        "large path-backed page geometry failed: {}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let geometry: Value = serde_json::from_slice(&read(&output.0).unwrap()).unwrap();
+    assert_eq!(
+        geometry,
+        serde_json::json!({
+            "mediaBox": {"x": 0.0, "y": 0.0, "width": 200.0, "height": 100.0},
+            "cropBox": null,
+            "rotation": 0,
+        })
+    );
+}
+
+#[test]
 fn save_mutations_reports_typed_aggregate_limit_for_nested_shape_sidecar() {
     let input = path("aggregate-shapes-input", "pdf");
     let output = path("aggregate-shapes-output", "pdf");

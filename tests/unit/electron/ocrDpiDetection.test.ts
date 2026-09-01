@@ -230,8 +230,8 @@ describe('ocr dpi detection', () => {
         await expect(detectSourceDpi('/tmp/input.pdf', '/bin/pdfimages', vi.fn())).resolves.toBe(200);
     });
 
-    it('limits pdfimages probing to the selected OCR page span', async () => {
-        mocks.runOcrCommand.mockResolvedValueOnce({
+    it('probes selected OCR pages without scanning unselected gaps', async () => {
+        mocks.runOcrCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
             exitCode: 0,
@@ -250,18 +250,70 @@ describe('ocr dpi detection', () => {
             ],
         );
 
-        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
-            '/bin/pdfimages',
+        expect(mocks.runOcrCommand.mock.calls.map(([
+            ,
+            args,
+        ]) => args)).toEqual([
             [
                 '-f',
                 '4',
+                '-l',
+                '4',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            [
+                '-f',
+                '9',
                 '-l',
                 '9',
                 '-list',
                 '/tmp/input.pdf',
             ],
-            expect.objectContaining({ commandLabel: 'pdfimages(-list)' }),
+        ]);
+    });
+
+    it('keeps sparse selected OCR pages in separate pdfimages probes', async () => {
+        mocks.runOcrCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await detectSourceDpiDetails(
+            '/tmp/input.pdf',
+            '/bin/pdfimages',
+            vi.fn(),
+            undefined,
+            undefined,
+            [
+                1,
+                1_024,
+            ],
         );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(2);
+        expect(mocks.runOcrCommand.mock.calls.map(([
+            ,
+            args,
+        ]) => args)).toEqual([
+            [
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            [
+                '-f',
+                '1024',
+                '-l',
+                '1024',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+        ]);
     });
 
     it('probes every page in bounded chunks for long documents', async () => {

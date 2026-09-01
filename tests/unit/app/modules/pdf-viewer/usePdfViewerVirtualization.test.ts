@@ -606,6 +606,56 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
+    it('does not materialize a stale large viewport range while the PDF owner is inactive', () => {
+        const totalPages = 138_000;
+        const isActive = ref(false);
+        const pageMetrics = ref<IPdfPageMetric[]>([]);
+        pageMetrics.value[0] = {
+            width: 64,
+            height: 64,
+        };
+        pageMetrics.value[totalPages - 1] = {
+            width: 64,
+            height: 64,
+        };
+        const visibleRange = ref({
+            start: 1,
+            end: totalPages,
+        });
+
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            isActive,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(totalPages),
+            currentPage: ref(totalPages),
+            continuousScroll: computed(() => true),
+            basePageWidth: ref(64),
+            basePageHeight: ref(64),
+            pageMetrics,
+            pageMetricsVersion: ref(1),
+            effectiveScale: ref(1),
+            scaledMargin: ref(20),
+            visibleRange,
+            navigationAnchorPage: ref(null),
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+
+        expect(virtualization.pagesToRender.value).toEqual([]);
+        expect(virtualization.virtualPageSegments.value).toEqual([]);
+
+        visibleRange.value = {
+            start: totalPages,
+            end: totalPages,
+        };
+        isActive.value = true;
+
+        expect(virtualization.pagesToRender.value).toContain(totalPages);
+        expect(virtualization.pagesToRender.value.length).toBeLessThan(100);
+    });
+
     it('keeps the committed window mounted beside a far offscreen navigation target', () => {
         const visibleRange = ref({
             start: 1,

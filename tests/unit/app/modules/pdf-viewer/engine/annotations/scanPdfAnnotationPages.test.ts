@@ -38,7 +38,9 @@ function createEmptyPageBundle(): IPdfPageAnnotationBundle {
 }
 
 function createReader(
-    readPage: (pageIndex: number) => Promise<IPdfAnnotationIndexPageRead>,
+    readPage: (
+        pageIndex: number,
+    ) => IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead>,
 ): IPdfAnnotationIndexReader {
     return {
         readPage,
@@ -132,6 +134,36 @@ describe('scanPdfAnnotationPages', () => {
             failed: false,
         });
         expect(onNativeIndexReadFailure).not.toHaveBeenCalled();
+    });
+
+    it('does not create an async turn for every synchronously proven-empty page', async () => {
+        const trace: string[] = [];
+        const readPage = vi.fn((pageIndex: number) => {
+            trace.push(`read:${String(pageIndex)}`);
+            return {
+                hasAnnotations: false,
+                names: new Map<string, string>(),
+            };
+        });
+        const pending = scan(
+            createReader(readPage),
+            [
+                1,
+                2,
+            ],
+            vi.fn(async () => createEmptyPageBundle()),
+        );
+        trace.push('after-call');
+
+        expect(trace).toEqual([
+            'read:0',
+            'read:1',
+            'after-call',
+        ]);
+        await expect(pending).resolves.toMatchObject({result: {
+            visitedPageCount: 2,
+            failedPageCount: 0,
+        }});
     });
 
     it('loads pages marked by unnamed, link, and direct annotation entries', async () => {

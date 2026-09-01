@@ -805,6 +805,48 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('does not hydrate a large reload metric prefix before restoring a distant page', async () => {
+        const fixture = createViewportFixture({
+            continuousScroll: false,
+            pageCount: 20_001,
+            zoomMode: 'custom',
+        });
+        const reloadPlan = {
+            isReload: true,
+            isSelectiveReload: false,
+            pagesToInvalidate: null,
+            preserveVisibleContent: false,
+            preservePageStructure: false,
+        };
+        try {
+            setCurrentPage(fixture.viewport, 20_001);
+            await fixture.documentSession.emit(transition('loading', reloadPlan));
+            const ready = fixture.documentSession.emit(transition('ready', reloadPlan));
+
+            await vi.waitFor(() => expect(
+                fixture.documentSession.ensurePageMetricsInRange,
+            ).toHaveBeenCalledWith(20_001, 20_001));
+
+            let rasterId = 0;
+            await vi.waitFor(() => {
+                const mandatory = fixture.viewport.demand.value.mandatoryRaster;
+                expect(mandatory).not.toBeNull();
+                rasterId = mandatory!.id;
+            });
+            fixture.viewport.settleMandatoryRaster(rasterId);
+            await vi.waitFor(() => {
+                const mandatory = fixture.viewport.demand.value.mandatoryRaster;
+                expect(mandatory?.id).toBeGreaterThan(rasterId);
+                rasterId = mandatory!.id;
+            });
+            fixture.viewport.settleMandatoryRaster(rasterId);
+            await ready;
+            expect(fixture.documentSession.ensurePageMetricsInRange).toHaveBeenCalledTimes(1);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('reconciles a staged opening canvas when viewport layout publishes later', async () => {
         const surface = createDocumentOpenSurfaceSession();
         const generation = surface.begin({

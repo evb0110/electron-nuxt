@@ -28,7 +28,13 @@ interface IPdfAnnotationIndexFiles {
  * Electron contract or on the sidecar representation.
  */
 export interface IPdfAnnotationIndexReader {
-    readPage: (pageIndex: number) => Promise<IPdfAnnotationIndexPageRead>;
+    // An exhausted index can answer an empty page without crossing an async
+    // boundary. This matters for a large PDF with no annotations: the scan
+    // still visits every page, but it must not retain one Promise and Map per
+    // page until the renderer gets a chance to collect them.
+    readPage: (
+        pageIndex: number,
+    ) => IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead>;
     readPageNames: (pageIndex: number) => Promise<ReadonlyMap<string, string>>;
     cancel: () => Promise<void>;
     release: () => Promise<void>;
@@ -82,6 +88,17 @@ export function createPdfAnnotationIndexLifecycle(): IPdfAnnotationIndexLifecycl
 }
 
 const RENDERER_ANNOTATION_INDEX_CHUNK_BYTES = PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES;
+const EMPTY_ANNOTATION_INDEX_NAMES: ReadonlyMap<string, string> = new Map();
+const EMPTY_ANNOTATION_INDEX_PAGE_READ: IPdfAnnotationIndexPageRead = Object.freeze({
+    hasAnnotations: false,
+    names: EMPTY_ANNOTATION_INDEX_NAMES,
+});
+
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+    return typeof value === 'object'
+        && value !== null
+        && typeof (value as {then?: unknown}).then === 'function';
+}
 
 function isValidAnnotationIndexEntry(
     entry: IPdfAnnotationIndexEntry,
@@ -175,14 +192,21 @@ function createReader(
         addChunkEntries(pendingNamesByPage, indexedPages, chunk);
     }
 
-    async function readPage(pageIndex: number): Promise<IPdfAnnotationIndexPageRead> {
-        if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) {
-            return {
-                hasAnnotations: false,
-                names: new Map<string, string>(),
-            };
+    function consumePageRead(pageIndex: number): IPdfAnnotationIndexPageRead {
+        const names = pendingNamesByPage.get(pageIndex);
+        const hasAnnotations = indexedPages.has(pageIndex);
+        pendingNamesByPage.delete(pageIndex);
+        indexedPages.delete(pageIndex);
+        if (!names && !hasAnnotations) {
+            return EMPTY_ANNOTATION_INDEX_PAGE_READ;
         }
+        return {
+            hasAnnotations,
+            names: names ?? EMPTY_ANNOTATION_INDEX_NAMES,
+        };
+    }
 
+    async function readPageAsync(pageIndex: number): Promise<IPdfAnnotationIndexPageRead> {
         while (
             !done
             && highestIndexedPage <= pageIndex
@@ -190,18 +214,23 @@ function createReader(
             await readNextChunk();
         }
 
-        const names = pendingNamesByPage.get(pageIndex) ?? new Map<string, string>();
-        const hasAnnotations = indexedPages.has(pageIndex);
-        pendingNamesByPage.delete(pageIndex);
-        indexedPages.delete(pageIndex);
-        return {
-            hasAnnotations,
-            names,
-        };
+        return consumePageRead(pageIndex);
+    }
+
+    function readPage(pageIndex: number): IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead> {
+        if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            return EMPTY_ANNOTATION_INDEX_PAGE_READ;
+        }
+        if (done) {
+            return consumePageRead(pageIndex);
+        }
+
+        return readPageAsync(pageIndex);
     }
 
     async function readPageNames(pageIndex: number) {
-        return (await readPage(pageIndex)).names;
+        const pageRead = readPage(pageIndex);
+        return (isPromiseLike(pageRead) ? await pageRead : pageRead).names;
     }
 
     async function cancel() {

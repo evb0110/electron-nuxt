@@ -14,6 +14,12 @@ import type {
     IPdfPageAnnotationBundle,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/annotationSyncHelpersTypes';
 
+function isPromiseLike<T>(value: T | PromiseLike<T>): value is PromiseLike<T> {
+    return typeof value === 'object'
+        && value !== null
+        && typeof (value as {then?: unknown}).then === 'function';
+}
+
 export interface IPdfAnnotationPageScanResult {
     omissions: Set<TAnnotationInventoryOmission>;
     visitedPageCount: number;
@@ -82,7 +88,10 @@ export async function scanPdfAnnotationPages(
                 // the old name-only call as a runtime compatibility path for
                 // readers created by older tests or bridges.
                 if (typeof nativeIndexReader.readPage === 'function') {
-                    const pageRead = await nativeIndexReader.readPage(pageNumber - 1);
+                    const pageReadOrPromise = nativeIndexReader.readPage(pageNumber - 1);
+                    const pageRead = isPromiseLike(pageReadOrPromise)
+                        ? await pageReadOrPromise
+                        : pageReadOrPromise;
                     pageAnnotationNames = pageRead.names;
                     skipPageLoad = !pageRead.hasAnnotations;
                 } else {

@@ -1,4 +1,7 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import {
     assertDocumentPageNumber,
@@ -10,6 +13,8 @@ import {
 interface ICreatePdfPageSourceOptions {
     documentRef: TDocumentRef;
     pdfDocument: PDFDocumentProxy;
+    /** Reuses the document session's bounded page-proxy owner for background metrics. */
+    getPage?: (pageNumber: number) => Promise<PDFPageProxy>;
     /** Delegates to the existing coordinated PDF.js path; the generic chassis never rasterizes PDF itself. */
     renderPage: (request: IDocumentPageRenderRequest) => Promise<IDocumentSurfaceLease>;
 }
@@ -28,7 +33,7 @@ export function createPdfPageSource(options: ICreatePdfPageSourceOptions): IDocu
         async getPageMetrics(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, options.pdfDocument.numPages);
             signal?.throwIfAborted();
-            const page = await options.pdfDocument.getPage(pageNumber);
+            const page = await (options.getPage?.(pageNumber) ?? options.pdfDocument.getPage(pageNumber));
             signal?.throwIfAborted();
             const viewport = page.getViewport({ scale: 1 });
             const rotation = ((viewport.rotation % 360) + 360) % 360;

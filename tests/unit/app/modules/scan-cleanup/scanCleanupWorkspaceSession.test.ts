@@ -434,6 +434,57 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.unmount();
     });
 
+    it('uses native document size for completion before viewer metadata arrives', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const totalPages = ref(0);
+        let mounted: ReturnType<typeof mountSession> | null = null;
+        try {
+            const mountedSession = mountSession(`unknown-page-count-${Date.now()}`, {totalPages: () => totalPages.value});
+            mounted = mountedSession;
+            await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+            const state: TScanCleanupDetectionJobState = detectionState('detect-1', 'completed', 1_025);
+            state.resultCount = 1_025;
+            state.progress = {
+                ...state.progress,
+                completedPageNumbers: [],
+                completedPageNumbersTruncated: true,
+            };
+            state.results = state.results.map(result => ({
+                ...result,
+                sourcePageMetadata: {
+                    pageNumber: result.pageNumber,
+                    xPoints: 0,
+                    yPoints: 0,
+                    widthPoints: 612,
+                    heightPoints: 792,
+                    rotation: 0,
+                    sourceDpi: 300,
+                },
+            }));
+            harness.emitDetection(state);
+
+            await vi.waitFor(() => {
+                expect(mountedSession.session.detection.terminalStatus.value).toBe('completed');
+                expect(mountedSession.session.detection.detectionEvidenceComplete.value).toBe(true);
+                expect(mountedSession.session.detection.settledPages.has(1_025)).toBe(true);
+                expect(mountedSession.session.detection.pagePlanEvidenceByPage.size)
+                    .toBeLessThanOrEqual(256);
+                expect(mountedSession.session.detection.sourcePageMetadataByPage.value.size)
+                    .toBeLessThanOrEqual(256);
+                expect(mountedSession.session.detection.authoritativeLayoutByPage.value.size)
+                    .toBeLessThanOrEqual(256);
+                expect(mountedSession.session.detection.settledPages.size).toBeLessThanOrEqual(256);
+            });
+            totalPages.value = 1_025;
+            await nextTick();
+            expect(harness.value.detectAll).toHaveBeenCalledOnce();
+        } finally {
+            mounted?.unmount();
+        }
+    });
+
     it('starts a full xlarge ink run with bounded document calibration', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

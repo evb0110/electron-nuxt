@@ -74,9 +74,11 @@ describe('usePdfViewportViewModel', () => {
             get: () => 700,
         });
         container.scrollLeft = 0;
+        const isActive = ref(true);
 
         const viewModel = scope.run(() => usePdfViewportViewModel({
             performancePolicy,
+            isActive: computed(() => isActive.value),
             viewportWritePort: createTestPdfViewportWritePort().port,
             viewerContainer: ref(container),
             bufferPages: computed(() => 2),
@@ -126,6 +128,9 @@ describe('usePdfViewportViewModel', () => {
         ResizeObserverDouble.instances[0]?.trigger();
 
         expect(viewModel.viewerClass.value['pdfViewer--active-spread-fits-width']).toBe(true);
+
+        isActive.value = false;
+        expect(viewModel.pagesToRender.value).toEqual([]);
 
         scope.stop();
     });

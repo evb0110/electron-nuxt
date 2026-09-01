@@ -10,6 +10,7 @@ import {
 } from 'node:path';
 import {runNativeCommand} from '@electron/native-tools/runNativeCommand';
 import {readPngDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@scan-cleanup-core/pageBatches';
 import type {
     IScanCleanupRasterRenderLimits,
     TScanCleanupLog,
@@ -17,7 +18,11 @@ import type {
 } from '@scan-cleanup-core/types';
 
 const PDFTOPPM_BATCH_TIMEOUT_MS = 3 * 60 * 1_000;
-const MAX_RASTER_BATCH_PAGES = 64;
+// Analyze already owns a bounded 1,024-page manifest. Keeping the Poppler
+// range at that same boundary removes the page-tree seek and process startup
+// from every small staging window without making the detector's manifest or
+// native input window larger.
+const MAX_RASTER_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 
 interface IScanCleanupRasterBatchTarget {
     limits: IScanCleanupRasterRenderLimits;

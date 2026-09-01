@@ -56,6 +56,7 @@ import type { IZoomVirtualizationFreeze } from '@app/modules/pdf-viewer/runtime/
 import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
+import {resolvePdfReadyMetricRange} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfReadyMetricRange';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -402,6 +403,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     );
     const viewModel = usePdfViewportViewModel({
         performancePolicy: options.performancePolicy,
+        isActive: options.isActive,
         viewerContainer: options.viewerContainer,
         bufferPages: options.bufferPages,
         viewMode: options.viewMode,
@@ -980,12 +982,13 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         activeDocumentPlacement = null;
         pinCurrentPageToRestoreTarget();
         if (!transition.plan.preserveVisibleContent) {
-            await documentSession.ensurePageMetricsInRange(
-                transition.plan.isReload && !transition.plan.isSelectiveReload && currentPage.value > 1
-                    ? 1
-                    : currentPage.value,
-                currentPage.value,
-            );
+            const readyMetricRange = resolvePdfReadyMetricRange({
+                currentPage: currentPage.value,
+                totalPages: numPages.value,
+                isReload: transition.plan.isReload,
+                isSelectiveReload: transition.plan.isSelectiveReload,
+            });
+            await documentSession.ensurePageMetricsInRange(readyMetricRange.start, readyMetricRange.end);
             if (!transition.isCurrent()) {
                 return;
             }

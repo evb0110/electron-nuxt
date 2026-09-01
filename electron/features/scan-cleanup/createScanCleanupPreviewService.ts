@@ -70,6 +70,7 @@ import {
     type IScanCleanupDocumentRasterPages,
     completedPageProgress,
 } from '@scan-cleanup-core/detection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {createArrayBackedPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import {
     addScanCleanupDocumentCanvasPage,
@@ -187,9 +188,62 @@ const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
-const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = 48;
+// Keep fallback page probes within the same bounded unit as detection and
+// source-DPI probing. The raster cache and decoded page window stay bounded
+// independently of this page-number batch size.
+const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
 const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
+const RENDERER_DETECTION_PAGE_WINDOW_PAGES = 256;
+
+export function projectScanCleanupDetectionStateForRenderer(
+    state: TScanCleanupDetectionJobState,
+): TScanCleanupDetectionJobState {
+    const isLargeDetectionState = state.progress.totalUnits > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+        || (state.resultCount ?? 0) > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+        || state.results.length > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
+        || state.progress.completedPageNumbersTruncated === true;
+    if (!isLargeDetectionState) {
+        return state;
+    }
+    const {
+        completedPageNumbers: _completedPageNumbers,
+        completedPageNumbersTruncated: _completedPageNumbersTruncated,
+        ...progressWithoutCompletionList
+    } = state.progress;
+    const progress = {
+        ...progressWithoutCompletionList,
+        completedPageNumbers: [],
+        completedPageNumbersTruncated: true,
+    };
+    const results = state.results.slice(-RENDERER_DETECTION_PAGE_WINDOW_PAGES).map(result => ({
+        pageNumber: result.pageNumber,
+        ...(result.revision === undefined ? {} : {revision: result.revision}),
+        classification: result.classification,
+        confidence: result.confidence,
+        cutterXPx: result.cutterXPx,
+        tier1Verdict: result.tier1Verdict,
+        reconciled: result.reconciled,
+        clusterAgreement: result.clusterAgreement,
+        documentPrior: result.documentPrior,
+        ...(result.textAxis === undefined ? {} : {textAxis: result.textAxis}),
+        ...(result.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: result.recommendedOutputMode}),
+        ...(result.recommendedOutputModeConfidence === undefined
+            ? {}
+            : {recommendedOutputModeConfidence: result.recommendedOutputModeConfidence}),
+        ...(result.recommendedOutputModeReason === undefined
+            ? {}
+            : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
+        ...(result.softAlphaForegroundRecommendation === undefined
+            ? {}
+            : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),
+    }));
+    return {
+        ...state,
+        progress,
+        results,
+    };
+}
 
 function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
     if (
@@ -3349,7 +3403,6 @@ export interface IScanCleanupPreviewService {
 export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
-    const rendererDetectionResultWindowPages = 256;
     const active = new Map<string, IPreviewEntry>();
     const previewOwnerBindings = new Map<number, IPreviewOwnerBinding>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
@@ -3381,28 +3434,9 @@ export function createScanCleanupPreviewService(
         result.softAlphaForegroundRecommendation,
         result.pagePlanEvidence,
     ]);
-    const rendererDetectionState = (
-        state: TScanCleanupDetectionJobState | null,
-    ): TScanCleanupDetectionJobState | null => {
-        if (
-            state === null
-            || state.progress.totalUnits <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
-        ) {
-            return state;
-        }
-        const results = state.results.slice(-rendererDetectionResultWindowPages).map(result => {
-            const projected = {...result};
-            delete projected.outputModeDiagnostics;
-            delete projected.pagePlanEvidence;
-            delete projected.sourcePageMetadata;
-            delete projected.splitDiagnostics;
-            return projected;
-        });
-        return {
-            ...state,
-            results,
-        };
-    };
+    const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
+        state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
+    );
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,

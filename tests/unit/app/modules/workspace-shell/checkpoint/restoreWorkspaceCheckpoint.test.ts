@@ -45,7 +45,14 @@ describe('restoreWorkspaceCheckpoint', () => {
             workspace,
         ]]));
         const restoreGraph = vi.fn();
-        const openPathInReservedTab = vi.fn().mockResolvedValue(true);
+        const restoreSurfaceMode = vi.fn();
+        const order: string[] = [];
+        restoreGraph.mockImplementation(() => order.push('graph'));
+        restoreSurfaceMode.mockImplementation(() => order.push('surface'));
+        const openPathInReservedTab = vi.fn(async () => {
+            order.push('open');
+            return true;
+        });
         const activateTab = vi.fn();
 
         await restoreWorkspaceCheckpoint({
@@ -76,6 +83,7 @@ describe('restoreWorkspaceCheckpoint', () => {
                 continuousScroll: false,
                 viewMode: 'facing',
                 viewRotation: 90,
+                surfaceMode: 'scan-cleanup',
             }],
         }, {
             tabs,
@@ -83,9 +91,16 @@ describe('restoreWorkspaceCheckpoint', () => {
             restoreGraph,
             openPathInReservedTab,
             activateTab,
+            restoreSurfaceMode,
         });
 
         expect(restoreGraph).toHaveBeenCalledOnce();
+        expect(restoreSurfaceMode).toHaveBeenCalledWith('old-tab', 'scan-cleanup');
+        expect(order).toEqual([
+            'graph',
+            'surface',
+            'open',
+        ]);
         expect(openPathInReservedTab).toHaveBeenCalledWith('old-tab', {
             kind: 'pdf',
             originalPath: '/documents/draft.pdf',

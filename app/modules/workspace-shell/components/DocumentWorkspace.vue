@@ -103,12 +103,13 @@
         >
             <template #sidebar>
                 <PdfSidebar
-                    v-if="driverShowsPdfSidebar && !openingPageSource"
+                    v-if="surfaceMode === 'reader' && driverShowsPdfSidebar && !openingPageSource"
                     v-model:active-tab="sidebarTab"
                     v-model:search-query="searchQuery"
                     :submitted-search-query="submittedSearchQuery"
                     :search-options="searchOptions"
                     :is-open="showSidebar"
+                    :is-active="isDocumentSidebarActive"
                     :is-resizing="isResizingSidebar"
                     :pdf-document="pdfDocument"
                     :raster-scheduler="pdfRasterScheduler"
@@ -176,9 +177,9 @@
                     @page-file-drop="documentControls.handlePageFileDrop"
                 />
                 <DocumentSourceSidebar
-                    v-else
+                    v-else-if="surfaceMode === 'reader'"
                     v-model:active-tab="sidebarTab"
-                    :is-active="isActive || isRenderActive || isActiveViewerLayoutResizing"
+                    :is-active="isDocumentSidebarActive"
                     :source="documentSourceSidebar.source.value"
                     :current-page="toolbarCurrentPage"
                     :is-resizing="isActiveViewerLayoutResizing || (isRenderActive && !isActive)"
@@ -725,6 +726,17 @@ const isExternalWorkspaceLayoutResizingRef = toRef(() => isExternalWorkspaceLayo
 const isActiveViewerLayoutResizing = computed(() => (
     isResizingSidebar.value || isExternalWorkspaceLayoutResizingRef.value || isTabTransitionBusy
 ));
+const isDocumentSidebarActive = computed(() => (
+    surfaceMode.value === 'reader'
+    && (isActive || isRenderActive || isActiveViewerLayoutResizing.value)
+));
+// Keep the PDF feature pack mounted so its document session and page source stay
+// durable for scan cleanup. Its reader presentation is separate and can be
+// removed while the cleanup surface owns the visible page work.
+const isDocumentViewerPresentationMounted = computed(() => surfaceMode.value === 'reader');
+const isDocumentViewerRenderActive = computed(() => (
+    isRenderActive && surfaceMode.value === 'reader'
+));
 function requestAnnotationEnrichment() {
     void pdfViewerRef.value?.ensurePdfAnnotationNameReconciliation?.('annotations-ui-open');
 }
@@ -1057,7 +1069,8 @@ const {
     documentSourceCurrentResultIndex: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.currentResultIndex.value : -1),
     documentSourceSearchResults: computed(() => isActiveRef.value && showSidebar.value ? documentSourceSidebar.searchSession.results.value : []),
     isInteractionActive: isActiveRef,
-    isRenderActive: computed(() => isRenderActive),
+    mountPresentation: isDocumentViewerPresentationMounted,
+    isRenderActive: isDocumentViewerRenderActive,
     isWorkspaceLayoutResizing: isActiveViewerLayoutResizing,
     navigationFeedbackPage,
     onInitialVisualPending: handleDocumentInitialVisualPending,

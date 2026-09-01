@@ -30,10 +30,12 @@ import {decodeSplitDiagnostics} from '@contracts/scan-cleanup/decodeSplitDiagnos
 import {
     decodeBoundedScanCleanupString,
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
+    SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
+const SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES = 256;
 
 function decodePreviewBytes(value: unknown, label: string) {
     if (!(value instanceof Uint8Array) || value.byteLength === 0 || value.byteLength > PREVIEW_MAX_IMAGE_BYTES) {
@@ -983,8 +985,29 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             || value.resultCount < 0
         ))
     ) throw new Error('invalid scan-cleanup detection job state');
-    const progress = SCAN_CLEANUP_PROGRESS_SCHEMA.decode(value.progress);
-    const results = value.results.map(result => {
+    const resultCount = value.resultCount === undefined
+        ? value.results.length
+        : decodeNonNegativeInteger(value.resultCount, 'detection result count');
+    if (resultCount < value.results.length) {
+        throw new Error('invalid scan-cleanup detection result count');
+    }
+    const isLargeDetectionState = (
+        typeof value.progress.totalUnits === 'number'
+        && value.progress.totalUnits > SCAN_CLEANUP_STREAMING_BATCH_PAGES
+    ) || resultCount > SCAN_CLEANUP_STREAMING_BATCH_PAGES
+        || value.results.length > SCAN_CLEANUP_STREAMING_BATCH_PAGES
+        || value.progress.completedPageNumbersTruncated === true;
+    const progress = SCAN_CLEANUP_PROGRESS_SCHEMA.decode(isLargeDetectionState
+        ? {
+            ...value.progress,
+            completedPageNumbers: [],
+            completedPageNumbersTruncated: true,
+        }
+        : value.progress);
+    const resultsToDecode = isLargeDetectionState
+        ? value.results.slice(-SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES)
+        : value.results;
+    const results = resultsToDecode.map(result => {
         if (
             !isRecord(result)
             || ![
@@ -1031,7 +1054,7 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
                 && typeof result.softAlphaForegroundRecommendation !== 'boolean')
         ) throw new Error('invalid scan-cleanup detection result');
         const pageNumber = decodePositiveInteger(result.pageNumber, 'detection page number');
-        const sourcePageMetadata = result.sourcePageMetadata === undefined
+        const sourcePageMetadata = isLargeDetectionState || result.sourcePageMetadata === undefined
             ? undefined
             : decodeSourcePageMetadata(result.sourcePageMetadata);
         if (
@@ -1040,10 +1063,10 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         ) {
             throw new Error('invalid scan-cleanup detection source page metadata');
         }
-        const pagePlanEvidence = result.pagePlanEvidence === undefined
+        const pagePlanEvidence = isLargeDetectionState || result.pagePlanEvidence === undefined
             ? undefined
             : decodeScanCleanupPagePlanEvidence(result.pagePlanEvidence, pageNumber);
-        const splitDiagnostics = result.splitDiagnostics === undefined
+        const splitDiagnostics = isLargeDetectionState || result.splitDiagnostics === undefined
             ? undefined
             : decodeSplitDiagnostics(result.splitDiagnostics);
         return {
@@ -1089,12 +1112,8 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
             ...(splitDiagnostics === undefined ? {} : {splitDiagnostics}),
         };
     });
-    const resultCount = value.resultCount === undefined
-        ? results.length
-        : decodeNonNegativeInteger(value.resultCount, 'detection result count');
     if (
-        resultCount < results.length
-        || resultCount > progress.totalUnits
+        resultCount > progress.totalUnits
         || (value.status === 'completed' && resultCount !== progress.completedUnits)
     ) throw new Error('invalid scan-cleanup detection result count');
     const base = {

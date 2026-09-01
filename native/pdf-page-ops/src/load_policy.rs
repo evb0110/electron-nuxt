@@ -9,9 +9,10 @@ pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_OBJECTS: usize = 1_000_000;
 // Eager byte-array and WASM loads keep their existing page admission budget.
-// Path-backed incremental loads use the bounded structural reader instead of
-// treating this compatibility budget as a document limit.
 const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
+// Path-backed loads need to admit the xlarge acceptance document, but they
+// still need a finite page-count guard before lopdf builds its object graph.
+const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
 const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 
@@ -33,7 +34,7 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
 };
 
 const PDF_PATH_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
-    max_pages: None,
+    max_pages: Some(MAX_PATH_INPUT_PDF_PAGES),
     ..PDF_LOAD_POLICY
 };
 
@@ -1179,7 +1180,7 @@ fn validate_page_count(page_count: u64, policy: PdfLoadPolicy) -> Result<()> {
     if let Some(max_pages) = policy.max_pages {
         if page_count > max_pages {
             return Err(limit_error(format!(
-                "PDF page count exceeds the {}-page byte-input admission ceiling",
+                "PDF page count exceeds the {}-page admission ceiling",
                 max_pages
             )));
         }
@@ -1400,6 +1401,22 @@ mod tests {
     }
 
     #[test]
+    fn path_policy_keeps_xlarge_page_admission_finite() {
+        assert_eq!(
+            PDF_PATH_LOAD_POLICY.max_pages,
+            Some(MAX_PATH_INPUT_PDF_PAGES)
+        );
+        validate_page_count(138_000, PDF_PATH_LOAD_POLICY).unwrap();
+        assert_too_large(
+            validate_page_count(
+                u64::try_from(MAX_PATH_INPUT_PDF_PAGES + 1).unwrap(),
+                PDF_PATH_LOAD_POLICY,
+            )
+            .unwrap_err(),
+        );
+    }
+
+    #[test]
     fn path_validation_checks_sparse_declared_pages_without_a_full_page_walk() {
         const PAGE_COUNT: i64 = 1_000_000;
         let mut document = Document::with_version("1.7");
@@ -1457,7 +1474,11 @@ mod tests {
         document.trailer.set("Root", catalog_id);
 
         reset_page_tree_node_read_count();
-        validate_loaded_document(&document, PDF_PATH_LOAD_POLICY).unwrap();
+        let sparse_tree_policy = PdfLoadPolicy {
+            max_pages: Some(PAGE_COUNT as usize),
+            ..PDF_PATH_LOAD_POLICY
+        };
+        validate_loaded_document(&document, sparse_tree_policy).unwrap();
 
         assert_eq!(
             document
