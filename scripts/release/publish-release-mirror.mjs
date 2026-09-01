@@ -19,6 +19,7 @@ import {
     S3Client,
 } from '@aws-sdk/client-s3';
 import {isSupplementalReleaseAsset} from './policy.mjs';
+import {hashFile} from './release-hash.mjs';
 import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
 
 const RELEASE_PREFIX = 'evb-viewer/releases/';
@@ -171,13 +172,7 @@ export function requireEnvironment(environment, name) {
     return value;
 }
 
-export async function hashFile(filePath) {
-    const hash = createHash('sha256');
-    for await (const chunk of createReadStream(filePath)) {
-        hash.update(chunk);
-    }
-    return hash.digest('hex');
-}
+export {hashFile};
 
 async function objectMatches(client, bucket, key, expectedSize, expectedSha256) {
     const result = await client.send(new GetObjectCommand({

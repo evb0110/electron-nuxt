@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {hashFile} from './publish-release-mirror.mjs';
+import {hashFile} from './release-hash.mjs';
 import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
 
 function runGh(args) {
