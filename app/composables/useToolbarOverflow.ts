@@ -14,6 +14,7 @@ const NON_LAYOUT_ATTRIBUTE_NAMES = new Set([
     'aria-label',
     'aria-pressed',
     'class',
+    'data-collapse-tier',
     'disabled',
     'title',
 ]);
@@ -227,11 +228,10 @@ export const useToolbarOverflow = () => {
             return;
         }
 
-        hasPendingLayoutMutation = true;
         if (suppressMutationEvents) {
-            needsRecalculation = true;
             return;
         }
+        hasPendingLayoutMutation = true;
         scheduleRecalculation();
     }, {
         subtree: true,
