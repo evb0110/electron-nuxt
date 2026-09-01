@@ -153,7 +153,7 @@ The focused test run passed:
 ```text
 pnpm exec vitest run tests/unit/electron/searchIpcResourceLimits.test.ts tests/unit/electron/searchWarmIndexIpc.test.ts tests/unit/electron/searchWorkerService.test.ts tests/unit/electron/xlargeIndexBuilder.test.ts --reporter=dot
 Test Files 4 passed (4)
-Tests 54 passed (54)
+Tests 55 passed (55)
 ```
 
 The interpretation above comes from the current repository's Electron, renderer, contract, OCR, native, cleanup, and test code, with the official IPC and Node cancellation semantics linked above. The named production Haspelmath PDF remains an external fixture and was not copied into the repository. The exact note path is `docs/research/stale-revision-xlarge-search-2026-09-02.md`.

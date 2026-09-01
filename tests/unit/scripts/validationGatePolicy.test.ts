@@ -471,6 +471,8 @@ describe('validation gate policy', () => {
             .toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
         expect(plan.find(stage => stage.id === 'native.test')?.dependsOn)
             .toEqual(['build.prepare']);
+        expect(plan.find(stage => stage.id === 'native.resource-matrix')?.dependsOn)
+            .toEqual(['build.strict']);
         expect(plan.find(stage => stage.id === 'build.strict')?.dependsOn)
             .toEqual(['build.prepare']);
         expect(plan.find(stage => stage.id === 'electron.bundle-integrity')?.dependsOn)

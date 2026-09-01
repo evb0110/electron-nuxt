@@ -139,7 +139,10 @@ export function createAllGatesValidationStages({
         }),
         pnpmStage('native.resource-matrix', 'check:resources:matrix', {
             cacheable: true,
-            dependsOn: ['build.prepare'],
+            // The host native binaries are produced by build.strict. Running
+            // this check beside that build makes a clean checkout fail before
+            // the artifacts exist.
+            dependsOn: ['build.strict'],
             env: {EVB_BUILD_ARTIFACTS_PREPARED: '1'},
             inputScope: 'native',
             priority: 25,
