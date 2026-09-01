@@ -39,6 +39,7 @@ interface IWorkflowStep {
     if?: string;
     name?: string;
     run?: string;
+    uses?: string;
 }
 
 interface IWorkflowJob {
@@ -128,6 +129,50 @@ function parseWorkflowTriggers(workflow: string) {
         throw new Error('The CI workflow must contain an event mapping.');
     }
     return parsed.on;
+}
+
+function expectAcyclicNeedsGraph(workflow: string, label: string) {
+    const jobs = parseWorkflowJobs(workflow);
+    const visiting = new Set<string>();
+    const visited = new Set<string>();
+    const visit = (jobName: string) => {
+        expect(jobs[jobName], `${label}: missing job ${jobName}`).toBeDefined();
+        if (visited.has(jobName)) {
+            return;
+        }
+        expect(visiting.has(jobName), `${label}: needs graph contains a cycle at ${jobName}`).toBe(false);
+        visiting.add(jobName);
+        const needs = jobs[jobName]?.needs;
+        const dependencies = needs === undefined
+            ? []
+            : Array.isArray(needs) ? needs : [needs];
+        for (const dependency of dependencies) {
+            visit(dependency);
+        }
+        visiting.delete(jobName);
+        visited.add(jobName);
+    };
+
+    for (const jobName of Object.keys(jobs)) {
+        visit(jobName);
+    }
+}
+
+function expectScriptJobsHaveCheckout(workflow: string, label: string) {
+    const jobs = parseWorkflowJobs(workflow);
+    for (const [
+        jobName,
+        job,
+    ] of Object.entries(jobs)) {
+        const steps = job.steps ?? [];
+        const scriptIndex = steps.findIndex(step => (step.run ?? '').includes('scripts/'));
+        if (scriptIndex === -1) {
+            continue;
+        }
+        const checkoutIndex = steps.findIndex(step => step.uses?.startsWith('actions/checkout@'));
+        expect(checkoutIndex, `${label}: ${jobName} runs a script without checkout`).toBeGreaterThanOrEqual(0);
+        expect(checkoutIndex, `${label}: ${jobName} checks out after running a script`).toBeLessThan(scriptIndex);
+    }
 }
 
 const requiredPrPushConditions = new Set([
@@ -530,7 +575,7 @@ describe('CI topology policy', () => {
         expect(packageScripts['check:static:reports']).toContain('reportPlatformManifestConsumers.ts');
         expect(packageScripts['check:static:assets']).toContain('check-web-deploy-source.mjs');
         expect(prQuality).toContain('run: pnpm run typecheck');
-        expect(prQuality).toContain('run: pnpm run test:unit');
+        expect(prQuality).toContain('run: pnpm run test:coverage');
 
         // These three gates went unrun for days because only the invisible
         // nightly lane checked them. They belong on the merge-blocking lane, but
@@ -841,6 +886,7 @@ describe('CI topology policy', () => {
         const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const win7Workflow = await readProjectFile('.github/workflows/build-win7-legacy.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const supplementalWorkflow = await readProjectFile('.github/workflows/release-supplemental.yml');
         const macSigningScript = await readProjectFile('scripts/release/configure-macos-signing.sh');
         const macCertificateImportScript = await readProjectFile('scripts/release/import-macos-codesign-certificate.sh');
         const buildJob = workflowJob(workflow, 'build');
@@ -869,7 +915,7 @@ describe('CI topology policy', () => {
         expect(buildJob).toContain('artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}');
         expect(buildJob).toContain('if: ${{ always() }}');
         expect(buildJob).toContain(
-            'artifact_ready=${{ steps.upload_artifacts.outcome == \'success\' && (runner.os != \'Windows\' || steps.nsis_journey.outcome == \'success\') }}',
+            'artifact_ready=${{ steps.upload_artifacts.outcome == \'success\' }}',
         );
         expect(dmgNotarizationStep).toContain('bash scripts/release/import-macos-codesign-certificate.sh');
         expect(dmgNotarizationStep).toContain('node scripts/release/notarize-macos-dmgs.mjs release');
@@ -957,13 +1003,15 @@ describe('CI topology policy', () => {
         expect(coreBuildWorkflow).toContain('artifact_group: dist-linux-x64');
         expect(coreBuildWorkflow).toContain('artifact_group: dist-linux-arm64');
         expect(coreBuildWorkflow).toContain('artifact_group: dist-win-x64');
-        const supplementalWindowsArm = workflowJob(releaseWorkflow, 'build_win_arm64');
+        const supplementalWindowsArm = workflowJob(supplementalWorkflow, 'build_win_arm64');
         expect(supplementalWindowsArm).toContain('uses: ./.github/workflows/build-target.yml');
         expect(supplementalWindowsArm).toContain('os: windows-11-arm');
         expect(supplementalWindowsArm).toContain('platform: win');
         expect(supplementalWindowsArm).toContain('arch: arm64');
         expect(supplementalWindowsArm).toContain('artifact_group: supplemental-win-arm64');
         expect(supplementalWindowsArm).not.toContain('advisory:');
+        expect(releaseWorkflow).not.toContain('build_win_arm64:');
+        expect(releaseWorkflow).not.toContain('build_mac_intel:');
         // Runner provisioning has one owner: the setup-release-env composite
         // action. MSYS2 install, export, and tool verification live there and
         // must have completed before the Windows bundle step runs.
@@ -1005,12 +1053,12 @@ describe('CI topology policy', () => {
         expect(macCertificateImportScript).toContain('Developer ID Application');
 
         const releaseCredentials = workflowJob(releaseWorkflow, 'release_credentials');
-        expect(releaseCredentials).toContain('Resolve public release channels');
+        expect(releaseCredentials).toContain('Validate public release credentials');
         expect(releaseCredentials).toContain('environment: release');
         expect(releaseCredentials).toContain('direct-download Windows installers will be unsigned');
         expect(releaseCredentials).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
-        expect(releaseCredentials).toContain('Microsoft Store submission will be skipped after the AppX packages are built and verified');
-        expect(releaseCredentials).toContain('submit_store=$submit_store');
+        expect(releaseCredentials).not.toContain('PARTNER_CLIENT_SECRET');
+        expect(releaseCredentials).not.toContain('submit_store=');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('- release_credentials');
 
         const packagedScanCleanupVerifier = workflowJob(releaseWorkflow, 'verify_packaged_scan_cleanup');
@@ -1055,7 +1103,7 @@ describe('CI topology policy', () => {
         // #109); prepare calls it from the trusted dispatch-ref checkout.
         expect(prepareJob).toContain('node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"');
         const waitScript = await readProjectFile('scripts/release/wait-for-exact-sha-ci.mjs');
-        expect(waitScript).toContain('/runs?head_sha=${targetSha}&event=push');
+        expect(waitScript).toContain('/runs?head_sha=${targetSha}&branch=main&per_page=20');
         expect(waitScript).toContain('select(.name == "gates_ok")');
         // Policy, not a literal: the completion budget must stay ahead of the
         // slowest blocking CI job's declared timeout plus a queueing margin,
@@ -1116,259 +1164,184 @@ describe('CI topology policy', () => {
         // release:verify:checks list.
         expect(releaseWorkflow).not.toContain('run: pnpm run release:verify:checks');
         expect(releaseWorkflow).not.toContain('\n  quality:\n');
-        expect(releaseWorkflow).not.toContain('secrets: inherit');
-        expect(releaseWorkflow).not.toContain('build_win7_legacy:');
-        expect(releaseWorkflow).not.toContain('publish_win7_legacy:');
+        for (const removedJob of [
+            'build_win_arm64',
+            'build_mac_intel',
+            'attach_win_arm64',
+            'attach_mac_intel',
+            'publish_store',
+            'submit_store',
+            'report_store_deferred',
+        ]) {
+            expect(parseWorkflowJobs(releaseWorkflow)[removedJob], `release.yml still owns ${removedJob}`).toBeUndefined();
+        }
+
         const publishJob = workflowJob(releaseWorkflow, 'publish');
         expect(publishJob).toContain('environment: release');
         expect(publishJob).toContain('uses: ./.github/actions/setup-release-env');
-        const releaseDependencyInstallIndex = publishJob.indexOf(
-            'name: Setup release environment',
+        expect(publishJob.indexOf('name: Setup release environment')).toBeLessThan(
+            publishJob.indexOf('name: Download release artifacts'),
         );
-        const releaseArtifactDownloadIndex = publishJob.indexOf(
-            'name: Download release artifacts',
-        );
-        expect(releaseDependencyInstallIndex).toBeGreaterThanOrEqual(0);
-        expect(releaseArtifactDownloadIndex).toBeGreaterThanOrEqual(0);
-        expect(releaseDependencyInstallIndex).toBeLessThan(releaseArtifactDownloadIndex);
         expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
-        expect(publishJob).toContain('gh release delete-asset "$RELEASE_TAG" "$existing_name" --yes');
-        expect(publishJob).not.toContain('--clobber');
-        expect(publishJob).toContain('gh release upload "$RELEASE_TAG" "$source"');
-        expect(publishJob).toContain('grep -Fqx \'SHA256SUMS\'');
         expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
         expect(publishJob).toContain('release-checksums.mjs verify downloaded-assets');
-        expect(publishJob).toContain('sha256sum "$source"');
         expect(publishJob).not.toContain('gh release edit "$RELEASE_TAG" --draft=false');
 
-        const finalizeAssetsJob = workflowJob(releaseWorkflow, 'finalize_release_assets');
-        const stageMirrorJob = workflowJob(releaseWorkflow, 'stage_mirror');
-        const publishStoreJob = workflowJob(releaseWorkflow, 'publish_store');
-        const submitStoreJob = workflowJob(releaseWorkflow, 'submit_store');
-        const reportStoreDeferredJob = workflowJob(releaseWorkflow, 'report_store_deferred');
-        const promoteJob = workflowJob(releaseWorkflow, 'promote_release');
-        expect(finalizeAssetsJob).toContain('environment: release');
-        expect(stageMirrorJob).toContain('environment: release');
-        expect(promoteJob).toContain('environment: release');
-        // Critical-path rule: supplemental and Store lanes never gate
-        // publication. macOS Intel and Windows ARM attach after promotion.
-        expect(publishJob).not.toContain('- build_mac_intel');
-        expect(publishJob).not.toContain('- build_win_arm64');
-        expect(publishJob).not.toContain('pattern: supplemental-mac-x64');
-        expect(publishJob).not.toContain('pattern: supplemental-win-arm64');
-        expect(publishJob).toContain('"EVB-Viewer-${RELEASE_VERSION}-x64.zip"');
-        expect(publishJob).toContain('"EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe"');
-        expect(publishJob).toContain(
-            '"EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json"',
-        );
-        expect(finalizeAssetsJob).not.toContain('- publish_store');
-        expect(stageMirrorJob).toContain('- finalize_release_assets');
-        // Draft assets are invisible to read-only tokens; without this the
-        // mirror stage fails with 'release not found' on every fresh cut.
-        expect(stageMirrorJob).toContain('contents: write');
-        expect(publishStoreJob).toContain('- stage_mirror');
-        expect(publishStoreJob).not.toContain('- release_credentials');
-        expect(publishStoreJob).not.toContain('- build_win_arm64');
-        expect(publishStoreJob).not.toContain('- attach_win_arm64');
-        expect(submitStoreJob).toContain('- release_credentials');
-        expect(submitStoreJob).toContain('- build_win_arm64');
-        expect(submitStoreJob).toContain('- attach_win_arm64');
-        expect(submitStoreJob).toContain('- publish_store');
-        expect(submitStoreJob).toContain('uses: ./.github/workflows/submit-store-appx.yml');
-        expect(submitStoreJob).toContain(
-            'needs.release_credentials.outputs.submit_store == \'true\'',
-        );
-        expect(submitStoreJob).toContain(
-            'needs.build_win_arm64.outputs.artifact_ready == \'true\'',
-        );
-        expect(reportStoreDeferredJob).toContain('- release_credentials');
-        expect(reportStoreDeferredJob).toContain('- build_win_arm64');
-        expect(reportStoreDeferredJob).toContain('- promote_release');
-        expect(reportStoreDeferredJob).toContain(
-            'needs.release_credentials.outputs.submit_store == \'true\'',
-        );
-        expect(reportStoreDeferredJob).toContain(
-            'needs.build_win_arm64.outputs.artifact_ready != \'true\'',
-        );
-        expect(reportStoreDeferredJob).toContain('Partner Center submission was deferred');
-        expect(stageMirrorJob).toContain('publish-release-mirror.mjs artifacts "${{ needs.prepare.outputs.tag }}" --stage');
-        expect(promoteJob).toContain('- stage_mirror');
-        expect(promoteJob).not.toContain('- publish_store');
-        expect(promoteJob).not.toContain('- submit_store');
-        expect(parseWorkflowJobs(releaseWorkflow).promote_release?.if).toBeUndefined();
+        const releaseJobs = parseWorkflowJobs(releaseWorkflow);
+        expect(releaseJobs.chain?.needs).toEqual([
+            'prepare',
+            'publish',
+        ]);
+        const chainJob = workflowJob(releaseWorkflow, 'chain');
+        expect(chainJob).toContain('uses: ./.github/workflows/publish-chain.yml');
+        expect(chainJob).toContain('contents: write');
+        expect(chainJob).toContain('attestations: write');
+        expect(chainJob).toContain('id-token: write');
+        expect(chainJob).toContain('drill: false');
+        expect(chainJob).toContain('secrets: inherit');
+        const dispatchJob = workflowJob(releaseWorkflow, 'dispatch_supplemental');
+        expect(dispatchJob).toContain('actions: write');
+        expect(dispatchJob).toContain('gh workflow run release-supplemental.yml');
+        expect(dispatchJob).toContain('--ref "$WORKFLOW_REF"');
+        expect(dispatchJob).toContain('-f tag="$TAG"');
+        expect(dispatchJob).toContain('-f workflow_sha="$WORKFLOW_SHA"');
+        expect(dispatchJob).toContain('if: ${{ !cancelled() && needs.chain.result == \'success\' }}');
+        const completionJob = workflowJob(releaseWorkflow, 'release_complete');
+        expect(completionJob).toContain('if: ${{ always() }}');
+        expect(completionJob).toContain('Public release: $PUBLIC_URL');
+        expect(completionJob).toContain('Mirror channel: \\`$MIRROR_CHANNEL\\`');
+        expect(completionJob).toContain('Supplemental workflow: $SUPPLEMENTAL_RUN_URL');
+        expect(completionJob).toContain('PUBLISH_RESULT');
+        expect(completionJob).toContain('CHAIN_RESULT');
+        expect(completionJob).toContain('DISPATCH_RESULT');
+        expectAcyclicNeedsGraph(releaseWorkflow, 'release.yml');
 
-        const attachMacIntelJob = workflowJob(releaseWorkflow, 'attach_mac_intel');
-        expect(attachMacIntelJob).toContain('- build_mac_intel');
-        expect(attachMacIntelJob).toContain('- promote_release');
-        // Outside SHA256SUMS, provenance attestation is the Intel ZIP's
-        // integrity record — same mechanism finalize applies to core assets.
-        expect(attachMacIntelJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
-        expect(attachMacIntelJob).toContain('attestations: write');
-        expect(attachMacIntelJob).toContain('id-token: write');
-        expect(attachMacIntelJob).toContain('if: ${{ !cancelled() && needs.promote_release.result == \'success\' }}');
-        expect(attachMacIntelJob).toContain('pattern: supplemental-mac-x64');
-        expect(attachMacIntelJob).toContain('expected="artifacts/EVB-Viewer-${RELEASE_VERSION}-x64.zip"');
-        expect(attachMacIntelJob).toContain('the published release ships without the Intel ZIP');
-        const attachWindowsArmJob = workflowJob(releaseWorkflow, 'attach_win_arm64');
-        expect(attachWindowsArmJob).toContain('- build_win_arm64');
-        expect(attachWindowsArmJob).toContain('- promote_release');
-        expect(attachWindowsArmJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
-        expect(attachWindowsArmJob).toContain('attestations: write');
-        expect(attachWindowsArmJob).toContain('id-token: write');
-        expect(attachWindowsArmJob).toContain('if: ${{ !cancelled() && needs.promote_release.result == \'success\' }}');
-        expect(attachWindowsArmJob).toContain('pattern: supplemental-win-arm64');
-        expect(attachWindowsArmJob).toContain('EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe');
-        expect(attachWindowsArmJob).toContain('EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json');
-        expect(attachWindowsArmJob).toContain('the published release ships without Windows ARM64 assets');
-        expect(attachWindowsArmJob).toContain('id: win_arm64_assets');
-        expect(attachWindowsArmJob).toContain('unexpected file that was not attached');
-        expect(attachWindowsArmJob).toContain(
-            'EXPECTED_INSTALLER: ${{ steps.win_arm64_assets.outputs.installer }}',
-        );
-        expect(attachWindowsArmJob).toContain(
-            'EXPECTED_PROVENANCE: ${{ steps.win_arm64_assets.outputs.provenance }}',
-        );
-        expect(attachWindowsArmJob).not.toContain('subject-path: artifacts/*');
-        expect(attachWindowsArmJob).not.toContain('gh release upload "$RELEASE_TAG" artifacts/*');
-        expect(attachWindowsArmJob).toContain(
-            'if: ${{ needs.build_win_arm64.outputs.artifact_ready != \'true\' }}',
-        );
-        expect(
-            attachWindowsArmJob.match(
-                /if: \$\{\{ needs\.build_win_arm64\.outputs\.artifact_ready == 'true' \}\}/gu,
-            ),
-        ).toHaveLength(4);
-        expect(attachWindowsArmJob).not.toContain('needs.build_win_arm64.result');
-        expect(stageMirrorJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
-        expect(promoteJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
-        expect(finalizeAssetsJob).toContain('name: Publish or verify immutable release checksums');
-        expect(finalizeAssetsJob).toContain('ref: ${{ needs.prepare.outputs.workflow_sha }}');
-        expect(finalizeAssetsJob).toContain('persist-credentials: false');
-        expect(finalizeAssetsJob).toContain('release-checksums.mjs generate artifacts');
-        expect(finalizeAssetsJob).toContain('release-checksums.mjs verify artifacts');
-        expect(finalizeAssetsJob).toContain('attestations: write');
-        expect(finalizeAssetsJob).toContain('id-token: write');
-        expect(finalizeAssetsJob).toContain('actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a');
+        const publishChainWorkflow = await readProjectFile('.github/workflows/publish-chain.yml');
+        const publishChainJobs = parseWorkflowJobs(publishChainWorkflow);
+        expectAcyclicNeedsGraph(publishChainWorkflow, 'publish-chain.yml');
+        expect(publishChainWorkflow).toContain('workflow_call:');
+        expect(publishChainWorkflow).toContain('artifact_name_prefix:');
+        expect(publishChainWorkflow).toContain('mirror_prefix:');
+        expect(publishChainWorkflow).toContain('channel_key:');
+        expect(publishChainWorkflow).toContain('value: ${{ jobs.promote.outputs.released }}');
+        expect(publishChainJobs.finalize?.needs).toBeUndefined();
+        expect(publishChainJobs.stage_mirror?.needs).toBe('finalize');
+        expect(publishChainJobs.promote?.needs).toBe('stage_mirror');
+        for (const jobName of [
+            'finalize',
+            'stage_mirror',
+            'promote',
+        ]) {
+            const job = workflowJob(publishChainWorkflow, jobName);
+            expect(job, `publish-chain.yml ${jobName} must use the release environment`).toContain('environment: release');
+            expect(job, `publish-chain.yml ${jobName} must check out its trusted revision`).toContain(
+                'uses: actions/checkout@',
+            );
+            expect(job).toContain('ref: ${{ inputs.workflow_sha }}');
+            expect(job).toContain('uses: ./.github/actions/setup-release-env');
+        }
+        const finalizeJob = workflowJob(publishChainWorkflow, 'finalize');
+        expect(finalizeJob).toContain('pattern: ${{ inputs.artifact_name_prefix }}*');
+        expect(finalizeJob).toContain('release-checksums.mjs generate artifacts');
+        expect(finalizeJob).toContain('release-checksums.mjs verify artifacts');
+        expect(finalizeJob).toContain('ensure-github-release-assets.mjs');
+        expect(finalizeJob).toContain('if: ${{ !inputs.drill }}');
+        const stageMirrorJob = workflowJob(publishChainWorkflow, 'stage_mirror');
+        expect(stageMirrorJob).toContain('pnpm install --frozen-lockfile --ignore-scripts');
+        expect(stageMirrorJob).toContain('publish-release-mirror.mjs');
+        expect(stageMirrorJob).toContain('--stage');
+        expect(stageMirrorJob).toContain('MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}');
+        expect(stageMirrorJob).toContain('MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}');
+        const promoteJob = workflowJob(publishChainWorkflow, 'promote');
+        expect(promoteJob).toContain('pnpm install --frozen-lockfile --ignore-scripts');
         expect(promoteJob).toContain('for attempt in 1 2 3; do');
-        expect(promoteJob).toContain('timeout 600s node scripts/release/publish-release-mirror.mjs');
-        expect(promoteJob).toContain('sleep 30');
-        expect(promoteJob).toContain('Stable mirror activation did not complete within the bounded reconciliation window; the publisher attempted rollback.');
-        expect(promoteJob).toContain('name: Activate verified mirror channel');
-        expect(promoteJob).toContain('node scripts/release/publish-release-mirror.mjs');
         expect(promoteJob).toContain('gh release edit "$RELEASE_TAG" --draft=false');
-        const activationIndex = promoteJob.indexOf('name: Activate verified mirror channel');
-        const promotionIndex = promoteJob.indexOf('gh release edit "$RELEASE_TAG" --draft=false');
-        expect(activationIndex).toBeGreaterThanOrEqual(0);
-        expect(promotionIndex).toBeGreaterThan(activationIndex);
-        expect(promoteJob).toContain('rollback');
-        expect(promoteJob).toContain('Release channels did not converge.');
-        expect(promoteJob).toContain('exit 1');
-        expect(promoteJob).toContain('GITHUB_PROMOTION_STATUS=\'already public\'');
-        const retryLoopIndex = promoteJob.indexOf('for attempt in 1 2 3; do');
-        const timeoutIndex = promoteJob.indexOf('timeout 600s node scripts/release/publish-release-mirror.mjs');
-        const retrySleepIndex = promoteJob.indexOf('sleep 30');
-        expect(timeoutIndex).toBeGreaterThan(retryLoopIndex);
-        expect(retrySleepIndex).toBeGreaterThan(timeoutIndex);
-        const convergenceConditionIndex = promoteJob.indexOf('if [ "$MIRROR_ACTIVATION_OUTCOME" != \'success\' ]');
-        const convergenceExitIndex = promoteJob.indexOf('exit 1', convergenceConditionIndex);
-        expect(convergenceConditionIndex).toBeGreaterThanOrEqual(0);
-        expect(convergenceExitIndex).toBeGreaterThan(convergenceConditionIndex);
-        expect(promoteJob.indexOf('GITHUB_ALREADY_PUBLIC')).toBeGreaterThanOrEqual(0);
+        expect(promoteJob).toContain('if: ${{ !inputs.drill }}');
+        expect(promoteJob).toContain('if: ${{ inputs.drill }}');
+        expect(promoteJob).toContain('gh release view "$RELEASE_TAG" --json isDraft,assets');
+        expectScriptJobsHaveCheckout(publishChainWorkflow, 'publish-chain.yml');
+
+        const supplementalWorkflow = await readProjectFile('.github/workflows/release-supplemental.yml');
+        expectAcyclicNeedsGraph(supplementalWorkflow, 'release-supplemental.yml');
+        expectScriptJobsHaveCheckout(supplementalWorkflow, 'release-supplemental.yml');
+        expect(supplementalWorkflow).toContain('workflow_dispatch:');
+        expect(supplementalWorkflow).toContain('workflow_call:');
+        expect(supplementalWorkflow).toContain('group: release-supplemental-${{ inputs.tag }}');
+        for (const jobName of [
+            'resolve',
+            'release_credentials',
+            'build_win_arm64',
+            'build_mac_intel',
+            'publish_store',
+            'attach_win_arm64',
+            'attach_mac_intel',
+            'submit_store',
+            'summary',
+        ]) {
+            expect(parseWorkflowJobs(supplementalWorkflow)[jobName], `missing supplemental job ${jobName}`).toBeDefined();
+        }
+        expect(workflowJob(supplementalWorkflow, 'resolve')).toContain('gh release view "$TAG" --json isDraft');
+        expect(workflowJob(supplementalWorkflow, 'resolve')).toContain('git rev-parse --verify "$TAG^{commit}"');
+        for (const jobName of [
+            'attach_win_arm64',
+            'attach_mac_intel',
+        ]) {
+            const job = workflowJob(supplementalWorkflow, jobName);
+            expect(job).toContain('if: ${{ !cancelled()');
+            expect(job).toContain('uses: actions/checkout@');
+            expect(job).toContain('ensure-github-release-assets.mjs');
+        }
+        expect(workflowJob(supplementalWorkflow, 'summary')).toContain('$GITHUB_STEP_SUMMARY');
+
+        const drillWorkflow = await readProjectFile('.github/workflows/release-drill.yml');
+        expectAcyclicNeedsGraph(drillWorkflow, 'release-drill.yml');
+        expectScriptJobsHaveCheckout(drillWorkflow, 'release-drill.yml');
+        expect(drillWorkflow).toContain('- cron: \'17 3 * * *\'');
+        expect(drillWorkflow).toContain('group: release-drill');
+        expect(drillWorkflow).toContain('make-drill-release-assets.mjs');
+        expect(drillWorkflow).toContain('gh release create "$DRILL_TAG" "${core_assets[@]}" --draft --prerelease --notes "publish-chain drill"');
+        expect(workflowJob(drillWorkflow, 'chain')).toContain('drill: true');
+        expect(workflowJob(drillWorkflow, 'chain')).toContain('artifact_name_prefix: drill-dist-');
+        expect(workflowJob(drillWorkflow, 'chain')).toContain('mirror_prefix: evb-viewer/drill/${{ github.run_id }}/releases/');
+        expect(workflowJob(drillWorkflow, 'chain')).toContain('channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json');
+        const supplementalDrillJob = workflowJob(drillWorkflow, 'supplemental_drill');
+        expect(supplementalDrillJob).toContain('actions: read');
+        expect(supplementalDrillJob).toContain('contents: write');
+        expect(supplementalDrillJob).toContain('drill: true');
+        const cleanupJob = workflowJob(drillWorkflow, 'cleanup');
+        expect(cleanupJob).toContain('if: ${{ always() }}');
+        expect(cleanupJob).toContain('gh release delete "$DRILL_TAG" --yes');
+        expect(cleanupJob).toContain('publish-release-mirror.mjs cleanup "$DRILL_PREFIX"');
+        expect(cleanupJob).toContain('evb-viewer/drill/');
+
+        const artifactWorkflow = await readProjectFile('.github/workflows/release-artifacts.yml');
+        expect(parseWorkflowTriggers(artifactWorkflow)).toHaveProperty('schedule');
+        expect(artifactWorkflow).toContain('- cron: \'10 4 * * *\'');
+        expect(workflowJob(artifactWorkflow, 'freshness')).toContain('"$age_seconds" -gt 86400');
+        expect(workflowJob(artifactWorkflow, 'prepare')).toContain('always()');
     });
 
-    it('resolves optional release channels across the credential matrix', async () => {
+    it('keeps Store credentials in the supplemental release workflow', async () => {
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
-        const releaseCredentials = parseWorkflowJobs(releaseWorkflow).release_credentials;
-        const resolver = releaseCredentials?.steps?.find(step => step.name === 'Resolve public release channels')?.run;
-        expect(resolver).toBeTypeOf('string');
-        if (typeof resolver !== 'string') {
-            return;
-        }
+        const supplementalWorkflow = await readProjectFile('.github/workflows/release-supplemental.yml');
+        const releaseCredentials = workflowJob(releaseWorkflow, 'release_credentials');
+        const supplementalCredentials = workflowJob(supplementalWorkflow, 'release_credentials');
 
-        const completeCredentials = {
-            APPLE_API_ISSUER: 'apple-issuer',
-            APPLE_API_KEY: 'apple-key',
-            APPLE_API_KEY_ID: 'apple-key-id',
-            CSC_KEY_PASSWORD: 'mac-password',
-            CSC_LINK: 'mac-certificate',
-            PARTNER_CLIENT_ID: '',
-            PARTNER_CLIENT_SECRET: '',
-            PARTNER_TENANT_ID: '',
-            WIN_CSC_KEY_PASSWORD: '',
-            WIN_CSC_LINK: '',
-        };
-        const runResolver = (overrides: Partial<typeof completeCredentials>) => {
-            const directory = mkdtempSync(path.join(tmpdir(), 'evb-release-channels-'));
-            const outputPath = path.join(directory, 'github-output');
-            try {
-                const result = spawnSync('/bin/bash', [
-                    '-c',
-                    resolver,
-                ], {
-                    encoding: 'utf8',
-                    env: {
-                        ...process.env,
-                        ...completeCredentials,
-                        ...overrides,
-                        GITHUB_OUTPUT: outputPath,
-                    },
-                });
-                return {
-                    log: `${result.stdout}${result.stderr}`,
-                    output: existsSync(outputPath) ? readFileSync(outputPath, 'utf8') : '',
-                    status: result.status,
-                };
-            } finally {
-                rmSync(directory, {
-                    force: true,
-                    recursive: true,
-                });
-            }
-        };
-
-        const missingMacCredentials = runResolver({APPLE_API_KEY: ''});
-        expect(missingMacCredentials.status).not.toBe(0);
-        expect(missingMacCredentials.log).toContain('unsigned or unnotarized macOS artifacts cannot be promoted');
-
-        for (const partialWindowsCredentials of [
-            {
-                WIN_CSC_KEY_PASSWORD: '',
-                WIN_CSC_LINK: 'windows-certificate',
-            },
-            {
-                WIN_CSC_KEY_PASSWORD: 'windows-password',
-                WIN_CSC_LINK: '',
-            },
-        ]) {
-            const result = runResolver(partialWindowsCredentials);
-            expect(result.status).not.toBe(0);
-            expect(result.log).toContain('Partial Windows signing credentials detected');
-        }
-
-        const unsignedWindows = runResolver({});
-        expect(unsignedWindows.status).toBe(0);
-        expect(unsignedWindows.log).toContain('direct-download Windows installers will be unsigned');
-        expect(unsignedWindows.log).toContain('Microsoft Store submission will be skipped');
-        expect(unsignedWindows.output).toContain('submit_store=false');
-
-        const signedWindows = runResolver({
-            WIN_CSC_KEY_PASSWORD: 'windows-password',
-            WIN_CSC_LINK: 'windows-certificate',
-        });
-        expect(signedWindows.status).toBe(0);
-        expect(signedWindows.log).not.toContain('direct-download Windows installers will be unsigned');
-
-        const completePartnerCredentials = runResolver({
-            PARTNER_CLIENT_ID: 'partner-client',
-            PARTNER_CLIENT_SECRET: 'partner-secret',
-            PARTNER_TENANT_ID: 'partner-tenant',
-        });
-        expect(completePartnerCredentials.status).toBe(0);
-        expect(completePartnerCredentials.output).toContain('submit_store=true');
-
-        const incompletePartnerCredentials = runResolver({PARTNER_TENANT_ID: 'partner-tenant'});
-        expect(incompletePartnerCredentials.status).toBe(0);
-        expect(incompletePartnerCredentials.output).toContain('submit_store=false');
+        expect(releaseCredentials).not.toContain('PARTNER_CLIENT_ID');
+        expect(releaseCredentials).not.toContain('PARTNER_CLIENT_SECRET');
+        expect(releaseCredentials).not.toContain('PARTNER_TENANT_ID');
+        expect(releaseCredentials).not.toContain('submit_store');
+        expect(supplementalCredentials).toContain('PARTNER_CLIENT_ID');
+        expect(supplementalCredentials).toContain('PARTNER_CLIENT_SECRET');
+        expect(supplementalCredentials).toContain('PARTNER_TENANT_ID');
+        expect(supplementalCredentials).toContain('submit_store=$submit_store');
+        expect(supplementalCredentials).toContain('Store submission will be skipped');
+        expect(workflowJob(supplementalWorkflow, 'submit_store')).toContain(
+            'needs.release_credentials.outputs.submit_store == \'true\'',
+        );
+        expect(workflowJob(supplementalWorkflow, 'submit_store')).toContain(
+            'needs.build_win_arm64.outputs.artifact_ready == \'true\'',
+        );
     });
 
     it('keeps local distribution and cold lint fail-closed within supported resources', async () => {
@@ -1383,6 +1356,9 @@ describe('CI topology policy', () => {
     it('pins every external action in privileged release workflows to an immutable commit', async () => {
         for (const workflowPath of [
             '.github/workflows/release.yml',
+            '.github/workflows/publish-chain.yml',
+            '.github/workflows/release-supplemental.yml',
+            '.github/workflows/release-drill.yml',
             '.github/workflows/release-artifacts.yml',
             '.github/workflows/build.yml',
             '.github/workflows/build-target.yml',
@@ -1452,8 +1428,7 @@ describe('CI topology policy', () => {
     it('keeps release cutting dispatch-based instead of tag-push based', async () => {
         const releaseScript = await readProjectFile('scripts/release/cut-release.mjs');
 
-        expect(releaseScript).toContain('`release: ${version}`');
-        expect(releaseScript).not.toContain('[skip ci]');
+        expect(releaseScript).toContain('`release: ${version} [skip ci]`');
         expect(releaseScript).toContain('\'workflow\'');
         expect(releaseScript).toContain('\'run\'');
         expect(releaseScript).toContain('\'release.yml\'');
@@ -1471,6 +1446,7 @@ describe('CI topology policy', () => {
         const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
         const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
+        const supplementalWorkflow = await readProjectFile('.github/workflows/release-supplemental.yml');
 
         expect(storeWorkflow).toContain('workflow_call:');
         expect(storeWorkflow).not.toContain('workflow_dispatch:');
@@ -1486,11 +1462,11 @@ describe('CI topology policy', () => {
         expect(macIntelWorkflow).toContain('default: artifact-build');
         expect(submitStoreWorkflow)
             .toContain('Microsoft Store submission was enabled with missing credentials');
-        expect(releaseWorkflow).toContain('PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}');
+        expect(releaseWorkflow).not.toContain('PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('release_environment: release');
-        expect(workflowJob(releaseWorkflow, 'build_mac_intel')).toContain('release_environment: release');
-        expect(workflowJob(releaseWorkflow, 'publish_store')).not.toContain('secrets:');
-        expect(workflowJob(releaseWorkflow, 'submit_store')).not.toContain('secrets: inherit');
+        expect(workflowJob(supplementalWorkflow, 'build_mac_intel')).toContain('release_environment: release');
+        expect(workflowJob(supplementalWorkflow, 'publish_store')).not.toContain('secrets:');
+        expect(workflowJob(supplementalWorkflow, 'submit_store')).not.toContain('secrets: inherit');
     });
 
     it('keeps the heavier deterministic checks available by manual dispatch', async () => {
@@ -1569,7 +1545,6 @@ describe('CI topology policy', () => {
                 gates: [
                     'pnpm run lint',
                     'pnpm run typecheck',
-                    'pnpm run test:unit',
                     'pnpm run test:coverage',
                     'pnpm run check:production-dependency-audit:production-only',
                     'pnpm run fallow',
@@ -1628,7 +1603,7 @@ describe('CI topology policy', () => {
 
             const gateSteps = steps.slice(setupIndex + 1);
             const abortingGates = gateSteps
-                .filter(step => step.if !== gateCondition)
+                .filter(step => step.if !== gateCondition && step.name !== 'Upload coverage artifacts')
                 .map(step => step.name);
             expect(abortingGates, `${jobName} gates that would skip the rest of the job`).toEqual([]);
 

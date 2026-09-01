@@ -1,72 +1,58 @@
 # Releasing
 
-Releases are cut locally and published by dispatching the GitHub
-[`Release`](../.github/workflows/release.yml) workflow, which creates the
-version tag for the target commit. Release-commit push CI's `gates_ok` is the
-validation authority: the release workflow resolves a green target, packages,
-verifies artifacts, and publishes — it revalidates nothing.
+Run one command from a clean, green `main` checkout:
 
-## Normal flow
+```sh
+pnpm run release:cut patch
+```
 
-1. Run `pnpm run release:cut -- patch` (or `minor` / `major`).
-2. When the pre-bump `HEAD` is the advertised `origin/main` tip, the cut skips
-   the duplicate local release gate and reaches dispatch in minutes. Preflight,
-   the version bump, and the publication-policy scan always run. The version
-   change touches `package.json`, which triggers full exact-SHA push CI. Pass
-   `--full-verify` to get earlier local feedback after changing packaging
-   configuration such as electron-builder, bundlers, or native tool packaging.
-3. The workflow waits for the release commit's own push CI to finish; the
-   wait budget is policy-tested to stay ahead of the slowest blocking CI
-   lane's declared timeout, so an immediate post-push dispatch self-serves
-   the wait (issue #109). It then builds the
-   four-target core matrix, stages and finalizes the draft with `SHA256SUMS`
-   and provenance attestations, stages the mirror, and promotes. The macOS
-   Intel ZIP and Windows ARM64 installer and provenance record attach afterward.
-   The local command exits once the run is visible and prints its URLs.
+Use `minor` or `major` when that is the intended version change.
 
-## Critical-path rule
+## What the command checks
 
-- Publish as soon as the core matrix is done: macOS arm64, Linux x64/arm64,
-  and Windows x64. Nothing else may gate `publish` or `promote_release`.
-- Supplemental lanes attach or run afterward. The `macos-15-intel` ZIP and
-  Windows ARM64 installer and provenance record attach post-promotion. They
-  stay outside the immutable `SHA256SUMS` set, tolerated via
-  `isSupplementalReleaseAsset` in `scripts/release/policy.mjs`. Windows 7
-  legacy is best-effort. Store AppX packaging runs in parallel with promotion.
-  Partner Center comparison and submission wait for the Windows ARM64 attachment
-  because they require its verified direct provenance record.
-- Advisory-by-evidence gates stay advisory: the Windows ARM64 NSIS installed
-  journey and the packaged scan-cleanup verifier annotate and upload evidence
-  without blocking (their contracts are pinned in the required local gate, for
-  example `scanCleanupToolbarContract.e2e.test.ts`).
+Before changing `package.json`, the cutter checks the following.
 
-## Anti-accretion rule
+- The checkout is clean, the branch is `main`, and `HEAD` equals freshly fetched `origin/main`.
+- `ci.yml` passed for that exact `HEAD`. A running check is awaited. If no run exists, the cutter dispatches `ci.yml` on `main` and waits for it.
+- The current-version GitHub release is not a draft, and the next tag does not exist.
 
-A release-failure fix may add provisioning or diagnostics, but a new
-*blocking* gate must name an existing blocking gate it demotes or deletes.
-Incident-response guards start advisory (`continue-on-error` plus a warning
-annotation) and are promoted only after catching a real defect twice. Prefer a
-cheap contract in the required local full gate over any release-time-only
-proof. Every blocking CI lane's `timeout-minutes` is its duration
-budget, pinned by the topology policy test at roughly twice measured
-reality: an addition that outgrows its lane fails the commit introducing
-it, and raising a budget is a deliberate, reviewed edit that also feeds
-the release wait-budget assertion.
+The cutter then writes only the new package version and creates `release: <version> [skip ci]`. The commit is pushed and `release.yml` is dispatched with that commit SHA. The command stops after the workflow appears and prints the run and release links.
 
-## Recovery flow
+The release workflow waits for exact-SHA CI. For a version-only release commit with `[skip ci]`, it accepts a successful `gates_ok` run from the parent commit. Core packaging, checksum creation, mirror staging, and public promotion run in the core release workflow.
 
-- For an infrastructure flake, the first action is "Re-run failed jobs" on the
-  same run. Same-tag repair is fully supported: `prepare` accepts an existing
-  tag at the requested SHA, `publish` reconciles an existing finalized draft,
-  and mirror objects are content-addressed — a fresh dispatch with the same
-  tag and target SHA resumes where the failure happened.
-- An infrastructure flake does not require a new commit or version. Re-run the
-  same SHA and tag. Any code or workflow repair creates a new commit, so cut a
-  new version. Its package metadata change starts exact-SHA hosted CI. Never
-  bump the version only to retry an infrastructure failure.
+The supplemental workflow attaches the macOS Intel ZIP, Windows ARM64 installer and provenance, and Store results after promotion. It is dispatched automatically and can be rerun with:
 
-## Pointers
+```sh
+gh workflow run release-supplemental.yml -f tag=vX.Y.Z
+```
 
-- Detailed guardrails, macOS signing/Gatekeeper runbooks, the artifact-only
-  flow, manual Store submission, the publication-policy gate, and landing
-  rollout/rollback: [`release-guardrails.md`](./release-guardrails.md).
+`pnpm run release:verify` remains available as a developer tool when a packaging change needs local proof. It is not part of `release:cut`.
+
+## Check a release
+
+Use the read-only status command for one-screen state:
+
+```sh
+pnpm run release:status vX.Y.Z
+```
+
+It reports the tag, draft or public release state, publication time, core and supplemental assets, `SHA256SUMS`, both workflow runs, and the mirror pointer when local mirror credentials are configured. Exit code 0 means the public core release is complete. Exit code 1 means it is not.
+
+## Resume a failed release
+
+Use resume only from the release commit for the current package version:
+
+```sh
+pnpm run release:resume
+```
+
+Resume checks that `HEAD` is the version-only release commit and that it exists on `origin/main`. A stale draft is deleted before the same tag and release SHA are dispatched again. An already-public release is not redispatched. Check it with `release:status` and repair only the missing supplemental work.
+
+## When a release run is red
+
+| Failing job or area | Action |
+| --- | --- |
+| `prepare` or exact-SHA CI | Inspect the run URL. If neither the release commit nor its parent has a CI run, run `pnpm run release:ci` from the release commit while it is still the `origin/main` tip; `workflow_dispatch` only accepts a branch ref, so the dispatch runs on `main` and gives the release commit its own exact-SHA run. A target with code changes needs a new green commit and version. |
+| Core package, validate, checksum, mirror, or promotion job | Rerun failed jobs on the same run. If a stale draft remains, run `pnpm run release:resume` from the release commit. Do not create a new version for an infrastructure retry. |
+| macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. |
+| A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

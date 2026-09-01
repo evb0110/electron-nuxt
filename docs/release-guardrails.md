@@ -4,16 +4,25 @@ Detailed guardrails, platform caveats, and runbooks behind the short flow in
 [`releasing.md`](./releasing.md). Read the section you are touching; nothing
 here is required reading for an ordinary cut.
 
-## Local verification (`--full-verify` and on-demand)
+## Developer packaging verification
 
 - `pnpm run release:verify` mirrors the local parts of the release workflow, includes current-platform build and packaging verification, and fails if the successful verify run changes the working tree snapshot.
-- `release:verify:checks` forces `CI=1` during clean app-scoped linting, split static report/assets checks, clean typechecking, Electron install verification, native-resource matrix checks, WASM portability checks, lint-owned architecture checks, Rust tests, unit coverage, Electron bundle static-integrity checks, and the single strict build.
+- `release:verify:checks` forces `CI=1` and runs only the checks that `pnpm validate` does not already cover: the Drizzle schema check, Electron install verification, and the electron-builder ASAR-unpack policy. Pass `--scan-cleanup-identity` to add the 200-second canonical scan-cleanup identity test, which CI runs on every push in `pr_scan_cleanup_heavy`.
 - `pnpm run release:verify:package:local` owns the current-platform package proof: it accepts an exact verified build receipt from the combined verifier or performs a fresh strict build when invoked alone, then packages as the release workflow would, validates artifacts/updater metadata, verifies packaged native tools, and verifies packaged startup on macOS. Use `pnpm run test:electron-bundle-static-integrity:no-build` for a no-build static-integrity loop against existing `dist-electron/`.
-- Changed or file-scoped local loops (for example `pnpm exec vitest run --changed origin/main ...`, `pnpm exec fallow dead-code --changed-since origin/main`) are iteration aids. They do not replace `pnpm run release:verify` for release proof.
-- `pnpm run release:verify` is intentionally host-only for packaging. If you change cross-platform launcher or packaging decisions, add unit coverage for that branching logic instead of assuming a macOS-local release cut exercises Linux and Windows paths.
+- Changed or file-scoped local loops (for example `pnpm exec vitest run --changed origin/main ...`, `pnpm exec fallow dead-code --changed-since origin/main`) are iteration aids. They do not replace `pnpm run release:verify` when a developer needs local packaging proof.
+- `pnpm run release:verify` is intentionally host-only for packaging. The release cutter relies on exact-SHA hosted CI for the cross-platform matrix.
 - Fresh installs follow the checked-in build-script policy in [`pnpm-workspace.yaml`](../pnpm-workspace.yaml). If a new dependency needs an install script for release-critical behavior, update that allow/ignore list deliberately instead of tolerating pnpm's warning output.
 - Main app release checks are app-scoped and do not read or build `landing/`. Landing-only working tree changes are ignored by the release cutter so the desktop/web app release path stays independent of the separate landing deploy.
 - Broad maintenance checks (`typecheck:coverage` and the cold lint/typecheck variants) run in the required local gate. Hosted CI runs for pull requests and package metadata changes. Long serial Electron E2E and PDF tab diagnostics are available only by manual workflow dispatch.
+
+## Release invariants
+
+- `release:cut` runs only on clean `main` when `HEAD` equals freshly fetched `origin/main`.
+- The release commit changes only the `package.json` version and uses `release: <version> [skip ci]`.
+- Release CI accepts that commit through a successful `gates_ok` run on its parent only after checking the exact version-only diff.
+- Core packaging, checksums, mirror staging, and public promotion determine whether the release is complete.
+- macOS Intel, Windows ARM64, and Store lanes are supplemental. They never gate public promotion.
+- The publish chain is exercised without a real release by the drill described in [Publish-chain drill](#publish-chain-drill).
 
 ## macOS signing, startup, and Gatekeeper
 
@@ -54,7 +63,7 @@ Store AppX packages must declare every shipped UI locale in `electron-builder.ym
 
 `scripts/check-commit-attribution.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter and the artifact-only flow run it before their push, and CI reruns it for pushes and pull requests. It rejects prohibited commit attribution and the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.
 
-In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a zero OID, and — after a force history rewrite — an unreachable SHA all take that wider path. This is intentional and fail-closed. The authorized public-history rewrite must remove agent instruction files and local-only directories from every public head and tag. After that rewrite has been validated and published, a full-history scan of a rewritten branch passes, and keeping it full prevents the purged content from re-entering public history through a later force push.
+In CI, `--pushed-range <before> <head>` scans `before..head` when the before SHA is reachable, and otherwise scans the complete history of the pushed head. An absent SHA, a zero OID, and an unreachable SHA after a force history rewrite all take that wider path. This is intentional and fail-closed. The authorized public-history rewrite must remove agent instruction files and local-only directories from every public head and tag. After that rewrite has been validated and published, a full-history scan of a rewritten branch passes, and keeping it full prevents the purged content from re-entering public history through a later force push.
 
 Until the rewrite is published, a complete-history scan is expected to report the legacy artifacts. After publication, a local branch created from the old history still contains them and will fail the gate. Rebase or cherry-pick its work onto the rewritten `main`, or rewrite the branch itself (`git rebase --onto`, `git filter-repo`) so no reachable commit adds those paths. Do not narrow the scanned range, skip the hook, or otherwise bypass the gate to push such a branch.
 
@@ -80,15 +89,27 @@ Decisions parked with explicit revisit conditions after the 2026-08 rework
 and the v0.1.427 campaign:
 
 - **Build-receipt machinery** (`scripts/release/build-receipt.mjs` and the
-  `EVB_RELEASE_BUILD_RECEIPT` handoff): nearly dead now that the
-  advertised-tip fast path skips the local gate. Delete once one or two releases have gone
-  through the fast path cleanly; `--full-verify` works either way.
-- **Matrix-artifact reuse across same-SHA attempts** and a **scheduled
-  publish-chain drill**: worth building only if publish-chain failures recur.
-  The chain's three latent defects (draft visibility, activation budget,
-  verifier drift) are fixed, and same-SHA repair is proven cheap.
+  `EVB_RELEASE_BUILD_RECEIPT` handoff): dead on the release path now that
+  `release:cut` never runs the local gate; only `release:verify` still uses it.
+  Delete once one or two releases have gone through the new cutter cleanly.
+- **Matrix-artifact reuse across same-SHA attempts**: worth building only if
+  publish-chain failures recur. Same-SHA repair is proven cheap.
 - **ci.yml provisioning consolidation** into `setup-release-env`: only if
   ci.yml lanes start drifting the way the release lanes did; its
   gate-independence pattern has one owner and its own topology test.
 - **Linux container image** with preinstalled system deps: stronger fix for
   apt-mirror hangs; requires a registry decision first.
+
+## Publish-chain drill
+
+`release-drill.yml` runs the publish chain against a draft prerelease and a
+dedicated mirror prefix. It uses tags shaped like `v0.0.0-drill.<run_id>` and
+mirror objects under `evb-viewer/drill/<run_id>/`. The drill must never write to
+`evb-viewer/releases/` or `evb-viewer/channels/`, and its cleanup job removes the
+draft and the complete drill prefix even when an earlier job fails.
+
+The drill uploads deterministic core assets, runs checksum finalization,
+mirror staging, and draft verification, then runs the same Intel and Windows
+ARM64 attachment code with small stub files. Attestation is skipped for drill
+files. A production release still uses the stable `vX.Y.Z` tag grammar, the
+production mirror prefix, and GitHub release promotion.

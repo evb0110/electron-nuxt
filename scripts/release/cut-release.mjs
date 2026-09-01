@@ -1,6 +1,11 @@
 import {fileURLToPath} from 'node:url';
 import path from 'node:path';
-import { formatArtifactGroupList } from './artifact-groups.mjs';
+import {formatArtifactGroupList} from './artifact-groups.mjs';
+import {
+    dispatchCiWorkflow,
+    findLatestMatchingRun,
+    waitForExactShaCiGates,
+} from './wait-for-exact-sha-ci.mjs';
 import {
     getRepositoryUrlFromRunUrl,
     getRunArtifactsUrl,
@@ -8,19 +13,23 @@ import {
     waitForWorkflowRunStart,
 } from './github-workflow-run.mjs';
 import {
-    assertCleanWorktree,
     assertChangedFilesMatch,
+    assertCleanWorktree,
     assertGitHubCliReady,
     assertNodeProjectBaseline,
+    assertReleaseMainTip,
     assertTagAbsent,
+    assertVersionOnlyPackageCommit,
     bumpVersion,
+    errorMessage,
+    fetchReleaseMain,
+    getCommitParentSha,
+    getExitStatus,
     getReleaseMainUpstream,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
     pushReleaseBranch,
     readVersion,
-    restoreVersionIfChanged,
     run,
-    sleep,
     stageFiles,
     VALID_RELEASE_LEVELS,
     writeVersion,
@@ -29,29 +38,21 @@ import {
 const WORKFLOW_HANDOFF_POLL_INTERVAL_MS = 5_000;
 
 export function parseCutReleaseArgs(argv) {
-    const knownFlags = new Set([
-        '--resume',
-        '--full-verify',
-    ]);
+    const knownFlags = new Set(['--resume']);
     const unknownFlags = argv.filter(arg => arg.startsWith('--') && !knownFlags.has(arg));
     if (unknownFlags.length > 0) {
         throw new Error(`Unknown release option(s): ${unknownFlags.join(', ')}`);
     }
 
     const resume = argv.includes('--resume');
-    const fullVerify = argv.includes('--full-verify');
     const positional = argv.filter(arg => !arg.startsWith('--'));
 
     if (resume) {
         if (positional.length > 0) {
             throw new Error('Release resume does not accept a release level. Run `pnpm run release:resume`.');
         }
-        if (fullVerify) {
-            throw new Error('Release resume never verifies locally; --full-verify only applies to a fresh cut.');
-        }
 
         return {
-            fullVerify: false,
             level: null,
             resume,
         };
@@ -61,7 +62,6 @@ export function parseCutReleaseArgs(argv) {
         level,
         ...extraArgs
     ] = positional;
-
     if (extraArgs.length > 0) {
         throw new Error(`Unexpected release argument(s): ${extraArgs.join(', ')}`);
     }
@@ -73,52 +73,8 @@ export function parseCutReleaseArgs(argv) {
     }
 
     return {
-        fullVerify,
         level,
         resume,
-    };
-}
-
-/**
- * Decides whether the local `release:verify` gate can be skipped. It can only
- * when the pre-bump HEAD is exactly what the remote already advertises for
- * main. The version bump only touches package.json, which always triggers the
- * full exact-SHA push CI that release.yml waits for before packaging. Use
- * --full-verify when packaging configuration changed and earlier local
- * feedback is worth the duplicate work.
- */
-export function resolveLocalVerificationPlan({
-    fullVerify,
-    headSha,
-    upstream,
-}, {runCommand = run} = {}) {
-    if (fullVerify) {
-        return {
-            reason: '--full-verify was requested',
-            skipLocalVerify: false,
-        };
-    }
-
-    let remoteSha = '';
-    try {
-        remoteSha = runCommand('git', [
-            'ls-remote',
-            upstream.remote,
-            `refs/heads/${upstream.branch}`,
-        ]).split('\n')[0]?.split(/\s+/u)[0]?.trim() ?? '';
-    } catch {
-        // Fail closed into the full local gate on any remote-lookup error.
-    }
-    if (!remoteSha || remoteSha !== headSha) {
-        return {
-            reason: `HEAD ${headSha} is not the advertised ${upstream.ref} tip (${remoteSha || 'unknown'})`,
-            skipLocalVerify: false,
-        };
-    }
-
-    return {
-        reason: `the release commit will trigger full exact-SHA push CI from advertised ${upstream.ref} tip ${headSha}`,
-        skipLocalVerify: true,
     };
 }
 
@@ -162,21 +118,176 @@ function dispatchReleaseWorkflow({
     }
 }
 
+function isMissingReleaseError(error) {
+    const status = getExitStatus(error);
+    const message = errorMessage(error);
+
+    return status === 1 && (
+        message.length === 0
+        || /not found|does not exist|could not find|HTTP 404/iu.test(message)
+    );
+}
+
+export function readGitHubRelease(tag, {runCommand = run} = {}) {
+    try {
+        const payload = runCommand('gh', [
+            'release',
+            'view',
+            tag,
+            '--json',
+            'isDraft,publishedAt,assets,tagName',
+        ]);
+        const release = JSON.parse(payload);
+
+        return {
+            assets: Array.isArray(release.assets) ? release.assets : [],
+            isDraft: release.isDraft === true,
+            publishedAt: typeof release.publishedAt === 'string' ? release.publishedAt : null,
+            tagName: typeof release.tagName === 'string' ? release.tagName : tag,
+        };
+    } catch (error) {
+        if (isMissingReleaseError(error)) {
+            return null;
+        }
+
+        throw error;
+    }
+}
+
+function assertCurrentReleaseIsNotDraft(tag, runCommand) {
+    const release = readGitHubRelease(tag, {runCommand});
+    if (release?.isDraft) {
+        throw new Error(
+            `Release ${tag} is still a draft. Run \`pnpm run release:resume\` or `
+            + `\`pnpm run release:status ${tag}\` before cutting another version.`,
+        );
+    }
+}
+
+async function assertHeadCiGreen({
+    headSha,
+    runCommand,
+    findCiRunFn,
+    dispatchCiFn,
+    waitForCiFn,
+}) {
+    const currentRun = findCiRunFn(headSha, runCommand);
+    if (currentRun?.status === 'completed' && currentRun.conclusion !== 'success') {
+        throw new Error(
+            `The ci.yml run for HEAD ${headSha} concluded '${currentRun.conclusion}'. `
+            + `Refusing the release. Inspect: ${currentRun.html_url ?? currentRun.url ?? 'no URL'}`,
+        );
+    }
+
+    if (!currentRun) {
+        process.stdout.write(`No ci.yml run exists for HEAD ${headSha}; dispatching CI on main.\n`);
+        dispatchCiFn(headSha, runCommand);
+    }
+
+    await waitForCiFn(headSha, runCommand);
+}
+
+// Both entry points share the same first checks, in an order that answers
+// the cheapest question first: branch and upstream (two local git reads)
+// before the network round trip to `gh auth status` and the worktree scan.
+async function assertReleaseEntryPreconditions(options, context) {
+    const runCommand = options.runCommand ?? run;
+    const assertNodeBaselineFn = options.assertNodeBaselineFn ?? assertNodeProjectBaseline;
+    const assertGitHubCliReadyFn = options.assertGitHubCliReadyFn ?? assertGitHubCliReady;
+    const assertCleanWorktreeFn = options.assertCleanWorktreeFn ?? (
+        worktreeOptions => assertCleanWorktree({
+            ...worktreeOptions,
+            runCommand,
+        })
+    );
+    const getUpstreamFn = options.getUpstreamFn ?? (
+        context => getReleaseMainUpstream(context, {runCommand})
+    );
+
+    assertNodeBaselineFn(context);
+    const upstream = getUpstreamFn(context);
+    await assertGitHubCliReadyFn(context, {runCommand});
+    assertCleanWorktreeFn({ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES});
+
+    return {
+        runCommand,
+        upstream,
+    };
+}
+
+export async function assertReleaseCutPreconditions(options = {}) {
+    const context = options.context ?? 'Release cut';
+    const {
+        runCommand,
+        upstream,
+    } = await assertReleaseEntryPreconditions(options, context);
+    const assertMainTipFn = options.assertMainTipFn ?? (
+        upstream => assertReleaseMainTip(upstream, {runCommand})
+    );
+    const findCiRunFn = options.findCiRunFn ?? (
+        (headSha, commandRunner) => findLatestMatchingRun(headSha, commandRunner)
+    );
+    const dispatchCiFn = options.dispatchCiFn ?? (
+        (headSha, commandRunner) => dispatchCiWorkflow(headSha, {runCommand: commandRunner})
+    );
+    const waitForCiFn = options.waitForCiFn ?? (
+        (headSha, commandRunner) => waitForExactShaCiGates(headSha, {runCommand: commandRunner})
+    );
+    const assertTagAbsentFn = options.assertTagAbsentFn ?? (
+        (tag, remote) => assertTagAbsent(tag, remote, {runCommand})
+    );
+    const assertCurrentReleaseIsNotDraftFn = options.assertCurrentReleaseIsNotDraftFn ?? (
+        tag => assertCurrentReleaseIsNotDraft(tag, runCommand)
+    );
+    const readVersionFn = options.readVersionFn ?? readVersion;
+
+    const tip = assertMainTipFn(upstream);
+    const headSha = tip.headSha ?? tip;
+    const currentVersion = readVersionFn();
+
+    await assertHeadCiGreen({
+        dispatchCiFn,
+        findCiRunFn,
+        headSha,
+        runCommand,
+        waitForCiFn,
+    });
+    const nextVersion = bumpVersion(currentVersion, options.level ?? 'patch');
+    const nextTag = `v${nextVersion}`;
+
+    assertCurrentReleaseIsNotDraftFn(`v${currentVersion}`);
+    await assertTagAbsentFn(nextTag, upstream.remote);
+
+    return {
+        currentVersion,
+        headSha,
+        nextVersion,
+        upstream,
+    };
+}
+
 /**
  * Publishes the release commit and dispatches the release workflow against
  * exactly the SHA that was pushed. `pushReleaseBranch` runs the publication
- * policy scan first and throws on a violation, so a failing scan leaves both the
- * push and the dispatch undone.
+ * policy scan first and throws on a violation, so a failing scan leaves both
+ * the push and the dispatch undone.
  */
 export async function publishReleaseCommit({
     tag,
+    targetSha: requestedTargetSha,
     upstream,
 }, {
     dispatchWorkflow = dispatchReleaseWorkflow,
     printHandoff = printReleaseWorkflowHandoff,
+    push = true,
     runCommand = run,
 } = {}) {
-    const targetSha = pushReleaseBranch({upstream}, {runCommand});
+    const targetSha = requestedTargetSha ?? (push
+        ? pushReleaseBranch({upstream}, {runCommand})
+        : runCommand('git', [
+            'rev-parse',
+            'HEAD',
+        ]));
 
     const dispatchStartedAt = new Date().toISOString();
     dispatchWorkflow({
@@ -213,7 +324,7 @@ export async function printReleaseWorkflowHandoff({
 }, {
     nowFn = Date.now,
     readHandoffTimeoutMs = readWorkflowStartTimeoutMs,
-    sleepFn = sleep,
+    sleepFn = runSleep,
     stdout = process.stdout,
     waitForRun = waitForWorkflowRunStart,
 } = {}) {
@@ -261,95 +372,162 @@ export async function printReleaseWorkflowHandoff({
         stdout.write(`GitHub Release, after publish: ${releaseUrl}\n`);
     }
     stdout.write(`Expected artifact groups: ${formatArtifactGroupList()}\n`);
+    stdout.write(`Check status: pnpm run release:status ${tag}\n`);
 }
 
-async function resumeRelease() {
-    const upstream = getReleaseMainUpstream();
-    assertNodeProjectBaseline();
-    await assertGitHubCliReady();
-    assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
-    const currentVersion = readVersion();
-    const tag = `v${currentVersion}`;
+function runSleep(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
 
-    await assertTagAbsent(tag, upstream.remote);
-    await publishReleaseCommit({
-        tag,
-        upstream,
+function assertReleaseCommitForCurrentVersion({
+    currentVersion,
+    targetSha,
+    upstream,
+    runCommand,
+}) {
+    const parentSha = getCommitParentSha(targetSha, {
+        fetchParent: false,
+        runCommand,
     });
+    assertVersionOnlyPackageCommit(parentSha, targetSha, {
+        context: 'Release resume',
+        runCommand,
+    });
+
+    const subject = runCommand('git', [
+        'log',
+        '-1',
+        '--format=%s',
+        targetSha,
+    ]);
+    const expectedSubject = `release: ${currentVersion} [skip ci]`;
+    if (subject !== expectedSubject) {
+        throw new Error(
+            `Release resume requires HEAD ${targetSha} to have subject "${expectedSubject}", received "${subject}".`,
+        );
+    }
+
+    try {
+        runCommand('git', [
+            'merge-base',
+            '--is-ancestor',
+            targetSha,
+            upstream.ref,
+        ]);
+    } catch (error) {
+        throw new Error(
+            `Release resume requires commit ${targetSha} to exist on ${upstream.ref}. `
+            + `Fetch ${upstream.ref} and retry: ${errorMessage(error)}`,
+        );
+    }
 }
 
-async function cutRelease(level, {fullVerify = false} = {}) {
-    const upstream = getReleaseMainUpstream();
-    assertNodeProjectBaseline();
-    await assertGitHubCliReady();
-    assertCleanWorktree({ ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
-    const currentVersion = readVersion();
-    const nextVersion = bumpVersion(currentVersion, level);
-    const tag = `v${nextVersion}`;
-    let committed = false;
+export async function resumeRelease(options = {}) {
+    const context = options.context ?? 'Release resume';
+    const {
+        runCommand,
+        upstream,
+    } = await assertReleaseEntryPreconditions(options, context);
+    const fetchReleaseMainFn = options.fetchReleaseMainFn ?? (
+        upstream => fetchReleaseMain(upstream, {runCommand})
+    );
+    const readVersionFn = options.readVersionFn ?? readVersion;
+    const readReleaseFn = options.readReleaseFn ?? (
+        tag => readGitHubRelease(tag, {runCommand})
+    );
+    const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
 
-    await assertTagAbsent(tag, upstream.remote);
-
-    // HEAD is the pre-bump tree by construction: writeVersion below only
-    // edits package.json in the worktree, and the release commit is created
-    // much later, so this SHA is exactly the commit the remote advertises
-    // whenever the fast path is legal. Resolve the plan before touching
-    // anything so a failed lookup leaves the worktree untouched.
-    const headSha = run('git', [
+    fetchReleaseMainFn(upstream);
+    const currentVersion = readVersionFn();
+    const tag = `v${currentVersion}`;
+    const targetSha = runCommand('git', [
         'rev-parse',
         'HEAD',
     ]);
-    const verificationPlan = resolveLocalVerificationPlan({
-        fullVerify,
-        headSha,
+
+    assertReleaseCommitForCurrentVersion({
+        currentVersion,
+        runCommand,
+        targetSha,
         upstream,
     });
 
-    writeVersion(nextVersion);
+    const release = readReleaseFn(tag);
+    if (release && !release.isDraft) {
+        throw new Error(
+            `Release ${tag} is already public. Run \`pnpm run release:status ${tag}\` to inspect it.`,
+        );
+    }
+    if (release?.isDraft) {
+        runCommand('gh', [
+            'release',
+            'delete',
+            tag,
+            '--yes',
+        ], {stdio: 'inherit'});
+    }
+
+    await publishReleaseCommitFn({
+        tag,
+        targetSha,
+        upstream,
+    }, {
+        ...options.publishOptions,
+        push: false,
+        runCommand,
+    });
+}
+
+export async function cutRelease(level, options = {}) {
+    const preconditions = await assertReleaseCutPreconditions({
+        ...options,
+        level,
+    });
+    const runCommand = options.runCommand ?? run;
+    const readVersionFn = options.readVersionFn ?? readVersion;
+    const writeVersionFn = options.writeVersionFn ?? writeVersion;
+    const assertChangedFilesMatchFn = options.assertChangedFilesMatchFn ?? assertChangedFilesMatch;
+    const stageFilesFn = options.stageFilesFn ?? stageFiles;
+    const publishReleaseCommitFn = options.publishReleaseCommitFn ?? publishReleaseCommit;
+    const nextTag = `v${preconditions.nextVersion}`;
+    let committed = false;
+
+    writeVersionFn(preconditions.nextVersion);
 
     try {
-        const version = readVersion();
-        if (version !== nextVersion) {
-            throw new Error(`Expected bumped version to be ${nextVersion}, received ${version}`);
+        const version = readVersionFn();
+        if (version !== preconditions.nextVersion) {
+            throw new Error(`Expected bumped version to be ${preconditions.nextVersion}, received ${version}`);
         }
 
-        if (verificationPlan.skipLocalVerify) {
-            process.stdout.write(
-                `Skipping the local release gate: ${verificationPlan.reason}.\n`
-                + 'CI packages and verifies every release target; pass --full-verify to force the local gate.\n',
-            );
-        } else {
-            process.stdout.write(`Running the full local release gate: ${verificationPlan.reason}.\n`);
-            run('pnpm', [
-                'run',
-                'release:verify',
-            ], {stdio: 'inherit'});
-        }
-
-        restoreVersionIfChanged(nextVersion);
-
-        // Release verification should not generate any tracked diffs besides the
-        // intentional version bump. If it does, fail here instead of silently
-        // folding those changes into the release commit.
-        assertChangedFilesMatch([ 'package.json' ], { ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES });
-        stageFiles([ 'package.json' ]);
-        run('git', [
+        assertChangedFilesMatchFn(
+            ['package.json'],
+            {
+                ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
+                runCommand,
+            },
+        );
+        stageFilesFn(['package.json'], {runCommand});
+        runCommand('git', [
             'commit',
             '-m',
-            `release: ${version}`,
+            `release: ${version} [skip ci]`,
             '--',
             'package.json',
         ], {stdio: 'inherit'});
         committed = true;
-        await publishReleaseCommit({
-            tag,
-            upstream,
+        await publishReleaseCommitFn({
+            tag: nextTag,
+            upstream: preconditions.upstream,
+        }, {
+            ...options.publishOptions,
+            runCommand,
         });
     } catch (error) {
         if (!committed) {
-            writeVersion(currentVersion);
+            writeVersionFn(preconditions.currentVersion);
             process.stderr.write(
-                `Restored package.json version to ${currentVersion} after release failure.\n`,
+                `Restored package.json version to ${preconditions.currentVersion} after release failure.\n`,
             );
         }
         throw error;
@@ -363,7 +541,7 @@ async function main() {
         return;
     }
 
-    await cutRelease(args.level, {fullVerify: args.fullVerify});
+    await cutRelease(args.level);
 }
 
 const isDirectCliRun = process.argv[1]
