@@ -1,9 +1,8 @@
 <template>
     <UModal
-        data-testid="unencrypted-save-dialog"
         :open="open"
         :title="t('errors.save.unencryptedTitle')"
-        :ui="{ footer: 'justify-end gap-2' }"
+        :ui="{ content: 'unencrypted-save-dialog', footer: 'justify-end gap-2' }"
         @update:open="handleOpenUpdate"
     >
         <template #description>

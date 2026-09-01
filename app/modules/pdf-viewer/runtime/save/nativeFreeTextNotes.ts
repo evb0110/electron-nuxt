@@ -15,6 +15,16 @@ export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSu
         && (subtype === 'freetext' || subtype === 'typewriter');
 }
 
+/** A newly authored canonical point note has no PDF reference until this save. */
+export function isReplayableCanonicalStickyNote(comment: IAnnotationCommentSummary) {
+    const subtype = comment.subtype?.trim().toLowerCase();
+    return comment.source === 'editor'
+        && !parsePdfJsAnnotationRef(comment.annotationId)
+        && Boolean(comment.hasNote)
+        && Boolean(normalizeMarkerRect(comment.markerRect))
+        && subtype === 'text';
+}
+
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
     const stableKey = comment.stableKey?.trim();
@@ -38,7 +48,10 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
 
 /** Reachable only through a native-append grant whose annotation route is source-replay. */
 export function buildNativeFreeTextNotesForSave(
-    opts: {canonicalComments: IAnnotationCommentSummary[]},
+    opts: {
+        canonicalComments: IAnnotationCommentSummary[];
+        replayableCanonicalStickyNoteStableKeys?: ReadonlySet<string>;
+    },
 ): INativePdfMutationBuildResult<IPdfNativeFreeTextNote[]> {
     const skip = (reason: string, details: Record<string, unknown> = {}) => {
         return {
@@ -51,8 +64,15 @@ export function buildNativeFreeTextNotesForSave(
         };
     };
 
+    const replayableCanonicalStickyNoteStableKeys = opts.replayableCanonicalStickyNoteStableKeys ?? new Set<string>();
     const candidates = opts.canonicalComments
-        .filter(isReplayableEditorOnlyFreeTextNote)
+        .filter(comment => (
+            isReplayableEditorOnlyFreeTextNote(comment)
+            || (
+                isReplayableCanonicalStickyNote(comment)
+                && replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
+            )
+        ))
         .flatMap((comment) => {
             const note = toNativeFreeTextNote(comment);
             return note ? [note] : [];
