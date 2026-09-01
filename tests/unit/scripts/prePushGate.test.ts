@@ -152,6 +152,57 @@ describe('pre-push gate', () => {
         });
     });
 
+    it('drops deleted files from lint and related-test targets but keeps them for suite selection', () => {
+        expect(classifyChangedFiles(
+            [
+                '.github/workflows/removed.yml',
+                'app/components/Removed.vue',
+                'app/components/Viewer.vue',
+                'native/scan-cleanup/src/removed.rs',
+            ],
+            {fileExists: filePath => !filePath.includes('emoved')},
+        )).toEqual({
+            files: [
+                '.github/workflows/removed.yml',
+                'app/components/Removed.vue',
+                'app/components/Viewer.vue',
+                'native/scan-cleanup/src/removed.rs',
+            ],
+            nativeRustFiles: ['native/scan-cleanup/src/removed.rs'],
+            sourceFiles: ['app/components/Viewer.vue'],
+            wasmFiles: [],
+            workflowFiles: ['.github/workflows/removed.yml'],
+        });
+
+        const runner = createRunner({
+            changedFiles: [
+                'app/components/Removed.vue',
+                'app/components/Viewer.vue',
+            ],
+            ciRun: {
+                conclusion: 'success',
+                status: 'completed',
+                url: 'https://ci.example/run/1',
+            },
+        });
+        const result = runPrePushGate({
+            fileExists: filePath => filePath !== 'app/components/Removed.vue',
+            input: pushInput(),
+            runCommand: runner.runCommand,
+            write: () => undefined,
+            writeError: () => undefined,
+        });
+
+        expect(result.passed).toBe(true);
+        const eslintCall = runner.calls.find(call => call.args[1] === 'eslint');
+        expect(eslintCall?.args).toEqual([
+            'exec',
+            'eslint',
+            '--cache',
+            'app/components/Viewer.vue',
+        ]);
+    });
+
     it('runs changed-file checks in order and limits related tests to unit projects', () => {
         const runner = createRunner({
             changedFiles: [
@@ -168,6 +219,7 @@ describe('pre-push gate', () => {
         });
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput(),
             runCommand: runner.runCommand,
             write: () => undefined,
@@ -199,6 +251,7 @@ describe('pre-push gate', () => {
         });
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput(),
             runCommand: runner.runCommand,
             write: () => undefined,
@@ -221,6 +274,7 @@ describe('pre-push gate', () => {
         const errors: string[] = [];
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput(),
             runCommand: runner.runCommand,
             write: () => undefined,
@@ -242,6 +296,7 @@ describe('pre-push gate', () => {
         const errors: string[] = [];
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput(),
             runCommand: runner.runCommand,
             write: () => undefined,
@@ -260,6 +315,7 @@ describe('pre-push gate', () => {
         });
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput(),
             runCommand: runner.runCommand,
             write: () => undefined,
@@ -277,6 +333,7 @@ describe('pre-push gate', () => {
         });
 
         const result = runPrePushGate({
+            fileExists: () => true,
             input: pushInput({remoteSha: zeroSha}),
             runCommand: runner.runCommand,
             write: () => undefined,

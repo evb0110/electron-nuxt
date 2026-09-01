@@ -1,5 +1,8 @@
 import {spawnSync} from 'node:child_process';
-import {readFileSync} from 'node:fs';
+import {
+    existsSync,
+    readFileSync,
+} from 'node:fs';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 
@@ -97,12 +100,19 @@ export function parsePushUpdates(input) {
     return updates;
 }
 
-export function classifyChangedFiles(changedFiles) {
+// `git diff --name-only` lists deleted files too. Deletions still decide
+// which suites run, but ESLint and `vitest related` take file paths and
+// reject one that no longer exists, so only present files become targets.
+/**
+ * @param {string[]} changedFiles
+ * @param {{fileExists?: (filePath: string) => boolean}} [options]
+ */
+export function classifyChangedFiles(changedFiles, {fileExists = () => true} = {}) {
     const files = [...new Set(changedFiles.map(normalizePath))]
         .filter(filePath => filePath.length > 0)
         .sort((left, right) => left.localeCompare(right));
     const workflowFiles = files.filter(filePath => filePath.startsWith('.github/workflows/'));
-    const sourceFiles = files.filter(filePath => SOURCE_FILE_PATTERN.test(filePath));
+    const sourceFiles = files.filter(filePath => SOURCE_FILE_PATTERN.test(filePath) && fileExists(filePath));
     const nativeRustFiles = files.filter(filePath => /^native\/.*\.rs$/u.test(filePath));
     const wasmFiles = files.filter(filePath => (
         filePath.endsWith('.wasm')
@@ -233,6 +243,7 @@ function formatCommandFailure(label, result) {
 export function runPrePushGate({
     budgetMs = PRE_PUSH_GATE_BUDGET_MS,
     env = process.env,
+    fileExists = filePath => existsSync(path.join(root, filePath)),
     input = '',
     now = Date.now,
     projectRoot: root = projectRoot,
@@ -412,7 +423,7 @@ export function runPrePushGate({
         }
     }
 
-    const classification = classifyChangedFiles(changedFileList);
+    const classification = classifyChangedFiles(changedFileList, {fileExists});
     if (classification.workflowFiles.length > 0 && runBoundedCommand(
         'workflow syntax and topology tests',
         'pnpm',
