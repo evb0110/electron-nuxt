@@ -33,10 +33,7 @@ import {
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
 import {SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
-export {
-    projectScanCleanupDetectionStateForRenderer,
-    SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES,
-} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
+export {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
