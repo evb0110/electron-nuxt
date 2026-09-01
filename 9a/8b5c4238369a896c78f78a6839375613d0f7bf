@@ -1,0 +1,26 @@
+scripts/release/release-hash.mjs
+  s_b8c0c13085d970::t_e277dc12e269ba 1-10
+scripts/release/publish-release-mirror.mjs
+  s_b8c0c13085d970::t_a051e5c535fd09 22,175
+tests/unit/scripts/ensureGithubReleaseAssets.test.ts
+  s_b8c0c13085d970::t_e277dc12e269ba 7,9,16,61-81
+  s_b8c0c13085d970::t_0edce1f8470b67 82
+scripts/release/ensure-github-release-assets.mjs
+  s_b8c0c13085d970::t_a051e5c535fd09 10
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9a8b5c4238369a896c78f78a6839375613d0f7bf",
+  "prompts": {},
+  "sessions": {
+    "s_b8c0c13085d970": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059ef-77b6-79e2-8673-87cd73da9d46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
