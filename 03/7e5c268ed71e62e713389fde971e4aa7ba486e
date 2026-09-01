@@ -1,0 +1,52 @@
+scripts/pre-push-gate.mjs
+  s_41a0b906d2194b::t_070702eda7379e 1-50,55-66,73-139,145-227,230-231,236-241,246-299,305-306,316-318,323-327,334-336,341-344,350-356,363-365,370-376,381-386,392,397-405,410-415,422,427-430,439,444-449,457,462-466,471,476-480,485,487-506,523-538,543-566
+  s_41a0b906d2194b::t_e99ed9702f9efb 228-229,307-315
+  s_41a0b906d2194b::t_32f20c509054f3 486,507-518
+  s_41a0b906d2194b::t_7be7734ef31bf0 519-522
+  s_41a0b906d2194b::t_cf35b09a915aaa 51-54,67-72,140-144,232-235,242-245,300-304,319-322,328-333,337-340,345-349,357-362,366-369,377-380,387-391,393-396,406-409,416-421,423-426,431-438,440-443,450-456,458-461,467-470,472-475,481-484,539-542
+  s_cbcef7935f20a3::t_607af33dcf2251 567-581
+scripts/checkZeroExecutionCoverage.ts
+  s_41a0b906d2194b::t_a564938a4a982f 260-262,266-268
+tests/unit/scripts/prePushGate.test.ts
+  s_41a0b906d2194b::t_e99ed9702f9efb 235-271
+  s_41a0b906d2194b::t_5417c3ee4697a5 1-19,37-42,55-56,65,67-68,70-71,73-74,76,82-84,89-123,125-133,135-137,146-162,168-193,198-234,272-285,290-292,297-305,310-338,343-346
+  s_41a0b906d2194b::t_cf35b09a915aaa 44-48,50-54,78-81,85-88,142-145,163-167,194-197,286-289,293-296,306-309,339-342
+  s_cbcef7935f20a3::t_44324b082104df 20-36,43,49,57-64,66,69,72,75,77
+  s_cbcef7935f20a3::t_df940a4c1a9c48 124,134,138-141
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_41a0b906d2194b::t_a564938a4a982f 97-100
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_41a0b906d2194b::t_a564938a4a982f 86-88,96-98,453-460,1493
+.husky/pre-push
+  s_41a0b906d2194b::t_cb22e40d66230a 16-17
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_41a0b906d2194b::t_a564938a4a982f 85-93
+.github/workflows/ci.yml
+  s_41a0b906d2194b::t_a564938a4a982f 201,208-209,211-214
+  s_41a0b906d2194b::t_32f20c509054f3 210
+  s_41a0b906d2194b::t_a2021e6b55b731 215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "037e5c268ed71e62e713389fde971e4aa7ba486e",
+  "prompts": {},
+  "sessions": {
+    "s_41a0b906d2194b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05c82-9df7-7530-a1d0-29d7f9f0d4d1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
