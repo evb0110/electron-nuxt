@@ -1,0 +1,213 @@
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch.ts
+  s_c57729f2c66bed::t_9469090a4d1715 1
+  s_c57729f2c66bed::t_ab924d57787684 2-63
+app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController.ts
+  s_c57729f2c66bed::t_4ba65940324263 14,277-279
+app/services/pdfjs/runtimeLib.ts
+  s_c57729f2c66bed::t_ed88244042ecc7 69-74,450
+tests/unit/app/modules/pdf-viewer/usePdfAnnotationColorCommands.test.ts
+  s_c57729f2c66bed::t_c3a42e05e05976 48
+  s_c57729f2c66bed::t_c9b9964101c5a4 8-11,13,15-28,37-43,45-47,49-72,74-81,83-85,87,91-92,100-105,107,109,112-114,116,123,128,131-133,135,137,143
+app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.ts
+  s_c57729f2c66bed::t_c0fec7deea20f1 82-83,111,243-249
+  s_c57729f2c66bed::t_40220cb4bfc055 84-85
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge.ts
+  s_c57729f2c66bed::t_b76b8dc91eef2f 41
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_c57729f2c66bed::t_caf6241cf3809f 153-155
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.ts
+  s_c57729f2c66bed::t_753d1673727939 1-64
+app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom.ts
+  s_c57729f2c66bed::t_e836938c5f34fa 46,112,131-133
+  s_c57729f2c66bed::t_8405bfa9aa8ce9 56-61,63-66
+app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts
+  s_c57729f2c66bed::t_b76b8dc91eef2f 16
+app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver.ts
+  s_c57729f2c66bed::t_e836938c5f34fa 133-135
+app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/removeEmbeddedShapeAnnotationDom.ts
+  s_c57729f2c66bed::t_e836938c5f34fa 5
+tests/unit/app/modules/pdf-viewer/runtime/usePdfAnnotationLayerRenderer.test.ts
+  s_c57729f2c66bed::t_1e40dd57864db7 1-2,10-11,30-43,51-52,58,68-69,76,91,98-103,105-108,110-112,114-119,121,128-130,132-134,137-141,143,146,151,154,157-161,164-165,170-172,174-177,179,181-183,185-186
+  s_c57729f2c66bed::t_c3a42e05e05976 88
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c57729f2c66bed::t_eec7fdb5ded8ca 8,11-16,18-19,21-30,32-39,43-56,58-78,80-104,107-142,144-159,162-163,166-171,173-174,176-187,189,191-192
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_c57729f2c66bed::t_964088d21ea3b5 93-96
+  s_c57729f2c66bed::t_b76b8dc91eef2f 22
+  s_c57729f2c66bed::t_f39e4a0cc8e898 10-11,20-21,26,48-92,97-99,127-129,131-137,148,152,156-166,168-193,196-201,203,205-213,215-222,224-241,244-252,254,256-260,263-264,266-267,271
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.test.ts
+  s_c57729f2c66bed::t_c3a42e05e05976 319,345
+  s_c57729f2c66bed::t_c5c331736442d4 226
+app/assets/css/pdf-viewer.scss
+  s_c57729f2c66bed::t_e6de2bddef8f4e 336-343
+  s_c57729f2c66bed::t_b0df8de9ec0a0f 493-494,652-653,692-693
+  s_c57729f2c66bed::t_16a5262e698ab3 62,71,75
+  s_c57729f2c66bed::t_388baa0e92d3ae 327-328,355,360-403
+  s_c57729f2c66bed::t_d5cff23bcadded 246-326,329-335,344-354,356-359,404
+tests/unit/app/modules/pdf-viewer/annotations/annotationArchitectureBoundary.test.ts
+  s_c57729f2c66bed::t_8741775136bab4 413-414
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_c57729f2c66bed::t_47b3275ecde749 1443-1454,1459-1461
+  s_c57729f2c66bed::t_2ef1668acce2c9 1345-1366
+  s_c57729f2c66bed::t_8b4cdbb34b2793 15,23,1332-1344,1367-1381,1383-1426,1462-1474,1476
+  s_c57729f2c66bed::t_fbf53bc57fcdf2 1427-1442,1455-1458,1478-1481,1587,1715,1782,1814,1889,1951,2013,2098,2171
+  s_c57729f2c66bed::t_6dfe9bb28f58ed 1382,1475
+app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotDom.ts
+  s_c57729f2c66bed::t_e836938c5f34fa 108-110
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_c57729f2c66bed::t_95a3bc7398e6fe 404,433-438
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_c57729f2c66bed::t_856bb4321b7d04 548
+  s_c57729f2c66bed::t_8405bfa9aa8ce9 1
+  s_c57729f2c66bed::t_5b4600a45cbc01 222-224
+tests/unit/app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl.test.ts
+  s_c57729f2c66bed::t_cefd2fe5bea7c6 87-88,90-99,101-113,115,118-130
+  s_c57729f2c66bed::t_e818175acb6bed 131-134,136-143,145-153,157-158
+  s_c57729f2c66bed::t_92ebfb909d116e 6,8-20,22,24-26,33-79,81,84-86
+  s_c57729f2c66bed::t_060b0df85575cc 28-32
+app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands.ts
+  s_c57729f2c66bed::t_0a6177bf28ee5d 8,14,30,52-56,59-74,104-109,137,142-144,151-152
+  s_c57729f2c66bed::t_964088d21ea3b5 9
+tests/unit/app/modules/document-viewer/documentViewerArchitectureBoundaries.test.ts
+  s_c57729f2c66bed::t_b0df8de9ec0a0f 169,175-177
+app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-19,21-22,31-37,41-49
+  s_c57729f2c66bed::t_ed88244042ecc7 20,23-30,38-40
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_c57729f2c66bed::t_95a3bc7398e6fe 23-26,150
+packages/contracts/pdfAnnotationRefs.ts
+  s_c57729f2c66bed::t_8cf2ee26734f33 7,52-64,66-68
+tests/unit/app/composables/pdfEmbeddedShapeRefresh.test.ts
+  s_c57729f2c66bed::t_10883952171f83 17-20,48-51,53-58
+  s_c57729f2c66bed::t_036c61de83c9f7 63,131,136
+  s_c57729f2c66bed::t_8405bfa9aa8ce9 42-45,52,59-60,122,127-129,366-371
+  s_c57729f2c66bed::t_9d0d94d6824063 90
+app/types/workspaceExpose.ts
+  s_c57729f2c66bed::t_95a3bc7398e6fe 298,300
+app/modules/pdf-viewer/components/PdfStampAnnotation.vue
+  s_c57729f2c66bed::t_8dd1154e95142b 42
+  s_c57729f2c66bed::t_32a742819143e6 10-17,23,29-41,43-45,47-51
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-9,18-22,24-28,52-60
+app/modules/pdf-viewer/components/PdfViewerPage.vue
+  s_c57729f2c66bed::t_b0df8de9ec0a0f 20,68,123,125-128,130
+  s_c57729f2c66bed::t_27b81386881ad6 42,56
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRendererAnnotationLayerController.test.ts
+  s_c57729f2c66bed::t_4f7ebd086d6509 80
+tests/e2e/electron/helpers/fixtures.ts
+  s_c57729f2c66bed::t_dc2c611eaff92a 30,1542-1543,1545-1674,1678-1731
+  s_c57729f2c66bed::t_41db8f03db2fcd 1675-1677
+  s_c57729f2c66bed::t_5d501a0b060311 1541,1544
+app/modules/pdf-viewer/components/PdfShapeAnnotation.vue
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-5,7-40,42-66,68-69
+  s_c57729f2c66bed::t_8405bfa9aa8ce9 6
+  s_c57729f2c66bed::t_ed88244042ecc7 41,67
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers.ts
+  s_c57729f2c66bed::t_421e6dde650444 59-68
+  s_c57729f2c66bed::t_30a597b2723db2 2-10,12-23,25-29,31-36,38-43,45-48,53-54,57
+tests/e2e/electron/drawShapeLifecycle.e2e.test.ts
+  s_c57729f2c66bed::t_caf6241cf3809f 2351-2353
+app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade.ts
+  s_c57729f2c66bed::t_b76b8dc91eef2f 92
+app/modules/pdf-viewer/components/annotations/PdfCommentMarker.vue
+  s_c57729f2c66bed::t_e836938c5f34fa 154-156
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_c57729f2c66bed::t_08d6217de72415 17,627,638-640,642-645,681-682,688-689
+  s_c57729f2c66bed::t_1b1c678e09ce55 613-615,617-626,628-629,635-636,646-662,665-673,678-679,690-692
+  s_c57729f2c66bed::t_95a3bc7398e6fe 616,663-664,677,680,683-687
+  s_c57729f2c66bed::t_2e6afd508a27e7 630-633,674-676
+  s_c57729f2c66bed::t_4f45d4dd4f6356 634,637,641
+app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts
+  s_c57729f2c66bed::t_95a3bc7398e6fe 24-55
+tests/unit/contracts/pdfAnnotationRefs.test.ts
+  s_c57729f2c66bed::t_8cf2ee26734f33 44-48
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationEditorCompatibility.ts
+  s_c57729f2c66bed::t_430fff7478ec5a 1-83,85-136
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c57729f2c66bed::t_23b2dd2719f0a1 62
+  s_c57729f2c66bed::t_5f837a8d162ee4 67
+  s_c57729f2c66bed::t_379f85e5690312 65,884-893
+  s_c57729f2c66bed::t_4538fbb861b64e 970-973,986
+  s_c57729f2c66bed::t_95a3bc7398e6fe 1003,1008-1011
+  s_c57729f2c66bed::t_a86592c7f6c2c1 845,853
+  s_c57729f2c66bed::t_db89953ec484bb 58-61,212,249,294-298
+  s_c57729f2c66bed::t_34d65ab364abcf 363,365,368,370,545,573,598,782,792
+  s_c57729f2c66bed::t_fc48f2c9315725 353-356,358-361,364,367,371-377,397,414,417-425,427-436,440-448,450-478,480,486,499-501,506-512,516-521,523-524,529-530,532-544,546,548-549,551-559,561-563,565-566,571-572,574-575,580-594,599-605,607-694,696-725,727-733,735-747,749-781,783-791,793-794,797-800,802-833
+  s_c57729f2c66bed::t_6b4714a3830a01 547,550
+  s_c57729f2c66bed::t_9469090a4d1715 6
+  s_c57729f2c66bed::t_c68a82a56c0abe 26,63-64
+  s_c57729f2c66bed::t_8d0f705bafe0b4 531
+  s_c57729f2c66bed::t_7d04009ebb9906 983,1116
+  s_c57729f2c66bed::t_3cf6588c4f8c67 1144
+  s_c57729f2c66bed::t_73d65e58da2be0 407-412
+  s_c57729f2c66bed::t_45aa475e9df501 426
+  s_c57729f2c66bed::t_6ddd9e95f348ed 68-71,73,398-401
+  s_c57729f2c66bed::t_cb46a4b66eb82a 439
+  s_c57729f2c66bed::t_430fff7478ec5a 66,402-404
+  s_c57729f2c66bed::t_8741775136bab4 378-382
+  s_c57729f2c66bed::t_9c0b0742d4236b 1186
+  s_c57729f2c66bed::t_421e6dde650444 72,299
+  s_c57729f2c66bed::t_496c12bbfd3984 293,300-301
+  s_c57729f2c66bed::t_661ec6035caefc 522,564
+  s_c57729f2c66bed::t_ab924d57787684 75,979-982,984
+  s_c57729f2c66bed::t_45b4f13ad677b9 748
+  s_c57729f2c66bed::t_90aca96ab7172d 51,74,213
+  s_c57729f2c66bed::t_23cbf15f9a51f0 76-79,369,487-496,595-597,606
+  s_c57729f2c66bed::t_964088d21ea3b5 47-50,481-484,502-505,525-528,560,567-570,577-579,695
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_c57729f2c66bed::t_c5c331736442d4 212,283
+  s_c57729f2c66bed::t_379f85e5690312 24,229-230
+app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-34
+app/modules/workspace-shell/types/workspacePdfViewerPorts.types.ts
+  s_c57729f2c66bed::t_95a3bc7398e6fe 94
+nuxt.config.ts
+  s_c57729f2c66bed::t_684b1f557fdaec 440
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfAnnotationSessionBehavior.test.ts
+  s_c57729f2c66bed::t_cee82345435f27 124-125
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationDocumentIdentity.test.ts
+  s_c57729f2c66bed::t_7e3f017b429745 31-34,191-195
+app/modules/pdf-viewer/runtime/rendering/pdfAnnotationLayerRendererTypes.ts
+  s_c57729f2c66bed::t_b76b8dc91eef2f 1,32
+app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl.ts
+  s_c57729f2c66bed::t_fcfb2b6b2dbac8 195-198
+  s_c57729f2c66bed::t_cefd2fe5bea7c6 44-61,69,84-87
+  s_c57729f2c66bed::t_e818175acb6bed 18-20,72,82,88-91,99,122-124,185-194
+  s_c57729f2c66bed::t_670bf94395ed07 24-25,105,168
+  s_c57729f2c66bed::t_df9d928ce95df8 2-17,21-23,26-43,62-68,70-71,73-81,83,92-98,100-104,106-108,110-121,125-130,132-167,169-184,199-210
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useManagedEmbeddedPdfShapes.test.ts
+  s_c57729f2c66bed::t_ccd04bf484f1d1 115,121
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-4,7-70,72,75-76,78-120
+  s_c57729f2c66bed::t_b8a1183c4205a0 5-6
+  s_c57729f2c66bed::t_4aead0ccb6249a 73-74,77
+  s_c57729f2c66bed::t_964088d21ea3b5 71
+app/modules/pdf-viewer/components/PdfNoteAnnotation.vue
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-30
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_c57729f2c66bed::t_5b3af4efb6afe1 96
+  s_c57729f2c66bed::t_964088d21ea3b5 175-178,213,222-230,253-257
+  s_c57729f2c66bed::t_484c10320ed063 220-221
+  s_c57729f2c66bed::t_795671e5634309 82,119
+  s_c57729f2c66bed::t_be950fd1b519c8 387
+  s_c57729f2c66bed::t_dba386d20b2166 2-3,5-29,32-49,52-81,83-89,92-95,97-102,104-108,111,114-118,120-123,126-127,130-131,133-138,142-157,159-161,163,165-167,169-171,173-174,179-181,183-185,187-189,191-197,199-203,205-212,214-218,245,248,250-252,258-259,261-282,284-299,301,303-317,319,321-335,337,339-355,357,359-361,363-368,370-386,388-392
+  s_c57729f2c66bed::t_4aead0ccb6249a 4,50-51,219,231-244
+app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue
+  s_c57729f2c66bed::t_ed88244042ecc7 16,29
+  s_c57729f2c66bed::t_37840ccf90dbfd 1-15,17-28,30-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "89fc4ca11e460e43e29e5f51561df1215673fb4e",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
