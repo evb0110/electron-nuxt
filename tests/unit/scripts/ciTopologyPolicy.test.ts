@@ -877,6 +877,11 @@ describe('CI topology policy', () => {
         expect(installedSmokeJob).toContain('name: store-appx-win-${{ matrix.arch }}');
         expect(installedSmokeJob).toContain('Add-AppxPackage -Path $packagePath');
         expect(installedSmokeJob).not.toContain('-PassThru');
+        expect(installedSmokeJob).toContain('New-SelfSignedCertificate @certificateParameters');
+        expect(installedSmokeJob).toContain('Subject = $publisher');
+        expect(installedSmokeJob).toContain('Cert:\\LocalMachine\\TrustedPeople');
+        expect(installedSmokeJob).toContain('& $signToolPath sign /fd SHA256 /f $pfxPath /p $pfxPassword $packagePath');
+        expect(installedSmokeJob).toContain('$appUserModelId = "$($package.PackageFamilyName)!EVBViewer"');
         expect(installedSmokeJob).toContain('Start-Process -FilePath "shell:AppsFolder\\$appUserModelId"');
         expect(installedSmokeJob).toContain('Remove-AppxPackage -Package');
     });

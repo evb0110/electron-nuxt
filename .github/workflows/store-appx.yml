@@ -229,7 +229,48 @@ jobs:
             throw "Expected exactly one Store .appx package for ${{ matrix.arch }}, found $($packages.Count)."
           }
 
-          $packagePath = $packages[0].FullName
+          # Partner Center signs Store packages on submission, so the built
+          # .appx is unsigned and Add-AppxPackage rejects it (0x800B0100).
+          # Sign a runner-local copy with a throwaway certificate whose subject
+          # equals the manifest publisher and trust it for this job only.
+          $signToolPath = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signToolPath) {
+            $sdkBinRoot = Join-Path "${env:ProgramFiles(x86)}" "Windows Kits\10\bin"
+            $signToolPath = Get-ChildItem -Path $sdkBinRoot -Filter signtool.exe -File -Recurse -ErrorAction Stop |
+              Where-Object { $_.FullName -match '[\\/]x64[\\/]signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -ExpandProperty FullName -First 1
+          }
+          if (-not $signToolPath) {
+            throw "SignTool is not installed or discoverable in the Windows SDK."
+          }
+
+          $publisher = 'CN=06251AF5-66AF-420F-B896-574B507600B9'
+          $certificateParameters = @{
+            Type = 'Custom'
+            Subject = $publisher
+            KeyUsage = 'DigitalSignature'
+            KeyAlgorithm = 'RSA'
+            KeyLength = 2048
+            NotAfter = (Get-Date).AddDays(1)
+            CertStoreLocation = 'Cert:\CurrentUser\My'
+            TextExtension = @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+          }
+          $certificate = New-SelfSignedCertificate @certificateParameters
+          $pfxPassword = [guid]::NewGuid().ToString()
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'store-appx-smoke.pfx'
+          $cerPath = Join-Path $env:RUNNER_TEMP 'store-appx-smoke.cer'
+          Export-PfxCertificate -Cert $certificate -FilePath $pfxPath -Password (ConvertTo-SecureString $pfxPassword -AsPlainText -Force) | Out-Null
+          Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
+          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+
+          $packagePath = Join-Path $env:RUNNER_TEMP $packages[0].Name
+          Copy-Item -Path $packages[0].FullName -Destination $packagePath -Force
+          & $signToolPath sign /fd SHA256 /f $pfxPath /p $pfxPassword $packagePath
+          if ($LASTEXITCODE -ne 0) {
+            throw "SignTool failed to sign the Store package copy with exit code $LASTEXITCODE."
+          }
+
           Add-AppxPackage -Path $packagePath -ForceApplicationShutdown
           $installedExecutable = $null
           try {
@@ -239,7 +280,7 @@ jobs:
               throw "Installed Store package executable is missing: $installedExecutable"
             }
 
-            $appUserModelId = "$($package.Name)!EVBViewer"
+            $appUserModelId = "$($package.PackageFamilyName)!EVBViewer"
             Start-Process -FilePath "shell:AppsFolder\$appUserModelId" | Out-Null
             $launchDeadline = (Get-Date).AddMinutes(2)
             $launchedProcess = $null
@@ -267,4 +308,6 @@ jobs:
             if ($installed) {
               Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
             }
+            Remove-Item -Path "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
+            Remove-Item -Path "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
           }
