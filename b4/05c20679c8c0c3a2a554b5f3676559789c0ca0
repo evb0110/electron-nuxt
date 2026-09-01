@@ -1,0 +1,28 @@
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b8c0c13085d970::t_1acb8f43d4eb63 830
+  s_b8c0c13085d970::t_c37294645a501f 811-812
+  s_b8c0c13085d970::t_55a613f5f48d9c 827-829,831-835
+.github/workflows/store-appx.yml
+  s_b8c0c13085d970::t_4bbeabed423a28 182-183,188-221,226-232,234,243,261-265
+  s_b8c0c13085d970::t_9ffff69bc458f0 179-181
+  s_b8c0c13085d970::t_0e4fcc8716371b 184-187
+  s_b8c0c13085d970::t_0b8cd6b4e6c2a7 164-178
+tests/unit/scripts/storeAppxSubmissionPolicy.test.ts
+  s_b8c0c13085d970::t_2119ecc7dc0a81 95
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b405c20679c8c0c3a2a554b5f3676559789c0ca0",
+  "prompts": {},
+  "sessions": {
+    "s_b8c0c13085d970": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059ef-77b6-79e2-8673-87cd73da9d46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
