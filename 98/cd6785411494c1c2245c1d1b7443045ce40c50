@@ -1,0 +1,23 @@
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_292b96694fcbc2::t_b22bfb57610105 502
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_292b96694fcbc2::t_b22bfb57610105 372-375
+scan-cleanup-core/sourceDpiDetection.ts
+  s_292b96694fcbc2::t_b22bfb57610105 20,83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "98cd6785411494c1c2245c1d1b7443045ce40c50",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
