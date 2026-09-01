@@ -44,11 +44,16 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/app.vue',
     'app/modules/pdf-viewer/components/PdfViewer.vue',
     'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
+    // These workspace dialogs are driven by the Electron save/open flows.
+    'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
+    'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',
     'app/modules/workspace-shell/components/AppShellRoot.vue',
     'app/modules/workspace-shell/composables/useAppShellResilience.ts',
     'app/modules/workspace-shell/useWorkspaceOrchestration.ts',
     'electron/main.ts',
     'electron/ocr/worker/runProductionOcrQualityCase.ts',
+    // This standalone builder creates a checked-in Electron lifecycle fixture.
+    'scripts/generate-freetext-lifecycle-fixture.mjs',
     'scripts/release/verifyPackagedCorePdfSmoke.ts',
     'scripts/release/verifyPackagedScanCleanup.ts',
     'scripts/test-ocr-quality-corpus.mjs',
