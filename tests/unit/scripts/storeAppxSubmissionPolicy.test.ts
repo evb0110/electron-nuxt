@@ -95,7 +95,7 @@ describe('Microsoft Store submission policy', () => {
         const checkoutBlocks = packageWorkflow
             .split(/^ {6}- name: Checkout$/mu)
             .slice(1)
-            .map(block => block.split(/^(?: {6}- name:| {2}[a-z0-9_]+:)/mu)[0]);
+            .map(block => block.split(/^(?: {6}- name:| {2}[a-z0-9_]+:)/mu)[0] ?? '');
         expect(checkoutBlocks).toHaveLength(2);
         expect(checkoutBlocks.every(block => block.includes('persist-credentials: false'))).toBe(true);
         expect(submissionWorkflow.match(/persist-credentials: false/gu)).toHaveLength(1);

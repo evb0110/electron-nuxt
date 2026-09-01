@@ -77,6 +77,7 @@ export function assertReleaseVerifyDidNotMutateWorktree(before, after) {
 }
 
 export function runLocalReleaseVerify({
+    argv = process.argv.slice(2),
     env = process.env,
     receiptPath = path.resolve(
         env[RELEASE_BUILD_RECEIPT_ENV_VAR] ?? '.devkit/analysis/release-build-receipt.json',
@@ -94,7 +95,14 @@ export function runLocalReleaseVerify({
     };
 
     for (const command of getLocalReleaseVerifyCommands()) {
-        runCommand(command.command, command.args, {
+        const args = command.args[1] === 'release:verify:checks'
+            && argv.includes('--scan-cleanup-identity')
+            ? [
+                ...command.args,
+                '--scan-cleanup-identity',
+            ]
+            : command.args;
+        runCommand(command.command, args, {
             env: releaseEnv,
             stdio: 'inherit',
         });

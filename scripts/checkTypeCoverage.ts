@@ -1,5 +1,9 @@
-import { spawnSync } from 'node:child_process';
+import {
+    spawn,
+    spawnSync,
+} from 'node:child_process';
 import { resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 interface ITypeCoverageProject {
     floor: number;
@@ -129,27 +133,57 @@ function parseJsonResult(output: string) {
     }
 }
 
-function runProject(project: ITypeCoverageProject): ITypeCoverageRunResult {
-    const result = spawnSync(process.execPath, createTypeCoverageArgs(project, true, 0), {
-        encoding: 'utf8',
-        stdio: [
+function runProject(project: ITypeCoverageProject): Promise<ITypeCoverageRunResult> {
+    return new Promise(resolve => {
+        const child = spawn(process.execPath, createTypeCoverageArgs(project, true, 0), {stdio: [
             'ignore',
             'pipe',
             'pipe',
-        ],
+        ]});
+        let stdout = '';
+        let stderr = '';
+        let settled = false;
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', chunk => {
+            stdout += chunk;
+        });
+        child.stderr.on('data', chunk => {
+            stderr += chunk;
+        });
+        const finish = (status: number, error?: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
+            const output = `${stdout}${stderr}${error ? `\n${error.message}` : ''}`;
+            const parsed = parseJsonResult(stdout);
+            const passed = status === 0
+                && parsed?.percent !== null
+                && parsed?.percent !== undefined
+                && parsed.percent >= project.floor;
+            resolve({
+                covered: parsed?.correctCount ?? null,
+                floor: project.floor,
+                id: project.id,
+                output,
+                percent: parsed?.percent ?? null,
+                status: passed ? 0 : 1,
+                total: parsed?.totalCount ?? null,
+            });
+        };
+        child.once('error', error => finish(1, error));
+        child.once('close', (status, signal) => finish(
+            status ?? 1,
+            signal ? new Error(`type-coverage exited after signal ${signal}`) : undefined,
+        ));
     });
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
-    const parsed = parseJsonResult(result.stdout ?? '');
+}
 
-    return {
-        covered: parsed?.correctCount ?? null,
-        floor: project.floor,
-        id: project.id,
-        output,
-        percent: parsed?.percent ?? null,
-        status: parsed?.percent !== null && parsed?.percent !== undefined && parsed.percent >= project.floor ? 0 : 1,
-        total: parsed?.totalCount ?? null,
-    };
+export function checkTypeCoverage(
+    runner: (project: ITypeCoverageProject) => Promise<ITypeCoverageRunResult> = runProject,
+) {
+    return Promise.all(PROJECTS.map(project => runner(project)));
 }
 
 function printSummary(results: ITypeCoverageRunResult[]) {
@@ -184,7 +218,7 @@ function runDetail(projectId: string) {
     process.exit(result.status ?? 1);
 }
 
-function main() {
+async function main() {
     const [
         command,
         projectId,
@@ -203,7 +237,7 @@ function main() {
         throw new Error(`Unknown argument "${command}". Use "--detail <project>" for detail output.`);
     }
 
-    const results = PROJECTS.map(runProject);
+    const results = await checkTypeCoverage();
     printSummary(results);
 
     const failedResults = results.filter(result => result.status !== 0);
@@ -213,8 +247,16 @@ function main() {
             console.error(`\n[${result.id}]`);
             console.error(result.output.trim());
         }
-        process.exit(1);
+        process.exitCode = 1;
     }
 }
 
-main();
+const isDirectRun = process.argv[1]
+    && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url));
+
+if (isDirectRun) {
+    main().catch(error => {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 1;
+    });
+}

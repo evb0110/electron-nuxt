@@ -59,8 +59,32 @@ interface IValidationGateModule {
         fingerprint: string;
         stylelint: string;
     };
+    getValidationStageCacheDecision: (stage: {
+        cacheable?: boolean;
+        id: string;
+        inputFingerprint?: string;
+    }, options: {
+            lastPassingFingerprints?: Map<string, string>;
+            noCache?: boolean;
+        }) => {
+        cacheHit: boolean;
+        cacheReason: string;
+        cacheState: string;
+        inputFingerprint: string;
+    };
+    getValidationBuildMarkerPath: (root?: string) => string;
+    getValidationInputFingerprint: (options: {
+        inputPaths: string[];
+        root: string;
+    }) => string;
+    isValidationBuildFresh: (options: {
+        buildScriptName: string;
+        outputPaths: string[];
+        root: string;
+    }) => boolean;
     getValidationPlan: (options: {
         allGates?: boolean;
+        cold?: boolean;
         changes: IValidationChanges;
         classification?: {
             full: boolean;
@@ -74,13 +98,30 @@ interface IValidationGateModule {
         env?: Record<string, string>;
         heavyWeight: number;
         id: string;
+        cacheable?: boolean;
+        dependsOn?: string[];
         parallelPhase?: number;
+        weight?: number;
     }>;
     pruneRetentionEntries: (options: {
         keep: number;
         minimumAgeMs: number;
         root: string;
     }) => Promise<string[]>;
+    runStagePool: <T extends {
+        dependsOn?: string[];
+        id: string;
+        weight?: number
+    }>(
+        stages: T[],
+        runStage: (stage: T) => Promise<void>,
+        options?: {capacity?: number},
+    ) => Promise<void>;
+    writeValidationBuildMarker: (options: {
+        buildScriptName: string;
+        outputPaths: string[];
+        root: string;
+    }) => Promise<string | null>;
 }
 
 const validationGates = await import(
@@ -404,7 +445,8 @@ describe('validation gate policy', () => {
             'typecheck.full',
             'test.coverage',
             'typecheck.coverage',
-            'fallow.all',
+            'fallow.dead-code',
+            'fallow.dupes',
             'static.platform-report',
             'static.web-deploy-source',
             'native.lint',
@@ -414,22 +456,52 @@ describe('validation gate policy', () => {
             'electron.bundle-integrity',
             'electron.blocking-smoke',
         ]);
-        expect(scripts).toContain('lint:clean');
-        expect(scripts).toContain('typecheck:clean');
+        expect(scripts).toContain('lint');
+        expect(scripts).toContain('typecheck');
         expect(scripts).toContain('test:coverage');
-        expect(scripts).toContain('fallow:all');
+        expect(scripts).toContain('fallow');
+        expect(scripts).toContain('fallow:dupes');
+        expect(scripts).not.toContain('lint:clean');
+        expect(scripts).not.toContain('typecheck:clean');
+        expect(scripts).not.toContain('fallow:all');
         expect(scripts).not.toContain('test:unit');
         expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.args)
             .toContain('--no-build');
         expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.env)
             .toMatchObject({EVB_PDF_PAGE_OPS_ENABLE: '1'});
-        expect(plan.filter(stage => stage.parallelPhase === 0).map(stage => stage.id))
-            .toEqual(stageIds.slice(1, 9));
-        expect(plan.filter(stage => stage.parallelPhase === 3).map(stage => stage.id))
+        expect(plan.find(stage => stage.id === 'native.test')?.dependsOn)
+            .toEqual(['build.prepare']);
+        expect(plan.find(stage => stage.id === 'build.strict')?.dependsOn)
+            .toEqual(['build.prepare']);
+        expect(plan.find(stage => stage.id === 'electron.bundle-integrity')?.dependsOn)
+            .toEqual(['build.strict']);
+        expect(plan.find(stage => stage.id === 'electron.blocking-smoke')?.dependsOn)
             .toEqual([
+                'build.strict',
                 'electron.bundle-integrity',
-                'electron.blocking-smoke',
             ]);
+        expect(plan.filter(stage => stage.cacheable).map(stage => stage.id)).toEqual(expect.arrayContaining([
+            'lint.full',
+            'typecheck.full',
+            'typecheck.coverage',
+            'fallow.dead-code',
+            'fallow.dupes',
+            'static.platform-report',
+            'static.web-deploy-source',
+            'native.lint',
+        ]));
+        const coldPlan = validationGates.getValidationPlan({
+            allGates: true,
+            changes: {
+                files: [],
+                known: true,
+                reason: 'explicit-files',
+            },
+            tier: 'acceptance',
+            cold: true,
+        });
+        expect(coldPlan.find(stage => stage.id === 'lint.full')?.args).toContain('lint:clean');
+        expect(coldPlan.find(stage => stage.id === 'typecheck.full')?.args).toContain('typecheck:clean');
     });
 
     it('keys lint caches by configuration, toolchain, platform, and architecture content', async () => {
@@ -455,7 +527,7 @@ describe('validation gate policy', () => {
                 root,
             });
 
-            expect(first.eslint).toContain(join('.devkit', 'cache', 'lint'));
+            expect(first.eslint).toContain(join('.devkit', 'cache', 'eslint'));
             expect(first.fingerprint).not.toBe(configChanged.fingerprint);
             expect(configChanged.fingerprint).not.toBe(toolchainChanged.fingerprint);
         } finally {
@@ -518,6 +590,194 @@ describe('validation gate policy', () => {
                 waitMs: 25,
             });
             expect(degraded.coordinated).toBe(false);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('runs ready stages by dependency and weight instead of phase barriers', async () => {
+        const events: string[] = [];
+        let activeWeight = 0;
+        let maxActiveWeight = 0;
+        await validationGates.runStagePool([
+            {
+                id: 'root-a',
+                weight: 2,
+            },
+            {
+                id: 'root-b',
+                weight: 1,
+            },
+            {
+                dependsOn: ['root-a'],
+                id: 'child',
+                weight: 2,
+            },
+        ], async stage => {
+            activeWeight += stage.weight ?? 1;
+            maxActiveWeight = Math.max(maxActiveWeight, activeWeight);
+            events.push(`start:${stage.id}`);
+            await new Promise(resolve => setTimeout(resolve, 5));
+            events.push(`end:${stage.id}`);
+            activeWeight -= stage.weight ?? 1;
+        }, {capacity: 2});
+
+        expect(maxActiveWeight).toBeLessThanOrEqual(2);
+        expect(events.indexOf('start:child')).toBeGreaterThan(events.indexOf('end:root-a'));
+    });
+
+    it('keeps running independent stages after a failure and skips only the dependents', async () => {
+        const started: string[] = [];
+        const pool = validationGates.runStagePool([
+            {
+                id: 'broken',
+                weight: 1,
+            },
+            {
+                dependsOn: ['broken'],
+                id: 'child',
+                weight: 1,
+            },
+            {
+                dependsOn: ['child'],
+                id: 'grandchild',
+                weight: 1,
+            },
+            {
+                id: 'independent',
+                weight: 1,
+            },
+        ], async (stage) => {
+            started.push(stage.id);
+            await new Promise(resolve => setTimeout(resolve, 5));
+            if (stage.id === 'broken') {
+                throw new Error('broken exited 1');
+            }
+        }, {capacity: 1});
+
+        await expect(pool).rejects.toMatchObject({
+            failures: [{id: 'broken'}],
+            name: 'ValidationStagePoolError',
+            skipped: [
+                {
+                    dependency: 'broken',
+                    id: 'child',
+                },
+                {
+                    dependency: 'child',
+                    id: 'grandchild',
+                },
+            ],
+        });
+        await expect(pool).rejects.toThrow(/broken exited 1[\s\S]*skipped \(dependency failed\): child <- broken, grandchild <- child/u);
+        expect(started).toEqual([
+            'broken',
+            'independent',
+        ]);
+    });
+
+    it('skips a deterministic stage only for an exact passing fingerprint', () => {
+        const stage = {
+            cacheable: true,
+            id: 'typecheck.full',
+            inputFingerprint: 'fingerprint-a',
+        };
+
+        expect(validationGates.getValidationStageCacheDecision(stage, {lastPassingFingerprints: new Map([[
+            'typecheck.full',
+            'fingerprint-a',
+        ]])})).toMatchObject({
+            cacheHit: true,
+            cacheReason: 'last-passing-input-fingerprint',
+            cacheState: 'warm',
+        });
+        expect(validationGates.getValidationStageCacheDecision(stage, {lastPassingFingerprints: new Map([[
+            'typecheck.full',
+            'fingerprint-b',
+        ]])})).toMatchObject({
+            cacheHit: false,
+            cacheState: 'cold',
+        });
+        expect(validationGates.getValidationStageCacheDecision(stage, {
+            lastPassingFingerprints: new Map([[
+                'typecheck.full',
+                'fingerprint-a',
+            ]]),
+            noCache: true,
+        })).toMatchObject({
+            cacheHit: false,
+            cacheReason: 'cache-disabled',
+        });
+    });
+
+    it('fingerprints nested release and fixture directories but ignores build output directories', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-input-fingerprint-'));
+        try {
+            await mkdir(join(root, 'scripts', 'release'), {recursive: true});
+            await mkdir(join(root, 'tests', 'fixtures', 'release'), {recursive: true});
+            await mkdir(join(root, 'native', 'crate', 'target'), {recursive: true});
+            await mkdir(join(root, 'release'), {recursive: true});
+            await writeFile(join(root, 'scripts', 'release', 'cut.mjs'), 'export const a = 1;\n');
+            await writeFile(join(root, 'tests', 'fixtures', 'release', 'fixture.json'), '{}\n');
+            await writeFile(join(root, 'native', 'crate', 'target', 'artifact.bin'), 'a');
+            await writeFile(join(root, 'release', 'artifact.dmg'), 'a');
+            const inputPaths = [
+                'scripts',
+                'tests',
+                'native',
+                'release',
+            ];
+            const fingerprint = () => validationGates.getValidationInputFingerprint({
+                inputPaths,
+                root,
+            });
+            const initial = fingerprint();
+
+            await writeFile(join(root, 'native', 'crate', 'target', 'artifact.bin'), 'b');
+            await writeFile(join(root, 'release', 'artifact.dmg'), 'b');
+            expect(fingerprint()).toBe(initial);
+
+            await writeFile(join(root, 'scripts', 'release', 'cut.mjs'), 'export const a = 2;\n');
+            const afterScriptChange = fingerprint();
+            expect(afterScriptChange).not.toBe(initial);
+
+            await writeFile(join(root, 'tests', 'fixtures', 'release', 'fixture.json'), '{"changed":true}\n');
+            expect(fingerprint()).not.toBe(afterScriptChange);
+        } finally {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('invalidates the local strict-build marker when an input changes', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-build-marker-'));
+        try {
+            await mkdir(join(root, 'dist'), {recursive: true});
+            await writeFile(join(root, 'dist', 'bundle.js'), 'bundle\n');
+            await writeFile(join(root, 'package.json'), '{}\n');
+            const markerPath = await validationGates.writeValidationBuildMarker({
+                buildScriptName: 'build:desktop',
+                outputPaths: ['dist'],
+                root,
+            });
+
+            expect(markerPath).toBe(validationGates.getValidationBuildMarkerPath(root));
+            await expect(validationGates.isValidationBuildFresh({
+                buildScriptName: 'build:desktop',
+                outputPaths: ['dist'],
+                root,
+            })).toBe(true);
+            await writeFile(join(root, 'package.json'), '{"changed":true}\n');
+            expect(validationGates.isValidationBuildFresh({
+                buildScriptName: 'build:desktop',
+                outputPaths: ['dist'],
+                root,
+            })).toBe(false);
         } finally {
             await rm(root, {
                 force: true,

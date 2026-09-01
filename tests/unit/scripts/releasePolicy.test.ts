@@ -262,14 +262,8 @@ interface IReleaseSharedModule {
 }
 
 interface ICutReleaseArgs {
-    fullVerify: boolean;
     level: string | null;
     resume: boolean;
-}
-
-interface IVerificationPlan {
-    reason: string;
-    skipLocalVerify: boolean;
 }
 
 interface IUpstream {
@@ -297,14 +291,6 @@ interface ICutReleaseModule {
         },
         dependencies: IPublishDependencies,
     ) => Promise<string>;
-    resolveLocalVerificationPlan: (
-        options: {
-            fullVerify: boolean;
-            headSha: string;
-            upstream: IUpstream & {ref: string};
-        },
-        dependencies?: {runCommand?: (command: string, args: string[], options?: unknown) => string},
-    ) => IVerificationPlan;
 }
 
 interface IReleaseArtifactsDispatchOptions {
@@ -380,7 +366,6 @@ const {
     getReleaseWorkflowDispatchArgs,
     parseCutReleaseArgs,
     publishReleaseCommit,
-    resolveLocalVerificationPlan,
 } = await import(pathToFileURL(resolve(process.cwd(), 'scripts/release/cut-release.mjs')).href) as ICutReleaseModule;
 const {
     getReleaseArtifactsWorkflowDispatchArgs,
@@ -896,47 +881,23 @@ describe('release policy', () => {
         });
     });
 
-    it('keeps release checks split between lint/static gates and release-critical tests', () => {
+    it('keeps release checks in the policy-owned lint/static gate', () => {
         const manifest = getGatePolicyManifest();
         const commandArgs: string[][] = getLocalReleaseCheckCommands()
             .map((command: { args: string[] }) => command.args);
         const packageScripts = getPackageScripts();
         const lintAndStaticGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'lint-static');
-        const releaseCriticalTestGate = manifest.release.localChecks.gateGroups.find(group => group.id === 'release-critical-tests');
         const scriptNames = manifest.release.localChecks.gateGroups.flatMap(group => group.scripts);
 
         expect(manifest.schemaVersion).toBe(2);
         expect(manifest.release.localChecks.owner).toBe('release');
-        expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual([
-            'lint-static',
-            'release-critical-tests',
-        ]);
+        expect(manifest.release.localChecks.gateGroups.map(group => group.id)).toEqual(['lint-static']);
         expect(lintAndStaticGate?.owner).toBe('release');
         expect(lintAndStaticGate?.scripts).toEqual([
-            'lint:clean',
-            'check:static:reports',
-            'check:static:assets',
-            'typecheck:clean',
-            'typecheck:coverage',
             'check:drizzle-schema',
             'check:electron:install',
             'check:electron-builder:asar-unpack',
-            'build:pdf-image-combine',
-            'build:pdf-page-ops',
-            'build:pdf-search',
-            'build:scan-cleanup',
-            'check:resources:matrix',
-            'check:wasm:strict',
-            'fallow:all',
         ]);
-        expect(releaseCriticalTestGate?.owner).toBe('release');
-        expect(releaseCriticalTestGate?.scripts).toEqual([
-            'test:rust',
-            'test:scan-cleanup:canonical-identity',
-            'test:coverage',
-            'test:electron-bundle-static-integrity',
-        ]);
-        expect(releaseCriticalTestGate?.scripts.every(scriptName => scriptName.startsWith('test:'))).toBe(true);
         expect(scriptNames.every(scriptName => Boolean(packageScripts[scriptName]))).toBe(true);
         expect(commandArgs).toEqual(scriptNames.map(scriptName => [
             'run',
@@ -1269,10 +1230,16 @@ describe('release policy', () => {
                     fileName,
                     pushes: source.match(/(['"])push\1/gu)?.length ?? 0,
                 }))
-                .filter(({pushes}) => pushes > 0)).toEqual([{
-                fileName: 'shared.mjs',
-                pushes: 1,
-            }]);
+                .filter(({pushes}) => pushes > 0)).toEqual([
+                {
+                    fileName: 'shared.mjs',
+                    pushes: 1,
+                },
+                {
+                    fileName: 'wait-for-exact-sha-ci.mjs',
+                    pushes: 1,
+                },
+            ]);
 
             // Both release entry-point modules reach that publisher instead of
             // pushing themselves.
@@ -1287,20 +1254,10 @@ describe('release policy', () => {
 
     it('supports release resume without requiring a new version bump level', () => {
         expect(parseCutReleaseArgs(['patch'])).toEqual({
-            fullVerify: false,
-            level: 'patch',
-            resume: false,
-        });
-        expect(parseCutReleaseArgs([
-            'patch',
-            '--full-verify',
-        ])).toEqual({
-            fullVerify: true,
             level: 'patch',
             resume: false,
         });
         expect(parseCutReleaseArgs(['--resume'])).toEqual({
-            fullVerify: false,
             level: null,
             resume: true,
         });
@@ -1308,68 +1265,10 @@ describe('release policy', () => {
             'patch',
             '--resume',
         ])).toThrow('does not accept a release level');
-        expect(() => parseCutReleaseArgs([
-            '--resume',
-            '--full-verify',
-        ])).toThrow('--full-verify only applies to a fresh cut');
+        expect(() => parseCutReleaseArgs(['--full-verify'])).toThrow('Unknown release option');
     });
 
-    it('skips the local release gate only when the advertised main tip will receive release-commit CI', () => {
-        const upstream = {
-            branch: 'main',
-            ref: 'origin/main',
-            remote: 'origin',
-        };
-        const headSha = 'a'.repeat(40);
-        const remoteAt = (sha: string) => (command: string, args: string[]) => {
-            expect(command).toBe('git');
-            expect(args).toEqual([
-                'ls-remote',
-                'origin',
-                'refs/heads/main',
-            ]);
-            return `${sha}\trefs/heads/main`;
-        };
-
-        expect(resolveLocalVerificationPlan({
-            fullVerify: false,
-            headSha,
-            upstream,
-        }, {runCommand: remoteAt(headSha)})).toEqual({
-            reason: expect.stringContaining('the release commit will trigger full exact-SHA push CI') as string,
-            skipLocalVerify: true,
-        });
-
-        // --full-verify always forces the full local gate.
-        expect(resolveLocalVerificationPlan({
-            fullVerify: true,
-            headSha,
-            upstream,
-        }, {runCommand: remoteAt(headSha)}).skipLocalVerify).toBe(false);
-
-        // A stale or diverged remote tip forces the full local gate.
-        expect(resolveLocalVerificationPlan({
-            fullVerify: false,
-            headSha,
-            upstream,
-        }, {runCommand: remoteAt('b'.repeat(40))}).skipLocalVerify).toBe(false);
-
-        // A failing `git ls-remote` must also fail closed, and --full-verify
-        // must decide before any remote lookup happens.
-        expect(resolveLocalVerificationPlan({
-            fullVerify: false,
-            headSha,
-            upstream,
-        }, {runCommand: () => {
-            throw new Error('remote unreachable');
-        }}).skipLocalVerify).toBe(false);
-        expect(resolveLocalVerificationPlan({
-            fullVerify: true,
-            headSha,
-            upstream,
-        }, {runCommand: () => {
-            throw new Error('must not be called');
-        }}).skipLocalVerify).toBe(false);
+    it('dispatches release and artifact workflows with exact target refs', () => {
         expect(getReleaseWorkflowDispatchArgs({
             branch: 'main',
             tag: 'v1.2.3',
@@ -1404,32 +1303,29 @@ describe('release policy', () => {
         expect(workflow).toContain('Report release gate outcomes');
         expect(workflow).toContain('Updater metadata path policy');
         expect(workflow).toContain('Published asset presence and integrity');
-        expect(workflow).toContain('Verified release promotion');
-        expect(workflow).toContain('Microsoft Store reconciliation');
+        expect(workflow).toContain('Public promotion | deferred until required distribution channels complete');
         expect(workflow).toContain('steps.uploaded_assets.outcome');
     });
 
-    it('reuses immutable public assets while still reconciling the Store package', () => {
+    it('reuses immutable public assets before the extracted publish chain', () => {
         const workflow = readFileSync(resolve(process.cwd(), '.github/workflows/release.yml'), 'utf8');
         const publishJobStart = workflow.indexOf('\n  publish:\n');
-        const finalizeAssetsJobStart = workflow.indexOf('\n  finalize_release_assets:\n');
         expect(publishJobStart).toBeGreaterThanOrEqual(0);
-        expect(finalizeAssetsJobStart).toBeGreaterThan(publishJobStart);
-        const publishJob = workflow.slice(publishJobStart, finalizeAssetsJobStart);
+        const chainJobStart = workflow.indexOf('\n  chain:\n');
+        expect(chainJobStart).toBeGreaterThan(publishJobStart);
+        const publishJob = workflow.slice(publishJobStart, chainJobStart);
 
         expect(workflow).toContain('release view "$RELEASE_TAG" --json isDraft,targetCommitish');
         expect(workflow).toContain('git/ref/tags/${RELEASE_TAG}');
         expect(workflow).toContain('git/tags/${resolved_release_sha}');
         expect(workflow).toContain('[ "$resolved_release_sha" != "$TARGET_SHA" ]');
         expect(workflow).toContain('already_public=true');
-        expect(workflow).toContain('needs.publish.outputs.already_public != \'true\'');
-        expect(workflow).toContain(
-            'enabled: ${{ needs.release_credentials.outputs.submit_store == \'true\' && needs.build_win_arm64.outputs.artifact_ready == \'true\' }}',
-        );
         expect(workflow).toContain('Existing public assets passed presence and updater integrity checks');
         expect(workflow).toContain('Retaining checksum-finalized draft assets from the same target');
         expect(workflow).toContain('grep -Fq \'release not found\'');
         expect(publishJob).not.toContain('gh release upload "$RELEASE_TAG" artifacts/* --clobber');
+        expect(workflow).toContain('uses: ./.github/workflows/publish-chain.yml');
+        expect(workflow).toContain('Mirror channel');
     });
 
     it('keeps standalone release verification split into check and package gates', () => {
@@ -1603,7 +1499,7 @@ describe('release policy', () => {
         expect(calls.every(call => call.env?.EVB_AUTOMATION_NO_FOCUS === undefined)).toBe(true);
     });
 
-    it('builds once and substitutes no-build checks when combined release verification requests a receipt', () => {
+    it('records a strict-build receipt after the policy-owned release checks', () => {
         const scripts: string[] = [];
         const receipts: string[] = [];
         const childEnvironments = new Map<string, Record<string, string>>();
@@ -1629,31 +1525,27 @@ describe('release policy', () => {
         });
 
         expect(scripts.indexOf('build:strict')).toBeGreaterThan(
-            scripts.indexOf('test:coverage'),
+            scripts.indexOf('check:electron-builder:asar-unpack'),
         );
-        expect(scripts.indexOf('build:strict')).toBeLessThan(
-            scripts.indexOf('test:electron-bundle-static-integrity:no-build'),
-        );
-        expect(scripts).not.toContain('build:pdf-image-combine');
-        expect(scripts).not.toContain('build:pdf-page-ops');
-        expect(scripts).not.toContain('build:pdf-search');
-        expect(scripts).not.toContain('build:scan-cleanup');
-        expect(scripts).not.toContain('check:wasm:strict');
-        expect(scripts).not.toContain('test:electron-bundle-static-integrity');
-        expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
+        expect(scripts).toEqual([
+            'check:drizzle-schema',
+            'check:electron:install',
+            'check:electron-builder:asar-unpack',
+            'build:strict',
+        ]);
         expect(receipts).toEqual(['/tmp/release-build-receipt.json']);
-        expect(childEnvironments.get('lint:clean')).toMatchObject({
+        expect(childEnvironments.get('check:drizzle-schema')).toMatchObject({
             EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
             EVB_RELEASE_VERIFY_SKIP: '',
             EVB_RELEASE_VERIFY_SKIP_ACK: '1',
         });
-        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
             'EVB_RELEASE_BUILD_RECEIPT',
         );
-        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
             'EVB_RELEASE_VERIFY_SKIP',
         );
-        expect(childEnvironments.get('test:coverage')).not.toHaveProperty(
+        expect(childEnvironments.get('check:electron-builder:asar-unpack')).toHaveProperty(
             'EVB_RELEASE_VERIFY_SKIP_ACK',
         );
     });
@@ -1678,7 +1570,11 @@ describe('release policy', () => {
         });
 
         expect(scripts).not.toContain('build:strict');
-        expect(scripts).toContain('test:electron-bundle-static-integrity:no-build');
+        expect(scripts).toEqual([
+            'check:drizzle-schema',
+            'check:electron:install',
+            'check:electron-builder:asar-unpack',
+        ]);
         expect(receipts).toEqual([]);
         expect(stderrLines.join('')).toContain('Reusing strict-build receipt');
     });
@@ -1712,9 +1608,9 @@ describe('release policy', () => {
                 EVB_RELEASE_BUILD_RECEIPT: '/tmp/release-build-receipt.json',
                 EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
             },
-            skipList: 'check:wasm:strict',
+            skipList: 'check:drizzle-schema',
             stderr: {write: () => {}},
-        })).toThrow('Cannot reuse the all-gates strict build: the skip list removes a strict-build prerequisite');
+        })).toThrow('Cannot reuse strict-build receipt /tmp/release-build-receipt.json: missing');
     });
 
     it('skips explicitly listed release gates without changing the default gate list', () => {
@@ -1726,16 +1622,16 @@ describe('release policy', () => {
             runCommand: (_command: string, args: string[]) => {
                 calls.push(args);
             },
-            skipList: 'test:coverage, test:rust',
+            skipList: 'check:drizzle-schema, check:electron:install',
             stderr: { write: (message: string) => stderrLines.push(message) },
         });
 
         const scriptNames = calls.map(args => args[1]);
-        expect(scriptNames).not.toContain('test:coverage');
-        expect(scriptNames).not.toContain('test:rust');
+        expect(scriptNames).not.toContain('check:drizzle-schema');
+        expect(scriptNames).not.toContain('check:electron:install');
         expect(calls).toHaveLength(getLocalReleaseCheckCommands().length - 2);
         expect(stderrLines.join('')).toContain('release:verify is running with skipped local gates');
-        expect(stderrLines.join('')).toContain('skipped gates: test:coverage, test:rust');
+        expect(stderrLines.join('')).toContain('skipped gates: check:drizzle-schema, check:electron:install');
     });
 
     it('requires explicit acknowledgement before release verification skips gates', () => {
@@ -1751,11 +1647,11 @@ describe('release policy', () => {
             argv: [],
             env: {EVB_RELEASE_VERIFY_SKIP_ACK: '1'},
         })).toBe(true);
-        expect(() => assertReleaseVerifySkipAcknowledged(['test:coverage'], {allowSkip: false}))
+        expect(() => assertReleaseVerifySkipAcknowledged(['check:drizzle-schema'], {allowSkip: false}))
             .toThrow(/without explicit acknowledgement/u);
         expect(() => runLocalReleaseChecks({
             runCommand: () => {},
-            skipList: 'test:coverage',
+            skipList: 'check:drizzle-schema',
             stderr: { write: () => {} },
         })).toThrow(/EVB_RELEASE_VERIFY_SKIP was set without explicit acknowledgement/u);
     });

@@ -17,7 +17,9 @@ const require = createRequire(import.meta.url);
 require.resolve('vue-tsc/package.json');
 
 const argv = process.argv.slice(2);
-const cold = argv.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
+const cold = argv.includes('--cold')
+    || process.env.EVB_TYPECHECK_COLD === '1'
+    || process.env.EVB_GATE_NO_CACHE === '1';
 const workspaceArg = argv.find(argument => !argument.startsWith('-'));
 const workspaceDir = workspaceArg ? resolve(workspaceArg) : process.cwd();
 const cacheDir = resolve(workspaceDir, '.devkit', 'cache', 'typecheck');

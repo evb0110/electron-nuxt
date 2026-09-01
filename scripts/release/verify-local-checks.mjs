@@ -89,8 +89,12 @@ export function assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip} 
     );
 }
 
-export function getLocalReleaseCheckCommands() {
-    return getLocalReleaseCheckGateScripts().map(scriptName => ({
+export function getLocalReleaseCheckCommands({scanCleanupIdentity = false} = {}) {
+    const scriptNames = [...getLocalReleaseCheckGateScripts()];
+    if (scanCleanupIdentity && !scriptNames.includes('test:scan-cleanup:canonical-identity')) {
+        scriptNames.push('test:scan-cleanup:canonical-identity');
+    }
+    return scriptNames.map(scriptName => ({
         args: [
             'run',
             scriptName,
@@ -112,7 +116,7 @@ export function runLocalReleaseChecks({
     validateBuildReceipt = validateReleaseBuildReceipt,
     writeBuildReceipt = writeReleaseBuildReceipt,
 } = {}) {
-    const commands = getLocalReleaseCheckCommands();
+    const commands = getLocalReleaseCheckCommands({scanCleanupIdentity: argv.includes('--scan-cleanup-identity')});
     const knownScripts = commands
         .filter(command => command.args[0] === 'run')
         .map(command => command.args[1]);

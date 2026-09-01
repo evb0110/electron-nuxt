@@ -15,19 +15,6 @@ import {
 } from './release/build-receipt.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const reusedReleaseChecks = [
-    'lint:clean',
-    'check:static:reports',
-    'check:static:assets',
-    'typecheck:clean',
-    'typecheck:coverage',
-    'check:resources:matrix',
-    'fallow:all',
-    'test:rust',
-    'test:coverage',
-    'test:electron-bundle-static-integrity',
-];
-
 export function getAllGateDefinitions() {
     return [
         {
@@ -77,8 +64,6 @@ export function getAllGateEnvironment(gateId, {
             ...env,
             [RELEASE_BUILD_RECEIPT_ENV_VAR]: receiptPath,
             EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
-            EVB_RELEASE_VERIFY_SKIP: reusedReleaseChecks.join(','),
-            EVB_RELEASE_VERIFY_SKIP_ACK: '1',
         };
     }
     return env;
