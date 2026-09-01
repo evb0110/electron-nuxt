@@ -142,7 +142,7 @@ async function saveWithUnencryptedNoticeChoice(
     choice: 'cancel' | 'continue' | 'continue-and-suppress',
 ) {
     const savePromise = callWorkspaceCommand<boolean>(page, 'handleSave');
-    await page.waitForSelector('[data-testid="unencrypted-save-dialog"]', {
+    await page.waitForSelector('.unencrypted-save-dialog', {
         timeout: SAVE_TIMEOUT_MS,
         visible: true,
     });
@@ -492,7 +492,10 @@ describe('Electron E2E - save pipeline diagnostics', () => {
         await session.page.keyboard.up(modifier);
         await session.page.keyboard.type(author);
         await waitForPersistedAuthor(session.page, author);
-        await session.page.click('button[aria-label="Back"]');
+        // Settings opens in a separate empty tab from the shell toolbar. Its
+        // start-page variant intentionally has no Back button, so close that
+        // tab to return to the already-open PDF.
+        await session.page.click('button.tab-close.is-visible');
         await waitForViewerInteractive(session.page, SAVE_TIMEOUT_MS);
 
         await createDirtyStickyNote(session.page);

@@ -66,6 +66,8 @@ export interface IPdfSaveCanonicalInputs {
     readonly pendingDeletes: IAnnotationCommentSummary[];
     readonly liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     readonly replayableEmbeddedAnnotationIds: ReadonlySet<string>;
+    /** Stable keys for changed, editor-owned canonical point notes. */
+    readonly replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
 }
 
 export type TNativeSaveRouteRejection =
