@@ -38,6 +38,12 @@ const mocks = vi.hoisted(() => ({
     autoCompleteSearch: true,
     existsSync: vi.fn(),
     resourceTier: 'medium' as 'low' | 'medium' | 'high',
+    registerMainOperation: vi.fn(),
+    mainOperationRecords: [] as Array<{
+        registration: Record<string, unknown>;
+        controller: AbortController;
+        complete: ReturnType<typeof vi.fn>;
+    }>,
 }));
 
 function emitWorkerEvent(
@@ -235,6 +241,7 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({getHostResourceProfil
     performanceMode: 'auto',
     tier: mocks.resourceTier,
 })}));
+vi.mock('@electron/operation-lifecycle/mainOperationLifecycle', () => ({registerMainOperation: (...args: unknown[]) => mocks.registerMainOperation(...args)}));
 
 function createInvokeEvent(senderId: number) {
     const send = vi.fn();
@@ -316,6 +323,24 @@ describe('search IPC worker resource limits', () => {
         mocks.webContentsById.clear();
         mocks.autoCompleteSearch = true;
         mocks.resourceTier = 'medium';
+        mocks.mainOperationRecords.length = 0;
+        mocks.registerMainOperation.mockReset();
+        mocks.registerMainOperation.mockImplementation((registration: Record<string, unknown>) => {
+            const controller = new AbortController();
+            const complete = vi.fn();
+            const record = {
+                registration,
+                controller,
+                complete,
+            };
+            mocks.mainOperationRecords.push(record);
+            return {
+                id: `main-operation-${mocks.mainOperationRecords.length}`,
+                signal: controller.signal,
+                markCommitStarted: vi.fn(),
+                complete,
+            };
+        });
 
         delete process.env.EVB_SEARCH_WORKER_MAX_ACTIVE;
         delete process.env.EVB_SEARCH_WORKER_IDLE_TTL_MS;
@@ -339,6 +364,179 @@ describe('search IPC worker resource limits', () => {
             token: 'revision-token',
         }));
         mocks.existsSync.mockReturnValue(false);
+    });
+
+    it('cancels a request during path preprocessing without superseding a newer query', async () => {
+        mocks.autoCompleteSearch = false;
+        const firstPath = '/tmp/pdf-work-search-a/document.pdf';
+        let releaseFirstPath!: (path: string) => void;
+        const firstPathReady = new Promise<string>((resolve) => {
+            releaseFirstPath = resolve;
+        });
+        mocks.resolveAllowedReadPath.mockImplementation((path: string) => (
+            path === firstPath ? firstPathReady : Promise.resolve('/tmp/allowed.pdf')
+        ));
+
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const cancelHandler = getCancelHandler();
+        const firstEvent = createInvokeEvent(401);
+        const firstSearch = searchHandler(
+            firstEvent,
+            {
+                pdfPath: firstPath,
+                query: 'first',
+                requestId: 'search-a',
+            },
+        ) as Promise<unknown>;
+
+        await vi.waitFor(() => {
+            expect(mocks.resolveAllowedReadPath).toHaveBeenCalledWith(firstPath);
+        });
+
+        await expect(cancelHandler(firstEvent, 'search-a')).resolves.toEqual({canceled: true});
+
+        const secondSearch = searchHandler(
+            firstEvent,
+            {
+                pdfPath: '/tmp/second.pdf',
+                query: 'second',
+                requestId: 'search-b',
+            },
+        ) as Promise<unknown>;
+        await vi.waitFor(() => {
+            expect(mocks.workerRecords).toHaveLength(1);
+        });
+
+        releaseFirstPath(firstPath);
+
+        await expect(firstSearch).resolves.toEqual({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        expect(mocks.workerRecords[0]?.postMessageCalls).toContainEqual({
+            type: 'search',
+            payload: expect.objectContaining({requestId: 'search-b'}),
+        });
+        expect(mocks.workerRecords[0]?.postMessageCalls).not.toContainEqual({
+            type: 'search',
+            payload: expect.objectContaining({requestId: 'search-a'}),
+        });
+
+        emitWorkerComplete(0, 'search-b');
+        await expect(secondSearch).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+    });
+
+    it('cancels all preprocessing requests for a sender when the request id is omitted', async () => {
+        mocks.autoCompleteSearch = false;
+        const workingCopyPath = '/tmp/pdf-work-search-implicit-cancel/document.pdf';
+        const otherWorkingCopyPath = '/tmp/pdf-work-search-other-sender/document.pdf';
+        let releasePath!: (path: string) => void;
+        let releaseOtherPath!: (path: string) => void;
+        const pathReady = new Promise<string>((resolve) => {
+            releasePath = resolve;
+        });
+        const otherPathReady = new Promise<string>((resolve) => {
+            releaseOtherPath = resolve;
+        });
+        mocks.resolveAllowedReadPath.mockImplementation((path: string) => (
+            path === workingCopyPath
+                ? pathReady
+                : path === otherWorkingCopyPath
+                    ? otherPathReady
+                    : Promise.resolve('/tmp/allowed.pdf')
+        ));
+
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const cancelHandler = getCancelHandler();
+        const event = createInvokeEvent(403);
+        const otherEvent = createInvokeEvent(404);
+        const searchPromise = searchHandler(
+            event,
+            {
+                pdfPath: workingCopyPath,
+                query: 'needle',
+            },
+        ) as Promise<unknown>;
+        const otherSearchPromise = searchHandler(
+            otherEvent,
+            {
+                pdfPath: otherWorkingCopyPath,
+                query: 'other',
+            },
+        ) as Promise<unknown>;
+
+        await vi.waitFor(() => {
+            expect(mocks.resolveAllowedReadPath).toHaveBeenCalledWith(workingCopyPath);
+            expect(mocks.resolveAllowedReadPath).toHaveBeenCalledWith(otherWorkingCopyPath);
+        });
+
+        await expect(cancelHandler(event)).resolves.toEqual({canceled: true});
+        releasePath(workingCopyPath);
+
+        await expect(searchPromise).resolves.toEqual({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        expect(mocks.workerRecords).toHaveLength(0);
+
+        mocks.autoCompleteSearch = true;
+        releaseOtherPath(otherWorkingCopyPath);
+        await expect(otherSearchPromise).resolves.toEqual({
+            results: [],
+            truncated: false,
+        });
+        expect(mocks.workerRecords).toHaveLength(1);
+    });
+
+    it('holds a working copy during search preprocessing so close cancels before deletion', async () => {
+        mocks.autoCompleteSearch = false;
+        const workingCopyPath = '/tmp/pdf-work-search-close/document.pdf';
+        let releasePath!: (path: string) => void;
+        const pathReady = new Promise<string>((resolve) => {
+            releasePath = resolve;
+        });
+        mocks.resolveAllowedReadPath.mockImplementation((path: string) => (
+            path === workingCopyPath ? pathReady : Promise.resolve('/tmp/allowed.pdf')
+        ));
+
+        await registerSearchHandlers();
+        const searchHandler = getSearchHandler();
+        const searchPromise = searchHandler(
+            createInvokeEvent(402),
+            {
+                pdfPath: workingCopyPath,
+                query: 'needle',
+                requestId: 'search-close-race',
+            },
+        ) as Promise<unknown>;
+
+        await vi.waitFor(() => {
+            expect(mocks.mainOperationRecords).toContainEqual(expect.objectContaining({registration: expect.objectContaining({workingCopyPath})}));
+        });
+        const preprocessingOperation = mocks.mainOperationRecords.find(record => (
+            record.registration.workingCopyPath === workingCopyPath
+        ));
+        expect(preprocessingOperation).toBeDefined();
+
+        preprocessingOperation?.controller.abort(new Error('Working copy is closing'));
+        await (preprocessingOperation?.registration.cancel as ((reason: string) => void) | undefined)?.('Working copy is closing');
+        expect(preprocessingOperation?.complete).not.toHaveBeenCalled();
+        releasePath(workingCopyPath);
+
+        await expect(searchPromise).resolves.toEqual({
+            results: [],
+            truncated: false,
+            canceled: true,
+        });
+        expect(mocks.workerRecords).toHaveLength(0);
+        expect(preprocessingOperation?.complete).toHaveBeenCalledOnce();
     });
 
     it('rejects oversized search request ids before allocating a worker', async () => {

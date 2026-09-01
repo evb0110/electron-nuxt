@@ -1,5 +1,6 @@
 import { app } from 'electron';
 import type { IpcMainInvokeEvent } from 'electron';
+import { randomUUID } from 'node:crypto';
 import {
     dirname,
     join,
@@ -10,11 +11,16 @@ import type {
     INormalizedPdfSearchRequest,
     INormalizedPdfSearchWarmIndexRequest,
 } from '@electron/features/search/searchRequestPayload';
-import { findWorkingCopyPathByOriginalPath } from '@electron/file-access/workingCopyStore';
+import {findWorkingCopyPathByOriginalPath} from '@electron/file-access/workingCopyStore';
 import { getWorkingCopyRevision } from '@electron/file-access/documentRevisionStore';
 import { resolveAllowedReadPath } from '@electron/utils/pathValidator';
 import {
+    registerMainOperation,
+    type IRegisteredMainOperation,
+} from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {
     SearchWorkerService,
+    getSearchPdfPathKey,
     type ISearchOperationContext,
     type ISearchSenderContext,
 } from '@electron/features/search/main/searchWorkerService';
@@ -71,6 +77,176 @@ export async function resolveSearchablePdfPath(pdfPath: string, senderWebContent
 const log = createLogger('search-ipc');
 let activeSearchWorkerService: SearchWorkerService | null = null;
 
+interface ISearchRequestAdmission {
+    readonly signal: AbortSignal;
+    addWorkingCopyPath: (workingCopyPath: string) => void;
+    cancel: (reason: string) => void;
+    complete: () => void;
+    isCanceled: () => boolean;
+    matchesWorkingCopyPath: (workingCopyPath: string) => boolean;
+    getSignals: () => readonly AbortSignal[];
+}
+
+interface ISearchAdmissionOperation {
+    operation: IRegisteredMainOperation;
+    workingCopyPath?: string;
+}
+
+const pendingSearchRequestAdmissions = new Map<string, Set<ISearchRequestAdmission>>();
+
+function getSearchRequestAdmissionKey(senderId: number, requestId: string) {
+    return `${senderId}\0${requestId}`;
+}
+
+function getKnownSearchWorkingCopyPath(pdfPath: string, senderId: number) {
+    if (isWorkingCopyPathCandidate(pdfPath)) {
+        return pdfPath;
+    }
+    return findWorkingCopyPathByOriginalPath(pdfPath, senderId);
+}
+
+function pathsMatch(left: string, right: string) {
+    return getSearchPdfPathKey(left) === getSearchPdfPathKey(right);
+}
+
+function createSearchRequestAdmission(
+    pdfPath: string,
+    senderId: number,
+    requestId: string,
+): ISearchRequestAdmission {
+    const controller = new AbortController();
+    const operations = new Set<ISearchAdmissionOperation>();
+    const key = getSearchRequestAdmissionKey(senderId, requestId);
+    let completed = false;
+
+    const cancel = (reason: string) => {
+        if (!controller.signal.aborted) {
+            controller.abort(new Error(reason));
+        }
+    };
+    const admission: ISearchRequestAdmission = {
+        signal: controller.signal,
+        addWorkingCopyPath: (workingCopyPath: string) => {
+            if (completed || [...operations].some(operation => (
+                operation.workingCopyPath !== undefined
+                && pathsMatch(operation.workingCopyPath, workingCopyPath)
+            ))) {
+                return;
+            }
+            const operation = registerMainOperation({
+                kind: 'abortable-work',
+                ownerWebContentsId: senderId,
+                workingCopyPath,
+                cancel,
+            });
+            operations.add({
+                operation,
+                workingCopyPath,
+            });
+        },
+        cancel,
+        complete: () => {
+            if (completed) {
+                return;
+            }
+            completed = true;
+            const pending = pendingSearchRequestAdmissions.get(key);
+            pending?.delete(admission);
+            if (pending?.size === 0) {
+                pendingSearchRequestAdmissions.delete(key);
+            }
+            for (const {operation} of operations) {
+                operation.complete();
+            }
+            operations.clear();
+        },
+        isCanceled: () => controller.signal.aborted || [...operations].some(({operation}) => operation.signal.aborted),
+        matchesWorkingCopyPath: (workingCopyPath: string) => [...operations].some(operation => (
+            operation.workingCopyPath !== undefined
+            && pathsMatch(operation.workingCopyPath, workingCopyPath)
+        )),
+        getSignals: () => [
+            controller.signal,
+            ...[...operations].map(({operation}) => operation.signal),
+        ],
+    };
+
+    try {
+        operations.add({operation: registerMainOperation({
+            kind: 'abortable-work',
+            ownerWebContentsId: senderId,
+            cancel,
+        })});
+        const knownWorkingCopyPath = getKnownSearchWorkingCopyPath(pdfPath, senderId);
+        if (knownWorkingCopyPath) {
+            admission.addWorkingCopyPath(knownWorkingCopyPath);
+        }
+    } catch (error) {
+        admission.complete();
+        throw error;
+    }
+
+    const pending = pendingSearchRequestAdmissions.get(key) ?? new Set<ISearchRequestAdmission>();
+    pending.add(admission);
+    pendingSearchRequestAdmissions.set(key, pending);
+    return admission;
+}
+
+function cancelPendingSearchRequests(senderId: number, requestId: string, reason: string) {
+    const pending = pendingSearchRequestAdmissions.get(getSearchRequestAdmissionKey(senderId, requestId));
+    if (!pending || pending.size === 0) {
+        return false;
+    }
+    for (const admission of pending) {
+        admission.cancel(reason);
+    }
+    return true;
+}
+
+function cancelPendingSearchRequestsForSender(senderId: number, reason: string) {
+    const keyPrefix = `${senderId}\0`;
+    let canceled = false;
+    for (const [
+        key,
+        pending,
+    ] of pendingSearchRequestAdmissions) {
+        if (!key.startsWith(keyPrefix)) {
+            continue;
+        }
+        for (const admission of pending) {
+            admission.cancel(reason);
+            canceled = true;
+        }
+    }
+    return canceled;
+}
+
+function cancelPendingSearchRequestsForPdfPath(pdfPath: string, reason: string) {
+    let canceledCount = 0;
+    for (const pending of pendingSearchRequestAdmissions.values()) {
+        for (const admission of pending) {
+            if (!admission.matchesWorkingCopyPath(pdfPath)) {
+                continue;
+            }
+            admission.cancel(reason);
+            canceledCount += 1;
+        }
+    }
+    return canceledCount;
+}
+
+function resolveSearchRequestId(requestId: string | undefined, prefix: string) {
+    return requestId ?? `${prefix}-${randomUUID()}`;
+}
+
+function canceledSearchResponse(): ISearchResponse {
+    return {
+        results: [],
+        truncated: false,
+        canceled: true,
+    };
+}
+
 function getSearchWorkerService() {
     activeSearchWorkerService ??= new SearchWorkerService(
         resolveSearchWorkerPath,
@@ -81,7 +257,9 @@ function getSearchWorkerService() {
 
 export const searchWorkerService = {
     cancelRequestsForPdfPath(pdfPath: string, reason: string) {
-        return activeSearchWorkerService?.cancelRequestsForPdfPath(pdfPath, reason) ?? 0;
+        const pendingCanceled = cancelPendingSearchRequestsForPdfPath(pdfPath, reason);
+        const activeCanceled = activeSearchWorkerService?.cancelRequestsForPdfPath(pdfPath, reason) ?? 0;
+        return pendingCanceled + activeCanceled;
     },
     async cleanupAll(reason: string) {
         await activeSearchWorkerService?.cleanupAll(reason);
@@ -127,38 +305,61 @@ async function handlePdfSearch(
         };
     }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(pdfPath, operationContext.senderId);
-    if (!resolvedPdfPath) {
-        throw new SearchIpcError(buildSearchErrorEnvelope(
-            'SEARCH_PATH_DENIED',
-            'Invalid PDF path: search only allowed within temp directory',
-        ));
-    }
+    const requestId = resolveSearchRequestId(request.requestId, 'search');
+    const admission = createSearchRequestAdmission(pdfPath, operationContext.senderId, requestId);
+    try {
+        const resolvedPdfPath = await resolveSearchablePdfPath(pdfPath, operationContext.senderId);
+        if (admission.isCanceled()) {
+            return canceledSearchResponse();
+        }
+        if (!resolvedPdfPath) {
+            throw new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_PATH_DENIED',
+                'Invalid PDF path: search only allowed within temp directory',
+            ));
+        }
+        if (isWorkingCopyPathCandidate(resolvedPdfPath)) {
+            admission.addWorkingCopyPath(resolvedPdfPath);
+        }
+        if (admission.isCanceled()) {
+            return canceledSearchResponse();
+        }
 
-    const service = getSearchWorkerService();
-    const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
-        resolvedPdfPath,
-        documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
-        query,
-        requestIdPrefix: 'search',
-    };
-    if (pageCount !== undefined) {
-        dispatchPayload.pageCount = pageCount;
-    }
-    if (request.requestId !== undefined) {
-        dispatchPayload.requestId = request.requestId;
-    }
-    if (matchCase !== undefined) {
-        dispatchPayload.matchCase = matchCase;
-    }
-    if (wholeWord !== undefined) {
-        dispatchPayload.wholeWord = wholeWord;
-    }
-    if (useRegex !== undefined) {
-        dispatchPayload.useRegex = useRegex;
-    }
+        const service = getSearchWorkerService();
+        const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
+            resolvedPdfPath,
+            documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
+            query,
+            requestId,
+            requestIdPrefix: 'search',
+        };
+        if (admission.isCanceled()) {
+            return canceledSearchResponse();
+        }
+        if (pageCount !== undefined) {
+            dispatchPayload.pageCount = pageCount;
+        }
+        if (matchCase !== undefined) {
+            dispatchPayload.matchCase = matchCase;
+        }
+        if (wholeWord !== undefined) {
+            dispatchPayload.wholeWord = wholeWord;
+        }
+        if (useRegex !== undefined) {
+            dispatchPayload.useRegex = useRegex;
+        }
 
-    return service.dispatchSearchRequest(operationContext, dispatchPayload);
+        const dispatchPromise = service.dispatchSearchRequest(operationContext, dispatchPayload, {signals: admission.getSignals()});
+        admission.complete();
+        return await dispatchPromise;
+    } catch (error) {
+        if (admission.isCanceled()) {
+            return canceledSearchResponse();
+        }
+        throw error;
+    } finally {
+        admission.complete();
+    }
 }
 
 async function handlePdfSearchWarmIndex(
@@ -166,39 +367,66 @@ async function handlePdfSearchWarmIndex(
     request: INormalizedPdfSearchWarmIndexRequest,
 ) {
     const operationContext = normalizeSearchOperationContext(context);
+    const requestId = resolveSearchRequestId(request.requestId, 'search-warm');
+    const admission = createSearchRequestAdmission(request.pdfPath, operationContext.senderId, requestId);
+    try {
+        const resolvedPdfPath = await resolveSearchablePdfPath(request.pdfPath, operationContext.senderId);
+        if (admission.isCanceled()) {
+            return true;
+        }
+        if (!resolvedPdfPath) {
+            throw new SearchIpcError(buildSearchErrorEnvelope(
+                'SEARCH_PATH_DENIED',
+                'Invalid PDF path: search only allowed within temp directory',
+            ));
+        }
+        if (isWorkingCopyPathCandidate(resolvedPdfPath)) {
+            admission.addWorkingCopyPath(resolvedPdfPath);
+        }
+        if (admission.isCanceled()) {
+            return true;
+        }
 
-    const resolvedPdfPath = await resolveSearchablePdfPath(request.pdfPath, operationContext.senderId);
-    if (!resolvedPdfPath) {
-        throw new SearchIpcError(buildSearchErrorEnvelope(
-            'SEARCH_PATH_DENIED',
-            'Invalid PDF path: search only allowed within temp directory',
-        ));
+        const service = getSearchWorkerService();
+        const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
+            resolvedPdfPath,
+            documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
+            query: '',
+            warmup: true,
+            requestId,
+            requestIdPrefix: 'search-warm',
+        };
+        if (admission.isCanceled()) {
+            return true;
+        }
+        if (request.pageCount !== undefined) {
+            dispatchPayload.pageCount = request.pageCount;
+        }
+
+        const dispatchPromise = service.dispatchSearchRequest(operationContext, dispatchPayload, {signals: admission.getSignals()});
+        admission.complete();
+        return await dispatchPromise.then(() => true);
+    } catch (error) {
+        if (admission.isCanceled()) {
+            return true;
+        }
+        throw error;
+    } finally {
+        admission.complete();
     }
-
-    const service = getSearchWorkerService();
-    const dispatchPayload: Parameters<SearchWorkerService['dispatchSearchRequest']>[1] = {
-        resolvedPdfPath,
-        documentRevision: await resolveSearchDocumentRevision(resolvedPdfPath, request.documentRevision, operationContext.senderId),
-        query: '',
-        warmup: true,
-        requestIdPrefix: 'search-warm',
-    };
-    if (request.pageCount !== undefined) {
-        dispatchPayload.pageCount = request.pageCount;
-    }
-    if (request.requestId !== undefined) {
-        dispatchPayload.requestId = request.requestId;
-    }
-
-    await service.dispatchSearchRequest(operationContext, dispatchPayload);
-
-    return true;
 }
 
 const searchMainBindings = {
     run: handlePdfSearch,
     warmIndex: handlePdfSearchWarmIndex,
-    cancel: (context, requestId) => getSearchWorkerService().cancel(context, requestId),
+    cancel: (context, requestId) => {
+        const senderId = context.senderId ?? context.sender.id;
+        const pendingCanceled = requestId === undefined
+            ? cancelPendingSearchRequestsForSender(senderId, 'explicit cancel request')
+            : cancelPendingSearchRequests(senderId, requestId, 'explicit cancel request');
+        const activeCancellation = getSearchWorkerService().cancel(context, requestId);
+        return {canceled: pendingCanceled || activeCancellation.canceled};
+    },
     resetCache: () => getSearchWorkerService().resetCache(),
     subscribeProgress: context => getSearchWorkerService().subscribeProgress(context),
 } satisfies TFeatureMainBindings<typeof SEARCH_PLATFORM_FEATURE, IpcMainInvokeEvent>;
