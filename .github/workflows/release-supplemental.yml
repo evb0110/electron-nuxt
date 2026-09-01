@@ -51,6 +51,8 @@ jobs:
       target_sha: ${{ steps.resolve.outputs.target_sha }}
       version: ${{ steps.resolve.outputs.version }}
       workflow_sha: ${{ steps.resolve.outputs.workflow_sha }}
+      existing_mac_x64: ${{ steps.resolve.outputs.existing_mac_x64 }}
+      existing_win_arm64: ${{ steps.resolve.outputs.existing_win_arm64 }}
 
     steps:
       - name: Checkout release helpers
@@ -91,7 +93,7 @@ jobs:
             exit 1
           fi
 
-          release_json="$(gh release view "$TAG" --json isDraft)"
+          release_json="$(gh release view "$TAG" --json isDraft,assets)"
           is_draft="$(jq -r '.isDraft' <<< "$release_json")"
           if [ "$DRILL" = 'true' ]; then
             if [ "$is_draft" != 'true' ]; then
@@ -117,10 +119,38 @@ jobs:
             echo '::error::workflow_sha must be an exact commit SHA.'
             exit 1
           fi
+
+          # Builds are not byte-reproducible, so a re-dispatch must not
+          # rebuild an asset the release already holds: the immutable-asset
+          # check would reject the fresh bytes. The attach jobs verify the
+          # attached copy instead.
+          version="${TAG#v}"
+          remote_assets="$(jq -r '.assets[]?.name' <<< "$release_json")"
+          has_asset() { grep -Fqx "$1" <<< "$remote_assets"; }
+          existing_mac_x64=false
+          if has_asset "EVB-Viewer-${version}-x64.zip"; then
+            existing_mac_x64=true
+            echo "::notice::$TAG already holds the macOS Intel ZIP; its build is skipped."
+          fi
+          existing_win_arm64=false
+          win_arm64_installer="EVB-Viewer-${version}-arm64-setup.exe"
+          win_arm64_provenance="EVB-Viewer-${version}-win-arm64-provenance.json"
+          if has_asset "$win_arm64_installer" && has_asset "$win_arm64_provenance"; then
+            existing_win_arm64=true
+            echo "::notice::$TAG already holds the Windows ARM64 assets; their build is skipped."
+          elif has_asset "$win_arm64_installer" || has_asset "$win_arm64_provenance"; then
+            # The provenance describes the build that produced the installer,
+            # so a fresh build cannot supply the missing half of the pair.
+            echo "::error::$TAG holds only part of the Windows ARM64 pair ($win_arm64_installer, $win_arm64_provenance). Delete the orphan with 'gh release delete-asset $TAG <asset>' and re-dispatch so both are rebuilt together."
+            exit 1
+          fi
+
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "workflow_sha=$workflow_sha" >> "$GITHUB_OUTPUT"
+          echo "existing_mac_x64=$existing_mac_x64" >> "$GITHUB_OUTPUT"
+          echo "existing_win_arm64=$existing_win_arm64" >> "$GITHUB_OUTPUT"
 
   release_credentials:
     name: Validate supplemental release credentials
@@ -128,12 +158,9 @@ jobs:
     if: ${{ !inputs.drill }}
     runs-on: ubuntu-latest
     environment: release
-    outputs:
-      submit_store: ${{ steps.channels.outputs.submit_store }}
 
     steps:
       - name: Validate public release credentials
-        id: channels
         shell: bash
         env:
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -141,9 +168,6 @@ jobs:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
-          PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
-          PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
-          PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
           WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
           WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
         run: |
@@ -158,20 +182,13 @@ jobs:
             echo '::error::Partial Windows signing credentials detected; set both WIN_CSC_LINK and WIN_CSC_KEY_PASSWORD or neither.'
             exit 1
           fi
-          submit_store=false
-          if [ -n "$PARTNER_TENANT_ID" ] && [ -n "$PARTNER_CLIENT_ID" ] && [ -n "$PARTNER_CLIENT_SECRET" ]; then
-            submit_store=true
-          else
-            echo '::notice::Complete Partner Center credentials are not configured; Store submission will be skipped.'
-          fi
-          echo "submit_store=$submit_store" >> "$GITHUB_OUTPUT"
 
   build_win_arm64:
     name: Package Supplemental Windows ARM64 Assets
     needs:
       - resolve
       - release_credentials
-    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' }}
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' && needs.resolve.outputs.existing_win_arm64 != 'true' }}
     uses: ./.github/workflows/build-target.yml
     with:
       ref: ${{ needs.resolve.outputs.target_sha }}
@@ -189,7 +206,7 @@ jobs:
     needs:
       - resolve
       - release_credentials
-    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' }}
+    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' && needs.resolve.outputs.existing_mac_x64 != 'true' }}
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.resolve.outputs.target_sha }}
@@ -214,7 +231,7 @@ jobs:
     needs:
       - resolve
       - build_mac_intel
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (inputs.drill || needs.build_mac_intel.result == 'success') }}
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.resolve.outputs.existing_mac_x64 == 'true' || inputs.drill || needs.build_mac_intel.result == 'success') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -236,19 +253,33 @@ jobs:
           install-dependencies: 'false'
 
       - name: Download drill Intel stub
-        if: ${{ inputs.drill }}
+        if: ${{ inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: supplemental-drill-mac-x64
           path: artifacts
 
       - name: Download built Intel artifact
-        if: ${{ !inputs.drill }}
+        if: ${{ !inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: supplemental-mac-x64
           path: artifacts
           merge-multiple: true
+
+      # A re-dispatch feeds the attached copy through the same validation and
+      # immutable-asset check instead of a fresh, non-reproducible build.
+      - name: Download the Intel ZIP already attached to the release
+        if: ${{ needs.resolve.outputs.existing_mac_x64 == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" --pattern "EVB-Viewer-${RELEASE_VERSION}-x64.zip" --dir artifacts
 
       - name: Validate Intel ZIP
         id: intel_asset
@@ -265,7 +296,7 @@ jobs:
           echo "expected=$expected" >> "$GITHUB_OUTPUT"
 
       - name: Attest Intel ZIP
-        if: ${{ !inputs.drill }}
+        if: ${{ !inputs.drill && needs.resolve.outputs.existing_mac_x64 != 'true' }}
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: ${{ steps.intel_asset.outputs.expected }}
@@ -291,7 +322,7 @@ jobs:
     needs:
       - resolve
       - build_win_arm64
-    if: ${{ !cancelled() && needs.resolve.result == 'success' && (inputs.drill || needs.build_win_arm64.result == 'success') }}
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && (needs.resolve.outputs.existing_win_arm64 == 'true' || inputs.drill || needs.build_win_arm64.result == 'success') }}
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -313,19 +344,34 @@ jobs:
           install-dependencies: 'false'
 
       - name: Download drill Windows ARM64 stubs
-        if: ${{ inputs.drill }}
+        if: ${{ inputs.drill && needs.resolve.outputs.existing_win_arm64 != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: supplemental-drill-win-arm64
           path: artifacts
 
       - name: Download built Windows ARM64 artifact
-        if: ${{ !inputs.drill }}
+        if: ${{ !inputs.drill && needs.resolve.outputs.existing_win_arm64 != 'true' }}
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: supplemental-win-arm64
           path: artifacts
           merge-multiple: true
+
+      - name: Download the Windows ARM64 assets already attached to the release
+        if: ${{ needs.resolve.outputs.existing_win_arm64 == 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          RELEASE_VERSION: ${{ needs.resolve.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release download "$RELEASE_TAG" \
+            --pattern "EVB-Viewer-${RELEASE_VERSION}-arm64-setup.exe" \
+            --pattern "EVB-Viewer-${RELEASE_VERSION}-win-arm64-provenance.json" \
+            --dir artifacts
 
       - name: Validate Windows ARM64 assets
         id: win_arm64_assets
@@ -346,7 +392,7 @@ jobs:
           echo "provenance=$provenance" >> "$GITHUB_OUTPUT"
 
       - name: Attest Windows ARM64 assets
-        if: ${{ !inputs.drill }}
+        if: ${{ !inputs.drill && needs.resolve.outputs.existing_win_arm64 != 'true' }}
         uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
         with:
           subject-path: |
@@ -370,24 +416,6 @@ jobs:
             node scripts/release/ensure-github-release-assets.mjs "$RELEASE_TAG" "$EXPECTED_INSTALLER" "$EXPECTED_PROVENANCE"
           fi
 
-  submit_store:
-    name: Reconcile Microsoft Store Submission
-    needs:
-      - resolve
-      - release_credentials
-      - build_win_arm64
-      - attach_win_arm64
-      - publish_store
-    if: ${{ !cancelled() && !inputs.drill && needs.resolve.result == 'success' && needs.release_credentials.result == 'success' && needs.release_credentials.outputs.submit_store == 'true' && needs.build_win_arm64.result == 'success' && needs.build_win_arm64.outputs.artifact_ready == 'true' && needs.attach_win_arm64.result == 'success' && needs.publish_store.result == 'success' }}
-    uses: ./.github/workflows/submit-store-appx.yml
-    with:
-      ref: ${{ needs.resolve.outputs.target_sha }}
-      enabled: true
-    secrets:
-      PARTNER_TENANT_ID: ${{ secrets.PARTNER_TENANT_ID }}
-      PARTNER_CLIENT_ID: ${{ secrets.PARTNER_CLIENT_ID }}
-      PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}
-
   summary:
     name: Summarize supplemental release
     needs:
@@ -398,7 +426,6 @@ jobs:
       - publish_store
       - attach_win_arm64
       - attach_mac_intel
-      - submit_store
     if: ${{ always() }}
     runs-on: ubuntu-latest
     permissions:
@@ -417,10 +444,19 @@ jobs:
           STORE_BUILD_RESULT: ${{ needs.publish_store.result }}
           WIN_ARM_ATTACH_RESULT: ${{ needs.attach_win_arm64.result }}
           MAC_INTEL_ATTACH_RESULT: ${{ needs.attach_mac_intel.result }}
-          STORE_SUBMIT_RESULT: ${{ needs.submit_store.result }}
+          WIN_ARM_EXISTING: ${{ needs.resolve.outputs.existing_win_arm64 }}
+          MAC_INTEL_EXISTING: ${{ needs.resolve.outputs.existing_mac_x64 }}
         shell: bash
         run: |
           set -euo pipefail
+          win_arm_build="$WIN_ARM_BUILD_RESULT"
+          if [ "$WIN_ARM_EXISTING" = 'true' ]; then
+            win_arm_build='reused already attached assets'
+          fi
+          mac_intel_build="$MAC_INTEL_BUILD_RESULT"
+          if [ "$MAC_INTEL_EXISTING" = 'true' ]; then
+            mac_intel_build='reused already attached asset'
+          fi
           {
             echo '## Supplemental release'
             echo
@@ -431,11 +467,11 @@ jobs:
               echo '- Mode: public release'
             fi
             echo
-            echo '| Asset or lane | Build | Attach or submit |'
+            echo '| Asset or lane | Build | Attach |'
             echo '| --- | --- | --- |'
-            echo "| Windows ARM64 | $WIN_ARM_BUILD_RESULT | $WIN_ARM_ATTACH_RESULT |"
-            echo "| macOS Intel | $MAC_INTEL_BUILD_RESULT | $MAC_INTEL_ATTACH_RESULT |"
-            echo "| Microsoft Store packages | $STORE_BUILD_RESULT | $STORE_SUBMIT_RESULT |"
+            echo "| Windows ARM64 | $win_arm_build | $WIN_ARM_ATTACH_RESULT |"
+            echo "| macOS Intel | $mac_intel_build | $MAC_INTEL_ATTACH_RESULT |"
+            echo "| Microsoft Store packages | $STORE_BUILD_RESULT | workflow artifact only; no automated submission |"
           } >> "$GITHUB_STEP_SUMMARY"
 
           if ! release_json="$(gh release view "$TAG" --json assets 2>/dev/null)"; then

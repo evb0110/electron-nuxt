@@ -1188,7 +1188,6 @@ describe('CI topology policy', () => {
             'publish_store',
             'attach_win_arm64',
             'attach_mac_intel',
-            'submit_store',
             'summary',
         ]) {
             expect(parseWorkflowJobs(supplementalWorkflow)[jobName], `missing supplemental job ${jobName}`).toBeDefined();
@@ -1204,6 +1203,18 @@ describe('CI topology policy', () => {
             expect(job).toContain('uses: actions/checkout@');
             expect(job).toContain('ensure-github-release-assets.mjs');
         }
+        // A re-dispatch must reuse attached assets: builds are not
+        // byte-reproducible and the immutable-asset check rejects fresh bytes.
+        const supplementalResolve = workflowJob(supplementalWorkflow, 'resolve');
+        expect(supplementalResolve).toContain('existing_mac_x64=$existing_mac_x64');
+        expect(supplementalResolve).toContain('existing_win_arm64=$existing_win_arm64');
+        expect(supplementalResolve).toContain('holds only part of the Windows ARM64 pair');
+        expect(supplementalResolve).toContain('existing_mac_x64: ${{ steps.resolve.outputs.existing_mac_x64 }}');
+        expect(supplementalResolve).toContain('existing_win_arm64: ${{ steps.resolve.outputs.existing_win_arm64 }}');
+        expect(workflowJob(supplementalWorkflow, 'build_mac_intel')).toContain('needs.resolve.outputs.existing_mac_x64 != \'true\'');
+        expect(workflowJob(supplementalWorkflow, 'build_win_arm64')).toContain('needs.resolve.outputs.existing_win_arm64 != \'true\'');
+        expect(workflowJob(supplementalWorkflow, 'attach_mac_intel')).toContain('needs.resolve.outputs.existing_mac_x64 == \'true\'');
+        expect(workflowJob(supplementalWorkflow, 'attach_win_arm64')).toContain('needs.resolve.outputs.existing_win_arm64 == \'true\'');
         expect(workflowJob(supplementalWorkflow, 'summary')).toContain('$GITHUB_STEP_SUMMARY');
 
         const drillWorkflow = await readProjectFile('.github/workflows/release-drill.yml');
@@ -1221,7 +1232,11 @@ describe('CI topology policy', () => {
         expect(supplementalDrillJob).toContain('actions: read');
         expect(supplementalDrillJob).toContain('contents: write');
         expect(supplementalDrillJob).toContain('drill: true');
+        const supplementalRedispatchDrillJob = workflowJob(drillWorkflow, 'supplemental_redispatch_drill');
+        expect(supplementalRedispatchDrillJob).toContain('needs: supplemental_drill');
+        expect(supplementalRedispatchDrillJob).toContain('drill: true');
         const cleanupJob = workflowJob(drillWorkflow, 'cleanup');
+        expect(cleanupJob).toContain('- supplemental_redispatch_drill');
         expect(cleanupJob).toContain('if: ${{ always() }}');
         expect(cleanupJob).toContain('gh release delete "$DRILL_TAG" --yes');
         expect(cleanupJob).toContain('publish-release-mirror.mjs cleanup "$DRILL_PREFIX"');
@@ -1234,27 +1249,17 @@ describe('CI topology policy', () => {
         expect(workflowJob(artifactWorkflow, 'prepare')).toContain('always()');
     });
 
-    it('keeps Store credentials in the supplemental release workflow', async () => {
-        const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
-        const supplementalWorkflow = await readProjectFile('.github/workflows/release-supplemental.yml');
-        const releaseCredentials = workflowJob(releaseWorkflow, 'release_credentials');
-        const supplementalCredentials = workflowJob(supplementalWorkflow, 'release_credentials');
-
-        expect(releaseCredentials).not.toContain('PARTNER_CLIENT_ID');
-        expect(releaseCredentials).not.toContain('PARTNER_CLIENT_SECRET');
-        expect(releaseCredentials).not.toContain('PARTNER_TENANT_ID');
-        expect(releaseCredentials).not.toContain('submit_store');
-        expect(supplementalCredentials).toContain('PARTNER_CLIENT_ID');
-        expect(supplementalCredentials).toContain('PARTNER_CLIENT_SECRET');
-        expect(supplementalCredentials).toContain('PARTNER_TENANT_ID');
-        expect(supplementalCredentials).toContain('submit_store=$submit_store');
-        expect(supplementalCredentials).toContain('Store submission will be skipped');
-        expect(workflowJob(supplementalWorkflow, 'submit_store')).toContain(
-            'needs.release_credentials.outputs.submit_store == \'true\'',
-        );
-        expect(workflowJob(supplementalWorkflow, 'submit_store')).toContain(
-            'needs.build_win_arm64.outputs.artifact_ready == \'true\'',
-        );
+    it('keeps Partner Center submission out of the release workflows', async () => {
+        for (const workflowPath of [
+            '.github/workflows/release.yml',
+            '.github/workflows/release-supplemental.yml',
+            '.github/workflows/store-appx.yml',
+        ]) {
+            const workflow = await readProjectFile(workflowPath);
+            expect(workflow, workflowPath).not.toContain('PARTNER_');
+            expect(workflow, workflowPath).not.toContain('submit_store');
+            expect(workflow, workflowPath).not.toContain('submit-store-appx');
+        }
     });
 
     it('keeps local distribution and cold lint fail-closed within supported resources', async () => {
@@ -1278,7 +1283,6 @@ describe('CI topology policy', () => {
             '.github/workflows/build-mac-intel.yml',
             '.github/workflows/build-win7-legacy.yml',
             '.github/workflows/store-appx.yml',
-            '.github/workflows/submit-store-appx.yml',
             '.github/actions/setup-release-env/action.yml',
         ]) {
             const workflow = await readProjectFile(workflowPath);
@@ -1353,9 +1357,8 @@ describe('CI topology policy', () => {
         expect(releaseScript).not.toContain('\'--atomic\'');
     });
 
-    it('keeps Store credentials reachable only through the gated reusable release path', async () => {
+    it('keeps release credentials reachable only through the gated reusable release path', async () => {
         const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
-        const submitStoreWorkflow = await readProjectFile('.github/workflows/submit-store-appx.yml');
         const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
         const macIntelWorkflow = await readProjectFile('.github/workflows/build-mac-intel.yml');
         const releaseWorkflow = await readProjectFile('.github/workflows/release.yml');
@@ -1363,23 +1366,15 @@ describe('CI topology policy', () => {
 
         expect(storeWorkflow).toContain('workflow_call:');
         expect(storeWorkflow).not.toContain('workflow_dispatch:');
-        expect(storeWorkflow).not.toContain('PARTNER_CLIENT_SECRET');
-        expect(submitStoreWorkflow).toContain('workflow_call:');
-        expect(submitStoreWorkflow).not.toContain('workflow_dispatch:');
-        expect(workflowJob(submitStoreWorkflow, 'submit')).toContain('environment: release');
-        expect(workflowJob(submitStoreWorkflow, 'submit')).toContain('if: ${{ inputs.enabled }}');
+        expect(storeWorkflow).not.toContain('secrets:');
         expect(workflowJob(buildWorkflow, 'build')).toContain('environment: ${{ inputs.release_environment }}');
         expect(workflowJob(macIntelWorkflow, 'build_mac_intel'))
             .toContain('environment: ${{ inputs.release_environment }}');
         expect(buildWorkflow).toContain('default: artifact-build');
         expect(macIntelWorkflow).toContain('default: artifact-build');
-        expect(submitStoreWorkflow)
-            .toContain('Microsoft Store submission was enabled with missing credentials');
-        expect(releaseWorkflow).not.toContain('PARTNER_CLIENT_SECRET: ${{ secrets.PARTNER_CLIENT_SECRET }}');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('release_environment: release');
         expect(workflowJob(supplementalWorkflow, 'build_mac_intel')).toContain('release_environment: release');
         expect(workflowJob(supplementalWorkflow, 'publish_store')).not.toContain('secrets:');
-        expect(workflowJob(supplementalWorkflow, 'submit_store')).not.toContain('secrets: inherit');
     });
 
     it('keeps the heavier deterministic checks available by manual dispatch', async () => {

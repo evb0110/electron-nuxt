@@ -20,7 +20,7 @@ The cutter then writes only the new package version and creates `release: <versi
 
 The release workflow waits for exact-SHA CI. For a version-only release commit with `[skip ci]`, it accepts a successful `gates_ok` run from the parent commit. Core packaging, checksum creation, mirror staging, and public promotion run in the core release workflow.
 
-The supplemental workflow attaches the macOS Intel ZIP, Windows ARM64 installer and provenance, and Store results after promotion. It is dispatched automatically and can be rerun with:
+The supplemental workflow attaches the macOS Intel ZIP and the Windows ARM64 installer and provenance after promotion, and builds the Microsoft Store AppX packages as workflow artifacts; nothing submits them to the Store. It is dispatched automatically. A rerun skips the build of every asset the release already holds and verifies the attached copy instead, so it is safe to repeat:
 
 ```sh
 gh workflow run release-supplemental.yml -f tag=vX.Y.Z
@@ -54,5 +54,5 @@ Resume checks that `HEAD` is the version-only release commit and that it exists 
 | --- | --- |
 | `prepare` or exact-SHA CI | Inspect the run URL. Every push to `main` runs `ci.yml`, so a release parent without a run means its push run was cancelled or never appeared; check the Actions page for that commit. Only push runs count; a `workflow_dispatch` run of `ci.yml` executes the manual lanes and carries no `gates_ok`. A target with code changes needs a new green commit and version. |
 | Core package, validate, checksum, mirror, or promotion job | Rerun failed jobs on the same run. If a stale draft remains, run `pnpm run release:resume` from the release commit. Do not create a new version for an infrastructure retry. |
-| macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. |
+| macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. Assets already attached are verified, not rebuilt. |
 | A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

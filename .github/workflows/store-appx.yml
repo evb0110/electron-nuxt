@@ -15,7 +15,6 @@ env:
   # runtime as direct-download Windows installers.
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  STORE_PRODUCT_ID: '9N3MB1WJGX1L'
 
 jobs:
   build:

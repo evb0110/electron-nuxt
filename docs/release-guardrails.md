@@ -45,17 +45,20 @@ here is required reading for an ordinary cut.
 ## Artifact-only flow
 
 - Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
-- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX with `submit: false`, applying the same packaged native-tool and ASAR/content verification as release lanes.
-- It never creates a tag, a GitHub Release, release assets, or Store submissions. Downloads live as GitHub Actions artifacts on the workflow run.
+- The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX packages, applying the same packaged native-tool and ASAR/content verification as release lanes.
+- It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
 
-## Manual Microsoft Store submission
+## Microsoft Store packages
 
-Use this when GitHub built Store AppX artifacts but Partner Center API submission is not configured, or when a human wants to inspect the draft before certification. Keep account-specific IDs, portal screenshots, submission IDs, and live troubleshooting notes out of tracked docs.
+The supplemental workflow builds and smoke-installs the Store AppX packages
+and keeps them as workflow artifacts. Nothing submits them: the Store
+submissions API is available only to Partner Center company accounts with an
+Azure AD tenant, and this project publishes from an individual account. Keep
+account-specific IDs, portal screenshots, submission IDs, and live
+troubleshooting notes out of tracked docs. To ship a Store update:
 
-1. Download both Store package artifacts from the workflow run: `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
-2. Upload `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx` and `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx`.
-3. In Partner Center, follow Microsoft's manual submission flow: create a draft update, upload the packages in the Packages section, complete required sections, and submit for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
-4. Do not mix Partner Center edits with a submission created through the [Microsoft Store submissions API](https://learn.microsoft.com/en-us/windows/uwp/monetize/manage-app-submissions). Keep a submission on one path: manual Partner Center or API.
+1. Download both Store package artifacts from the supplemental run: `gh run download <run-id> -n store-appx-win-x64 -n store-appx-win-arm64`
+2. Upload `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx` and `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx` in the Packages section of a new Partner Center submission and submit it for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
 
 Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
 
