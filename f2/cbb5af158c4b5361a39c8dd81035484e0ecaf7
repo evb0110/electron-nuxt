@@ -1,0 +1,44 @@
+packages/contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer.ts
+  s_292b96694fcbc2::t_70ba05db97f606 1-58
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_292b96694fcbc2::t_1a2f3103c6e923 488-507
+app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.ts
+  s_292b96694fcbc2::t_44010638c07875 32,80,101-105,144,161
+electron/features/scan-cleanup/createScanCleanupPreviewService.ts
+  s_292b96694fcbc2::t_50a121a7d28a96 39
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_292b96694fcbc2::t_25c044bf1f0ce6 641-648,655-657
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_292b96694fcbc2::t_31f4eb258dd10d 36-39
+  s_292b96694fcbc2::t_065a52cc56029a 35
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_292b96694fcbc2::t_ac72b0a23d47b4 184,200,202
+  s_292b96694fcbc2::t_44010638c07875 185-199,201,203-218,228-231
+scan-cleanup-core/sourceDpiDetection.ts
+  s_292b96694fcbc2::t_845ce0634a325c 19-21,82-88,106
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_292b96694fcbc2::t_731bdf85221ddd 560-567,569-602,604-609
+scan-cleanup-core/detection.ts
+  s_292b96694fcbc2::t_c6507e7d344119 795-803,808,810
+  s_292b96694fcbc2::t_11cf950a20388d 809
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_292b96694fcbc2::t_5618d5628cc14f 325-330
+  s_292b96694fcbc2::t_4e54c18edd263d 324,371-374,376
+  s_292b96694fcbc2::t_0f5f928fbe36f2 375
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f2cbb5af158c4b5361a39c8dd81035484e0ecaf7",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

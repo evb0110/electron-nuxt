@@ -1,0 +1,39 @@
+scripts/afterPack.cjs
+  s_b8c0c13085d970::t_4db699ddd1a9ac 357-368,370,396
+tests/unit/app/composables/pdfPageLayout.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 449-450
+scripts/release/ensure-github-release-assets.mjs
+  s_b8c0c13085d970::t_265da092be2a79 40,42-48
+  s_b8c0c13085d970::t_bcb10cb855dba2 41
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 504
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 1120-1121
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 243-252
+electron-builder.yml
+  s_b8c0c13085d970::t_4db699ddd1a9ac 81-83
+tests/unit/electron/scanCleanupRasterBatch.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 206-208
+tests/unit/scripts/ensureGithubReleaseAssets.test.ts
+  s_b8c0c13085d970::t_bcb10cb855dba2 20,31-55
+tests/unit/scripts/afterPackExtraResources.test.ts
+  s_b8c0c13085d970::t_4db699ddd1a9ac 45,61,114-125,127,129-137
+  s_b8c0c13085d970::t_a37b5ff1d401fc 126,128
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8fd39d9d293170105b12ddff094dfe27d2fd16c1",
+  "prompts": {},
+  "sessions": {
+    "s_b8c0c13085d970": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059ef-77b6-79e2-8673-87cd73da9d46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

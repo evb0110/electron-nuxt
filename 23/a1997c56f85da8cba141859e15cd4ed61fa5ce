@@ -1,0 +1,21 @@
+scripts/checkZeroExecutionCoverage.ts
+  s_292b96694fcbc2::t_549e1eb18dd189 45
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_292b96694fcbc2::t_e677b9f687c30a 147
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "23a1997c56f85da8cba141859e15cd4ed61fa5ce",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

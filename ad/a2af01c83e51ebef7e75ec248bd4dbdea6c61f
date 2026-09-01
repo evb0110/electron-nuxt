@@ -1,0 +1,43 @@
+tests/unit/app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.test.ts
+  s_292b96694fcbc2::t_4f3d7910347209 229
+  s_292b96694fcbc2::t_48874b7fdec0cb 197,224
+scan-cleanup-core/detection.ts
+  s_292b96694fcbc2::t_5556500986bd70 786-788,796
+tests/unit/app/modules/pdf-viewer/usePdfViewportViewModel.test.ts
+  s_292b96694fcbc2::t_071e3ad9816625 154
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_292b96694fcbc2::t_a57a52c6e6c43d 528
+tests/unit/app/composables/pdfPageLayout.test.ts
+  s_292b96694fcbc2::t_5556500986bd70 455-456
+tests/unit/app/modules/document-viewer/documentViewerArchitectureBoundaries.test.ts
+  s_292b96694fcbc2::t_5556500986bd70 133
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_b8c0c13085d970::t_fcd56585e2c4f7 222-226
+  s_292b96694fcbc2::t_651a39e5b3ce77 218-221,227-234
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_292b96694fcbc2::t_2d58e28e3dc5a5 193-205,207-216
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ada2af01c83e51ebef7e75ec248bd4dbdea6c61f",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b8c0c13085d970": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059ef-77b6-79e2-8673-87cd73da9d46",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
