@@ -203,5 +203,8 @@ describe('scan cleanup raster batch renderer', () => {
             targets,
         })).resolves.toHaveLength(1_024);
         expect(runCommand).toHaveBeenCalledOnce();
+        for (const target of targets) {
+            expect(await readFile(target.outputPath)).toEqual(PNG);
+        }
     });
 });

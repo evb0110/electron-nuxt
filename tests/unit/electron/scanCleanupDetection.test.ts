@@ -240,6 +240,16 @@ describe('scan-cleanup detection renderer projection', () => {
                 completedUnits: 256,
             },
         })).toThrow('invalid scan-cleanup detection result count');
+        expect(() => decodeScanCleanupDetectionJobState({
+            ...state,
+            status: 'running',
+            progress: {
+                ...state.progress,
+                completedUnits: 255,
+            },
+            resultCount: 256,
+            results: state.results.slice(-256),
+        })).toThrow('invalid scan-cleanup detection result count');
     });
 });
 

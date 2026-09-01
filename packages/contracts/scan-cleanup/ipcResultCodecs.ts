@@ -1114,7 +1114,8 @@ export function decodeScanCleanupDetectionJobState(value: unknown): TScanCleanup
         };
     });
     if (
-        resultCount > progress.totalUnits
+        resultCount > progress.completedUnits
+        || resultCount > progress.totalUnits
         || (value.status === 'completed' && resultCount !== progress.completedUnits)
     ) throw new Error('invalid scan-cleanup detection result count');
     const base = {
