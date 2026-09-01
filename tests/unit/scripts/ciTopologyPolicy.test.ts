@@ -808,6 +808,8 @@ describe('CI topology policy', () => {
 
     it('runs regular packaged-content verification against extracted Store AppX contents', async () => {
         const storeWorkflow = await readProjectFile('.github/workflows/store-appx.yml');
+        const buildJob = workflowJob(storeWorkflow, 'build');
+        const installedSmokeJob = workflowJob(storeWorkflow, 'installed_smoke');
         const extractIndex = storeWorkflow.indexOf('Get-Command makeappx.exe -ErrorAction SilentlyContinue');
         const nativeVerifyIndex = storeWorkflow.indexOf('bash scripts/verify-packaged-native-tools.sh win');
         const contentsVerifyIndex = storeWorkflow.indexOf('node scripts/release/assert-packaged-app-contents.mjs');
@@ -822,9 +824,15 @@ describe('CI topology policy', () => {
         expect(nativeVerifyIndex).toBeGreaterThan(extractIndex);
         expect(contentsVerifyIndex).toBeGreaterThan(nativeVerifyIndex);
         expect(storeWorkflow).toContain('".tmp/store-appx-${{ matrix.arch }}"');
-        expect(storeWorkflow).toContain('Add-AppxPackage -Path $packagePath');
-        expect(storeWorkflow).toContain('Start-Process -FilePath "shell:AppsFolder\\$appUserModelId"');
-        expect(storeWorkflow).toContain('Remove-AppxPackage -Package');
+        expect(buildJob).not.toContain('Add-AppxPackage -Path $packagePath');
+        expect(installedSmokeJob).toContain('needs: build');
+        expect(installedSmokeJob).toContain('runs-on: windows-11-arm');
+        expect(installedSmokeJob).toContain('arch:\n          - x64\n          - arm64');
+        expect(installedSmokeJob).toContain('actions/download-artifact@3e5f45b2cfb9172054b4087a40e8b0e5a5461e7c');
+        expect(installedSmokeJob).toContain('name: store-appx-win-${{ matrix.arch }}');
+        expect(installedSmokeJob).toContain('Add-AppxPackage -Path $packagePath');
+        expect(installedSmokeJob).toContain('Start-Process -FilePath "shell:AppsFolder\\$appUserModelId"');
+        expect(installedSmokeJob).toContain('Remove-AppxPackage -Package');
     });
 
     it('verifies release build artifacts before upload', async () => {
