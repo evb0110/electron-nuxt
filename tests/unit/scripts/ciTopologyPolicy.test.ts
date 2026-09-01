@@ -873,9 +873,10 @@ describe('CI topology policy', () => {
         expect(installedSmokeJob).toContain('needs: build');
         expect(installedSmokeJob).toContain('runs-on: windows-11-arm');
         expect(installedSmokeJob).toContain('arch:\n          - x64\n          - arm64');
-        expect(installedSmokeJob).toContain('actions/download-artifact@3e5f45b2cfb9172054b4087a40e8b0e5a5461e7c');
+        expect(installedSmokeJob).toContain('actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c');
         expect(installedSmokeJob).toContain('name: store-appx-win-${{ matrix.arch }}');
         expect(installedSmokeJob).toContain('Add-AppxPackage -Path $packagePath');
+        expect(installedSmokeJob).not.toContain('-PassThru');
         expect(installedSmokeJob).toContain('Start-Process -FilePath "shell:AppsFolder\\$appUserModelId"');
         expect(installedSmokeJob).toContain('Remove-AppxPackage -Package');
     });

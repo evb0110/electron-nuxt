@@ -230,7 +230,7 @@ jobs:
           }
 
           $packagePath = $packages[0].FullName
-          $installedPackage = Add-AppxPackage -Path $packagePath -ForceApplicationShutdown -PassThru
+          Add-AppxPackage -Path $packagePath -ForceApplicationShutdown
           $installedExecutable = $null
           try {
             $package = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction Stop
@@ -263,12 +263,8 @@ jobs:
                 Where-Object { $_.ExecutablePath -eq $installedExecutable } |
                 ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
             }
-            if ($installedPackage -and $installedPackage.PackageFullName) {
-              Remove-AppxPackage -Package $installedPackage.PackageFullName -ErrorAction Stop
-            } else {
-              $installed = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction SilentlyContinue
-              if ($installed) {
-                Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
-              }
+            $installed = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction SilentlyContinue
+            if ($installed) {
+              Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
             }
           }
