@@ -92,7 +92,12 @@ describe('Microsoft Store submission policy', () => {
         expect(script).toContain('if ($RunContractTests)');
         expect(submissionWorkflow).toContain('name: Exercise Store submission status contract');
         expect(submissionWorkflow).toContain('.\\scripts\\release\\submit-store-appx.ps1 -RunContractTests');
-        expect(packageWorkflow.match(/persist-credentials: false/gu)).toHaveLength(2);
+        const checkoutBlocks = packageWorkflow
+            .split(/^ {6}- name: Checkout$/mu)
+            .slice(1)
+            .map(block => block.split(/^(?: {6}- name:| {2}[a-z0-9_]+:)/mu)[0]);
+        expect(checkoutBlocks).toHaveLength(2);
+        expect(checkoutBlocks.every(block => block.includes('persist-credentials: false'))).toBe(true);
         expect(submissionWorkflow.match(/persist-credentials: false/gu)).toHaveLength(1);
         expect(submissionWorkflow).toContain('Microsoft Store submission was enabled with missing credentials: ${missing[*]}');
     });
