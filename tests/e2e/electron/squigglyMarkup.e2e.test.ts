@@ -174,7 +174,9 @@ async function createTextMarkupOverFirstSpans(page: Page, subtype: string) {
     }, { timeout: 20_000 }, before);
 }
 
-describe('Electron E2E - Squiggly text markup', () => {
+// The PDF.js editor layer is detached by #185. #189 will move this suite to
+// the canonical EVB text-markup surface after the save path is available.
+describe.skip('Electron E2E - Squiggly text markup', () => {
     const sessionFixture = createElectronE2ESessionFixture({
         restartBeforeEach: true,
         sessionName: () => `e2e-squiggly-${Date.now()}`,
