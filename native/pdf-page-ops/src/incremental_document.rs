@@ -3,6 +3,7 @@ use serde::de::{self, MapAccess, Visitor};
 use serde_json::{value::RawValue, Value};
 use std::{
     process::{Command, Stdio},
+    sync::atomic::{AtomicU64, Ordering},
     thread,
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -17,6 +18,7 @@ const MAX_QPDF_DIAGNOSTIC_BYTES: usize = 1024 * 1024;
 const QPDF_STRUCTURE_TIMEOUT: Duration = Duration::from_secs(110);
 const QPDF_STALE_FILE_AGE: Duration = Duration::from_secs(10 * 60);
 const QPDF_TEMP_PREFIX: &str = "evb-qpdf-structure-";
+static QPDF_TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(0);
 // Keep this argument set compatible with the oldest qpdf shipped by the
 // supported Linux packaging image. qpdf 10 rejects the newer
 // --decode-level/--json-stream-data options; the JSON object section already
@@ -97,13 +99,19 @@ struct TempQpdfFiles {
 impl TempQpdfFiles {
     fn create() -> Result<Self> {
         remove_stale_qpdf_files(&std::env::temp_dir(), SystemTime::now());
-        let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-        let stem = format!("{QPDF_TEMP_PREFIX}{}-{nonce}", std::process::id());
+        let nonce = qpdf_temp_nonce()?;
+        let stem = format!("{QPDF_TEMP_PREFIX}{nonce}");
         Ok(Self {
             structure: std::env::temp_dir().join(format!("{stem}.json")),
             diagnostics: std::env::temp_dir().join(format!("{stem}.stderr")),
         })
     }
+}
+
+fn qpdf_temp_nonce() -> Result<String> {
+    let timestamp = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
+    let sequence = QPDF_TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    Ok(format!("{}-{timestamp}-{sequence}", std::process::id()))
 }
 
 fn remove_stale_qpdf_files(directory: &Path, now: SystemTime) {
@@ -990,10 +998,7 @@ mod tests {
     fn load_with_fake_qpdf(status: i32, structure: &str) -> Result<IncrementalDocument> {
         use std::os::unix::fs::PermissionsExt;
 
-        let nonce = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
+        let nonce = qpdf_temp_nonce()?;
         let input_path = std::env::temp_dir().join(format!("evb-qpdf-status-input-{nonce}.pdf"));
         let qpdf_path = std::env::temp_dir().join(format!("evb-qpdf-status-command-{nonce}"));
 
