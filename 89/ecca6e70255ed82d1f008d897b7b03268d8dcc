@@ -1,0 +1,136 @@
+tests/unit/electron/scanCleanupDetection.test.ts
+  s_292b96694fcbc2::t_731bdf85221ddd 570-577,579-619
+  s_b8c0c13085d970::t_7179dc9cafc30b 243-252
+  s_b8c0c13085d970::t_fcd56585e2c4f7 222-226
+  s_292b96694fcbc2::t_651a39e5b3ce77 218-221,227-234
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_292b96694fcbc2::t_b22bfb57610105 502
+  s_b8c0c13085d970::t_7179dc9cafc30b 504
+  s_292b96694fcbc2::t_1a2f3103c6e923 488-501,503,505-509
+tests/unit/scripts/afterPackExtraResources.test.ts
+  s_b8c0c13085d970::t_4db699ddd1a9ac 45,61,114-125,127,129-137
+  s_b8c0c13085d970::t_a37b5ff1d401fc 126,128
+app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.ts
+  s_292b96694fcbc2::t_44010638c07875 32-34,80,101-122,144,161
+tests/unit/electron/ocrDpiDetection.test.ts
+  s_292b96694fcbc2::t_5618d5628cc14f 325-330
+  s_292b96694fcbc2::t_4e54c18edd263d 324,371,376
+  s_292b96694fcbc2::t_b22bfb57610105 372-375
+tests/unit/app/composables/pdfPageLayout.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 449-450
+  s_292b96694fcbc2::t_5556500986bd70 455-456
+tests/unit/app/modules/pdf-viewer/usePdfViewportViewModel.test.ts
+  s_292b96694fcbc2::t_071e3ad9816625 154
+tests/unit/electron/workingCopy.test.ts
+  s_b8c0c13085d970::t_a0112d116e5442 1315-1318
+  s_b8c0c13085d970::t_70266bce52ed96 1091-1092
+  s_b8c0c13085d970::t_d26aa3c138dbde 1093-1119,1127,1130,1137,1139-1141,1143-1146
+  s_b8c0c13085d970::t_0ecba0d2f1c7f6 33,1314,1320-1322
+  s_b8c0c13085d970::t_10dea45ac72679 32,1120-1121,1126,1131-1135,1324-1325,1330
+  s_b8c0c13085d970::t_29af6fe8f53105 1122-1125,1326-1329,1363-1365
+  s_b8c0c13085d970::t_b9a2e1aa2faa8a 26,1147-1148,1295-1313,1319,1323,1331-1362,1366-1378
+  s_b8c0c13085d970::t_e4d339900b38bf 1129,1136,1142
+  s_b8c0c13085d970::t_40568dd4aabca3 1149-1180
+  s_b8c0c13085d970::t_1867d5fc14012e 1181-1228
+  s_b8c0c13085d970::t_709eb27cd71e87 1794-1799,1801-1806,1808-1819,1821-1834,1836,1838-1853
+  s_b8c0c13085d970::t_aca710fa23d53a 1229-1294
+tests/unit/electron/scanCleanupRasterBatch.test.ts
+  s_b8c0c13085d970::t_7179dc9cafc30b 206-208
+electron/file-access/workingCopyStore.ts
+  s_b8c0c13085d970::t_daaab0ea019010 107-109,111-112,150-155,158,160-162,164,186-188,190,195,197,199-200,220-224,230
+  s_b8c0c13085d970::t_40568dd4aabca3 212
+  s_b8c0c13085d970::t_e8f061af3b8c4f 110,163,189,198,225-229
+  s_b8c0c13085d970::t_ce659a284fe962 201
+  s_b8c0c13085d970::t_0153eae0f9343c 196
+  s_b8c0c13085d970::t_604331e99955c6 202-203,216-218,231
+scan-cleanup-core/detection.ts
+  s_292b96694fcbc2::t_5556500986bd70 786-788
+  s_292b96694fcbc2::t_11cf950a20388d 809
+  s_292b96694fcbc2::t_c6507e7d344119 795-803,808,810
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_292b96694fcbc2::t_25c044bf1f0ce6 641-657
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b8c0c13085d970::t_c2b9aa26a104d5 369,431
+scripts/release/publish-release-mirror.mjs
+  s_b8c0c13085d970::t_a051e5c535fd09 22,175
+tests/unit/app/composables/useToolbarOverflow.test.ts
+  s_c57729f2c66bed::t_2caf4c84b4a3a7 19-20,27-31,42,142-143,225-244,249-265,267-276,279-282,284-286
+  s_c57729f2c66bed::t_8db887116037d9 245-248,283
+  s_c57729f2c66bed::t_3595bcc931fe07 266,277-278,287
+scripts/checkZeroExecutionCoverage.ts
+  s_292b96694fcbc2::t_549e1eb18dd189 45
+electron/features/scan-cleanup/createScanCleanupPreviewService.ts
+  s_292b96694fcbc2::t_50a121a7d28a96 39
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_292b96694fcbc2::t_e677b9f687c30a 147
+scripts/afterPack.cjs
+  s_b8c0c13085d970::t_4db699ddd1a9ac 357-368,370,396
+.github/workflows/ci.yml
+  s_b8c0c13085d970::t_f3d8d613c3498f 28,90
+native/pdf-page-ops/src/load_policy.rs
+  s_7fe07412ad5143::t_c653e9b9d60076 81
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_292b96694fcbc2::t_ac72b0a23d47b4 184,200,202
+  s_292b96694fcbc2::t_44010638c07875 185-199,201,203-218,228-231
+  s_292b96694fcbc2::t_2d58e28e3dc5a5 220-227,232
+scripts/release/release-hash.mjs
+  s_b8c0c13085d970::t_e277dc12e269ba 1-10
+tests/unit/app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics.test.ts
+  s_292b96694fcbc2::t_48874b7fdec0cb 197,224
+  s_292b96694fcbc2::t_4f3d7910347209 229
+native/pdf-page-ops/src/incremental_document.rs
+  s_b8c0c13085d970::t_abcc7b4a26954a 6,21,102-103,111-116,1004
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_292b96694fcbc2::t_065a52cc56029a 35
+  s_b8c0c13085d970::t_164defceb5ef11 36
+  s_b8c0c13085d970::t_7179dc9cafc30b 1117
+tests/unit/scripts/electronBuilderAsarUnpack.test.ts
+  s_b8c0c13085d970::t_5733d9a713bff0 7-10,53-57
+  s_b8c0c13085d970::t_b9ed89638bcc28 50-51,58-59
+  s_b8c0c13085d970::t_7e3a0386e90efd 52
+scan-cleanup-core/sourceDpiDetection.ts
+  s_292b96694fcbc2::t_845ce0634a325c 19,21-22,82,84-88,106
+  s_292b96694fcbc2::t_b22bfb57610105 20,83
+electron-builder.yml
+  s_b8c0c13085d970::t_4db699ddd1a9ac 81-83
+  s_b8c0c13085d970::t_b9ed89638bcc28 84
+scripts/release/ensure-github-release-assets.mjs
+  s_b8c0c13085d970::t_a051e5c535fd09 10
+  s_b8c0c13085d970::t_265da092be2a79 40,42-48
+  s_b8c0c13085d970::t_bcb10cb855dba2 41
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_292b96694fcbc2::t_a57a52c6e6c43d 528
+tests/unit/app/modules/document-viewer/documentViewerArchitectureBoundaries.test.ts
+  s_292b96694fcbc2::t_5556500986bd70 133
+tests/unit/scripts/ensureGithubReleaseAssets.test.ts
+  s_b8c0c13085d970::t_0edce1f8470b67 108
+  s_b8c0c13085d970::t_e277dc12e269ba 7,9,16,87-107
+  s_b8c0c13085d970::t_bcb10cb855dba2 20,31-55
+app/composables/useToolbarOverflow.ts
+  s_c57729f2c66bed::t_3595bcc931fe07 234
+  s_c57729f2c66bed::t_0db98a6c9e99c6 17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "89ecca6e70255ed82d1f008d897b7b03268d8dcc",
+  "prompts": {},
+  "sessions": {
+    "s_292b96694fcbc2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a053a0-d285-7733-911e-8f2bec065f5c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
