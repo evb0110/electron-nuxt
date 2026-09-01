@@ -1,0 +1,22 @@
+scripts/pre-push-gate.mjs
+  s_cbcef7935f20a3::t_6a2b612e3d616a 2-5
+  s_cbcef7935f20a3::t_b7709e4531d38e 103-110,115,246,426
+tests/unit/scripts/prePushGate.test.ts
+  s_cbcef7935f20a3::t_b7709e4531d38e 155-205,222,254,277,299,318,336
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "98e18687c1e434fb5d8b8ce1cdb3c3547b369353",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
