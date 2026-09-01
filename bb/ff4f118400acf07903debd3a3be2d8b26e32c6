@@ -1,0 +1,19 @@
+README.md
+  s_cbcef7935f20a3::t_6c9c8ba81c1946 281-283
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bbff4f118400acf07903debd3a3be2d8b26e32c6",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
