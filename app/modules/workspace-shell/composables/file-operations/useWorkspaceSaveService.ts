@@ -732,13 +732,15 @@ async function executeNativeMutationSave(
     saveTransaction.commitAnnotationSave?.();
 
     const expectedWorkingPath = plan.target.expectedWorkingPath;
-    const expectedRevisionToken = plan.target.expectedRevisionToken;
-    if (saveTransaction.replaceFromDocument && expectedWorkingPath && expectedRevisionToken) {
+    // Native persistence advances the document revision after publication. The
+    // parse belongs to that committed revision, not the pre-write plan token.
+    const committedRevisionToken = deps.document.revisionToken.value;
+    if (saveTransaction.replaceFromDocument && expectedWorkingPath && committedRevisionToken) {
         const parsed = await timedSavePhase(
             'parse-committed-pdf-annotations',
             () => getDocumentWorkingCopyCapability().parsePdfAnnotations(
                 expectedWorkingPath,
-                {expectedDocumentRevisionToken: expectedRevisionToken},
+                {expectedDocumentRevisionToken: committedRevisionToken},
             ),
         );
         saveTransaction.replaceFromDocument(parsed);

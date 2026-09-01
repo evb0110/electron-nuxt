@@ -45,6 +45,7 @@ import {
 import { projectAnnotationBackendMutations } from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
 import {bindCanonicalAnnotationIdentitiesOffThread} from '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     AnnotationApplication,
     IAnnotationSaveVerificationOptions,
@@ -355,8 +356,17 @@ export const usePdfViewerSaveTransaction = (
                 verificationOptions?: IAnnotationSaveVerificationOptions,
             ) => application.verifySavePath(session, path, knownSize, verificationOptions),
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
-            recordMaterializedIdentityBinding: (binding: ICanonicalAnnotationIdentityBinding) =>
-                application.recordMaterializedIdentityBinding(session, binding.annotationId, binding.pdfRef),
+            recordMaterializedIdentityBinding: (binding: ICanonicalAnnotationIdentityBinding) => {
+                // The pre-overlay PDF.js editor can create a temporary identity
+                // before the canonical store sees the parsed annotation. That
+                // binding is completed by the post-commit parse below; only
+                // identities already captured in this frontier belong in the
+                // application's object-reference ledger.
+                if (!session.frontier.revisions.has(asAnnotationId(binding.annotationId))) {
+                    return;
+                }
+                application.recordMaterializedIdentityBinding(session, binding.annotationId, binding.pdfRef);
+            },
             commit: () => application.acknowledgeSave(session, input.documentRevisionToken),
             replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
                 result.entities.map(mapPdfAnnotationParseEntity),
