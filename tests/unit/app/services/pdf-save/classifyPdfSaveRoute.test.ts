@@ -355,6 +355,38 @@ describe('classifyPdfSaveRoute annotation routes', () => {
         });
     });
 
+    it('replays a new canonical sticky note through the native Text writer', () => {
+        const note = editorNote('anno_point_note');
+        const decision = classifyPdfSaveRoute(
+            planOf([note]),
+            capabilities({
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set(['anno_point_note']),
+                    hasChanges: true,
+                    fingerprint: 'new-canonical-point-note',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'source-replay',
+            reason: 'live-pdfjs-ids-covered-by-embedded-operations',
+        });
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.freeTextNotes).toEqual([expect.objectContaining({
+            stableKey: 'ann:0:editor:anno_point_note',
+            text: 'text-anno_point_note',
+        })]);
+    });
+
     it('keeps clean saves on the source-byte path', () => {
         const decision = classifyPdfSaveRoute(planOf([]), capabilities({dirtyState: {
             annotationDirty: false,

@@ -49,6 +49,7 @@ import {
 import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
+    isReplayableCanonicalStickyNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import {
@@ -192,6 +193,12 @@ function isActuallyChangedEntity(entity: AnnotationEntity) {
     return entity.deleted || entity.revision !== entity.persistedRevision;
 }
 
+function isNewCanonicalStickyNoteEntity(entity: AnnotationEntity) {
+    return entity.kind === 'note'
+        && entity.persistedRevision < 0
+        && !entity.identity.pdfRef;
+}
+
 function summarizeCanonicalLiveChanges(plan: ISerializationPlan): IPdfLiveAnnotationChangeSummary {
     const ids = new Set<string>();
     const replayableEditorNoteIds = new Set<string>();
@@ -271,6 +278,8 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     pendingTexts: Map<string, string>;
     pendingDeletes: IAnnotationCommentSummary[];
     comments: IAnnotationCommentSummary[];
+    changedComments: IAnnotationCommentSummary[];
+    replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
     liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
 }) {
     const ids = new Set<string>();
@@ -302,6 +311,14 @@ function collectReplayableEmbeddedAnnotationIds(input: {
             ].forEach(id => addReplayableAnnotationId(ids, id));
             addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
+    input.changedComments
+        .filter(comment => (
+            isReplayableCanonicalStickyNote(comment)
+            && input.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
+        ))
+        .forEach((comment) => {
+            addCommentIdentityAliases(ids, comment);
+        });
     input.liveAnnotationChanges.nativeFreeTextEditors.forEach((_editor, id) => {
         addReplayableAnnotationId(ids, id);
     });
@@ -324,6 +341,11 @@ function deriveCanonicalSaveInputs(
     const comments = plan.entities
         .filter(entity => !entity.deleted)
         .map(entitySummary);
+    const changedEntities = plan.expected
+        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity));
+    const changedComments = plan.expected
+        .filter(entity => !entity.deleted && isActuallyChangedEntity(entity))
+        .map(entitySummary);
     const pendingTexts = new Map<string, string>();
     const pendingDeletes: IAnnotationCommentSummary[] = [];
     plan.expected.filter(isActuallyChangedEntity).forEach((entity) => {
@@ -341,6 +363,11 @@ function deriveCanonicalSaveInputs(
         capabilities.liveAnnotationChanges,
         capabilities.dirtyState?.hasLivePdfJsAnnotationChanges === true,
     );
+    const replayableCanonicalStickyNoteStableKeys = new Set(
+        changedEntities
+            .filter(isNewCanonicalStickyNoteEntity)
+            .map(entity => entitySummary(entity).stableKey),
+    );
     return {
         comments,
         pendingTexts,
@@ -350,8 +377,11 @@ function deriveCanonicalSaveInputs(
             pendingTexts,
             pendingDeletes,
             comments,
+            changedComments,
+            replayableCanonicalStickyNoteStableKeys,
             liveAnnotationChanges,
         }),
+        replayableCanonicalStickyNoteStableKeys,
     };
 }
 
@@ -363,7 +393,8 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
     const hasEditorOnlyAnnotationsPendingMaterialization = canonical.comments.some(comment =>
         comment.source === 'editor'
         && !parsePdfJsAnnotationRef(comment.annotationId)
-        && !isReplayableEditorOnlyFreeTextNote(comment),
+        && !isReplayableEditorOnlyFreeTextNote(comment)
+        && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
     );
 
     if (live.hasUnknownChanges) {
@@ -661,7 +692,10 @@ function buildClassifiedNativeMutationProjection(
         })
         : null;
     const freeTextNotesResult = replayAllowed
-        ? buildNativeFreeTextNotesForSave({canonicalComments: changedComments})
+        ? buildNativeFreeTextNotesForSave({
+            canonicalComments: changedComments,
+            replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
+        })
         : null;
     const annotationDeletesResult = replayAllowed
         ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})
