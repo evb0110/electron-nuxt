@@ -23,10 +23,13 @@ import {
     basename,
     dirname,
     join,
+    win32,
 } from 'path';
 import { tmpdir } from 'os';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {requireDocumentRevisionToken} from '@contracts';
+import type * as NodeChildProcess from 'node:child_process';
+import type * as NodeFs from 'fs';
 import type * as WorkingCopyStore from '@electron/file-access/workingCopyStore';
 import type * as FsPromises from 'fs/promises';
 
@@ -944,20 +947,296 @@ describe('workingCopy', () => {
     });
 
     it('matches Windows original paths by normalized identity', async () => {
-        const {
-            findWorkingCopyPathByOriginalPath,
-            isKnownWorkingCopyOriginalPath,
-            setWorkingCopyOriginalPath,
-        } = await import('@electron/file-access/workingCopyStore');
-        const { clearAllWorkingCopies } = await import('@electron/file-access/workingCopyCleanup');
         const workingPath = 'C:\\Users\\Alice\\AppData\\Local\\Temp\\pdf-work-1\\Book.pdf';
         const originalPath = 'C:\\Users\\Alice\\Documents\\Book.pdf';
-        await setWorkingCopyOriginalPath(workingPath, originalPath);
+        const workingDirectory = win32.dirname(workingPath);
+        const originalDirectory = win32.dirname(originalPath);
+        const nativeRealpath = vi.fn((candidate: string) => {
+            const normalizedCandidate = win32.resolve(candidate).toLowerCase();
+            if (
+                normalizedCandidate === win32.resolve(workingPath).toLowerCase()
+                || normalizedCandidate === win32.resolve(originalPath).toLowerCase()
+            ) {
+                throw new Error('Windows test leaf is not materialized');
+            }
+            if (normalizedCandidate === win32.resolve(workingDirectory).toLowerCase()) {
+                return workingDirectory;
+            }
+            if (normalizedCandidate === win32.resolve(originalDirectory).toLowerCase()) {
+                return originalDirectory;
+            }
+            throw new Error(`Unexpected Windows path lookup: ${candidate}`);
+        });
+        vi.doMock('fs', async importOriginal => {
+            const original = await importOriginal<typeof NodeFs>();
+            return {
+                ...original,
+                realpathSync: {native: nativeRealpath},
+            };
+        });
+        const spawnSync = vi.fn(() => ({
+            stderr: '',
+            stdout: 'Case sensitive attribute on directory is disabled.\\n',
+        }));
+        vi.doMock('node:child_process', async importOriginal => {
+            const original = await importOriginal<typeof NodeChildProcess>();
+            return {
+                ...original,
+                spawnSync,
+            };
+        });
+        vi.resetModules();
 
-        expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
-        expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);
+        let clearAllWorkingCopies: (() => Promise<unknown>) | undefined;
+        try {
+            const {
+                findWorkingCopyPathByOriginalPath,
+                isKnownWorkingCopyOriginalPath,
+                setWorkingCopyOriginalPath,
+            } = await import('@electron/file-access/workingCopyStore');
+            clearAllWorkingCopies = (await import('@electron/file-access/workingCopyCleanup')).clearAllWorkingCopies;
+            await setWorkingCopyOriginalPath(workingPath, originalPath);
 
-        await clearAllWorkingCopies();
+            expect(findWorkingCopyPathByOriginalPath('c:/users/alice/documents/book.pdf')).toBe(workingPath);
+            expect(isKnownWorkingCopyOriginalPath('\\\\?\\C:\\Users\\Alice\\Documents\\Book.pdf')).toBe(true);
+        } finally {
+            await clearAllWorkingCopies?.();
+            vi.doUnmock('fs');
+            vi.doUnmock('node:child_process');
+            vi.resetModules();
+        }
+    });
+
+    it('preserves leading and trailing whitespace in distinct working-copy keys', async () => {
+        const {
+            normalizePathForLookup,
+            workingCopyMap,
+        } = await import('@electron/file-access/workingCopyStore');
+        const leadingPath = ' document-with-space.pdf';
+        const trailingPath = 'document-with-space.pdf ';
+        const createEntry = (registrationId: number): WorkingCopyStore.IWorkingCopyOriginalEntry => ({
+            backingState: 'lazy-original',
+            logicalPath: leadingPath,
+            originalPath: leadingPath,
+            ownerWebContentsId: 42,
+            registeredAtMs: Date.now(),
+            registrationId,
+            role: 'current',
+        });
+        const leadingEntry = createEntry(1);
+        const trailingEntry = createEntry(2);
+
+        try {
+            expect(normalizePathForLookup(' \t\n')).toBe('');
+            expect(normalizePathForLookup(leadingPath)).not.toBe(normalizePathForLookup(trailingPath));
+            workingCopyMap.set(leadingPath, leadingEntry);
+            workingCopyMap.set(trailingPath, trailingEntry);
+
+            expect(workingCopyMap.get(leadingPath)).toBe(leadingEntry);
+            expect(workingCopyMap.get(trailingPath)).toBe(trailingEntry);
+        } finally {
+            workingCopyMap.clear();
+        }
+    });
+
+    it('preserves case for Windows paths when no ancestor can be resolved', async () => {
+        const nativeRealpath = vi.fn(() => {
+            throw new Error('Windows path has no resolvable ancestor');
+        });
+        vi.doMock('fs', async importOriginal => {
+            const original = await importOriginal<typeof NodeFs>();
+            return {
+                ...original,
+                realpathSync: {native: nativeRealpath},
+            };
+        });
+        vi.resetModules();
+
+        try {
+            const {
+                normalizePathForLookup,
+                workingCopyMap,
+            } = await import('@electron/file-access/workingCopyStore');
+            const upperCasePath = 'Z:\\unreachable\\pdf-work\\Report.pdf';
+            const lowerCasePath = 'Z:\\unreachable\\pdf-work\\report.pdf';
+            const upperCaseEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
+                backingState: 'lazy-original',
+                logicalPath: upperCasePath,
+                originalPath: upperCasePath,
+                ownerWebContentsId: 42,
+                registeredAtMs: Date.now(),
+                registrationId: 1,
+                role: 'current',
+            };
+            const lowerCaseEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
+                ...upperCaseEntry,
+                logicalPath: lowerCasePath,
+                originalPath: lowerCasePath,
+                registrationId: 2,
+            };
+
+            expect(normalizePathForLookup(upperCasePath)).not.toBe(normalizePathForLookup(lowerCasePath));
+            workingCopyMap.set(upperCasePath, upperCaseEntry);
+            workingCopyMap.set(lowerCasePath, lowerCaseEntry);
+
+            expect(workingCopyMap.get(upperCasePath)).toBe(upperCaseEntry);
+            expect(workingCopyMap.get(lowerCasePath)).toBe(lowerCaseEntry);
+        } finally {
+            vi.doUnmock('fs');
+            vi.resetModules();
+        }
+    });
+
+    it('preserves missing Windows directory suffixes after resolving a higher ancestor', async () => {
+        const shortCommonDirectory = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\evb-viewer-user';
+        const longCommonDirectory = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\evb-viewer-user';
+        const firstPath = `${shortCommonDirectory}\\pdf-work-first\\document.pdf`;
+        const secondPath = `${shortCommonDirectory}\\pdf-work-second\\document.pdf`;
+        const nativeRealpath = vi.fn((candidate: string) => {
+            if (win32.resolve(candidate) === win32.resolve(shortCommonDirectory)) {
+                return longCommonDirectory;
+            }
+            throw new Error('Windows path is not materialized yet');
+        });
+        vi.doMock('fs', async importOriginal => {
+            const original = await importOriginal<typeof NodeFs>();
+            return {
+                ...original,
+                realpathSync: {native: nativeRealpath},
+            };
+        });
+        const spawnSync = vi.fn(() => ({
+            stderr: '',
+            stdout: 'Case sensitive attribute on directory is disabled.\\n',
+        }));
+        vi.doMock('node:child_process', async importOriginal => {
+            const original = await importOriginal<typeof NodeChildProcess>();
+            return {
+                ...original,
+                spawnSync,
+            };
+        });
+        vi.resetModules();
+
+        try {
+            const {
+                normalizePathForLookup,
+                workingCopyMap,
+            } = await import('@electron/file-access/workingCopyStore');
+            const firstEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
+                backingState: 'lazy-original',
+                logicalPath: firstPath,
+                originalPath: firstPath,
+                ownerWebContentsId: 42,
+                registeredAtMs: Date.now(),
+                registrationId: 1,
+                role: 'current',
+            };
+            const secondEntry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
+                ...firstEntry,
+                logicalPath: secondPath,
+                originalPath: secondPath,
+                registrationId: 2,
+            };
+
+            expect(normalizePathForLookup(firstPath)).not.toBe(normalizePathForLookup(secondPath));
+            workingCopyMap.set(firstPath, firstEntry);
+            workingCopyMap.set(secondPath, secondEntry);
+
+            expect(workingCopyMap.get(firstPath)).toBe(firstEntry);
+            expect(workingCopyMap.get(secondPath)).toBe(secondEntry);
+            workingCopyMap.clear();
+        } finally {
+            vi.doUnmock('fs');
+            vi.doUnmock('node:child_process');
+            vi.resetModules();
+        }
+    });
+
+    it('keeps a missing Windows working-copy leaf stable across short-name materialization', async () => {
+        const shortDirectory = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\evb-viewer-user\\pdf-work-1';
+        const longDirectory = 'C:\\Users\\runneradmin\\AppData\\Local\\Temp\\evb-viewer-user\\pdf-work-1';
+        const shortWorkingPath = `${shortDirectory}\\document.pdf`;
+        const longWorkingPath = `${longDirectory}\\document.pdf`;
+        const nativeRealpath = vi.fn((candidate: string) => {
+            const normalizedCandidate = win32.resolve(candidate);
+            if (normalizedCandidate === win32.resolve(shortWorkingPath)) {
+                throw new Error('working-copy leaf is not materialized yet');
+            }
+            if (normalizedCandidate === win32.resolve(shortDirectory)) {
+                return longDirectory;
+            }
+            if (normalizedCandidate === win32.resolve(longWorkingPath)) {
+                return longWorkingPath;
+            }
+            throw new Error(`Unexpected Windows path lookup: ${candidate}`);
+        });
+        vi.doMock('fs', async importOriginal => {
+            const original = await importOriginal<typeof NodeFs>();
+            return {
+                ...original,
+                realpathSync: {native: nativeRealpath},
+            };
+        });
+        const spawnSync = vi.fn(() => ({
+            stderr: '',
+            stdout: 'Case sensitive attribute on directory is disabled.\\n',
+        }));
+        vi.doMock('node:child_process', async importOriginal => {
+            const original = await importOriginal<typeof NodeChildProcess>();
+            return {
+                ...original,
+                spawnSync,
+            };
+        });
+        vi.resetModules();
+
+        try {
+            const {
+                getWorkingCopyBackingEntry,
+                workingCopyMap,
+            } = await import('@electron/file-access/workingCopyStore');
+            const entry: WorkingCopyStore.IWorkingCopyOriginalEntry = {
+                backingState: 'lazy-original',
+                logicalPath: shortWorkingPath,
+                originalPath: 'C:\\Users\\runneradmin\\Documents\\document.pdf',
+                ownerWebContentsId: 42,
+                registeredAtMs: Date.now(),
+                registrationId: 1,
+                role: 'current',
+            };
+
+            // Registration happens before a lazy working-copy leaf exists.
+            workingCopyMap.set(shortWorkingPath, entry);
+            expect(nativeRealpath).toHaveBeenCalledWith(shortWorkingPath);
+
+            // Materialization makes the same short spelling resolve to the long
+            // native path. Both lookups must still address the registered entry.
+            nativeRealpath.mockImplementation((candidate: string) => {
+                const normalizedCandidate = win32.resolve(candidate);
+                if (
+                    normalizedCandidate === win32.resolve(shortWorkingPath)
+                    || normalizedCandidate === win32.resolve(longWorkingPath)
+                ) {
+                    return longWorkingPath;
+                }
+                if (normalizedCandidate === win32.resolve(shortDirectory)) {
+                    return longDirectory;
+                }
+                if (normalizedCandidate === win32.resolve(longDirectory)) {
+                    return longDirectory;
+                }
+                throw new Error(`Unexpected Windows path lookup: ${candidate}`);
+            });
+
+            expect(getWorkingCopyBackingEntry(shortWorkingPath, 42)).toBe(entry);
+            expect(getWorkingCopyBackingEntry(longWorkingPath, 42)).toBe(entry);
+            workingCopyMap.clear();
+        } finally {
+            vi.doUnmock('fs');
+            vi.doUnmock('node:child_process');
+            vi.resetModules();
+        }
     });
 
     it('keeps original-path remapping scoped to the owning sender', async () => {
@@ -1373,33 +1652,66 @@ describe('workingCopy', () => {
     });
 
     it('serializes mutation queue entries that use different spellings of one Windows path', async () => {
-        const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
-        const blockedMutation = deferred<undefined>();
-        const operations: string[] = [];
-
-        const firstMutation = enqueueWorkingCopyMutation('C:\\Temp\\pdf-work-1\\Book.pdf', async () => {
-            operations.push('first-start');
-            await blockedMutation.promise;
-            operations.push('first-end');
+        const workingDirectory = 'C:\\Temp\\pdf-work-1';
+        const nativeRealpath = vi.fn((candidate: string) => {
+            if (win32.resolve(candidate).toLowerCase() === win32.resolve(workingDirectory).toLowerCase()) {
+                return workingDirectory;
+            }
+            throw new Error(`Unexpected Windows path lookup: ${candidate}`);
         });
-        const secondMutation = enqueueWorkingCopyMutation('\\\\?\\c:\\temp\\pdf-work-1\\book.pdf', async () => {
-            operations.push('second-start');
+        vi.doMock('fs', async importOriginal => {
+            const original = await importOriginal<typeof NodeFs>();
+            return {
+                ...original,
+                realpathSync: {native: nativeRealpath},
+            };
         });
-        await waitForSettledQueueTurn();
+        const spawnSync = vi.fn(() => ({
+            stderr: '',
+            stdout: 'Case sensitive attribute on directory is disabled.\\n',
+        }));
+        vi.doMock('node:child_process', async importOriginal => {
+            const original = await importOriginal<typeof NodeChildProcess>();
+            return {
+                ...original,
+                spawnSync,
+            };
+        });
+        vi.resetModules();
 
-        expect(operations).toEqual(['first-start']);
+        try {
+            const { enqueueWorkingCopyMutation } = await import('@electron/file-access/workingCopyMutationQueue');
+            const blockedMutation = deferred<undefined>();
+            const operations: string[] = [];
 
-        blockedMutation.resolve(undefined);
-        await Promise.all([
-            firstMutation,
-            secondMutation,
-        ]);
+            const firstMutation = enqueueWorkingCopyMutation('C:\\Temp\\pdf-work-1\\Book.pdf', async () => {
+                operations.push('first-start');
+                await blockedMutation.promise;
+                operations.push('first-end');
+            });
+            const secondMutation = enqueueWorkingCopyMutation('\\\\?\\c:\\temp\\pdf-work-1\\book.pdf', async () => {
+                operations.push('second-start');
+            });
+            await waitForSettledQueueTurn();
 
-        expect(operations).toEqual([
-            'first-start',
-            'first-end',
-            'second-start',
-        ]);
+            expect(operations).toEqual(['first-start']);
+
+            blockedMutation.resolve(undefined);
+            await Promise.all([
+                firstMutation,
+                secondMutation,
+            ]);
+
+            expect(operations).toEqual([
+                'first-start',
+                'first-end',
+                'second-start',
+            ]);
+        } finally {
+            vi.doUnmock('fs');
+            vi.doUnmock('node:child_process');
+            vi.resetModules();
+        }
     });
 
     it('waits for queued mutations before clearing all working copies', async () => {
