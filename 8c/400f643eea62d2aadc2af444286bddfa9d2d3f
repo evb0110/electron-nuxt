@@ -1,0 +1,35 @@
+scripts/release/release-cut-preflight.mjs
+  s_cbcef7935f20a3::t_060c7d32e4455b 3-4,7-9,13,18,20,23-28,31-39
+  s_cbcef7935f20a3::t_7aa20699ff0619 10-12
+scripts/checkZeroExecutionCoverage.ts
+  s_cbcef7935f20a3::t_8f0f3dba94cc36 14,109-132,145,152
+tests/unit/scripts/cutRelease.test.ts
+  s_cbcef7935f20a3::t_060c7d32e4455b 12,262-288
+  s_cbcef7935f20a3::t_8302ea5d83e6b4 289-290
+scripts/run-nuxt-typecheck.mjs
+  s_cbcef7935f20a3::t_060c7d32e4455b 1,6-9,11-21,23-29,31-36,39-40,42-43,45-47,49-57,60-78
+docs/local-gates.md
+  s_cbcef7935f20a3::t_8f0f3dba94cc36 72-78
+tests/unit/scripts/runNuxtTypecheck.test.ts
+  s_cbcef7935f20a3::t_060c7d32e4455b 1-67
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_cbcef7935f20a3::t_8f0f3dba94cc36 297-312
+scripts/all-gates-validation-plan.mjs
+  s_cbcef7935f20a3::t_8f0f3dba94cc36 1-31,47-50,71-74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8c400f643eea62d2aadc2af444286bddfa9d2d3f",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
