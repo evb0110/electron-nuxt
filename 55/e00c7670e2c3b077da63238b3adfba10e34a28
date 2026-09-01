@@ -1,0 +1,29 @@
+docs/release-guardrails.md
+  s_cbcef7935f20a3::t_5afa45d20fb5cd 48-49,51,53-58,60-61
+.github/workflows/release-supplemental.yml
+  s_cbcef7935f20a3::t_5afa45d20fb5cd 54-55,96,122-135,139-147,150,152-153,191,209,234,256,263,270-283,299,325,347,354,361-375,395,447-448,452-459,470,472-474
+  s_cbcef7935f20a3::t_234bbabf824f80 136-138
+docs/releasing.md
+  s_cbcef7935f20a3::t_5afa45d20fb5cd 23,57
+.github/workflows/release-drill.yml
+  s_cbcef7935f20a3::t_5afa45d20fb5cd 187-203,210
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_ac5ccc65a70b37 1360,1369
+  s_cbcef7935f20a3::t_5afa45d20fb5cd 1206-1217,1235-1237,1239,1252-1262
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "55e00c7670e2c3b077da63238b3adfba10e34a28",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
