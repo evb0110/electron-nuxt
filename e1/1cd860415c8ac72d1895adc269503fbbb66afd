@@ -1,0 +1,36 @@
+tests/unit/contracts/agentModels.test.ts
+  s_2ba396d6d77ae9::t_c695685fae65bb 10,27,31
+  s_2ba396d6d77ae9::t_922b2163a99b56 12,29-30,33-38,43-47
+tests/unit/electron/claudeAgentSdkAssistant.test.ts
+  s_2ba396d6d77ae9::t_a900430587e65d 100-107
+  s_2ba396d6d77ae9::t_922b2163a99b56 85-90,95-98,112-113,123-124,128,132,141-142,145-146
+tests/unit/app/modules/agent-panel/assistantPanelMountedLifecycle.test.ts
+  s_2ba396d6d77ae9::t_922b2163a99b56 227,235
+electron/features/agent/claudeAgentSdkAssistant.ts
+  s_2ba396d6d77ae9::t_5d679ee095ba63 79-87,89-100,102-115,122-123,125,127,129,131,133,135,137,139,592-595
+  s_2ba396d6d77ae9::t_a900430587e65d 124,126,128,130,132,134,136,138
+  s_2ba396d6d77ae9::t_7464f1b754df4e 88,101
+tests/unit/electron/agentAssistantModelCatalog.test.ts
+  s_2ba396d6d77ae9::t_922b2163a99b56 48-49,92-93,121-122,148,155-162
+  s_2ba396d6d77ae9::t_9e61c4a7e085b1 141-144
+packages/contracts/agentModels.ts
+  s_2ba396d6d77ae9::t_805d3470b4d6dc 109-113,116-124,132,136,140
+  s_2ba396d6d77ae9::t_c695685fae65bb 107-108
+  s_2ba396d6d77ae9::t_9e61c4a7e085b1 153-170
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e11cd860415c8ac72d1895adc269503fbbb66afd",
+  "prompts": {},
+  "sessions": {
+    "s_2ba396d6d77ae9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f14-b09c-7ae1-bba1-64fb09c63d8c",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
