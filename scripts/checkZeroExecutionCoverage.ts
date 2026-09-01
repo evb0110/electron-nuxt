@@ -42,6 +42,7 @@ const PRODUCTION_COVERAGE_ROOTS = [
 // assigned to a stronger non-unit gate here.
 export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/app.vue',
+    'app/modules/pdf-viewer/components/PdfViewer.vue',
     'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
     'app/modules/workspace-shell/components/AppShellRoot.vue',
     'app/modules/workspace-shell/composables/useAppShellResilience.ts',

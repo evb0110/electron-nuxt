@@ -144,6 +144,7 @@ describe('zero-execution coverage tripwire', () => {
             'scripts/release/publish.mjs',
         ]);
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/app.vue');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/modules/pdf-viewer/components/PdfViewer.vue');
     });
 
     it('discovers and checks targets across the widened production roots', async () => {
