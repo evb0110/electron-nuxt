@@ -194,7 +194,7 @@ describe('prioritized document page metrics', () => {
         ]);
     });
 
-    it('bounds sparse hydration to the current visible priority pages', async () => {
+    it('does not hydrate sparse metrics in a large document', async () => {
         const {
             calls,
             source,
@@ -221,16 +221,12 @@ describe('prioritized document page metrics', () => {
             maxHydratedPages: 3,
         });
 
-        expect(calls).toEqual([
-            499_999,
-            500_001,
-            500_002,
-        ]);
+        expect(calls).toEqual([]);
         expect(metrics).not.toBeNull();
         if (!metrics || !isSparseDocumentPageMetrics(metrics)) {
             throw new Error('expected sparse metrics');
         }
-        expect(metrics.exactPageCount).toBe(4);
+        expect(metrics.exactPageCount).toBe(1);
         expect(metrics).toHaveLength(1_000_000);
     });
 
@@ -253,15 +249,18 @@ describe('prioritized document page metrics', () => {
             concurrency: 1,
         });
 
+        if (metrics === null || !isSparseDocumentPageMetrics(metrics)) {
+            throw new Error('large document metrics must remain sparse');
+        }
         expect(metrics).toHaveLength(40_000);
-        expect(calls).toHaveLength(39_999);
-        expect(calls.slice(0, 4)).toEqual([
-            19_999,
-            20_001,
-            19_998,
-            20_002,
-        ]);
-    }, 5_000);
+        expect(metrics.exactPageCount).toBe(1);
+        expect(calls).toEqual([]);
+        expect(metrics?.[20_000]).toEqual({
+            widthPoints: 20_600,
+            heightPoints: 20_800,
+            rotation: 0,
+        });
+    });
 
     it('drops background metrics when the source generation is superseded', async () => {
         const {
@@ -291,7 +290,7 @@ describe('prioritized document page metrics', () => {
         expect(calls).toEqual([2]);
     });
 
-    it('cancels a million-page hydration before enumerating the document', async () => {
+    it('does not enumerate a million-page background hydration', async () => {
         const {
             calls,
             source,
@@ -308,7 +307,7 @@ describe('prioritized document page metrics', () => {
             };
         };
 
-        await expect(hydrateRemainingDocumentPageMetrics({
+        const metrics = await hydrateRemainingDocumentPageMetrics({
             source,
             initialPage: 500_000,
             initialMetric: {
@@ -319,7 +318,8 @@ describe('prioritized document page metrics', () => {
             signal: controller.signal,
             isCurrent: () => true,
             concurrency: 1,
-        })).rejects.toThrow();
-        expect(calls).toEqual([499_999]);
+        });
+        expect(metrics).toHaveLength(1_000_000);
+        expect(calls).toEqual([]);
     });
 });

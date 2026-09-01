@@ -230,8 +230,8 @@ describe('ocr dpi detection', () => {
         await expect(detectSourceDpi('/tmp/input.pdf', '/bin/pdfimages', vi.fn())).resolves.toBe(200);
     });
 
-    it('limits pdfimages probing to the selected OCR page span', async () => {
-        mocks.runOcrCommand.mockResolvedValueOnce({
+    it('probes selected OCR pages without scanning unselected gaps', async () => {
+        mocks.runOcrCommand.mockResolvedValue({
             stdout: '',
             stderr: '',
             exitCode: 0,
@@ -250,18 +250,70 @@ describe('ocr dpi detection', () => {
             ],
         );
 
-        expect(mocks.runOcrCommand).toHaveBeenCalledWith(
-            '/bin/pdfimages',
+        expect(mocks.runOcrCommand.mock.calls.map(([
+            ,
+            args,
+        ]) => args)).toEqual([
             [
                 '-f',
                 '4',
+                '-l',
+                '4',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            [
+                '-f',
+                '9',
                 '-l',
                 '9',
                 '-list',
                 '/tmp/input.pdf',
             ],
-            expect.objectContaining({ commandLabel: 'pdfimages(-list)' }),
+        ]);
+    });
+
+    it('keeps sparse selected OCR pages in separate pdfimages probes', async () => {
+        mocks.runOcrCommand.mockResolvedValue({
+            stdout: '',
+            stderr: '',
+            exitCode: 0,
+        });
+
+        await detectSourceDpiDetails(
+            '/tmp/input.pdf',
+            '/bin/pdfimages',
+            vi.fn(),
+            undefined,
+            undefined,
+            [
+                1,
+                1_024,
+            ],
         );
+
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(2);
+        expect(mocks.runOcrCommand.mock.calls.map(([
+            ,
+            args,
+        ]) => args)).toEqual([
+            [
+                '-f',
+                '1',
+                '-l',
+                '1',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+            [
+                '-f',
+                '1024',
+                '-l',
+                '1024',
+                '-list',
+                '/tmp/input.pdf',
+            ],
+        ]);
     });
 
     it('probes every page in bounded chunks for long documents', async () => {
@@ -269,7 +321,13 @@ describe('ocr dpi detection', () => {
         let activeProbes = 0;
         let peakProbes = 0;
         let enteredProbes = 0;
-        mocks.runOcrCommand.mockImplementation(async (_binary, args: string[]) => {
+        const probeTimeouts: number[] = [];
+        mocks.runOcrCommand.mockImplementation(async (
+            _binary,
+            args: string[],
+            options: {timeoutMs?: number},
+        ) => {
+            probeTimeouts.push(options.timeoutMs ?? 0);
             activeProbes += 1;
             peakProbes = Math.max(peakProbes, activeProbes);
             enteredProbes += 1;
@@ -301,32 +359,38 @@ describe('ocr dpi detection', () => {
             vi.fn(),
             undefined,
             undefined,
-            Array.from({ length: 392 }, (_value, index) => index + 1),
+            Array.from({ length: 4096 }, (_value, index) => index + 1),
             (completed, total) => progress.push([
                 completed,
                 total,
             ]),
         );
 
-        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(9);
+        expect(mocks.runOcrCommand).toHaveBeenCalledTimes(4);
         expect(peakProbes).toBe(4);
+        expect(probeTimeouts).toEqual([
+            30_000,
+            30_000,
+            30_000,
+            30_000,
+        ]);
         expect(progress.at(-1)).toEqual([
-            392,
-            392,
+            4096,
+            4096,
         ]);
         expect(mocks.runOcrCommand.mock.calls[0]?.[1]).toEqual([
             '-f',
             '1',
             '-l',
-            '48',
+            '1024',
             '-list',
             '/tmp/input.pdf',
         ]);
         expect(mocks.runOcrCommand.mock.calls.at(-1)?.[1]).toEqual([
             '-f',
-            '385',
+            '3073',
             '-l',
-            '392',
+            '4096',
             '-list',
             '/tmp/input.pdf',
         ]);
@@ -343,7 +407,7 @@ describe('ocr dpi detection', () => {
             expect.anything(),
         );
         expect(result.documentDpi).toBe(360);
-        expect(result.pageDpiByNumber.size).toBe(392);
+        expect(result.pageDpiByNumber.size).toBe(4096);
         expect(result.pageDpiByNumber.get(1)).toBe(360);
         expect(result.pageDpiByNumber.get(196)).toBe(360);
         expect(result.pageDpiByNumber.get(392)).toBe(360);

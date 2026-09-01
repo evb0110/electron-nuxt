@@ -8,6 +8,7 @@ import {
 import {
     computed,
     nextTick,
+    ref,
     shallowRef,
 } from 'vue';
 import type { RenderTask } from 'pdfjs-dist';
@@ -66,6 +67,7 @@ vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => electronApi}));
 
 const {leasePdfDocumentPage} = await import('@app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource');
 const {createPdfDocumentSession} = await import('@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession');
+const {createDocumentViewerChassisAuthority} = await import('@app/utils/document-viewer/chassis/documentViewerChassisAuthority');
 const {maxCachedPdfPages} = await import('@app/modules/pdf-viewer/engine/maxCachedPdfPages');
 const {runCoordinatedPdfPageOperation} = await import('@app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender');
 
@@ -547,6 +549,64 @@ describe('PdfDocumentSession range loading', () => {
 
         expect(pageCleanup).not.toHaveBeenCalled();
         expect(getPage).toHaveBeenCalledTimes(2);
+    });
+
+    it('routes page-source metric hydration through the bounded PDF page cache', async () => {
+        const loadedPages: Array<{
+            cleanup: ReturnType<typeof vi.fn>;
+            pageNumber: number;
+        }> = [];
+        const getPage = vi.fn(async (pageNumber: number) => {
+            const page = {
+                cleanup: vi.fn(),
+                getViewport: vi.fn(() => ({
+                    width: 200,
+                    height: 400,
+                })),
+                pageNumber,
+            };
+            loadedPages.push(page);
+            return page;
+        });
+        const pageCount = maxCachedPdfPages + 1;
+        pdfjsState.getDocument.mockReturnValue({
+            promise: Promise.resolve({
+                numPages: pageCount,
+                getPage,
+                destroy: vi.fn(),
+            }),
+            destroy: vi.fn(),
+        });
+        electronApi.documentFiles.readFileRange.mockResolvedValue(new Uint8Array([
+            1,
+            2,
+            3,
+            4,
+        ]));
+
+        const authority = createDocumentViewerChassisAuthority(ref('pdf'));
+        const documentState = createPdfDocumentSession({chassisAuthority: authority});
+        try {
+            await documentState.loadPdf({
+                kind: 'path',
+                path: '/tmp/page-source-metric-cache.pdf',
+                size: 2048,
+            });
+            await nextTick();
+
+            const pageSource = authority.source.value;
+            expect(pageSource).not.toBeNull();
+            if (!pageSource) {
+                throw new Error('PDF page source was not bound');
+            }
+            for (let pageNumber = 2; pageNumber <= pageCount; pageNumber += 1) {
+                await pageSource.getPageMetrics(pageNumber);
+            }
+
+            expect(loadedPages[0]?.cleanup).toHaveBeenCalledTimes(1);
+        } finally {
+            documentState.cleanup();
+        }
     });
 
     it('surfaces a load error when PDF.js range transport API is unavailable', async () => {

@@ -4,6 +4,10 @@ import {
     expect,
     it,
 } from 'vitest';
+import {
+    getStaticYAMLValue,
+    parseYAML,
+} from 'yaml-eslint-parser';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -41,6 +45,16 @@ describe('electron-builder asarUnpack check', () => {
         const source = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
 
         expect(source).toContain('scripts/evb-mcp-proxy.mjs');
+    });
+
+    it('keeps Windows NSIS payload extraction compatible with PE runtime files', async () => {
+        const source = await readFile(resolve(process.cwd(), 'electron-builder.yml'), 'utf8');
+        const config = getStaticYAMLValue(parseYAML(source)) as Record<string, unknown>;
+
+        expect(config.win).toEqual(expect.objectContaining({
+            compression: 'store',
+            target: ['nsis'],
+        }));
     });
 
     it('declares every shipped UI locale in Microsoft Store packages', async () => {

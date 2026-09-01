@@ -63,6 +63,37 @@ describe('decodeWorkspaceCheckpoint', () => {
         expect(decodeWorkspaceCheckpoint(checkpoint)).toEqual(checkpoint);
     });
 
+    it('round-trips the scan-cleanup surface without accepting renderer state', () => {
+        const checkpoint = {
+            ...createCheckpoint(),
+            tabs: createCheckpoint().tabs.map(tab => ({
+                ...tab,
+                surfaceMode: 'scan-cleanup' as const,
+            })),
+        };
+
+        expect(decodeWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                scanCleanup: {
+                    previewPage: 138_000,
+                    pageMapping: {
+                        '1': [1],
+                        '138000': [138_000],
+                    },
+                },
+            })),
+        })).toEqual(checkpoint);
+        expect(decodeWorkspaceCheckpoint({
+            ...checkpoint,
+            tabs: checkpoint.tabs.map(tab => ({
+                ...tab,
+                surfaceMode: 'invalid',
+            })),
+        })).toBeNull();
+    });
+
     it.each([
         0,
         90,

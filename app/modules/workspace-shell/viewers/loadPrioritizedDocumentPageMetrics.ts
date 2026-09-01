@@ -20,13 +20,18 @@ const DOCUMENT_PAGE_METRICS_MAX_CACHED_CHUNKS = 32;
 /**
  * The document page source still has a few small-document array consumers.
  * Keep those consumers concrete below this limit, but never make a page-count
- * sized array for a large document.
+ * sized array for a large document. The same boundary also disables eager
+ * background metric hydration, since PDF.js retains page requests at the
+ * document level.
  */
-const DOCUMENT_PAGE_METRICS_DENSE_COMPATIBILITY_LIMIT = 100_000;
+const DOCUMENT_PAGE_METRICS_DENSE_COMPATIBILITY_LIMIT = 20_000;
 
 export interface IDocumentPageMetricsCollection extends ILazyIndexedCollection<IDocumentPageMetrics> {
     readonly isSparseDocumentPageMetrics: true;
     readonly exactPageCount: number;
+    readonly exactRevision: number;
+    readonly fallbackMetric: IDocumentPageMetrics;
+    readonly forEachExact: (callback: (pageNumber: number, metric: IDocumentPageMetrics) => void) => void;
     readonly hasExact: (pageNumber: number) => boolean;
     readonly getEstimated: (pageNumber: number) => IDocumentPageMetrics;
     readonly getExactPageNumbers: () => readonly number[];
@@ -72,6 +77,7 @@ function createSparseDocumentPageMetrics(
     initialExactMetrics: ReadonlyMap<number, IDocumentPageMetrics> = new Map(),
 ): IDocumentPageMetricsCollection {
     const exactMetrics = new Map(initialExactMetrics);
+    let exactRevision = 0;
     const safeFallbackMetric = Object.freeze(cloneMetric(fallbackMetric));
     const collection = createLazyIndexedCollection<IDocumentPageMetrics>({
         cacheValues: false,
@@ -91,6 +97,28 @@ function createSparseDocumentPageMetrics(
             configurable: false,
             enumerable: false,
             get: () => exactMetrics.size,
+        },
+        exactRevision: {
+            configurable: false,
+            enumerable: false,
+            get: () => exactRevision,
+        },
+        fallbackMetric: {
+            configurable: false,
+            enumerable: false,
+            value: safeFallbackMetric,
+        },
+        forEachExact: {
+            configurable: false,
+            enumerable: false,
+            value: (callback: (pageNumber: number, metric: IDocumentPageMetrics) => void) => {
+                for (const [
+                    pageNumber,
+                    metric,
+                ] of exactMetrics) {
+                    callback(pageNumber, metric);
+                }
+            },
         },
         hasExact: {
             configurable: false,
@@ -113,6 +141,7 @@ function createSparseDocumentPageMetrics(
             value: (pageNumber: number, metric: IDocumentPageMetrics) => {
                 if (Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount) {
                     exactMetrics.set(pageNumber, metric);
+                    exactRevision += 1;
                 }
             },
         },
@@ -129,6 +158,7 @@ function createSparseDocumentPageMetrics(
                 ] of updates) {
                     if (Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount) {
                         exactMetrics.set(pageNumber, metric);
+                        exactRevision += 1;
                     }
                 }
                 return collection;
@@ -248,6 +278,10 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
         maxHydratedPages = Number.POSITIVE_INFINITY,
     } = options;
     const pageCount = normalizePageCount(source.pageCount);
+    signal.throwIfAborted();
+    if (!isCurrent()) {
+        return null;
+    }
     const safeInitialPage = normalizePageNumber(initialPage, pageCount);
     const initialExactMetrics = new Map<number, IDocumentPageMetrics>([[
         safeInitialPage,
@@ -255,6 +289,9 @@ export async function hydrateRemainingDocumentPageMetrics(options: {
     ]]);
     const metrics = createDocumentPageMetrics(pageCount, initialMetric, initialExactMetrics);
     const sparseMetrics = isSparseDocumentPageMetrics(metrics) ? metrics : null;
+    if (pageCount > DOCUMENT_PAGE_METRICS_DENSE_COMPATIBILITY_LIMIT) {
+        return metrics;
+    }
     // Sparse collections own their exact values. Dense compatibility arrays
     // need a side index so the scheduler can tell provisional values from
     // hydrated values without probing or enumerating every page.

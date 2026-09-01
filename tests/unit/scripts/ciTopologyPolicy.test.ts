@@ -366,6 +366,7 @@ describe('CI topology policy', () => {
             'native/evb-native-support/**',
             'electron/**',
             'scripts/build-native-tool.mjs',
+            'electron-builder.yml',
             'app/composables/useAnalytics.ts',
             'app/modules/pdf-viewer/annotations/**',
             'app/modules/pdf-viewer/engine/**',
@@ -427,6 +428,7 @@ describe('CI topology policy', () => {
             'tests/unit/app/services/pdf-save/**',
             'tests/unit/app/modules/pdf-viewer/runtime/annotations/**',
             'tests/unit/electron/documentFileWriteAtomic*.test.ts',
+            'tests/unit/scripts/electronBuilderAsarUnpack.test.ts',
             'vitest.config.ts',
             'vitest.shared.config.ts',
         ]);

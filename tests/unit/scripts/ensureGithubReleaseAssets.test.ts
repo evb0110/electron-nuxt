@@ -4,16 +4,20 @@ import {
     expect,
     it,
 } from 'vitest';
+import {execFileSync} from 'node:child_process';
 import {
+    copyFile,
     mkdtemp,
     rm,
     writeFile,
 } from 'node:fs/promises';
 import {join} from 'node:path';
 import {tmpdir} from 'node:os';
+import {pathToFileURL} from 'node:url';
 import {
     assertImmutableAsset,
     ensureGithubReleaseAssets,
+    getReleaseAssetNames,
 } from '@scripts/release/ensure-github-release-assets.mjs';
 
 const directories: string[] = [];
@@ -24,6 +28,31 @@ afterEach(async () => Promise.all(directories.splice(0).map(directory => rm(dire
 }))));
 
 describe('immutable GitHub release assets', () => {
+    it('looks up draft releases through gh release view', () => {
+        const calls: string[][] = [];
+        const assetNames = getReleaseAssetNames('evb0110/evb-viewer', 'v0.1.444', args => {
+            calls.push(args);
+            return JSON.stringify({assets: [
+                {name: 'EVB-Viewer-0.1.444-arm64.dmg'},
+                {name: 'SHA256SUMS'},
+            ]});
+        });
+
+        expect(calls).toEqual([[
+            'release',
+            'view',
+            'v0.1.444',
+            '--repo',
+            'evb0110/evb-viewer',
+            '--json',
+            'assets',
+        ]]);
+        expect([...assetNames]).toEqual([
+            'EVB-Viewer-0.1.444-arm64.dmg',
+            'SHA256SUMS',
+        ]);
+    });
+
     it('accepts byte-identical retries', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-immutable-assets-'));
         directories.push(directory);
@@ -54,5 +83,27 @@ describe('immutable GitHub release assets', () => {
             repo: 'evb0110/evb-viewer',
             tag: '../latest',
         })).rejects.toThrow('Usage: ensure-github-release-assets.mjs');
+    });
+
+    it('loads without the optional S3 mirror dependency in a clean checkout', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'evb-release-asset-import-'));
+        directories.push(directory);
+        const releaseDirectory = join(process.cwd(), 'scripts', 'release');
+        await Promise.all([
+            'ensure-github-release-assets.mjs',
+            'policy.mjs',
+            'publish-release-mirror.mjs',
+            'release-hash.mjs',
+            'releaseTag.mjs',
+        ].map(name => copyFile(join(releaseDirectory, name), join(directory, name))));
+
+        const output = execFileSync(process.execPath, [
+            '--input-type=module',
+            '--eval',
+            'await import(process.argv[1]); process.stdout.write("loaded")',
+            pathToFileURL(join(directory, 'ensure-github-release-assets.mjs')).href,
+        ], {encoding: 'utf8'});
+
+        expect(output).toBe('loaded');
     });
 });

@@ -89,8 +89,14 @@ export const PREVIEW_DPI = DETECTION_DPI;
 export const SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 /** Completed pages a large document keeps in each progress event. */
 const RECENT_PROGRESS_PAGES = 256;
-/** Minimum gap between large-document progress events; batch ends always publish. */
-const LARGE_PROGRESS_PUBLISH_INTERVAL_MS = 100;
+/**
+ * Large-document progress is a status update, not a page transport. Keep a
+ * full second between live frames so a fast native batch cannot leave a
+ * renderer restart decoding a long tail of short-lived result objects. Batch
+ * ends still publish immediately, and the durable result store remains the
+ * source for every page.
+ */
+const LARGE_PROGRESS_PUBLISH_INTERVAL_MS = 1_000;
 
 /**
  * The progress contract accepts a page list only when it is exactly the
@@ -777,21 +783,29 @@ async function runBatchedScanCleanupDetection<TDocument>(
         ? new Map<number, IScanCleanupDetectionResult>()
         : null;
     // Large documents publish only the results recorded since the previous
-    // event: re-sorting a 20,000-page native batch on every page made the
-    // per-page cost grow with the batch and a 138,000-page analysis take
-    // three hours. The renderer keeps its own bounded view of recent
-    // classifications and the file-backed store holds the full set.
+    // event. Preserve append order so a late reconciliation update remains in
+    // the renderer's bounded tail even when it targets an early page. The
+    // file-backed store holds the full set.
     const recentResults: IScanCleanupDetectionResult[] = [];
     let lastLargePublishAt = 0;
     const publishedResults = () => compatibilityResults === null
         ? []
         : [...compatibilityResults.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
-    const takePublishableResults = () => compatibilityResults === null
-        ? recentResults.splice(0).sort((left, right) => left.pageNumber - right.pageNumber)
-        : publishedResults();
+    const takePublishableResults = () => {
+        if (compatibilityResults !== null) {
+            return publishedResults();
+        }
+        const pending = recentResults.splice(0);
+        return pending.length <= RECENT_PROGRESS_PAGES
+            ? pending
+            : pending.slice(-RECENT_PROGRESS_PAGES);
+    };
     const shouldPublishLargeProgress = (terminal: boolean) => {
         if (compatibilityResults !== null || terminal) {
+            return true;
+        }
+        if (recentResults.length >= RECENT_PROGRESS_PAGES) {
             return true;
         }
         const now = Date.now();
@@ -964,9 +978,108 @@ async function runBatchedScanCleanupDetection<TDocument>(
         };
         const countedRasterPages = new Set(retained.keys());
         rasterizedPages += retained.size;
+        const recordRasterizedPage = (pageNumber: number) => {
+            if (!countedRasterPages.has(pageNumber)) {
+                countedRasterPages.add(pageNumber);
+                rasterizedPages += 1;
+            }
+        };
+        const batchRenderer = dependencies.renderPageBatch;
+        // The detector's resident window is still bounded by admission.windowPages.
+        // When the whole 1,024-page manifest fits the existing scratch budget,
+        // render that manifest batch to files before native starts reading it.
+        // The files are retained as paths only, so this removes repeated
+        // Poppler process and page-tree work without increasing decoded-raster
+        // or native input limits.
+        const canPrestageBatch = batchRenderer !== undefined
+            && compatibilityResults === null
+            && rasterScope.length > Math.max(1, admission.windowPages)
+            && admission.wholeDocumentBytes !== null
+            && admission.wholeDocumentBytes <= admission.budgetBytes;
+        const preStagePageNumbers = canPrestageBatch ? rasterScope : [];
+        const preStagedPages = new Set<number>();
+        const releasePreStaged = async (keep: ReadonlySet<number>) => {
+            const pages = [...preStagedPages].filter(pageNumber => !keep.has(pageNumber));
+            await Promise.all(pages.map(async pageNumber => {
+                try {
+                    await retention.releaseRaster(document, pageNumber, DETECTION_DPI);
+                } catch (error) {
+                    log(
+                        'warn',
+                        `Scan cleanup could not drop pre-staged detection raster for page ${String(pageNumber)}: ${getErrorMessage(error)}`,
+                    );
+                } finally {
+                    preStagedPages.delete(pageNumber);
+                }
+            }));
+        };
+        const renderAndRetainBatch = async (pageNumbers: readonly number[]) => {
+            if (batchRenderer === undefined) {
+                throw new Error('Scan cleanup Poppler batch renderer is unavailable');
+            }
+            const scratchPathByPage = new Map(await Promise.all(pageNumbers.map(async pageNumber => [
+                pageNumber,
+                await retention.rasterScratchPath(document, pageNumber, DETECTION_DPI),
+            ] as const)));
+            try {
+                const rendered = [];
+                for (const run of splitContiguousPageRuns(pageNumbers)) {
+                    operationSignal.throwIfAborted();
+                    rendered.push(...await batchRenderer({
+                        dpi: DETECTION_DPI,
+                        log,
+                        pdftoppmBinary: dependencies.getPdftoppmBinary(),
+                        signal: operationSignal,
+                        sourcePdfPath: request.sourcePdfPath,
+                        targets: run.map(pageNumber => ({
+                            limits: rasterLimitsByPage.get(pageNumber)!,
+                            outputPath: scratchPathByPage.get(pageNumber)!,
+                            pageNumber,
+                        })),
+                    }));
+                }
+                const dimensionsByPage = new Map(rendered.map(result => [
+                    result.pageNumber,
+                    result,
+                ]));
+                if (dimensionsByPage.size !== pageNumbers.length) {
+                    throw new Error('Poppler raster batch returned an incomplete page window');
+                }
+                for (const pageNumber of pageNumbers) {
+                    const dimensions = dimensionsByPage.get(pageNumber);
+                    if (dimensions === undefined) {
+                        throw new Error(`Poppler raster batch omitted page ${String(pageNumber)}`);
+                    }
+                    const scratchPath = scratchPathByPage.get(pageNumber)!;
+                    const raster = await retention.retain({
+                        document,
+                        dpi: DETECTION_DPI,
+                        height: dimensions.height,
+                        pageNumber,
+                        scratchPath,
+                        sizeBytes: (await stat(scratchPath)).size,
+                        width: dimensions.width,
+                    });
+                    if (raster.path !== stagedPathByPage.get(pageNumber)) {
+                        throw new ScanCleanupContractError(
+                            `page ${String(pageNumber)} was staged at ${raster.path} instead of its manifest input path`,
+                        );
+                    }
+                }
+            } catch (error) {
+                await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
+                    rm(scratchPathByPage.get(pageNumber)!, {force: true}),
+                    retention.releaseRaster(document, pageNumber, DETECTION_DPI),
+                ]));
+                throw error;
+            }
+        };
         const stagedWindow = createStagedRasterWindow({
             pages: rasterScope,
-            alreadyStaged: [...retained.keys()],
+            alreadyStaged: [
+                ...retained.keys(),
+                ...preStagePageNumbers,
+            ],
             window: Math.max(1, admission.windowPages),
             log,
             stage: pageNumber => renderSlot(async () => {
@@ -1013,66 +1126,9 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     throw error;
                 }
             }),
-            ...(dependencies.renderPageBatch === undefined
+            ...(batchRenderer === undefined
                 ? {}
-                : {stageBatch: async (pageNumbers: readonly number[]) => {
-                    const scratchPathByPage = new Map(await Promise.all(pageNumbers.map(async pageNumber => [
-                        pageNumber,
-                        await retention.rasterScratchPath(document, pageNumber, DETECTION_DPI),
-                    ] as const)));
-                    try {
-                        const rendered = [];
-                        for (const run of splitContiguousPageRuns(pageNumbers)) {
-                            operationSignal.throwIfAborted();
-                            rendered.push(...await dependencies.renderPageBatch!({
-                                dpi: DETECTION_DPI,
-                                log,
-                                pdftoppmBinary: dependencies.getPdftoppmBinary(),
-                                signal: operationSignal,
-                                sourcePdfPath: request.sourcePdfPath,
-                                targets: run.map(pageNumber => ({
-                                    limits: rasterLimitsByPage.get(pageNumber)!,
-                                    outputPath: scratchPathByPage.get(pageNumber)!,
-                                    pageNumber,
-                                })),
-                            }));
-                        }
-                        const dimensionsByPage = new Map(rendered.map(result => [
-                            result.pageNumber,
-                            result,
-                        ]));
-                        if (dimensionsByPage.size !== pageNumbers.length) {
-                            throw new Error('Poppler raster batch returned an incomplete page window');
-                        }
-                        for (const pageNumber of pageNumbers) {
-                            const dimensions = dimensionsByPage.get(pageNumber);
-                            if (dimensions === undefined) {
-                                throw new Error(`Poppler raster batch omitted page ${String(pageNumber)}`);
-                            }
-                            const scratchPath = scratchPathByPage.get(pageNumber)!;
-                            const raster = await retention.retain({
-                                document,
-                                dpi: DETECTION_DPI,
-                                height: dimensions.height,
-                                pageNumber,
-                                scratchPath,
-                                sizeBytes: (await stat(scratchPath)).size,
-                                width: dimensions.width,
-                            });
-                            if (raster.path !== stagedPathByPage.get(pageNumber)) {
-                                throw new ScanCleanupContractError(
-                                    `page ${String(pageNumber)} was staged at ${raster.path} instead of its manifest input path`,
-                                );
-                            }
-                        }
-                    } catch (error) {
-                        await Promise.allSettled(pageNumbers.flatMap(pageNumber => [
-                            rm(scratchPathByPage.get(pageNumber)!, {force: true}),
-                            retention.releaseRaster(document, pageNumber, DETECTION_DPI),
-                        ]));
-                        throw error;
-                    }
-                }}),
+                : {stageBatch: renderAndRetainBatch}),
             unstage: pageNumber => retention.releaseRaster(
                 document,
                 pageNumber,
@@ -1086,10 +1142,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                 }
             },
             onStaged: pageNumber => {
-                if (!countedRasterPages.has(pageNumber)) {
-                    countedRasterPages.add(pageNumber);
-                    rasterizedPages += 1;
-                }
+                recordRasterizedPage(pageNumber);
                 if ((compatibilityResults?.size ?? batchResults.size) === 0) publishRasterizing();
             },
         });
@@ -1139,6 +1192,27 @@ async function runBatchedScanCleanupDetection<TDocument>(
             allowedPathRoot: dependencies.getTempDir(),
         });
         await writeFile(manifestPath, JSON.stringify(manifest));
+        if (preStagePageNumbers.length > 0) {
+            try {
+                for (const run of splitContiguousPageRuns(preStagePageNumbers)) {
+                    await renderAndRetainBatch(run);
+                    for (const pageNumber of run) {
+                        preStagedPages.add(pageNumber);
+                        recordRasterizedPage(pageNumber);
+                    }
+                }
+            } catch (error) {
+                await stagedWindow.dispose();
+                await releasePreStaged(new Set());
+                throw error;
+            }
+            publishRasterizing();
+            log(
+                'debug',
+                'Scan cleanup pre-staged Poppler batch '
+                + JSON.stringify({pages: preStagePageNumbers.length}),
+            );
+        }
         const reportedPageNumbers = new Set<number>();
         const resolveSourcePageNumber = (
             pageNumber: number | undefined,
@@ -1383,7 +1457,15 @@ async function runBatchedScanCleanupDetection<TDocument>(
             // preview cache. Only the final successful batch hands its window
             // to the cache. Releasing earlier batches keeps both file and
             // in-memory raster residency bounded across the whole document.
-            await stagedWindow.dispose({retainStaged: batchCompleted && batch.endOffsetExclusive >= pageScope.length});
+            const retainPreStaged = batchCompleted && batch.endOffsetExclusive >= pageScope.length;
+            try {
+                await stagedWindow.dispose({retainStaged: retainPreStaged});
+            } finally {
+                const cachePreStagedPages = retainPreStaged
+                    ? new Set(rasterScope.slice(-Math.max(1, admission.windowPages)))
+                    : new Set<number>();
+                await releasePreStaged(cachePreStagedPages);
+            }
         }
     }
 

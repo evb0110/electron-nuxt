@@ -73,6 +73,7 @@ export function buildWorkspaceCheckpoint(
             const tab = tabById.get(snapshot.tabId);
             const workspace = options.workspaceRefs.value.get(snapshot.tabId) ?? null;
             const documentRefs = readWorkspaceDocumentRefs(workspace, snapshot.tabId);
+            const viewState = options.documentRecordsByTabId.value[snapshot.tabId]?.viewState;
             const toolbar = options.documentRecordsByTabId.value[snapshot.tabId]?.toolbarSnapshot
                 ?? (() => {
                     try {
@@ -96,6 +97,12 @@ export function buildWorkspaceCheckpoint(
                 continuousScroll: toolbar?.hasPdf ? toolbar.continuousScroll : null,
                 viewMode: toolbar?.hasPdf ? toolbar.viewMode : null,
                 viewRotation: toolbar?.hasPdf ? toolbar.viewRotation : null,
+                // Surface mode is a small startup control. Do not put the
+                // optional page mapping in this crash checkpoint because it
+                // can contain one entry for every output page.
+                ...(viewState?.surfaceMode === 'scan-cleanup'
+                    ? {surfaceMode: viewState.surfaceMode}
+                    : {}),
             };
         }),
     };

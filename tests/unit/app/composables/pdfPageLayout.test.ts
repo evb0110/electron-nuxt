@@ -435,6 +435,28 @@ describe('pdfPageLayout', () => {
         }
     });
 
+    it('keeps the 25k-page PDF layout sparse for bounded metric updates', () => {
+        const totalPages = 25_000;
+        const pageMetrics: IPdfPageMetric[] = [];
+        pageMetrics[0] = {
+            width: 300,
+            height: 500,
+        };
+
+        const normalized = normalizePageMetrics({
+            pageMetrics,
+            totalPages,
+            fallbackWidth: 640,
+            fallbackHeight: 900,
+        });
+
+        expect(isSparsePageMetricCollection(normalized)).toBe(true);
+        expect(normalized.length).toBe(totalPages);
+        expect(normalized[0]?.width).toBe(300);
+        expect(normalized[0]?.height).toBe(500);
+        expect(Object.keys(normalized).filter(key => /^\d+$/u.test(key))).toEqual([]);
+    });
+
     it('builds early million-page layout lookups from chunked rows and prefixes', () => {
         const totalPages = 1_000_000;
         const sparseMetrics: IPdfPageMetric[] = [];

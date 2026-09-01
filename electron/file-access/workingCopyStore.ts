@@ -104,6 +104,12 @@ const WINDOWS_CONTENT_FINGERPRINT_MAX_BYTES = 64 * 1024 * 1024;
 const WINDOWS_CONTENT_FINGERPRINT_CHUNK_BYTES = 1024 * 1024;
 const windowsCaseSensitivityByDirectory = new Map<string, boolean | null>();
 
+interface IWindowsDirectoryLookup {
+    caseSensitive: boolean | null;
+    realPath: string | null;
+    resolvedPath: string | null;
+}
+
 function stripWindowsExtendedLengthPrefix(filePath: string) {
     if (filePath.startsWith('\\\\?\\UNC\\')) {
         return `\\\\${filePath.slice(8)}`;
@@ -141,13 +147,21 @@ function isWindowsPathLike(filePath: string) {
     return /^[a-zA-Z]:[\\/]/.test(normalizedPath) || normalizedPath.startsWith('\\\\');
 }
 
-function resolveWindowsCaseSensitiveDirectory(directoryPath: string) {
-    let currentPath = directoryPath;
+function normalizeResolvedWindowsPath(filePath: string) {
+    return win32.resolve(stripWindowsExtendedLengthPrefix(filePath));
+}
+
+function resolveWindowsDirectoryLookup(directoryPath: string): IWindowsDirectoryLookup {
+    let currentPath = normalizeResolvedWindowsPath(directoryPath);
     while (currentPath && currentPath !== win32.dirname(currentPath)) {
         try {
-            const realDirectoryPath = realpathSync.native(currentPath);
+            const realDirectoryPath = normalizeResolvedWindowsPath(realpathSync.native(currentPath));
             if (windowsCaseSensitivityByDirectory.has(realDirectoryPath)) {
-                return windowsCaseSensitivityByDirectory.get(realDirectoryPath)!;
+                return {
+                    caseSensitive: windowsCaseSensitivityByDirectory.get(realDirectoryPath)!,
+                    realPath: realDirectoryPath,
+                    resolvedPath: currentPath,
+                };
             }
             const result = spawnSync(
                 'fsutil.exe',
@@ -169,12 +183,24 @@ function resolveWindowsCaseSensitiveDirectory(directoryPath: string) {
                     ? false
                     : null;
             windowsCaseSensitivityByDirectory.set(realDirectoryPath, caseSensitive);
-            return caseSensitive;
+            return {
+                caseSensitive,
+                realPath: realDirectoryPath,
+                resolvedPath: currentPath,
+            };
         } catch {
             currentPath = win32.dirname(currentPath);
         }
     }
-    return false;
+    return {
+        caseSensitive: null,
+        realPath: null,
+        resolvedPath: null,
+    };
+}
+
+function normalizeWindowsPathCase(filePath: string, caseSensitive: boolean | null) {
+    return caseSensitive === false ? filePath.toLowerCase() : filePath;
 }
 
 export function normalizePathForLookup(filePath: string) {
@@ -183,20 +209,26 @@ export function normalizePathForLookup(filePath: string) {
     }
 
     if (isWindowsPathLike(filePath)) {
-        const resolvedWindowsPath = win32.resolve(stripWindowsExtendedLengthPrefix(filePath));
+        const resolvedWindowsPath = normalizeResolvedWindowsPath(filePath);
         try {
             // Native realpath resolves ordinary Windows case-insensitive aliases while
             // retaining distinct spellings in a case-sensitive directory.
-            return realpathSync.native(resolvedWindowsPath);
+            const realPath = normalizeResolvedWindowsPath(realpathSync.native(resolvedWindowsPath));
+            const directory = resolveWindowsDirectoryLookup(win32.dirname(realPath));
+            return normalizeWindowsPathCase(realPath, directory.caseSensitive);
         } catch {
-            // For a missing leaf, ask Windows for the nearest existing directory's
-            // case-sensitivity flag. Only the ordinary case-insensitive result is
-            // folded; an unknown or case-sensitive share keeps its spelling.
-            const caseSensitive = resolveWindowsCaseSensitiveDirectory(win32.dirname(resolvedWindowsPath));
-            if (caseSensitive === true || caseSensitive === null) {
-                return resolvedWindowsPath;
-            }
-            return resolvedWindowsPath.toLowerCase();
+            // A lazy working copy is registered before its leaf exists. Resolve the
+            // existing parent so its short and long Windows aliases keep one key.
+            // Only the ordinary case-insensitive result is folded; an unknown or
+            // case-sensitive share keeps its spelling.
+            const directory = resolveWindowsDirectoryLookup(win32.dirname(resolvedWindowsPath));
+            const missingLeafPath = directory.realPath && directory.resolvedPath
+                ? win32.join(
+                    directory.realPath,
+                    win32.relative(directory.resolvedPath, resolvedWindowsPath),
+                )
+                : resolvedWindowsPath;
+            return normalizeWindowsPathCase(missingLeafPath, directory.caseSensitive);
         }
     }
 

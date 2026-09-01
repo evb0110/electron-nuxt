@@ -9,9 +9,10 @@ pub(crate) const MAX_ENCODED_PDF_BYTES: usize = 512 * 1024 * 1024;
 pub(crate) const MAX_DECOMPRESSED_PDF_STREAM_BYTES: usize = 64 * 1024 * 1024;
 const MAX_PDF_OBJECTS: usize = 1_000_000;
 // Eager byte-array and WASM loads keep their existing page admission budget.
-// Path-backed incremental loads use the bounded structural reader instead of
-// treating this compatibility budget as a document limit.
 const MAX_BYTE_INPUT_PDF_PAGES: usize = 100_000;
+// Path-backed loads need to admit the xlarge acceptance document, but they
+// still need a finite page-count guard before lopdf builds its object graph.
+const MAX_PATH_INPUT_PDF_PAGES: usize = 200_000;
 const MAX_PDF_STRUCTURAL_NESTING: usize = 256;
 const MAX_PDF_XREF_REVISIONS: usize = 4_096;
 const MAX_XREF_PROBE_BYTES: usize = 64 * 1024 * 1024;
@@ -34,7 +35,7 @@ const PDF_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
 };
 
 const PDF_PATH_LOAD_POLICY: PdfLoadPolicy = PdfLoadPolicy {
-    max_pages: None,
+    max_pages: Some(MAX_PATH_INPUT_PDF_PAGES),
     ..PDF_LOAD_POLICY
 };
 
@@ -75,9 +76,9 @@ pub(crate) fn load_pdf_path(path: &Path) -> Result<Document> {
 }
 
 pub(crate) fn load_pdf_path_with_password(path: &Path, password: Option<&str>) -> Result<Document> {
-    let bytes = read_file_bounded(path, PDF_LOAD_POLICY.max_encoded_bytes, "PDF input")
+    let bytes = read_file_bounded(path, PDF_PATH_LOAD_POLICY.max_encoded_bytes, "PDF input")
         .map_err(|error| Box::new(error) as Box<dyn Error>)?;
-    load_pdf_bytes_bounded(&bytes, password)
+    load_pdf_bytes_with_policy_and_password(&bytes, PDF_PATH_LOAD_POLICY, password)
 }
 
 /// Loads a compatibility-sized raw PDF input through the standard byte-input
@@ -1315,7 +1316,7 @@ fn validate_page_count(page_count: u64, policy: PdfLoadPolicy) -> Result<()> {
     if let Some(max_pages) = policy.max_pages {
         if page_count > max_pages {
             return Err(limit_error(format!(
-                "PDF page count exceeds the {}-page byte-input admission ceiling",
+                "PDF page count exceeds the {}-page admission ceiling",
                 max_pages
             )));
         }
@@ -1553,6 +1554,55 @@ mod tests {
     }
 
     #[test]
+    fn page_path_load_accepts_a_document_above_the_byte_input_page_ceiling() {
+        const PAGE_COUNT: usize = 100_001;
+        struct RemoveOnDrop(std::path::PathBuf);
+
+        impl Drop for RemoveOnDrop {
+            fn drop(&mut self) {
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+
+        let mut document = Document::with_version("1.7");
+        let pages_id = document.new_object_id();
+        let page_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 200.into(), 100.into()],
+        });
+        document.set_object(
+            pages_id,
+            lopdf::dictionary! {
+                "Type" => "Pages",
+                "Kids" => Object::Array(vec![Object::Reference(page_id); PAGE_COUNT]),
+                "Count" => i64::try_from(PAGE_COUNT).unwrap(),
+            },
+        );
+        let catalog_id = document.add_object(lopdf::dictionary! {
+            "Type" => "Catalog",
+            "Pages" => pages_id,
+        });
+        document.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        document.save_to(&mut bytes).unwrap();
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let temp_file = RemoveOnDrop(std::env::temp_dir().join(format!(
+            "evb-pdf-page-ops-page-size-load-policy-{unique}.pdf"
+        )));
+        std::fs::write(&temp_file.0, bytes).unwrap();
+
+        let loaded = load_pdf_path(&temp_file.0).unwrap();
+        assert_eq!(
+            PageTreeResolver::new(&loaded).unwrap().page_count(),
+            u32::try_from(PAGE_COUNT).unwrap()
+        );
+    }
+
+    #[test]
     fn byte_input_policy_caps_objects_and_pages_after_loading() {
         let bytes = document_bytes(2, false);
         assert_too_large(
@@ -1572,6 +1622,22 @@ mod tests {
         );
         preflight_pdf_structure(&bytes[..], PDF_PATH_LOAD_POLICY).unwrap();
         validate_page_count(100_001, PDF_PATH_LOAD_POLICY).unwrap();
+    }
+
+    #[test]
+    fn path_policy_keeps_xlarge_page_admission_finite() {
+        assert_eq!(
+            PDF_PATH_LOAD_POLICY.max_pages,
+            Some(MAX_PATH_INPUT_PDF_PAGES)
+        );
+        validate_page_count(138_000, PDF_PATH_LOAD_POLICY).unwrap();
+        assert_too_large(
+            validate_page_count(
+                u64::try_from(MAX_PATH_INPUT_PDF_PAGES + 1).unwrap(),
+                PDF_PATH_LOAD_POLICY,
+            )
+            .unwrap_err(),
+        );
     }
 
     #[test]
@@ -1632,7 +1698,11 @@ mod tests {
         document.trailer.set("Root", catalog_id);
 
         reset_page_tree_node_read_count();
-        validate_loaded_document(&document, PDF_PATH_LOAD_POLICY).unwrap();
+        let sparse_tree_policy = PdfLoadPolicy {
+            max_pages: Some(PAGE_COUNT as usize),
+            ..PDF_PATH_LOAD_POLICY
+        };
+        validate_loaded_document(&document, sparse_tree_policy).unwrap();
 
         assert_eq!(
             document

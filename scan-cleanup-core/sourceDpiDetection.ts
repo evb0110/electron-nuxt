@@ -16,7 +16,10 @@ export {
 } from '@scan-cleanup-core/types';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
-const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 48;
+// The previous 30-second probe covered at most 48 contiguous pages. Keep that
+// per-page allowance for smaller probes, but never exceed the process ceiling.
+const PDFIMAGES_BASELINE_PROBE_SPAN = 48;
+const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 1_024;
 const PDFIMAGES_PROBE_CONCURRENCY = 4;
 
 interface IPdfImagesProbe {
@@ -31,17 +34,6 @@ function getUniqueValidPages(pages: readonly number[] | undefined) {
     return Array.from(new Set((pages ?? []).filter(pageNumber =>
         Number.isSafeInteger(pageNumber) && pageNumber > 0,
     ))).sort((a, b) => a - b);
-}
-
-function getPageProbeRange(pages: readonly number[]) {
-    if (pages.length === 0) {
-        return null;
-    }
-
-    return {
-        firstPage: pages[0] ?? 1,
-        lastPage: pages[pages.length - 1] ?? 1,
-    };
 }
 
 function getBoundedPageProbeRanges(pages: readonly number[]) {
@@ -87,6 +79,13 @@ function buildPdfImagesListArgs(pdfPath: string, firstPage: number, lastPage: nu
     ];
 }
 
+function resolvePdfImagesProbeTimeout(pageUnits: number) {
+    return Math.min(
+        PDFIMAGES_TIMEOUT_MS,
+        Math.ceil(pageUnits * PDFIMAGES_TIMEOUT_MS / PDFIMAGES_BASELINE_PROBE_SPAN),
+    );
+}
+
 function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefined): IPdfImagesProbe[] {
     const validPages = getUniqueValidPages(pages);
     if (validPages.length === 0) {
@@ -102,25 +101,9 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
         }];
     }
 
-    const pageRange = getPageProbeRange(validPages);
-    if (!pageRange) {
-        return [];
-    }
-
-    const pageSpan = pageRange.lastPage - pageRange.firstPage + 1;
-    if (pageSpan <= PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN) {
-        return [{
-            args: buildPdfImagesListArgs(pdfPath, pageRange.firstPage, pageRange.lastPage),
-            timeoutMs: PDFIMAGES_TIMEOUT_MS,
-            label: `${pageRange.firstPage}-${pageRange.lastPage}`,
-            contributesDocumentDpi: true,
-            pageUnits: validPages.length,
-        }];
-    }
-
     return getBoundedPageProbeRanges(validPages).map(probeRange => ({
         args: buildPdfImagesListArgs(pdfPath, probeRange.firstPage, probeRange.lastPage),
-        timeoutMs: PDFIMAGES_TIMEOUT_MS,
+        timeoutMs: resolvePdfImagesProbeTimeout(probeRange.lastPage - probeRange.firstPage + 1),
         label: probeRange.firstPage === probeRange.lastPage
             ? String(probeRange.firstPage)
             : `${probeRange.firstPage}-${probeRange.lastPage}`,

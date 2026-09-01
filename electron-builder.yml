@@ -78,6 +78,10 @@ mac:
 win:
   icon: resources/icon.ico
   artifactName: "EVB-Viewer-${version}-${arch}-setup.${ext}"
+  # Keep non-differential Windows archives uncompressed. The afterPack hook
+  # forces BCJ for differential NSIS archives because electron-builder 26.15.x
+  # overrides this setting with normal compression for those archives.
+  compression: store
   target:
     - nsis
 

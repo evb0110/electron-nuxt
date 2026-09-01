@@ -61,7 +61,7 @@
                         :hidden-annotation-ids="thumbnailHiddenAnnotationIds"
                         :annotation-comments="annotationComments"
                         :annotation-settings="annotationSettings"
-                        :is-active="isOpen && effectiveTab === 'thumbnails'"
+                        :is-active="isActive && isOpen && effectiveTab === 'thumbnails'"
                         :is-resizing="isResizing"
                         @go-to-page="goToPage"
                         @update:selected-pages="handleSelectedPagesUpdate"
@@ -100,7 +100,7 @@
             <DocumentSearchPanel
                 v-show="effectiveTab === 'search'"
                 :session="searchSession"
-                :is-active="isOpen && effectiveTab === 'search'"
+                :is-active="isActive && isOpen && effectiveTab === 'search'"
                 :focus-request="searchFocusRequest ?? 0"
                 :page-labels="pageLabels ?? null"
             />
@@ -155,6 +155,7 @@ type TPageSelectionInput = number[] | TPageSelection;
 
 interface IProps {
     isOpen: boolean;
+    isActive?: boolean | undefined;
     isResizing?: boolean | undefined;
     pdfDocument: PDFDocumentProxy | null;
     rasterScheduler: IPdfPageRasterScheduler | null;
@@ -222,6 +223,7 @@ const {
     currentResultNavigationId,
     currentResultIndex,
     isDjvuMode = false,
+    isActive = true,
     isOpen,
     isResizing = false,
     isPageOperationInProgress = false,

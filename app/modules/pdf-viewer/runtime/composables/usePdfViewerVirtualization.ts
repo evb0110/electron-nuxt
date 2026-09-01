@@ -52,6 +52,9 @@ export interface IPdfVirtualPageSegment {
 
 interface IUsePdfViewerVirtualizationOptions {
     performancePolicy: IPdfRenderPerformancePolicy;
+    // The document session stays mounted while another workspace surface owns
+    // the document. Do not turn a stale hidden viewport range into page VNodes.
+    isActive?: Ref<boolean>;
     bufferPages: ComputedRef<number>;
     viewMode: ComputedRef<TPdfViewMode>;
     viewRotation?: ComputedRef<TPdfViewRotation>;
@@ -535,7 +538,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     const pagesToRender = computed(() => {
-        if (numPages.value <= 0) {
+        if (options.isActive?.value === false || numPages.value <= 0) {
             return [];
         }
 

@@ -4,6 +4,7 @@ import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {
     IWorkspaceCheckpoint,
     IWorkspaceCheckpointTab,
+    TWorkspaceCheckpointSurfaceMode,
 } from '@contracts/workspaceCheckpoint';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
@@ -14,6 +15,7 @@ interface IRestoreWorkspaceCheckpointOptions {
     restoreGraph: (checkpoint: IWorkspaceCheckpoint) => void;
     openPathInReservedTab: (tabId: string, target: TDocumentRef | TOpenFileResult) => Promise<boolean>;
     activateTab: (tabId: string) => void;
+    restoreSurfaceMode?: ((tabId: string, mode: TWorkspaceCheckpointSurfaceMode) => void) | undefined;
 }
 
 const WORKSPACE_RESTORE_CONCURRENCY = 2;
@@ -97,6 +99,14 @@ export async function restoreWorkspaceCheckpoint(
     options: IRestoreWorkspaceCheckpointOptions,
 ) {
     options.restoreGraph(checkpoint);
+    // Apply this before the document open transaction. Otherwise a crash in
+    // Scan Cleanup re-enters the reader and constructs the whole PDF viewer
+    // before the shell can switch back to the persisted cleanup surface.
+    for (const tab of checkpoint.tabs) {
+        if (tab.surfaceMode !== undefined) {
+            options.restoreSurfaceMode?.(tab.tabId, tab.surfaceMode);
+        }
+    }
     await nextTick();
     const failedPaths: TDocumentRef[] = [];
     let nextTabIndex = 0;

@@ -7,7 +7,7 @@ import {execFileSync} from 'node:child_process';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
-import {hashFile} from './publish-release-mirror.mjs';
+import {hashFile} from './release-hash.mjs';
 import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
 
 function runGh(args) {
@@ -37,10 +37,15 @@ export async function assertImmutableAsset(localPath, remotePath) {
     return localHash;
 }
 
-function getReleaseAssetNames(repo, tag) {
-    const release = JSON.parse(runGh([
-        'api',
-        `repos/${repo}/releases/tags/${tag}`,
+export function getReleaseAssetNames(repo, tag, run = runGh) {
+    const release = JSON.parse(run([
+        'release',
+        'view',
+        tag,
+        '--repo',
+        repo,
+        '--json',
+        'assets',
     ]));
     return new Set((release.assets ?? []).map(asset => asset.name));
 }

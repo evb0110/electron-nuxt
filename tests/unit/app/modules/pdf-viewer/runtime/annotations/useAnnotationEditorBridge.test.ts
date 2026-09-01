@@ -144,6 +144,7 @@ async function createBridgeHarness(
         autoResetTo?: TAnnotationTool | null;
         markupSubtype?: Partial<IMarkupSubtypeHarness>;
         numPages?: number;
+        mountedPageNumbers?: readonly number[];
     },
 ) {
     const { useAnnotationEditorBridge } = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge');
@@ -176,6 +177,7 @@ async function createBridgeHarness(
         pdfDocument,
         numPages: ref(options?.numPages ?? 1),
         currentPage: ref(1),
+        getMountedPageNumbers: () => options?.mountedPageNumbers ?? [1],
         effectiveScale: ref(1),
         annotationTool,
         annotationUiManager,
@@ -327,8 +329,11 @@ describe('useAnnotationEditorBridge', () => {
         expect(uiManager.getEditors).not.toHaveBeenCalled();
     });
 
-    it('falls back to page discovery before editor types are registered', async () => {
-        const {uiManager} = await createBridgeHarness('text', {numPages: 3});
+    it('discovers existing editors only on mounted pages before editor types are registered', async () => {
+        const {uiManager} = await createBridgeHarness('text', {
+            numPages: 138_000,
+            mountedPageNumbers: [2],
+        });
         const editorType = {updateDefaultParams: vi.fn()};
         const editor = cast<IPdfjsEditor>({
             id: 'existing-editor',
@@ -342,7 +347,8 @@ describe('useAnnotationEditorBridge', () => {
         uiManager.getEditors = cast<typeof uiManager.getEditors>(getEditors);
 
         expect(updateEditorDefaultParams(uiManager, 3, '#98ff98')).toBe(true);
-        expect(getEditors).toHaveBeenCalledTimes(3);
+        expect(getEditors).toHaveBeenCalledOnce();
+        expect(getEditors).toHaveBeenCalledWith(1);
         expect(editorType.updateDefaultParams).toHaveBeenCalledWith(3, '#98ff98');
     });
 

@@ -515,6 +515,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         pdfDocument: documentSession.pdfDocument,
         numPages: documentSession.numPages,
         currentPage: viewport.currentPage,
+        getMountedPageNumbers: () => viewport.demand.value.mountedPages,
         effectiveScale: viewport.scale.effectiveScale,
         annotationTool: options.annotationTool,
         annotationUiManager,

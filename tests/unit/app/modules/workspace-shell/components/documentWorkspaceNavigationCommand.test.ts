@@ -32,6 +32,59 @@ interface IToolbarNavigationCommand {
 }
 
 const toolbarRenders: Array<Record<string, unknown>> = [];
+const surfaceRenders = vi.hoisted(() => ({
+    sidebars: [] as Array<Record<string, unknown>>,
+    viewers: [] as Array<Record<string, unknown>>,
+}));
+
+vi.mock('@app/modules/pdf-viewer/components/PdfSidebar.vue', () => ({default: defineComponent({
+    name: 'PdfSidebarStub',
+    inheritAttrs: false,
+    setup(_props, {attrs}) {
+        return () => {
+            surfaceRenders.sidebars.push({...attrs});
+            return h('aside', {class: 'pdf-sidebar-stub'});
+        };
+    },
+})}));
+
+vi.mock('@app/modules/workspace-shell/viewers/workspaceViewerChunkLoaders', () => ({workspaceViewerChunkLoaders: {chassis: () => Promise.resolve({default: defineComponent({
+    name: 'DocumentViewerChassisStub',
+    inheritAttrs: false,
+    setup(_props, {
+        attrs,
+        expose,
+    }) {
+        expose({scrollToPage: vi.fn()});
+        return () => {
+            surfaceRenders.viewers.push({...attrs});
+            return h('div', {class: 'document-viewer-chassis-stub'});
+        };
+    },
+})})}}));
+
+vi.mock('@app/modules/scan-cleanup/public/workspace', () => ({
+    ScanCleanupWorkspace: defineComponent({
+        name: 'ScanCleanupWorkspaceStub',
+        emits: [
+            'done',
+            'ready',
+        ],
+        inheritAttrs: false,
+        setup: () => () => h('div', {class: 'scan-cleanup-workspace-stub'}),
+    }),
+    useScanCleanupSourceSha256: () => shallowRef(null),
+}));
+
+vi.mock('@app/modules/workspace-shell/components/ScanCleanupWorkspaceLoading.vue', () => ({default: defineComponent({
+    name: 'ScanCleanupWorkspaceLoadingStub',
+    emits: [
+        'done',
+        'ready',
+    ],
+    inheritAttrs: false,
+    setup: () => () => h('div', {class: 'scan-cleanup-workspace-loading-stub'}),
+})}));
 
 // The toolbar is the consumer of the workspace navigation command. Recording
 // what DocumentWorkspace binds to it is the only way to observe, from outside,
@@ -79,6 +132,8 @@ afterEach(() => {
     mountedHost = null;
     teleportTargets.splice(0).forEach(target => target.remove());
     toolbarRenders.length = 0;
+    surfaceRenders.sidebars.length = 0;
+    surfaceRenders.viewers.length = 0;
     nuxtState.clear();
 });
 
@@ -94,14 +149,37 @@ function readToolbarNavigationCommand() {
     return cast<IToolbarNavigationCommand | null>(readToolbarAttrs()['navigation-command'] ?? null);
 }
 
-async function mountDocumentWorkspace() {
+async function mountDocumentWorkspace(options: {
+    initialSurfaceMode?: 'reader' | 'scan-cleanup';
+    pendingDocumentPath?: string;
+} = {}) {
     const { default: DocumentWorkspace } = await import(
         '@app/modules/workspace-shell/components/DocumentWorkspace.vue'
     );
     const documentSession = createWorkspaceDocumentController({
         tabId: 'tab-1',
-        initialRecord: createWorkspaceDocumentRecord(),
+        initialRecord: createWorkspaceDocumentRecord({
+            tab: options.pendingDocumentPath
+                ? {
+                    fileName: 'reopened.pdf',
+                    originalPath: options.pendingDocumentPath,
+                }
+                : undefined,
+            toolbarSnapshot: options.pendingDocumentPath
+                ? {
+                    currentPage: 1,
+                    hasPdf: true,
+                    totalPages: 1,
+                }
+                : undefined,
+        }),
     });
+    if (options.initialSurfaceMode) {
+        documentSession.applyViewState({
+            ...documentSession.snapshot.value.viewState,
+            surfaceMode: options.initialSurfaceMode,
+        });
+    }
     const exposes: IWorkspaceExpose[] = [];
     // Nuxt UI registers its primitives globally in the app; unit mounts resolve
     // them to an inert passthrough so the workspace tree itself stays real.
@@ -122,8 +200,8 @@ async function mountDocumentWorkspace() {
             fullscreenSupported: false,
             isWorkspaceLayoutResizing: false,
             initialViewState: null,
-            pendingDocumentOpen: false,
-            pendingDocumentPath: null,
+            pendingDocumentOpen: Boolean(options.pendingDocumentPath),
+            pendingDocumentPath: options.pendingDocumentPath ?? null,
             suppressEmptyState: false,
             splitCacheSession: null,
             startSection: 'recent',
@@ -165,6 +243,20 @@ async function mountDocumentWorkspace() {
 }
 
 describe('DocumentWorkspace navigation command', () => {
+    it('does not mount the reader presentation in scan-cleanup mode', async () => {
+        await mountDocumentWorkspace({
+            initialSurfaceMode: 'scan-cleanup',
+            pendingDocumentPath: '/tmp/reopened.pdf',
+        });
+
+        await vi.waitFor(() => {
+            expect(surfaceRenders.viewers.length).toBeGreaterThan(0);
+        });
+        const viewer = surfaceRenders.viewers.at(-1);
+        expect(surfaceRenders.sidebars).toHaveLength(0);
+        expect(viewer?.mountPresentation ?? viewer?.['mount-presentation']).toBe(false);
+    }, 120_000);
+
     it('publishes every page navigation to the toolbar as one command stream', async () => {
         const workspace = await mountDocumentWorkspace();
 

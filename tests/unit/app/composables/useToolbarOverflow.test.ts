@@ -16,13 +16,19 @@ import {
 } from 'vue';
 
 const resizeObserverCallbacks: Array<() => void> = [];
+const mutationObserverCallbacks: Array<(mutations: MutationRecord[]) => void> = [];
+let rafRunCount = 0;
 
 vi.mock('@vueuse/core', () => ({
     tryOnMounted: (callback: () => void) => callback(),
     useResizeObserver: (_target: unknown, callback: () => void) => {
         resizeObserverCallbacks.push(callback);
     },
-    useMutationObserver: vi.fn(),
+    useMutationObserver: vi.fn(
+        (_target: unknown, callback: (mutations: MutationRecord[]) => void) => {
+            mutationObserverCallbacks.push(callback);
+        },
+    ),
     useEventListener: vi.fn(),
     useRafFn: (callback: () => void, options?: { immediate?: boolean }) => {
         let timer: ReturnType<typeof setTimeout> | null = null;
@@ -33,6 +39,7 @@ vi.mock('@vueuse/core', () => ({
             if (!active) {
                 return;
             }
+            rafRunCount += 1;
             callback();
         };
 
@@ -132,6 +139,8 @@ describe('useToolbarOverflow', () => {
         vi.clearAllMocks();
         document.body.replaceChildren();
         resizeObserverCallbacks.length = 0;
+        mutationObserverCallbacks.length = 0;
+        rafRunCount = 0;
         stubGlobals();
     });
 
@@ -212,5 +221,69 @@ describe('useToolbarOverflow', () => {
 
         expect(overflow.collapseTier.value).toBe(1);
         expect(tierChanges).toHaveLength(retriesAfterInitialPass);
+    });
+
+    it('converges after each tier write echoes attribute and child-list mutations', async () => {
+        const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
+        const overflow = useToolbarOverflow();
+        const toolbar = createMeasuredElement(100, 100);
+        let tierWriteCount = 0;
+
+        Object.defineProperty(toolbar, 'scrollWidth', {
+            configurable: true,
+            get: () => overflow.collapseTier.value < 5 ? 200 : 100,
+        });
+        watch(overflow.collapseTier, () => {
+            tierWriteCount += 1;
+            if (tierWriteCount > 12) {
+                return;
+            }
+
+            const notifyLayoutMutation = mutationObserverCallbacks[0];
+            expect(notifyLayoutMutation).toBeDefined();
+            notifyLayoutMutation?.([
+                {
+                    type: 'attributes',
+                    attributeName: 'data-collapse-tier',
+                } as MutationRecord,
+                {type: 'childList'} as MutationRecord,
+            ]);
+        }, { flush: 'sync' });
+
+        overflow.toolbarRef.value = toolbar;
+        await nextTick();
+        await vi.runAllTimersAsync();
+
+        expect(rafRunCount).toBeLessThanOrEqual(2);
+        expect(overflow.collapseTier.value).toBe(5);
+        expect(tierWriteCount).toBeGreaterThan(0);
+    });
+
+    it('recalculates once for a genuine external child-list mutation after convergence', async () => {
+        const { useToolbarOverflow } = await import('@app/composables/useToolbarOverflow');
+        const overflow = useToolbarOverflow();
+        const toolbar = createMeasuredElement(100, 100);
+        let measuredScrollWidth = 200;
+
+        Object.defineProperty(toolbar, 'scrollWidth', {
+            configurable: true,
+            get: () => measuredScrollWidth,
+        });
+        overflow.toolbarRef.value = toolbar;
+        await nextTick();
+        await vi.runAllTimersAsync();
+
+        const passesBeforeExternalMutation = rafRunCount;
+        expect(overflow.collapseTier.value).toBe(5);
+        measuredScrollWidth = 100;
+        toolbar.append(document.createElement('span'));
+
+        const notifyLayoutMutation = mutationObserverCallbacks[0];
+        expect(notifyLayoutMutation).toBeDefined();
+        notifyLayoutMutation?.([{type: 'childList'} as MutationRecord]);
+        await vi.runAllTimersAsync();
+
+        expect(rafRunCount).toBe(passesBeforeExternalMutation + 1);
+        expect(overflow.collapseTier.value).toBe(0);
     });
 });

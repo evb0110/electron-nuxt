@@ -493,6 +493,7 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     fitMode: Ref<TFitMode>;
     isAnySaving: Ref<boolean>;
     isInteractionActive: TReadableRef<boolean>;
+    mountPresentation: TReadableRef<boolean>;
     isRenderActive: TReadableRef<boolean>;
     isWorkspaceLayoutResizing: TReadableRef<boolean>;
     pageMatches: TReadableRef<unknown>;
@@ -563,6 +564,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             dragMode: options.dragMode.value,
             documentRevisionToken: options.documentRevisionToken.value,
             isActive: options.isRenderActive.value,
+            mountPresentation: options.mountPresentation.value,
             isInteractionActive: options.isInteractionActive.value,
         };
     }
@@ -587,6 +589,7 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                 continuousScroll: options.continuousScroll.value,
                 isResizing: options.isWorkspaceLayoutResizing.value,
                 isActive: options.isRenderActive.value,
+                mountPresentation: options.mountPresentation.value,
                 annotationTool: options.annotationTool.value,
                 annotationCursorMode: options.annotationCursorMode.value,
                 annotationKeepActive: options.annotationKeepActive.value,

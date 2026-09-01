@@ -36,6 +36,7 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     type TNativeScanCleanupPreviewOutputArtifactMetadataV3,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import type {
     INativeScanCleanupReusableGeometryV3,
@@ -70,6 +71,7 @@ import {
     type IScanCleanupDocumentRasterPages,
     completedPageProgress,
 } from '@scan-cleanup-core/detection';
+import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 import {createArrayBackedPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import {
     addScanCleanupDocumentCanvasPage,
@@ -187,7 +189,10 @@ const RAW_RASTER_RETENTION_PREFIX = 'scan-cleanup-rasters-';
 const PREVIEW_PREFETCH_LEASE_TIMEOUT_MS = 10_000;
 const PREVIEW_ADMISSION_REISSUED = new Error('Scan cleanup preview readmitted at visible priority');
 const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
-const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = 48;
+// Keep fallback page probes within the same bounded unit as detection and
+// source-DPI probing. The raster cache and decoded page window stay bounded
+// independently of this page-number batch size.
+const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
 const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
 
@@ -3349,7 +3354,6 @@ export interface IScanCleanupPreviewService {
 export function createScanCleanupPreviewService(
     dependencies: IScanCleanupPreviewDependencies = defaultDependencies,
 ): IScanCleanupPreviewService {
-    const rendererDetectionResultWindowPages = 256;
     const active = new Map<string, IPreviewEntry>();
     const previewOwnerBindings = new Map<number, IPreviewOwnerBinding>();
     const rawRasterRetention = createRawRasterRetention(dependencies);
@@ -3381,28 +3385,9 @@ export function createScanCleanupPreviewService(
         result.softAlphaForegroundRecommendation,
         result.pagePlanEvidence,
     ]);
-    const rendererDetectionState = (
-        state: TScanCleanupDetectionJobState | null,
-    ): TScanCleanupDetectionJobState | null => {
-        if (
-            state === null
-            || state.progress.totalUnits <= SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
-        ) {
-            return state;
-        }
-        const results = state.results.slice(-rendererDetectionResultWindowPages).map(result => {
-            const projected = {...result};
-            delete projected.outputModeDiagnostics;
-            delete projected.pagePlanEvidence;
-            delete projected.sourcePageMetadata;
-            delete projected.splitDiagnostics;
-            return projected;
-        });
-        return {
-            ...state,
-            results,
-        };
-    };
+    const rendererDetectionState = (state: TScanCleanupDetectionJobState | null) => (
+        state === null ? null : projectScanCleanupDetectionStateForRenderer(state)
+    );
     const detectionDeliveryKey = (senderId: number, jobId: string) => `${senderId}\u0000${jobId}`;
     const detectionJobs = createMainJobRegistry<
         TScanCleanupDetectionJobState,

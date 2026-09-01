@@ -736,10 +736,6 @@ export async function* readPdfPageSizeSidecarChunks(
                     pending,
                     chunk,
                 ]);
-            if (pending.length > PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES) {
-                throw new RangeError('Page-size sidecar line exceeds the 4 MiB bound');
-            }
-
             let newlineIndex = pending.indexOf(0x0a);
             while (newlineIndex >= 0) {
                 if (signal?.aborted) {
@@ -775,10 +771,10 @@ export async function* readPdfPageSizeSidecarChunks(
                     expectedPageNumber += pageChunk.pages.length;
                     yield pageChunk;
                 }
-                if (pending.length > PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES) {
-                    throw new RangeError('Page-size sidecar line exceeds the 4 MiB bound');
-                }
                 newlineIndex = pending.indexOf(0x0a);
+            }
+            if (newlineIndex < 0 && pending.length > PDF_PAGE_SIZE_SIDECAR_MAX_LINE_BYTES) {
+                throw new RangeError('Page-size sidecar line exceeds the 4 MiB bound');
             }
         }
         if (pending.length !== 0) {

@@ -157,6 +157,102 @@ describe('scan-cleanup split diagnostic IPC compatibility', () => {
     });
 });
 
+describe('scan-cleanup detection renderer projection', () => {
+    it('bounds a persisted large result state before the renderer decodes it', () => {
+        const totalPages = 20_001;
+        const lastPage = totalPages;
+        const state = {
+            jobId: 'persisted-large-detection',
+            status: 'completed' as const,
+            progress: {
+                stage: 'detecting' as const,
+                completedUnits: totalPages,
+                totalUnits: totalPages,
+                percent: 100,
+                completedPageNumbers: [],
+                completedPageNumbersTruncated: true,
+            },
+            resultCount: totalPages,
+            results: Array.from({length: totalPages}, (_unused, index) => ({
+                pageNumber: index + 1,
+                classification: 'single-uncut-page' as const,
+                confidence: 0.9,
+                cutterXPx: null,
+                tier1Verdict: 'single-uncut-page' as const,
+                reconciled: true,
+                clusterAgreement: 0.9,
+                documentPrior: null,
+                ...(index === lastPage - 1 ? {
+                    sourcePageMetadata: {
+                        pageNumber: lastPage,
+                        xPoints: 0,
+                        yPoints: 0,
+                        widthPoints: 612,
+                        heightPoints: 792,
+                        rotation: 0,
+                        sourceDpi: 300,
+                    },
+                    pagePlanEvidence: {
+                        pageNumber: lastPage,
+                        rotationDegrees: 0 as const,
+                        layoutClassification: 'single-uncut-page' as const,
+                        outputs: {},
+                    },
+                    splitDiagnostics: splitDiagnostics(),
+                } : {}),
+            })),
+            updatedAtMs: 1,
+        };
+
+        const decoded = decodeScanCleanupDetectionJobState(state);
+
+        expect(decoded?.progress.completedPageNumbers).toEqual([]);
+        expect(decoded?.progress.completedPageNumbersTruncated).toBe(true);
+        expect(decoded?.resultCount).toBe(totalPages);
+        expect(decoded?.results).toHaveLength(256);
+        expect(decoded?.results[0]?.pageNumber).toBe(totalPages - 255);
+        expect(decoded?.results.at(-1)?.pageNumber).toBe(lastPage);
+        expect(decoded?.results.at(-1)).not.toHaveProperty('sourcePageMetadata');
+        expect(decoded?.results.at(-1)).not.toHaveProperty('pagePlanEvidence');
+        expect(decoded?.results.at(-1)).not.toHaveProperty('splitDiagnostics');
+        const lateRevision = decodeScanCleanupDetectionJobState({
+            ...state,
+            results: [
+                ...state.results.slice(-256),
+                {
+                    ...state.results[0],
+                    revision: 2,
+                    reconciled: true,
+                },
+            ],
+        });
+        expect(lateRevision?.results).toHaveLength(256);
+        expect(lateRevision?.results.at(-1)).toMatchObject({
+            pageNumber: 1,
+            revision: 2,
+            reconciled: true,
+        });
+        expect(() => decodeScanCleanupDetectionJobState({
+            ...state,
+            resultCount: 256,
+            progress: {
+                ...state.progress,
+                completedUnits: 256,
+            },
+        })).toThrow('invalid scan-cleanup detection result count');
+        expect(() => decodeScanCleanupDetectionJobState({
+            ...state,
+            status: 'running',
+            progress: {
+                ...state.progress,
+                completedUnits: 255,
+            },
+            resultCount: 256,
+            results: state.results.slice(-256),
+        })).toThrow('invalid scan-cleanup detection result count');
+    });
+});
+
 const PNG_1X1 = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     'base64',
@@ -418,12 +514,18 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
     /* Legacy FIFO Analyze transport coverage was removed when Analyze became
      * retained-PNG-only; Render conversion keeps its independent stream path. */
 
-    it('replays a 20,001-page detection in bounded manifests before cancellation', async () => {
+    it('pre-stages each large detection manifest in one bounded Poppler batch', async () => {
         const tempDir = await mkdtemp(join(tmpdir(), 'scan-cleanup-detection-long-test-'));
         dirs.push(tempDir);
         const pageCount = SCAN_CLEANUP_NATIVE_MANIFEST_MAX_PAGES + 1;
         const controller = new AbortController();
         const manifests: number[] = [];
+        const publish = vi.fn();
+        let fakeNow = 100_000;
+        const dateNow = vi.spyOn(Date, 'now').mockImplementation(() => {
+            fakeNow += 100;
+            return fakeNow;
+        });
         const pageSizeSource = createLazyPageSizeStore(pageCount);
         const renderPage = vi.fn();
         const renderPageBatch = vi.fn(async (input: {targets: ReadonlyArray<{
@@ -465,55 +567,60 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             }),
             release: vi.fn(async () => undefined),
         };
-        const result = runScanCleanupDetection(
-            {
-                ...createRequest(),
-                options: {
-                    ...createRequest().options,
-                    matchPageSize: false,
+        try {
+            const result = runScanCleanupDetection(
+                {
+                    ...createRequest(),
+                    options: {
+                        ...createRequest().options,
+                        matchPageSize: false,
+                    },
                 },
-            },
-            controller.signal,
-            retention,
-            {
-                getAvailableScratchBytes: vi.fn(async () => null),
-                getTempDir: () => tempDir,
-                getPdftoppmBinary: () => 'pdftoppm',
-                resolveBinary: () => 'evb-scan-cleanup',
-                renderPage,
-                renderPageBatch,
-                renderPagePpm: vi.fn(),
-                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
-                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
-                    manifests.push(manifest.pages.length);
-                    if (manifests.length === 1) {
-                        await writeFile(manifest.pages[0]!.pageMetadataPath, JSON.stringify({
-                            layoutClassification: 'single-uncut-page',
-                            cutterXPx: null,
-                            rotationDegrees: 0,
-                            canvasScope: 'page',
-                            excluded: false,
-                            blankOutputsSkipped: 0,
-                            outputCount: 0,
-                        }));
-                        onProgress({
-                            stage: 'page-complete',
-                            completedPages: 1,
-                            totalPages: manifest.pages.length,
-                            pageNumber: 1,
-                            classification: 'single-uncut-page',
-                            confidence: 0.9,
-                        });
-                        return;
-                    }
-                    controller.abort(new DOMException('Canceled', 'AbortError'));
-                }),
-            },
-            {rasterConcurrency: 2},
-            vi.fn(),
-        );
-
-        await expect(result).rejects.toThrow('Canceled');
+                controller.signal,
+                retention,
+                {
+                    getAvailableScratchBytes: vi.fn(async () => null),
+                    getTempDir: () => tempDir,
+                    getPdftoppmBinary: () => 'pdftoppm',
+                    resolveBinary: () => 'evb-scan-cleanup',
+                    renderPage,
+                    renderPageBatch,
+                    renderPagePpm: vi.fn(),
+                    runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                        manifests.push(manifest.pages.length);
+                        if (manifests.length === 1) {
+                            await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
+                                layoutClassification: 'single-uncut-page',
+                                cutterXPx: null,
+                                rotationDegrees: 0,
+                                canvasScope: 'page',
+                                excluded: false,
+                                blankOutputsSkipped: 0,
+                                outputCount: 0,
+                            }))));
+                            for (const [index] of manifest.pages.entries()) {
+                                onProgress({
+                                    stage: 'page-complete',
+                                    completedPages: index + 1,
+                                    totalPages: manifest.pages.length,
+                                    pageNumber: index + 1,
+                                    classification: 'single-uncut-page',
+                                    confidence: 0.9,
+                                });
+                            }
+                            return;
+                        }
+                        controller.abort(new DOMException('Canceled', 'AbortError'));
+                    }),
+                },
+                {rasterConcurrency: 2},
+                publish,
+            );
+            await expect(result).rejects.toThrow('Canceled');
+        } finally {
+            dateNow.mockRestore();
+        }
         expect(manifests).toEqual([
             1_024,
             1_024,
@@ -521,9 +628,18 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
         expect(renderPage).not.toHaveBeenCalled();
         expect(renderPageBatch).toHaveBeenCalledTimes(2);
         expect(renderPageBatch.mock.calls.map(([input]) => input.targets.map(target => target.pageNumber))).toEqual([
-            Array.from({length: 16}, (_, index) => index + 1),
-            Array.from({length: 16}, (_, index) => index + 1_025),
+            Array.from({length: 1_024}, (_, index) => index + 1),
+            Array.from({length: 1_024}, (_, index) => index + 1_025),
         ]);
+        const detectingPublishes = publish.mock.calls.filter(([
+            _results,
+            progress,
+        ]) => progress.stage === 'detecting');
+        expect(detectingPublishes.length).toBeGreaterThan(0);
+        // The old 100 ms cadence emitted almost one renderer frame per native
+        // page in this controlled 100 ms/page stream. Large progress is a
+        // status sample now, so one manifest stays near one hundred frames.
+        expect(detectingPublishes.length).toBeLessThanOrEqual(110);
         expect(pageSizeSource.largestChunk()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.largestReadRange()).toBeLessThanOrEqual(1_024);
         expect(pageSizeSource.store.readRange).not.toHaveBeenCalled();

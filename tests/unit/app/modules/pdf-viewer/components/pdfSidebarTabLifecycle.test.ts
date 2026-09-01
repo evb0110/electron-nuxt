@@ -38,12 +38,35 @@ function stubPanel(marker: string) {
     return {default: component};
 }
 
+function activeStateStub(marker: string) {
+    const component = defineComponent({
+        inheritAttrs: false,
+        props: {isActive: {
+            type: Boolean,
+            required: true,
+        }},
+        setup: (props, {
+            attrs,
+            slots,
+        }) => () => h('div', {
+            ...attrs,
+            [marker]: '',
+            'data-active-state': String(props.isActive),
+        }, [
+            slots.header?.(),
+            slots.default?.(),
+            slots.footer?.(),
+        ]),
+    });
+    return {default: component};
+}
+
 vi.mock('@app/modules/pdf-viewer/components/PdfOutline.vue', () => stubPanel('data-outline-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue', () => stubPanel('data-annotations-stub'));
-vi.mock('@app/modules/pdf-viewer/components/PdfThumbnails.vue', () => stubPanel('data-thumbnails-stub'));
+vi.mock('@app/modules/pdf-viewer/components/PdfThumbnails.vue', () => activeStateStub('data-thumbnails-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfPageSelectionBar.vue', () => stubPanel('data-page-selection-stub'));
 vi.mock('@app/modules/pdf-viewer/components/PdfSidebarPageNumbering.vue', () => stubPanel('data-page-numbering-stub'));
-vi.mock('@app/components/document-viewer/DocumentSearchPanel.vue', () => stubPanel('data-search-stub'));
+vi.mock('@app/components/document-viewer/DocumentSearchPanel.vue', () => activeStateStub('data-search-stub'));
 vi.mock('@app/components/document-viewer/DocumentSidebarPagesPanel.vue', () => stubPanel('data-pages-panel-stub'));
 
 vi.mock('@app/components/sidebar/AppSidebarShell.vue', async () => {
@@ -86,6 +109,7 @@ afterEach(() => {
 
 async function mountSidebar(overrides: {
     activeTab?: TPdfSidebarTab;
+    isActive?: boolean;
     isDjvuMode?: boolean;
 } = {}) {
     const state = reactive({
@@ -124,6 +148,7 @@ async function mountSidebar(overrides: {
         selectedThumbnailPages: [],
         totalPages: 4,
         isDjvuMode: overrides.isDjvuMode ?? false,
+        isActive: overrides.isActive ?? true,
         'onCancel-search': cancelSearch,
         'onUpdate:availableTabs': (tabs: TPdfSidebarTab[]) => {
             publishedTabs.push(tabs);
@@ -200,6 +225,14 @@ describe('PdfSidebar tab lifecycle', () => {
 
         expect(cancelSearch).not.toHaveBeenCalled();
     });
+
+    it('deactivates render-backed panels when the sidebar owner is hidden', async () => {
+        const {host} = await mountSidebar({isActive: false});
+
+        expect(host.querySelector('[data-thumbnails-stub]')?.getAttribute('data-active-state')).toBe('false');
+        expect(host.querySelector('[data-search-stub]')?.getAttribute('data-active-state')).toBe('false');
+    });
+
     it('publishes the tabs the document actually supports', async () => {
         const pdf = await mountSidebar();
         const djvu = await mountSidebar({isDjvuMode: true});
