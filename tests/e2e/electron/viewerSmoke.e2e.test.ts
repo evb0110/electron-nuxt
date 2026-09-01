@@ -2318,6 +2318,185 @@ describe('Electron E2E - Viewer Smoke', () => {
         }, {timeout: 15_000});
     });
 
+    it('keeps a visible search result at its clicked position', async () => {
+        let session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+
+        session = await sessionFixture.restart({
+            clean: true,
+            sessionName: () => `e2e-viewer-search-result-position-${Date.now()}`,
+        });
+        if (!session) {
+            return;
+        }
+
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `viewer-search-result-position-${Date.now()}.pdf`,
+            12,
+        );
+        await openPdfInApp(session.page, fixturePath, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, VIEWER_SMOKE_OPEN_TIMEOUT_MS);
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+
+        const searchInput = await session.page.$(
+            '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-bar input',
+        );
+        expect(searchInput).not.toBeNull();
+        await searchInput!.type('sample text');
+        const searchStarted = await session.page.evaluate(() => {
+            const button = document.querySelector<HTMLButtonElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .search-run-button',
+            );
+            if (!button || button.disabled) {
+                return false;
+            }
+            button.click();
+            return true;
+        });
+        expect(searchStarted).toBe(true);
+
+        const expectedSearchResultCount = 12;
+        await waitForFunctionInPage(session.page, (expectedCount: number) => {
+            const summary = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-header-summary',
+            );
+            const searchingIndicator = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-spinner',
+            );
+            return Boolean(
+                summary?.textContent?.trim().startsWith(`${expectedCount} results`)
+                && !searchingIndicator,
+            );
+        }, {timeout: 15_000}, expectedSearchResultCount);
+
+        const targetText = 'Page 8 sample text';
+        await session.page.evaluate(() => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            if (!list) {
+                throw new Error('Search results list was not found');
+            }
+            list.scrollTop = (list.scrollHeight - list.clientHeight) * 0.35;
+            list.dispatchEvent(new Event('scroll'));
+        });
+        await waitForFunctionInPage(session.page, (text: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).some(result => result.textContent?.includes(text))
+        ), {timeout: 5_000}, targetText);
+        await session.page.evaluate((text: string) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).find(candidate => candidate.textContent?.includes(text));
+            if (!list || !result) {
+                throw new Error('Search result target was not found');
+            }
+            list.scrollTop = Math.max(0, result.offsetTop - list.clientHeight / 2);
+            list.dispatchEvent(new Event('scroll'));
+        }, targetText);
+
+        const beforeClick = await session.page.evaluate((text: string) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).find(candidate => candidate.textContent?.includes(text));
+            if (!list || !result) {
+                throw new Error('Visible target search result was not found');
+            }
+            const listRect = list.getBoundingClientRect();
+            const resultRect = result.getBoundingClientRect();
+            return {
+                listClientHeight: list.clientHeight,
+                listScrollTop: list.scrollTop,
+                resultCenterX: resultRect.left + resultRect.width / 2,
+                resultCenterY: resultRect.top + resultRect.height / 2,
+                resultBottomInList: resultRect.bottom - listRect.top,
+                resultTopInList: resultRect.top - listRect.top,
+            };
+        }, targetText);
+        expect(beforeClick.resultTopInList).toBeGreaterThan(40);
+        expect(beforeClick.resultTopInList).toBeLessThan(beforeClick.listClientHeight - 40);
+        expect(beforeClick.resultBottomInList).toBeLessThan(beforeClick.listClientHeight - 40);
+
+        await session.page.mouse.click(beforeClick.resultCenterX, beforeClick.resultCenterY);
+        await waitForFunctionInPage(session.page, (text: string) => {
+            const current = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[aria-current="true"]',
+            );
+            return Boolean(current?.textContent?.includes(text));
+        }, {timeout: 15_000}, targetText);
+        await waitForFunctionInPage(session.page, (text: string) => new Promise<boolean>((resolve) => {
+            const readGeometry = () => {
+                const list = document.querySelector<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+                );
+                const result = Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+                )).find(candidate => candidate.textContent?.includes(text));
+                if (!list || !result) {
+                    return null;
+                }
+                const listRect = list.getBoundingClientRect();
+                const resultRect = result.getBoundingClientRect();
+                return {
+                    listScrollTop: list.scrollTop,
+                    resultTopInList: resultRect.top - listRect.top,
+                };
+            };
+
+            const first = readGeometry();
+            if (!first) {
+                resolve(false);
+                return;
+            }
+            requestAnimationFrame(() => {
+                const second = readGeometry();
+                if (!second) {
+                    resolve(false);
+                    return;
+                }
+                requestAnimationFrame(() => {
+                    const third = readGeometry();
+                    resolve(Boolean(
+                        third
+                        && Math.abs(second.listScrollTop - third.listScrollTop) <= 0.5
+                        && Math.abs(second.resultTopInList - third.resultTopInList) <= 0.5,
+                    ));
+                });
+            });
+        }), {timeout: 5_000}, targetText);
+
+        const afterClick = await session.page.evaluate((text: string) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result',
+            )).find(candidate => candidate.textContent?.includes(text));
+            if (!list || !result) {
+                throw new Error('Selected target search result was not found');
+            }
+            const listRect = list.getBoundingClientRect();
+            const resultRect = result.getBoundingClientRect();
+            return {
+                listScrollTop: list.scrollTop,
+                resultTopInList: resultRect.top - listRect.top,
+            };
+        }, targetText);
+
+        expect(Math.abs(afterClick.listScrollTop - beforeClick.listScrollTop)).toBeLessThanOrEqual(1);
+        expect(Math.abs(afterClick.resultTopInList - beforeClick.resultTopInList)).toBeLessThanOrEqual(1);
+    });
+
     it('never presents an under-resolution thumbnail when the sidebar first opens', async () => {
         let session = sessionFixture.getSession();
         if (!session) {
