@@ -1,0 +1,37 @@
+tests/unit/scripts/cutRelease.test.ts
+  s_cbcef7935f20a3::t_de31583b2fed0c 93-94,98
+scripts/pre-push-gate.mjs
+  s_cbcef7935f20a3::t_de31583b2fed0c 522-523
+tests/unit/scripts/packageScripts.test.ts
+  s_cbcef7935f20a3::t_de31583b2fed0c 177
+tests/unit/scripts/prePushGate.test.ts
+  s_cbcef7935f20a3::t_de31583b2fed0c 240
+docs/release-guardrails.md
+  s_cbcef7935f20a3::t_de31583b2fed0c 16
+scripts/release/wait-for-exact-sha-ci.mjs
+  s_cbcef7935f20a3::t_de31583b2fed0c 58-62,66,113-114,120,126,244,246,249
+tests/unit/scripts/waitForExactShaCi.test.ts
+  s_cbcef7935f20a3::t_de31583b2fed0c 170,202,287,303-309,312
+docs/releasing.md
+  s_cbcef7935f20a3::t_de31583b2fed0c 16,55
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_fc50b99fa71a36 388,396-398
+.github/workflows/ci.yml
+  s_cbcef7935f20a3::t_fc50b99fa71a36 12-14
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9ece1ec2e9efc45b378edcdf77545c10dabd19d5",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
