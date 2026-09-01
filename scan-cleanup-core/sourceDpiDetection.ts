@@ -16,6 +16,9 @@ export {
 } from '@scan-cleanup-core/types';
 
 const PDFIMAGES_TIMEOUT_MS = 30 * 1000;
+// The previous 30-second probe covered at most 48 contiguous pages. Keep that
+// per-page allowance when a long document is split into wider probes.
+const PDFIMAGES_BASELINE_PROBE_SPAN = 48;
 const PDFIMAGES_MAX_CONTIGUOUS_PROBE_SPAN = 1_024;
 const PDFIMAGES_PROBE_CONCURRENCY = 4;
 
@@ -76,6 +79,13 @@ function buildPdfImagesListArgs(pdfPath: string, firstPage: number, lastPage: nu
     ];
 }
 
+function resolvePdfImagesProbeTimeout(pageUnits: number) {
+    return Math.max(
+        PDFIMAGES_TIMEOUT_MS,
+        Math.ceil(pageUnits * PDFIMAGES_TIMEOUT_MS / PDFIMAGES_BASELINE_PROBE_SPAN),
+    );
+}
+
 function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefined): IPdfImagesProbe[] {
     const validPages = getUniqueValidPages(pages);
     if (validPages.length === 0) {
@@ -93,7 +103,7 @@ function buildPdfImagesProbes(pdfPath: string, pages: readonly number[] | undefi
 
     return getBoundedPageProbeRanges(validPages).map(probeRange => ({
         args: buildPdfImagesListArgs(pdfPath, probeRange.firstPage, probeRange.lastPage),
-        timeoutMs: PDFIMAGES_TIMEOUT_MS,
+        timeoutMs: resolvePdfImagesProbeTimeout(probeRange.lastPage - probeRange.firstPage + 1),
         label: probeRange.firstPage === probeRange.lastPage
             ? String(probeRange.firstPage)
             : `${probeRange.firstPage}-${probeRange.lastPage}`,

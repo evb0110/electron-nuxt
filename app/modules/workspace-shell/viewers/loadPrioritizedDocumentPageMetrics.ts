@@ -29,6 +29,7 @@ const DOCUMENT_PAGE_METRICS_DENSE_COMPATIBILITY_LIMIT = 20_000;
 export interface IDocumentPageMetricsCollection extends ILazyIndexedCollection<IDocumentPageMetrics> {
     readonly isSparseDocumentPageMetrics: true;
     readonly exactPageCount: number;
+    readonly exactRevision: number;
     readonly fallbackMetric: IDocumentPageMetrics;
     readonly forEachExact: (callback: (pageNumber: number, metric: IDocumentPageMetrics) => void) => void;
     readonly hasExact: (pageNumber: number) => boolean;
@@ -76,6 +77,7 @@ function createSparseDocumentPageMetrics(
     initialExactMetrics: ReadonlyMap<number, IDocumentPageMetrics> = new Map(),
 ): IDocumentPageMetricsCollection {
     const exactMetrics = new Map(initialExactMetrics);
+    let exactRevision = 0;
     const safeFallbackMetric = Object.freeze(cloneMetric(fallbackMetric));
     const collection = createLazyIndexedCollection<IDocumentPageMetrics>({
         cacheValues: false,
@@ -95,6 +97,11 @@ function createSparseDocumentPageMetrics(
             configurable: false,
             enumerable: false,
             get: () => exactMetrics.size,
+        },
+        exactRevision: {
+            configurable: false,
+            enumerable: false,
+            get: () => exactRevision,
         },
         fallbackMetric: {
             configurable: false,
@@ -134,6 +141,7 @@ function createSparseDocumentPageMetrics(
             value: (pageNumber: number, metric: IDocumentPageMetrics) => {
                 if (Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount) {
                     exactMetrics.set(pageNumber, metric);
+                    exactRevision += 1;
                 }
             },
         },
@@ -150,6 +158,7 @@ function createSparseDocumentPageMetrics(
                 ] of updates) {
                     if (Number.isInteger(pageNumber) && pageNumber >= 1 && pageNumber <= pageCount) {
                         exactMetrics.set(pageNumber, metric);
+                        exactRevision += 1;
                     }
                 }
                 return collection;

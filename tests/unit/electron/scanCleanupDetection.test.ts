@@ -557,57 +557,56 @@ describe('runScanCleanupDetection non-stream raster admission', () => {
             }),
             release: vi.fn(async () => undefined),
         };
-        const result = runScanCleanupDetection(
-            {
-                ...createRequest(),
-                options: {
-                    ...createRequest().options,
-                    matchPageSize: false,
-                },
-            },
-            controller.signal,
-            retention,
-            {
-                getAvailableScratchBytes: vi.fn(async () => null),
-                getTempDir: () => tempDir,
-                getPdftoppmBinary: () => 'pdftoppm',
-                resolveBinary: () => 'evb-scan-cleanup',
-                renderPage,
-                renderPageBatch,
-                renderPagePpm: vi.fn(),
-                runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
-                    const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
-                    manifests.push(manifest.pages.length);
-                    if (manifests.length === 1) {
-                        await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
-                            layoutClassification: 'single-uncut-page',
-                            cutterXPx: null,
-                            rotationDegrees: 0,
-                            canvasScope: 'page',
-                            excluded: false,
-                            blankOutputsSkipped: 0,
-                            outputCount: 0,
-                        }))));
-                        for (const [index] of manifest.pages.entries()) {
-                            onProgress({
-                                stage: 'page-complete',
-                                completedPages: index + 1,
-                                totalPages: manifest.pages.length,
-                                pageNumber: index + 1,
-                                classification: 'single-uncut-page',
-                                confidence: 0.9,
-                            });
-                        }
-                        return;
-                    }
-                    controller.abort(new DOMException('Canceled', 'AbortError'));
-                }),
-            },
-            {rasterConcurrency: 2},
-            publish,
-        );
-
         try {
+            const result = runScanCleanupDetection(
+                {
+                    ...createRequest(),
+                    options: {
+                        ...createRequest().options,
+                        matchPageSize: false,
+                    },
+                },
+                controller.signal,
+                retention,
+                {
+                    getAvailableScratchBytes: vi.fn(async () => null),
+                    getTempDir: () => tempDir,
+                    getPdftoppmBinary: () => 'pdftoppm',
+                    resolveBinary: () => 'evb-scan-cleanup',
+                    renderPage,
+                    renderPageBatch,
+                    renderPagePpm: vi.fn(),
+                    runSidecar: vi.fn(async (_binary, manifestPath, _signal, _log, onProgress) => {
+                        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {pages: Array<{pageMetadataPath: string}>};
+                        manifests.push(manifest.pages.length);
+                        if (manifests.length === 1) {
+                            await Promise.all(manifest.pages.map(page => writeFile(page.pageMetadataPath, JSON.stringify({
+                                layoutClassification: 'single-uncut-page',
+                                cutterXPx: null,
+                                rotationDegrees: 0,
+                                canvasScope: 'page',
+                                excluded: false,
+                                blankOutputsSkipped: 0,
+                                outputCount: 0,
+                            }))));
+                            for (const [index] of manifest.pages.entries()) {
+                                onProgress({
+                                    stage: 'page-complete',
+                                    completedPages: index + 1,
+                                    totalPages: manifest.pages.length,
+                                    pageNumber: index + 1,
+                                    classification: 'single-uncut-page',
+                                    confidence: 0.9,
+                                });
+                            }
+                            return;
+                        }
+                        controller.abort(new DOMException('Canceled', 'AbortError'));
+                    }),
+                },
+                {rasterConcurrency: 2},
+                publish,
+            );
             await expect(result).rejects.toThrow('Canceled');
         } finally {
             dateNow.mockRestore();

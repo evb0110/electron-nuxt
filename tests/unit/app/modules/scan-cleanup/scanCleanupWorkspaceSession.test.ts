@@ -485,6 +485,26 @@ describe('scan cleanup workspace session detection guidance', () => {
         }
     });
 
+    it('lets a reopened native total replace stale viewer metadata', async () => {
+        const harness = capabilityHarness();
+        capability.value = harness.value;
+        const mounted = mountSession(`reopened-native-total-${Date.now()}`, {totalPages: () => 20_001});
+        try {
+            await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
+
+            const state = detectionState('detect-1', 'completed', 3);
+            state.resultCount = 3;
+            harness.emitDetection(state);
+
+            await vi.waitFor(() => {
+                expect(mounted.session.detection.terminalStatus.value).toBe('completed');
+                expect(mounted.session.detection.detectionEvidenceComplete.value).toBe(true);
+            });
+        } finally {
+            mounted.unmount();
+        }
+    });
+
     it('starts a full xlarge ink run with bounded document calibration', async () => {
         const harness = capabilityHarness();
         capability.value = harness.value;

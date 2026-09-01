@@ -135,7 +135,6 @@ function resolveDocumentPageDisplayLayout(
         width: Math.max(1, Math.round(metric.widthPoints * scale)),
     };
 }
-
 export function resolveDocumentPageDisplayLayoutsBounded(
     metrics: TDocumentPageMetricsCollection,
     availableHeight: number,
@@ -182,13 +181,41 @@ export function resolveDocumentPageDisplayLayoutsBounded(
         ),
         getKnownIndices: () => sparseMetrics.getExactPageNumbers().map(pageNumber => pageNumber - 1),
     });
-    const fallbackLayout = resolveDocumentPageDisplayLayout(
-        metrics.fallbackMetric,
-        availableHeight,
-        availableWidth,
-        manualZoom,
-        zoomMode,
-    );
+    const fallbackLayout = resolveDocumentPageDisplayLayout(metrics.fallbackMetric, availableHeight, availableWidth, manualZoom, zoomMode);
+    let correctionRevision = -1;
+    let correctionIndices: number[] = [];
+    let correctionPrefixes: number[] = [];
+    const ensureHeightCorrections = () => {
+        if (correctionRevision === sparseMetrics.exactRevision) {
+            return;
+        }
+        correctionIndices = [];
+        correctionPrefixes = [0];
+        for (const pageNumber of sparseMetrics.getExactPageNumbers()) {
+            const index = pageNumber - 1;
+            const metric = sparseMetrics[index];
+            if (!metric) {
+                continue;
+            }
+            const exactLayout = resolveDocumentPageDisplayLayout(metric, availableHeight, availableWidth, manualZoom, zoomMode);
+            correctionIndices.push(index);
+            correctionPrefixes.push(correctionPrefixes.at(-1)! + exactLayout.height - fallbackLayout.height);
+        }
+        correctionRevision = sparseMetrics.exactRevision;
+    };
+    const sumCorrectionsBefore = (end: number) => {
+        let low = 0;
+        let high = correctionIndices.length;
+        while (low < high) {
+            const middle = Math.floor((low + high) / 2);
+            if (correctionIndices[middle]! < end) {
+                low = middle + 1;
+            } else {
+                high = middle;
+            }
+        }
+        return correctionPrefixes[low] ?? 0;
+    };
     Object.defineProperty(sparseLayouts, 'sumHeightRange', {
         configurable: false,
         enumerable: false,
@@ -198,21 +225,10 @@ export function resolveDocumentPageDisplayLayoutsBounded(
             if (rangeStart >= rangeEnd) {
                 return 0;
             }
-            let total = (rangeEnd - rangeStart) * fallbackLayout.height;
-            metrics.forEachExact((pageNumber, metric) => {
-                const index = pageNumber - 1;
-                if (index < rangeStart || index >= rangeEnd) {
-                    return;
-                }
-                total += resolveDocumentPageDisplayLayout(
-                    metric,
-                    availableHeight,
-                    availableWidth,
-                    manualZoom,
-                    zoomMode,
-                ).height - fallbackLayout.height;
-            });
-            return total;
+            ensureHeightCorrections();
+            return (rangeEnd - rangeStart) * fallbackLayout.height
+                + sumCorrectionsBefore(rangeEnd)
+                - sumCorrectionsBefore(rangeStart);
         },
     });
     return sparseLayouts as TDocumentPageSourceLazyCollection<IDocumentPageDisplayLayout> & IDocumentPageDisplayLayoutCollection;

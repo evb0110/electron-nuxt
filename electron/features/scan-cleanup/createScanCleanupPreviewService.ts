@@ -36,6 +36,7 @@ import {
     decodeNativeScanCleanupPreviewPageMetadataJson,
     type TNativeScanCleanupPreviewOutputArtifactMetadataV3,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
+import {projectScanCleanupDetectionStateForRenderer} from '@contracts/scan-cleanup/ipcResultCodecs';
 import type {TScanCleanupProgress} from '@contracts/scan-cleanup/progress';
 import type {
     INativeScanCleanupReusableGeometryV3,
@@ -194,56 +195,6 @@ const RASTER_PAGE_SOURCE_CACHE_LIMIT = 32;
 const RASTER_PAGE_SOURCE_PROBE_BATCH_PAGES = SCAN_CLEANUP_STREAMING_BATCH_PAGES;
 const PAGE_SIZE_COMPATIBILITY_CHUNK_PAGES = 1_024;
 const PAGE_MEASUREMENT_CACHE_MAX_ENTRIES = 256;
-const RENDERER_DETECTION_PAGE_WINDOW_PAGES = 256;
-
-export function projectScanCleanupDetectionStateForRenderer(
-    state: TScanCleanupDetectionJobState,
-): TScanCleanupDetectionJobState {
-    const isLargeDetectionState = state.progress.totalUnits > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
-        || (state.resultCount ?? 0) > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
-        || state.results.length > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES
-        || state.progress.completedPageNumbersTruncated === true;
-    if (!isLargeDetectionState) {
-        return state;
-    }
-    const {
-        completedPageNumbers: _completedPageNumbers,
-        completedPageNumbersTruncated: _completedPageNumbersTruncated,
-        ...progressWithoutCompletionList
-    } = state.progress;
-    const progress = {
-        ...progressWithoutCompletionList,
-        completedPageNumbers: [],
-        completedPageNumbersTruncated: true,
-    };
-    const results = state.results.slice(-RENDERER_DETECTION_PAGE_WINDOW_PAGES).map(result => ({
-        pageNumber: result.pageNumber,
-        ...(result.revision === undefined ? {} : {revision: result.revision}),
-        classification: result.classification,
-        confidence: result.confidence,
-        cutterXPx: result.cutterXPx,
-        tier1Verdict: result.tier1Verdict,
-        reconciled: result.reconciled,
-        clusterAgreement: result.clusterAgreement,
-        documentPrior: result.documentPrior,
-        ...(result.textAxis === undefined ? {} : {textAxis: result.textAxis}),
-        ...(result.recommendedOutputMode === undefined ? {} : {recommendedOutputMode: result.recommendedOutputMode}),
-        ...(result.recommendedOutputModeConfidence === undefined
-            ? {}
-            : {recommendedOutputModeConfidence: result.recommendedOutputModeConfidence}),
-        ...(result.recommendedOutputModeReason === undefined
-            ? {}
-            : {recommendedOutputModeReason: result.recommendedOutputModeReason}),
-        ...(result.softAlphaForegroundRecommendation === undefined
-            ? {}
-            : {softAlphaForegroundRecommendation: result.softAlphaForegroundRecommendation}),
-    }));
-    return {
-        ...state,
-        progress,
-        results,
-    };
-}
 
 function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanupProgress {
     if (

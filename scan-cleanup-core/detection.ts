@@ -792,11 +792,20 @@ async function runBatchedScanCleanupDetection<TDocument>(
         ? []
         : [...compatibilityResults.values()]
             .sort((left, right) => left.pageNumber - right.pageNumber);
-    const takePublishableResults = () => compatibilityResults === null
-        ? recentResults.splice(0)
-        : publishedResults();
+    const takePublishableResults = () => {
+        if (compatibilityResults !== null) {
+            return publishedResults();
+        }
+        const pending = recentResults.splice(0);
+        return pending.length <= RECENT_PROGRESS_PAGES
+            ? pending
+            : pending.slice(-RECENT_PROGRESS_PAGES);
+    };
     const shouldPublishLargeProgress = (terminal: boolean) => {
         if (compatibilityResults !== null || terminal) {
+            return true;
+        }
+        if (recentResults.length >= RECENT_PROGRESS_PAGES) {
             return true;
         }
         const now = Date.now();

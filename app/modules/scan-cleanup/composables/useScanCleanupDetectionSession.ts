@@ -638,15 +638,23 @@ export const useScanCleanupDetectionSession = (options: IUseScanCleanupDetection
         // must control renderer retention as soon as it arrives. Otherwise a
         // large document is treated as a small compatibility job and every
         // streamed result remains in renderer maps.
-        const documentPageCount = Math.max(
+        // A positive native total is the only count that belongs to this
+        // detection job. Viewer metadata can still describe the document that
+        // was open before a hard reopen, so it must not keep a replacement job
+        // in the large-document retention mode.
+        const nativePageCount = state.progress.totalUnits > 0
+            ? state.progress.totalUnits
+            : null;
+        const documentPageCount = nativePageCount ?? Math.max(
             options.totalPages.value,
             detectionDocumentPageCount.value,
-            state.progress.totalUnits,
             state.progress.completedUnits,
             reportedResultCount,
             state.results.length,
         );
-        if (documentPageCount > detectionDocumentPageCount.value) {
+        if (nativePageCount !== null) {
+            detectionDocumentPageCount.value = nativePageCount;
+        } else if (documentPageCount > detectionDocumentPageCount.value) {
             detectionDocumentPageCount.value = documentPageCount;
         }
         detectionResultCount.value = Math.max(detectionResultCount.value, reportedResultCount);

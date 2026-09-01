@@ -321,7 +321,13 @@ describe('ocr dpi detection', () => {
         let activeProbes = 0;
         let peakProbes = 0;
         let enteredProbes = 0;
-        mocks.runOcrCommand.mockImplementation(async (_binary, args: string[]) => {
+        const probeTimeouts: number[] = [];
+        mocks.runOcrCommand.mockImplementation(async (
+            _binary,
+            args: string[],
+            options: {timeoutMs?: number},
+        ) => {
+            probeTimeouts.push(options.timeoutMs ?? 0);
             activeProbes += 1;
             peakProbes = Math.max(peakProbes, activeProbes);
             enteredProbes += 1;
@@ -362,6 +368,12 @@ describe('ocr dpi detection', () => {
 
         expect(mocks.runOcrCommand).toHaveBeenCalledTimes(4);
         expect(peakProbes).toBe(4);
+        expect(probeTimeouts).toEqual([
+            640_000,
+            640_000,
+            640_000,
+            640_000,
+        ]);
         expect(progress.at(-1)).toEqual([
             4096,
             4096,

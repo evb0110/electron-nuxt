@@ -32,10 +32,14 @@ import {
     SCAN_CLEANUP_INPUT_MAX_ID_BYTES,
     SCAN_CLEANUP_STREAMING_BATCH_PAGES,
 } from '@contracts/scan-cleanup/inputLimits';
+import {SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
+export {
+    projectScanCleanupDetectionStateForRenderer,
+    SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES,
+} from '@contracts/scan-cleanup/projectScanCleanupDetectionStateForRenderer';
 
 const PREVIEW_MAX_IMAGE_BYTES = 32 * 1024 * 1024;
 const PREVIEW_MAX_TOTAL_BYTES = 96 * 1024 * 1024;
-const SCAN_CLEANUP_RENDERER_RESULT_WINDOW_PAGES = 256;
 
 function decodePreviewBytes(value: unknown, label: string) {
     if (!(value instanceof Uint8Array) || value.byteLength === 0 || value.byteLength > PREVIEW_MAX_IMAGE_BYTES) {
