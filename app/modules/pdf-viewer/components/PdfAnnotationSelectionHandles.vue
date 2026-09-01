@@ -1,6 +1,6 @@
 <template>
     <div
-        v-if="entity"
+        v-if="rect"
         class="pdf-annotation-selection-handles"
         :style="handlesStyle"
         aria-hidden="true"
