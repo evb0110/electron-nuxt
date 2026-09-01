@@ -104,10 +104,24 @@ export function getAssistantPreferredModelId(
         ?? getAssistantDefaultModelId(models, fallback);
 }
 
-const REMOVED_CODEX_ASSISTANT_MODEL_IDS = new Set(['gpt-5.5']);
+// Keep the picker on the current GPT generation while allowing non-versioned
+// custom model slugs through unchanged.
+const CODEX_MINIMUM_GPT_MODEL = {
+    major: 5,
+    minor: 6,
+} as const;
+const CODEX_GPT_MODEL_VERSION_PATTERN = /^gpt-(\d+)(?:\.(\d+))?(?=[^0-9]|$)/u;
 
 export function isRemovedCodexAssistantModelId(model: string) {
-    return REMOVED_CODEX_ASSISTANT_MODEL_IDS.has(model.trim().toLowerCase());
+    const match = CODEX_GPT_MODEL_VERSION_PATTERN.exec(model.trim().toLowerCase());
+    if (!match) {
+        return false;
+    }
+
+    const major = Number(match[1]);
+    const minor = Number(match[2] ?? 0);
+    return major < CODEX_MINIMUM_GPT_MODEL.major
+        || (major === CODEX_MINIMUM_GPT_MODEL.major && minor < CODEX_MINIMUM_GPT_MODEL.minor);
 }
 
 // Canonical Claude model options. The default is resolved by preferred family
@@ -115,15 +129,15 @@ export function isRemovedCodexAssistantModelId(model: string) {
 export const CLAUDE_ASSISTANT_MODELS = [
     {
         id: 'fable',
-        label: 'Claude Fable 5',
+        label: 'Claude Fable 5.1',
     },
     {
         id: 'opus',
-        label: 'Claude Opus 4.8',
+        label: 'Claude Opus 5',
     },
     {
         id: 'sonnet',
-        label: 'Claude Sonnet 4.6',
+        label: 'Claude Sonnet 5',
     },
     {
         id: 'haiku',
@@ -136,55 +150,23 @@ export const CLAUDE_ASSISTANT_DEFAULT_MODEL = getAssistantPreferredModelId(
     'opus',
 );
 
-export const CODEX_ASSISTANT_FALLBACK_MODELS = [
-    {
-        id: 'gpt-5.6-sol',
-        label: 'GPT-5.6-Sol',
-        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
-        defaultReasoningEffort: 'medium',
-        serviceTiers: [
-            {
-                id: 'fast',
-                label: 'Fast',
-                isDefault: true,
-            },
-            {
-                id: 'standard',
-                label: 'Standard',
-            },
-        ],
-        defaultServiceTier: 'fast',
-    },
-    {
-        id: 'gpt-5.4',
-        label: 'GPT-5.4',
-        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
-        defaultReasoningEffort: 'medium',
-        serviceTiers: [
-            {
-                id: 'fast',
-                label: 'Fast',
-                isDefault: true,
-            },
-            {
-                id: 'standard',
-                label: 'Standard',
-            },
-        ],
-        defaultServiceTier: 'fast',
-    },
-    {
-        id: 'gpt-5.4-mini',
-        label: 'GPT-5.4-Mini',
-        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
-        defaultReasoningEffort: 'medium',
-    },
-    {
-        id: 'gpt-5.3-codex-spark',
-        label: 'GPT-5.3-Codex-Spark',
-        reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'high'),
-        defaultReasoningEffort: 'high',
-    },
-] as const satisfies readonly IAgentAssistantModelOption[];
+export const CODEX_ASSISTANT_FALLBACK_MODELS = [{
+    id: 'gpt-5.6-sol',
+    label: 'GPT-5.6-Sol',
+    reasoningEfforts: createAssistantEffortOptions(CODEX_ASSISTANT_EFFORTS, 'medium'),
+    defaultReasoningEffort: 'medium',
+    serviceTiers: [
+        {
+            id: 'fast',
+            label: 'Fast',
+            isDefault: true,
+        },
+        {
+            id: 'standard',
+            label: 'Standard',
+        },
+    ],
+    defaultServiceTier: 'fast',
+}] as const satisfies readonly IAgentAssistantModelOption[];
 
 export const CODEX_ASSISTANT_DEFAULT_MODEL = getAssistantDefaultModelId(CODEX_ASSISTANT_FALLBACK_MODELS);
