@@ -78,6 +78,10 @@ mac:
 win:
   icon: resources/icon.ico
   artifactName: "EVB-Viewer-${version}-${arch}-setup.${ext}"
+  # electron-builder 26.15.x can produce a BCJ2-filtered NSIS payload that
+  # silently drops PE files during installation on Windows ARM64. Keep the
+  # Windows payload uncompressed until the installer extractor is fixed.
+  compression: store
   target:
     - nsis
 
