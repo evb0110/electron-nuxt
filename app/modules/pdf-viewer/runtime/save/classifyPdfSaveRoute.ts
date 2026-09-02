@@ -948,10 +948,10 @@ function buildClassifiedNativeMutationProjection(
             ? 'persist-native-pdf-mutations'
             : annotationDeletes.length > 0
                 ? 'persist-native-annotation-changes'
-                : freeTextEditors.length > 0
-                    ? 'persist-native-free-text-editor-changes'
-                    : textBoxes.length > 0
-                        ? 'persist-native-text-box-changes'
+                : textBoxes.length > 0
+                    ? 'persist-native-text-box-changes'
+                    : freeTextEditors.length > 0
+                        ? 'persist-native-free-text-editor-changes'
                         : freeTextNotes.length > 0
                             ? 'persist-native-note-changes'
                             : 'persist-native-note-text-updates',
