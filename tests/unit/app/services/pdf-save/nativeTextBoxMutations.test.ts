@@ -137,7 +137,7 @@ describe('native canonical text-box mutations', () => {
         expect(getPage).toHaveBeenCalledOnce();
     });
 
-    it('returns no payload for a clean plan and fails closed for invalid geometry', async () => {
+    it('returns no payload for a clean plan and fails closed for missing geometry sources', async () => {
         const getPage = vi.fn(async () => ({
             rotate: 0,
             view: [
@@ -161,6 +161,10 @@ describe('native canonical text-box mutations', () => {
         )).resolves.toBeUndefined();
         await expect(collectNativeTextBoxMutationsForSave(
             documentWithPages(getPage),
+            planFor([invalid]),
+        )).resolves.toBeNull();
+        await expect(collectNativeTextBoxMutationsForSave(
+            null,
             planFor([invalid]),
         )).resolves.toBeNull();
     });

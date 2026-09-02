@@ -90,7 +90,7 @@ export async function collectNativeTextBoxMutationsForSave(
         return undefined;
     }
     if (!document) {
-        return undefined;
+        return null;
     }
 
     const pages = new Map<number, Promise<Pick<PDFPageProxy, 'rotate' | 'view'> | null>>();
@@ -111,7 +111,7 @@ export async function collectNativeTextBoxMutationsForSave(
             ? toNativeTextBox(entity, page.view, normalizePageRotation(page.rotate))
             : null;
         if (!mutation) {
-            return Array.isArray(page?.view) ? null : undefined;
+            return null;
         }
         mutations.push(mutation);
     }
