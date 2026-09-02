@@ -3,6 +3,7 @@ import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/session
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import {runGuardedTask} from '@app/utils/asyncGuard';
+import {tryOnScopeDispose} from '@vueuse/core';
 
 export function createPdfAnnotationOwnershipRefreshWatch(options: {
     documentSession: TPdfDocumentSession;
@@ -14,8 +15,17 @@ export function createPdfAnnotationOwnershipRefreshWatch(options: {
 }) {
     let refreshQueued = false;
     let refreshRunning = false;
+    let disposed = false;
+
+    tryOnScopeDispose(() => {
+        disposed = true;
+        refreshQueued = false;
+    });
 
     function scheduleRefresh() {
+        if (disposed) {
+            return;
+        }
         refreshQueued = true;
         if (refreshRunning) {
             return;
@@ -24,10 +34,14 @@ export function createPdfAnnotationOwnershipRefreshWatch(options: {
         refreshRunning = true;
         runGuardedTask(async () => {
             try {
-                while (refreshQueued) {
+                while (refreshQueued && !disposed) {
                     refreshQueued = false;
+                    const pdfDocument = options.documentSession.pdfDocument.value;
+                    if (!pdfDocument) {
+                        continue;
+                    }
                     await options.nextTick();
-                    if (!options.documentSession.pdfDocument.value) {
+                    if (disposed || options.documentSession.pdfDocument.value !== pdfDocument) {
                         continue;
                     }
                     const range = options.viewport.visibleRange.value;
@@ -39,10 +53,13 @@ export function createPdfAnnotationOwnershipRefreshWatch(options: {
                         forceRerender: true,
                         bufferOverride: 0,
                     });
+                    if (disposed || options.documentSession.pdfDocument.value !== pdfDocument) {
+                        continue;
+                    }
                 }
             } finally {
                 refreshRunning = false;
-                if (refreshQueued) {
+                if (!disposed && refreshQueued) {
                     scheduleRefresh();
                 }
             }

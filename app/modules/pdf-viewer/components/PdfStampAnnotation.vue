@@ -5,7 +5,7 @@
         :style="rectStyle"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="placed-image"
-        aria-label="Image annotation"
+        :aria-label="t('annotations.imageLabel')"
     >
         <img
             v-if="imageUrl"
@@ -27,6 +27,7 @@ const props = defineProps<{
     entity: IPlacedImageEntity;
     selected: boolean;
 }>();
+const { t } = useTypedI18n();
 const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 const imageUrl = shallowRef<string | null>(null);
 let imageLoadGeneration = 0;

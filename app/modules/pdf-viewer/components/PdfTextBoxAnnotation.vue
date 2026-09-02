@@ -5,7 +5,7 @@
         :style="rectStyle"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="text-box"
-        :aria-label="entity.text || 'Text annotation'"
+        :aria-label="entity.text || t('annotations.annotationLabel')"
     >
         {{ entity.text }}
     </div>
@@ -19,6 +19,7 @@ const props = defineProps<{
     entity: ITextBoxEntity;
     selected: boolean;
 }>();
+const { t } = useTypedI18n();
 
 const rectStyle = computed(() => ({
     left: `${props.entity.rect.left * 100}%`,

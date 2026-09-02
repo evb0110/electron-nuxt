@@ -67,6 +67,55 @@ describe('resolvePdfJsStampImageDataUrl', () => {
         expect(context.putImageData).toHaveBeenCalledWith(output, 0, 0);
     });
 
+    it('ignores trailing bytes in an oversized RGBA image buffer', () => {
+        const output = {data: new Uint8ClampedArray(8)};
+        const context = {
+            createImageData: vi.fn(() => output),
+            putImageData: vi.fn(),
+        };
+        const canvas = {
+            width: 0,
+            height: 0,
+            getContext: vi.fn(() => context),
+            toDataURL: vi.fn(() => 'data:image/png;base64,stamp'),
+        };
+        vi.stubGlobal('document', {createElement: vi.fn(() => canvas)});
+
+        const page = {objs: new Map([[
+            'img_p0_1',
+            {
+                ref: '11R',
+                width: 2,
+                height: 1,
+                kind: 3,
+                data: new Uint8Array([
+                    1,
+                    2,
+                    3,
+                    4,
+                    5,
+                    6,
+                    7,
+                    8,
+                    9,
+                    10,
+                ]),
+            },
+        ]])};
+
+        expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,stamp');
+        expect(output.data).toEqual(new Uint8ClampedArray([
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+        ]));
+    });
+
     it('returns null when the page has no matching decoded image', () => {
         const page = {objs: new Map([[
             'img_p0_1',

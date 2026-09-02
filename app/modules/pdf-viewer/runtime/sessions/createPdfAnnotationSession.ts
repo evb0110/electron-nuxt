@@ -46,6 +46,7 @@ import type { TPdfRenderingSession } from '@app/modules/pdf-viewer/runtime/sessi
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
 import type {
     IAnnotationCreationFailureReport,
+    TAnnotationCreationFailureReason,
     TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import {normalizeAnnotationText} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -604,7 +605,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 : target.markup === 'squiggly'
                     ? 'Squiggly'
                     : 'Highlight';
-        const result = (created: boolean, matchedText: string | null, reason?: string) => ({
+        const result = (
+            created: boolean,
+            matchedText: string | null,
+            reason?: string,
+            failureReason?: TAnnotationCreationFailureReason,
+        ) => ({
             created,
             pageNumber,
             requestedText,
@@ -612,6 +618,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             occurrence,
             subtype,
             ...(reason ? {reason} : {}),
+            ...(failureReason ? {failureReason} : {}),
         });
         if (!requestedText) {
             return result(false, null, 'Text is required.');
@@ -637,11 +644,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             return result(false, null, `Text was not found on page ${pageNumber}.`);
         }
         const outcome = createSelectionMarkup(match.range, target.withNote === true, subtype);
-        return result(
-            outcome.status === 'created',
-            match.matchedText,
-            outcome.status === 'failed' ? outcome.reason : undefined,
-        );
+        if (outcome.status === 'failed') {
+            return result(
+                false,
+                match.matchedText,
+                'The selection spans more than one page.',
+                outcome.reason,
+            );
+        }
+        return result(true, match.matchedText);
     }
     async function placeCommentAtClientPoint(
         clientX: number,

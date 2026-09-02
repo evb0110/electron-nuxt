@@ -95,7 +95,13 @@ export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocum
                     entity.pageIndex + 1,
                     'transient-background',
                 );
+                if (documentSession.pdfDocument.value !== pdfDocument) {
+                    return null;
+                }
                 await lease.page.getOperatorList({annotationMode: AnnotationMode.ENABLE});
+                if (documentSession.pdfDocument.value !== pdfDocument) {
+                    return null;
+                }
                 const dataUrl = resolvePdfJsStampImageDataUrl(lease.page, entity.image);
                 if (dataUrl) {
                     cachedImages.set(imageRef, dataUrl);

@@ -200,6 +200,10 @@ describe('usePdfAnnotationLayerRenderer', () => {
         expect(annotationLayerRender).not.toHaveBeenCalled();
         expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
         pending.resolve([]);
+        await pending.promise;
+        await Promise.resolve();
+        expect(annotationLayerRender).not.toHaveBeenCalled();
+        expect(annotationLayerDiv.innerHTML).toContain('existingAnnotation');
     });
 
     it('caches parsed annotations per page proxy while allowing a reloaded proxy to parse once', async () => {

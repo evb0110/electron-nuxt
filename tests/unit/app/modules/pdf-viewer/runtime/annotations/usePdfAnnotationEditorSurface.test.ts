@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -43,19 +44,35 @@ function baseEntity(id: string, pageIndex = 0) {
 function createSurfaceHarness() {
     const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
     const scope = effectScope();
+    activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
     }))!;
+    const stop = () => {
+        if (!activeScopes.delete(scope)) {
+            return;
+        }
+        scope.stop();
+    };
     return {
         annotationApplication,
         surface,
-        stop: () => scope.stop(),
+        stop,
     };
 }
 
+const activeScopes = new Set<ReturnType<typeof effectScope>>();
+
 describe('usePdfAnnotationEditorSurface', () => {
+    afterEach(() => {
+        for (const scope of activeScopes) {
+            scope.stop();
+        }
+        activeScopes.clear();
+    });
+
     it('projects every authored kind from the store and preserves markup subtypes and geometry', () => {
         const harness = createSurfaceHarness();
         const { store } = harness.annotationApplication.value;

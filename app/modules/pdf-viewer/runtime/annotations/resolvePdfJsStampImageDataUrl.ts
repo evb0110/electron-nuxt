@@ -128,7 +128,9 @@ function toRgba(imageData: IPdfJsImageDataLike) {
         if (imageData.data.length < rgba.length) {
             return null;
         }
-        rgba.set(imageData.data);
+        for (let index = 0; index < rgba.length; index += 1) {
+            rgba[index] = imageData.data[index] ?? 0;
+        }
         return rgba;
     }
     if (imageData.kind === ImageKind.RGB_24BPP) {

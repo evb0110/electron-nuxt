@@ -6,7 +6,7 @@
         :style="noteStyle"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="note"
-        aria-label="Open note"
+        :aria-label="t('annotations.openNote')"
     >
         <UIcon name="i-ph-chat-circle-text" />
     </button>
@@ -14,6 +14,8 @@
 
 <script setup lang="ts">
 import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+
+const { t } = useTypedI18n();
 
 const props = defineProps<{
     entity: INoteEntity;

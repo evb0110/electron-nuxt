@@ -1437,7 +1437,8 @@ async function createCanonicalNoteViaAgentAction(
     }
 
     let stableKey: string | null = null;
-    for (let attempt = 0; attempt < 20; attempt += 1) {
+    const stableKeyDeadline = Date.now() + XLARGE_SAVE_TIMEOUT_MS;
+    while (!stableKey && Date.now() < stableKeyDeadline) {
         const notes = await readNotes();
         const newPageStableKeys = new Set<string>();
         for (const note of notes) {
@@ -1460,10 +1461,12 @@ async function createCanonicalNoteViaAgentAction(
             throw new Error(`Expected one new page ${pageNumber} note, found ${newPageStableKeys.size}`);
         }
         stableKey = [...newPageStableKeys][0] ?? null;
-        if (stableKey) {
-            break;
+        if (!stableKey) {
+            const remainingMs = stableKeyDeadline - Date.now();
+            if (remainingMs > 0) {
+                await new Promise(resolve => setTimeout(resolve, Math.min(100, remainingMs)));
+            }
         }
-        await new Promise(resolve => setTimeout(resolve, 100));
     }
     if (!stableKey) {
         throw new Error(`Canonical note ${text} did not publish a stable key`);
