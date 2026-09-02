@@ -1,0 +1,44 @@
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c57729f2c66bed::t_6786db3ae397a9 554,763
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_c57729f2c66bed::t_f9f53e8b28ce53 54-55,91-92,317,369-372,415,673-677,755-757,776-790,828,942,953-954
+  s_c57729f2c66bed::t_61b476e18f9640 611-616,621-622,627-641
+  s_c57729f2c66bed::t_3f5de0aac6687f 398-400
+  s_c57729f2c66bed::t_bf6e33c2ece9a0 617-620,623-626,657-658,660,836,955-957
+  s_c57729f2c66bed::t_c33056980474ff 288,291-297
+  s_c57729f2c66bed::t_ec53bfd2a9ae89 659
+  s_c57729f2c66bed::t_f6dbde3cfb3475 929-931
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_c57729f2c66bed::t_cf98c42dfc9e6e 1144
+  s_c57729f2c66bed::t_f96268fcff765f 1132-1143,1145-1190
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_c57729f2c66bed::t_5e5b9d55e1a9fc 63,695-699,782,848
+app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations.ts
+  s_c57729f2c66bed::t_934415fce0786d 1-6,9-10,16,26-34,36-38,44-47,54-59,61-90,92-107,110-111,113-117
+  s_c57729f2c66bed::t_61b476e18f9640 19-22,24-25
+  s_c57729f2c66bed::t_b55afe3bf08ed0 39-43,109
+  s_c57729f2c66bed::t_ed8c2536d16af0 91
+  s_c57729f2c66bed::t_f6dbde3cfb3475 108,112
+  s_c57729f2c66bed::t_ca43fb2483e232 7-8,11,17-18,23,35
+  s_c57729f2c66bed::t_cf98c42dfc9e6e 12-15,48-53,60
+app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types.ts
+  s_c57729f2c66bed::t_f9f53e8b28ce53 18,89,147-148
+app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts
+  s_c57729f2c66bed::t_6786db3ae397a9 732,744,767,782,796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b364d627d4ecaf86d16ae6d55ecc5e061cd43d63",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
