@@ -857,7 +857,6 @@ const {
 } = viewNavigation;
 const handleGoToResult = createWorkspacePdfSearchResultNavigation({
     results,
-    navigate: handleGoToPage,
     select: selectPdfSearchResult,
 });
 const {
