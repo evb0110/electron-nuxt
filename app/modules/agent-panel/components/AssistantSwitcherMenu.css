@@ -82,6 +82,13 @@
     user-select: none;
 }
 
+/* Tall menus reserve a classic scrollbar gutter on both edges; that gutter is
+   already the horizontal inset, so adding panel padding on top of it would
+   double the side margins. */
+.assistant-switcher-menu.app-scroll-region--balanced {
+    padding-inline: 0;
+}
+
 .assistant-switcher-heading {
     padding: var(--app-space-sm) var(--app-space-3xl);
     color: var(--ui-text-muted);

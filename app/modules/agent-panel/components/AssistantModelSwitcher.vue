@@ -28,7 +28,7 @@
 
         <template #content>
             <div
-                class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar"
+                class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
                 :aria-label="t('assistant.model')"
             >
                 <div
