@@ -40,6 +40,24 @@ export function parsePdfJsAnnotationRef(annotationId: string | null | undefined)
     return parsePdfAnnotationRefParts(match[1]!, match[2]);
 }
 
+/** Parse the native PDF object reference form, such as `42 0 R`. */
+export function parsePdfNativeAnnotationRef(annotationId: string | null | undefined) {
+    if (!annotationId) {
+        return null;
+    }
+    const match = annotationId.trim().match(PDF_NATIVE_ANNOTATION_REF_PATTERN);
+    if (!match) {
+        return null;
+    }
+
+    return parsePdfAnnotationRefParts(match[1]!, match[2]);
+}
+
+/** Parse either the compact PDF.js or native PDF object reference form. */
+export function parsePdfAnnotationRef(annotationId: string | null | undefined) {
+    return parsePdfJsAnnotationRef(annotationId) ?? parsePdfNativeAnnotationRef(annotationId);
+}
+
 export function formatPdfJsAnnotationRef(
     ref: IPdfAnnotationRef,
 ) {
@@ -49,18 +67,11 @@ export function formatPdfJsAnnotationRef(
 }
 
 export function normalizePdfJsAnnotationId(annotationId: string | null | undefined) {
-    const ref = parsePdfJsAnnotationRef(annotationId);
+    const ref = parsePdfAnnotationRef(annotationId);
     if (ref) {
         return formatPdfJsAnnotationRef(ref);
     }
 
     const trimmed = annotationId?.trim();
-    const nativeMatch = trimmed?.match(PDF_NATIVE_ANNOTATION_REF_PATTERN);
-    if (nativeMatch) {
-        const ref = parsePdfAnnotationRefParts(nativeMatch[1]!, nativeMatch[2]);
-        if (ref) {
-            return formatPdfJsAnnotationRef(ref);
-        }
-    }
     return trimmed && trimmed.length > 0 ? trimmed : null;
 }

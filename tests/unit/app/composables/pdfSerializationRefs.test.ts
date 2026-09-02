@@ -47,6 +47,16 @@ describe('parsePdfAnnotationStableKey', () => {
             normalizedAnnotationId: '12R',
         });
         expect(parsePdfAnnotationStableKeyRef('ann:3:12R4')?.normalizedAnnotationId).toBe('12R4');
+        expect(parsePdfAnnotationStableKeyRef('ann:3:12 4 R')).toEqual({
+            stableKey: 'ann:3:12 4 R',
+            pageIndex: 3,
+            annotationId: '12 4 R',
+            ref: {
+                objectNumber: 12,
+                generationNumber: 4,
+            },
+            normalizedAnnotationId: '12R4',
+        });
     });
 
     it('rejects invalid page indexes and non-ref strict stable keys', () => {

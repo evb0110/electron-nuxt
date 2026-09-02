@@ -42,6 +42,17 @@ describe('hasViewerShapeChanges', () => {
         expect(hasViewerShapeChanges({ hasShapes: false })).toBe(false);
         expect(hasViewerShapeChanges(null)).toBe(false);
     });
+
+    it('uses canonical shape dirtiness when the viewer exposes it', () => {
+        expect(hasViewerShapeChanges({
+            hasCanonicalShapeChanges: () => false,
+            hasShapes: ref(true),
+        })).toBe(false);
+        expect(hasViewerShapeChanges({
+            hasCanonicalShapeChanges: () => true,
+            hasShapes: ref(false),
+        })).toBe(true);
+    });
 });
 
 describe('hasAnnotationChanges', () => {
@@ -69,6 +80,21 @@ describe('hasAnnotationChanges', () => {
         });
 
         expect(result).toBe(true);
+    });
+
+    it('does not treat a clean imported shape as a change', () => {
+        const result = hasAnnotationChanges({
+            pdfViewerRef: ref({
+                runSaveTransaction: createSaveTransaction(new Uint8Array([])),
+                hasCanonicalAnnotationChanges: () => false,
+                hasCanonicalShapeChanges: () => false,
+                hasShapes: ref(true),
+                getAllShapes: () => [],
+            }),
+            pdfDocument: shallowRef(null),
+        });
+
+        expect(result).toBe(false);
     });
 
     it('returns false when viewer shape ref is false', () => {

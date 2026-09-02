@@ -1130,6 +1130,11 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             void annotationProjection.value;
             return annotationApplication.value.store.hasChangesSinceSavedBaseline();
         },
+        hasCanonicalShapeChanges: () => {
+            // Keep the framework dependency on the canonical projection.
+            void annotationProjection.value;
+            return annotationApplication.value.store.hasChangesSinceSavedBaseline('shape');
+        },
         collectLiveAnnotationChanges: () => collectLivePdfJsAnnotationChangeIds(
             documentSession.pdfDocument.value,
             {annotationStore: annotationApplication.value.store},

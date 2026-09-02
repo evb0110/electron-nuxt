@@ -14,6 +14,7 @@ export interface IWorkspacePdfViewerForAnnotationUtils {
     runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
     hasShapes?: boolean | Ref<boolean>;
     hasCanonicalAnnotationChanges?: () => boolean;
+    hasCanonicalShapeChanges?: (() => boolean) | undefined;
     collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
     getAllShapes: () => IShapeAnnotation[];
 }

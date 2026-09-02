@@ -1,5 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import {parsePdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import {parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNoteGeometryUpdate } from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
@@ -9,7 +9,7 @@ function resolveNativeNoteGeometryUpdateRef(
     comment: IAnnotationCommentSummary,
 ) {
     return parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
-        ?? parsePdfJsAnnotationRef(comment.annotationId);
+        ?? parsePdfAnnotationRef(comment.annotationId);
 }
 
 function isImportedStickyNote(comment: IAnnotationCommentSummary) {
