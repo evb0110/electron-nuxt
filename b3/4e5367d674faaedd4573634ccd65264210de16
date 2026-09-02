@@ -1,0 +1,64 @@
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_c57729f2c66bed::t_4c662a59c13c73 294-297,306-319,324,326-328,333-348,355-365,367-371,375-378,383,389,396-413,423-438
+  s_c57729f2c66bed::t_6b8232f29d663b 320-321,323
+  s_c57729f2c66bed::t_16c16dd5bc1efe 325,329-332
+  s_c57729f2c66bed::t_88f11af0fbdfe2 349-354
+  s_c57729f2c66bed::t_9fb0c07be1e7a3 7,9,22,36-54,96-152,154-190,192-195,238-253,255-283
+  s_c57729f2c66bed::t_548178fc34431c 196-205,207-208,210-234,236-237,254
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c57729f2c66bed::t_687faef9c75d39 1133-1137
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_c57729f2c66bed::t_f2e2b49a3b5db6 24,395,621
+app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates.ts
+  s_c57729f2c66bed::t_f2e2b49a3b5db6 4,32
+app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave.ts
+  s_c57729f2c66bed::t_f2e2b49a3b5db6 2,15-17
+app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey.ts
+  s_c57729f2c66bed::t_f468fc7f1841f5 3,62,64-65
+app/modules/workspace-shell/annotations/workspaceAnnotationTypes.ts
+  s_c57729f2c66bed::t_4c02ef5b0dd7cc 17
+app/modules/pdf-viewer/runtime/save/buildNativeNoteGeometryUpdatesForSave.ts
+  s_c57729f2c66bed::t_f2e2b49a3b5db6 2,12
+tests/unit/contracts/pdfAnnotationRefs.test.ts
+  s_c57729f2c66bed::t_ea58891286995c 9,11,33-45
+packages/contracts/pdfAnnotationRefs.ts
+  s_c57729f2c66bed::t_f468fc7f1841f5 43-60,70
+app/modules/workspace-shell/types/workspacePdfViewerPorts.types.ts
+  s_c57729f2c66bed::t_687faef9c75d39 55
+tests/unit/app/composables/pdfSerializationRefs.test.ts
+  s_c57729f2c66bed::t_ea58891286995c 50-59
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_c57729f2c66bed::t_ea58891286995c 1036-1064,1066,1068-1083
+  s_c57729f2c66bed::t_bcefac47cdd8fd 1065,1067
+app/utils/pdfAnnotationRefs.ts
+  s_c57729f2c66bed::t_f468fc7f1841f5 4,6
+app/modules/pdf-viewer/engine/pdf-serialization-refs/resolveCommentPdfRefInDocument.ts
+  s_c57729f2c66bed::t_ce88204193764c 30
+  s_c57729f2c66bed::t_f2e2b49a3b5db6 26,59
+app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController.ts
+  s_c57729f2c66bed::t_687faef9c75d39 276
+app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types.ts
+  s_c57729f2c66bed::t_687faef9c75d39 149
+packages/contracts/index.ts
+  s_c57729f2c66bed::t_f468fc7f1841f5 124,126
+tests/unit/app/modules/workspace-shell/composables/workspaceAnnotationUtils.test.ts
+  s_c57729f2c66bed::t_687faef9c75d39 45-55,85-97
+app/modules/workspace-shell/annotations/hasViewerShapeChanges.ts
+  s_c57729f2c66bed::t_687faef9c75d39 4,6-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "b34e5367d674faaedd4573634ccd65264210de16",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
