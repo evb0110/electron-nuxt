@@ -1,0 +1,23 @@
+scripts/all-gates-validation-plan.mjs
+  s_99da621d494a1e::t_def2687039f958 142-145
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_99da621d494a1e::t_def2687039f958 474-475
+docs/research/stale-revision-xlarge-search-2026-09-02.md
+  s_99da621d494a1e::t_76aaa36b9561a1 156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0abedd1e4e7593e4910787db0f6e268a524bda3b",
+  "prompts": {},
+  "sessions": {
+    "s_99da621d494a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f07-e25f-7dd3-8473-42bcbe4c0abc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

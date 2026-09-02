@@ -1,0 +1,52 @@
+packages/i18n-app/messages/en.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 20-23
+packages/i18n-app/messages/nl.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+packages/i18n-app/messages/ru.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 20-21,23
+  s_db856168e679e7::t_788609c0cccb20 22
+app/modules/agent-panel/components/AssistantSpeedSwitcher.vue
+  s_db856168e679e7::t_226fd04c6d398e 47
+  s_db856168e679e7::t_b3b24ca35ccddc 10,16,18,21,26-27,29,38,51,112
+app/modules/agent-panel/components/AssistantModelSwitcher.vue
+  s_db856168e679e7::t_346885a3ffb057 10,17,19,23,30-31,33,42,53,55,59-77,79-89,91-92,148,206,208-210,213,215-221,224,231,233-235,245,247,250,254,258-262,269,274,279,286,288-296
+tests/unit/app/modules/agent-panel/assistantModelSwitcher.test.ts
+  s_db856168e679e7::t_acc08624431823 68-75,78-83,88,92,94-106
+  s_db856168e679e7::t_c9ffeadf6b606d 1-2,7-16,19-67,76-77,84-87,89-91,93,107-136,145-147,156-176,178-183,197-215
+  s_db856168e679e7::t_2a9d4c5978619a 3-6,17-18
+  s_db856168e679e7::t_7cb2b3e05aef4f 137-144,148-155
+  s_db856168e679e7::t_c37058ee5b58fd 177,184-196
+packages/i18n-app/messages/de.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+packages/i18n-app/messages/es.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+app/modules/agent-panel/components/AssistantEffortSwitcher.vue
+  s_db856168e679e7::t_b3b24ca35ccddc 10,16,18,21,26-27,29,38,51,126
+  s_db856168e679e7::t_226fd04c6d398e 47
+packages/i18n-app/messages/it.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+packages/i18n-app/messages/pt.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+packages/i18n-app/messages/fr.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+app/modules/agent-panel/components/AssistantSwitcherMenu.css
+  s_db856168e679e7::t_ba3e553c6762f9 1-177
+packages/i18n-app/messages/ptBr.ts
+  s_db856168e679e7::t_a99f7eb2a404f3 485-488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "449038dd11f9fa77ee643ca96c100376de5b5a29",
+  "prompts": {},
+  "sessions": {
+    "s_db856168e679e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f24ab835-3ad3-4202-a922-ab5a03416e63",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

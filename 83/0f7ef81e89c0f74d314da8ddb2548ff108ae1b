@@ -1,0 +1,22 @@
+scripts/release/shared.mjs
+  s_99da621d494a1e::t_8f5231eab6941f 11-25
+  s_99da621d494a1e::t_6a45983f875315 26
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_99da621d494a1e::t_8f5231eab6941f 1021-1022
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "830f7ef81e89c0f74d314da8ddb2548ff108ae1b",
+  "prompts": {},
+  "sessions": {
+    "s_99da621d494a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f07-e25f-7dd3-8473-42bcbe4c0abc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,54 @@
+electron/features/search/main/ipc.ts
+  s_99da621d494a1e::t_6b56adf5a36fb6 92,131-132
+  s_99da621d494a1e::t_73355cb933a628 174-188
+  s_99da621d494a1e::t_41de06c73c49e2 238-249,308-326,328-350,355-362,370-388,390-404,406,409-415,422,427-429
+  s_99da621d494a1e::t_dcd3723c7468b5 407
+  s_99da621d494a1e::t_ee3da56ebc6232 352-354
+  s_99da621d494a1e::t_c9a732a4943e69 206-208,213-223,423-426
+  s_99da621d494a1e::t_c386aff748e307 408
+  s_99da621d494a1e::t_7f430d9cb64073 23,109
+  s_99da621d494a1e::t_9deec0ac98e7fb 14,209-212
+  s_99da621d494a1e::t_88a5bffbc80a52 86,164-167,224-237,260-262
+  s_99da621d494a1e::t_24a96abf813070 90-91,93-94,118,142-143,145,158,163,168-169,171
+  s_99da621d494a1e::t_f4e402e60530b3 3,17-20,80-85,87-89,95-108,110-117,119-130,133-141,146-157,159-162,172-173,189-204
+  s_99da621d494a1e::t_28b0e160d19932 144,170,205
+tests/unit/electron/searchIpcResourceLimits.test.ts
+  s_99da621d494a1e::t_6019b18cd59d4b 530
+  s_99da621d494a1e::t_c9a732a4943e69 434-436,438,440-442,446,452-457,459-463,471-475,477-487,496-497,540
+  s_99da621d494a1e::t_78fc38ac8eeea2 41-46,244,326-343,369-399,401-433,498-529,531-539
+  s_99da621d494a1e::t_7f430d9cb64073 400,437,439,443-445,447-451,458,464-470,476,488-495
+  s_1fc5e9fc774ada::t_23d70b1693991f 541
+docs/research/stale-revision-xlarge-search-2026-09-02.md
+  s_99da621d494a1e::t_5bbd9b153826b7 5,20-21,23,102-103,105,111,142-147,151,154-156,159
+  s_99da621d494a1e::t_32396b9d4fd979 22
+  s_99da621d494a1e::t_b254fff31cd26a 59,82
+  s_99da621d494a1e::t_4febe371af839d 1-4,6-19,24-58,60-81,83-101,104,106-110,112-141,148-150,152-153,157-158
+electron/features/search/main/searchWorkerService.ts
+  s_99da621d494a1e::t_c6c765e7ccf952 336
+  s_99da621d494a1e::t_8a55ec2c249315 303
+  s_99da621d494a1e::t_7f430d9cb64073 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "78a22c675ed5b6ffcf1212b571cf51d0c68736be",
+  "prompts": {},
+  "sessions": {
+    "s_1fc5e9fc774ada": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f11-c6d6-76e2-b4bf-f5606d82bc09",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_99da621d494a1e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05f07-e25f-7dd3-8473-42bcbe4c0abc",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
