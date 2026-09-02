@@ -45,6 +45,11 @@ function createHarness() {
         selectedShapeId: null as string | null,
         getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
         updateShape: vi.fn(),
+        getSelectedTextBox: vi.fn<() => {
+            fontSize: number;
+            color: string | null
+        } | null>(() => null),
+        updateSelectedTextBoxProperties: vi.fn(),
     };
 
     const deps = {
@@ -177,6 +182,31 @@ describe('usePageAnnotationTools', () => {
 
         expect(viewer.updateShape).toHaveBeenNthCalledWith(1, 'ink-shape-1', { strokeWidth: 6 });
         expect(viewer.updateShape).toHaveBeenNthCalledWith(2, 'ink-shape-1', { opacity: 0.4 });
+    });
+
+    it('routes text size and color changes to the selected canonical text box', () => {
+        const {
+            viewer,
+            tools,
+        } = createHarness();
+
+        viewer.getSelectedTextBox.mockReturnValue({
+            fontSize: 14,
+            color: '#000000',
+        });
+
+        tools.handleAnnotationSettingChange({
+            key: 'textSize',
+            value: 22,
+        });
+        tools.handleAnnotationSettingChange({
+            key: 'textColor',
+            value: '#ef4444',
+        });
+
+        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(1, {fontSize: 22});
+        expect(viewer.updateSelectedTextBoxProperties).toHaveBeenNthCalledWith(2, {color: '#ef4444'});
+        expect(viewer.updateShape).not.toHaveBeenCalled();
     });
 
     it('tracks dirty state across editor undo transitions and save/reset', () => {

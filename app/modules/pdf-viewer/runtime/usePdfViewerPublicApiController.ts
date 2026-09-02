@@ -284,6 +284,8 @@ export const usePdfViewerPublicApiController = (
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
+        getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
+        updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
         updateAnnotationComment: (comment, text) => {

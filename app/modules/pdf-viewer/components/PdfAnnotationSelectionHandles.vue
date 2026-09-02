@@ -3,13 +3,15 @@
         v-if="rect"
         class="pdf-annotation-selection-handles"
         :style="handlesStyle"
-        aria-hidden="true"
+        :aria-hidden="props.entity?.kind === 'text-box' ? undefined : 'true'"
     >
         <span
             v-for="handle in handles"
             :key="handle"
             class="pdf-annotation-selection-handle"
             :class="`pdf-annotation-selection-handle--${handle}`"
+            :data-pdf-annotation-resize-handle="handle"
+            @pointerdown.stop.prevent="handlePointerDown(handle, $event)"
         ></span>
     </div>
 </template>
@@ -17,8 +19,13 @@
 <script setup lang="ts">
 import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
+import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
-const props = defineProps<{entity: AnnotationEntity | null;}>();
+const props = defineProps<{
+    entity: AnnotationEntity | null;
+    displayRect?: IAnnotationMarkerRect | undefined;
+}>();
+const emit = defineEmits<{'resize-start': [handle: TAnnotationResizeHandle, event: PointerEvent];}>();
 
 function normalizeSelectionRect(value: IAnnotationMarkerRect): IAnnotationMarkerRect {
     const right = value.left + value.width;
@@ -48,7 +55,7 @@ const rect = computed(() => {
         return null;
     }
     return entity.kind === 'shape' || entity.kind === 'text-box' || entity.kind === 'placed-image'
-        ? normalizeSelectionRect(entity.rect)
+        ? normalizeSelectionRect(props.displayRect ?? entity.rect)
         : null;
 });
 
@@ -58,4 +65,10 @@ const handlesStyle = computed(() => rect.value ? {
     width: `${rect.value.width * 100}%`,
     height: `${rect.value.height * 100}%`,
 } : undefined);
+
+function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent) {
+    if (props.entity?.kind === 'text-box') {
+        emit('resize-start', handle, event);
+    }
+}
 </script>

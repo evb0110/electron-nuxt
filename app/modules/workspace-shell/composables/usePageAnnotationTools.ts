@@ -23,6 +23,14 @@ interface IPdfViewerForAnnotationTools {
     selectedShapeId: string | null;
     getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
     updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
+    getSelectedTextBox?: () => {
+        fontSize: number;
+        color: string | null
+    } | null;
+    updateSelectedTextBoxProperties?: (updates: {
+        fontSize?: number;
+        color?: string | null
+    }) => boolean;
 }
 
 interface IPageAnnotationToolsDeps {
@@ -144,6 +152,18 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             ...annotationSettings.value,
             [payload.key]: payload.value,
         };
+
+        const selectedTextBox = pdfViewerRef.value?.getSelectedTextBox?.();
+        if (selectedTextBox && pdfViewerRef.value?.updateSelectedTextBoxProperties) {
+            if (payload.key === 'textColor' && typeof payload.value === 'string') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({color: payload.value});
+                return;
+            }
+            if (payload.key === 'textSize' && typeof payload.value === 'number') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({fontSize: payload.value});
+                return;
+            }
+        }
 
         const selectedShapeId = pdfViewerRef.value?.selectedShapeId;
         if (!selectedShapeId) {

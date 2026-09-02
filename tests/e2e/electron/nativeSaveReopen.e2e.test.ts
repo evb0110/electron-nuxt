@@ -4,8 +4,12 @@ import {
     expect,
     it,
 } from 'vitest';
-import {stat} from 'node:fs/promises';
 import {
+    readFile,
+    stat,
+} from 'node:fs/promises';
+import {
+    copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
     createMultiPageTextFixturePdf,
     createOutlinePageLabelFixturePdf,
@@ -19,6 +23,10 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import {
+    clickAnnotationTool,
+    setAnnotationColor,
+} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
     waitForAutomationEvent,
@@ -28,7 +36,9 @@ import {
     type IElectronE2ESession,
 } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
+import type {KeyInput} from 'puppeteer-core';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
+import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 
 const NATIVE_SAVE_REOPEN_TIMEOUT_MS = 120_000;
 const OUTLINE_METADATA_MATRIX_TIMEOUT_MS = 15 * 60_000;
@@ -50,6 +60,13 @@ interface IDisplayRect {
     top: number;
     width: number;
     height: number;
+}
+
+interface IAnnotationDirtyState {
+    annotationDirty?: boolean;
+    fileDirty?: boolean;
+    hasLivePdfJsAnnotationChanges?: boolean;
+    hasPendingUnsavedChanges?: boolean;
 }
 
 interface IQpdfOutline {
@@ -283,6 +300,143 @@ async function waitForTextBoxDisplay(page: Parameters<typeof evaluateInPage>[0])
     )), {timeout: 20_000});
 }
 
+function findTextBoxComment(
+    snapshot: ICanonicalAnnotationSnapshot,
+    expectedText?: string,
+) {
+    return snapshot.comments.find(comment => (
+        stringField(comment, 'subtype') === 'FreeText'
+        && normalizedRect(comment.markerRect) !== null
+        && (expectedText === undefined || stringField(comment, 'text') === expectedText)
+    )) ?? null;
+}
+
+async function readPagePoint(
+    page: Parameters<typeof evaluateInPage>[0],
+    xRatio: number,
+    yRatio: number,
+) {
+    return page.evaluate((ratios: {
+        x: number;
+        y: number;
+    }) => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"]',
+        );
+        if (!pageContainer) {
+            return null;
+        }
+        pageContainer.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        const rect = pageContainer.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width * ratios.x,
+            y: rect.top + rect.height * ratios.y,
+        };
+    }, {
+        x: xRatio,
+        y: yRatio,
+    });
+}
+
+async function readTextBoxScreenPoints(
+    page: Parameters<typeof evaluateInPage>[0],
+    handle: TAnnotationResizeHandle | null = null,
+) {
+    return page.evaluate((requestedHandle: TAnnotationResizeHandle | null) => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"]',
+        );
+        const textBox = pageContainer?.querySelector<HTMLElement>('[data-annotation-kind="text-box"]');
+        if (!pageContainer || !textBox) {
+            return null;
+        }
+        const pageRect = pageContainer.getBoundingClientRect();
+        const boxRect = textBox.getBoundingClientRect();
+        const handleElement = requestedHandle
+            ? pageContainer.querySelector<HTMLElement>(
+                `[data-pdf-annotation-resize-handle="${requestedHandle}"]`,
+            )
+            : null;
+        const handleRect = handleElement?.getBoundingClientRect();
+        return {
+            page: {
+                left: pageRect.left,
+                top: pageRect.top,
+                right: pageRect.right,
+                bottom: pageRect.bottom,
+            },
+            box: {
+                left: boxRect.left,
+                top: boxRect.top,
+                right: boxRect.right,
+                bottom: boxRect.bottom,
+                width: boxRect.width,
+                height: boxRect.height,
+            },
+            handle: handleRect
+                ? {
+                    x: handleRect.left + handleRect.width / 2,
+                    y: handleRect.top + handleRect.height / 2,
+                }
+                : null,
+        };
+    }, handle);
+}
+
+async function dragPointer(
+    page: Parameters<typeof evaluateInPage>[0],
+    start: {
+        x: number;
+        y: number;
+    },
+    end: {
+        x: number;
+        y: number;
+    },
+) {
+    await page.mouse.move(start.x, start.y);
+    await page.mouse.down();
+    await page.mouse.move(end.x, end.y, {steps: 5});
+    await page.mouse.up();
+}
+
+async function pressModifiedKey(
+    page: Parameters<typeof evaluateInPage>[0],
+    key: KeyInput,
+) {
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(modifier);
+    await page.keyboard.press(key);
+    await page.keyboard.up(modifier);
+}
+
+async function runHistoryAction(
+    page: Parameters<typeof evaluateInPage>[0],
+    action: 'undo' | 'redo',
+) {
+    const result = await callWorkspaceCommand<Record<string, unknown>>(
+        page,
+        'runAgentAction',
+        [
+            `history.${action}`,
+            {},
+        ],
+    );
+    expect(result.called).toBe(true);
+    expect(result.value?.ok).toBe(true);
+}
+
+async function readAnnotationDirtyState(page: Parameters<typeof evaluateInPage>[0]) {
+    const values = await readWorkspaceStateValues<{dirtyState?: IAnnotationDirtyState}>(
+        page,
+        ['dirtyState'],
+    );
+    return values.dirtyState;
+}
+
 describe('Electron E2E - native save and reopen', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -437,6 +591,282 @@ describe('Electron E2E - native save and reopen', () => {
             typeof shape.annotationId === 'string' && shape.annotationId.length > 0
         ))).toBe(true);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('creates, edits, resizes, moves, recolors, undoes, saves, and reopens a text box', async () => {
+        const pdfPath = await createMultiPageTextFixturePdf(
+            `native-save-reopen-${Date.now()}-created-text-box.pdf`,
+            1,
+        );
+
+        session = await startElectronE2ESession(`e2e-native-save-reopen-created-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await openAnnotationsTab(session.page, 30_000);
+        await clickAnnotationTool(session.page, 'Text');
+
+        const creationPoint = await readPagePoint(session.page, 0.62, 0.52);
+        expect(creationPoint).not.toBeNull();
+        if (!creationPoint) {
+            throw new Error('The empty fixture page was not mounted');
+        }
+        await session.page.mouse.click(creationPoint.x, creationPoint.y);
+        await session.page.waitForSelector(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+            {
+                visible: true,
+                timeout: 20_000,
+            },
+        );
+
+        const typedText = `Created canonical text box ${Date.now()}`;
+        await session.page.focus(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+        );
+        await pressModifiedKey(session.page, 'A');
+        await session.page.keyboard.type(typedText);
+        await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+        )?.textContent ?? null), {timeout: 20_000}).toBe(typedText);
+        await pressModifiedKey(session.page, 'Enter');
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe(typedText);
+
+        const typedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const typedComment = findTextBoxComment(typedSnapshot, typedText);
+        expect(typedComment).not.toBeNull();
+        if (!typedComment) {
+            throw new Error('The created text box was not published to the canonical store');
+        }
+        const annotationId = stringField(typedComment, 'appAnnotationId');
+        const originalRect = normalizedRect(typedComment.markerRect);
+        const originalColor = stringField(typedComment, 'color');
+        expect(annotationId).not.toBeNull();
+        expect(originalRect).not.toBeNull();
+        expect(originalColor).not.toBeNull();
+        if (!annotationId || !originalRect || !originalColor) {
+            throw new Error('The created text box did not expose its canonical identity, geometry, or color');
+        }
+
+        await clickAnnotationTool(session.page, 'Select');
+        await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            '[data-annotation-kind="text-box"]',
+        )).some(entity => entity.dataset.annotationId === id && entity.classList.contains('is-selected')), {timeout: 20_000}, annotationId);
+
+        await setAnnotationColor(session.page, '#ef4444');
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
+            'color',
+        ), {timeout: 20_000}).toBe('#ef4444');
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
+            'color',
+        ), {timeout: 20_000}).toBe(originalColor);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
+            'color',
+        ), {timeout: 20_000}).toBe('#ef4444');
+
+        const beforeResizeSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const beforeResizeComment = findTextBoxComment(beforeResizeSnapshot, typedText);
+        const beforeResizeRect = normalizedRect(beforeResizeComment?.markerRect);
+        const beforeResizeScreen = await readTextBoxScreenPoints(session.page, 'se');
+        const fontSizeBeforeResize = await session.page.evaluate(() => {
+            const textBox = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="text-box"]',
+            );
+            const value = textBox ? Number.parseFloat(window.getComputedStyle(textBox).fontSize) : NaN;
+            return Number.isFinite(value) ? value : null;
+        });
+        expect(beforeResizeRect).not.toBeNull();
+        expect(beforeResizeScreen?.handle).not.toBeNull();
+        expect(fontSizeBeforeResize).not.toBeNull();
+        if (!beforeResizeRect || !beforeResizeScreen?.handle || fontSizeBeforeResize === null) {
+            throw new Error('The selected text box resize handle was not mounted');
+        }
+        const resizeTarget = {
+            x: Math.min(beforeResizeScreen.page.right - 6, beforeResizeScreen.handle.x + 48),
+            y: Math.min(beforeResizeScreen.page.bottom - 6, beforeResizeScreen.handle.y + 36),
+        };
+        expect(Math.hypot(
+            resizeTarget.x - beforeResizeScreen.handle.x,
+            resizeTarget.y - beforeResizeScreen.handle.y,
+        )).toBeGreaterThan(8);
+        await dragPointer(session.page, beforeResizeScreen.handle, resizeTarget);
+        await expect.poll(async () => (
+            normalizedRect(findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect)?.width ?? 0
+        ), {timeout: 20_000}).toBeGreaterThan(beforeResizeRect.width);
+        const resizedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const resizedComment = findTextBoxComment(resizedSnapshot, typedText);
+        const resizedRect = normalizedRect(resizedComment?.markerRect);
+        expect(resizedRect).not.toBeNull();
+        expect(await session.page.evaluate(() => {
+            const textBox = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="text-box"]',
+            );
+            const value = textBox ? Number.parseFloat(window.getComputedStyle(textBox).fontSize) : NaN;
+            return Number.isFinite(value) ? value : null;
+        })).toBe(fontSizeBeforeResize);
+        if (!resizedRect) {
+            throw new Error('The resized text box was not published to the canonical store');
+        }
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(beforeResizeRect);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(resizedRect);
+
+        const beforeMoveSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const beforeMoveRect = normalizedRect(
+            findTextBoxComment(beforeMoveSnapshot, typedText)?.markerRect,
+        );
+        const beforeMoveScreen = await readTextBoxScreenPoints(session.page);
+        expect(beforeMoveRect).not.toBeNull();
+        expect(beforeMoveScreen).not.toBeNull();
+        if (!beforeMoveRect || !beforeMoveScreen) {
+            throw new Error('The resized text box was not mounted for moving');
+        }
+        const moveStart = {
+            x: beforeMoveScreen.box.left + beforeMoveScreen.box.width / 2,
+            y: beforeMoveScreen.box.top + beforeMoveScreen.box.height / 2,
+        };
+        const moveTarget = {
+            x: Math.min(beforeMoveScreen.page.right - beforeMoveScreen.box.width / 2 - 6, moveStart.x + 32),
+            y: Math.min(beforeMoveScreen.page.bottom - beforeMoveScreen.box.height / 2 - 6, moveStart.y + 24),
+        };
+        expect(Math.hypot(moveTarget.x - moveStart.x, moveTarget.y - moveStart.y)).toBeGreaterThan(8);
+        await dragPointer(session.page, moveStart, moveTarget);
+        await expect.poll(async () => (
+            normalizedRect(findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect)?.left ?? 0
+        ), {timeout: 20_000}).toBeGreaterThan(beforeMoveRect.left);
+        const movedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const movedRect = normalizedRect(findTextBoxComment(movedSnapshot, typedText)?.markerRect);
+        expect(movedRect).not.toBeNull();
+        if (!movedRect) {
+            throw new Error('The moved text box was not published to the canonical store');
+        }
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(beforeMoveRect);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(movedRect);
+
+        const finalSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const finalFingerprint = canonicalAnnotationFingerprint(finalSnapshot);
+        await saveViaWindowHandle(session.page, 60_000);
+        await expect.poll(
+            () => readAnnotationDirtyState(session!.page),
+            {timeout: 20_000},
+        ).toMatchObject({
+            annotationDirty: false,
+            fileDirty: false,
+            hasLivePdfJsAnnotationChanges: false,
+            hasPendingUnsavedChanges: false,
+        });
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText).toBe(1);
+
+        const savedSession = session;
+        session = null;
+        await savedSession.stop();
+        session = await startElectronE2ESession(`e2e-native-save-reopen-created-fresh-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await waitForTextBoxDisplay(session.page);
+        await expect.poll(async () => canonicalAnnotationFingerprint(
+            await readCanonicalAnnotationSnapshot(session!.page),
+        ), {timeout: 20_000}).toBe(finalFingerprint);
+    }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
+
+    it('edits a fixture text box and preserves its foreign dictionary keys through save', async () => {
+        const pdfPath = copyProjectFixture(
+            'freetext-lifecycle-test.pdf',
+            `native-save-reopen-${Date.now()}-foreign-text-box.pdf`,
+        );
+
+        session = await startElectronE2ESession(`e2e-native-save-reopen-foreign-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await openAnnotationsTab(session.page, 30_000);
+        await waitForTextBoxDisplay(session.page);
+
+        const fixtureText = 'Reachable text box one';
+        await expect.poll(async () => Boolean(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), fixtureText),
+        ), {timeout: 20_000}).toBe(true);
+        const initialSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const initialComment = findTextBoxComment(initialSnapshot, fixtureText);
+        const annotationId = stringField(initialComment ?? {}, 'appAnnotationId');
+        expect(annotationId).not.toBeNull();
+        if (!annotationId) {
+            throw new Error('The fixture text box did not expose its canonical identity');
+        }
+        const point = await session.page.evaluate((id: string) => {
+            const entity = Array.from(document.querySelectorAll<HTMLElement>(
+                '[data-annotation-kind="text-box"]',
+            )).find(candidate => candidate.dataset.annotationId === id);
+            if (!entity) {
+                return null;
+            }
+            const rect = entity.getBoundingClientRect();
+            return {
+                x: rect.left + rect.width / 2,
+                y: rect.top + rect.height / 2,
+            };
+        }, annotationId);
+        expect(point).not.toBeNull();
+        if (!point) {
+            throw new Error('The fixture text box was not rendered');
+        }
+        await session.page.mouse.click(point.x, point.y, {
+            count: 2,
+            delay: 80,
+        });
+        await session.page.waitForSelector(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+            {
+                visible: true,
+                timeout: 20_000,
+            },
+        );
+        const editedText = `Edited fixture text box ${Date.now()}`;
+        await session.page.focus(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+        );
+        await pressModifiedKey(session.page, 'A');
+        await session.page.keyboard.type(editedText);
+        await expect.poll(async () => session!.page.evaluate(() => document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-text-box [contenteditable="true"]',
+        )?.textContent ?? null), {timeout: 20_000}).toBe(editedText);
+        await pressModifiedKey(session.page, 'Enter');
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), editedText) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe(editedText);
+
+        await saveViaWindowHandle(session.page, 60_000);
+        expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText).toBe(3);
+        const savedPdfText = (await readFile(pdfPath)).toString('latin1');
+        expect(savedPdfText).toContain('/NM (lifecycle-text-box-one)');
+        expect(savedPdfText).toContain('/DA (/Helvetica 14 Tf 0 0 1 rg)');
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {

@@ -251,6 +251,10 @@
     overflow: visible;
 }
 
+.pdfViewer .pdf-annotation-editor-layer.is-interactive {
+    pointer-events: auto;
+}
+
 .pdfViewer .pdf-annotation-editor-surface__svg,
 .pdfViewer .pdf-annotation-editor-surface__html {
     position: absolute;
@@ -318,6 +322,30 @@
     border: 1px solid transparent;
     white-space: pre-wrap;
     user-select: text;
+    cursor: move;
+}
+
+.pdfViewer .pdf-annotation-editor-text-box.is-editing {
+    overflow: visible;
+    cursor: text;
+    z-index: var(--app-z-pdf-annotation-editor-layer);
+}
+
+.pdfViewer .pdf-annotation-editor-text-box__editor {
+    width: 100%;
+    height: 100%;
+    outline: none;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    user-select: text;
+}
+
+.pdfViewer .pdf-annotation-editor-text-box-preview {
+    position: absolute;
+    box-sizing: border-box;
+    border: 1px dashed var(--app-toolbar-focus-ring);
+    background: color-mix(in srgb, var(--app-toolbar-focus-ring) 10%, transparent);
+    pointer-events: none;
 }
 
 .pdfViewer .pdf-annotation-editor-text-box.is-selected,
@@ -361,6 +389,7 @@
     border-radius: var(--app-pdf-annotation-handle-radius);
     background: var(--ui-bg);
     transform: translate(-50%, -50%);
+    pointer-events: auto;
 }
 
 .pdfViewer .pdf-annotation-selection-handle--nw {

@@ -24,7 +24,7 @@
             aria-hidden="true"
         >
             <PdfAnnotationStyleEditor
-                :tool="tool"
+                :tool="styleTool"
                 :settings="settings"
                 @set-tool="setTool"
                 @update-setting="updateSetting"
@@ -62,7 +62,7 @@
                     </div>
 
                     <PdfAnnotationStyleEditor
-                        :tool="tool"
+                        :tool="styleTool"
                         :settings="settings"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
@@ -112,6 +112,7 @@ interface IProps {
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
     enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null;
+    hasSelectedTextBox?: boolean;
 }
 
 interface IPdfAnnotationToolbarExpose {getButtonEl(toolId: TAnnotationTool): HTMLElement | null;}
@@ -128,12 +129,16 @@ const {
     inventory = null,
     enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     activeCommentStableKey: rawActiveCommentStableKey = null,
+    hasSelectedTextBox = false,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);
-const showStyleEditor = computed(() => isAuthoringAnnotationTool(tool));
+const styleTool = computed<TAnnotationTool>(() => (
+    hasSelectedTextBox && (tool === 'select' || tool === 'none') ? 'text' : tool
+));
+const showStyleEditor = computed(() => isAuthoringAnnotationTool(styleTool.value));
 const stylePopoverOpen = ref(false);
 const toolbarRef = ref<IPdfAnnotationToolbarExpose | null>(null);
-const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(tool) ?? null);
+const stylePopoverReference = computed(() => toolbarRef.value?.getButtonEl(styleTool.value) ?? null);
 const stylePopoverContent = {
     align: 'start' as const,
     side: 'bottom' as const,
@@ -152,7 +157,7 @@ const colorSettingKeys = new Set<keyof IAnnotationSettings>([
 let stylePopoverReopenTimer: ReturnType<typeof setTimeout> | null = null;
 
 const toolLabel = computed(() => {
-    switch (tool) {
+    switch (styleTool.value) {
         case 'draw':
             return t('annotations.draw');
         case 'text':
@@ -215,7 +220,10 @@ function clearStylePopoverReopenTimer() {
     stylePopoverReopenTimer = null;
 }
 
-watch(() => tool, async () => {
+watch(() => [
+    tool,
+    hasSelectedTextBox,
+], async () => {
     clearStylePopoverReopenTimer();
     if (!showStyleEditor.value) {
         stylePopoverOpen.value = false;

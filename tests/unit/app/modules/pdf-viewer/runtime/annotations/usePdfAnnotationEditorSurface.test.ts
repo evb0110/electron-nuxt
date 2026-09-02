@@ -3,6 +3,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     computed,
@@ -43,12 +44,14 @@ function baseEntity(id: string, pageIndex = 0) {
 
 function createSurfaceHarness() {
     const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
+    const emitAnnotationModified = vi.fn();
     const scope = effectScope();
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
         annotationApplication,
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+        emitAnnotationModified,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -58,6 +61,7 @@ function createSurfaceHarness() {
     };
     return {
         annotationApplication,
+        emitAnnotationModified,
         surface,
         stop,
     };
@@ -219,6 +223,34 @@ describe('usePdfAnnotationEditorSurface', () => {
             color: DEFAULT_ANNOTATION_SETTINGS.underlineColor,
             opacity: DEFAULT_ANNOTATION_SETTINGS.underlineOpacity,
         });
+        harness.stop();
+    });
+
+    it('creates, selects, styles, and deletes a text box through the canonical surface', () => {
+        const harness = createSurfaceHarness();
+
+        const created = harness.surface.createTextBoxAt(0, rect);
+        harness.surface.select([created.identity.id]);
+
+        expect(harness.surface.getSelectedTextBox()).toMatchObject({
+            identity: created.identity,
+            rect,
+            fontSize: DEFAULT_ANNOTATION_SETTINGS.textSize,
+            color: DEFAULT_ANNOTATION_SETTINGS.textColor,
+        });
+        expect(harness.surface.updateSelectedTextBoxProperties({
+            fontSize: 22,
+            color: '#ef4444',
+        })).toBe(true);
+        expect(harness.surface.getSelectedTextBox()).toMatchObject({
+            fontSize: 22,
+            color: '#ef4444',
+        });
+        expect(harness.surface.updateSelectedTextBoxProperties({fontSize: 22})).toBe(false);
+        expect(harness.surface.deleteAnnotation(created.identity.id)).toBe(true);
+        expect(harness.surface.getSelectedTextBox()).toBeNull();
+        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(3);
+
         harness.stop();
     });
 });
