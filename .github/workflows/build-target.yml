@@ -87,6 +87,13 @@ jobs:
           brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
 
+      - name: Test Windows PDF append sharing
+        if: runner.os == 'Windows' && inputs.arch == 'x64'
+        shell: bash
+        run: >-
+          cargo test --manifest-path native/Cargo.toml --package evb-pdf-page-ops
+          --locked windows_in_place_append_succeeds_when_delete_sharing_is_denied
+
       - name: Bundle native tools (macOS)
         if: runner.os == 'macOS'
         run: |

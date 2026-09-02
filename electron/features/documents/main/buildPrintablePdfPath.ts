@@ -10,11 +10,10 @@ import { markUnprovenNativeTermination } from '@electron/utils/nativeTermination
 import { PDF_PRINT_LAYOUT_SERVICE_NAME } from '@electron/processDeathRecovery';
 import { decodePdfPrintLayoutUtilityResult } from '@electron/features/documents/main/pdfPrintLayoutUtilityProtocol';
 import { mainJobBroker } from '@electron/resources/jobBroker';
+import { resolvePdfPrintLayoutAdmission } from '@electron/features/documents/main/resolvePdfPrintLayoutAdmission';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PDF_PRINT_LAYOUT_TIMEOUT_MS = 10 * 60_000;
-const PDF_PRINT_LAYOUT_CHILD_MAX_OLD_SPACE_MIB = 6 * 1024;
-const PDF_PRINT_LAYOUT_ESTIMATED_RESIDENT_BYTES = 7 * 1024 * 1024 * 1024;
 
 export async function buildPrintablePdfPath(options: {
     inputPath: string;
@@ -25,6 +24,7 @@ export async function buildPrintablePdfPath(options: {
     if (options.signal?.aborted) {
         throw abortErrorFromSignal(options.signal);
     }
+    const admission = resolvePdfPrintLayoutAdmission();
     const lease = await mainJobBroker.acquire({
         ownerId: `pdf-print-layout:${options.inputPath}`,
         kind: 'pdf-print-layout',
@@ -32,25 +32,28 @@ export async function buildPrintablePdfPath(options: {
         admissionClass: 'bulk',
         resources: {
             cpuTokens: 1,
-            estimatedResidentBytes: PDF_PRINT_LAYOUT_ESTIMATED_RESIDENT_BYTES,
+            estimatedResidentBytes: admission.estimatedResidentBytes,
             nativeProcesses: 1,
             ioWeight: 1,
         },
         ...(options.signal ? {signal: options.signal} : {}),
     });
     try {
-        return await runPdfPrintLayoutUtility(options);
+        return await runPdfPrintLayoutUtility(options, admission.childMaxOldSpaceMib);
     } finally {
         lease.release();
     }
 }
 
-function runPdfPrintLayoutUtility(options: {
-    inputPath: string;
-    outputPath: string;
-    printOptions: IPdfPathPrintOptions;
-    signal?: AbortSignal;
-}) {
+function runPdfPrintLayoutUtility(
+    options: {
+        inputPath: string;
+        outputPath: string;
+        printOptions: IPdfPathPrintOptions;
+        signal?: AbortSignal;
+    },
+    childMaxOldSpaceMib: number,
+) {
     const workerPath = resolveUnpackedWorkerPath(
         __dirname,
         WORKER_BUNDLES_BY_ID['pdf-print-layout'].fileName,
@@ -60,7 +63,7 @@ function runPdfPrintLayoutUtility(options: {
             cwd: dirname(options.inputPath),
             serviceName: PDF_PRINT_LAYOUT_SERVICE_NAME,
             stdio: 'ignore',
-            execArgv: [`--max-old-space-size=${PDF_PRINT_LAYOUT_CHILD_MAX_OLD_SPACE_MIB}`],
+            execArgv: [`--max-old-space-size=${String(childMaxOldSpaceMib)}`],
         });
         let settled = false;
         const stopChild = async () => {
@@ -129,7 +132,10 @@ function runPdfPrintLayoutUtility(options: {
         });
         child.once('exit', code => {
             if (!settled) {
-                void finish(new Error(`PDF print layout utility exited before completion (${code})`));
+                const detail = code === null ? 'without an exit code' : `with exit code ${code}`;
+                void finish(new Error(
+                    `PDF print layout utility exited before completion ${detail}. Close other documents or print a smaller page range, then try again.`,
+                ));
             }
         });
     });

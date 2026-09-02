@@ -547,6 +547,70 @@ fn appends_private_staged_mutations_in_place_and_rolls_back_failed_revisions() {
     let _ = remove_file(pdf_path);
 }
 
+#[cfg(windows)]
+#[test]
+fn windows_in_place_append_succeeds_when_delete_sharing_is_denied() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    const FILE_SHARE_READ: u32 = 0x0000_0001;
+    const FILE_SHARE_WRITE: u32 = 0x0000_0002;
+
+    let (mut document, target_id, _) = create_test_note_pdf();
+    let pdf_path = temp_pdf_path("append-no-delete-share");
+    let mut original_bytes = Vec::new();
+    document.save_to(&mut original_bytes).unwrap();
+    write(&pdf_path, &original_bytes).unwrap();
+    let held_reader = OpenOptions::new()
+        .read(true)
+        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+        .open(&pdf_path)
+        .unwrap();
+    let mutations = NativeMutationsFile {
+        updates: vec![NoteTextUpdate {
+            object_number: target_id.0,
+            generation_number: target_id.1,
+            text: "update without delete sharing".to_string(),
+        }],
+        ..NativeMutationsFile::default()
+    };
+
+    let staged_error = append_native_mutations_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &mutations,
+        "D:20260609123456Z",
+        None,
+        None,
+    )
+    .expect_err("staged publication must require delete sharing");
+    assert!(
+        staged_error.to_string().contains("os error 5"),
+        "unexpected staged publication error: {staged_error}",
+    );
+    assert_eq!(read(&pdf_path).unwrap(), original_bytes);
+
+    append_native_mutations_in_place_with_qpdf(
+        &pdf_path,
+        &pdf_path,
+        &mutations,
+        "D:20260609123456Z",
+        None,
+        None,
+    )
+    .unwrap();
+
+    let updated_bytes = read(&pdf_path).unwrap();
+    assert!(updated_bytes.starts_with(&original_bytes));
+    let updated = Document::load(&pdf_path).unwrap();
+    assert_eq!(
+        string_bytes(&updated, target_id, b"Contents"),
+        encode_pdf_text_string("update without delete sharing"),
+    );
+
+    drop(held_reader);
+    let _ = remove_file(pdf_path);
+}
+
 #[test]
 fn rejects_private_staged_append_to_a_distinct_output_path() {
     let (mut document, target_id, _) = create_test_note_pdf();
