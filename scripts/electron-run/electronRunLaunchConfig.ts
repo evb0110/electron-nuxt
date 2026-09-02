@@ -2,12 +2,17 @@ import { execFileSync } from 'node:child_process';
 import {
     existsSync,
     mkdirSync,
+    mkdtempSync,
+    readdirSync,
     readFileSync,
+    renameSync,
     rmSync,
+    statSync,
     writeFileSync,
 } from 'node:fs';
 import {
     basename,
+    dirname,
     join,
 } from 'node:path';
 import { projectRoot } from '@scripts/electron-run/projectRoot';
@@ -343,25 +348,212 @@ function setMacOSAutomationAgentMode(infoPlistPath: string) {
     }
 }
 
+const HIDDEN_APP_BUNDLES_ROOT_SEGMENTS = [
+    '.devkit',
+    'tmp',
+    'electron-e2e-hidden-app',
+] as const;
+const HIDDEN_APP_BUNDLE_STAGING_PREFIX = '.staging-';
+const HIDDEN_APP_BUNDLE_STAGING_MAX_AGE_MS = 60 * 60 * 1000;
+
+export interface IHiddenAppBundleDirCandidate {
+    name: string;
+    mtimeMs: number;
+}
+
+export function readElectronDistVersion(rootDir = projectRoot) {
+    const packageJson = JSON.parse(
+        readFileSync(join(rootDir, 'node_modules', 'electron', 'package.json'), 'utf8'),
+    ) as PackageJson;
+    const version = typeof packageJson.version === 'string' ? packageJson.version.trim() : '';
+    if (!version) {
+        throw new Error('node_modules/electron/package.json must define the installed Electron version.');
+    }
+    return version;
+}
+
+export function resolveMacOSHiddenAppBundlesRoot(rootDir = projectRoot) {
+    return join(rootDir, ...HIDDEN_APP_BUNDLES_ROOT_SEGMENTS);
+}
+
+export function buildMacOSHiddenAppBundleDirName(electronVersion: string) {
+    return `electron-${electronVersion.trim().replace(/[^a-zA-Z0-9._-]+/gu, '-')}`;
+}
+
+export function resolveMacOSHiddenAppBundleDestinationRoot(options: {
+    electronVersion: string;
+    rootDir?: string;
+}) {
+    return join(
+        resolveMacOSHiddenAppBundlesRoot(options.rootDir),
+        buildMacOSHiddenAppBundleDirName(options.electronVersion),
+    );
+}
+
+export function selectStaleMacOSHiddenAppBundleDirs(
+    candidates: IHiddenAppBundleDirCandidate[],
+    options: {
+        keepDirName: string;
+        nowMs?: number;
+    },
+) {
+    const nowMs = options.nowMs ?? Date.now();
+    return candidates
+        .filter((candidate) => {
+            if (candidate.name === options.keepDirName) {
+                return false;
+            }
+            if (candidate.name.startsWith(HIDDEN_APP_BUNDLE_STAGING_PREFIX)) {
+                return nowMs - candidate.mtimeMs > HIDDEN_APP_BUNDLE_STAGING_MAX_AGE_MS;
+            }
+            return true;
+        })
+        .map(candidate => candidate.name);
+}
+
+export function pruneStaleMacOSHiddenAppBundles(options: {
+    bundlesRootDir: string;
+    keepDirName: string;
+    nowMs?: number;
+}) {
+    let entryNames: string[];
+    try {
+        entryNames = readdirSync(options.bundlesRootDir, { withFileTypes: true })
+            .filter(entry => entry.isDirectory())
+            .map(entry => entry.name);
+    } catch {
+        return [];
+    }
+    const candidates: IHiddenAppBundleDirCandidate[] = [];
+    for (const name of entryNames) {
+        try {
+            candidates.push({
+                name,
+                mtimeMs: statSync(join(options.bundlesRootDir, name)).mtimeMs,
+            });
+        } catch {
+            // Another launch pruned this entry between readdir and stat; nothing left to consider.
+        }
+    }
+
+    const removed: string[] = [];
+    for (const name of selectStaleMacOSHiddenAppBundleDirs(candidates, options)) {
+        try {
+            rmSync(join(options.bundlesRootDir, name), {
+                recursive: true,
+                force: true,
+            });
+            removed.push(name);
+        } catch {
+            // A stale bundle that cannot be removed now is retried by the next launch.
+        }
+    }
+    return removed;
+}
+
+function isMacOSHiddenAppBundleComplete(bundlePaths: ReturnType<typeof buildMacOSHiddenAppBundlePaths>) {
+    return existsSync(bundlePaths.executablePath) && existsSync(bundlePaths.infoPlistPath);
+}
+
+function cloneMacOSAppBundle(sourceAppPath: string, destinationAppPath: string) {
+    // cp -c clones through APFS clonefile(2): the bundle shares its blocks with
+    // node_modules until a file changes, so a 280 MiB app costs kilobytes.
+    try {
+        execFileSync('/bin/cp', [
+            '-Rc',
+            sourceAppPath,
+            destinationAppPath,
+        ], { stdio: 'ignore' });
+    } catch {
+        rmSync(destinationAppPath, {
+            recursive: true,
+            force: true,
+        });
+        execFileSync('/usr/bin/ditto', [
+            sourceAppPath,
+            destinationAppPath,
+        ], { stdio: 'ignore' });
+    }
+}
+
+function publishStagedMacOSHiddenAppBundle(
+    stagingRoot: string,
+    destinationRoot: string,
+    bundlePaths: ReturnType<typeof buildMacOSHiddenAppBundlePaths>,
+) {
+    try {
+        renameSync(stagingRoot, destinationRoot);
+        return;
+    } catch (error) {
+        if (isMacOSHiddenAppBundleComplete(bundlePaths)) {
+            rmSync(stagingRoot, {
+                recursive: true,
+                force: true,
+            });
+            return;
+        }
+        if (!existsSync(destinationRoot)) {
+            throw error;
+        }
+    }
+    rmSync(destinationRoot, {
+        recursive: true,
+        force: true,
+    });
+    renameSync(stagingRoot, destinationRoot);
+}
+
 export function prepareMacOSHiddenAppBundle(options: {
     sourceAppPath: string;
     destinationRoot: string;
 }) {
     const bundlePaths = buildMacOSHiddenAppBundlePaths(options);
-    if (existsSync(bundlePaths.executablePath) && existsSync(bundlePaths.infoPlistPath)) {
+    if (isMacOSHiddenAppBundleComplete(bundlePaths)) {
         return bundlePaths;
     }
-    rmSync(bundlePaths.appPath, {
-        recursive: true,
-        force: true,
+
+    const bundlesRootDir = dirname(options.destinationRoot);
+    mkdirSync(bundlesRootDir, { recursive: true });
+    const stagingRoot = mkdtempSync(join(bundlesRootDir, HIDDEN_APP_BUNDLE_STAGING_PREFIX));
+    const stagingPaths = buildMacOSHiddenAppBundlePaths({
+        sourceAppPath: options.sourceAppPath,
+        destinationRoot: stagingRoot,
     });
-    mkdirSync(options.destinationRoot, { recursive: true });
-    execFileSync('/usr/bin/ditto', [
-        options.sourceAppPath,
-        bundlePaths.appPath,
-    ], { stdio: 'ignore' });
-    setMacOSAutomationAgentMode(bundlePaths.infoPlistPath);
+    try {
+        cloneMacOSAppBundle(options.sourceAppPath, stagingPaths.appPath);
+        setMacOSAutomationAgentMode(stagingPaths.infoPlistPath);
+        publishStagedMacOSHiddenAppBundle(stagingRoot, options.destinationRoot, bundlePaths);
+    } catch (error) {
+        rmSync(stagingRoot, {
+            recursive: true,
+            force: true,
+        });
+        throw error;
+    }
     return bundlePaths;
+}
+
+export function prepareSharedMacOSHiddenAppBundle(options: {
+    sourceAppPath: string;
+    rootDir?: string;
+}) {
+    const rootDir = options.rootDir ?? projectRoot;
+    const destinationRoot = resolveMacOSHiddenAppBundleDestinationRoot({
+        electronVersion: readElectronDistVersion(rootDir),
+        rootDir,
+    });
+    const bundlePaths = prepareMacOSHiddenAppBundle({
+        sourceAppPath: options.sourceAppPath,
+        destinationRoot,
+    });
+    const removed = pruneStaleMacOSHiddenAppBundles({
+        bundlesRootDir: dirname(destinationRoot),
+        keepDirName: basename(destinationRoot),
+    });
+    return {
+        ...bundlePaths,
+        removedStaleBundleDirs: removed,
+    };
 }
 
 export function buildAutomationAppEntryPaths(destinationRoot: string) {

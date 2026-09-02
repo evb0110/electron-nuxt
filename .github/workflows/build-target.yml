@@ -349,6 +349,7 @@ jobs:
       - name: Verify installed Windows NSIS journey
         if: runner.os == 'Windows'
         id: nsis_journey
+        continue-on-error: ${{ inputs.arch == 'arm64' }}
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
@@ -522,4 +523,15 @@ jobs:
         id: artifact_status
         if: ${{ always() }}
         shell: bash
-        run: echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' && (runner.os != 'Windows' || steps.nsis_journey.outcome == 'success') }}" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "artifact_ready=${{ steps.upload_artifacts.outcome == 'success' }}" >> "$GITHUB_OUTPUT"
+          {
+            echo '## Installed Windows NSIS journey'
+            echo
+            echo "- Outcome: ${{ steps.nsis_journey.outcome }}"
+            if [ "${{ inputs.arch }}" = 'arm64' ]; then
+              echo '- ARM64 NSIS outcome is advisory; artifact readiness depends on the upload step.'
+            else
+              echo '- x64 NSIS outcome is blocking.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

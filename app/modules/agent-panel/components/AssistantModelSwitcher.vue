@@ -7,29 +7,30 @@
     >
         <button
             type="button"
-            class="assistant-model-switcher-button"
+            class="assistant-switcher-trigger"
             :aria-label="ariaLabel"
             :aria-disabled="disabled"
             :disabled="disabled"
         >
             <AssistantProviderIcon
                 :provider="selectedProvider"
-                class="assistant-model-switcher-provider-icon"
+                class="assistant-switcher-trigger-icon"
             />
-            <span class="assistant-model-switcher-model">{{ activeModelDisplayLabel }}</span>
+            <span class="assistant-switcher-trigger-value">{{ activeModelDisplayLabel }}</span>
             <UIcon
                 :name="isSwitching ? 'i-ph-circle-notch' : 'i-ph-caret-up-down'"
                 :class="[
-                    'assistant-model-switcher-indicator',
+                    'assistant-switcher-trigger-caret',
                     { 'is-spinning': isSwitching },
                 ]"
             />
         </button>
 
         <template #content>
-            <div class="assistant-model-switcher-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
+            <div class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
+                <span class="assistant-switcher-heading">{{ t('assistant.providerHeading') }}</span>
                 <div
-                    class="assistant-model-switcher-tabs"
+                    class="assistant-model-providers"
                     role="tablist"
                     :aria-label="t('assistant.provider')"
                 >
@@ -38,7 +39,7 @@
                         :key="provider.value"
                         type="button"
                         :class="[
-                            'assistant-model-switcher-tab',
+                            'assistant-model-provider',
                             { 'is-active': isSelectedProvider(provider.value) },
                         ]"
                         role="tab"
@@ -49,43 +50,46 @@
                     >
                         <AssistantProviderIcon
                             :provider="provider.value"
-                            class="assistant-model-switcher-tab-icon"
+                            class="assistant-model-provider-icon"
                         />
-                        <span>{{ provider.label }}</span>
+                        <span class="assistant-model-provider-label">{{ provider.label }}</span>
                     </button>
                 </div>
 
-                <div class="assistant-model-switcher-section">
-                    <div
-                        class="assistant-model-switcher-list"
-                        role="radiogroup"
-                        :aria-label="t('assistant.model')"
+                <span class="assistant-switcher-heading">{{ t('assistant.modelHeading') }}</span>
+                <div
+                    class="assistant-switcher-list"
+                    role="radiogroup"
+                    :aria-label="t('assistant.model')"
+                >
+                    <button
+                        v-for="model in modelItems"
+                        :key="model.value"
+                        type="button"
+                        :class="[
+                            'assistant-switcher-option',
+                            { 'is-active': isSelectedModel(model.value) },
+                        ]"
+                        role="radio"
+                        :aria-checked="isSelectedModel(model.value)"
+                        :aria-disabled="disabled"
+                        :disabled="disabled"
+                        @click="onSelectModel(model.value)"
                     >
-                        <button
-                            v-for="model in modelItems"
-                            :key="model.value"
-                            type="button"
-                            :class="[
-                                'assistant-model-switcher-option',
-                                { 'is-active': isSelectedModel(model.value) },
-                            ]"
-                            role="radio"
-                            :aria-checked="isSelectedModel(model.value)"
-                            :aria-disabled="disabled"
-                            :disabled="disabled"
-                            @click="onSelectModel(model.value)"
-                        >
-                            <span class="assistant-model-switcher-option-copy">
-                                <span class="assistant-model-switcher-option-label">{{ model.displayLabel }}</span>
-                            </span>
-                            <UIcon
-                                v-if="isSelectedModel(model.value)"
-                                name="i-ph-check"
-                                class="assistant-model-switcher-check"
-                            />
-                        </button>
-                    </div>
+                        <span class="assistant-switcher-option-label">{{ model.displayLabel }}</span>
+                        <span
+                            v-if="model.isRecommended"
+                            class="assistant-model-recommended"
+                        >{{ t('assistant.modelRecommended') }}</span>
+                        <UIcon
+                            v-if="isSelectedModel(model.value)"
+                            name="i-ph-check"
+                            class="assistant-switcher-check"
+                        />
+                    </button>
                 </div>
+
+                <p class="assistant-switcher-hint">{{ t('assistant.modelPickerHint') }}</p>
             </div>
         </template>
     </UPopover>
@@ -141,6 +145,7 @@ const modelItems = computed(() => (activeProvider.value?.models ?? []).map(model
     value: model.id,
     label: model.label,
     displayLabel: trimProviderPrefix(model.label, activeProviderLabel.value),
+    isRecommended: model.id === activeProvider.value?.defaultModel,
 })));
 const activeProviderLabel = computed(() => activeProvider.value?.label ?? selectedProvider);
 const activeModelOption = computed(() => (
@@ -198,221 +203,96 @@ function onSelectModel(model: string) {
 }
 </script>
 
+<style scoped src="./AssistantSwitcherMenu.css"></style>
+
 <style scoped>
-.assistant-model-switcher-button {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.3rem;
-    max-width: 100%;
-    min-width: 0;
-    height: var(--app-assistant-control-height);
-    padding: 0 var(--app-space-3xl);
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: var(--app-radius-md);
-    background: var(--app-toolbar-group-bg);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-tight);
-    cursor: pointer;
-    user-select: none;
-    transition:
-        background-color var(--app-transition-fast),
-        border-color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast);
+.assistant-model-menu {
+    width: min(16rem, var(--app-overlay-viewport-width));
 }
 
-.assistant-model-switcher-button:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-    border-color: var(--app-toolbar-control-hover-border);
-}
-
-.assistant-model-switcher-button:focus {
-    outline: none;
-}
-
-.assistant-model-switcher-button:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-}
-
-.assistant-model-switcher-button:disabled {
-    opacity: var(--app-toolbar-control-disabled-opacity);
-    cursor: default;
-}
-
-.assistant-model-switcher-provider-icon {
-    flex: 0 0 auto;
-    font-size: var(--app-text-size-control);
-}
-
-.assistant-model-switcher-indicator {
-    flex: 0 0 auto;
-    width: 0.9rem;
-    height: 0.9rem;
-}
-
-.assistant-model-switcher-model {
-    min-width: 0;
-    overflow: hidden;
-    font-weight: var(--app-font-weight-semibold);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.assistant-model-switcher-indicator {
-    color: var(--ui-text-muted);
-}
-
-.assistant-model-switcher-menu {
-    width: min(20rem, var(--app-overlay-viewport-width));
-    max-width: var(--app-overlay-viewport-width);
-    padding: var(--app-space-md);
-    background: var(--app-toolbar-group-bg);
-    user-select: none;
-}
-
-.assistant-model-switcher-tabs {
+.assistant-model-providers {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: var(--app-space-sm);
+    grid-auto-columns: minmax(0, 1fr);
+    grid-auto-flow: column;
+    gap: var(--app-space-3xs);
+    padding: var(--app-space-3xs);
+    border: 1px solid var(--app-toolbar-group-border);
+    border-radius: var(--app-radius-2xl);
+    background: var(--app-toolbar-group-bg);
 }
 
-.assistant-model-switcher-tab {
+.assistant-model-provider {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: var(--app-space-md);
     min-width: 0;
     min-height: var(--app-assistant-control-height);
-    padding: 0 0.5rem;
+    padding: 0 var(--app-space-md);
     border: 1px solid transparent;
-    border-radius: var(--app-radius-sm);
-    color: var(--ui-text-muted);
+    border-radius: var(--app-radius-md);
+    background: transparent;
+    color: var(--app-toolbar-control-inactive-fg);
     font-size: var(--app-text-size-body-sm);
     line-height: var(--app-line-height-tight);
     cursor: pointer;
     transition:
         background-color var(--app-transition-fast),
         border-color var(--app-transition-fast),
-        box-shadow var(--app-transition-fast),
         color var(--app-transition-fast);
 }
 
-.assistant-model-switcher-tab:hover:not(:disabled) {
+.assistant-model-provider:hover:not(:disabled) {
     background: var(--app-toolbar-control-hover-bg);
-    color: var(--ui-text);
+    color: var(--app-toolbar-control-hover-fg);
 }
 
-.assistant-model-switcher-tab:focus {
+.assistant-model-provider:focus {
     outline: none;
 }
 
-.assistant-model-switcher-tab:focus-visible {
+.assistant-model-provider:focus-visible {
     box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
 }
 
-.assistant-model-switcher-tab.is-active {
+.assistant-model-provider:disabled {
+    cursor: default;
+}
+
+.assistant-model-provider.is-active {
     border-color: var(--app-toolbar-control-active-border);
     background: var(--app-toolbar-control-active-bg);
-    box-shadow: var(--app-toolbar-control-active-shadow);
     color: var(--ui-text);
     font-weight: var(--app-font-weight-semibold);
 }
 
-.assistant-model-switcher-tab.is-active:hover:not(:disabled) {
+.assistant-model-provider.is-active:hover:not(:disabled) {
     border-color: var(--app-toolbar-control-active-hover-border);
     background: var(--app-toolbar-control-active-hover-bg);
-    color: var(--ui-text);
 }
 
-.assistant-model-switcher-tab:disabled {
-    cursor: default;
-}
-
-.assistant-model-switcher-tab-icon {
+.assistant-model-provider-icon {
     flex: 0 0 auto;
     font-size: var(--app-text-size-control);
 }
 
-.assistant-model-switcher-section {
-    display: flex;
-    flex-direction: column;
-    gap: 0.3rem;
-    padding-top: var(--app-space-2xl);
-}
-
-.assistant-model-switcher-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
-}
-
-.assistant-model-switcher-option {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--app-space-3xl);
-    min-height: var(--app-assistant-switcher-option-min-height);
-    min-width: 0;
-    padding: var(--app-space-sm) var(--app-space-3xl);
-    border-radius: var(--app-radius-sm);
-    color: var(--ui-text);
-    font-size: var(--app-text-size-body-sm);
-    line-height: 1.15;
-    text-align: left;
-    cursor: pointer;
-    transition: background-color var(--app-transition-fast);
-}
-
-.assistant-model-switcher-option:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-}
-
-.assistant-model-switcher-option:focus {
-    outline: none;
-}
-
-.assistant-model-switcher-option:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-}
-
-.assistant-model-switcher-option.is-active {
-    background: var(--app-toolbar-control-hover-bg);
-    font-weight: var(--app-font-weight-semibold);
-}
-
-.assistant-model-switcher-option:disabled {
-    cursor: default;
-}
-
-.assistant-model-switcher-option-copy {
-    display: flex;
-    flex: 1 1 auto;
-    flex-direction: column;
-    gap: var(--app-space-2xs);
-    min-width: 0;
-}
-
-.assistant-model-switcher-option-label {
+.assistant-model-provider-label {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
-.assistant-model-switcher-check {
+.assistant-model-recommended {
     flex: 0 0 auto;
-    width: 0.95rem;
-    height: 0.95rem;
-    color: var(--ui-primary);
-}
-
-.is-spinning {
-    animation: assistant-model-switcher-spin 1s linear infinite;
-}
-
-@keyframes assistant-model-switcher-spin {
-    to {
-        transform: rotate(360deg);
-    }
+    padding: var(--app-space-3xs) var(--app-space-sm);
+    border-radius: var(--app-radius-full);
+    background: var(--app-toolbar-control-hover-bg);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-tiny);
+    font-weight: var(--app-font-weight-semibold);
+    letter-spacing: 0.04em;
+    line-height: var(--app-line-height-tight);
+    text-transform: uppercase;
 }
 </style>

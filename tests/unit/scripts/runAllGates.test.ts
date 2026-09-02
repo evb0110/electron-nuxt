@@ -21,17 +21,22 @@ interface IRunAllGatesModule {
     }) => Record<string, string>;
 }
 
-interface IStageBatchModule {runStageBatches: <T extends {parallelPhase?: number}>(
+interface IStagePoolModule {runStagePool: <T extends {
+    dependsOn?: string[];
+    id: string;
+    weight?: number
+}>(
     stages: T[],
     runStage: (stage: T) => Promise<void>,
+    options?: {capacity?: number},
 ) => Promise<void>;}
 
 const runner = await import(pathToFileURL(
     path.resolve(process.cwd(), 'scripts/run-all-gates.mjs'),
 ).href) as IRunAllGatesModule;
-const {runStageBatches} = await import(pathToFileURL(
-    path.resolve(process.cwd(), 'scripts/run-stage-batches.mjs'),
-).href) as IStageBatchModule;
+const {runStagePool} = await import(pathToFileURL(
+    path.resolve(process.cwd(), 'scripts/validation-gates.mjs'),
+).href) as IStagePoolModule;
 
 describe('all-gates orchestration', () => {
     it('uses one consolidated validation phase before release verification', () => {
@@ -58,43 +63,38 @@ describe('all-gates orchestration', () => {
         expect(withReceipt).toMatchObject({
             EVB_RELEASE_BUILD_RECEIPT: '/tmp/receipt.json',
             EVB_RELEASE_VERIFY_REUSE_BUILD_RECEIPT: '1',
-            EVB_RELEASE_VERIFY_SKIP_ACK: '1',
         });
-        expect(withReceipt.EVB_RELEASE_VERIFY_SKIP?.split(',')).toEqual(expect.arrayContaining([
-            'lint:clean',
-            'test:coverage',
-            'test:rust',
-            'test:electron-bundle-static-integrity',
-        ]));
+        expect(withReceipt).not.toHaveProperty('EVB_RELEASE_VERIFY_SKIP');
     });
 
-    it('overlaps only adjacent stages in the same declared phase', async () => {
+    it('runs independent stages while releasing weighted capacity for dependents', async () => {
         const events: string[] = [];
-        let active = 0;
-        let maxActive = 0;
-        await runStageBatches([
+        let activeWeight = 0;
+        let maxActiveWeight = 0;
+        await runStagePool([
             {
                 id: 'lint',
-                parallelPhase: 0,
+                weight: 2,
             },
             {
                 id: 'coverage',
-                parallelPhase: 0,
+                weight: 1,
             },
             {
                 id: 'build',
-                parallelPhase: 1,
+                dependsOn: ['lint'],
+                weight: 2,
             },
         ], async stage => {
-            active += 1;
-            maxActive = Math.max(maxActive, active);
+            activeWeight += stage.weight ?? 1;
+            maxActiveWeight = Math.max(maxActiveWeight, activeWeight);
             events.push(`start:${stage.id}`);
-            await Promise.resolve();
+            await new Promise(resolve => setTimeout(resolve, 5));
             events.push(`end:${stage.id}`);
-            active -= 1;
-        });
+            activeWeight -= stage.weight ?? 1;
+        }, {capacity: 2});
 
-        expect(maxActive).toBe(2);
-        expect(events.indexOf('start:build')).toBeGreaterThan(events.indexOf('end:coverage'));
+        expect(maxActiveWeight).toBeLessThanOrEqual(2);
+        expect(events.indexOf('start:build')).toBeGreaterThan(events.indexOf('end:lint'));
     });
 });

@@ -209,14 +209,26 @@ describe('workspaceSaveService native persistence', () => {
             expectedMutationKeys: ['updates'],
         },
         {
-            name: 'editor FreeText',
+            name: 'canonical text box',
             configure: () => cast<TSaveFixtureOverrides>({
                 annotationDirty: ref(true),
                 canonicalAnnotationComments: shallowRef([createEditorFreeTextNote()]),
                 hasAnnotationChanges: vi.fn(() => true),
-                pdfDocument: shallowRef(null),
+                pdfDocument: shallowRef(cast({
+                    annotationStorage: {resetModified: vi.fn()},
+                    getPage: vi.fn(async () => ({
+                        rotate: 0,
+                        view: [
+                            0,
+                            0,
+                            1_000,
+                            1_000,
+                        ],
+                        getAnnotations: vi.fn(async () => []),
+                    })),
+                })),
             }),
-            expectedMutationKeys: ['freeTextNotes'],
+            expectedMutationKeys: ['textBoxes'],
         },
         {
             name: 'markup',

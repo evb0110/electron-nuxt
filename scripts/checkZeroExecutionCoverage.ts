@@ -11,6 +11,7 @@ import {LOAD_BEARING_COVERAGE_FILES} from '@scripts/checkCoverageRatchet';
 const DEFAULT_SUMMARY_PATH = 'coverage/coverage-summary.json';
 const COVERAGE_BASE_SHA_ENV = 'EVB_COVERAGE_BASE_SHA';
 const COVERAGE_HEAD_SHA_ENV = 'EVB_COVERAGE_HEAD_SHA';
+const WORKTREE_HEAD = 'WORKTREE';
 
 export interface ILineCoverageSummary {
     covered: number;
@@ -124,6 +125,30 @@ export function collectChangedProductionCoverageTargets({
         throw new Error(`${COVERAGE_BASE_SHA_ENV} and ${COVERAGE_HEAD_SHA_ENV} must be set together.`);
     }
 
+    const gitLines = (args: string[]) => execFileSync('git', args, {
+        cwd: projectRoot,
+        encoding: 'utf8',
+    }).split('\0').filter(Boolean);
+    if (headSha === WORKTREE_HEAD) {
+        const base = assertCommitSha(baseSha, COVERAGE_BASE_SHA_ENV);
+        return selectChangedProductionCoverageTargets([
+            ...gitLines([
+                'diff',
+                '--no-renames',
+                '--name-only',
+                '--diff-filter=ACMR',
+                '-z',
+                base,
+            ]),
+            ...gitLines([
+                'ls-files',
+                '--others',
+                '--exclude-standard',
+                '-z',
+            ]),
+        ]);
+    }
+
     const head = assertCommitSha(headSha, COVERAGE_HEAD_SHA_ENV);
     const requestedBase = assertCommitSha(baseSha, COVERAGE_BASE_SHA_ENV);
     const base = /^0+$/u.test(requestedBase)
@@ -136,18 +161,14 @@ export function collectChangedProductionCoverageTargets({
             encoding: 'utf8',
         }).trim()
         : requestedBase;
-    const changedFiles = execFileSync('git', [
+    return selectChangedProductionCoverageTargets(gitLines([
         'diff',
         '--no-renames',
         '--name-only',
         '--diff-filter=ACMR',
         '-z',
         `${base}...${head}`,
-    ], {
-        cwd: projectRoot,
-        encoding: 'utf8',
-    }).split('\0').filter(Boolean);
-    return selectChangedProductionCoverageTargets(changedFiles);
+    ]));
 }
 
 function assertFiniteNumber(value: unknown, label: string) {
@@ -276,11 +297,15 @@ export function formatZeroExecutionCoverageResult(result: IZeroExecutionCoverage
 
     if (result.missingFiles.length > 0) {
         lines.push('Files missing from the coverage report (check coverage.include):');
-        lines.push(...result.missingFiles.map(file => `  ${file}`));
+        lines.push(...result.missingFiles.map(file => (
+            `  ${file}: add it to coverage.include or classify it as a NON_UNIT_COVERAGE_ENTRYPOINTS entry.`
+        )));
     }
     if (result.zeroExecutionFiles.length > 0) {
         lines.push('Production files with zero executed lines:');
-        lines.push(...result.zeroExecutionFiles.map(file => `  ${file}`));
+        lines.push(...result.zeroExecutionFiles.map(file => (
+            `  ${file}: add a unit test that imports and executes this file.`
+        )));
     }
     return lines.join('\n');
 }

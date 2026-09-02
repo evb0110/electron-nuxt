@@ -1,0 +1,65 @@
+# Workspace hygiene for agents
+
+An audit on 2026-09-01 found 95 GiB of repo-related disk on one machine:
+19 finished ticket worktrees (49 GiB, each carrying its own Rust `target/`
+and a checkout of the 0.8 GiB tesseract models), a 14 GiB `native/target/debug`,
+and 32 per-run copies of `Electron.app` under `.devkit/tmp` (8.6 GiB) that no
+prune step ever touched. The rules below are the fix. They bind every agent
+that works in this repository, including orchestrators that drive other agents.
+
+## Worktrees live exactly as long as their ticket
+
+- A worktree exists to hold one branch while it is being written and reviewed.
+  Once that branch is merged, the worktree has no owner and must go.
+- Whoever performs the merge removes the worktree in the same step. For an
+  integration branch, the orchestrator runs this right after each merge:
+
+  ```sh
+  pnpm worktrees:prune --into=origin/<integration-branch>
+  pnpm worktrees:prune --into=origin/<integration-branch> --apply
+  ```
+
+  The first call is a dry run that prints every registered worktree with its
+  verdict. The script removes only trees that are clean and whose HEAD is an
+  ancestor of `origin/main` or a `--into` ref. It never deletes branches, the
+  primary checkout, dirty trees, or the tree containing the current directory.
+- Do not create a worktree for review, diagnosis, or a read-only look at a
+  branch. `git show`, `git diff`, and `gh pr diff` answer those without a
+  checkout.
+- Do not run `cargo build` or `cargo test` in a worktree unless the ticket
+  touches `native/`. A debug build of the workspace costs several GiB per tree.
+
+## Electron automation
+
+- The hidden macOS launcher bundle is shared per installed Electron version at
+  `.devkit/tmp/electron-e2e-hidden-app/electron-<version>/` and is created with
+  an APFS clone, so it costs kilobytes, not 280 MiB. Every launch removes the
+  bundle directories of other versions and legacy per-run copies. The launcher
+  owns that directory: anything else placed under it is deleted on the next
+  launch, so keep investigation output elsewhere in `.devkit`. Do not add
+  per-run or per-session copies of Electron anywhere.
+- Stop every `electron:run` session in the stage that created it
+  (`pnpm electron:run -s <name> stop`). At a stage boundary, `ls .devkit/sessions`
+  and `pgrep -fl automation-electron-app-entry` must come up empty. The e2e
+  global setup prunes `e2e-*` sessions older than 24 hours; it does not touch
+  the `default` session or anything a live process still owns.
+
+## Rust targets
+
+- `native/target/debug` grows without bound under `cargo test` and clippy. When
+  a task is done with native work, or when free disk drops below roughly
+  50 GiB, run `cargo clean --profile dev --manifest-path native/Cargo.toml`.
+  Release artifacts under `native/target/release` are what the app and CI
+  parity checks use; leave them unless a full rebuild is intended.
+- Never build inside a crate directory (`native/<crate>/target`); always use
+  `--manifest-path native/Cargo.toml` so there is one target directory.
+
+## `.devkit` stays bounded
+
+- Large PDFs are fixtures only if a test or script reads them by name. Keep one
+  copy of each; intermediates made while assembling a fixture are deleted once
+  the fixture exists.
+- Downloaded CI artifacts, probe outputs, benchmark scratch, and `mktemp`-style
+  directories are removed at the end of the task that made them.
+- `.devkit/analysis/` holds Markdown findings, not payloads. Move or delete
+  anything larger than a few MiB once the note that cites it is written.

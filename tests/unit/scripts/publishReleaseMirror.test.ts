@@ -22,9 +22,11 @@ import {
 import {
     compareReleaseTags,
     contentTypeFor,
+    cleanupMirrorPrefix,
     hashFile,
     publishReleaseMirror,
     requireEnvironment,
+    resolveMirrorPaths,
     versionParts,
 } from '@scripts/release/publish-release-mirror.mjs';
 
@@ -57,6 +59,125 @@ function objectBody(bytes: Buffer) {
 }
 
 describe('release mirror publisher', () => {
+    it('keeps production and drill mirror paths and tags separate', async () => {
+        expect(resolveMirrorPaths(environment)).toEqual({
+            channelKey: 'evb-viewer/channels/stable.json',
+            releasePrefix: 'evb-viewer/releases/',
+        });
+        expect(() => resolveMirrorPaths({
+            ...environment,
+            MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+            MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+        })).toThrow('Production mirror publication requires');
+        expect(resolveMirrorPaths({
+            ...environment,
+            MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+            MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+        }, {drill: true})).toEqual({
+            channelKey: 'evb-viewer/drill/123/channels/stable.json',
+            releasePrefix: 'evb-viewer/drill/123/releases/',
+        });
+        expect(() => resolveMirrorPaths({
+            ...environment,
+            MIRROR_RELEASE_PREFIX: 'evb-viewer/releases/',
+            MIRROR_CHANNEL_KEY: 'evb-viewer/channels/stable.json',
+        }, {drill: true})).toThrow('evb-viewer/drill/');
+    });
+
+    it('publishes a drill tag only into its configured isolated channel', async () => {
+        const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-drill-'));
+        await writeFile(join(artifactDirectory, 'asset.zip'), 'drill');
+        const drillEnvironment = {
+            ...environment,
+            MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+            MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+        };
+        const stored = new Map<string, Buffer>();
+        const puts: PutObjectCommand[] = [];
+        const client = {send: vi.fn(async (command: unknown) => {
+            const key = command instanceof HeadObjectCommand
+                || command instanceof GetObjectCommand
+                || command instanceof PutObjectCommand
+                ? command.input.Key!
+                : '';
+            if (command instanceof HeadObjectCommand) {
+                const bytes = stored.get(key);
+                return bytes
+                    ? {ContentLength: bytes.byteLength}
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const bytes = stored.get(key);
+                if (!bytes) {
+                    const missing = new Error('missing');
+                    Object.assign(missing, {$metadata: {httpStatusCode: 404}});
+                    throw missing;
+                }
+                return {Body: objectBody(bytes)};
+            }
+            if (command instanceof PutObjectCommand) {
+                puts.push(command);
+                const bytes = await commandBodyBytes(command.input.Body);
+                stored.set(key, bytes);
+                return {};
+            }
+            if (command instanceof ListObjectsV2Command) {
+                return {Contents: []};
+            }
+            throw new Error(`Unexpected drill command: ${String(command)}`);
+        })};
+
+        await expect(publishReleaseMirror({
+            artifactDirectory,
+            drill: true,
+            environment: drillEnvironment,
+            releaseTag: 'v0.0.0-drill.123',
+            client,
+        })).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(puts.map(command => command.input.Key)).toEqual([
+            'evb-viewer/drill/123/releases/v0.0.0-drill.123/asset.zip',
+            'evb-viewer/drill/123/releases/v0.0.0-drill.123/manifest.json',
+            'evb-viewer/drill/123/channels/stable.json',
+        ]);
+    });
+
+    it('deletes only drill mirror prefixes', async () => {
+        const deletions: DeleteObjectsCommand[] = [];
+        const client = {send: vi.fn(async (command: unknown) => {
+            if (command instanceof ListObjectsV2Command) {
+                expect(command.input.Prefix).toBe('evb-viewer/drill/123/');
+                return {Contents: [
+                    {Key: 'evb-viewer/drill/123/releases/asset'},
+                    {Key: 'evb-viewer/drill/123/channels/stable.json'},
+                ]};
+            }
+            if (command instanceof DeleteObjectsCommand) {
+                deletions.push(command);
+                return {};
+            }
+            throw new Error(`Unexpected cleanup command: ${String(command)}`);
+        })};
+
+        await expect(cleanupMirrorPrefix({
+            environment,
+            prefix: 'evb-viewer/drill/123/',
+            client,
+        })).resolves.toMatchObject({deletedKeys: [
+            'evb-viewer/drill/123/releases/asset',
+            'evb-viewer/drill/123/channels/stable.json',
+        ]});
+        expect(deletions[0]?.input.Delete?.Objects).toEqual([
+            {Key: 'evb-viewer/drill/123/releases/asset'},
+            {Key: 'evb-viewer/drill/123/channels/stable.json'},
+        ]);
+        await expect(cleanupMirrorPrefix({
+            environment,
+            prefix: 'evb-viewer/releases/',
+            client,
+        })).rejects.toThrow('non-drill mirror prefix');
+    });
+
     it('uploads verified artifacts and JSON pointers before pruning stale releases', async () => {
         const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-'));
         await writeFile(join(artifactDirectory, 'EVB Viewer.exe'), 'windows');

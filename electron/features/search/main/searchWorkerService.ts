@@ -117,7 +117,7 @@ function buildSearchWorkerRequest(
     };
 }
 
-function getSearchPdfPathKey(pdfPath: string) {
+export function getSearchPdfPathKey(pdfPath: string) {
     return normalizePathForLookup(pdfPath) || pdfPath;
 }
 
@@ -300,6 +300,7 @@ export class SearchWorkerService {
     dispatchSearchRequest(
         context: ISearchSenderContext,
         payload: IDispatchSearchRequestPayload,
+        options: {signals?: readonly AbortSignal[]} = {},
     ): Promise<ISearchResponse> {
         if (this.shutdownPromise) {
             return Promise.reject(new Error('Search worker service is shutting down'));
@@ -332,6 +333,7 @@ export class SearchWorkerService {
                 renderProcessGone: 'detach',
                 mainFrameNavigation: 'detach',
             },
+            signals: options.signals ?? [],
             initialProgress: {
                 requestId,
                 processed: 0,

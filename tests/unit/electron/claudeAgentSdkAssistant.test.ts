@@ -82,15 +82,35 @@ describe('claudeAgentSdkAssistant', () => {
     });
 
     it('keeps full versioned Claude model ids and labels known ids', () => {
+        expect(normalizeClaudeAssistantModel('fable-5.1')).toBe('fable');
+        expect(normalizeClaudeAssistantModel('claude-fable-5.1')).toBe('fable');
+        expect(normalizeClaudeAssistantModel('claude-fable-5-1')).toBe('claude-fable-5-1');
+        expect(normalizeClaudeAssistantModel('opus-5')).toBe('opus');
+        expect(normalizeClaudeAssistantModel('claude-opus-5')).toBe('claude-opus-5');
+        expect(normalizeClaudeAssistantModel('claude-opus-5.0')).toBe('opus');
         expect(normalizeClaudeAssistantModel('claude-opus-4-8')).toBe('claude-opus-4-8');
         expect(normalizeClaudeAssistantModel(' claude-fable-5 ')).toBe('claude-fable-5');
         expect(normalizeClaudeAssistantModel('global.anthropic.claude-fable-5')).toBe('global.anthropic.claude-fable-5');
         expect(normalizeClaudeAssistantModel('anthropic.claude-fable-5')).toBe('fable');
+        expect(getClaudeAssistantModelLabel('fable')).toBe('Claude Fable 5.1');
+        expect(getClaudeAssistantModelLabel('claude-fable-5-1')).toBe('Claude Fable 5.1');
+        expect(getClaudeAssistantModelLabel('opus')).toBe('Claude Opus 5');
+        expect(getClaudeAssistantModelLabel('claude-opus-5')).toBe('Claude Opus 5');
         expect(getClaudeAssistantModelLabel('claude-opus-4-8')).toBe('Claude Opus 4.8');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-fable-5')).toBe('Claude Fable 5');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-8')).toBe('Claude Opus 4.8');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-7')).toBe('Claude Opus 4.7');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-opus-4-6')).toBe('Claude Opus 4.6');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-sonnet-4-6')).toBe('Claude Sonnet 4.6');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-sonnet-4-5')).toBe('Claude Sonnet 4.5');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-haiku-4-5')).toBe('Claude Haiku 4.5');
+        expect(getClaudeAssistantModelLabel('anthropic.claude-haiku-4-5-20251001')).toBe('Claude Haiku 4.5');
     });
 
     it('enables Claude fast mode only for Opus-family models', () => {
         expect(shouldUseClaudeAssistantFastMode('opus', 'fast')).toBe(true);
+        expect(shouldUseClaudeAssistantFastMode('opus-5', 'fast')).toBe(true);
+        expect(shouldUseClaudeAssistantFastMode('claude-opus-5', 'fast')).toBe(true);
         expect(shouldUseClaudeAssistantFastMode('claude-opus-4-8', 'fast')).toBe(true);
         expect(shouldUseClaudeAssistantFastMode('global.anthropic.claude-opus-4-8', 'fast')).toBe(true);
         expect(shouldUseClaudeAssistantFastMode('claude-sonnet-4-6', 'fast')).toBe(false);
@@ -100,16 +120,16 @@ describe('claudeAgentSdkAssistant', () => {
     it('normalizes Claude SDK supportedModels metadata', () => {
         expect(normalizeClaudeSdkModelList([
             {
-                value: 'claude-fable-5',
-                displayName: 'Claude Fable 5 Runtime',
+                value: 'claude-fable-5-1',
+                displayName: 'Claude Fable 5.1 Runtime',
                 description: 'Highest capability',
             },
             {
-                value: 'claude-fable-5',
+                value: 'claude-fable-5-1',
                 displayName: 'Duplicate',
             },
             {
-                value: 'claude-sonnet-4-6',
+                value: 'claude-sonnet-5',
                 displayName: '',
             },
             {
@@ -118,12 +138,12 @@ describe('claudeAgentSdkAssistant', () => {
             },
         ])).toEqual([
             {
-                id: 'claude-fable-5',
-                label: 'Claude Fable 5 Runtime',
+                id: 'claude-fable-5-1',
+                label: 'Claude Fable 5.1 Runtime',
             },
             {
-                id: 'claude-sonnet-4-6',
-                label: 'Claude Sonnet 4.6',
+                id: 'claude-sonnet-5',
+                label: 'Claude Sonnet 5',
             },
         ]);
         expect(normalizeClaudeSdkModelList({data: []})).toEqual([]);

@@ -407,39 +407,15 @@ const GATE_POLICY_MANIFEST = Object.freeze({
     },
     release: {
         localChecks: {
-            gateGroups: [
-                {
-                    id: 'lint-static',
-                    owner: 'release',
-                    scripts: [
-                        'lint:clean',
-                        'check:static:reports',
-                        'check:static:assets',
-                        'typecheck:clean',
-                        'typecheck:coverage',
-                        'check:drizzle-schema',
-                        'check:electron:install',
-                        'check:electron-builder:asar-unpack',
-                        'build:pdf-image-combine',
-                        'build:pdf-page-ops',
-                        'build:pdf-search',
-                        'build:scan-cleanup',
-                        'check:resources:matrix',
-                        'check:wasm:strict',
-                        'fallow:all',
-                    ],
-                },
-                {
-                    id: 'release-critical-tests',
-                    owner: 'release',
-                    scripts: [
-                        'test:rust',
-                        'test:scan-cleanup:canonical-identity',
-                        'test:coverage',
-                        'test:electron-bundle-static-integrity',
-                    ],
-                },
-            ],
+            gateGroups: [{
+                id: 'lint-static',
+                owner: 'release',
+                scripts: [
+                    'check:drizzle-schema',
+                    'check:electron:install',
+                    'check:electron-builder:asar-unpack',
+                ],
+            }],
             owner: 'release',
         },
         localVerify: {

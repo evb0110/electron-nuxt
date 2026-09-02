@@ -3,7 +3,16 @@ import {
     expect,
     it,
 } from 'vitest';
-import { readFile } from 'node:fs/promises';
+import {
+    mkdir,
+    mkdtemp,
+    readdir,
+    readFile,
+    rm,
+    utimes,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import {
     NUXT_BUILD_DIR_ENV,
     NUXT_OUTPUT_DIR_ENV,
@@ -15,7 +24,11 @@ import {
     buildAutomationAppEntryPaths,
     buildElectronE2EAutomationEnv,
     buildVisibleWindowElectronE2EAutomationEnv,
+    buildMacOSHiddenAppBundleDirName,
     buildMacOSHiddenAppBundlePaths,
+    pruneStaleMacOSHiddenAppBundles,
+    resolveMacOSHiddenAppBundleDestinationRoot,
+    selectStaleMacOSHiddenAppBundleDirs,
     buildNuxtDevServerEnv,
     resolveNuxtDevServerArtifactDirs,
     resolveAutomationRendererReadyEnv,
@@ -977,5 +990,91 @@ describe('sessionManager automation launch args', () => {
             1001,
             2001,
         ]);
+    });
+});
+
+describe('shared hidden macOS app bundle', () => {
+    it('keys the bundle directory on the installed Electron version, not the run', () => {
+        expect(buildMacOSHiddenAppBundleDirName('43.4.1')).toBe('electron-43.4.1');
+        expect(buildMacOSHiddenAppBundleDirName(' 44.0.0-beta.2+build/7 ')).toBe('electron-44.0.0-beta.2-build-7');
+        expect(resolveMacOSHiddenAppBundleDestinationRoot({
+            electronVersion: '43.4.1',
+            rootDir: '/repo',
+        })).toBe('/repo/.devkit/tmp/electron-e2e-hidden-app/electron-43.4.1');
+    });
+
+    it('selects every bundle directory except the current one and fresh staging dirs', () => {
+        const nowMs = 10 * 60 * 60 * 1000;
+        expect(selectStaleMacOSHiddenAppBundleDirs([
+            {
+                name: 'electron-43.4.1',
+                mtimeMs: nowMs,
+            },
+            {
+                name: 'electron-43.3.0',
+                mtimeMs: nowMs,
+            },
+            {
+                name: 'run-mtimly05-8584eb',
+                mtimeMs: nowMs,
+            },
+            {
+                name: 'default',
+                mtimeMs: nowMs,
+            },
+            {
+                name: '.staging-fresh',
+                mtimeMs: nowMs - 5 * 60 * 1000,
+            },
+            {
+                name: '.staging-abandoned',
+                mtimeMs: nowMs - 2 * 60 * 60 * 1000,
+            },
+        ], {
+            keepDirName: 'electron-43.4.1',
+            nowMs,
+        })).toEqual([
+            'electron-43.3.0',
+            'run-mtimly05-8584eb',
+            'default',
+            '.staging-abandoned',
+        ]);
+    });
+
+    it('removes stale bundle directories on disk and keeps the current one', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-hidden-app-'));
+        try {
+            const staleTime = new Date(Date.now() - 3 * 60 * 60 * 1000);
+            for (const name of [
+                'electron-43.4.1',
+                'run-old-run',
+                '.staging-abandoned',
+                '.staging-live',
+            ]) {
+                await mkdir(join(root, name, 'Electron.app'), { recursive: true });
+            }
+            await utimes(join(root, '.staging-abandoned'), staleTime, staleTime);
+
+            expect(pruneStaleMacOSHiddenAppBundles({
+                bundlesRootDir: root,
+                keepDirName: 'electron-43.4.1',
+            }).sort()).toEqual([
+                '.staging-abandoned',
+                'run-old-run',
+            ]);
+            expect((await readdir(root)).sort()).toEqual([
+                '.staging-live',
+                'electron-43.4.1',
+            ]);
+            expect(pruneStaleMacOSHiddenAppBundles({
+                bundlesRootDir: join(root, 'missing'),
+                keepDirName: 'electron-43.4.1',
+            })).toEqual([]);
+        } finally {
+            await rm(root, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });

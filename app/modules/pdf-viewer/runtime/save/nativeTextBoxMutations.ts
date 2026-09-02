@@ -1,4 +1,4 @@
-import type { PDFDocumentProxy } from 'pdfjs-dist';
+import type {PDFPageProxy} from 'pdfjs-dist';
 import type { IPdfNativeTextBoxMutation } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -13,6 +13,8 @@ import {
     formatPdfJsAnnotationRef,
     parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
+
+interface IPdfTextBoxPageReader {getPage(pageNumber: number): Promise<Pick<PDFPageProxy, 'rotate' | 'view'>>;}
 
 export function isReplayableCanonicalTextBox(comment: IAnnotationCommentSummary) {
     const markerRect = normalizeMarkerRect(comment.markerRect);
@@ -80,7 +82,7 @@ function toNativeTextBox(
  * classifier must fail closed instead of falling back to a legacy note shape.
  */
 export async function collectNativeTextBoxMutationsForSave(
-    document: PDFDocumentProxy | null,
+    document: IPdfTextBoxPageReader | null,
     plan: ISerializationPlan,
 ): Promise<IPdfNativeTextBoxMutation[] | null | undefined> {
     const changedTextBoxes = plan.expected.filter(isChangedTextBox);
@@ -88,10 +90,10 @@ export async function collectNativeTextBoxMutationsForSave(
         return undefined;
     }
     if (!document) {
-        return undefined;
+        return null;
     }
 
-    const pages = new Map<number, Promise<Awaited<ReturnType<PDFDocumentProxy['getPage']>> | null>>();
+    const pages = new Map<number, Promise<Pick<PDFPageProxy, 'rotate' | 'view'> | null>>();
     const getPage = (pageIndex: number) => {
         const cached = pages.get(pageIndex);
         if (cached) {
@@ -109,7 +111,7 @@ export async function collectNativeTextBoxMutationsForSave(
             ? toNativeTextBox(entity, page.view, normalizePageRotation(page.rotate))
             : null;
         if (!mutation) {
-            return Array.isArray(page?.view) ? null : undefined;
+            return null;
         }
         mutations.push(mutation);
     }

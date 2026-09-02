@@ -85,6 +85,20 @@ describe('immutable GitHub release assets', () => {
         })).rejects.toThrow('Usage: ensure-github-release-assets.mjs');
     });
 
+    it('keeps drill tags opt-in and separate from production tags', async () => {
+        await expect(ensureGithubReleaseAssets({
+            assetPaths: ['missing.dmg'],
+            drill: true,
+            repo: 'evb0110/evb-viewer',
+            tag: 'v1.2.3',
+        })).rejects.toThrow('Usage: ensure-github-release-assets.mjs');
+        await expect(ensureGithubReleaseAssets({
+            assetPaths: ['missing.dmg'],
+            repo: 'evb0110/evb-viewer',
+            tag: 'v0.0.0-drill.42',
+        })).rejects.toThrow('Usage: ensure-github-release-assets.mjs');
+    });
+
     it('loads without the optional S3 mirror dependency in a clean checkout', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-release-asset-import-'));
         directories.push(directory);

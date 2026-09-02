@@ -5,13 +5,24 @@ import {
 } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-    compact,
-    difference,
-} from 'es-toolkit/array';
-import { delay } from 'es-toolkit/promise';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
+
+// The exact-SHA wait script imports this module before release jobs install
+// project dependencies. Keep these small helpers local so that safety checks
+// remain runnable from the workflow's dependency-free preparation job.
+function compact(values) {
+    return values.filter(Boolean);
+}
+
+function difference(values, excludedValues) {
+    const excluded = new Set(excludedValues);
+    return values.filter(value => !excluded.has(value));
+}
+
+function delay(milliseconds) {
+    return new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds));
+}
 
 export const VALID_RELEASE_LEVELS = new Set([
     'patch',
@@ -200,15 +211,21 @@ export function isTransientRemoteGitError(error) {
     return TRANSIENT_REMOTE_GIT_ERROR_PATTERNS.some(pattern => pattern.test(message));
 }
 
-export function assertCleanWorktree({ ignoredPathPrefixes = [] } = {}) {
-    const changedFiles = listChangedFiles({ ignoredPathPrefixes });
+export function assertCleanWorktree({
+    ignoredPathPrefixes = [],
+    runCommand = run,
+} = {}) {
+    const changedFiles = listChangedFiles({
+        ignoredPathPrefixes,
+        runCommand,
+    });
     if (changedFiles.length > 0) {
         throw new Error('Release requires a clean worktree');
     }
 }
 
-export function requireNamedBranch(context = 'Release') {
-    const branch = run('git', [
+export function requireNamedBranch(context = 'Release', {runCommand = run} = {}) {
+    const branch = runCommand('git', [
         'rev-parse',
         '--abbrev-ref',
         'HEAD',
@@ -279,9 +296,9 @@ export function bumpVersion(version, level) {
     throw new Error(`Unsupported release level "${level}"`);
 }
 
-export function getUpstream(context = 'Release') {
+export function getUpstream(context = 'Release', {runCommand = run} = {}) {
     try {
-        const upstream = run('git', [
+        const upstream = runCommand('git', [
             'rev-parse',
             '--abbrev-ref',
             '--symbolic-full-name',
@@ -325,13 +342,129 @@ function assertReleaseMainUpstream(upstream, context) {
 }
 
 export function getReleaseMainUpstream(context = 'Release', {
-    readBranch = requireNamedBranch,
-    readUpstream = getUpstream,
+    readBranch,
+    readUpstream,
+    runCommand = run,
 } = {}) {
-    const branch = readBranch(context);
+    const branch = (readBranch ?? (contextName => requireNamedBranch(contextName, {runCommand})))(context);
     assertReleaseMainBranchName(branch, context);
 
-    return assertReleaseMainUpstream(readUpstream(context), context);
+    return assertReleaseMainUpstream(
+        (readUpstream ?? (contextName => getUpstream(contextName, {runCommand})))(context),
+        context,
+    );
+}
+
+export function assertReleaseMainTip(upstream, {runCommand = run} = {}) {
+    fetchReleaseMain(upstream, {runCommand});
+
+    const headSha = runCommand('git', [
+        'rev-parse',
+        'HEAD',
+    ]);
+    const upstreamSha = runCommand('git', [
+        'rev-parse',
+        upstream.ref,
+    ]);
+
+    if (headSha !== upstreamSha) {
+        throw new Error(
+            `Release requires HEAD to equal ${upstream.ref} after fetching. `
+            + `HEAD is ${headSha}; ${upstream.ref} is ${upstreamSha}. `
+            + `Run \`git fetch ${upstream.remote} ${upstream.branch}\`, reconcile the divergence, and retry.`,
+        );
+    }
+
+    return {
+        headSha,
+        upstreamSha,
+    };
+}
+
+export function fetchReleaseMain(upstream, {runCommand = run} = {}) {
+    runCommand('git', [
+        'fetch',
+        '--no-tags',
+        upstream.remote,
+        `+refs/heads/${upstream.branch}:refs/remotes/${upstream.remote}/${upstream.branch}`,
+    ], {stdio: 'inherit'});
+}
+
+export function getCommitParentSha(commitSha, {
+    runCommand = run,
+    fetchParent = true,
+} = {}) {
+    try {
+        return runCommand('git', [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${commitSha}^`,
+        ]);
+    } catch (error) {
+        if (!fetchParent) {
+            throw error;
+        }
+
+        runCommand('git', [
+            'fetch',
+            '--depth=2',
+            'origin',
+            commitSha,
+        ], {stdio: 'inherit'});
+
+        return runCommand('git', [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `${commitSha}^`,
+        ]);
+    }
+}
+
+export function isVersionOnlyPackageCommit(parentSha, commitSha, {runCommand = run} = {}) {
+    const numstat = runCommand('git', [
+        'diff',
+        '--numstat',
+        parentSha,
+        commitSha,
+    ]).trim();
+    if (!/^1\s+1\s+package\.json$/u.test(numstat)) {
+        return false;
+    }
+
+    const diff = runCommand('git', [
+        'diff',
+        '-U0',
+        parentSha,
+        commitSha,
+        '--',
+        'package.json',
+    ]);
+    const removedLines = diff
+        .split('\n')
+        .filter(line => line.startsWith('-') && !line.startsWith('---'));
+    const addedLines = diff
+        .split('\n')
+        .filter(line => line.startsWith('+') && !line.startsWith('+++'));
+
+    return removedLines.length === 1
+        && addedLines.length === 1
+        && /^-\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(removedLines[0])
+        && /^\+\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(addedLines[0]);
+}
+
+export function assertVersionOnlyPackageCommit(parentSha, commitSha, {
+    context = 'Release',
+    runCommand = run,
+} = {}) {
+    if (isVersionOnlyPackageCommit(parentSha, commitSha, {runCommand})) {
+        return;
+    }
+
+    throw new Error(
+        `${context} commit ${commitSha} must change only the package.json version line from ${parentSha}.`,
+    );
 }
 
 // Resolved from this module, so the gate does not depend on the caller's cwd.
@@ -476,19 +609,22 @@ export function filterIgnoredFiles(files, ignoredPathPrefixes = []) {
     });
 }
 
-export function listChangedFiles({ ignoredPathPrefixes = [] } = {}) {
-    const trackedOutput = run('git', [
+export function listChangedFiles({
+    ignoredPathPrefixes = [],
+    runCommand = run,
+} = {}) {
+    const trackedOutput = runCommand('git', [
         'diff',
         '--name-only',
         '--diff-filter=ACDMRTUXB',
     ]);
-    const stagedOutput = run('git', [
+    const stagedOutput = runCommand('git', [
         'diff',
         '--cached',
         '--name-only',
         '--diff-filter=ACDMRTUXB',
     ]);
-    const untrackedOutput = run('git', [
+    const untrackedOutput = runCommand('git', [
         'ls-files',
         '--others',
         '--exclude-standard',
@@ -518,12 +654,14 @@ function normalizeChangedFileAssertionOptions(contextOrOptions) {
         return {
             context: contextOrOptions,
             ignoredPathPrefixes: [],
+            runCommand: run,
         };
     }
 
     return {
         context: contextOrOptions?.context ?? 'Release',
         ignoredPathPrefixes: contextOrOptions?.ignoredPathPrefixes ?? [],
+        runCommand: contextOrOptions?.runCommand ?? run,
     };
 }
 
@@ -531,8 +669,12 @@ export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Relea
     const {
         context,
         ignoredPathPrefixes,
+        runCommand,
     } = normalizeChangedFileAssertionOptions(contextOrOptions);
-    const changedFiles = listChangedFiles({ ignoredPathPrefixes });
+    const changedFiles = listChangedFiles({
+        ignoredPathPrefixes,
+        runCommand,
+    });
     const unexpected = difference(changedFiles, expectedFiles);
     const missing = difference(expectedFiles, changedFiles);
 
@@ -554,12 +696,12 @@ export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Relea
     );
 }
 
-export function stageFiles(files) {
+export function stageFiles(files, {runCommand = run} = {}) {
     if (files.length === 0) {
         throw new Error('Version bump did not produce any file changes');
     }
 
-    run('git', [
+    runCommand('git', [
         'add',
         '--',
         ...files,

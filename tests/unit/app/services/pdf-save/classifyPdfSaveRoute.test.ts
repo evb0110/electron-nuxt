@@ -1172,7 +1172,16 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                     ids: new Set([
                         'lifecycle-text-box-one',
                         '10R',
+                        'legacy-editor',
                     ]),
+                    nativeFreeTextEditors: new Map([[
+                        'legacy-editor',
+                        {
+                            ...nativeTextBox,
+                            stableKey: 'legacy-editor',
+                            annotationId: null,
+                        },
+                    ]]),
                     hasChanges: true,
                     fingerprint: 'imported-text-box-aliases',
                 }),
@@ -1185,7 +1194,15 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         });
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
-        expect(decision.nativeMutationProjection.mutations.textBoxes).toEqual([nativeTextBox]);
+        expect(decision.nativeMutationProjection.mutations.textBoxes).toEqual([
+            nativeTextBox,
+            {
+                ...nativeTextBox,
+                stableKey: 'legacy-editor',
+                annotationId: null,
+            },
+        ]);
+        expect(decision.nativeMutationProjection.phase).toBe('persist-native-text-box-changes');
     });
 
     it('covers every PDF.js identity alias when a saved sticky note has a native text update', () => {

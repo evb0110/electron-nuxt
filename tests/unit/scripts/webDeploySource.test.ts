@@ -28,6 +28,7 @@ interface IWebDeploySourceModule {
     }) => Promise<IWebDeploySourceStats>;
     isExcludedWebDeploySourcePath: (fileName: string, relativeDirectory?: string) => boolean;
     validateVercelIgnoreEntries: (content: string, requiredEntries?: string[]) => unknown;
+    parseWebDeploySourceCliOptions: (argv: string[]) => {requireCleanTrackedSource: boolean};
     validateWebDeploySource: (options?: {
         maxBytes?: number;
         maxFiles?: number;
@@ -42,6 +43,7 @@ const {
     collectWebDeploySourceStats,
     isExcludedWebDeploySourcePath,
     validateVercelIgnoreEntries,
+    parseWebDeploySourceCliOptions,
     validateWebDeploySource,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/check-web-deploy-source.mjs')).href
@@ -167,6 +169,11 @@ describe('web deploy source policy', () => {
                 recursive: true,
             });
         }
+    });
+
+    it('requires a clean snapshot unless the local gate passes --allow-dirty', () => {
+        expect(parseWebDeploySourceCliOptions([])).toEqual({requireCleanTrackedSource: true});
+        expect(parseWebDeploySourceCliOptions(['--allow-dirty'])).toEqual({requireCleanTrackedSource: false});
     });
 
     it('fails before Vercel upload when the deploy source exceeds the file cap', async () => {

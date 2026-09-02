@@ -8,7 +8,10 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {hashFile} from './release-hash.mjs';
-import {RELEASE_TAG_PATTERN} from './releaseTag.mjs';
+import {
+    DRILL_TAG_PATTERN,
+    RELEASE_TAG_PATTERN,
+} from './releaseTag.mjs';
 
 function runGh(args) {
     return execFileSync('gh', args, {
@@ -73,17 +76,19 @@ function downloadReleaseAsset(repo, tag, assetName, temporaryRoot) {
 }
 
 /**
- * @param {{assetPaths?: string[], repo?: string, tag?: string}} options
+ * @param {{assetPaths?: string[], drill?: boolean, repo?: string, tag?: string}} options
  */
 export async function ensureGithubReleaseAssets({
     assetPaths,
+    drill = false,
     repo = process.env.GH_REPO,
     tag,
 } = {}) {
     if (!repo) {
         throw new Error('GH_REPO is required when checking immutable release assets.');
     }
-    if (!tag || !RELEASE_TAG_PATTERN.test(tag) || !Array.isArray(assetPaths) || assetPaths.length === 0) {
+    const tagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
+    if (!tag || !tagPattern.test(tag) || !Array.isArray(assetPaths) || assetPaths.length === 0) {
         throw new Error('Usage: ensure-github-release-assets.mjs <tag> <asset> [asset...]');
     }
 
@@ -133,8 +138,13 @@ if (isMain) {
             tag,
             ...assetPaths
         ] = process.argv.slice(2);
+        const drill = assetPaths.at(-1) === '--drill';
+        if (drill) {
+            assetPaths.pop();
+        }
         await ensureGithubReleaseAssets({
             assetPaths,
+            drill,
             tag,
         });
     } catch (error) {
