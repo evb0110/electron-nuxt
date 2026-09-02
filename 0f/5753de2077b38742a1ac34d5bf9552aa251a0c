@@ -1,0 +1,52 @@
+app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue
+  s_c57729f2c66bed::t_7150ec99c345df 139,228
+tests/e2e/electron/helpers/fixtures.ts
+  s_c57729f2c66bed::t_b74453eedfaf8f 122-125,1847-1904,1906-1963,2003
+  s_c57729f2c66bed::t_41b7a1b001ab19 121
+app/modules/pdf-viewer/annotations/editor/useTextBoxInlineEdit.ts
+  s_c57729f2c66bed::t_162e4d370da7c9 32,155
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.test.ts
+  s_c57729f2c66bed::t_7150ec99c345df 47
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_c57729f2c66bed::t_08115518650361 979,1009,1015
+  s_c57729f2c66bed::t_7150ec99c345df 1013-1014,1016
+  s_c57729f2c66bed::t_b74453eedfaf8f 13
+  s_c57729f2c66bed::t_1e3dea8029e46c 1057
+  s_c57729f2c66bed::t_11d03eb39e3e91 411,413-414,416-419,433,437,780,803
+app/modules/workspace-shell/composables/usePageAnnotationTools.ts
+  s_c57729f2c66bed::t_8bc4089d9199d7 19,21-25
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationTools.test.ts
+  s_c57729f2c66bed::t_08115518650361 12,42-65,73,215
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_c57729f2c66bed::t_5ff764f30ec872 150-164
+  s_c57729f2c66bed::t_22b225bfe33952 76,117-118
+  s_c57729f2c66bed::t_0aaeae89d5691f 422-424,427
+tests/unit/app/components/pdfAnnotationStyleEditor.test.ts
+  s_c57729f2c66bed::t_d248487e232bea 1-45,47-69,71-99,101-119
+app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue
+  s_c57729f2c66bed::t_7150ec99c345df 6
+app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue
+  s_c57729f2c66bed::t_162e4d370da7c9 59,66-67,87-88
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c57729f2c66bed::t_162e4d370da7c9 233,246,254,264
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_c57729f2c66bed::t_1e3dea8029e46c 242-244,247,250,252
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture.test.ts
+  s_c57729f2c66bed::t_7150ec99c345df 70,72,101,136,160,189
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "0f5753de2077b38742a1ac34d5bf9552aa251a0c",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Coverage Test <coverage@example.test>"
+    }
+  }
+}
