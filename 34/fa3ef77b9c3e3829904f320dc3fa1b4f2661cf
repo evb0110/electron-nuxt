@@ -1,0 +1,52 @@
+.github/workflows/ci.yml
+  s_cbcef7935f20a3::t_97e3df6d873aa1 140-143
+  s_cbcef7935f20a3::t_fb0940b91d7d4d 218-233
+  s_cbcef7935f20a3::t_c2141ae13809dc 320
+  s_cbcef7935f20a3::t_dcf24b25260979 668,685,696
+.github/workflows/build-target.yml
+  s_cbcef7935f20a3::t_2bd1e91f735565 31-38
+  s_cbcef7935f20a3::t_dfbf181e46d4d1 77-79
+  s_cbcef7935f20a3::t_02c8a44d2eff14 526
+.github/workflows/release-artifacts.yml
+  s_cbcef7935f20a3::t_15ded9ce499ae6 88,93-100
+  s_cbcef7935f20a3::t_b7235716be321c 101
+docs/release-guardrails.md
+  s_cbcef7935f20a3::t_1eae73da767766 45-56,60
+.github/workflows/dependency-audit.yml
+  s_cbcef7935f20a3::t_e5ff927687f32f 66-68
+  s_cbcef7935f20a3::t_276380640121aa 1-65,69-103
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_5fc542002040d4 1344
+  s_cbcef7935f20a3::t_8708841cb13d17 1055-1057
+  s_cbcef7935f20a3::t_cb3bd342bae67f 488,504-510,514-515,517-528
+  s_cbcef7935f20a3::t_b2b24b924e99ef 181
+  s_cbcef7935f20a3::t_ddc31ffcd7f112 1094
+  s_cbcef7935f20a3::t_33699abd8c7a93 1277-1312
+  s_cbcef7935f20a3::t_bebdab3d1a4a74 1073-1086
+docs/releasing.md
+  s_cbcef7935f20a3::t_dda32247fbf3f8 31-34,36-40
+  s_cbcef7935f20a3::t_9601ed1d399e0b 66
+  s_cbcef7935f20a3::t_ce3965a317e6f0 35
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_cbcef7935f20a3::t_ab5c7c1d9a9c62 324
+  s_cbcef7935f20a3::t_ea3d8c065ceae9 148-157,161
+scripts/release/policy.mjs
+  s_cbcef7935f20a3::t_9173b67af96b4a 230-242,244-250,252,254-263
+  s_cbcef7935f20a3::t_7012cdd93989a6 243,251,253
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "34fa3ef77b9c3e3829904f320dc3fa1b4f2661cf",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

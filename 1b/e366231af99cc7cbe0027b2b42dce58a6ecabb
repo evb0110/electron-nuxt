@@ -1,0 +1,29 @@
+app/modules/agent-panel/components/AssistantSwitcherMenu.css
+  s_db856168e679e7::t_1f2ed6de81dcae 76,79,86,88-90,106-107,120,135-136,138
+tests/unit/app/modules/agent-panel/assistantModelSwitcher.test.ts
+  s_db856168e679e7::t_9f08c9f9e45363 136,139-140,150,155,159-164,179,185,188-189,195,197,201,203-207,209,211,221
+  s_db856168e679e7::t_ebf01d82a60ab0 152,196
+  s_db856168e679e7::t_9e7bf3c40312fd 85,190-193
+  s_db856168e679e7::t_bf9a7e8cc0eeb9 100,105
+  s_db856168e679e7::t_f2290249c0c4d3 165
+  s_db856168e679e7::t_daf0a608dae6f3 194
+app/modules/agent-panel/components/AssistantModelSwitcher.vue
+  s_db856168e679e7::t_ebf01d82a60ab0 56
+  s_db856168e679e7::t_1f2ed6de81dcae 30-33,35-39,41,43-44,46-47,49,54,59,67,121-131,133,138,162,166-167,178,181-183,187-190,193-201,204,206,212-214
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1be366231af99cc7cbe0027b2b42dce58a6ecabb",
+  "prompts": {},
+  "sessions": {
+    "s_db856168e679e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f24ab835-3ad3-4202-a922-ab5a03416e63",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

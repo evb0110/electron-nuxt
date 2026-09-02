@@ -1,0 +1,23 @@
+tests/unit/app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation.test.ts
+  s_91eeab35c4598e::t_c37ba06c5dbada 11,22-34
+app/modules/workspace-shell/composables/createWorkspacePdfSearchResultNavigation.ts
+  s_91eeab35c4598e::t_c4d88a64d60380 5,12-14
+docs/research/search-result-match-scroll-2026-09-02.md
+  s_91eeab35c4598e::t_390282a4503674 1-72
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f4fa60a6b84e175e7362343afbf15a5a0e814f5d",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+docs/releasing.md
+  s_cbcef7935f20a3::t_a22c139df54742 19-21,61,70-71
+scripts/release/shared.mjs
+  s_cbcef7935f20a3::t_714bcf5e77e91f 615-622
+  s_cbcef7935f20a3::t_a22c139df54742 588-614,623-673
+tests/unit/scripts/releasePolicy.test.ts
+  s_cbcef7935f20a3::t_6684397ef20be0 1227-1229,1251
+  s_cbcef7935f20a3::t_8157432118ce51 277,1014-1015,1023-1026,1034,1055-1058,1067,1107
+.github/workflows/release.yml
+  s_cbcef7935f20a3::t_a2e2eaade8b079 167-181,471-476
+tests/unit/scripts/cutRelease.test.ts
+  s_cbcef7935f20a3::t_7b319c9ecaa70e 10,234-346
+  s_cbcef7935f20a3::t_c53254d6d0cd25 347-348
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_8157432118ce51 1025-1031,1132-1136,1433-1438
+docs/release-guardrails.md
+  s_cbcef7935f20a3::t_a22c139df54742 24
+scripts/release/cut-release.mjs
+  s_cbcef7935f20a3::t_a22c139df54742 30,260-265,275,285-289
+  s_cbcef7935f20a3::t_e4f4613f844520 290
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7b73543b54a1f7705d58898a6c7b3c873fc1857b",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

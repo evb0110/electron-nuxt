@@ -1,0 +1,14 @@
+package.json
+  h_9aff00efd90783 4
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cf2fc1b4759044e01fb2f146594f33955793b5ae",
+  "prompts": {},
+  "humans": {
+    "h_9aff00efd90783": {
+      "author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
