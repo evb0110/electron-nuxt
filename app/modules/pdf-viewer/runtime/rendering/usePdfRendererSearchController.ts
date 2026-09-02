@@ -82,6 +82,7 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
     const searchMatchScroller = createPdfSearchMatchScroller({
         getContainer: () => container.value,
         getCurrentSearchMatch: () => toValue(currentSearchMatch),
+        getCurrentSearchPageMatches: pageIndex => toValue(searchPageMatches).get(pageIndex) ?? null,
         scrollToCurrentMatch,
         scheduleRenderForSinglePage,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),

@@ -57,6 +57,7 @@ interface IViewportAuthorityDependencies {
     awaitSlots(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     awaitLayoutGeometrySettled?(intent: IPdfViewportIntent, signal: AbortSignal): Promise<void>;
     refine?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
+    refineAfterVisual?(intent: IPdfViewportIntent, commit: IPdfViewportResolvedCommit, signal: AbortSignal): Promise<IPdfViewportResolvedCommit>;
     apply(
         intent: IPdfViewportIntent,
         commit: IPdfViewportResolvedCommit,
@@ -253,6 +254,11 @@ export function createViewportAuthority(deps: IViewportAuthorityDependencies) {
             }
             await deps.beforeApply?.(next, signal);
             assertCurrentIntent(next, signal);
+            if (stagedNavigationVisual && deps.refineAfterVisual) {
+                expectedGeometryRevision = deps.getGeometryRevision();
+                commit = await deps.refineAfterVisual(next, commit, signal);
+                assertCurrent(next, signal, expectedGeometryRevision);
+            }
             phase.value = 'applying';
             const applied = deps.apply(next, commit);
             committedAnchor.value = commit.anchor;

@@ -12,6 +12,7 @@ import type {
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
 import {
     clearTextLayerTextMapping,
+    createTextLayerRangeForSearchMatch,
     getCachedTextLayerIndex,
     highlightTextRunInPdfjsStyle,
     registerTextLayerTextMapping,
@@ -87,7 +88,7 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('drops unmappable backend ranges without inventing layer-local matches', () => {
+    it('reconciles backend ranges with the rendered layer before selecting the current occurrence', () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -120,11 +121,23 @@ describe('usePdfSearchHighlight', () => {
 
         const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
 
-        expect(result).toEqual([{
-            start: 12,
-            end: 17,
-            isCurrent: true,
-        }]);
+        expect(result).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 6,
+                end: 11,
+                isCurrent: false,
+            },
+            {
+                start: 12,
+                end: 17,
+                isCurrent: true,
+            },
+        ]);
     });
 
     it('maps collapsed fake-bold text to one authoritative highlight set', () => {
@@ -248,6 +261,43 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         expect(elements[0]?.className).toBe('pdf-search-highlight appended pdf-search-highlight--current');
         expect(span.querySelector('mark')).toBeNull();
         expect(span.textContent).toBe('canonical');
+    });
+
+    it('rebuilds a root text span after nested highlight spans were inserted', () => {
+        const textLayer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'prefix needle suffix';
+        textLayer.append(span);
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: [span],
+            textContentItemsStr: ['prefix needle suffix'],
+        });
+
+        const initialIndex = getCachedTextLayerIndex(textLayer);
+        const initialRun = initialIndex.runs[0];
+        if (!initialRun || initialRun.kind !== 'span') {
+            throw new Error('Expected the fixture text span to produce a span run');
+        }
+        highlightTextRunInPdfjsStyle(
+            initialRun,
+            [{
+                start: 7,
+                end: 13,
+                isCurrent: true,
+            }],
+            'pdf-search-highlight',
+            'pdf-search-highlight--current',
+        );
+
+        const rebuiltIndex = getCachedTextLayerIndex(textLayer);
+        expect(rebuiltIndex.text).toBe('prefix needle suffix');
+        const range = createTextLayerRangeForSearchMatch(textLayer, {
+            startOffset: 7,
+            endOffset: 13,
+        });
+        expect(range?.toString()).toBe('needle');
+
+        clearTextLayerTextMapping(textLayer);
     });
 
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {

@@ -22,7 +22,7 @@ import {
     createPdfPageRenderState,
     resolvePdfCommittedRasterQuality,
 } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
-import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
+import { getMountedPdfRasterTarget } from '@app/modules/pdf-viewer/runtime/sessions/getMountedPdfRasterTarget';
 import type {
     IPdfPageRasterScheduler,
     IPdfRasterDemand,
@@ -48,6 +48,7 @@ import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/co
 import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
+import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
 import type {
     IPdfViewportDemand,
     TPdfViewportSession,
@@ -134,15 +135,12 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         render: NonNullable<Awaited<ReturnType<typeof canvasRenderer.prepareCanvasRender>>>;
     }
     const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
-    function getMountedRasterTarget(pageNumber: number) {
-        const root = options.viewerContainer.value;
-        const container = root ? getPageContainer(root, pageNumber - 1) : null;
-        const canvasHost = container?.querySelector<HTMLDivElement>('.page_canvas__render-layer') ?? null;
-        return container && canvasHost ? {
-            container,
-            canvasHost,
-        } : null;
-    }
+    const getMountedRasterTarget = (pageNumber: number) => getMountedPdfRasterTarget(options.viewerContainer.value, pageNumber);
+    const pageTextLayerReadyWaiter = createPdfPageTextLayerReadyWaiter({isReady: pageNumber => (
+        pageRenderState.getSlot(pageNumber).layerReadiness === 'ready'
+        && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer, .textLayer')
+            ?.dataset.pdfTextLayerReady === 'true'
+    )});
     function isRasterScaleCurrent(targetScale: number, currentScale: number) {
         return Math.abs(targetScale - currentScale)
             <= Math.max(1, Math.abs(currentScale)) * PDF_RASTER_SCALE_RELATIVE_TOLERANCE;
@@ -609,6 +607,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         },
         onRenderedPageStateChanged: () => {
             renderedPageStateVersion.value += 1;
+            pageTextLayerReadyWaiter.resolveReady();
             queueFrame();
         },
         pageRenderState,
@@ -1163,6 +1162,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         zoomRerenderQueue.cleanupZoomRerenderQueue();
         cleanupResizeLifecycle();
         await cancelRasterDemand();
+        pageTextLayerReadyWaiter.settleAll();
         await cleanupRenderedPages(); pageRenderer.dispose?.();
     });
     return {
@@ -1177,6 +1177,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         releaseUnmountedPage: (pageNumber: number) => clearAuthoritativePage(pageNumber),
         isPageRendered: (pageNumber: number) => pageRenderState.getSlot(pageNumber).canvasReadiness === 'ready',
         isPageRendering: (pageNumber: number) => pageRenderState.getSlot(pageNumber).job === 'rendering',
+        waitForPageTextLayerReady: pageTextLayerReadyWaiter.waitForPageTextLayerReady,
         renderedPageStateVersion,
         isPageVisualReady,
         getCommittedPageScale: (pageNumber: number) => isCommittedVisual(pageNumber, false)

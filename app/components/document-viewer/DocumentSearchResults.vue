@@ -70,6 +70,7 @@
                         v-if="virtualRow.data.kind === 'group'"
                         type="button"
                         class="document-search-results-group-toggle"
+                        :data-page-number="virtualRow.data.pageIndex + 1"
                         :aria-expanded="isGroupExpanded(virtualRow.data.pageIndex)"
                         @click="togglePage(virtualRow.data.pageIndex)"
                     >

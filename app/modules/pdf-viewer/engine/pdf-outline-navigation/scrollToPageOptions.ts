@@ -1,5 +1,8 @@
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
-import type { IPdfNavigationRequest } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import type {
+    IPdfNavigationRequest,
+    IPdfTextAnchorNavigationOptions,
+} from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
 
 export interface IScrollToPageOptions {
     navigationRequest?: IPdfNavigationRequest | undefined;
@@ -21,4 +24,6 @@ export interface IScrollToPageOptions {
      */
     suppressRenderAfterSnap?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
+    /** Resolve a text-layer range after the target page is visually ready. */
+    textAnchor?: IPdfTextAnchorNavigationOptions | null | undefined;
 }

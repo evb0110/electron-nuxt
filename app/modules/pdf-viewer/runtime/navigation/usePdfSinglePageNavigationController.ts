@@ -26,7 +26,6 @@ import {
     isPdfNavigationReady,
     resolvePdfNavigationAnchor,
     resolvePdfNavigationTarget,
-    resolveTextAnchorRect,
     type IResolvedPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver';
 import {createWheelFlipGate} from '@app/utils/document-viewer/single-page-wheel/createWheelFlipGate';
@@ -51,6 +50,7 @@ import {
     resolvePagedScrollForAnchor,
 } from '@app/modules/pdf-viewer/runtime/navigation/pdfMountedPageViewportGeometry';
 import {yieldToBrowser} from '@app/utils/yieldToBrowser';
+import {createPdfNavigationCommitRefiner} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationCommitRefiner';
 
 interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePageScrollOptions {
     requestedCurrentPage: Ref<number | undefined>;
@@ -164,6 +164,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return resolveScrollForViewport(snapshot, anchor);
     }
 
+    const refineNavigationCommit = createPdfNavigationCommitRefiner({
+        getContainer: () => options.viewerContainer.value,
+        refreshGeometry,
+        resolvedTargets,
+        resolveAnchorForViewport,
+        resolveNavigationScrollForViewport,
+    });
+
     const viewportAuthority = createViewportAuthorityService({
         getDocumentRevision: options.getDocumentRevision,
         getGeometryRevision: options.getGeometryRevision,
@@ -210,48 +218,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 ...(intent.viewMode === undefined ? {} : {viewMode: intent.viewMode}),
             });
         },
-        refine: (intent, commit) => {
-            const container = options.viewerContainer.value;
-            const snapshot = refreshGeometry();
-            const request = intent.navigation;
-            const resolved = resolvedTargets.get(intent.id);
-            if (!container || !snapshot || !request || !resolved) {
-                return Promise.resolve(commit);
-            }
-            if (request.target.kind === 'text-anchor') {
-                const rect = resolveTextAnchorRect(container, request.target);
-                if (rect) resolved.rect = rect;
-            }
-            const anchor = resolvePdfNavigationAnchor(request, resolved);
-            // Navigation layout estimates are enough to mount the target row.
-            // Once that row exists, its physical position is the authority.
-            // Long scanned PDFs can accumulate several pages of error between
-            // estimated and measured heights, so applying the estimate here
-            // can commit page N while leaving page N-6 in the viewport.
-            const scroll = resolveNavigationScrollForViewport(snapshot, anchor);
-            if (request.alignment === 'keep-visible') {
-                const centerAnchor = resolvePdfNavigationAnchor({
-                    ...request,
-                    alignment: 'rect-center',
-                }, resolved);
-                const center = resolveNavigationScrollForViewport(snapshot, centerAnchor);
-                const visible = Math.abs(center.left - container.scrollLeft) <= container.clientWidth / 2
-                    && Math.abs(center.top - container.scrollTop) <= container.clientHeight / 2;
-                if (visible) {
-                    return Promise.resolve({
-                        ...commit,
-                        anchor: resolveAnchorForViewport(snapshot, anchor.page),
-                        left: container.scrollLeft,
-                        top: container.scrollTop,
-                    });
-                }
-            }
-            return Promise.resolve({
-                ...commit,
-                anchor,
-                ...scroll,
-            });
-        },
+        refine: refineNavigationCommit,
+        refineAfterVisual: (intent, commit) => (
+            intent.navigation?.target.kind === 'text-anchor'
+                ? refineNavigationCommit(intent, commit)
+                : Promise.resolve(commit)
+        ),
         awaitSlots: async (intent, signal) => {
             const page = resolvedTargets.get(intent.id)?.page
                 ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
@@ -310,7 +282,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             }
             options.onViewportPositionCommitted?.(commit);
         },
-        awaitVisual: async (intent) => {
+        awaitVisual: async (intent, signal) => {
             const page = resolvedTargets.get(intent.id)?.page
                 ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
             const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
@@ -330,12 +302,28 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 currentPage: options.currentPage.value,
                 visibleRange: options.visibleRange.value,
             }));
+            const waitForTextLayer = readiness === 'text-layer'
+                ? options.waitForPageTextLayerReady
+                : undefined;
+            const ensureTextLayerReady = async () => {
+                if (!waitForTextLayer) {
+                    return;
+                }
+                const ready = await waitForTextLayer(page, signal);
+                if (signal.aborted) {
+                    throw new DOMException('PDF navigation text layer readiness wait was cancelled', 'AbortError');
+                }
+                if (!ready) {
+                    throw new DOMException('PDF navigation text layer readiness timed out', 'AbortError');
+                }
+            };
             if (container && isPdfNavigationReady(
                 container,
                 page,
                 readiness,
                 options.isPageFreshlyRenderedForNavigation ?? (() => true),
             )) {
+                await ensureTextLayerReady();
                 options.onPageVisualReady?.(page);
                 logPdfRenderTrace('navigation-await-visual-exit', {
                     intentId: intent.id,
@@ -351,6 +339,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 retainOnlyCurrentResidentRaster: true,
                 suppressResidentRasterDemand: false,
             });
+            await ensureTextLayerReady();
             if (container && !isPdfNavigationReady(
                 container,
                 page,
@@ -414,6 +403,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 kind: 'rect',
                 page,
                 rect: scrollOptions.markerRect,
+            };
+            request.alignment = 'rect-center';
+        } else if (scrollOptions?.textAnchor) {
+            request.target = {
+                kind: 'text-anchor',
+                page,
+                ...scrollOptions.textAnchor,
             };
             request.alignment = 'rect-center';
         } else if (typeof scrollOptions?.pageYRatio === 'number') {

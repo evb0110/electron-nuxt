@@ -57,6 +57,7 @@ import type { IResizeTransitionSignal } from '@app/modules/pdf-viewer/runtime/vi
 import { resolvePdfPreparedOpeningFitScale } from '@app/modules/pdf-viewer/runtime/lifecycle/resolvePdfPreparedOpeningFitScale';
 import { resolveCustomReloadZoomMultiplier } from '@app/modules/pdf-viewer/runtime/reload-zoom/resolveCustomReloadZoomMultiplier';
 import {resolvePdfReadyMetricRange} from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfReadyMetricRange';
+import type { IPdfViewportReloadPlacement } from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportReloadPlacement';
 import type {
     IPdfDocumentTransition,
     TPdfDocumentSession,
@@ -79,13 +80,10 @@ export interface IPdfViewportMandatoryRaster {
     readonly range: IPageRange;
     readonly options: IRenderVisiblePagesOptions;
 }
-interface IPdfViewportReloadPlacement {
-    readonly displayZoomToRestore: number | null;
-    readonly shouldPinReloadPage: boolean;
-}
 export interface ICreatePdfViewportSessionOptions {
     document: TPdfDocumentSession;
     isPageFreshlyRenderedForNavigation: (pageNumber: number) => boolean;
+    waitForPageTextLayerReady?: ((pageNumber: number, signal: AbortSignal) => Promise<boolean>) | undefined;
     getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
     chassisAuthority: IDocumentViewerChassisAuthority | null;
     performancePolicy: IPdfRenderPerformancePolicy;
@@ -318,6 +316,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         prepareNavigationLayout,
         isPageFreshlyRenderedForNavigation: options.isPageFreshlyRenderedForNavigation,
+        waitForPageTextLayerReady: options.waitForPageTextLayerReady,
         visibleRange,
         emitCurrentPage: options.emitCurrentPage,
         emitNavigationFeedbackPage: options.emitNavigationFeedbackPage,

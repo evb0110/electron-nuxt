@@ -4,6 +4,7 @@ import type {
 } from '@app/types/pdfUi';
 import {
     assembleSearchablePageText,
+    buildPdfSearchRegex,
     mapAssembledSearchablePageTextRange,
 } from '@pdf-core';
 import type { IAssembledSearchablePageText } from '@contracts/search';
@@ -34,6 +35,44 @@ function buildBackendVisualMatches(
                 pageMatchIndex: index,
                 canUseBackendIdentity: true,
             }] : [];
+        });
+}
+
+function buildLayerSearchMatches(
+    pageMatches: IPdfPageMatches,
+    assembledLayerText: IAssembledSearchablePageText,
+): IVisualSearchMatch[] {
+    if (!pageMatches.searchQuery) {
+        return [];
+    }
+
+    let pattern: RegExp;
+    try {
+        pattern = buildPdfSearchRegex(pageMatches.searchQuery, {
+            matchCase: pageMatches.searchOptions?.matchCase ?? false,
+            wholeWord: pageMatches.searchOptions?.wholeWord ?? false,
+            useRegex: pageMatches.searchOptions?.useRegex ?? false,
+        });
+    } catch {
+        return [];
+    }
+
+    const occurrences = [...assembledLayerText.text.matchAll(pattern)]
+        .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+    const canUseBackendIdentity = occurrences.length === pageMatches.matches.length;
+    return occurrences
+        .flatMap((match, index): IVisualSearchMatch[] => {
+            const backendMatch = pageMatches.matches[index];
+            if (match.index === undefined) {
+                return [];
+            }
+            return [{
+                start: match.index,
+                end: match.index + match[0].length,
+                matchIndex: backendMatch?.matchIndex ?? index,
+                pageMatchIndex: index,
+                canUseBackendIdentity: canUseBackendIdentity && backendMatch !== undefined,
+            }];
         });
 }
 
@@ -125,5 +164,8 @@ export function buildVisualMatchesWithCurrent(
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IHighlightMatchRange[] {
     const backendMatches = buildBackendVisualMatches(pageMatches, assembledLayerText);
-    return markVisualMatchesWithCurrent(backendMatches, pageMatches, currentMatch);
+    const matches = backendMatches.length === pageMatches.matches.length
+        ? backendMatches
+        : buildLayerSearchMatches(pageMatches, assembledLayerText);
+    return markVisualMatchesWithCurrent(matches, pageMatches, currentMatch);
 }

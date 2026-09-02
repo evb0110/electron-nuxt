@@ -411,13 +411,14 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 pageNumber,
             }, documentFence);
             options.onPageRendered?.(pageNumber);
-            options.onRenderedPageStateChanged?.();
             if (priority === 'text-first') {
                 if (pageRenderState.markLayersReady(pageNumber, version, container)) {
                     container.dataset.pageLayerReadiness = 'ready';
                 }
+                options.onRenderedPageStateChanged?.();
                 return;
             }
+            options.onRenderedPageStateChanged?.();
             const task = renderText().then((didRender) => {
                 if (
                     didRender

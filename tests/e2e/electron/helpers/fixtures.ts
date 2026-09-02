@@ -571,6 +571,74 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+export const SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT = 241;
+export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT;
+export const SEARCH_MATCH_SCROLL_FIXTURE_QUERY = 'EVB_SEARCH_SCROLL_SENTINEL';
+export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH = 4;
+
+/**
+ * Create the deterministic large document used by the search-result viewport
+ * test. The last page has four identical matches, with the selected fourth
+ * match close to the bottom edge so a page-only jump leaves it out of view.
+ */
+export async function createSearchMatchScrollFixturePdf(
+    filename: string,
+    pageCount = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
+) {
+    if (pageCount < 2) {
+        throw new Error('Search match scroll fixture requires at least two pages');
+    }
+
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`E2E search match scroll fixture page ${pageNumber}/${pageCount}`, {
+            x: 60,
+            y: 735,
+            size: 14,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+
+        if (pageNumber < pageCount) {
+            page.drawText(`${SEARCH_MATCH_SCROLL_FIXTURE_QUERY} page ${pageNumber}`, {
+                x: 60,
+                y: 690,
+                size: 16,
+                font,
+                color: rgb(0.22, 0.22, 0.22),
+            });
+            continue;
+        }
+
+        [
+            700,
+            600,
+            500,
+            100,
+        ].forEach((y, index) => {
+            page.drawText(`${SEARCH_MATCH_SCROLL_FIXTURE_QUERY} match ${index + 1}`, {
+                x: 60,
+                y,
+                size: 16,
+                font,
+                color: rgb(0.22, 0.22, 0.22),
+            });
+        });
+    }
+
+    const bytes = await doc.save();
+    writeFileSync(filePath, bytes);
+    return filePath;
+}
+
 export async function createOutlinePageLabelFixturePdf(filename: string) {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

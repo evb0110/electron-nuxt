@@ -29,12 +29,12 @@ export interface IPdfRendererSearchNavigationOptions {
     beginSearchNavigation?: (pageNumber: number) => void;
     revealSearchNavigationTarget?: (
         pageNumber: number,
-        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+        options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     beginSearchTransaction?: (
         pageNumber: number,
-        options?: Pick<IScrollToPageOptions, 'markerRect'>,
+        options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
     ) => number | null;
     isSearchTransactionCurrent?: (transactionId: number) => boolean;
     settleSearchTransaction?: (transactionId: number) => void;

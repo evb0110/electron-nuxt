@@ -39,6 +39,7 @@ const vitestProjectNames = {
     electronE2ESavePipeline: 'e2e-save-pipeline',
     electronE2ENativeSaveReopen: 'e2e-native-save-reopen',
     electronE2EXlargePdf: 'e2e-xlarge-pdf',
+    electronE2ESearchMatchScroll: 'e2e-search-match-scroll',
 } as const;
 
 const electronBundleStaticIntegrityTestFiles = ['tests/unit/electron/bundleIntegrity.test.ts'];
@@ -139,6 +140,7 @@ const electronE2EXlargePdfTestFiles = [
     'tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts',
     'tests/e2e/electron/scanCleanupXlargeAcceptance.e2e.test.ts',
 ];
+const electronE2ESearchMatchScrollTestFiles = ['tests/e2e/electron/searchMatchScrolling.e2e.test.ts'];
 
 function createUnitAutoImportPlugin() {
     return AutoImport({
@@ -325,4 +327,5 @@ export const vitestProjects = [
     createElectronE2ETestProject(vitestProjectNames.electronE2ESavePipeline, electronE2ESavePipelineTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2ENativeSaveReopen, electronE2ENativeSaveReopenTestFiles),
     createElectronE2ETestProject(vitestProjectNames.electronE2EXlargePdf, electronE2EXlargePdfTestFiles),
+    createElectronE2ETestProject(vitestProjectNames.electronE2ESearchMatchScroll, electronE2ESearchMatchScrollTestFiles),
 ] satisfies TestProjectConfiguration[];

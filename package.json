@@ -81,6 +81,7 @@
     "test:e2e:electron:save-pipeline": "pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-save-pipeline --reporter verbose && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-native-save-reopen --reporter verbose",
     "test:e2e:electron:xlarge": "pnpm run build:pdf-page-ops && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf --reporter verbose",
     "test:e2e:electron:headless": "pnpm run build:native:e2e && pnpm run build:electron && EVB_PDF_PAGE_OPS_ENABLE=1 bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --reporter verbose",
+    "test:e2e:electron:search-match-scroll": "pnpm run build:pdf-search && pnpm run build:electron && EVB_PDF_SEARCH_ENABLE=1 EVB_SEARCH_REQUEST_TIMEOUT_MS=180000 EVB_PDF_SEARCH_TIMEOUT_MS=180000 bash scripts/test-electron-e2e-headless.sh --no-build e2e-search-match-scroll --reporter verbose",
     "test:e2e:electron:watch": "bash scripts/test-electron-e2e-headless.sh --no-build e2e-regression --watch --reporter verbose",
     "electron:run": "tsx scripts/electronRun.ts",
     "worktrees:prune": "node scripts/worktrees-prune.mjs",

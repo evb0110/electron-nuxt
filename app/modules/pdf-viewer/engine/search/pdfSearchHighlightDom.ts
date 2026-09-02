@@ -1,6 +1,16 @@
 import type { IPdfSearchHighlightMatchRange } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightMatchRange';
 import { getHighlightMatchBoundsInSpan } from '@app/modules/pdf-viewer/engine/search/getHighlightMatchBoundsInSpan';
 import { getRelevantHighlightMatches } from '@app/modules/pdf-viewer/engine/search/getRelevantHighlightMatches';
+import {
+    assembleSearchablePageText,
+    buildPdfSearchRegex,
+    mapAssembledSearchablePageTextRange,
+} from '@pdf-core';
+import type {
+    IAssembledSearchablePageText,
+    IPdfSearchUtf16Range,
+    ISearchMatchOptions,
+} from '@contracts/search';
 
 export type TTextLayerRun =
     | {
@@ -36,6 +46,10 @@ const textLayerTextMappingCache = new WeakMap<HTMLElement, {
     textContentItemsStr: readonly string[];
 }>();
 
+function assembleTextLayerSearchText(index: ITextLayerIndexCacheEntry): IAssembledSearchablePageText {
+    return assembleSearchablePageText(index.runs.map(run => ({text: run.kind === 'br' ? '\n' : run.text})));
+}
+
 function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     text: string;
     runs: TTextLayerRun[];
@@ -63,7 +77,13 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
             return;
         }
 
-        if (element.tagName === 'SPAN' && element.children.length === 0) {
+        const isRootTextSpan = element.tagName === 'SPAN'
+            && !element.parentElement?.closest('span');
+        if (element.tagName === 'SPAN' && (
+            element.children.length === 0
+            || mappedTextBySpan?.has(element)
+            || isRootTextSpan
+        )) {
             const span = element;
             const text = mappedTextBySpan?.get(span) ?? span.textContent ?? '';
             const textNode = span.firstChild && span.firstChild.nodeType === Node.TEXT_NODE
@@ -124,6 +144,147 @@ export function getCachedTextLayerIndex(textLayerDiv: HTMLElement): ITextLayerIn
     };
     textLayerIndexCache.set(textLayerDiv, cacheEntry);
     return cacheEntry;
+}
+
+function createTextLayerRangeForSearchMatchFromIndex(
+    textLayerDiv: HTMLElement,
+    index: ITextLayerIndexCacheEntry,
+    assembled: IAssembledSearchablePageText,
+    searchRange: IPdfSearchUtf16Range,
+): Range | null {
+    const mapped = mapAssembledSearchablePageTextRange(assembled, searchRange);
+    if (!mapped) {
+        return null;
+    }
+
+    function resolveBoundary(
+        span: HTMLSpanElement,
+        localOffset: number,
+        preferEnd: boolean,
+    ) {
+        const textNodes: Text[] = [];
+        const walker = document.createTreeWalker(span, NodeFilter.SHOW_TEXT);
+        let node = walker.nextNode();
+        while (node) {
+            textNodes.push(node as Text);
+            node = walker.nextNode();
+        }
+        if (textNodes.length === 0) {
+            return null;
+        }
+
+        let remaining = localOffset;
+        for (const textNode of textNodes) {
+            if (remaining < textNode.length || !preferEnd && remaining === 0) {
+                return {
+                    node: textNode,
+                    offset: Math.max(0, Math.min(textNode.length, remaining)),
+                };
+            }
+            remaining -= textNode.length;
+        }
+
+        const lastTextNode = textNodes.at(-1)!;
+        return {
+            node: lastTextNode,
+            offset: lastTextNode.length,
+        };
+    }
+
+    let start: {
+        node: Text;
+        offset: number
+    } | null = null;
+    let end: {
+        node: Text;
+        offset: number
+    } | null = null;
+    for (const run of index.runs) {
+        if (run.kind !== 'span') {
+            continue;
+        }
+        if (!start && mapped.startOffset >= run.startOffset && mapped.startOffset < run.endOffset) {
+            start = resolveBoundary(run.span, mapped.startOffset - run.startOffset, false);
+        }
+        if (mapped.endOffset > run.startOffset && mapped.endOffset <= run.endOffset) {
+            end = resolveBoundary(run.span, mapped.endOffset - run.startOffset, true);
+            break;
+        }
+    }
+    if (!start || !end || (start.node === end.node && start.offset >= end.offset)) {
+        return null;
+    }
+
+    const range = document.createRange();
+    range.setStart(start.node, start.offset);
+    range.setEnd(end.node, end.offset);
+    return range;
+}
+
+/**
+ * Convert a canonical PDF search range into a DOM Range in the rendered text
+ * layer. The canonical search text may contain generated separators or
+ * normalization changes, so map through the same assembly used by highlights.
+ */
+export function createTextLayerRangeForSearchMatch(
+    textLayerDiv: HTMLElement,
+    searchRange: IPdfSearchUtf16Range,
+): Range | null {
+    const index = getCachedTextLayerIndex(textLayerDiv);
+    return createTextLayerRangeForSearchMatchFromIndex(
+        textLayerDiv,
+        index,
+        assembleTextLayerSearchText(index),
+        searchRange,
+    );
+}
+
+/**
+ * Find a result in the rendered layer when the native index and PDF.js used
+ * different whitespace or line-break extraction. The page-local result index
+ * keeps duplicate occurrences tied to the clicked sidebar row.
+ */
+export function createTextLayerRangeForSearchOccurrence(
+    textLayerDiv: HTMLElement,
+    options: {
+        text: string;
+        pageMatchIndex?: number | undefined;
+        searchQuery?: string | undefined;
+        searchOptions?: ISearchMatchOptions | undefined;
+    },
+): Range | null {
+    const index = getCachedTextLayerIndex(textLayerDiv);
+    const assembled = assembleTextLayerSearchText(index);
+    const query = options.searchQuery ?? options.text;
+    if (!query) {
+        return null;
+    }
+
+    let pattern: RegExp;
+    try {
+        pattern = buildPdfSearchRegex(query, {
+            matchCase: options.searchOptions?.matchCase ?? false,
+            wholeWord: options.searchOptions?.wholeWord ?? false,
+            useRegex: options.searchOptions?.useRegex ?? false,
+        });
+    } catch {
+        return null;
+    }
+
+    const occurrences = [...assembled.text.matchAll(pattern)]
+        .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+    const occurrenceIndex = Number.isSafeInteger(options.pageMatchIndex)
+        ? options.pageMatchIndex!
+        : 0;
+    const occurrence = occurrences[occurrenceIndex];
+    if (!occurrence || occurrence.index === undefined) {
+        return null;
+    }
+
+    return createTextLayerRangeForSearchMatchFromIndex(textLayerDiv, index, assembled, {
+        startOffset: occurrence.index,
+        endOffset: occurrence.index + occurrence[0].length,
+    });
 }
 
 export function clearTextLayerIndexCache(textLayerDiv: HTMLElement) {
