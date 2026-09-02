@@ -1,0 +1,35 @@
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_c57729f2c66bed::t_a0ca2f4364db9e 1408,1427,1479
+  s_c57729f2c66bed::t_774ecef73109d0 1213-1228,1258-1266,1268,1747,1794,1912
+  s_c57729f2c66bed::t_39f5a66cae7394 1267
+app/assets/css/pdf-viewer.scss
+  s_c57729f2c66bed::t_a0ca2f4364db9e 282,326,353,360,362
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.ts
+  s_c57729f2c66bed::t_c4e2e1fbb9ab28 8-10,12-66,68,77-78,81
+  s_c57729f2c66bed::t_27b85ae4434068 11
+tests/unit/app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl.test.ts
+  s_c57729f2c66bed::t_0f8d23b48c0d2d 165-167,169-170,173-175,179
+  s_c57729f2c66bed::t_6c49e30e76624b 8,161-164,168,171-172,176-178
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_c57729f2c66bed::t_a0ca2f4364db9e 691
+packages/contracts/pdfAnnotationRefs.ts
+  s_c57729f2c66bed::t_a0ca2f4364db9e 9-14,30-42,60-62
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c57729f2c66bed::t_a0ca2f4364db9e 993,1013-1019
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "58215bf3a33a76a26458a475f82374e093929ef1",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
