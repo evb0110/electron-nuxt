@@ -122,6 +122,15 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
             serializableEntryKeys: ['editor-1'],
         });
 
+        expect(collectPdfJsAnnotationStorageDebugState({annotationStorage: {
+            modifiedIds: {ids: new Set()},
+            serializable: {map: null},
+        }} as never)).toEqual({
+            reported: true,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        });
+
         expect(collectPdfJsAnnotationStorageDebugState({annotationStorage: {}} as never)).toEqual({
             reported: false,
             modifiedIds: [],

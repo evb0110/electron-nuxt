@@ -1323,10 +1323,16 @@ function assertMeasuredIpcPayloadBudget(telemetry: IXlargeAcceptanceTelemetry) {
     ))).toBe(true);
 }
 
-async function waitForWorkspaceComment(page: Page, text: string, pageNumber: number) {
+async function waitForWorkspaceComment(
+    page: Page,
+    text: string,
+    pageNumber: number,
+    source: 'editor' | 'pdf' = 'editor',
+) {
     await page.waitForFunction((input: {
         pageNumber: number;
         text: string
+        source: 'editor' | 'pdf';
     }) => {
         const values = window.__evbTestApi?.readActiveWorkspaceStateValues?.(['annotationComments']) as {annotationComments?: unknown;} | undefined;
         const comments = Array.isArray(values?.annotationComments)
@@ -1338,7 +1344,7 @@ async function waitForWorkspaceComment(page: Page, text: string, pageNumber: num
             }
             const record = comment as Record<string, unknown>;
             return record.text === input.text
-                && record.source === 'editor'
+                && record.source === input.source
                 && record.subtype === 'Text'
                 && typeof record.appAnnotationId === 'string'
                 && record.appAnnotationId.length > 0
@@ -1347,6 +1353,7 @@ async function waitForWorkspaceComment(page: Page, text: string, pageNumber: num
     }, {timeout: 20_000}, {
         pageNumber,
         text,
+        source,
     });
 }
 
@@ -1919,8 +1926,8 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                     ],
                 )
             ));
-            await waitForWorkspaceComment(sessionB.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE);
-            await waitForWorkspaceComment(sessionB.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE);
+            await waitForWorkspaceComment(sessionB.page, canonicalNoteOne, XLARGE_MIDDLE_PAGE, 'pdf');
+            await waitForWorkspaceComment(sessionB.page, canonicalNoteTwo, XLARGE_MIDDLE_PAGE, 'pdf');
 
             const rendererIpcPayloadProbeAfterReload = await readOptionalRendererIpcPayloadProbe(sessionB.page);
             recordRendererIpcPayloadProbe(telemetry, 'B', rendererIpcPayloadProbeAfterReload);

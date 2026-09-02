@@ -46,8 +46,12 @@ export function collectPdfJsAnnotationStorageDebugState(
     try {
         const modifiedIds = storage.modifiedIds?.ids;
         const serializableMap = storage.serializable?.map;
+        // PDF.js uses a null map as its immutable empty-storage sentinel.
+        // That is an inspected, known-empty state rather than a failed probe.
+        const serializableStateIsInspectable = serializableMap === null
+            || serializableMap instanceof Map;
         return {
-            reported: modifiedIds instanceof Set && serializableMap instanceof Map,
+            reported: modifiedIds instanceof Set && serializableStateIsInspectable,
             modifiedIds: modifiedIds instanceof Set
                 ? Array.from(modifiedIds).map(String)
                 : [],
