@@ -160,6 +160,33 @@ export function toCanonicalShapeEntity(
 ): IShapeEntity {
     const pdfRef = normalizedPdfRef(shape.annotationId);
     const tool = shapeToolFromLegacyShape(shape);
+    const linePoints = tool === 'line' || tool === 'arrow'
+        ? [
+            {
+                x: shape.x,
+                y: shape.y,
+            },
+            {
+                x: shape.x2 ?? shape.x + shape.width,
+                y: shape.y2 ?? shape.y + shape.height,
+            },
+        ]
+        : null;
+    const geometryPoints = shape.points ?? linePoints;
+    const allGeometryPoints = geometryPoints ?? shape.strokes?.flatMap(stroke => stroke) ?? [];
+    const hasPointBounds = allGeometryPoints.length > 0;
+    const geometryLeft = hasPointBounds
+        ? Math.min(...allGeometryPoints.map(point => point.x))
+        : shape.x;
+    const geometryTop = hasPointBounds
+        ? Math.min(...allGeometryPoints.map(point => point.y))
+        : shape.y;
+    const geometryRight = hasPointBounds
+        ? Math.max(...allGeometryPoints.map(point => point.x))
+        : null;
+    const geometryBottom = hasPointBounds
+        ? Math.max(...allGeometryPoints.map(point => point.y))
+        : null;
     return {
         kind: 'shape',
         identity: {
@@ -175,12 +202,12 @@ export function toCanonicalShapeEntity(
         author: null,
         tool,
         rect: {
-            left: shape.x,
-            top: shape.y,
-            width: shape.width,
-            height: shape.height,
+            left: geometryLeft,
+            top: geometryTop,
+            width: hasPointBounds ? geometryRight! - geometryLeft : shape.width,
+            height: hasPointBounds ? geometryBottom! - geometryTop : shape.height,
         },
-        ...(shape.points === undefined ? {} : {points: structuredClone(shape.points)}),
+        ...(geometryPoints === undefined || geometryPoints === null ? {} : {points: structuredClone(geometryPoints)}),
         ...(shape.strokes === undefined ? {} : {strokes: structuredClone(shape.strokes)}),
         strokeColor: shape.color,
         strokeWidth: shape.strokeWidth,
