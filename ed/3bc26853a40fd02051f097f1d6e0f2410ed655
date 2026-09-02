@@ -1,0 +1,31 @@
+app/modules/agent-panel/components/AssistantSwitcherMenu.css
+  s_db856168e679e7::t_2483a6811059c8 76
+  s_db856168e679e7::t_dad5448625d85d 86,90,101,103,109,147-157
+  s_db856168e679e7::t_840d3003f6fc80 77
+app/assets/css/main.css
+  s_db856168e679e7::t_840d3003f6fc80 609-610
+app/modules/agent-panel/components/AssistantEffortSwitcher.vue
+  s_db856168e679e7::t_2483a6811059c8 26
+tests/unit/app/modules/agent-panel/assistantModelSwitcher.test.ts
+  s_db856168e679e7::t_2deedfcb21968b 159
+app/modules/agent-panel/components/AssistantModelSwitcher.vue
+  s_db856168e679e7::t_840d3003f6fc80 182
+  s_db856168e679e7::t_dad5448625d85d 64,180-181,193,200,204,209-210,213-216
+  s_db856168e679e7::t_2483a6811059c8 31
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ed3bc26853a40fd02051f097f1d6e0f2410ed655",
+  "prompts": {},
+  "sessions": {
+    "s_db856168e679e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f24ab835-3ad3-4202-a922-ab5a03416e63",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
