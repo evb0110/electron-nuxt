@@ -926,7 +926,7 @@ async function readDocumentSaveIdentity(page: Page) {
 }
 
 interface ICanonicalImportedTextPopupComment extends Record<string, unknown> {
-    annotationName: string | null;
+    annotationId: string | null;
     hasNote: boolean | null;
     markerRect: {
         height: number;
@@ -950,7 +950,7 @@ async function readCanonicalImportedTextPopupComments(page: Page) {
                 ['annotationComments'],
             );
         return (state?.annotationComments ?? []).map(comment => ({
-            annotationName: comment.annotationName ?? null,
+            annotationId: comment.annotationId ?? null,
             hasNote: comment.hasNote ?? null,
             markerRect: comment.markerRect
                 ? {
@@ -970,19 +970,29 @@ async function readCanonicalImportedTextPopupComments(page: Page) {
     });
 }
 
+function resolveCanonicalImportedSubtype(fixture: IImportedTextPopupFixture) {
+    // Popup-backed Text and FreeText records are canonical notes. The store
+    // projects both through the note subtype, while text markup keeps its PDF
+    // subtype for the sidebar and renderer.
+    return fixture.pdfSubtype === 'Highlight' ? 'Highlight' : 'Text';
+}
+
 async function waitForCanonicalImportedTextPopupComment(
     page: Page,
     fixture: IImportedTextPopupFixture,
     timeoutMs = NOTE_TEXT_ENTRY_TIMEOUT_MS,
-    expectedSubtype = 'FreeText',
+    expectedSubtype = resolveCanonicalImportedSubtype(fixture),
 ) {
     await expect.poll(
         () => readCanonicalImportedTextPopupComments(page),
         {timeout: timeoutMs},
     ).toEqual([expect.objectContaining({
-        annotationName: fixture.annotationName,
+        annotationId: expect.any(String),
         hasNote: true,
+        pageIndex: 0,
+        pageNumber: 1,
         source: 'pdf',
+        stableKey: expect.stringMatching(/^ann:0:/u),
         subtype: expectedSubtype,
         text: fixture.text,
     })]);
@@ -3186,10 +3196,12 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         );
         const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))[0];
         expect(movedCanonical).toMatchObject({
-            annotationName: fixture.annotationName,
+            hasNote: true,
             pageIndex: 0,
             pageNumber: 1,
+            source: 'pdf',
             stableKey: importedComment.stableKey,
+            subtype: 'Text',
         });
         expect(movedCanonical?.markerRect).toEqual(movedMarkerRect);
         expect(movedMarkerRect).not.toEqual(importedComment.markerRect);
@@ -3228,10 +3240,12 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         );
         const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))[0];
         expect(restoredCanonical).toMatchObject({
-            annotationName: fixture.annotationName,
+            hasNote: true,
             pageIndex: 0,
             pageNumber: 1,
+            source: 'pdf',
             stableKey: importedComment.stableKey,
+            subtype: 'Text',
         });
         if (!restoredCanonical?.markerRect) {
             throw new Error(`Restored Text marker has no rectangle: ${JSON.stringify(restoredCanonical)}`);

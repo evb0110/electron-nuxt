@@ -289,6 +289,48 @@ describe('AnnotationApplication', () => {
         expect(summary?.hasNote).toBe(true);
     });
 
+    it('projects a Popup-backed PDF note through its canonical PDF identity', () => {
+        const application = new AnnotationApplication('document');
+
+        application.replaceFromDocumentSummaries([{
+            id: '886 0 R',
+            stableKey: 'nm:evb-pdf-003-text-parent',
+            pageIndex: 0,
+            pageNumber: 1,
+            text: 'imported Popup note',
+            subtype: 'Text',
+            author: 'EVB PDF-003',
+            modifiedAt: null,
+            color: '#ffff00',
+            uid: null,
+            annotationId: '886 0 R',
+            annotationName: 'evb-pdf-003-text-parent',
+            source: 'pdf',
+            hasNote: true,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.02,
+                height: 0.03,
+            },
+        }]);
+
+        expect(application.store.list()).toMatchObject([{
+            kind: 'note',
+            contents: 'imported Popup note',
+            identity: {pdfRef: '886R'},
+        }]);
+        expect(application.listCommentSummaries()).toMatchObject([{
+            source: 'pdf',
+            annotationId: '886R',
+            annotationName: null,
+            stableKey: 'ann:0:886R',
+            subtype: 'Text',
+            text: 'imported Popup note',
+            hasNote: true,
+        }]);
+    });
+
     it('imports a persisted non-point FreeText editor into the canonical store', () => {
         const application = new AnnotationApplication('document');
 
