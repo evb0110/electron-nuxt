@@ -63,11 +63,13 @@
                             v-if="model.isRecommended"
                             class="assistant-model-recommended"
                         >{{ t('assistant.modelRecommended') }}</span>
-                        <UIcon
-                            v-if="model.isSelected"
-                            name="i-ph-check"
-                            class="assistant-switcher-check"
-                        />
+                        <span class="assistant-switcher-check-slot">
+                            <UIcon
+                                v-if="model.isSelected"
+                                name="i-ph-check"
+                                class="assistant-switcher-check"
+                            />
+                        </span>
                     </button>
                 </div>
             </div>

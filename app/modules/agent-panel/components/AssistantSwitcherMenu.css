@@ -146,6 +146,17 @@
     white-space: nowrap;
 }
 
+/* Every row reserves the check's width so trailing text stays aligned
+   whether or not that row is the selected one. */
+.assistant-switcher-check-slot {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+}
+
 .assistant-switcher-check {
     flex: 0 0 auto;
     width: var(--app-icon-size-xs);
