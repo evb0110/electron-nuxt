@@ -118,6 +118,11 @@ export interface IPdfAnnotationSummary {
     bySubtype: Record<string, number>;
 }
 
+interface IQpdfObjectRef {
+    generationNumber: number;
+    objectNumber: number;
+}
+
 export interface IPdfAnnotationDetails {
     author: string | null;
     subtype: string;
@@ -1839,6 +1844,123 @@ export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAn
     };
 }
 
+function resolveQpdfBinary() {
+    return resolveNativeToolPath({
+        binaryName: process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
+        binaryRelativePath: [
+            'bin',
+            process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
+        ],
+        crateName: 'qpdf',
+        currentDir: process.cwd(),
+        includeRustTargetCandidates: false,
+        isPackaged: false,
+        platformArch: resolvePlatformArchTag(),
+        projectRoot: process.cwd(),
+        resourcesBase: resolve(process.cwd(), 'resources'),
+    });
+}
+
+async function runQpdf(
+    filePath: string,
+    args: string[],
+    operation: string,
+    limits: {
+        maxStderrBytes: number;
+        maxStdoutBytes: number;
+    },
+) {
+    const qpdf = resolveQpdfBinary();
+    if (!qpdf) {
+        throw new Error(`qpdf is unavailable for ${operation}: ${filePath}`);
+    }
+    try {
+        return await runNativeCommand(qpdf, args, {
+            commandLabel: `qpdf ${operation}`,
+            defaultCwdToCommandDir: true,
+            maxStderrBytes: limits.maxStderrBytes,
+            maxStdoutBytes: limits.maxStdoutBytes,
+            prependCommandDirToPath: true,
+            timeoutMs: 120_000,
+            windowsHide: true,
+        });
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(`qpdf ${operation} failed for ${filePath}: ${message}`, {cause: error});
+    }
+}
+
+function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
+    return Array.from(value.matchAll(/(\d+)\s+(\d+)\s+R/gu)).map(match => ({
+        objectNumber: Number(match[1]),
+        generationNumber: Number(match[2]),
+    }));
+}
+
+async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
+    const result = await runQpdf(
+        filePath,
+        [
+            `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
+            filePath,
+        ],
+        'object read',
+        {
+            maxStderrBytes: 32 * 1024,
+            maxStdoutBytes: 1024 * 1024,
+        },
+    );
+    return result.stdout;
+}
+
+export async function readFreeTextObjectByName(filePath: string, name: string) {
+    const pagesResult = await runQpdf(
+        filePath,
+        [
+            '--show-pages',
+            filePath,
+        ],
+        'page listing',
+        {
+            maxStderrBytes: 32 * 1024,
+            maxStdoutBytes: 1024 * 1024,
+        },
+    );
+    const pageRefMatch = pagesResult.stdout.match(/^page 1: (\d+) (\d+) R$/mu);
+    if (!pageRefMatch) {
+        throw new Error(`qpdf did not report the first page object for ${filePath}`);
+    }
+    const pageObject = await readQpdfObject(filePath, {
+        objectNumber: Number(pageRefMatch[1]),
+        generationNumber: Number(pageRefMatch[2]),
+    });
+    const annotsMatch = pageObject.match(/\/Annots\s+(\[[\s\S]*?\]|\d+\s+\d+\s+R)/u);
+    if (!annotsMatch?.[1]) {
+        throw new Error(`qpdf did not report page annotations for ${filePath}`);
+    }
+    let annotsValue = annotsMatch[1];
+    if (!annotsValue.startsWith('[')) {
+        const annotsRef = parseQpdfObjectRefs(annotsValue)[0];
+        if (!annotsRef) {
+            throw new Error(`qpdf reported an invalid annotation reference for ${filePath}`);
+        }
+        annotsValue = await readQpdfObject(filePath, annotsRef);
+    }
+    for (const objectRef of parseQpdfObjectRefs(annotsValue)) {
+        const object = await readQpdfObject(filePath, objectRef);
+        if (
+            /\/Subtype\s*\/FreeText(?:\s|$)/u.test(object)
+            && object.includes(`/NM (${name})`)
+        ) {
+            return {
+                object,
+                objectRef,
+            };
+        }
+    }
+    throw new Error(`qpdf did not find FreeText annotation ${name} in ${filePath}`);
+}
+
 export async function readPdfHasEncryptDictionary(filePath: string) {
     const bytes = await readFile(filePath);
     return bytes.includes(Buffer.from('/Encrypt', 'latin1'));
@@ -1878,20 +2000,7 @@ export async function readPdfPageSnapshots(filePath: string): Promise<IPdfPageSn
 }
 
 export async function readPdfMetadataWithQpdf(filePath: string) {
-    const qpdf = resolveNativeToolPath({
-        binaryName: process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
-        binaryRelativePath: [
-            'bin',
-            process.platform === 'win32' ? 'qpdf.exe' : 'qpdf',
-        ],
-        crateName: 'qpdf',
-        currentDir: process.cwd(),
-        includeRustTargetCandidates: false,
-        isPackaged: false,
-        platformArch: resolvePlatformArchTag(),
-        projectRoot: process.cwd(),
-        resourcesBase: resolve(process.cwd(), 'resources'),
-    });
+    const qpdf = resolveQpdfBinary();
     if (!qpdf) {
         throw new Error('qpdf is unavailable for PDF metadata verification');
     }

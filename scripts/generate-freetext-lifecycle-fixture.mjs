@@ -97,6 +97,8 @@ const textBoxOneRef = annotation({
     NM: text('lifecycle-text-box-one'),
     Contents: text('Reachable text box one'),
     DA: text('/Helvetica 14 Tf 0 0 1 rg'),
+    RC: text('<body>Foreign rich text sentinel</body>'),
+    DS: text('foreign-style-sentinel'),
     P: pageRef,
 });
 const textBoxTwoRef = annotation({

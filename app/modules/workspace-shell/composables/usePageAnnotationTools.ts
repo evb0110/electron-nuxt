@@ -16,8 +16,13 @@ import {
     isShapeTool,
     PENDING_ANNOTATION_ENRICHMENT_STATE,
 } from '@app/modules/pdf-viewer/public';
+import type { IWorkspacePdfViewerAnnotationToolsPort } from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
 
-interface IPdfViewerForAnnotationTools {
+interface IPdfViewerForAnnotationTools extends Pick<IWorkspacePdfViewerAnnotationToolsPort,
+    'selectedTextBox'
+    | 'getSelectedTextBox'
+    | 'updateSelectedTextBoxProperties'
+> {
     cancelCommentPlacement: () => void;
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
@@ -144,6 +149,18 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
             ...annotationSettings.value,
             [payload.key]: payload.value,
         };
+
+        const selectedTextBox = pdfViewerRef.value?.getSelectedTextBox?.();
+        if (selectedTextBox && pdfViewerRef.value?.updateSelectedTextBoxProperties) {
+            if (payload.key === 'textColor' && typeof payload.value === 'string') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({color: payload.value});
+                return;
+            }
+            if (payload.key === 'textSize' && typeof payload.value === 'number') {
+                pdfViewerRef.value.updateSelectedTextBoxProperties({fontSize: payload.value});
+                return;
+            }
+        }
 
         const selectedShapeId = pdfViewerRef.value?.selectedShapeId;
         if (!selectedShapeId) {

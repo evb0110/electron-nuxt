@@ -135,6 +135,7 @@
                     :annotation-inventory="annotationInventory"
                     :annotation-enrichment-state="annotationEnrichmentState"
                     :annotation-active-comment-stable-key="annotationActiveCommentStableKey"
+                    :selected-text-box="selectedTextBox"
                     :bookmark-edit-mode="bookmarkEditMode"
                     :bookmark-items="bookmarkItems"
                     :bookmarks-dirty="bookmarksDirty"
@@ -792,6 +793,7 @@ const {
     annotationInventory,
     annotationEnrichmentState,
     annotationActiveCommentStableKey,
+    selectedTextBox,
     thumbnailHiddenAnnotationIds,
     markAnnotationCommentsLoading,
     annotationDirty,

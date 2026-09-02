@@ -54,6 +54,12 @@ export interface IAnnotationEditorSurface {
     getEntitiesForPage(pageIndex: number): readonly AnnotationEntity[];
     select(ids: readonly AnnotationId[], options?: { additive?: boolean }): void;
     clearSelection(): void;
+    getSelectedTextBox(): ITextBoxEntity | null;
+    updateSelectedTextBoxProperties(
+        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
+    ): boolean;
+    discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
+    deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
     nudgeSelection(deltaX: number, deltaY: number): void;
     beginMove(annotationId: AnnotationId): IAnnotationGesture | null;
@@ -117,6 +123,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     settings: ComputedRef<IAnnotationSettings | null>;
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
+    emitAnnotationModified?: () => void;
 }
 
 function timestamp() {
@@ -218,8 +225,59 @@ export const usePdfAnnotationEditorSurface = (
         store().clearSelection();
     }
 
+    function getSelectedTextBox() {
+        for (const id of selectedIds.value) {
+            const entity = store().get(id);
+            if (entity?.kind === 'text-box' && !entity.deleted) {
+                return entity;
+            }
+        }
+        return null;
+    }
+
+    function updateSelectedTextBoxProperties(
+        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
+    ) {
+        const entity = getSelectedTextBox();
+        if (!entity) {
+            return false;
+        }
+        const changed = (
+            updates.fontSize !== undefined
+            && updates.fontSize !== entity.fontSize
+        ) || (
+            updates.color !== undefined
+            && updates.color !== entity.color
+        );
+        if (!changed) {
+            return false;
+        }
+        store().updateTextBox(entity.identity.id, updates);
+        options.emitAnnotationModified?.();
+        return true;
+    }
+
+    function deleteAnnotation(annotationId: AnnotationId) {
+        const entity = store().get(annotationId);
+        if (!entity || entity.deleted) {
+            return false;
+        }
+        store().delete(annotationId);
+        options.emitAnnotationModified?.();
+        return true;
+    }
+
+    function discardUnsavedAnnotation(annotationId: AnnotationId) {
+        const entity = store().get(annotationId);
+        if (!entity || entity.deleted || entity.persistedRevision >= 0 || entity.identity.pdfRef) {
+            return false;
+        }
+        store().forget(new Set([annotationId]));
+        return true;
+    }
+
     function deleteSelection() {
-        [...selectedIds.value].forEach(id => store().delete(id));
+        [...selectedIds.value].forEach(id => deleteAnnotation(id));
     }
 
     function translateRect(rect: IAnnotationMarkerRect, deltaX: number, deltaY: number) {
@@ -231,6 +289,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function nudgeSelection(deltaX: number, deltaY: number) {
+        let changed = false;
         selectedIds.value.forEach((id) => {
             const entity = store().get(id);
             if (!entity) {
@@ -239,15 +298,19 @@ export const usePdfAnnotationEditorSurface = (
             switch (entity.kind) {
                 case 'text-box':
                     store().updateTextBox(id, {rect: translateRect(entity.rect, deltaX, deltaY)});
+                    changed = true;
                     break;
                 case 'note':
                     store().updateNote(id, {position: translateRect(entity.position, deltaX, deltaY)});
+                    changed = true;
                     break;
                 case 'text-markup':
                     store().updateTextMarkup(id, {quadPoints: entity.quadPoints.map(rect => translateRect(rect, deltaX, deltaY))});
+                    changed = true;
                     break;
                 case 'placed-image':
                     store().updatePlacedImage(id, {rect: translateRect(entity.rect, deltaX, deltaY)});
+                    changed = true;
                     break;
                 case 'shape':
                     {
@@ -275,10 +338,14 @@ export const usePdfAnnotationEditorSurface = (
                             })));
                         }
                         store().updateShape(id, patch);
+                        changed = true;
                     }
                     break;
             }
         });
+        if (changed) {
+            options.emitAnnotationModified?.();
+        }
     }
 
     function beginGesture(annotationId: AnnotationId, kind: IAnnotationGesture['kind']) {
@@ -303,15 +370,35 @@ export const usePdfAnnotationEditorSurface = (
         }
         switch (entity.kind) {
             case 'text-box':
-                return store().updateTextBox(annotationId, patch) ?? null;
+            {
+                const updated = store().updateTextBox(annotationId, patch);
+                options.emitAnnotationModified?.();
+                return updated;
+            }
             case 'note':
-                return store().updateNote(annotationId, patch) ?? null;
+            {
+                const updated = store().updateNote(annotationId, patch);
+                options.emitAnnotationModified?.();
+                return updated;
+            }
             case 'text-markup':
-                return store().updateTextMarkup(annotationId, patch) ?? null;
+            {
+                const updated = store().updateTextMarkup(annotationId, patch);
+                options.emitAnnotationModified?.();
+                return updated;
+            }
             case 'placed-image':
-                return store().updatePlacedImage(annotationId, patch) ?? null;
+            {
+                const updated = store().updatePlacedImage(annotationId, patch);
+                options.emitAnnotationModified?.();
+                return updated;
+            }
             case 'shape':
-                return store().updateShape(annotationId, patch) ?? null;
+            {
+                const updated = store().updateShape(annotationId, patch);
+                options.emitAnnotationModified?.();
+                return updated;
+            }
         }
     }
 
@@ -320,7 +407,7 @@ export const usePdfAnnotationEditorSurface = (
         rect: IAnnotationMarkerRect,
         overrides: Partial<Omit<ITextBoxEntity, 'kind' | 'identity' | 'pageIndex' | 'revision' | 'persistedRevision' | 'deleted'>> = {},
     ) {
-        return store().createTextBox({
+        const created = store().createTextBox({
             kind: 'text-box',
             identity: newIdentity(),
             pageIndex,
@@ -332,6 +419,7 @@ export const usePdfAnnotationEditorSurface = (
             color: options.settings.value?.textColor ?? null,
             ...overrides,
         });
+        return created;
     }
 
     function createNoteAt(
@@ -410,6 +498,10 @@ export const usePdfAnnotationEditorSurface = (
         getEntitiesForPage,
         select,
         clearSelection,
+        getSelectedTextBox,
+        updateSelectedTextBoxProperties,
+        discardUnsavedAnnotation,
+        deleteAnnotation,
         deleteSelection,
         nudgeSelection,
         beginMove: annotationId => beginGesture(annotationId, 'move'),

@@ -21,6 +21,7 @@ type TPdfViewerPublicApiRefBackedKeys =
     | 'hasShapes'
     | 'isCapturingRegion'
     | 'isCropSelecting'
+    | 'selectedTextBox'
     | 'selectedShapeId';
 
 type TPdfViewerRefBackedSource = {
@@ -284,6 +285,9 @@ export const usePdfViewerPublicApiController = (
         startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
         cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
+        selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),
+        getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,
+        updateSelectedTextBoxProperties: annotationRuntime.annotationEditorSurface.updateSelectedTextBoxProperties,
         ensurePdfAnnotationNameReconciliation: annotations.commentSync.ensurePdfAnnotationNameReconciliation,
         focusAnnotationComment,
         updateAnnotationComment: (comment, text) => {

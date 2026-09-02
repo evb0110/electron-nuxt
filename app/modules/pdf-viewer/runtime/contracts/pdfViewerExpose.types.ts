@@ -24,6 +24,7 @@ import type {
     IPdfAnnotationStorageDebugState,
     IPdfLiveAnnotationChangeSummary,
 } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 /** @deprecated Use the format-neutral document sidebar tab contract. */
 export type TPdfSidebarTab = TDocumentSidebarTab;
@@ -176,6 +177,11 @@ export interface IPdfViewerAnnotationCommandExpose {
         cmd: () => void;
         undo: () => void;
     }) => void;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
+    getSelectedTextBox?: () => ITextBoxEntity | null;
+    updateSelectedTextBoxProperties?: (
+        updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
+    ) => boolean;
 }
 
 export interface IPdfViewerAnnotationCommentExpose {

@@ -419,6 +419,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         activeTool: options.annotationTool,
         settings: options.annotationSettings,
         resolveStampImage,
+        emitAnnotationModified: options.emitAnnotationModified,
         emitOpenNote: entity => {
             if (entity.kind !== 'note') {
                 return;
