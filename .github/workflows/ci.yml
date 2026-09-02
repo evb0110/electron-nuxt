@@ -137,10 +137,10 @@ jobs:
           path: coverage
           if-no-files-found: ignore
 
-      - name: Production dependency audit
-        if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
-        run: pnpm run check:production-dependency-audit:production-only
-
+      # The dependency audit is deliberately absent here. It fails on advisory
+      # publication time, not on anything in the commit, so on the required
+      # lane it blocked release cuts twice in one afternoon. It runs daily in
+      # dependency-audit.yml and files an issue instead.
       - name: Fallow dead code
         if: ${{ !cancelled() && steps.setup.outcome == 'success' }}
         run: pnpm run fallow
@@ -214,6 +214,22 @@ jobs:
         uses: ./.github/actions/upload-electron-e2e-artifacts
         with:
           artifact-name: electron-blocking-smoke-${{ github.run_attempt }}
+
+  # The same Linux x64 job the release matrix runs, minus the artifact upload:
+  # strict build, native-tool bundling, AppImage and DEB packaging, packaged
+  # native-tool and content checks, and the installed core-PDF journeys. A
+  # release must never be the first execution of its own packaged proof.
+  pr_packaged_linux:
+    name: Packaged Linux Proof
+    if: ${{ (github.event_name == 'pull_request' || github.event_name == 'push') && needs.pr_changed_areas.outputs.packaged_smoke == 'true' }}
+    needs: pr_changed_areas
+    uses: ./.github/workflows/build-target.yml
+    with:
+      os: ubuntu-22.04
+      platform: linux
+      arch: x64
+      artifact_group: ci-linux-x64
+      upload_artifacts: false
 
   pr_electron_native_save_reopen:
     name: Electron Native Save And Reopen
@@ -301,6 +317,7 @@ jobs:
       electron_save_reopen: ${{ steps.classify.outputs.electron_save_reopen }}
       landing: ${{ steps.classify.outputs.landing }}
       native_or_build: ${{ steps.classify.outputs.native_or_build }}
+      packaged_smoke: ${{ steps.classify.outputs.packaged_smoke }}
       scan_cleanup_export: ${{ steps.classify.outputs.scan_cleanup_export }}
 
     steps:
@@ -648,6 +665,7 @@ jobs:
       - pr_quality
       - pr_changed_areas
       - pr_electron_blocking_smoke
+      - pr_packaged_linux
       - pr_electron_native_save_reopen
       - pr_native_pdf_integration
       - pr_browser_integration
@@ -664,6 +682,7 @@ jobs:
         env:
           NEEDS_JSON: ${{ toJSON(needs) }}
           ELECTRON_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_smoke }}
+          PACKAGED_SMOKE_CHANGED: ${{ needs.pr_changed_areas.outputs.packaged_smoke }}
           ELECTRON_SAVE_REOPEN_CHANGED: ${{ needs.pr_changed_areas.outputs.electron_save_reopen }}
           BROWSER_INTEGRATION_CHANGED: ${{ needs.pr_changed_areas.outputs.browser_integration }}
           NATIVE_OR_BUILD_CHANGED: ${{ needs.pr_changed_areas.outputs.native_or_build }}
@@ -674,6 +693,7 @@ jobs:
           const needs = JSON.parse(process.env.NEEDS_JSON);
           const legitimatelySkippable = new Map([
             ['pr_electron_blocking_smoke', process.env.ELECTRON_SMOKE_CHANGED],
+            ['pr_packaged_linux', process.env.PACKAGED_SMOKE_CHANGED],
             ['pr_electron_native_save_reopen', process.env.ELECTRON_SAVE_REOPEN_CHANGED],
             ['pr_browser_integration', process.env.BROWSER_INTEGRATION_CHANGED],
             ['pr_native_build_safety', process.env.NATIVE_OR_BUILD_CHANGED],

@@ -178,6 +178,7 @@ function expectScriptJobsHaveCheckout(workflow: string, label: string) {
 const requiredPrPushConditions = new Set([
     '${{ github.event_name == \'pull_request\' || github.event_name == \'push\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_smoke == \'true\' }}',
+    '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.packaged_smoke == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.electron_save_reopen == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.browser_integration == \'true\' }}',
     '${{ (github.event_name == \'pull_request\' || github.event_name == \'push\') && needs.pr_changed_areas.outputs.native_or_build == \'true\' }}',
@@ -484,15 +485,13 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('run: pnpm run typecheck');
         expect(prQuality).toContain('run: pnpm run test:coverage');
 
-        // These three gates went unrun for days because only the invisible
+        // The dead-code gates went unrun for days because only the invisible
         // nightly lane checked them. They belong on the merge-blocking lane, but
         // behind the tests: a job stops at its first failure, and a three-second
         // dead-export check must not be the reason a run reports no test result.
-        expectExactRunStep(prQuality, 'pnpm run check:production-dependency-audit:production-only');
         expectExactRunStep(prQuality, 'pnpm run fallow');
         expectExactRunStep(prQuality, 'pnpm run fallow:dupes');
         for (const gate of [
-            'pnpm run check:production-dependency-audit:production-only',
             'pnpm run fallow',
             'pnpm run fallow:dupes',
         ]) {
@@ -502,20 +501,31 @@ describe('CI topology policy', () => {
             ).toBeLessThan(prQuality.indexOf(`run: ${gate}`));
         }
 
-        // The full-graph audit stays on the maintenance lane. It rejects any
-        // advisory at any severity across dev tooling and permits no waiver, so
-        // on the merge-blocking lane one upstream publication would stop every
-        // pull request in the repository for something no author introduced.
+        // No dependency audit on the merge-blocking lane. Both audits reject
+        // any advisory at any severity and permit no waiver, and an advisory
+        // is published on the registry's clock, not the author's: on this lane
+        // one upstream publication stopped two release cuts in one afternoon
+        // for something no commit introduced. The audit runs daily in
+        // dependency-audit.yml and reports through an issue instead, so it
+        // stays visible without being invisible-nightly or release-blocking.
         const prQualityCommands = (parseWorkflowJobs(workflow).pr_quality?.steps ?? [])
             .flatMap(step => runCommandLines(step));
         expect(
-            prQualityCommands.filter(command => command === 'pnpm run check:production-dependency-audit'),
-            'the merge-blocking lane must not audit the full dependency graph',
+            prQualityCommands.filter(command => command.startsWith('pnpm run check:production-dependency-audit')),
+            'the merge-blocking lane must not run any dependency audit',
         ).toEqual([]);
-        expect(
-            prQualityCommands.filter(command => command === 'pnpm run check:production-dependency-audit:production-only'),
-            'the merge-blocking lane must audit production dependencies exactly once',
-        ).toHaveLength(1);
+        const dependencyAuditWorkflow = await readProjectFile('.github/workflows/dependency-audit.yml');
+        const dependencyAuditTriggers = parseWorkflowTriggers(dependencyAuditWorkflow);
+        expect(dependencyAuditTriggers).toHaveProperty('schedule');
+        expect(dependencyAuditTriggers).toHaveProperty('workflow_dispatch');
+        expect(dependencyAuditWorkflow).toContain('- cron: \'40 4 * * *\'');
+        const dependencyAuditJob = workflowJob(dependencyAuditWorkflow, 'audit');
+        expectExactRunStep(dependencyAuditJob, 'pnpm run check:production-dependency-audit:production-only');
+        expectExactRunStep(dependencyAuditJob, 'pnpm run check:production-dependency-audit');
+        expect(dependencyAuditJob).toContain('issues: write');
+        expect(dependencyAuditJob).toContain('label=\'dependency-audit\'');
+        expect(dependencyAuditJob).toContain('gh issue create');
+        expect(dependencyAuditJob).not.toContain('gh issue close');
         expect(packageScripts['test:unit']).toContain('validation-gates.mjs heavy');
         for (const project of [
             'unit-core',
@@ -1042,6 +1052,9 @@ describe('CI topology policy', () => {
             pr_landing_quality: 15, // measured ~7m
             pr_native_build_safety: 35, // measured 18.9m cold-cache
             pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture
+            // Calls build-target.yml, whose one timeout is shared with every
+            // release target; the Linux x64 lane itself measures ~15m.
+            pr_packaged_linux: 45,
             pr_quality: 20, // measured 13.4m
             pr_rust_tests_arm64: 20, // measured 9.6m
             pr_scan_cleanup_heavy: 25, // measured 10.1m cold-cache
@@ -1057,8 +1070,20 @@ describe('CI topology policy', () => {
             'gates_ok',
         ].sort();
         expect(blockingJobNames).toEqual(Object.keys(blockingLaneTimeoutBudgetMinutes).sort());
-        const blockingTimeoutMinutes = blockingJobNames.map((jobName) => {
-            const timeout = (ciJobs[jobName] as Record<string, unknown>)['timeout-minutes'];
+        // A job that calls a reusable workflow cannot declare its own
+        // timeout; the called workflow's single job owns it.
+        const resolveBlockingJob = async (jobName: string) => {
+            const job = ciJobs[jobName] as Record<string, unknown>;
+            if (typeof job.uses !== 'string') {
+                return job;
+            }
+            expect(job.uses, `${jobName} must call a checked-in workflow`).toMatch(/^\.\/\.github\/workflows\/[\w-]+\.yml$/u);
+            const calledJobs = Object.values(parseWorkflowJobs(await readProjectFile(job.uses.slice(2))));
+            expect(calledJobs, `${job.uses} must define exactly one job`).toHaveLength(1);
+            return calledJobs[0] as Record<string, unknown>;
+        };
+        const blockingTimeoutMinutes = await Promise.all(blockingJobNames.map(async (jobName) => {
+            const timeout = (await resolveBlockingJob(jobName))['timeout-minutes'];
             expect(
                 Number.isInteger(timeout) && (timeout as number) > 0,
                 `${jobName} must declare a positive integer timeout-minutes`,
@@ -1066,7 +1091,7 @@ describe('CI topology policy', () => {
             expect(timeout as number, `${jobName} timeout-minutes exceeds its pinned duration budget`)
                 .toBeLessThanOrEqual(blockingLaneTimeoutBudgetMinutes[jobName] ?? 0);
             return timeout as number;
-        });
+        }));
         const completionBudgetMatch = /EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = (\d+) \* 60_000/u.exec(waitScript);
         expect(completionBudgetMatch).not.toBeNull();
         // The 10-minute margin covers runner queueing before the slowest
@@ -1249,6 +1274,42 @@ describe('CI topology policy', () => {
         expect(artifactWorkflow).toContain('- cron: \'10 4 * * *\'');
         expect(workflowJob(artifactWorkflow, 'freshness')).toContain('"$age_seconds" -gt 86400');
         expect(workflowJob(artifactWorkflow, 'prepare')).toContain('always()');
+        // The schedule carries no inputs. Until the prepare job resolved the
+        // main tip itself, every scheduled canary failed on the missing
+        // target_ref and the daily packaging proof never ran.
+        expect(workflowJob(artifactWorkflow, 'prepare')).toContain('[ -z "$DISPATCH_TARGET_REF" ] && [ "$EVENT_NAME" = \'schedule\' ]');
+        expect(workflowJob(artifactWorkflow, 'prepare')).toContain('DISPATCH_TARGET_REF="$(git rev-parse refs/remotes/origin/main)"');
+    });
+
+    it('proves the packaged Linux journey on push CI before any release cut', async () => {
+        // v0.1.447 and v0.1.448 both failed on all four platforms from
+        // verifier-only mistakes that no lane had executed before the cut.
+        const workflow = await readProjectFile('.github/workflows/ci.yml');
+        const buildWorkflow = await readProjectFile('.github/workflows/build-target.yml');
+        const packagedLinux = workflowJob(workflow, 'pr_packaged_linux');
+
+        expect(packagedLinux).toContain('needs.pr_changed_areas.outputs.packaged_smoke == \'true\'');
+        expect(packagedLinux).toContain('uses: ./.github/workflows/build-target.yml');
+        expect(packagedLinux).toContain('os: ubuntu-22.04');
+        expect(packagedLinux).toContain('platform: linux');
+        expect(packagedLinux).toContain('arch: x64');
+        expect(packagedLinux).toContain('upload_artifacts: false');
+        expect(packagedLinux).not.toContain('secrets:');
+        expect(buildWorkflow).toContain('if: ${{ inputs.upload_artifacts }}');
+        const gatesOkJob = workflowJob(workflow, 'gates_ok');
+        expect(gatesOkJob).toContain('- pr_packaged_linux');
+        expect(gatesOkJob).toContain('[\'pr_packaged_linux\', process.env.PACKAGED_SMOKE_CHANGED],');
+        const packagedSmokePaths = getCiChangedAreaPolicy().packagedSmoke?.paths ?? [];
+        for (const proofPath of [
+            'scripts/release/verifyPackagedCorePdfSmoke.ts',
+            'electron-builder.yml',
+            '.github/workflows/build-target.yml',
+            'package.json',
+            'pnpm-lock.yaml',
+            'tests/e2e/electron/helpers/**',
+        ]) {
+            expect(packagedSmokePaths).toContain(proofPath);
+        }
     });
 
     it('keeps Partner Center submission out of the release workflows', async () => {
@@ -1280,6 +1341,7 @@ describe('CI topology policy', () => {
             '.github/workflows/release-supplemental.yml',
             '.github/workflows/release-drill.yml',
             '.github/workflows/release-artifacts.yml',
+            '.github/workflows/dependency-audit.yml',
             '.github/workflows/build.yml',
             '.github/workflows/build-target.yml',
             '.github/workflows/build-mac-intel.yml',
@@ -1456,7 +1518,6 @@ describe('CI topology policy', () => {
                     'pnpm run lint',
                     'pnpm run typecheck',
                     'pnpm run test:coverage',
-                    'pnpm run check:production-dependency-audit:production-only',
                     'pnpm run fallow',
                     'pnpm run fallow:dupes',
                 ],

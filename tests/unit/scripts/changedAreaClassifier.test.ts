@@ -145,9 +145,20 @@ describe('changed-area classifier', () => {
         expect(classifyChangedFiles(['app/modules/pdf-viewer/PdfViewer.vue']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['scripts/electron-run/electronLaunch.ts']).electron_smoke?.matched).toBe(true);
         expect(classifyChangedFiles(['app/platform/browser/browserDocumentIdb.ts']).browser_integration?.matched).toBe(true);
+        for (const file of [
+            '.github/workflows/build-target.yml',
+            'electron-builder.yml',
+            'package.json',
+            'pnpm-lock.yaml',
+            'scripts/release/verifyPackagedCorePdfSmoke.ts',
+            'tests/e2e/electron/helpers/packagedCorePdfJourney.ts',
+        ]) {
+            expect(classifyChangedFiles([file]).packaged_smoke?.matched, file).toBe(true);
+        }
         expect(classifyChangedFiles(['app/app.vue'])).toMatchObject({
             landing: { matched: false },
             native_or_build: { matched: false },
+            packaged_smoke: { matched: false },
         });
     });
 
@@ -310,6 +321,7 @@ describe('changed-area classifier', () => {
                 'electron_smoke=false',
                 'landing=true',
                 'native_or_build=true',
+                'packaged_smoke=true',
                 'scan_cleanup_export=false',
             ]);
         } finally {

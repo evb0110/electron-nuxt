@@ -28,6 +28,16 @@ gh workflow run release-supplemental.yml -f tag=vX.Y.Z
 
 `pnpm run release:verify` remains available as a developer tool when a packaging change needs local proof. It is not part of `release:cut`.
 
+## What is proven before the cut
+
+A release run must never be the first execution of one of its own checks. Three mechanisms keep it that way.
+
+- Push CI runs the packaged Linux proof (`pr_packaged_linux`) whenever the packaged core-PDF verifier, its E2E helpers, `electron-builder.yml`, the bundling scripts, the build workflows, or the dependency manifests change. It is the same `build-target.yml` job the release matrix runs on Linux x64, without the artifact upload. A verifier or packaging mistake fails that commit's CI, not the next release.
+- The artifact canary (`release-artifacts.yml`) packages the current `main` tip on every platform once a day when `main` changed in the last 24 hours. It covers drift the path filter does not catch.
+- The dependency audit runs daily in `dependency-audit.yml`, never on push CI or the release path. It maintains one open issue labelled `dependency-audit`. An advisory published five minutes ago is not a reason to stop a cut; fix it as ordinary dependency work.
+
+Windows-, macOS-, and signing-specific steps still run first during the release. When one of them fails on a code or verifier change, fix it, push, wait for green CI, and cut again.
+
 ## Check a release
 
 Use the read-only status command for one-screen state:
@@ -53,6 +63,7 @@ Resume checks that `HEAD` is the version-only release commit and that it exists 
 | Failing job or area | Action |
 | --- | --- |
 | `prepare` or exact-SHA CI | Inspect the run URL. Every push to `main` runs `ci.yml`, so a release parent without a run means its push run was cancelled or never appeared; check the Actions page for that commit. Only push runs count; a `workflow_dispatch` run of `ci.yml` executes the manual lanes and carries no `gates_ok`. A target with code changes needs a new green commit and version. |
+| A packaged or installed core-PDF journey in the build matrix | Read the step log for the journey, not the packaging. If the verifier or the app behaviour it asserts is wrong, fix it and push; push CI's packaged Linux proof runs the same journey on that commit, so wait for it before cutting again. Do not loosen the journey to get the release out. |
 | Core package, validate, checksum, mirror, or promotion job | Rerun failed jobs on the same run. If a stale draft remains, run `pnpm run release:resume` from the release commit. Do not create a new version for an infrastructure retry. |
 | macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. Assets already attached are verified, not rebuilt. |
 | A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

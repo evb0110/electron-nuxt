@@ -85,9 +85,19 @@ jobs:
         shell: bash
         env:
           DISPATCH_TARGET_REF: ${{ inputs.target_ref }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # The scheduled canary carries no inputs; it packages the current
+          # main tip so packaging drift surfaces daily instead of at the next
+          # release cut.
+          if [ -z "$DISPATCH_TARGET_REF" ] && [ "$EVENT_NAME" = 'schedule' ]; then
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            DISPATCH_TARGET_REF="$(git rev-parse refs/remotes/origin/main)"
+            echo "::notice::Scheduled artifact canary targets main tip $DISPATCH_TARGET_REF."
+          fi
 
           if [ -z "$DISPATCH_TARGET_REF" ]; then
             echo "::error::A target commit SHA or ref is required."

@@ -28,6 +28,14 @@ on:
         required: false
         default: artifact-build
         type: string
+      upload_artifacts:
+        description: >-
+          Upload the verified release files as a workflow artifact. Push CI's
+          packaged Linux proof runs this job for its checks only and sets
+          this to false, so artifact_ready is false for that caller.
+        required: false
+        default: true
+        type: boolean
     secrets:
       CSC_LINK:
         required: false
@@ -66,6 +74,9 @@ jobs:
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}
     runs-on: ${{ inputs.os }}
+    # Shared by every release target; the slowest (Windows ARM64 with MSYS2
+    # bundling) measures about 30 minutes, the Linux x64 lane about 15.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -512,6 +523,7 @@ jobs:
 
       - name: Upload artifacts
         id: upload_artifacts
+        if: ${{ inputs.upload_artifacts }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ inputs.artifact_group }}

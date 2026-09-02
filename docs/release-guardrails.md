@@ -42,9 +42,22 @@ here is required reading for an ordinary cut.
 - The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
 - Distribution decisions must remain compatible with an individual, free, non-commercial project. Treat any business identity, paid account, or account conversion requirement as an explicit owner decision rather than an assumed release prerequisite.
 
+## Pre-release proof of packaged behaviour
+
+- The packaged core-PDF journey (`scripts/release/verifyPackagedCorePdfSmoke.ts`) has no local runner and no vitest coverage. Push CI's `pr_packaged_linux` job is where it executes before a release: it calls `build-target.yml` for Linux x64 exactly as the release matrix does, with `upload_artifacts: false`, whenever the `packagedSmoke` changed-area policy matches. Extend that path list in `scripts/release/policy.mjs` when the journey gains a new dependency.
+- The proof is Linux-only by design. Both verifier regressions that failed v0.1.447 and v0.1.448 failed identically on all four platforms; the platform-specific steps (signing, notarization, NSIS install, Windows append sharing) stay release-only and are covered daily by the artifact canary.
+- Do not add release-only assertions to the journey without a CI or canary execution first. A behaviour pin that has never run is not a guardrail.
+
+## Dependency advisories
+
+- `check:production-dependency-audit` rejects any advisory at any severity and permits no waiver. It runs daily in [`dependency-audit.yml`](../.github/workflows/dependency-audit.yml) and reports through one open issue labelled `dependency-audit`; a clean run comments on that issue rather than closing it. It is absent from push CI and from every release workflow on purpose: advisories arrive on the registry's clock, and on the required lane one publication blocked two release cuts in one afternoon for a commit that changed nothing about dependencies.
+- `pnpm-workspace.yaml` holds new registry releases for seven days (`minimumReleaseAge`). A fix version younger than that needs `pnpm install --config.minimum-release-age=0` for that install only; say so in the commit message. Do not lower the workspace setting.
+- A dependency fix is ordinary work: it goes through push CI like any commit and may be released whenever the next cut happens.
+
 ## Artifact-only flow
 
 - Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
+- The same workflow runs on a daily schedule as the artifact canary. With no `target_ref` input it resolves the current `main` tip itself and skips when `main` is older than 24 hours.
 - The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX packages, applying the same packaged native-tool and ASAR/content verification as release lanes.
 - It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
 
