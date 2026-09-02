@@ -29,6 +29,7 @@ interface ITextBoxKeydownEvent {
 export interface ITextBoxInlineEdit {
     readonly editorRef: Ref<HTMLElement | null>;
     readonly draftText: Ref<string>;
+    commit(): void;
     handleInput(event: ITextBoxInputEvent): void;
     handleKeydown(event: ITextBoxKeydownEvent): void;
     handleBlur(): void;
@@ -151,6 +152,7 @@ export const useTextBoxInlineEdit = (
     return {
         editorRef,
         draftText,
+        commit,
         handleInput,
         handleKeydown,
         handleBlur,

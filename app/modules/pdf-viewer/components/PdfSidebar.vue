@@ -19,7 +19,6 @@
                 :enrichment-state="annotationEnrichmentState"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
                 :selected-text-box="selectedTextBox"
-                :has-selected-text-box="hasSelectedTextBox"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
                 @update:keep-active="updateAnnotationKeepActive"
@@ -192,7 +191,6 @@ interface IProps {
     annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     annotationActiveCommentStableKey?: string | null | undefined;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null | undefined;
-    hasSelectedTextBox?: boolean | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
     bookmarksDirty: boolean;
@@ -214,7 +212,6 @@ const {
     activeTab: activeTabProp = undefined,
     annotationActiveCommentStableKey: annotationActiveCommentStableKeyProp = undefined,
     selectedTextBox = null,
-    hasSelectedTextBox = false,
     annotationTool,
     annotationKeepActive,
     annotationSettings,

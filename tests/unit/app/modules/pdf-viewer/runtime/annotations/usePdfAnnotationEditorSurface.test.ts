@@ -230,6 +230,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         const harness = createSurfaceHarness();
 
         const created = harness.surface.createTextBoxAt(0, rect);
+        expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
         harness.surface.select([created.identity.id]);
 
         expect(harness.surface.getSelectedTextBox()).toMatchObject({
@@ -242,6 +243,7 @@ describe('usePdfAnnotationEditorSurface', () => {
             fontSize: 22,
             color: '#ef4444',
         })).toBe(true);
+        expect(harness.emitAnnotationModified).toHaveBeenCalledOnce();
         expect(harness.surface.getSelectedTextBox()).toMatchObject({
             fontSize: 22,
             color: '#ef4444',
@@ -249,7 +251,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         expect(harness.surface.updateSelectedTextBoxProperties({fontSize: 22})).toBe(false);
         expect(harness.surface.deleteAnnotation(created.identity.id)).toBe(true);
         expect(harness.surface.getSelectedTextBox()).toBeNull();
-        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(3);
+        expect(harness.emitAnnotationModified).toHaveBeenCalledTimes(2);
 
         harness.stop();
     });
@@ -259,6 +261,7 @@ describe('usePdfAnnotationEditorSurface', () => {
         const created = harness.surface.createTextBoxAt(0, rect);
 
         expect(harness.surface.discardUnsavedAnnotation(created.identity.id)).toBe(true);
+        expect(harness.emitAnnotationModified).not.toHaveBeenCalled();
         expect(harness.annotationApplication.value.store.get(created.identity.id)).toBeNull();
         expect(harness.annotationApplication.value.store.canUndo).toBe(false);
         expect(harness.surface.discardUnsavedAnnotation(created.identity.id)).toBe(false);

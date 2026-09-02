@@ -3,7 +3,7 @@
         v-if="rect"
         class="pdf-annotation-selection-handles"
         :style="handlesStyle"
-        :aria-hidden="props.entity?.kind === 'text-box' ? undefined : 'true'"
+        aria-hidden="true"
     >
         <span
             v-for="handle in handles"

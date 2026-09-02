@@ -35,6 +35,7 @@
             <PdfTextBoxAnnotation
                 v-for="entity in htmlEntities.textBoxes"
                 :key="entity.identity.id"
+                :ref="element => setTextBoxRef(entity.identity.id, element)"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
                 :editing="editingId === entity.identity.id"
@@ -72,6 +73,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ComponentPublicInstance } from 'vue';
 import type {
     AnnotationId,
     IPlacedImageEntity,
@@ -112,6 +114,8 @@ const editingId = ref<AnnotationId | null>(null);
 const draggedAnnotationId = ref<AnnotationId | null>(null);
 const isCreating = ref(false);
 const newTextBoxIds = new Set<AnnotationId>();
+interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
+const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
 let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -142,6 +146,21 @@ const htmlEntities = computed(() => ({
     notes: entities.value.filter((entity): entity is INoteEntity => entity.kind === 'note'),
     stamps: entities.value.filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
 }));
+
+function setTextBoxRef(
+    annotationId: AnnotationId,
+    element: Element | ComponentPublicInstance | null,
+) {
+    if (
+        element
+        && 'commitDraft' in element
+        && typeof element.commitDraft === 'function'
+    ) {
+        textBoxRefs.set(annotationId, element as IPdfTextBoxAnnotationExpose);
+        return;
+    }
+    textBoxRefs.delete(annotationId);
+}
 
 function entityIdFromEvent(event: MouseEvent | PointerEvent) {
     const target = event.target;
@@ -400,8 +419,12 @@ onBeforeUnmount(() => {
     if (suppressClickTimer !== null) {
         clearTimeout(suppressClickTimer);
     }
+    if (editingId.value !== null) {
+        textBoxRefs.get(editingId.value)?.commitDraft();
+    }
     newTextBoxIds.forEach(annotationId => surface.discardUnsavedAnnotation(annotationId));
     newTextBoxIds.clear();
+    textBoxRefs.clear();
     editingId.value = null;
     pointerGesture.cancel();
 });

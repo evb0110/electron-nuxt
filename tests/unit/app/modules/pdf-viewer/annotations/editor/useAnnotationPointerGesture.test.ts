@@ -67,8 +67,9 @@ function pointer(clientX: number, clientY: number, pointerId = 1) {
     };
 }
 
-function createHarness() {
+function createHarness(scopes: Set<ReturnType<typeof effectScope>>) {
     const scope = effectScope();
+    scopes.add(scope);
     const surfaceMethods: Pick<IAnnotationEditorSurface, 'beginMove' | 'beginResize'> = {
         beginMove: vi.fn(() => gesture),
         beginResize: vi.fn(() => ({
@@ -97,8 +98,7 @@ describe('useAnnotationPointerGesture', () => {
     });
 
     it('previews a create drag and returns the final rectangle without writing during movement', () => {
-        const harness = createHarness();
-        scopes.add(harness.scope);
+        const harness = createHarness(scopes);
 
         expect(harness.interaction.beginCreate({
             x: 0.2,
@@ -133,8 +133,7 @@ describe('useAnnotationPointerGesture', () => {
     });
 
     it('keeps a click-create distinct from a drag so the caller can use the default box', () => {
-        const harness = createHarness();
-        scopes.add(harness.scope);
+        const harness = createHarness(scopes);
 
         harness.interaction.beginCreate({
             x: 0.4,
@@ -158,8 +157,7 @@ describe('useAnnotationPointerGesture', () => {
     });
 
     it('previews and completes a move from the captured text-box entity', () => {
-        const harness = createHarness();
-        scopes.add(harness.scope);
+        const harness = createHarness(scopes);
 
         expect(harness.interaction.beginMove(gesture.annotationId, {
             x: 0.3,
@@ -188,8 +186,7 @@ describe('useAnnotationPointerGesture', () => {
     });
 
     it('cancels the active gesture and clears its preview', () => {
-        const harness = createHarness();
-        scopes.add(harness.scope);
+        const harness = createHarness(scopes);
 
         harness.interaction.beginResize(gesture.annotationId, 'se', {
             x: 0.6,

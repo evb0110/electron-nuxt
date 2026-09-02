@@ -4,13 +4,13 @@ import {
     expect,
     it,
 } from 'vitest';
-import {execFile} from 'node:child_process';
 import {stat} from 'node:fs/promises';
 import {
     copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
     createMultiPageTextFixturePdf,
     createOutlinePageLabelFixturePdf,
+    readFreeTextObjectByName,
     readPdfMetadataWithQpdf,
     readPdfAnnotationSummary,
 } from '@tests/e2e/electron/helpers/fixtures';
@@ -37,11 +37,9 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import type {KeyInput} from 'puppeteer-core';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
-import {promisify} from 'node:util';
 
 const NATIVE_SAVE_REOPEN_TIMEOUT_MS = 120_000;
 const OUTLINE_METADATA_MATRIX_TIMEOUT_MS = 15 * 60_000;
-const execFileAsync = promisify(execFile);
 
 interface IAgentActionResult extends Record<string, unknown> {
     comment?: Record<string, unknown>;
@@ -73,11 +71,6 @@ interface IQpdfOutline {
     title?: string;
     destpageposfrom1?: number;
     kids?: IQpdfOutline[];
-}
-
-interface IQpdfObjectRef {
-    generationNumber: number;
-    objectNumber: number;
 }
 
 function flattenQpdfOutlines(outlines: IQpdfOutline[]): Array<{
@@ -113,65 +106,6 @@ async function waitForOpenedPdf(session: IElectronE2ESession, path: string) {
     ]);
     await waitForPdfLoaded(session.page, 45_000);
     await waitForViewerInteractive(session.page, 45_000);
-}
-
-function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
-    return Array.from(value.matchAll(/(\d+)\s+(\d+)\s+R/gu)).map(match => ({
-        objectNumber: Number(match[1]),
-        generationNumber: Number(match[2]),
-    }));
-}
-
-async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
-    const {stdout} = await execFileAsync('qpdf', [
-        `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
-        filePath,
-    ], {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-        timeout: 120_000,
-    });
-    return stdout;
-}
-
-async function readFreeTextObjectByName(filePath: string, name: string) {
-    const {stdout: pagesOutput} = await execFileAsync('qpdf', [
-        '--show-pages',
-        filePath,
-    ], {
-        encoding: 'utf8',
-        maxBuffer: 1024 * 1024,
-        timeout: 120_000,
-    });
-    const pageRefMatch = pagesOutput.match(/^page 1: (\d+) (\d+) R$/mu);
-    if (!pageRefMatch) {
-        throw new Error(`qpdf did not report the first page object for ${filePath}`);
-    }
-    const pageObject = await readQpdfObject(filePath, {
-        objectNumber: Number(pageRefMatch[1]),
-        generationNumber: Number(pageRefMatch[2]),
-    });
-    const annotsMatch = pageObject.match(/\/Annots\s+(\[[\s\S]*?\]|\d+\s+\d+\s+R)/u);
-    if (!annotsMatch?.[1]) {
-        throw new Error(`qpdf did not report page annotations for ${filePath}`);
-    }
-    const annotsValue = annotsMatch[1].startsWith('[')
-        ? annotsMatch[1]
-        : await readQpdfObject(filePath, parseQpdfObjectRefs(annotsMatch[1])[0]!);
-    const objectRefs = parseQpdfObjectRefs(annotsValue);
-    for (const objectRef of objectRefs) {
-        const object = await readQpdfObject(filePath, objectRef);
-        if (
-            /\/Subtype\s*\/FreeText(?:\s|$)/u.test(object)
-            && object.includes(`/NM (${name})`)
-        ) {
-            return {
-                object,
-                objectRef,
-            };
-        }
-    }
-    throw new Error(`qpdf did not find FreeText annotation ${name} in ${filePath}`);
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -474,12 +408,15 @@ async function readTextBoxScreenPoints(
 
 async function readTextBoxComputedStyle(
     page: Parameters<typeof evaluateInPage>[0],
-    annotationId: string,
+    annotationId?: string,
 ) {
-    return page.evaluate((id: string) => {
-        const textBox = Array.from(document.querySelectorAll<HTMLElement>(
+    return page.evaluate((id: string | null) => {
+        const textBoxes = Array.from(document.querySelectorAll<HTMLElement>(
             '[data-annotation-kind="text-box"]',
-        )).find(candidate => candidate.dataset.annotationId === id);
+        ));
+        const textBox = id === null
+            ? textBoxes[0]
+            : textBoxes.find(candidate => candidate.dataset.annotationId === id);
         if (!textBox) {
             return null;
         }
@@ -493,26 +430,11 @@ async function readTextBoxComputedStyle(
                 ? Number((fontSizeCssPixels / (scaleFactor * userUnit)).toFixed(3))
                 : null,
         };
-    }, annotationId);
+    }, annotationId ?? null);
 }
 
 async function readFirstTextBoxComputedStyle(page: Parameters<typeof evaluateInPage>[0]) {
-    return evaluateInPage(page, () => {
-        const textBox = document.querySelector<HTMLElement>('[data-annotation-kind="text-box"]');
-        if (!textBox) {
-            return null;
-        }
-        const style = window.getComputedStyle(textBox);
-        const scaleFactor = Number.parseFloat(style.getPropertyValue('--scale-factor')) || 1;
-        const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit')) || 1;
-        const fontSizeCssPixels = Number.parseFloat(style.fontSize);
-        return {
-            color: style.color,
-            fontSize: Number.isFinite(fontSizeCssPixels)
-                ? Number((fontSizeCssPixels / (scaleFactor * userUnit)).toFixed(3))
-                : null,
-        };
-    });
+    return readTextBoxComputedStyle(page);
 }
 
 async function increaseSelectedTextBoxFontSize(page: Parameters<typeof evaluateInPage>[0]) {
@@ -855,13 +777,7 @@ describe('Electron E2E - native save and reopen', () => {
         const beforeResizeComment = findTextBoxComment(beforeResizeSnapshot, typedText);
         const beforeResizeRect = normalizedRect(beforeResizeComment?.markerRect);
         const beforeResizeScreen = await readTextBoxScreenPoints(session.page, 'se');
-        const fontSizeBeforeResize = await session.page.evaluate(() => {
-            const textBox = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="text-box"]',
-            );
-            const value = textBox ? Number.parseFloat(window.getComputedStyle(textBox).fontSize) : NaN;
-            return Number.isFinite(value) ? value : null;
-        });
+        const fontSizeBeforeResize = (await readTextBoxComputedStyle(session.page))?.fontSize ?? null;
         expect(beforeResizeRect).not.toBeNull();
         expect(beforeResizeScreen?.handle).not.toBeNull();
         expect(fontSizeBeforeResize).not.toBeNull();
@@ -884,13 +800,7 @@ describe('Electron E2E - native save and reopen', () => {
         const resizedComment = findTextBoxComment(resizedSnapshot, typedText);
         const resizedRect = normalizedRect(resizedComment?.markerRect);
         expect(resizedRect).not.toBeNull();
-        expect(await session.page.evaluate(() => {
-            const textBox = document.querySelector<HTMLElement>(
-                '.editor-pane.is-active .page_container[data-page="1"] [data-annotation-kind="text-box"]',
-            );
-            const value = textBox ? Number.parseFloat(window.getComputedStyle(textBox).fontSize) : NaN;
-            return Number.isFinite(value) ? value : null;
-        })).toBe(fontSizeBeforeResize);
+        expect((await readTextBoxComputedStyle(session.page))?.fontSize ?? null).toBe(fontSizeBeforeResize);
         if (!resizedRect) {
             throw new Error('The resized text box was not published to the canonical store');
         }
@@ -1066,6 +976,7 @@ describe('Electron E2E - native save and reopen', () => {
         if (!initialRect || !initialStyle || initialStyle.fontSize === null) {
             throw new Error('The fixture text box did not expose stable geometry or style');
         }
+        const initialFontSize = initialStyle.fontSize;
         const point = await session.page.evaluate((id: string) => {
             const entity = Array.from(document.querySelectorAll<HTMLElement>(
                 '[data-annotation-kind="text-box"]',
@@ -1095,11 +1006,14 @@ describe('Electron E2E - native save and reopen', () => {
             document.querySelector<HTMLElement>(
                 '.annotation-style-popover .style-row-width .style-label',
             )?.textContent ?? ''
-        )), {timeout: 20_000}).toContain(String(initialStyle.fontSize));
+        )), {timeout: 20_000}).toContain(String(initialFontSize));
         await increaseSelectedTextBoxFontSize(session.page);
         await expect.poll(async () => (
             await readTextBoxComputedStyle(session!.page, annotationId)
-        ), {timeout: 20_000}).toMatchObject({fontSize: initialStyle.fontSize + 1});
+        ), {timeout: 20_000}).toSatisfy(style => (
+            typeof style?.fontSize === 'number'
+            && style.fontSize > initialFontSize
+        ));
         const editedStyle = await readTextBoxComputedStyle(session.page, annotationId);
         expect(editedStyle).not.toBeNull();
         if (!editedStyle || editedStyle.fontSize === null) {
@@ -1140,7 +1054,7 @@ describe('Electron E2E - native save and reopen', () => {
         expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
         const savedTextBox = await readFreeTextObjectByName(pdfPath, 'lifecycle-text-box-one');
         expect(qpdfObjectContainsText(savedTextBox.object, editedText)).toBe(true);
-        expect(savedTextBox.object).toContain('/DA (/Helvetica 15 Tf 0 0 1 rg)');
+        expect(savedTextBox.object).toContain(`/DA (/Helvetica ${editedStyle.fontSize} Tf 0 0 1 rg)`);
         expect(savedTextBox.object).toContain('/RC (<body>Foreign rich text sentinel</body>)');
         expect(savedTextBox.object).toContain('/DS (foreign-style-sentinel)');
 

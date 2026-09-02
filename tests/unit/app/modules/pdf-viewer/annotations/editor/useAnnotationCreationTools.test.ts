@@ -44,5 +44,6 @@ describe('useAnnotationCreationTools', () => {
         expect(createTextBoxAt).toHaveBeenCalledWith(2, entity.rect);
         expect(select).toHaveBeenCalledWith([entity.identity.id]);
         expect(tools.create('highlight', 2, entity.rect)).toBeNull();
+        expect(createTextBoxAt).toHaveBeenCalledOnce();
     });
 });

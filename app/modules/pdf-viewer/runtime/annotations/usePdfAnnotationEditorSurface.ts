@@ -239,14 +239,17 @@ export const usePdfAnnotationEditorSurface = (
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ) {
         const entity = getSelectedTextBox();
+        if (!entity) {
+            return false;
+        }
         const changed = (
             updates.fontSize !== undefined
-            && updates.fontSize !== entity?.fontSize
+            && updates.fontSize !== entity.fontSize
         ) || (
             updates.color !== undefined
-            && updates.color !== entity?.color
+            && updates.color !== entity.color
         );
-        if (!entity || !changed) {
+        if (!changed) {
             return false;
         }
         store().updateTextBox(entity.identity.id, updates);
@@ -270,7 +273,6 @@ export const usePdfAnnotationEditorSurface = (
             return false;
         }
         store().forget(new Set([annotationId]));
-        options.emitAnnotationModified?.();
         return true;
     }
 
@@ -417,7 +419,6 @@ export const usePdfAnnotationEditorSurface = (
             color: options.settings.value?.textColor ?? null,
             ...overrides,
         });
-        options.emitAnnotationModified?.();
         return created;
     }
 

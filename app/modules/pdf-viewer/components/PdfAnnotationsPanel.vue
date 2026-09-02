@@ -116,7 +116,6 @@ interface IProps {
     enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null;
     selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
-    hasSelectedTextBox?: boolean;
 }
 
 interface IPdfAnnotationToolbarExpose {getButtonEl(toolId: TAnnotationTool): HTMLElement | null;}
@@ -134,11 +133,10 @@ const {
     enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     activeCommentStableKey: rawActiveCommentStableKey = null,
     selectedTextBox = null,
-    hasSelectedTextBox = false,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);
 const styleTool = computed<TAnnotationTool>(() => (
-    hasSelectedTextBox && (tool === 'select' || tool === 'none') ? 'text' : tool
+    selectedTextBox !== null && (tool === 'select' || tool === 'none') ? 'text' : tool
 ));
 const showStyleEditor = computed(() => isAuthoringAnnotationTool(styleTool.value));
 const stylePopoverOpen = ref(false);
@@ -227,7 +225,7 @@ function clearStylePopoverReopenTimer() {
 
 watch(() => [
     tool,
-    hasSelectedTextBox,
+    selectedTextBox,
 ], async () => {
     clearStylePopoverReopenTimer();
     if (!showStyleEditor.value) {

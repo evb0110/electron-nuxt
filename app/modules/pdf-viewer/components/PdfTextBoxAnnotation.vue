@@ -56,11 +56,14 @@ const inlineEdit = useTextBoxInlineEdit({
     onCancel: () => emit('cancel'),
 });
 const {
+    commit,
     editorRef,
     handleInput,
     handleKeydown,
     handleBlur,
 } = inlineEdit;
+
+interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 
 const rectStyle = computed(() => ({
     left: `${(props.displayRect ?? props.entity.rect).left * 100}%`,
@@ -81,4 +84,6 @@ function handleEdit() {
         emit('edit');
     }
 }
+
+defineExpose<IPdfTextBoxAnnotationExpose>({commitDraft: commit});
 </script>

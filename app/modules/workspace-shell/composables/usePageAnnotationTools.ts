@@ -16,21 +16,18 @@ import {
     isShapeTool,
     PENDING_ANNOTATION_ENRICHMENT_STATE,
 } from '@app/modules/pdf-viewer/public';
+import type { IWorkspacePdfViewerAnnotationToolsPort } from '@app/modules/workspace-shell/types/workspacePdfViewerPorts.types';
 
-interface IPdfViewerForAnnotationTools {
+interface IPdfViewerForAnnotationTools extends Pick<IWorkspacePdfViewerAnnotationToolsPort,
+    'selectedTextBox'
+    | 'getSelectedTextBox'
+    | 'updateSelectedTextBoxProperties'
+> {
     cancelCommentPlacement: () => void;
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
     getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
     updateShape: (id: string, updates: TShapeAnnotationPatch) => void;
-    getSelectedTextBox?: () => {
-        fontSize: number;
-        color: string | null
-    } | null;
-    updateSelectedTextBoxProperties?: (updates: {
-        fontSize?: number;
-        color?: string | null
-    }) => boolean;
 }
 
 interface IPageAnnotationToolsDeps {

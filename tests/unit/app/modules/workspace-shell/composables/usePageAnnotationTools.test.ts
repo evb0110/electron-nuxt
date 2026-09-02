@@ -9,6 +9,7 @@ import type {
     IAnnotationEditorState,
     IShapeAnnotation,
 } from '@app/types/annotations';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { usePageAnnotationTools } from '@app/modules/workspace-shell/composables/usePageAnnotationTools';
 
 function createEditorState(overrides: Partial<IAnnotationEditorState> = {}): IAnnotationEditorState {
@@ -38,6 +39,30 @@ function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShap
     };
 }
 
+function createTextBoxEntity(): ITextBoxEntity {
+    return {
+        kind: 'text-box',
+        identity: {id: 'text-box' as ITextBoxEntity['identity']['id']},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: 0,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        text: 'text box',
+        rect: {
+            left: 0.1,
+            top: 0.1,
+            width: 0.3,
+            height: 0.1,
+        },
+        rotation: 0,
+        fontSize: 14,
+        color: '#000000',
+    };
+}
+
 function createHarness() {
     const viewer = {
         cancelCommentPlacement: vi.fn(),
@@ -45,10 +70,7 @@ function createHarness() {
         selectedShapeId: null as string | null,
         getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
         updateShape: vi.fn(),
-        getSelectedTextBox: vi.fn<() => {
-            fontSize: number;
-            color: string | null
-        } | null>(() => null),
+        getSelectedTextBox: vi.fn<() => ITextBoxEntity | null>(() => null),
         updateSelectedTextBoxProperties: vi.fn(),
     };
 
@@ -190,10 +212,7 @@ describe('usePageAnnotationTools', () => {
             tools,
         } = createHarness();
 
-        viewer.getSelectedTextBox.mockReturnValue({
-            fontSize: 14,
-            color: '#000000',
-        });
+        viewer.getSelectedTextBox.mockReturnValue(createTextBoxEntity());
 
         tools.handleAnnotationSettingChange({
             key: 'textSize',
