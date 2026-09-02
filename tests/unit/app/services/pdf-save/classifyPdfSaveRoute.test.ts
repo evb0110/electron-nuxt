@@ -1033,6 +1033,54 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             .toEqual(['unrelated-runtime-id']);
     });
 
+    it('projects an imported sticky-note move with a native PDF object ref', () => {
+        const moved: INoteEntity = {
+            ...embeddedNote('anno_native_ref_moved_text', '12 0 R'),
+            identity: {
+                id: asAnnotationId('anno_native_ref_moved_text'),
+                pdfRef: '12 0 R',
+            },
+            pageIndex: 1,
+            position: {
+                left: 0.6,
+                top: 0.25,
+                width: 0.15,
+                height: 0.12,
+            },
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([moved]),
+            capabilities({
+                totalPageCount: 2,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_native_ref_moved_text',
+                        '12R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    hasChanges: true,
+                    fingerprint: 'moved-imported-sticky-note-native-ref',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations).toMatchObject({geometryUpdates: [{
+            objectNumber: 12,
+            generationNumber: 0,
+            pageIndex: 1,
+            markerRect: moved.position,
+        }]});
+    });
+
     it('projects imported FreeText geometry and style edits through the native editor route', () => {
         const importedEditor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),

@@ -1,6 +1,6 @@
 import {
     formatPdfJsAnnotationRef,
-    parsePdfJsAnnotationRef,
+    parsePdfAnnotationRef,
     type IPdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 import type { TAnnotationStableKey } from '@app/types/annotations';
@@ -19,7 +19,6 @@ export interface IPdfAnnotationStableKeyRef extends IPdfAnnotationStableKey {
 }
 
 const PDF_ANNOTATION_STABLE_KEY_RE = /^ann:(\d+):(.+)$/u;
-const PDF_ANNOTATION_REF_STABLE_KEY_RE = /^ann:(\d+):(\d+R(?:\d+)?)$/iu;
 
 function parseStableKeyPageIndex(value: string | undefined) {
     if (!value) {
@@ -60,10 +59,10 @@ export function parsePdfAnnotationStableKeyRef(
         return null;
     }
 
-    const match = trimmed.match(PDF_ANNOTATION_REF_STABLE_KEY_RE);
+    const match = trimmed.match(PDF_ANNOTATION_STABLE_KEY_RE);
     const pageIndex = parseStableKeyPageIndex(match?.[1]);
-    const refText = match?.[2];
-    const ref = parsePdfJsAnnotationRef(refText);
+    const refText = match?.[2]?.trim();
+    const ref = parsePdfAnnotationRef(refText);
     if (pageIndex === null || !refText || !ref) {
         return null;
     }

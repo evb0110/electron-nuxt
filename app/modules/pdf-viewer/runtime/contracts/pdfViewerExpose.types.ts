@@ -146,6 +146,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     annotationHistoryMutationVersion?: number | undefined;
     annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
+    hasCanonicalShapeChanges?: (() => boolean) | undefined;
     collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
     getAnnotationStorageDebugState?: (() => IPdfAnnotationStorageDebugState) | undefined;
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;

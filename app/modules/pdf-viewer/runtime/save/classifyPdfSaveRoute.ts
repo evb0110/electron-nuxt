@@ -21,7 +21,7 @@ import type {
 import { selectSerializationBackend } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import {
     normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
+    parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 import {
     mergeLivePdfJsAnnotationChanges,
@@ -392,7 +392,7 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
         || canonical.replayableEmbeddedAnnotationIds.size > 0;
     const hasEditorOnlyAnnotationsPendingMaterialization = canonical.comments.some(comment =>
         comment.source === 'editor'
-        && !parsePdfJsAnnotationRef(comment.annotationId)
+        && !parsePdfAnnotationRef(comment.annotationId)
         && !isReplayableEditorOnlyFreeTextNote(comment)
         && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
     );
@@ -618,7 +618,7 @@ function collectProjectedNativeAnnotationIds(input: {
 
     input.changedComments.forEach((comment) => {
         const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
-            ?? parsePdfJsAnnotationRef(comment.annotationId);
+            ?? parsePdfAnnotationRef(comment.annotationId);
         const hasProjectedTextUpdate = targetRef !== null
             && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
         const hasProjectedGeometryUpdate = targetRef !== null

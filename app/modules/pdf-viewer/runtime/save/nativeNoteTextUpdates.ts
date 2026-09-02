@@ -1,7 +1,7 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     normalizePdfJsAnnotationId,
-    parsePdfJsAnnotationRef,
+    parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
@@ -29,7 +29,7 @@ function parseAnnotationRefFromStableKey(stableKey: string) {
 function resolveNativeNoteTextUpdateRef(stableKey: string, comment: IAnnotationCommentSummary) {
     return parseAnnotationRefFromStableKey(stableKey)
         ?? parseAnnotationRefFromStableKey(comment.stableKey)
-        ?? parsePdfJsAnnotationRef(comment.annotationId);
+        ?? parsePdfAnnotationRef(comment.annotationId);
 }
 
 function buildNativeNoteTextCommentLookup(comments: IAnnotationCommentSummary[]) {

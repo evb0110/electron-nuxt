@@ -6,7 +6,9 @@ import {
 import {
     formatPdfJsAnnotationRef,
     normalizePdfJsAnnotationId,
+    parsePdfAnnotationRef,
     parsePdfJsAnnotationRef,
+    parsePdfNativeAnnotationRef,
 } from '@contracts/pdfAnnotationRefs';
 
 describe('PDF.js annotation reference contract', () => {
@@ -26,6 +28,21 @@ describe('PDF.js annotation reference contract', () => {
         expect(parsePdfJsAnnotationRef('42 0 R')).toBeNull();
         expect(parsePdfJsAnnotationRef('9007199254740992R')).toBeNull();
         expect(parsePdfJsAnnotationRef('42R65536')).toBeNull();
+    });
+
+    it('parses native PDF object references through the cross-layer parser', () => {
+        expect(parsePdfNativeAnnotationRef(' 42 0 R ')).toEqual({
+            objectNumber: 42,
+            generationNumber: 0,
+        });
+        expect(parsePdfNativeAnnotationRef('42 7 R')).toEqual({
+            objectNumber: 42,
+            generationNumber: 7,
+        });
+        expect(parsePdfAnnotationRef('42 0 R')).toEqual({
+            objectNumber: 42,
+            generationNumber: 0,
+        });
     });
 
     it('formats and normalizes compact references', () => {

@@ -273,6 +273,7 @@ export const usePdfViewerPublicApiController = (
         annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
+        hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
         collectLiveAnnotationChanges: annotationRuntime.collectLiveAnnotationChanges,
         getAnnotationStorageDebugState: () => collectPdfJsAnnotationStorageDebugState(
             documentSession.pdfDocument.value,

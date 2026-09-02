@@ -23,11 +23,11 @@ import {
     readPdfRectFromDict,
     tryResolvePdfLibPageView,
 } from '@pdf-core';
-import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
+import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { getPdfPopupDict } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/getPdfPopupDict';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 
-function toPdfLibRef(ref: ReturnType<typeof parsePdfJsAnnotationRef>) {
+function toPdfLibRef(ref: ReturnType<typeof parsePdfAnnotationRef>) {
     return ref ? PDFRef.of(ref.objectNumber, ref.generationNumber) : null;
 }
 
@@ -56,7 +56,7 @@ function isNoteLikeAnnotationSubtype(
 
 function resolveCommentPdfRef(comment: IAnnotationCommentSummary) {
     return (
-        toPdfLibRef(parsePdfJsAnnotationRef(comment.annotationId ?? comment.id))
+        toPdfLibRef(parsePdfAnnotationRef(comment.annotationId ?? comment.id))
         ?? parseAnnotationRefFromStableKey(comment.stableKey)
     );
 }

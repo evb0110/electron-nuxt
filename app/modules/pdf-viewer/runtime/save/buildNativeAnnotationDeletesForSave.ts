@@ -1,5 +1,5 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
+import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
@@ -12,9 +12,9 @@ function parseAnnotationRefFromStableKey(stableKey: string) {
 
 function resolveNativeAnnotationDeleteRef(comment: IAnnotationCommentSummary) {
     return parseAnnotationRefFromStableKey(comment.stableKey)
-        ?? parsePdfJsAnnotationRef(comment.annotationId)
-        ?? parsePdfJsAnnotationRef(comment.uid)
-        ?? parsePdfJsAnnotationRef(comment.id);
+        ?? parsePdfAnnotationRef(comment.annotationId)
+        ?? parsePdfAnnotationRef(comment.uid)
+        ?? parsePdfAnnotationRef(comment.id);
 }
 
 export function getNativeAnnotationDeleteCommentTargetKey(
