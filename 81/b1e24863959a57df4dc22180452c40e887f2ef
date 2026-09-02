@@ -1,0 +1,46 @@
+app/modules/pdf-viewer/components/PdfNoteAnnotation.vue
+  s_c57729f2c66bed::t_de7b65ae3935e3 9,18
+tests/unit/app/modules/pdf-viewer/runtime/usePdfAnnotationLayerRenderer.test.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 203-206
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 49,608-613,621,647-655
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 6,18-23,26-28,37,39-42,44,56-58,62
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 1440-1441,1464-1468
+tests/unit/app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl.test.ts
+  s_c57729f2c66bed::t_3164f52f0ab907 90
+  s_c57729f2c66bed::t_44684172c3f92b 70-89,91-118
+app/modules/pdf-viewer/components/PdfStampAnnotation.vue
+  s_c57729f2c66bed::t_de7b65ae3935e3 8,30
+app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue
+  s_c57729f2c66bed::t_de7b65ae3935e3 8,22
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.test.ts
+  s_c57729f2c66bed::t_97f49e4924a0d6 1-10,17-59,61-63
+  s_c57729f2c66bed::t_3164f52f0ab907 11-16,60
+app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 131-133
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch.test.ts
+  s_c57729f2c66bed::t_4f0bedf12a0d5d 9
+  s_c57729f2c66bed::t_44684172c3f92b 1-8,10-67
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 98-100,102-104
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c57729f2c66bed::t_de7b65ae3935e3 2,47,53-58,62,66-67,69-75
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "81b1e24863959a57df4dc22180452c40e887f2ef",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

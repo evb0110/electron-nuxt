@@ -1,0 +1,21 @@
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver.test.ts
+  s_c57729f2c66bed::t_9e44b16125833c 11-12,24-29,44-45,49-52,59
+tests/unit/app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch.test.ts
+  s_c57729f2c66bed::t_9e44b16125833c 21-24,44,48,57,62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ac80cb3e24aac3dcc459d128d562b4557b27bc67",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
