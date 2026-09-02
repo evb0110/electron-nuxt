@@ -118,7 +118,7 @@ export interface IPdfAnnotationSummary {
     bySubtype: Record<string, number>;
 }
 
-export interface IQpdfObjectRef {
+interface IQpdfObjectRef {
     generationNumber: number;
     objectNumber: number;
 }
@@ -1897,7 +1897,7 @@ function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
     }));
 }
 
-export async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
+async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
     const result = await runQpdf(
         filePath,
         [
