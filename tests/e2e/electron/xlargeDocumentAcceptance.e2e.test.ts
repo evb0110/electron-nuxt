@@ -1210,6 +1210,22 @@ function annotationRefEquals(
         && left?.generationNumber === right?.generationNumber;
 }
 
+function annotationRefKey(ref: IAnnotationObjectRef) {
+    return `${ref.objectNumber}:${ref.generationNumber}`;
+}
+
+async function waitForDetachedEditorLayers(
+    page: Page,
+    timeout = XLARGE_SAVE_TIMEOUT_MS,
+) {
+    await page.waitForFunction(() => (
+        document.querySelectorAll(
+            '.editor-pane.is-active .annotationEditorLayer, '
+            + '.editor-pane.is-active .annotation-editor-layer',
+        ).length === 0
+    ), {timeout});
+}
+
 function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
     expect(index.session.pageCount).toBe(XLARGE_PAGE_COUNT);
     expect(index.session.entryCount).toBe(10);
@@ -1239,6 +1255,17 @@ function assertFinalAnnotationIndex(index: IAnnotationIndexRead) {
         && entry.subtype === 'Popup'
     ));
     expect(toolbarPopups).toHaveLength(2);
+    const canonicalPopupKeys = new Set(
+        canonicalNotes.map(entry => annotationRefKey(entry.popupRef!)),
+    );
+    const toolbarPopupKeys = new Set(
+        toolbarPopups.map(entry => annotationRefKey({
+            objectNumber: entry.objectNumber,
+            generationNumber: entry.generationNumber,
+        })),
+    );
+    expect(canonicalPopupKeys.size).toBe(canonicalNotes.length);
+    expect(toolbarPopupKeys).toEqual(canonicalPopupKeys);
     for (const canonicalNote of canonicalNotes) {
         expect(toolbarPopups.some(entry => annotationRefEquals(canonicalNote.popupRef, {
             objectNumber: entry.objectNumber,
@@ -1378,7 +1405,7 @@ async function createCanonicalNoteViaAgentAction(
             page,
             'readAgentResource',
             [notesUri],
-            {requiredMethods: ['runAgentAction']},
+            {requiredMethods: ['readAgentResource']},
         );
         return Array.isArray(resourceResult.value?.notes) ? resourceResult.value.notes : [];
     };
@@ -1397,7 +1424,7 @@ async function createCanonicalNoteViaAgentAction(
             pageY,
             preferTextAnchor: false,
         },
-    ], {requiredMethods: ['readAgentResource']});
+    ], {requiredMethods: ['runAgentAction']});
     const created = createdResult.value;
     expect(createdResult.called).toBe(true);
     expect(created?.created).toBe(true);
@@ -1449,7 +1476,7 @@ async function createCanonicalNoteViaAgentAction(
             stableKey,
             text,
         },
-    ], {requiredMethods: ['readAgentResource']});
+    ], {requiredMethods: ['runAgentAction']});
     expect(updatedResult.called).toBe(true);
     expect(updatedResult.value?.updated).toBe(true);
     await waitForWorkspaceComment(page, text, pageNumber);
@@ -1717,12 +1744,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             await openAnnotationsTab(sessionB.page, XLARGE_SAVE_TIMEOUT_MS);
             await startRendererPlacementSampling(sessionB.page);
             await startRendererLongTaskProbe(sessionB.page);
-            await sessionB.page.waitForFunction(() => (
-                document.querySelectorAll(
-                    '.editor-pane.is-active .annotationEditorLayer, '
-                    + '.editor-pane.is-active .annotation-editor-layer',
-                ).length === 0
-            ), {timeout: XLARGE_SAVE_TIMEOUT_MS});
+            await waitForDetachedEditorLayers(sessionB.page);
             const canonicalNoteOne = `xlarge canonical note one ${Date.now()}`;
             await timed(
                 telemetry,
@@ -1769,12 +1791,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             expect(pdfJsAnnotationStorage.reported).toBe(true);
             expect(pdfJsAnnotationStorage.modifiedIds).toEqual([]);
             expect(pdfJsAnnotationStorage.serializableEntryKeys).toEqual([]);
-            await sessionB.page.waitForFunction(() => (
-                document.querySelectorAll(
-                    '.editor-pane.is-active .annotationEditorLayer, '
-                    + '.editor-pane.is-active .annotation-editor-layer',
-                ).length === 0
-            ), {timeout: XLARGE_SAVE_TIMEOUT_MS});
+            await waitForDetachedEditorLayers(sessionB.page);
 
             if (activeHeartbeat) {
                 const heartbeatBeforeSave = await activeHeartbeat();
@@ -1892,12 +1909,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             const reopenedPath = reopenedState.pdfSourceState?.reloadPath
                 ?? reopenedState.workingCopyPath
                 ?? savedPath;
-            await sessionB.page.waitForFunction(() => (
-                document.querySelectorAll(
-                    '.editor-pane.is-active .annotationEditorLayer, '
-                    + '.editor-pane.is-active .annotation-editor-layer',
-                ).length === 0
-            ), {timeout: XLARGE_SAVE_TIMEOUT_MS});
+            await waitForDetachedEditorLayers(sessionB.page);
             const finalIndex = await timed(
                 telemetry,
                 'fresh-renderer-read-final-annotation-index',

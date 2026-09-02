@@ -982,7 +982,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         writerParseAbortController = abortController;
         const targetStore = annotationApplication.value.store;
         const targetStoreMutationEpoch = targetStore.mutationEpoch;
-        let projectionCommitted = false;
         try {
             const result = await getDocumentWorkingCopyCapability().parsePdfAnnotations(
                 workingCopyPath,
@@ -991,7 +990,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     signal: abortController.signal,
                 },
             );
-            projectionCommitted = commitPdfAnnotationParseToStore({
+            commitPdfAnnotationParseToStore({
                 result,
                 request,
                 currentRequest: writerParseRequest,
@@ -1011,7 +1010,13 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         } finally {
             if (writerParseAbortController === abortController) {
                 writerParseAbortController = null;
-                if (projectionCommitted && request === writerParseRequest && transition.isCurrent()) annotationProjectionReady.value = true;
+                // A failed or rejected parse must not leave the PDF.js layer
+                // hidden forever. The current transition owns the fallback to
+                // the embedded read-only annotations when no projection was
+                // committed.
+                if (request === writerParseRequest && transition.isCurrent()) {
+                    annotationProjectionReady.value = true;
+                }
             }
         }
     }

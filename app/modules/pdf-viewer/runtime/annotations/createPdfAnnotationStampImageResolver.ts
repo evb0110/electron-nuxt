@@ -5,8 +5,67 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {AnnotationMode} from '@app/services/pdfjs/runtimeLib';
 import {resolvePdfJsStampImageDataUrl} from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
 
+// Canvas data URLs contain ASCII base64, so their string length is their byte
+// length. Keep one document's resolved stamp images bounded while letting the
+// document proxy itself remain weakly referenced.
+const MAX_PDF_STAMP_IMAGE_CACHE_BYTES = 32 * 1024 * 1024;
+
+export interface IPdfStampImageCache {
+    readonly byteLength: number;
+    get: (imageRef: string) => string | undefined;
+    set: (imageRef: string, dataUrl: string) => void;
+}
+
+export function createPdfStampImageCache(
+    maxBytes = MAX_PDF_STAMP_IMAGE_CACHE_BYTES,
+): IPdfStampImageCache {
+    const entries = new Map<string, string>();
+    let byteLength = 0;
+
+    function remove(imageRef: string) {
+        const existing = entries.get(imageRef);
+        if (existing === undefined) {
+            return;
+        }
+        entries.delete(imageRef);
+        byteLength -= existing.length;
+    }
+
+    return {
+        get byteLength() {
+            return byteLength;
+        },
+        get(imageRef) {
+            const dataUrl = entries.get(imageRef);
+            if (dataUrl === undefined) {
+                return undefined;
+            }
+            // Map insertion order is the LRU order. A hit becomes most recent.
+            entries.delete(imageRef);
+            entries.set(imageRef, dataUrl);
+            return dataUrl;
+        },
+        set(imageRef, dataUrl) {
+            remove(imageRef);
+            if (dataUrl.length > maxBytes) {
+                return;
+            }
+            entries.set(imageRef, dataUrl);
+            byteLength += dataUrl.length;
+            while (byteLength > maxBytes) {
+                const oldestImageRef = entries.keys().next().value;
+                if (oldestImageRef === undefined) {
+                    byteLength = 0;
+                    return;
+                }
+                remove(oldestImageRef);
+            }
+        },
+    };
+}
+
 export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocumentSession) {
-    const stampImageCacheByDocument = new WeakMap<object, Map<string, string>>();
+    const stampImageCacheByDocument = new WeakMap<object, IPdfStampImageCache>();
     const stampImageRequestsByDocument = new WeakMap<object, Map<string, Promise<string | null>>>();
 
     return async function resolveStampImage(entity: IPlacedImageEntity) {
@@ -15,10 +74,11 @@ export function createPdfAnnotationStampImageResolver(documentSession: TPdfDocum
             return null;
         }
         const imageRef = formatPdfJsAnnotationRef(entity.image);
-        const cachedImages = stampImageCacheByDocument.get(pdfDocument) ?? new Map<string, string>();
+        const cachedImages = stampImageCacheByDocument.get(pdfDocument)
+            ?? createPdfStampImageCache();
         stampImageCacheByDocument.set(pdfDocument, cachedImages);
         const cachedImage = cachedImages.get(imageRef);
-        if (cachedImage) {
+        if (cachedImage !== undefined) {
             return cachedImage;
         }
         const pendingRequests = stampImageRequestsByDocument.get(pdfDocument)

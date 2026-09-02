@@ -688,7 +688,7 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
             modifiedIds: storage?.modifiedIds ?? [],
             serializableEntryKeys: storage?.serializableEntryKeys ?? [],
         },
-        storageAvailable: storage?.reported === true,
+        storageAvailable: storage !== null && storage !== undefined,
         workspaceState,
     };
 }

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {createPdfStampImageCache} from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
 import { resolvePdfJsStampImageDataUrl } from '@app/modules/pdf-viewer/runtime/annotations/resolvePdfJsStampImageDataUrl';
 
 const imageReference = {
@@ -156,5 +157,25 @@ describe('resolvePdfJsStampImageDataUrl', () => {
 
         expect(resolvePdfJsStampImageDataUrl(page, imageReference)).toBe('data:image/png;base64,bitmap-stamp');
         expect(context.drawImage).toHaveBeenCalledWith(bitmap, 0, 0, 2, 1);
+    });
+
+    it('keeps the stamp data-url cache within its byte budget using LRU eviction', () => {
+        const cache = createPdfStampImageCache(10);
+
+        cache.set('first', '1234');
+        cache.set('second', '5678');
+        expect(cache.byteLength).toBe(8);
+
+        expect(cache.get('first')).toBe('1234');
+        cache.set('third', 'abcd');
+
+        expect(cache.get('second')).toBeUndefined();
+        expect(cache.get('first')).toBe('1234');
+        expect(cache.get('third')).toBe('abcd');
+        expect(cache.byteLength).toBe(8);
+
+        cache.set('too-large', '12345678901');
+        expect(cache.get('too-large')).toBeUndefined();
+        expect(cache.byteLength).toBe(8);
     });
 });

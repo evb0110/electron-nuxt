@@ -279,7 +279,7 @@
 }
 
 .pdfViewer .pdf-annotation-editor-text-markup.is-selected rect {
-    stroke: var(--ui-focus-ring, #2563eb);
+    stroke: var(--app-toolbar-focus-ring);
     stroke-width: 0.002;
 }
 
@@ -323,7 +323,7 @@
 .pdfViewer .pdf-annotation-editor-text-box.is-selected,
 .pdfViewer .pdf-annotation-editor-note.is-selected,
 .pdfViewer .pdf-annotation-editor-stamp.is-selected {
-    border-color: var(--ui-focus-ring, #2563eb);
+    border-color: var(--app-toolbar-focus-ring);
 }
 
 .pdfViewer .pdf-annotation-editor-note,
@@ -350,16 +350,16 @@
 .pdfViewer .pdf-annotation-selection-handles {
     position: absolute;
     pointer-events: none;
-    border: 1px solid var(--ui-focus-ring, #2563eb);
+    border: 1px solid var(--app-toolbar-focus-ring);
 }
 
 .pdfViewer .pdf-annotation-selection-handle {
     position: absolute;
     width: 0.42rem;
     height: 0.42rem;
-    border: 1px solid var(--ui-focus-ring, #2563eb);
+    border: 1px solid var(--app-toolbar-focus-ring);
     border-radius: var(--app-pdf-annotation-handle-radius);
-    background: var(--ui-bg, #ffffff);
+    background: var(--ui-bg);
     transform: translate(-50%, -50%);
 }
 
