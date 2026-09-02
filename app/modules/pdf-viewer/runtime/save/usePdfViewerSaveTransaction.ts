@@ -60,6 +60,7 @@ import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import { collectNativeTextBoxMutationsForSave } from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 
 const PDF_SAVE_TIMEOUT_QUIESCE_MS = 2_000;
 const SLOW_SAVE_PREPARATION_STEP_MS = 250;
@@ -691,6 +692,11 @@ export const usePdfViewerSaveTransaction = (
             ...request,
             annotationSerializationPlan: globalSerializationPlan,
         };
+        const nativeTextBoxes = await measurePreparationStep(
+            'collect-native-text-box-mutations',
+            () => collectNativeTextBoxMutationsForSave(getPdfDocument(), globalSerializationPlan),
+        );
+        assertSaveTargetCurrent();
         let nativeVerificationOptions: IAnnotationSaveVerificationOptions | undefined;
         const canonicalSaveCallbacks = {
             verifyAnnotationSave: async (bytes: Uint8Array) => {
@@ -773,6 +779,7 @@ export const usePdfViewerSaveTransaction = (
                 : [],
             markupSubtypeOverrides: request.markupSubtypeOverrides ?? options.getMarkupSubtypeOverrides?.(),
             markupSubtypeHints: request.markupSubtypeHints ?? options.getMarkupSubtypeHints?.() ?? [],
+            ...(nativeTextBoxes !== undefined ? {nativeTextBoxes} : {}),
         });
         const annotationSavePlan = decision.annotationPlan;
         logSaveRouteDecision(request, decision);
@@ -838,6 +845,7 @@ export const usePdfViewerSaveTransaction = (
                     || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
                     || nativeMutationProjection.freeTextNotes.length > 0
                     || nativeMutationProjection.freeTextEditors.length > 0
+                    || (nativeMutationProjection.textBoxes?.length ?? 0) > 0
                     || nativeMutationProjection.annotationDeletes.length > 0
                 )
             ) {
