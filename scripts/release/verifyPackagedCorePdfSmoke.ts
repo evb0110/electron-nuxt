@@ -307,13 +307,11 @@ async function run() {
                 pageIndex: 0,
                 style: 'r',
                 prefix: 'front-',
-                startNumber: 1,
             },
             {
                 pageIndex: 1,
                 style: 'D',
                 prefix: 'body-',
-                startNumber: 1,
             },
         ];
         if (JSON.stringify(rotatedCatalog.pageLabels) !== JSON.stringify(expectedPageLabels)) {
