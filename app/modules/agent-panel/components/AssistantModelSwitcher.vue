@@ -27,54 +27,36 @@
         </button>
 
         <template #content>
-            <div class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced">
-                <span class="assistant-switcher-heading">{{ t('assistant.providerHeading') }}</span>
+            <div
+                class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
+                :aria-label="t('assistant.model')"
+            >
                 <div
-                    class="assistant-model-providers"
-                    role="tablist"
-                    :aria-label="t('assistant.provider')"
+                    v-for="group in groups"
+                    :key="group.provider"
+                    class="assistant-model-group"
+                    role="group"
+                    :aria-label="group.label"
                 >
-                    <button
-                        v-for="provider in providerItems"
-                        :key="provider.value"
-                        type="button"
-                        :class="[
-                            'assistant-model-provider',
-                            { 'is-active': isSelectedProvider(provider.value) },
-                        ]"
-                        role="tab"
-                        :aria-selected="isSelectedProvider(provider.value)"
-                        :aria-disabled="disabled"
-                        :disabled="disabled"
-                        @click="onSelectProvider(provider.value)"
-                    >
+                    <span class="assistant-model-group-label">
                         <AssistantProviderIcon
-                            :provider="provider.value"
-                            class="assistant-model-provider-icon"
+                            :provider="group.provider"
+                            class="assistant-model-group-icon"
                         />
-                        <span class="assistant-model-provider-label">{{ provider.label }}</span>
-                    </button>
-                </div>
-
-                <span class="assistant-switcher-heading">{{ t('assistant.modelHeading') }}</span>
-                <div
-                    class="assistant-switcher-list"
-                    role="radiogroup"
-                    :aria-label="t('assistant.model')"
-                >
+                        {{ group.label }}
+                    </span>
                     <button
-                        v-for="model in modelItems"
+                        v-for="model in group.models"
                         :key="model.value"
                         type="button"
                         :class="[
                             'assistant-switcher-option',
-                            { 'is-active': isSelectedModel(model.value) },
+                            { 'is-active': model.isSelected },
                         ]"
-                        role="radio"
-                        :aria-checked="isSelectedModel(model.value)"
+                        :aria-pressed="model.isSelected"
                         :aria-disabled="disabled"
                         :disabled="disabled"
-                        @click="onSelectModel(model.value)"
+                        @click="onSelectModel(group.provider, model.value)"
                     >
                         <span class="assistant-switcher-option-label">{{ model.displayLabel }}</span>
                         <span
@@ -82,14 +64,12 @@
                             class="assistant-model-recommended"
                         >{{ t('assistant.modelRecommended') }}</span>
                         <UIcon
-                            v-if="isSelectedModel(model.value)"
+                            v-if="model.isSelected"
                             name="i-ph-check"
                             class="assistant-switcher-check"
                         />
                     </button>
                 </div>
-
-                <p class="assistant-switcher-hint">{{ t('assistant.modelPickerHint') }}</p>
             </div>
         </template>
     </UPopover>
@@ -132,30 +112,30 @@ const content = computed(() => ({
     collisionPadding: 8,
 }));
 
-const providerItems = computed(() => providers.map(provider => ({
-    value: provider.id,
-    label: provider.label,
-})));
 const activeProvider = computed(() => (
     providers.find(provider => provider.id === selectedProvider)
     ?? providers[0]
     ?? null
 ));
-const modelItems = computed(() => (activeProvider.value?.models ?? []).map(model => ({
-    value: model.id,
-    label: model.label,
-    displayLabel: trimProviderPrefix(model.label, activeProviderLabel.value),
-    isRecommended: model.id === activeProvider.value?.defaultModel,
-})));
 const activeProviderLabel = computed(() => activeProvider.value?.label ?? selectedProvider);
+const groups = computed(() => providers.map(provider => ({
+    provider: provider.id,
+    label: provider.label,
+    models: provider.models.map(model => ({
+        value: model.id,
+        label: model.label,
+        displayLabel: trimProviderPrefix(model.label, provider.label),
+        isRecommended: model.id === provider.defaultModel,
+        isSelected: provider.id === selectedProvider && model.id === selectedModel,
+    })),
+})));
 const activeModelOption = computed(() => (
-    modelItems.value.find(model => model.value === selectedModel)
+    activeProvider.value?.models.find(model => model.id === selectedModel)
     ?? null
 ));
 const activeModelLabel = computed(() => activeModelOption.value?.label ?? selectedModel);
 const activeModelDisplayLabel = computed(() => (
-    activeModelOption.value?.displayLabel
-    ?? trimProviderPrefix(activeModelLabel.value, activeProviderLabel.value)
+    trimProviderPrefix(activeModelLabel.value, activeProviderLabel.value)
 ));
 const ariaLabel = computed(() => (
     `${t('assistant.provider')}: ${activeProviderLabel.value}. `
@@ -168,14 +148,6 @@ watch(() => disabled, (nextDisabled) => {
     }
 });
 
-function isSelectedProvider(provider: TAgentAssistantProviderId) {
-    return provider === selectedProvider;
-}
-
-function isSelectedModel(model: string) {
-    return model === selectedModel;
-}
-
 function trimProviderPrefix(label: string, providerLabel: string) {
     const normalizedProvider = providerLabel.trim();
     const normalizedLabel = label.trim();
@@ -187,16 +159,12 @@ function trimProviderPrefix(label: string, providerLabel: string) {
     return trimmed.length > 0 ? trimmed : normalizedLabel;
 }
 
-function onSelectProvider(provider: TAgentAssistantProviderId) {
+function onSelectModel(provider: TAgentAssistantProviderId, model: string) {
     if (disabled) {
         return;
     }
-    emit('select-provider', provider);
-}
-
-function onSelectModel(model: string) {
-    if (disabled) {
-        return;
+    if (provider !== selectedProvider) {
+        emit('select-provider', provider);
     }
     emit('select-model', model);
     open.value = false;
@@ -207,92 +175,42 @@ function onSelectModel(model: string) {
 
 <style scoped>
 .assistant-model-menu {
-    width: min(16rem, var(--app-overlay-viewport-width));
+    width: min(15rem, var(--app-overlay-viewport-width));
 }
 
-.assistant-model-providers {
-    display: grid;
-    grid-auto-columns: minmax(0, 1fr);
-    grid-auto-flow: column;
+.assistant-model-group {
+    display: flex;
+    flex-direction: column;
     gap: var(--app-space-3xs);
-    padding: var(--app-space-3xs);
-    border: 1px solid var(--app-toolbar-group-border);
-    border-radius: var(--app-radius-2xl);
-    background: var(--app-toolbar-group-bg);
 }
 
-.assistant-model-provider {
-    display: inline-flex;
+.assistant-model-group + .assistant-model-group {
+    margin-top: var(--app-space-sm);
+    padding-top: var(--app-space-sm);
+    border-top: 1px solid var(--app-toolbar-separator);
+}
+
+.assistant-model-group-label {
+    display: flex;
     align-items: center;
-    justify-content: center;
-    gap: var(--app-space-md);
-    min-width: 0;
-    min-height: var(--app-assistant-control-height);
-    padding: 0 var(--app-space-md);
-    border: 1px solid transparent;
-    border-radius: var(--app-radius-md);
-    background: transparent;
-    color: var(--app-toolbar-control-inactive-fg);
-    font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-tight);
-    cursor: pointer;
-    transition:
-        background-color var(--app-transition-fast),
-        border-color var(--app-transition-fast),
-        color var(--app-transition-fast);
+    gap: var(--app-space-sm);
+    padding: var(--app-space-xs) var(--app-space-md);
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-caption);
+    font-weight: var(--app-font-weight-medium);
+    line-height: var(--app-line-height-snug);
 }
 
-.assistant-model-provider:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-    color: var(--app-toolbar-control-hover-fg);
-}
-
-.assistant-model-provider:focus {
-    outline: none;
-}
-
-.assistant-model-provider:focus-visible {
-    box-shadow: inset 0 0 0 1px var(--app-toolbar-focus-ring);
-}
-
-.assistant-model-provider:disabled {
-    cursor: default;
-}
-
-.assistant-model-provider.is-active {
-    border-color: var(--app-toolbar-control-active-border);
-    background: var(--app-toolbar-control-active-bg);
-    color: var(--ui-text);
-    font-weight: var(--app-font-weight-semibold);
-}
-
-.assistant-model-provider.is-active:hover:not(:disabled) {
-    border-color: var(--app-toolbar-control-active-hover-border);
-    background: var(--app-toolbar-control-active-hover-bg);
-}
-
-.assistant-model-provider-icon {
+.assistant-model-group-icon {
     flex: 0 0 auto;
-    font-size: var(--app-text-size-control);
-}
-
-.assistant-model-provider-label {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-size: var(--app-text-size-caption);
 }
 
 .assistant-model-recommended {
     flex: 0 0 auto;
-    padding: var(--app-space-3xs) var(--app-space-sm);
-    border-radius: var(--app-radius-full);
-    background: var(--app-toolbar-control-hover-bg);
     color: var(--ui-text-muted);
-    font-size: var(--app-text-size-tiny);
-    font-weight: var(--app-font-weight-semibold);
-    letter-spacing: 0.04em;
-    line-height: var(--app-line-height-tight);
-    text-transform: uppercase;
+    font-size: var(--app-text-size-caption);
+    font-weight: normal;
+    line-height: var(--app-line-height-snug);
 }
 </style>

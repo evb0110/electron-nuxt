@@ -82,6 +82,7 @@ const activeUnmounts = new Set<() => void>();
  */
 function mountSwitcher(overrides: Partial<IHarnessState> = {}) {
     const events: Record<string, unknown[]> = {
+        'order': [],
         'select-model': [],
         'select-provider': [],
     };
@@ -96,10 +97,12 @@ function mountSwitcher(overrides: Partial<IHarnessState> = {}) {
     const app = createApp(defineComponent({setup: () => () => h(AssistantModelSwitcher, {
         ...state,
         'onSelect-model': (model: string) => {
+            events['order']!.push('select-model');
             events['select-model']!.push(model);
             state.selectedModel = model;
         },
         'onSelect-provider': (provider: TAgentAssistantProviderId) => {
+            events['order']!.push('select-provider');
             events['select-provider']!.push(provider);
             state.selectedProvider = provider;
         },
@@ -130,17 +133,13 @@ afterEach(() => {
 });
 
 describe('AssistantModelSwitcher', () => {
-    it('marks the selected provider, the selected model, and the recommended default', () => {
+    it('lists every provider group with the selected model checked and the default marked', () => {
         const { host } = mountSwitcher();
 
-        const tabs = [...host.querySelectorAll('.assistant-model-provider')];
-        expect(tabs.map(tab => textOf(tab))).toEqual([
+        const groups = [...host.querySelectorAll('.assistant-model-group-label')];
+        expect(groups.map(group => textOf(group))).toEqual([
             'Codex',
             'Claude',
-        ]);
-        expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual([
-            'true',
-            'false',
         ]);
 
         const options = [...host.querySelectorAll('.assistant-switcher-option')];
@@ -148,19 +147,22 @@ describe('AssistantModelSwitcher', () => {
             .toEqual([
                 'default',
                 'GPT-5.6-Sol',
+                'default',
             ]);
-        expect(options.map(option => option.getAttribute('aria-checked'))).toEqual([
+        expect(options.map(option => option.getAttribute('aria-pressed'))).toEqual([
             'false',
             'true',
+            'false',
         ]);
         expect(options[1]?.querySelector('[data-icon="i-ph-check"]')).not.toBeNull();
 
-        const recommended = [...host.querySelectorAll('.assistant-model-recommended')];
-        expect(recommended).toHaveLength(1);
-        expect(textOf(options[0]!.querySelector('.assistant-model-recommended')))
-            .toBe('assistant.modelRecommended');
-        expect(textOf(host.querySelector('.assistant-switcher-hint')))
-            .toBe('assistant.modelPickerHint');
+        const recommended = options.map(option => option.querySelector('.assistant-model-recommended'));
+        expect(recommended.map(Boolean)).toEqual([
+            true,
+            false,
+            true,
+        ]);
+        expect(textOf(recommended[0] ?? null)).toBe('assistant.modelRecommended');
     });
 
     it('shows the active model on the trigger without repeating the provider name', () => {
@@ -174,28 +176,39 @@ describe('AssistantModelSwitcher', () => {
             .toBe('assistant.provider: Claude. assistant.model: Claude default');
     });
 
-    it('swaps the model list when the user picks the other provider', async () => {
+    it('switches provider and model in one click when picking from another group', async () => {
         const {
             events,
             host,
         } = mountSwitcher();
 
-        host.querySelectorAll('.assistant-model-provider')[1]?.dispatchEvent(new MouseEvent('click'));
+        host.querySelectorAll('.assistant-switcher-option')[2]?.dispatchEvent(new MouseEvent('click'));
         await nextTick();
 
-        const tabs = [...host.querySelectorAll('.assistant-model-provider')];
-        expect(tabs.map(tab => tab.getAttribute('aria-selected'))).toEqual([
-            'false',
-            'true',
+        expect(events['select-provider']).toEqual(['claude']);
+        expect(events['select-model']).toEqual(['default']);
+        expect(events['order']).toEqual([
+            'select-provider',
+            'select-model',
         ]);
 
         const options = [...host.querySelectorAll('.assistant-switcher-option')];
-        expect(options.map(option => textOf(option.querySelector('.assistant-switcher-option-label'))))
-            .toEqual(['default']);
+        expect(options.map(option => option.getAttribute('aria-pressed'))).toEqual([
+            'false',
+            'false',
+            'true',
+        ]);
+    });
 
-        options[0]?.dispatchEvent(new MouseEvent('click'));
+    it('only emits the model when picking within the current provider', () => {
+        const {
+            events,
+            host,
+        } = mountSwitcher();
 
-        expect(events['select-provider']).toEqual(['claude']);
+        host.querySelectorAll('.assistant-switcher-option')[0]?.dispatchEvent(new MouseEvent('click'));
+
+        expect(events['select-provider']).toEqual([]);
         expect(events['select-model']).toEqual(['default']);
     });
 
@@ -205,8 +218,7 @@ describe('AssistantModelSwitcher', () => {
             host,
         } = mountSwitcher({disabled: true});
 
-        host.querySelectorAll('.assistant-model-provider')[1]?.dispatchEvent(new MouseEvent('click'));
-        host.querySelectorAll('.assistant-switcher-option')[0]?.dispatchEvent(new MouseEvent('click'));
+        host.querySelectorAll('.assistant-switcher-option')[2]?.dispatchEvent(new MouseEvent('click'));
 
         expect(events['select-provider']).toEqual([]);
         expect(events['select-model']).toEqual([]);
