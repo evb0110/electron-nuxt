@@ -56,6 +56,13 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         return entity?.kind === 'text-markup' && !entity.deleted ? entity : null;
     }
 
+    function getNoteEntity(comment: IAnnotationCommentSummary) {
+        const application = annotationApplication.value;
+        const annotationId = application.annotationIdForSummary(comment);
+        const entity = annotationId ? application.store.get(annotationId) : null;
+        return entity?.kind === 'note' && !entity.deleted ? entity : null;
+    }
+
     function toTextMarkupProperties(entity: ITextMarkupEntity): ITextMarkupAnnotationProperties {
         return {
             id: entity.identity.id,
@@ -133,6 +140,23 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     }
 
     function updateTextMarkupAnnotationColor(comment: IAnnotationCommentSummary, color: string) {
+        const note = getNoteEntity(comment);
+        if (note) {
+            const sourceColor = note.color;
+            const updated = annotationApplication.value.store.updateNote(note.identity.id, {color});
+            if (!updated) {
+                return noopColorMutationResult;
+            }
+            emitForcedAnnotationMutation({scheduleCommentSync: true});
+            return createColorMutationResult(comment, color, {
+                updated: true,
+                shouldScheduleCommentSync: true,
+                shouldRefreshPage: false,
+                shouldApplyTextMarkupColor: false,
+                sourceColor,
+                colorEdited: true,
+            });
+        }
         const subtype = annotationCommentModel.toTextMarkupSubtype(comment);
         const entity = getTextMarkupEntity(comment);
         if (!subtype) {

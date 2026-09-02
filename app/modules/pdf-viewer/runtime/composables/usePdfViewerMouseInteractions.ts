@@ -2,7 +2,6 @@ import type { ComputedRef } from 'vue';
 
 interface IUsePdfViewerMouseInteractionsOptions {
     isSnipActive: () => boolean;
-    isCommentPlacementActive: () => boolean;
     isViewerPanDragModeActive: ComputedRef<boolean>;
     markUserViewportInteraction?: (() => void) | undefined;
     cancelPendingSearchScroll: () => void;
@@ -17,7 +16,6 @@ interface IUsePdfViewerMouseInteractionsOptions {
 const COMMENT_TARGET_SELECTOR = [
     '.pdf-inline-comment-anchor-marker',
     '.pdf-inline-comment-marker',
-    '.pdf-comment-marker-button',
     '.pdf-annotation-has-note-target',
     '.pdf-annotation-has-comment',
     '.annotationLayer .popupTriggerArea',
@@ -35,7 +33,6 @@ function isCommentTarget(target: EventTarget | null) {
 export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInteractionsOptions) => {
     const {
         isSnipActive,
-        isCommentPlacementActive,
         isViewerPanDragModeActive,
         markUserViewportInteraction,
         cancelPendingSearchScroll,
@@ -52,11 +49,6 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
             return;
         }
         markUserViewportInteraction?.();
-        if (isCommentPlacementActive()) {
-            event.preventDefault();
-            cancelPendingSearchScroll();
-            return;
-        }
         if (isCommentTarget(event.target)) {
             event.preventDefault();
             return;
@@ -90,7 +82,7 @@ export const usePdfViewerMouseInteractions = (options: IUsePdfViewerMouseInterac
     }
 
     function handleSelectStart(event: Event) {
-        if (isViewerPanDragModeActive.value || isCommentPlacementActive()) {
+        if (isViewerPanDragModeActive.value) {
             event.preventDefault();
         }
     }

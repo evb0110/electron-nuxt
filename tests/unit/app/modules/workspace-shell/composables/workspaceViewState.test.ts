@@ -25,7 +25,6 @@ function createState(options?: {
         showSidebar: ref(false),
         sidebarTab: ref('thumbnails'),
         annotationTool: ref('none'),
-        annotationPlacingPageNote: ref(false),
         annotationEditorState: ref({
             isEditing: false,
             isEmpty: true,
@@ -43,7 +42,6 @@ function createState(options?: {
         documentViewerRef: ref({
             getViewerContainer: () => null,
             scrollToPage: () => {},
-            cancelCommentPlacement: () => {},
         }),
         ...options?.overrides,
     });
@@ -115,7 +113,6 @@ describe('useWorkspaceViewState', () => {
             getViewerContainer: () => null,
             scrollToPage: () => {},
             cancelProgrammaticNavigation,
-            cancelCommentPlacement: () => {},
         })}});
 
         state.handleFitMode('height');
@@ -134,7 +131,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage: () => {},
-                cancelCommentPlacement: () => {},
                 applyFitWidthToCurrentPage,
             }),
         }});
@@ -238,7 +234,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
         const scrollOptions = {pageYRatio: 0};
@@ -258,7 +253,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
 
@@ -282,7 +276,6 @@ describe('useWorkspaceViewState', () => {
                 getViewerContainer: () => null,
                 scrollToPage,
                 getPendingNavigationTargetPage: () => 6,
-                cancelCommentPlacement: () => {},
             }),
         }});
 
@@ -307,7 +300,6 @@ describe('useWorkspaceViewState', () => {
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
-                cancelCommentPlacement: () => {},
             }),
         }});
         const options = {

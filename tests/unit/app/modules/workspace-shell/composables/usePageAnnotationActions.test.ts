@@ -165,8 +165,6 @@ function createHarness() {
         getViewerContainer: vi.fn(() => viewerContainer.value as HTMLElement | null),
         commentSelection: vi.fn(async () => false),
         commentAtPoint: vi.fn(async () => true),
-        startCommentPlacement: vi.fn(),
-        cancelCommentPlacement: vi.fn(),
         focusAnnotationComment: vi.fn(async () => {}),
         highlightSelection: vi.fn(async () => true),
         invalidatePages: vi.fn(),
@@ -234,7 +232,6 @@ function createHarness() {
         pdfViewerRef: ref(viewer),
         annotationTool,
         annotationKeepActive: ref(false),
-        annotationPlacingPageNote: ref(false),
         annotationSettings: ref({ ...DEFAULT_ANNOTATION_SETTINGS }),
         annotationActiveCommentStableKey: ref<string | null>(null),
         annotationContextMenu: ref({
@@ -455,7 +452,7 @@ describe('usePageAnnotationActions', () => {
         expect(actions).not.toHaveProperty('undoLatestFreshAnnotationNoteCreation');
     });
 
-    it('starts quick note placement without creating a selection-based note', async () => {
+    it('selects the canonical note tool without creating a selection-based note', async () => {
         const {
             deps,
             viewer,
@@ -468,9 +465,7 @@ describe('usePageAnnotationActions', () => {
         await actions.handleQuickNoteAction();
 
         expect(viewer.commentSelection).not.toHaveBeenCalled();
-        expect(viewer.startCommentPlacement).toHaveBeenCalledOnce();
-        expect(deps.annotationPlacingPageNote.value).toBe(true);
-        expect(deps.annotationTool.value).toBe('none');
+        expect(deps.annotationTool.value).toBe('note');
         expect(deps.dragMode.value).toBe(false);
         expect(deps.showSidebar.value).toBe(true);
         expect(deps.sidebarTab.value).toBe('bookmarks');

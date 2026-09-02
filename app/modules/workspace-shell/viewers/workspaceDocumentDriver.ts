@@ -521,7 +521,6 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onAnnotationContextMenu: unknown;
     onAnnotationModified: unknown;
     onAnnotationFailure: (failure: IAnnotationCreationFailureReport) => void;
-    onAnnotationNotePlacementChange: (value: boolean) => void;
     onAnnotationOpenNote: unknown;
     onAnnotationSetting: unknown;
     onAnnotationState: unknown;
@@ -663,7 +662,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationToolAutoReset: options.onAnnotationToolAutoReset,
             annotationToolCancel: options.onAnnotationToolCancel,
             annotationSetting: options.onAnnotationSetting,
-            annotationNotePlacementChange: options.onAnnotationNotePlacementChange,
             annotationFailure: options.onAnnotationFailure,
             shapeContextMenu: options.onShapeContextMenu,
             imagePlacementFinalize: options.onImagePlacementFinalize,

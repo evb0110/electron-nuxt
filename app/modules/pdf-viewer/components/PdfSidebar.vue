@@ -26,7 +26,6 @@
                 @focus-comment="focusAnnotationComment"
                 @open-note="openAnnotationNote"
                 @delete-comment="deleteAnnotationComment"
-                @place-note="placeAnnotationNote"
                 @retry-enrichment="retryAnnotationEnrichment"
             />
 
@@ -275,7 +274,6 @@ const emit = defineEmits<{
     'annotation-focus-comment': [comment: IAnnotationCommentSummary];
     'annotation-open-note': [comment: IAnnotationCommentSummary];
     'annotation-delete-comment': [comment: IAnnotationCommentSummary];
-    'annotation-place-note': [];
     'annotation-retry-enrichment': [];
     'bookmarks-change': [payload: IPdfBookmarkChangePayload];
     'page-context-menu': [payload: {
@@ -420,10 +418,6 @@ function openAnnotationNote(comment: IAnnotationCommentSummary) {
 
 function deleteAnnotationComment(comment: IAnnotationCommentSummary) {
     emit('annotation-delete-comment', comment);
-}
-
-function placeAnnotationNote() {
-    emit('annotation-place-note');
 }
 
 function retryAnnotationEnrichment() {

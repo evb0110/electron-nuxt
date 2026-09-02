@@ -31,12 +31,10 @@
             v-if="minimizedIndicatorTargets[note.annotationId]"
             :to="minimizedIndicatorTargets[note.annotationId]"
         >
-            <AppTooltip
-                :text="getMinimizedNotePreview(note)"
-                :delay-duration="250"
-                :disabled="isMarkerDragTooltipSuppressed"
-                v-bind="isMarkerDragTooltipSuppressed ? {open: false} : {}"
-            >
+                <AppTooltip
+                    :text="getMinimizedNotePreview(note)"
+                    :delay-duration="250"
+                >
                 <button
                     type="button"
                     class="pdf-note-minimized-indicator"
@@ -241,7 +239,6 @@ const {
     minimizedIndicatorTargets,
     openNoteAnchorTargets,
     connectorLines,
-    isMarkerDragTooltipSuppressed,
     getMinimizedIndicatorStyle,
     getMinimizedNotePreview,
     traceAnchorInteraction,

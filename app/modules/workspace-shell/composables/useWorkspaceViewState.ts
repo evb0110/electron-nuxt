@@ -26,7 +26,6 @@ interface IWorkspaceViewStateDeps {
     showSidebar: Ref<boolean>;
     sidebarTab: Ref<TPdfSidebarTab>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationPlacingPageNote: Ref<boolean>;
     annotationEditorState: Ref<IAnnotationEditorState>;
     hasLivePdfJsAnnotationChanges: Ref<boolean>;
     appAnnotationUndoDepth: Ref<number>;
@@ -42,10 +41,7 @@ interface IWorkspaceViewStateDeps {
     ) => void) | undefined;
     requestPageNavigation?: ((page: number) => number) | undefined;
     documentViewerRef: Ref<(
-        IDocumentViewerExpose & {
-            applyFitWidthToCurrentPage?: () => Promise<boolean>;
-            cancelCommentPlacement?: () => void;
-        }
+        IDocumentViewerExpose & {applyFitWidthToCurrentPage?: () => Promise<boolean>;}
     ) | null>;
 }
 
@@ -128,8 +124,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
 
     function enableDragMode() {
         deps.dragMode.value = true;
-        deps.documentViewerRef.value?.cancelCommentPlacement?.();
-        deps.annotationPlacingPageNote.value = false;
         if (deps.annotationTool.value !== 'none') {
             deps.annotationTool.value = 'none';
         }
@@ -176,7 +170,6 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
             sidebarTab: deps.sidebarTab.value,
             dragMode: deps.dragMode.value,
             annotationTool: deps.annotationTool.value,
-            isPlacingNote: deps.annotationPlacingPageNote.value,
         });
         logPdfRenderTrace('workspace-go-to-page', {
             requestedPage: page,

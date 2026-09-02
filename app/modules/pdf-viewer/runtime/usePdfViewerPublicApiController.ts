@@ -282,8 +282,6 @@ export const usePdfViewerPublicApiController = (
         getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,
-        startCommentPlacement: annotationRuntime.highlightComposable.startCommentPlacement,
-        cancelCommentPlacement: annotationRuntime.highlightComposable.cancelCommentPlacement,
         registerAnnotationHistoryCommand: annotationRuntime.registerShapeHistoryCommand,
         selectedTextBox: computed(() => annotationRuntime.annotationEditorSurface.getSelectedTextBox()),
         getSelectedTextBox: annotationRuntime.annotationEditorSurface.getSelectedTextBox,

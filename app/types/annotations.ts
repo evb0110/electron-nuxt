@@ -11,6 +11,7 @@ import type {
     TDrawableShapeTool,
 } from '@contracts/annotations';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
+import type { IPdfAnnotationNoteReply } from '@contracts/pdfAnnotationParseTypes';
 import type {
     Except,
     TaggedUnion,
@@ -210,6 +211,8 @@ interface IAnnotationCommentSummaryFields {
     annotationName?: string | null | undefined;
     hasNote?: boolean;
     markerRect?: IAnnotationMarkerRect | null | undefined;
+    /** Replies derived from a foreign PDF note. The editor never authors them. */
+    replies?: readonly IPdfAnnotationNoteReply[] | undefined;
     /**
      * Canonical text-markup geometry: one marker rect per `/QuadPoints` quad,
      * so a multi-line highlight survives ingest as the lines it was drawn from

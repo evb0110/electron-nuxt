@@ -4,7 +4,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    INoteEntity,
+    ITextBoxEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
 
@@ -30,12 +33,30 @@ const entity = {
     color: '#111827',
 } satisfies ITextBoxEntity;
 
+const note = {
+    kind: 'note',
+    identity: {id: 'note' as INoteEntity['identity']['id']},
+    pageIndex: 2,
+    revision: 0,
+    persistedRevision: -1,
+    deleted: false,
+    createdAt: null,
+    modifiedAt: null,
+    author: null,
+    contents: '',
+    position: entity.rect,
+    color: '#111827',
+    open: false,
+} satisfies INoteEntity;
+
 describe('useAnnotationCreationTools', () => {
     it('creates and selects only the text tool entity', () => {
         const createTextBoxAt = vi.fn(() => entity);
+        const createNoteAt = vi.fn(() => note);
         const select = vi.fn();
-        const surfaceMethods: Pick<IAnnotationEditorSurface, 'createTextBoxAt' | 'select'> = {
+        const surfaceMethods: Pick<IAnnotationEditorSurface, 'createTextBoxAt' | 'createNoteAt' | 'select'> = {
             createTextBoxAt,
+            createNoteAt,
             select,
         };
         const tools = useAnnotationCreationTools({surface: {...surfaceMethods} as IAnnotationEditorSurface});
@@ -45,5 +66,18 @@ describe('useAnnotationCreationTools', () => {
         expect(select).toHaveBeenCalledWith([entity.identity.id]);
         expect(tools.create('highlight', 2, entity.rect)).toBeNull();
         expect(createTextBoxAt).toHaveBeenCalledOnce();
+    });
+
+    it('creates and selects a canonical note for the note tool', () => {
+        const createNoteAt = vi.fn(() => note);
+        const select = vi.fn();
+        const tools = useAnnotationCreationTools({surface: {
+            createNoteAt,
+            select,
+        } as Pick<IAnnotationEditorSurface, 'createNoteAt' | 'select'> as IAnnotationEditorSurface});
+
+        expect(tools.create('note', 2, note.position)).toBe(note);
+        expect(createNoteAt).toHaveBeenCalledWith(2, note.position);
+        expect(select).toHaveBeenCalledWith([note.identity.id]);
     });
 });

@@ -39,7 +39,6 @@ export interface IPdfViewerEventAdapter {
     annotationSetting(payload: TAnnotationSettingChange): void;
     annotationCommentClick(comment: IAnnotationCommentSummary): void;
     annotationToolCancel(): void;
-    annotationNotePlacementChange(active: boolean): void;
     annotationFailure(failure: IAnnotationCreationFailureReport): void;
     shapeContextMenu(payload: {
         shapeId: string;
@@ -75,7 +74,6 @@ export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEve
         annotationSetting: payload => emit('annotation-setting', payload),
         annotationCommentClick: comment => emit('annotation-comment-click', comment),
         annotationToolCancel: () => emit('annotation-tool-cancel'),
-        annotationNotePlacementChange: active => emit('annotation-note-placement-change', active),
         annotationFailure: failure => emit('annotation-failure', failure),
         shapeContextMenu: payload => emit('shape-context-menu', payload),
         imagePlacementFinalize: payload => emit('image-placement-finalize', payload),

@@ -23,7 +23,6 @@ interface IPdfViewerForAnnotationTools extends Pick<IWorkspacePdfViewerAnnotatio
     | 'getSelectedTextBox'
     | 'updateSelectedTextBoxProperties'
 > {
-    cancelCommentPlacement: () => void;
     clearSelectedShape: () => void;
     selectedShapeId: string | null;
     getSelectedShape: () => (IShapeAnnotation & { pdfSubtype?: string | null | undefined }) | null;
@@ -49,7 +48,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
 
     const annotationTool = ref<TAnnotationTool>('none');
     const annotationKeepActive = ref(true);
-    const annotationPlacingPageNote = ref(false);
     const annotationSettings = ref<IAnnotationSettings>({ ...DEFAULT_ANNOTATION_SETTINGS });
     const annotationComments = ref<IAnnotationCommentSummary[]>([]);
     const annotationCommentsStatus = ref<TAnnotationCommentsStatus>('loading');
@@ -109,11 +107,9 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     function handleAnnotationToolChange(tool: TAnnotationTool) {
         annotationTool.value = tool;
         dragMode.value = false;
-        pdfViewerRef.value?.cancelCommentPlacement();
         if (tool !== 'select') {
             pdfViewerRef.value?.clearSelectedShape();
         }
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
@@ -124,20 +120,17 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
         const previousTool = annotationTool.value;
         if (isShapeTool(previousTool)) {
             annotationTool.value = 'select';
-            annotationPlacingPageNote.value = false;
             closeAnnotationContextMenu();
             return;
         }
         annotationTool.value = 'none';
         pdfViewerRef.value?.clearSelectedShape();
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
     function handleAnnotationToolCancel() {
         annotationTool.value = 'none';
         pdfViewerRef.value?.clearSelectedShape();
-        annotationPlacingPageNote.value = false;
         closeAnnotationContextMenu();
     }
 
@@ -265,7 +258,6 @@ export const usePageAnnotationTools = (deps: IPageAnnotationToolsDeps) => {
     return {
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,

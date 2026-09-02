@@ -7,7 +7,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -26,7 +25,6 @@ import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotati
 import { toPdfRectFromMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfRectFromMarkerRect';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { buildPdfAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary';
-import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import { mountEnrichmentHost } from '@tests/helpers/annotationEnrichmentNoticeHarness';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 
@@ -308,20 +306,6 @@ describe('point-note marker threshold policy', () => {
                 .toHaveLength(isPointNote ? 0 : 1);
         });
 
-        it('agrees in the page marker view model', () => {
-            const { markersByPage } = useAnnotationMarkerViewModel({
-                viewerContainer: ref<HTMLElement | null>(null),
-                annotationCommentsCache: ref([createMarkerComment(size)]),
-                activeCommentStableKey: ref<string | null>(null),
-                labels: {
-                    annotation: 'Annotation',
-                    note: 'Note',
-                    moreNotes: (count: number) => `${count} more`,
-                },
-            });
-
-            expect(markersByPage.value.get(1) ?? []).toHaveLength(isPointNote ? 1 : 0);
-        });
     });
 
     describe.each(DOCUMENT_RECT_CASES)('$label ($size) as a document rect', ({

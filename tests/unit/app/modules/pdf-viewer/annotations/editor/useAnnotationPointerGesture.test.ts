@@ -10,6 +10,7 @@ import type {
     IAnnotationGesture,
     IAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type { INoteEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { useAnnotationPointerGesture } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
 
 const gesture: IAnnotationGesture = {
@@ -36,6 +37,31 @@ const gesture: IAnnotationGesture = {
         color: '#111827',
     },
     kind: 'move',
+};
+
+const noteGesture: IAnnotationGesture = {
+    ...gesture,
+    annotationId: 'note' as IAnnotationGesture['annotationId'],
+    entity: {
+        kind: 'note',
+        identity: {id: 'note' as INoteEntity['identity']['id']},
+        pageIndex: 0,
+        revision: 1,
+        persistedRevision: 1,
+        deleted: false,
+        createdAt: null,
+        modifiedAt: null,
+        author: null,
+        contents: 'note',
+        position: {
+            left: 0.2,
+            top: 0.3,
+            width: 0.4,
+            height: 0.2,
+        },
+        color: '#111827',
+        open: false,
+    },
 };
 
 function expectRectClose(
@@ -183,6 +209,35 @@ describe('useAnnotationPointerGesture', () => {
             hasMoved: true,
         });
         expect(harness.surface.beginMove).toHaveBeenCalledWith(gesture.annotationId);
+    });
+
+    it('previews and completes a move from the canonical note position', () => {
+        const harness = createHarness(scopes);
+        harness.surface.beginMove = vi.fn(() => noteGesture);
+
+        expect(harness.interaction.beginMove(noteGesture.annotationId, {
+            x: 0.3,
+            y: 0.4,
+        }, pointer(30, 40))).toBe(true);
+        harness.interaction.update({
+            x: 0.5,
+            y: 0.1,
+        }, pointer(50, 10));
+
+        expect(harness.interaction.previewRect.value).toMatchObject({
+            left: 0.4,
+            top: 0,
+            width: 0.4,
+            height: 0.2,
+        });
+        expect(harness.interaction.finish({
+            x: 0.5,
+            y: 0.1,
+        }, pointer(50, 10))).toMatchObject({
+            mode: 'move',
+            gesture: noteGesture,
+            hasMoved: true,
+        });
     });
 
     it('cancels the active gesture and clears its preview', () => {
