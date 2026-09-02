@@ -73,8 +73,8 @@
 .assistant-switcher-menu {
     display: flex;
     flex-direction: column;
-    gap: var(--app-space-3xs);
-    width: min(12rem, var(--app-overlay-viewport-width));
+    width: max-content;
+    min-width: var(--app-assistant-switcher-menu-min-width);
     max-width: var(--app-overlay-viewport-width);
     padding: var(--app-space-sm);
     border-radius: inherit;
@@ -83,32 +83,30 @@
 }
 
 .assistant-switcher-heading {
-    padding: var(--app-space-xs) var(--app-space-md);
+    padding: var(--app-space-sm) var(--app-space-3xl);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-caption);
     font-weight: var(--app-font-weight-medium);
-    line-height: var(--app-line-height-snug);
+    line-height: var(--app-line-height-control);
 }
 
 .assistant-switcher-list {
     display: flex;
     flex-direction: column;
-    gap: var(--app-space-3xs);
 }
 
 .assistant-switcher-option {
     display: flex;
     align-items: center;
-    gap: var(--app-space-md);
-    min-height: var(--app-assistant-control-height);
+    gap: var(--app-space-3xl);
     min-width: 0;
-    padding: var(--app-space-xs) var(--app-space-md);
+    padding: var(--app-space-sm) var(--app-space-3xl);
     border: 0;
     border-radius: var(--app-radius-sm);
     background: transparent;
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-snug);
+    line-height: var(--app-line-height-control);
     text-align: left;
     cursor: pointer;
     transition:
@@ -146,8 +144,17 @@
     white-space: nowrap;
 }
 
-/* Every row reserves the check's width so trailing text stays aligned
-   whether or not that row is the selected one. */
+/* Trailing text and the check form one right-aligned cluster; every row
+   reserves the check's width so that cluster stays put whether or not the
+   row is the selected one. */
+.assistant-switcher-option-meta {
+    flex: 0 0 auto;
+    margin-left: auto;
+    color: var(--ui-text-muted);
+    font-size: var(--app-text-size-caption);
+    font-weight: normal;
+}
+
 .assistant-switcher-check-slot {
     display: inline-flex;
     flex: 0 0 auto;

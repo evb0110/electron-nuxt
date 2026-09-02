@@ -28,7 +28,7 @@
 
         <template #content>
             <div
-                class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar app-scroll-region--balanced"
+                class="assistant-switcher-menu assistant-model-menu app-floating-scroll-region app-scrollbar"
                 :aria-label="t('assistant.model')"
             >
                 <div
@@ -61,7 +61,7 @@
                         <span class="assistant-switcher-option-label">{{ model.displayLabel }}</span>
                         <span
                             v-if="model.isRecommended"
-                            class="assistant-model-recommended"
+                            class="assistant-switcher-option-meta"
                         >{{ t('assistant.modelRecommended') }}</span>
                         <span class="assistant-switcher-check-slot">
                             <UIcon
@@ -177,42 +177,42 @@ function onSelectModel(provider: TAgentAssistantProviderId, model: string) {
 
 <style scoped>
 .assistant-model-menu {
-    width: min(15rem, var(--app-overlay-viewport-width));
+    --assistant-model-row-indent: calc(var(--app-space-3xl) + var(--app-icon-size-xs) + var(--app-space-sm));
+
+    min-width: var(--app-assistant-model-menu-min-width);
 }
 
 .assistant-model-group {
     display: flex;
     flex-direction: column;
-    gap: var(--app-space-3xs);
 }
 
 .assistant-model-group + .assistant-model-group {
     margin-top: var(--app-space-sm);
     padding-top: var(--app-space-sm);
-    border-top: 1px solid var(--app-toolbar-separator);
+    border-top: var(--app-hairline-height) solid var(--app-toolbar-separator);
 }
 
 .assistant-model-group-label {
     display: flex;
     align-items: center;
     gap: var(--app-space-sm);
-    padding: var(--app-space-xs) var(--app-space-md);
+    padding: var(--app-space-sm) var(--app-space-3xl);
     color: var(--ui-text-muted);
     font-size: var(--app-text-size-caption);
     font-weight: var(--app-font-weight-medium);
-    line-height: var(--app-line-height-snug);
+    line-height: var(--app-line-height-control);
 }
 
 .assistant-model-group-icon {
     flex: 0 0 auto;
-    font-size: var(--app-text-size-caption);
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
 }
 
-.assistant-model-recommended {
-    flex: 0 0 auto;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-caption);
-    font-weight: normal;
-    line-height: var(--app-line-height-snug);
+/* Model rows sit under the provider name, not under its icon: the indent is
+   the only thing that says which provider a model belongs to. */
+.assistant-model-menu .assistant-switcher-option {
+    padding-left: var(--assistant-model-row-indent);
 }
 </style>

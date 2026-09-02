@@ -156,7 +156,7 @@ describe('AssistantModelSwitcher', () => {
         ]);
         expect(options[1]?.querySelector('[data-icon="i-ph-check"]')).not.toBeNull();
 
-        const recommended = options.map(option => option.querySelector('.assistant-model-recommended'));
+        const recommended = options.map(option => option.querySelector('.assistant-switcher-option-meta'));
         expect(recommended.map(Boolean)).toEqual([
             true,
             false,

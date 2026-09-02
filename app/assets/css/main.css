@@ -606,6 +606,8 @@
     --app-assistant-model-control-width: 8.5rem;
     --app-assistant-speed-control-width: 5.25rem;
     --app-assistant-control-height: 1.85rem;
+    --app-assistant-switcher-menu-min-width: 11rem;
+    --app-assistant-model-menu-min-width: 13rem;
     --app-assistant-send-button-size: var(--app-control-height-sm);
     --app-assistant-heading-icon-size: var(--app-space-13xl);
     --app-assistant-action-size: 1.75rem;
