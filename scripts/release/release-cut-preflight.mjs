@@ -1,41 +1,39 @@
 #!/usr/bin/env node
 
-import {
-    assertGitHubCliReady,
-    assertNodeProjectBaseline,
-    assertTagAbsent,
-    bumpVersion,
-    getUpstream,
-    listChangedFiles,
-    readVersion,
-    requireNamedBranch,
-} from './shared.mjs';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {assertReleaseCutPreconditions} from './cut-release.mjs';
 
-const MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES = ['landing'];
+export async function runReleasePreflight({
+    assertPreconditions = assertReleaseCutPreconditions,
+    level = 'patch',
+    write = message => {
+        process.stdout.write(message);
+    },
+} = {}) {
+    const {
+        currentVersion,
+        nextVersion,
+        upstream,
+    } = await assertPreconditions({
+        context: 'Release preflight',
+        level,
+    });
 
-async function main() {
-    assertNodeProjectBaseline('Release preflight');
-    await assertGitHubCliReady('Release preflight');
-    const changedFiles = listChangedFiles({ignoredPathPrefixes: MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES});
-    if (changedFiles.length > 0) {
-        throw new Error(
-            'Release preflight requires a clean worktree before `pnpm run release:cut -- patch` can start. '
-            + `Commit or remove these changes first: ${changedFiles.join(', ')}`,
-        );
-    }
-    requireNamedBranch('Release preflight');
-
-    const upstream = getUpstream();
-    const currentVersion = readVersion();
-    const nextPatchVersion = bumpVersion(currentVersion, 'patch');
-    const tag = `v${nextPatchVersion}`;
-    await assertTagAbsent(tag, upstream.remote);
-    process.stdout.write(
-        `Release patch preflight passed: ${currentVersion} -> ${nextPatchVersion} on ${upstream.ref}.\n`,
-    );
+    write(`Release ${level} preflight passed: ${currentVersion} -> ${nextVersion} on ${upstream.ref}.\n`);
+    return {
+        currentVersion,
+        nextVersion,
+        upstream,
+    };
 }
 
-main().catch(error => {
-    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-    process.exitCode = 1;
-});
+const isMain = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isMain) {
+    runReleasePreflight().catch(error => {
+        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.exitCode = 1;
+    });
+}

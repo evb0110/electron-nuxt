@@ -12,6 +12,8 @@ on:
         description: Exact commit SHA or ref to validate and package without publishing a release.
         required: true
         type: string
+  schedule:
+    - cron: '10 4 * * *'
 
 permissions:
   contents: read
@@ -22,8 +24,46 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  freshness:
+    name: Check main freshness
+    if: ${{ github.event_name == 'schedule' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      fresh: ${{ steps.freshness.outputs.fresh }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Check main freshness
+        id: freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          main_epoch="$(git show -s --format=%ct refs/remotes/origin/main)"
+          now_epoch="$(date -u +%s)"
+          age_seconds=$((now_epoch - main_epoch))
+          if [ "$age_seconds" -gt 86400 ]; then
+            echo 'fresh=false' >> "$GITHUB_OUTPUT"
+            echo "Main HEAD is $age_seconds seconds old; skipping the scheduled artifact canary."
+            echo '## Artifact canary skipped' >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "Main HEAD is older than 24 hours ($age_seconds seconds)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          echo 'fresh=true' >> "$GITHUB_OUTPUT"
+          echo "Main HEAD is $age_seconds seconds old; running the scheduled artifact canary."
+
   prepare:
     name: Resolve Target
+    needs: freshness
+    if: ${{ always() && (github.event_name != 'schedule' || needs.freshness.outputs.fresh == 'true') }}
     runs-on: ubuntu-latest
     permissions:
       actions: read

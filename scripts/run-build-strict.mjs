@@ -8,6 +8,7 @@ import {
     fileURLToPath,
     pathToFileURL,
 } from 'node:url';
+import {writeValidationBuildMarker} from './validation-gates.mjs';
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(currentDir, '..');
@@ -198,6 +199,10 @@ async function main() {
         'scripts/check-build-warnings.mjs',
         '.tmp/build.log',
     ], { preserveExistingBuildLog: true });
+    const markerPath = await writeValidationBuildMarker({buildScriptName: getStrictBuildScriptName()});
+    if (markerPath) {
+        process.stdout.write(`Recorded fresh strict-build marker at ${markerPath}.\n`);
+    }
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

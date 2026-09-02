@@ -26,9 +26,10 @@ export function getWorkspacePackageTypecheckPlan({
     projectRoot = process.cwd(),
     projects = [],
 } = {}) {
+    const effectiveCold = cold || process.env.EVB_GATE_NO_CACHE === '1';
     const args = [
         'scripts/run-ts7-typecheck.mjs',
-        ...(cold ? ['--cold'] : []),
+        ...(effectiveCold ? ['--cold'] : []),
         ...projects.flatMap(project => [
             '-p',
             project,
@@ -77,7 +78,7 @@ export function runWorkspacePackageTypecheck({
         command,
         skipped,
     } = getWorkspacePackageTypecheckPlan({
-        cold,
+        cold: cold || process.env.EVB_GATE_NO_CACHE === '1',
         projectRoot,
         projects,
     });

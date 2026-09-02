@@ -15,7 +15,6 @@ env:
   # runtime as direct-download Windows installers.
   NODE_VERSION: '24.11.1'
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-  STORE_PRODUCT_ID: '9N3MB1WJGX1L'
 
 jobs:
   build:
@@ -42,6 +41,7 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           windows-bundle-cache-key: store-win-native-tools-${{ matrix.arch }}
+          needs-msys2: ${{ matrix.arch == 'arm64' }}
           rust-targets: ${{ matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
 
       - name: Bundle native tools
@@ -160,48 +160,6 @@ jobs:
 
           Write-Host "Verified Store package: $($packages[0].Name)"
 
-      - name: Install and launch Microsoft Store AppX smoke
-        shell: pwsh
-        run: |
-          $ErrorActionPreference = 'Stop'
-          $packagePath = (Get-ChildItem -Path release -Filter "*-store.appx" | Select-Object -First 1).FullName
-          $installedPackage = Add-AppxPackage -Path $packagePath -ForceApplicationShutdown -PassThru
-          try {
-            $package = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction Stop
-            $installedExecutable = Join-Path $package.InstallLocation 'app\EVB Viewer.exe'
-            if (-not (Test-Path $installedExecutable -PathType Leaf)) {
-              throw "Installed Store package executable is missing: $installedExecutable"
-            }
-
-            $appUserModelId = "$($package.Name)!EVBViewer"
-            $launcher = Start-Process -FilePath "shell:AppsFolder\$appUserModelId" -PassThru
-            $launchDeadline = (Get-Date).AddMinutes(2)
-            $launchedProcess = $null
-            while (-not $launchedProcess -and (Get-Date) -lt $launchDeadline) {
-              Start-Sleep -Seconds 2
-              $launchedProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
-                Where-Object { $_.ExecutablePath -eq $installedExecutable } |
-                Select-Object -First 1
-            }
-            if (-not $launchedProcess) {
-              throw "Store AppX launch did not start $installedExecutable before the deadline."
-            }
-            Stop-Process -Id $launchedProcess.ProcessId -Force -ErrorAction SilentlyContinue
-            pnpm run test:packaged-core-pdf-smoke -- --executable $installedExecutable
-            if ($LASTEXITCODE -ne 0) {
-              throw "Installed Store AppX core-PDF smoke failed with exit code $LASTEXITCODE."
-            }
-          } finally {
-            if ($installedPackage -and $installedPackage.PackageFullName) {
-              Remove-AppxPackage -Package $installedPackage.PackageFullName -ErrorAction Stop
-            } else {
-              $installed = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction SilentlyContinue
-              if ($installed) {
-                Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
-              }
-            }
-          }
-
       - name: Verify packaged native tools in Microsoft Store AppX
         shell: bash
         run: bash scripts/verify-packaged-native-tools.sh win "${{ matrix.arch }}" ".tmp/store-appx-${{ matrix.arch }}"
@@ -226,3 +184,129 @@ jobs:
             release/*-store.appx
             release/*-store-*-provenance.json
           if-no-files-found: error
+
+  installed_smoke:
+    name: installed smoke (Windows 11 ARM64, ${{ matrix.arch }})
+    # windows-2022 is a Windows Server image and cannot load the Appx
+    # deployment module used by Add-AppxPackage. Windows 11 ARM is a desktop
+    # image and can install the ARM64 package natively and the x64 package via
+    # Windows on Arm x64 emulation.
+    needs: build
+    runs-on: windows-11-arm
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - x64
+          - arm64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+          ref: ${{ inputs.ref || github.ref }}
+
+      - name: Setup release environment
+        uses: ./.github/actions/setup-release-env
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Download Store AppX artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: store-appx-win-${{ matrix.arch }}
+          path: store-artifacts/store-appx-win-${{ matrix.arch }}
+
+      - name: Install and launch Microsoft Store AppX smoke
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $packageDirectory = Join-Path "${{ github.workspace }}" "store-artifacts\store-appx-win-${{ matrix.arch }}"
+          $packages = @(Get-ChildItem -Path $packageDirectory -Filter "*-store.appx" -File)
+          if ($packages.Count -ne 1) {
+            throw "Expected exactly one Store .appx package for ${{ matrix.arch }}, found $($packages.Count)."
+          }
+
+          # Partner Center signs Store packages on submission, so the built
+          # .appx is unsigned and Add-AppxPackage rejects it (0x800B0100).
+          # Sign a runner-local copy with a throwaway certificate whose subject
+          # equals the manifest publisher and trust it for this job only.
+          $signToolPath = (Get-Command signtool.exe -ErrorAction SilentlyContinue).Source
+          if (-not $signToolPath) {
+            $sdkBinRoot = Join-Path "${env:ProgramFiles(x86)}" "Windows Kits\10\bin"
+            $signToolPath = Get-ChildItem -Path $sdkBinRoot -Filter signtool.exe -File -Recurse -ErrorAction Stop |
+              Where-Object { $_.FullName -match '[\\/]x64[\\/]signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -ExpandProperty FullName -First 1
+          }
+          if (-not $signToolPath) {
+            throw "SignTool is not installed or discoverable in the Windows SDK."
+          }
+
+          $publisher = 'CN=06251AF5-66AF-420F-B896-574B507600B9'
+          $certificateParameters = @{
+            Type = 'Custom'
+            Subject = $publisher
+            KeyUsage = 'DigitalSignature'
+            KeyAlgorithm = 'RSA'
+            KeyLength = 2048
+            NotAfter = (Get-Date).AddDays(1)
+            CertStoreLocation = 'Cert:\CurrentUser\My'
+            TextExtension = @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}')
+          }
+          $certificate = New-SelfSignedCertificate @certificateParameters
+          $pfxPassword = [guid]::NewGuid().ToString()
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'store-appx-smoke.pfx'
+          $cerPath = Join-Path $env:RUNNER_TEMP 'store-appx-smoke.cer'
+          Export-PfxCertificate -Cert $certificate -FilePath $pfxPath -Password (ConvertTo-SecureString $pfxPassword -AsPlainText -Force) | Out-Null
+          Export-Certificate -Cert $certificate -FilePath $cerPath | Out-Null
+          Import-Certificate -FilePath $cerPath -CertStoreLocation 'Cert:\LocalMachine\TrustedPeople' | Out-Null
+
+          $packagePath = Join-Path $env:RUNNER_TEMP $packages[0].Name
+          Copy-Item -Path $packages[0].FullName -Destination $packagePath -Force
+          & $signToolPath sign /fd SHA256 /f $pfxPath /p $pfxPassword $packagePath
+          if ($LASTEXITCODE -ne 0) {
+            throw "SignTool failed to sign the Store package copy with exit code $LASTEXITCODE."
+          }
+
+          Add-AppxPackage -Path $packagePath -ForceApplicationShutdown
+          $installedExecutable = $null
+          try {
+            $package = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction Stop
+            $installedExecutable = Join-Path $package.InstallLocation 'app\EVB Viewer.exe'
+            if (-not (Test-Path $installedExecutable -PathType Leaf)) {
+              throw "Installed Store package executable is missing: $installedExecutable"
+            }
+
+            $appUserModelId = "$($package.PackageFamilyName)!EVBViewer"
+            Start-Process -FilePath "shell:AppsFolder\$appUserModelId" | Out-Null
+            $launchDeadline = (Get-Date).AddMinutes(2)
+            $launchedProcess = $null
+            while (-not $launchedProcess -and (Get-Date) -lt $launchDeadline) {
+              Start-Sleep -Seconds 2
+              $launchedProcess = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.ExecutablePath -eq $installedExecutable } |
+                Select-Object -First 1
+            }
+            if (-not $launchedProcess) {
+              throw "Store AppX launch did not start $installedExecutable before the deadline."
+            }
+            Stop-Process -Id $launchedProcess.ProcessId -Force -ErrorAction SilentlyContinue
+            pnpm run test:packaged-core-pdf-smoke -- --executable $installedExecutable
+            if ($LASTEXITCODE -ne 0) {
+              throw "Installed Store AppX core-PDF smoke failed with exit code $LASTEXITCODE."
+            }
+          } finally {
+            if ($installedExecutable) {
+              Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+                Where-Object { $_.ExecutablePath -eq $installedExecutable } |
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+            }
+            $installed = Get-AppxPackage -Name 'EugeneBarsky.EVBViewer' -ErrorAction SilentlyContinue
+            if ($installed) {
+              Remove-AppxPackage -Package $installed.PackageFullName -ErrorAction Stop
+            }
+            Remove-Item -Path "Cert:\LocalMachine\TrustedPeople\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
+            Remove-Item -Path "Cert:\CurrentUser\My\$($certificate.Thumbprint)" -ErrorAction SilentlyContinue
+          }

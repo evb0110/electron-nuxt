@@ -45,8 +45,8 @@ describe('agent assistant model catalog', () => {
                 ],
             },
             {
-                id: 'gpt-5.4-mini',
-                displayName: 'GPT-5.4 Mini',
+                id: 'gpt-5.6-terra',
+                displayName: 'GPT-5.6-Terra',
                 additionalSpeedTiers: ['fast'],
             },
         ]});
@@ -89,8 +89,8 @@ describe('agent assistant model catalog', () => {
                 isDefault: true,
             },
             {
-                id: 'gpt-5.4-mini',
-                label: 'GPT-5.4 Mini',
+                id: 'gpt-5.6-terra',
+                label: 'GPT-5.6-Terra',
                 serviceTiers: [{
                     id: 'fast',
                     label: 'Fast',
@@ -118,8 +118,8 @@ describe('agent assistant model catalog', () => {
 
         const status = resolveCodexModelStatus(models, 'does-not-exist');
 
-        expect(status.defaultModel).toBe('gpt-5.4');
-        expect(status.activeModel).toBe('gpt-5.4');
+        expect(status.defaultModel).toBe('gpt-5.6-sol');
+        expect(status.activeModel).toBe('gpt-5.6-sol');
         expect(status.models.map(model => model.id)).toContain(status.defaultModel);
         expect(status.models.map(model => model.id)).toContain(status.activeModel);
         expect(normalizeCodexAssistantModelFromCatalog(models, 'gpt-5.6-sol')).toBe('gpt-5.6-sol');
@@ -138,25 +138,27 @@ describe('agent assistant model catalog', () => {
             {model: '   '},
             null,
             {id: 'gpt-5.4-mini'},
-        ]})).toEqual([
-            {
-                id: 'gpt-5.6-sol',
-                label: 'GPT-5.6-Sol',
-            },
-            {
-                id: 'gpt-5.4-mini',
-                label: 'gpt-5.4-mini',
-            },
-        ]);
+        ]})).toEqual([{
+            id: 'gpt-5.6-sol',
+            label: 'GPT-5.6-Sol',
+        }]);
         expect(normalizeCodexModelListResponse({data: 'bad'})).toBeNull();
     });
 
-    it('removes GPT-5.5 from the runtime model catalog', () => {
+    it('removes Codex GPT models below 5.6 from the runtime model catalog', () => {
         expect(normalizeCodexModelListResponse({data: [
             {
                 model: 'gpt-5.5',
                 displayName: 'GPT-5.5',
                 isDefault: true,
+            },
+            {
+                model: 'gpt-5.4-mini',
+                displayName: 'GPT-5.4 Mini',
+            },
+            {
+                model: 'gpt-5.3-codex-spark',
+                displayName: 'GPT-5.3-Codex-Spark',
             },
             {
                 model: 'gpt-5.6-sol',
