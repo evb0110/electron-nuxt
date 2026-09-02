@@ -1,0 +1,26 @@
+app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations.ts
+  s_c57729f2c66bed::t_635752ee9246f7 17,96
+  s_c57729f2c66bed::t_a09686b4bc6e93 18
+  s_c57729f2c66bed::t_9af69a27034d88 1,85
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_c57729f2c66bed::t_27bebfb537449f 57
+  s_c57729f2c66bed::t_2edb17f4a238d1 2-8,14-48,53-56,58,60-65,72-90,97-98,104-114,121-122,127-129,134-142,149-150,157-167
+  s_c57729f2c66bed::t_9af69a27034d88 1
+  s_c57729f2c66bed::t_a09686b4bc6e93 9-13,49-52,59,66-71,91-96,99-103,115-120,123-126,130-133,143-148,151-156
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4d3517bd1f74ada2000c5299cf10d1cc812079b9",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
