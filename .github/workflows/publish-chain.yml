@@ -47,6 +47,7 @@ jobs:
   finalize:
     name: Finalize immutable release assets
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     environment: release
     permissions:
       attestations: write
@@ -102,6 +103,7 @@ jobs:
     name: Stage release mirror
     needs: finalize
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     environment: release
     permissions:
       contents: write
@@ -156,6 +158,9 @@ jobs:
     name: Promote verified release
     needs: stage_mirror
     runs-on: ubuntu-latest
+    # Mirror activation already bounds itself to three 600 s attempts with
+    # 30 s pauses; the job budget has to cover that whole window.
+    timeout-minutes: 40
     environment: release
     permissions:
       contents: write

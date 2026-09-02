@@ -1191,6 +1191,16 @@ describe('CI topology policy', () => {
             expect(job).toContain('ref: ${{ inputs.workflow_sha }}');
             expect(job).toContain('uses: ./.github/actions/setup-release-env');
         }
+        // A stalled mirror upload once held the global release concurrency
+        // group for half an hour before an operator cancelled it; without a
+        // job timeout GitHub would have let it run for six. Every chain job
+        // therefore declares a budget above its measured duration.
+        expect(workflowJob(publishChainWorkflow, 'finalize')).toContain('timeout-minutes: 20');
+        expect(workflowJob(publishChainWorkflow, 'stage_mirror')).toContain('timeout-minutes: 40');
+        // Promote's activation loop is bounded to three 600 s attempts plus
+        // pauses, so its job budget must exceed that window.
+        expect(workflowJob(publishChainWorkflow, 'promote')).toContain('timeout-minutes: 40');
+        expect(workflowJob(publishChainWorkflow, 'promote')).toContain('timeout 600s node scripts/release/publish-release-mirror.mjs');
         const finalizeJob = workflowJob(publishChainWorkflow, 'finalize');
         expect(finalizeJob).toContain('pattern: ${{ inputs.artifact_name_prefix }}*');
         expect(finalizeJob).toContain('release-checksums.mjs generate artifacts');

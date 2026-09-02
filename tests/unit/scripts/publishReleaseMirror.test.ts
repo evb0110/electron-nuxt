@@ -23,7 +23,9 @@ import {
     compareReleaseTags,
     contentTypeFor,
     cleanupMirrorPrefix,
+    createMirrorClient,
     hashFile,
+    MIRROR_TRANSFER_TIMEOUTS,
     publishReleaseMirror,
     requireEnvironment,
     resolveMirrorPaths,
@@ -140,6 +142,119 @@ describe('release mirror publisher', () => {
             'evb-viewer/drill/123/releases/v0.0.0-drill.123/manifest.json',
             'evb-viewer/drill/123/channels/stable.json',
         ]);
+    });
+
+    it('bounds every mirror transfer instead of waiting on a stalled socket', async () => {
+        const {client} = createMirrorClient(environment);
+        const handler = client.config.requestHandler as {configProvider: Promise<Record<string, unknown>>};
+
+        await expect(handler.configProvider).resolves.toMatchObject({
+            ...MIRROR_TRANSFER_TIMEOUTS,
+            throwOnRequestTimeout: true,
+        });
+        expect(MIRROR_TRANSFER_TIMEOUTS.socketTimeout).toBeLessThan(MIRROR_TRANSFER_TIMEOUTS.requestTimeout);
+    });
+
+    function createRetryFixture(failure: (attempt: number) => Error | undefined) {
+        const stored = new Map<string, Buffer>();
+        const putBodies: Buffer[] = [];
+        const client = {send: vi.fn(async (command: unknown) => {
+            if (command instanceof HeadObjectCommand) {
+                const bytes = stored.get(command.input.Key!);
+                return bytes
+                    ? {ContentLength: bytes.byteLength}
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const bytes = stored.get(command.input.Key!);
+                if (!bytes) {
+                    throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+                }
+                return {Body: objectBody(bytes)};
+            }
+            if (command instanceof PutObjectCommand) {
+                // Consume the body before failing so a reused stream would
+                // arrive empty on the next attempt.
+                const bytes = await commandBodyBytes(command.input.Body);
+                if (command.input.Key!.endsWith('/asset.zip')) {
+                    putBodies.push(bytes);
+                    const error = failure(putBodies.length);
+                    if (error) {
+                        throw error;
+                    }
+                }
+                stored.set(command.input.Key!, bytes);
+                return {};
+            }
+            if (command instanceof ListObjectsV2Command) {
+                return {Contents: []};
+            }
+            throw new Error(`Unexpected command: ${String(command)}`);
+        })};
+
+        return {
+            client,
+            putBodies,
+            publish: async () => {
+                const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-retry-'));
+                await writeFile(join(artifactDirectory, 'asset.zip'), 'drill');
+                return await publishReleaseMirror({
+                    artifactDirectory,
+                    client,
+                    drill: true,
+                    environment: {
+                        ...environment,
+                        MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+                        MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+                    },
+                    releaseTag: 'v0.0.0-drill.123',
+                    uploadRetryDelayMs: 0,
+                });
+            },
+        };
+    }
+
+    it('retries a timed-out artifact upload with a fresh body stream', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const {
+            publish,
+            putBodies,
+        } = createRetryFixture(attempt => (attempt === 1
+            ? Object.assign(new Error('socket timed out after 60000 ms of inactivity'), {name: 'TimeoutError'})
+            : undefined));
+
+        await expect(publish()).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(putBodies.map(bytes => bytes.toString('utf8'))).toEqual([
+            'drill',
+            'drill',
+        ]);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));
+        warn.mockRestore();
+    });
+
+    it('does not retry an upload the mirror rejected', async () => {
+        const {
+            publish,
+            putBodies,
+        } = createRetryFixture(() => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}}));
+
+        await expect(publish()).rejects.toThrow('AccessDenied');
+
+        expect(putBodies).toHaveLength(1);
+    });
+
+    it('gives up after three transient upload failures', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const {
+            publish,
+            putBodies,
+        } = createRetryFixture(() => Object.assign(new Error('read ECONNRESET'), {code: 'ECONNRESET'}));
+
+        await expect(publish()).rejects.toThrow('ECONNRESET');
+
+        expect(putBodies).toHaveLength(3);
+        warn.mockRestore();
     });
 
     it('deletes only drill mirror prefixes', async () => {

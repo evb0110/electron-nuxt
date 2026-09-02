@@ -99,6 +99,7 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
 - The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+- Mirror transfers are bounded. The S3 client aborts a socket that carries no bytes for 60 seconds or a request older than 10 minutes, the publisher retries each artifact up to three times with a fresh stream, and every publish-chain job declares `timeout-minutes` (finalize 20, mirror 40, promote 40, which covers its own three bounded activation attempts). A stalled upload fails within the hour and is repaired by re-running the failed jobs; it no longer holds the global release concurrency group for GitHub's six-hour job limit.
 
 ## Deferred by evidence
 
