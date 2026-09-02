@@ -477,11 +477,56 @@ async function readTextBoxComputedStyle(
             return null;
         }
         const style = window.getComputedStyle(textBox);
+        const scaleFactor = Number.parseFloat(style.getPropertyValue('--scale-factor')) || 1;
+        const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit')) || 1;
+        const fontSizeCssPixels = Number.parseFloat(style.fontSize);
         return {
             color: style.color,
-            fontSize: style.fontSize,
+            fontSize: Number.isFinite(fontSizeCssPixels)
+                ? Number((fontSizeCssPixels / (scaleFactor * userUnit)).toFixed(3))
+                : null,
         };
     }, annotationId);
+}
+
+async function readFirstTextBoxComputedStyle(page: Parameters<typeof evaluateInPage>[0]) {
+    return evaluateInPage(page, () => {
+        const textBox = document.querySelector<HTMLElement>('[data-annotation-kind="text-box"]');
+        if (!textBox) {
+            return null;
+        }
+        const style = window.getComputedStyle(textBox);
+        const scaleFactor = Number.parseFloat(style.getPropertyValue('--scale-factor')) || 1;
+        const userUnit = Number.parseFloat(style.getPropertyValue('--user-unit')) || 1;
+        const fontSizeCssPixels = Number.parseFloat(style.fontSize);
+        return {
+            color: style.color,
+            fontSize: Number.isFinite(fontSizeCssPixels)
+                ? Number((fontSizeCssPixels / (scaleFactor * userUnit)).toFixed(3))
+                : null,
+        };
+    });
+}
+
+async function increaseSelectedTextBoxFontSize(page: Parameters<typeof evaluateInPage>[0]) {
+    await page.waitForSelector('.annotation-style-popover .style-step-button', {
+        visible: true,
+        timeout: 20_000,
+    });
+    const clicked = await page.evaluate(() => {
+        const buttons = Array.from(document.querySelectorAll<HTMLButtonElement>(
+            '.annotation-style-popover .style-step-button',
+        ));
+        const increaseButton = buttons.at(-1);
+        if (!increaseButton) {
+            return false;
+        }
+        increaseButton.click();
+        return true;
+    });
+    if (!clicked) {
+        throw new Error('The selected text box font-size control was not mounted');
+    }
 }
 
 async function dragPointer(
@@ -756,6 +801,22 @@ describe('Electron E2E - native save and reopen', () => {
             '[data-annotation-kind="text-box"]',
         )).some(entity => entity.dataset.annotationId === id && entity.classList.contains('is-selected')), {timeout: 20_000}, annotationId);
 
+        const originalStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(originalStyle).not.toBeNull();
+        if (!originalStyle) {
+            throw new Error('The selected text box did not expose its computed style');
+        }
+        await increaseSelectedTextBoxFontSize(session.page);
+        await expect.poll(async () => (
+            await readTextBoxComputedStyle(session!.page, annotationId)
+        ), {timeout: 20_000}).not.toEqual(originalStyle);
+        const resizedFontStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(resizedFontStyle).not.toBeNull();
+        if (!resizedFontStyle) {
+            throw new Error('The selected text box font size was not readable');
+        }
+        expect(resizedFontStyle.fontSize).not.toBe(originalStyle.fontSize);
+
         await setAnnotationColor(session.page, '#ef4444');
         await expect.poll(async () => stringField(
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText) ?? {},
@@ -864,6 +925,11 @@ describe('Electron E2E - native save and reopen', () => {
 
         const finalSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const finalFingerprint = canonicalAnnotationFingerprint(finalSnapshot);
+        const finalStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(finalStyle).toEqual({
+            color: 'rgb(239, 68, 68)',
+            fontSize: resizedFontStyle.fontSize,
+        });
         await saveViaWindowHandle(session.page, 60_000);
         await expect.poll(
             () => readAnnotationDirtyState(session!.page),
@@ -889,6 +955,7 @@ describe('Electron E2E - native save and reopen', () => {
         await expect.poll(async () => canonicalAnnotationFingerprint(
             await readCanonicalAnnotationSnapshot(session!.page),
         ), {timeout: 20_000}).toBe(finalFingerprint);
+        expect(await readFirstTextBoxComputedStyle(session.page)).toEqual(finalStyle);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('edits a fixture text box and preserves its foreign dictionary keys through save', async () => {

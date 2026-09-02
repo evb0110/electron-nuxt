@@ -253,4 +253,16 @@ describe('usePdfAnnotationEditorSurface', () => {
 
         harness.stop();
     });
+
+    it('discards a never-saved text box without leaving a tombstone or undo command', () => {
+        const harness = createSurfaceHarness();
+        const created = harness.surface.createTextBoxAt(0, rect);
+
+        expect(harness.surface.discardUnsavedAnnotation(created.identity.id)).toBe(true);
+        expect(harness.annotationApplication.value.store.get(created.identity.id)).toBeNull();
+        expect(harness.annotationApplication.value.store.canUndo).toBe(false);
+        expect(harness.surface.discardUnsavedAnnotation(created.identity.id)).toBe(false);
+
+        harness.stop();
+    });
 });

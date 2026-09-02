@@ -376,7 +376,7 @@ function commitTextBox(annotationId: AnnotationId, text: string) {
         return;
     }
     if (newTextBoxIds.has(annotationId) && text.trim().length === 0) {
-        surface.deleteAnnotation(annotationId);
+        surface.discardUnsavedAnnotation(annotationId);
     } else if (entity.text !== text) {
         surface.commitGesture(annotationId, {text});
     }
@@ -390,7 +390,7 @@ function cancelTextBox(annotationId: AnnotationId) {
     }
     const entity = currentTextBox(annotationId);
     if (entity && newTextBoxIds.has(annotationId)) {
-        surface.deleteAnnotation(annotationId);
+        surface.discardUnsavedAnnotation(annotationId);
     }
     newTextBoxIds.delete(annotationId);
     editingId.value = null;

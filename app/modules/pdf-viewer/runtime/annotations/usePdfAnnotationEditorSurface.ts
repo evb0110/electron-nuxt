@@ -58,6 +58,7 @@ export interface IAnnotationEditorSurface {
     updateSelectedTextBoxProperties(
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,
     ): boolean;
+    discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
     deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
     nudgeSelection(deltaX: number, deltaY: number): void;
@@ -259,6 +260,16 @@ export const usePdfAnnotationEditorSurface = (
             return false;
         }
         store().delete(annotationId);
+        options.emitAnnotationModified?.();
+        return true;
+    }
+
+    function discardUnsavedAnnotation(annotationId: AnnotationId) {
+        const entity = store().get(annotationId);
+        if (!entity || entity.deleted || entity.persistedRevision >= 0 || entity.identity.pdfRef) {
+            return false;
+        }
+        store().forget(new Set([annotationId]));
         options.emitAnnotationModified?.();
         return true;
     }
@@ -488,6 +499,7 @@ export const usePdfAnnotationEditorSurface = (
         clearSelection,
         getSelectedTextBox,
         updateSelectedTextBoxProperties,
+        discardUnsavedAnnotation,
         deleteAnnotation,
         deleteSelection,
         nudgeSelection,
