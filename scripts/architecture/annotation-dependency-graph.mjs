@@ -65,14 +65,6 @@ export const ANNOTATION_LATE_BOUND_EDGES = [
         evidence: 'useAnnotationEditorBridge resolves tool manager and markup subtype ports during annotation editor setup.',
     },
     {
-        source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
-        target: 'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
-        kind: 'late-bound',
-        label: 'syncInlineCommentIndicators',
-        phase: 'event-time',
-        evidence: 'useAnnotationSync receives inline indicator sync as an injected callback.',
-    },
-    {
         source: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts',
         target: 'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync.ts',
         kind: 'late-bound',

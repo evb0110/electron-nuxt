@@ -211,6 +211,7 @@ const EDITABLE_COLOR_SUBTYPES = new Set([
     'strikeout',
     'strikethrough',
     'squiggly',
+    'text',
 ]);
 
 function getFallbackColorForSubtype(subtype: string | null | undefined) {
@@ -223,6 +224,9 @@ function getFallbackColorForSubtype(subtype: string | null | undefined) {
     }
     if (normalizedSubtype === 'squiggly') {
         return DEFAULT_ANNOTATION_SETTINGS.squigglyColor;
+    }
+    if (normalizedSubtype === 'text') {
+        return DEFAULT_ANNOTATION_SETTINGS.textColor;
     }
     return DEFAULT_ANNOTATION_SETTINGS.highlightColor;
 }

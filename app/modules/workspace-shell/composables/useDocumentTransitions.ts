@@ -29,17 +29,13 @@ export interface IDocumentTransitionDeps {
     clearAnnotationComments: () => void;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationEditorState: Ref<IAnnotationEditorState>;
-    annotationPlacingPageNote: Ref<boolean>;
     bookmarkItems: Ref<unknown[]>;
     bookmarksDirty: Ref<boolean>;
     bookmarkEditMode: Ref<boolean>;
     pageLabels: Ref<string[] | null>;
     pageLabelRanges: Ref<unknown[]>;
     pageLabelsDirty: Ref<boolean>;
-    pdfViewerRef: Ref<{
-        clearShapes: () => void;
-        cancelCommentPlacement: () => void;
-    } | null>;
+    pdfViewerRef: Ref<{clearShapes: () => void;} | null>;
     resetAnnotationTracking: () => void;
     resetSearchCache: () => void;
     closeSearch: () => void;
@@ -85,7 +81,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         clearAnnotationComments,
         annotationActiveCommentStableKey,
         annotationEditorState,
-        annotationPlacingPageNote,
         bookmarkItems,
         bookmarksDirty,
         bookmarkEditMode,
@@ -132,8 +127,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
             if (annotationTool.value !== 'none') {
                 annotationTool.value = 'none';
             }
-            pdfViewerRef.value?.cancelCommentPlacement();
-            annotationPlacingPageNote.value = false;
         }
     });
 

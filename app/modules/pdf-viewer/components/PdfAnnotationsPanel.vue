@@ -84,7 +84,7 @@
             @focus-comment="focusComment"
             @open-note="openNote"
             @delete-comment="deleteComment"
-            @place-note="placeNote"
+            @set-tool="setTool"
             @retry-enrichment="retryEnrichment"
         />
     </div>
@@ -199,7 +199,6 @@ const emit = defineEmits<{
     'focus-comment': [comment: IAnnotationCommentSummary];
     'open-note': [comment: IAnnotationCommentSummary];
     'delete-comment': [comment: IAnnotationCommentSummary];
-    'place-note': [];
     'retry-enrichment': [];
 }>();
 
@@ -276,10 +275,6 @@ function openNote(comment: IAnnotationCommentSummary) {
 
 function deleteComment(comment: IAnnotationCommentSummary) {
     emit('delete-comment', comment);
-}
-
-function placeNote() {
-    emit('place-note');
 }
 
 function retryEnrichment() {

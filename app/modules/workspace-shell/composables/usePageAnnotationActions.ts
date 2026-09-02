@@ -68,7 +68,6 @@ interface IPageAnnotationActionsDeps {
     pdfViewerRef: Ref<TPageAnnotationActionsPdfViewer | null>;
     annotationTool: Ref<TAnnotationTool>;
     annotationKeepActive: Ref<boolean>;
-    annotationPlacingPageNote: Ref<boolean>;
     annotationSettings: Ref<IAnnotationSettings>;
     annotationActiveCommentStableKey: Ref<string | null>;
     annotationContextMenu: Ref<{
@@ -138,7 +137,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         pdfViewerRef,
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationActiveCommentStableKey,
         annotationContextMenu,
@@ -269,35 +267,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         const previousSidebarTab = sidebarTab.value;
         try {
             dragMode.value = false;
-            annotationTool.value = 'none';
-            if (!annotationPlacingPageNote.value) {
-                viewer.startCommentPlacement();
-                annotationPlacingPageNote.value = true;
-            }
+            handleAnnotationToolChange('note');
         } finally {
             await nextTick();
             showSidebar.value = previousSidebarVisibility;
             sidebarTab.value = previousSidebarTab;
         }
-    }
-
-    function handleStartPlaceNote() {
-        if (!pdfViewerRef.value) {
-            return;
-        }
-
-        if (annotationPlacingPageNote.value) {
-            pdfViewerRef.value.cancelCommentPlacement();
-            annotationPlacingPageNote.value = false;
-            return;
-        }
-
-        showSidebar.value = true;
-        sidebarTab.value = 'annotations';
-        dragMode.value = false;
-        annotationTool.value = 'none';
-        pdfViewerRef.value.startCommentPlacement();
-        annotationPlacingPageNote.value = true;
     }
 
     async function handleAnnotationFocusComment(comment: IAnnotationCommentSummary) {
@@ -1167,7 +1142,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         selectedTextMarkupForProperties,
         handleCommentSelection,
         handleQuickNoteAction,
-        handleStartPlaceNote,
         handleAnnotationFocusComment,
         handleAnnotationCommentClick,
         handleOpenAnnotationNote,

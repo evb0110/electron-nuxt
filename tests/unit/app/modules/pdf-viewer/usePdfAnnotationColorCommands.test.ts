@@ -34,6 +34,31 @@ function createComment(appAnnotationId: string): IAnnotationCommentSummary {
     };
 }
 
+function createNoteComment(): IAnnotationCommentSummary {
+    return {
+        annotationId: '12 0 R',
+        author: 'Document author',
+        color: '#f59e0b',
+        createdAt: 1,
+        hasNote: true,
+        id: '12R0',
+        markerRect: {
+            left: 0.1,
+            top: 0.2,
+            width: 0.03,
+            height: 0.03,
+        },
+        modifiedAt: 1,
+        pageIndex: 0,
+        pageNumber: 1,
+        source: 'pdf',
+        stableKey: 'ann:0:12R0',
+        subtype: 'Text',
+        text: 'Foreign note',
+        uid: null,
+    };
+}
+
 function createHarness() {
     const application = new AnnotationApplication('test');
     const id = asAnnotationId('anno-markup');
@@ -81,6 +106,64 @@ function createHarness() {
 }
 
 describe('usePdfAnnotationColorCommands', () => {
+    it('updates a canonical sticky note without routing through PDF.js', () => {
+        const application = new AnnotationApplication('test');
+        const id = asAnnotationId('anno-note');
+        application.store.createNote({
+            kind: 'note',
+            identity: {
+                id,
+                pdfRef: '12 0 R',
+            },
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: 1,
+            modifiedAt: 1,
+            author: 'Document author',
+            contents: 'Foreign note',
+            position: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.03,
+                height: 0.03,
+            },
+            color: '#f59e0b',
+            open: false,
+        });
+        const annotationCommentModel = {
+            toTextMarkupSubtype: vi.fn(),
+            updateCachedColor: vi.fn(),
+        };
+        const emitForcedAnnotationMutation = vi.fn();
+        const commands = usePdfAnnotationColorCommands({
+            annotationApplication: shallowRef(application),
+            annotationCommentModel: annotationCommentModel as never,
+            emitForcedAnnotationMutation,
+        });
+
+        const result = commands.updateTextMarkupAnnotationColor(createNoteComment(), '#22c55e');
+
+        expect(result).toMatchObject({
+            updated: true,
+            sourceColor: '#f59e0b',
+            shouldScheduleCommentSync: true,
+            shouldRefreshPage: false,
+            comment: expect.objectContaining({
+                color: '#22c55e',
+                colorEdited: true,
+            }),
+        });
+        expect(application.store.get(id)).toMatchObject({
+            kind: 'note',
+            color: '#22c55e',
+        });
+        expect(annotationCommentModel.toTextMarkupSubtype).not.toHaveBeenCalled();
+        expect(annotationCommentModel.updateCachedColor).not.toHaveBeenCalled();
+        expect(emitForcedAnnotationMutation).toHaveBeenCalledWith({scheduleCommentSync: true});
+    });
+
     it('updates the canonical text-markup entity for a context-menu colour change', () => {
         const harness = createHarness();
 

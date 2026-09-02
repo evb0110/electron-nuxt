@@ -224,6 +224,10 @@ const activeColorSwatch = computed(() => {
         return selectedTextBox?.color ?? settings.textColor;
     }
 
+    if (tool === 'note') {
+        return settings.textColor;
+    }
+
     if (tool === 'strikethrough') {
         return settings.strikethroughColor;
     }
@@ -286,6 +290,12 @@ function handleColorInput(color: string) {
     }
 
     if (tool === 'text') {
+        updateSetting('textColor', color);
+        emit('color-selected');
+        return;
+    }
+
+    if (tool === 'note') {
         updateSetting('textColor', color);
         emit('color-selected');
         return;

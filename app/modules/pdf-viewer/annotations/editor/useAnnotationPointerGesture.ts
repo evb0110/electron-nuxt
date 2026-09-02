@@ -1,6 +1,7 @@
 import type { ComputedRef } from 'vue';
 import type {
     AnnotationId,
+    INoteEntity,
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
@@ -73,6 +74,22 @@ function isTextBox(entity: IAnnotationGesture['entity']): entity is ITextBoxEnti
     return entity.kind === 'text-box';
 }
 
+function isMovableEntity(
+    entity: IAnnotationGesture['entity'],
+): entity is ITextBoxEntity | INoteEntity {
+    return entity.kind === 'text-box' || entity.kind === 'note';
+}
+
+function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
+    if (entity.kind === 'text-box') {
+        return entity.rect;
+    }
+    if (entity.kind === 'note') {
+        return entity.position;
+    }
+    return null;
+}
+
 export const useAnnotationPointerGesture = (
     options: IUseAnnotationPointerGestureOptions,
 ): IAnnotationPointerGesture => {
@@ -86,8 +103,8 @@ export const useAnnotationPointerGesture = (
         if (interaction.mode === 'create') {
             return createAnnotationRectFromPoints(interaction.start, interaction.current);
         }
-        const rect = interaction.gesture?.entity.kind === 'text-box'
-            ? interaction.gesture.entity.rect
+        const rect = interaction.gesture && isMovableEntity(interaction.gesture.entity)
+            ? rectForMovableEntity(interaction.gesture.entity)
             : null;
         if (!rect) {
             return null;
@@ -128,7 +145,7 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         const gesture = options.surface.beginMove(annotationId);
-        if (!gesture || !isTextBox(gesture.entity)) {
+        if (!gesture || !isMovableEntity(gesture.entity)) {
             return false;
         }
         active.value = {

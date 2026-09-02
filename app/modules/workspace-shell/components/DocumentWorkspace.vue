@@ -163,7 +163,6 @@
                     @annotation-focus-comment="annotationSession.handleAnnotationFocusComment"
                     @annotation-open-note="annotationSession.handleOpenAnnotationNote"
                     @annotation-delete-comment="annotationSession.handleDeleteAnnotationComment"
-                    @annotation-place-note="annotationSession.handleStartPlaceNote"
                     @annotation-retry-enrichment="requestAnnotationEnrichment"
                     @bookmarks-change="handleBookmarksChange"
                     @update:bookmark-edit-mode="bookmarkEditMode = $event"
@@ -786,7 +785,6 @@ const {
     contextMenuDeleteActionLabel,
     annotationTool,
     annotationKeepActive,
-    annotationPlacingPageNote,
     annotationSettings,
     annotationComments,
     annotationCommentsStatus,
@@ -1333,7 +1331,6 @@ const {
     annotationCommentsStatus,
     annotationInventory,
     annotationDirty,
-    annotationPlacingPageNote,
     annotationTool,
     bookmarkItems,
     bookmarksDirty,

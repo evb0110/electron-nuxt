@@ -20,10 +20,13 @@ import {
 } from 'node:path';
 import {readFile} from 'node:fs/promises';
 import {
+    PDFArray,
+    PDFDict,
     PDFDocument,
     PDFHexString,
     PDFName,
     PDFNumber,
+    PDFRef,
     PDFString,
     StandardFonts,
     degrees,
@@ -126,6 +129,22 @@ interface IQpdfObjectRef {
 export interface IPdfAnnotationDetails {
     author: string | null;
     subtype: string;
+}
+
+export interface IPdfTextAnnotationRecord {
+    contents: string;
+    name: string;
+    popup: string | null;
+    ref: string;
+    replyTo: string | null;
+    subtype: string;
+}
+
+export interface IForeignNoteReplyFixture {
+    parentName: string;
+    parentText: string;
+    replyNames: readonly string[];
+    replyTexts: readonly string[];
 }
 
 export interface IPdfPageSnapshot {
@@ -603,6 +622,110 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     writeFileSync(filePath, bytes);
 
     return filePath;
+}
+
+export async function createForeignNoteReplyFixturePdf(filename: string): Promise<IForeignNoteReplyFixture & {filePath: string}> {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const document = await PDFDocument.create();
+    const page = document.addPage([
+        612,
+        792,
+    ]);
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    page.drawText('Foreign note reply fixture', {
+        font,
+        size: 20,
+        x: 72,
+        y: 720,
+    });
+
+    const context = document.context;
+    const parentName = 'foreign-note-with-replies';
+    const parentText = 'Foreign parent note';
+    const replyTexts = [
+        'First foreign reply',
+        'Second foreign reply',
+    ] as const;
+    const replyNames = [
+        'foreign-reply-1',
+        'foreign-reply-2',
+    ] as const;
+    const parentRef = context.nextRef();
+    const popupRef = context.nextRef();
+    const replyRefs = replyTexts.map(() => context.nextRef());
+    context.assign(parentRef, context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Text'),
+        Rect: [
+            280,
+            600,
+            312,
+            632,
+        ],
+        NM: PDFHexString.fromText(parentName),
+        Contents: PDFHexString.fromText(parentText),
+        Popup: popupRef,
+        Open: false,
+        C: [
+            1,
+            0.8,
+            0,
+        ],
+        T: PDFHexString.fromText('Foreign author'),
+        M: PDFString.of('D:20260902090000Z'),
+        P: page.ref,
+    }));
+    context.assign(popupRef, context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Popup'),
+        Rect: [
+            280,
+            600,
+            312,
+            632,
+        ],
+        Parent: parentRef,
+        Contents: PDFHexString.fromText(parentText),
+        Open: false,
+        P: page.ref,
+    }));
+    replyRefs.forEach((replyRef, index) => {
+        context.assign(replyRef, context.obj({
+            Type: PDFName.of('Annot'),
+            Subtype: PDFName.of('Text'),
+            Rect: [
+                280,
+                560 - index * 40,
+                312,
+                592 - index * 40,
+            ],
+            NM: PDFHexString.fromText(replyNames[index] ?? ''),
+            Contents: PDFHexString.fromText(replyTexts[index] ?? ''),
+            IRT: parentRef,
+            RT: PDFName.of('R'),
+            T: PDFHexString.fromText(`Reply author ${index + 1}`),
+            M: PDFString.of(`D:2026090209${String(index + 1).padStart(2, '0')}00Z`),
+            P: page.ref,
+        }));
+    });
+    page.node.set(PDFName.of('Annots'), context.obj([
+        parentRef,
+        popupRef,
+        ...replyRefs,
+    ]));
+    writeFileSync(filePath, await document.save({
+        addDefaultPage: false,
+        useObjectStreams: false,
+    }));
+
+    return {
+        filePath,
+        parentName,
+        parentText,
+        replyNames,
+        replyTexts,
+    };
 }
 
 export async function createPasswordProtectedFixturePdf(filename: string) {
@@ -1830,6 +1953,52 @@ export async function readPdfAnnotationDetails(filePath: string): Promise<IPdfAn
     }
 
     return details;
+}
+
+function getPdfStringValue(value: unknown) {
+    if (value instanceof PDFHexString || value instanceof PDFString) {
+        return value.decodeText();
+    }
+    return '';
+}
+
+export async function readPdfTextAnnotationRecords(filePath: string): Promise<IPdfTextAnnotationRecord[]> {
+    const document = await PDFDocument.load(readFileSync(filePath), { updateMetadata: false });
+    const records: IPdfTextAnnotationRecord[] = [];
+
+    for (let pageIndex = 0; pageIndex < document.getPageCount(); pageIndex += 1) {
+        const annots = document.getPage(pageIndex).node.Annots();
+        if (!(annots instanceof PDFArray)) {
+            continue;
+        }
+
+        for (let index = 0; index < annots.size(); index += 1) {
+            const ref = annots.get(index);
+            if (!(ref instanceof PDFRef)) {
+                continue;
+            }
+            const dict = document.context.lookupMaybe(ref, PDFDict);
+            if (!dict) {
+                continue;
+            }
+            const subtype = dict.get(PDFName.of('Subtype'))?.toString() ?? '';
+            if (subtype !== '/Text' && subtype !== '/FreeText') {
+                continue;
+            }
+            const replyTo = dict.get(PDFName.of('IRT'));
+            const popup = dict.get(PDFName.of('Popup'));
+            records.push({
+                contents: getPdfStringValue(dict.get(PDFName.of('Contents'))),
+                name: getPdfStringValue(dict.get(PDFName.of('NM'))),
+                popup: popup instanceof PDFRef ? String(popup) : null,
+                ref: String(ref),
+                replyTo: replyTo instanceof PDFRef ? String(replyTo) : null,
+                subtype,
+            });
+        }
+    }
+
+    return records;
 }
 
 export async function readPdfAnnotationSummary(filePath: string): Promise<IPdfAnnotationSummary> {

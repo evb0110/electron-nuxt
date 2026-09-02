@@ -123,7 +123,6 @@ function mountAnnotationSession() {
             annotationKeepActive: computed(() => false),
             annotationSettings: computed(() => null),
             authorName: computed(() => null),
-            stopDrag: vi.fn(),
             clearPendingImagePlacement: vi.fn(),
             emitAnnotationModified: vi.fn(),
             emitAnnotationState: vi.fn(),
@@ -135,8 +134,6 @@ function mountAnnotationSession() {
             emitAnnotationToolAutoReset: vi.fn(),
             emitAnnotationSetting: vi.fn(),
             emitAnnotationCommentClick: vi.fn(),
-            emitAnnotationToolCancel: vi.fn(),
-            emitAnnotationNotePlacementChange: vi.fn(),
             emitShapeContextMenu: vi.fn(),
         });
         return () => h('div');

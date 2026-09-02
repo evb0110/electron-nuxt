@@ -313,12 +313,24 @@ describe('AnnotationApplication', () => {
                 width: 0.02,
                 height: 0.03,
             },
+            replies: [{
+                objectNumber: 887,
+                generationNumber: 0,
+                contents: 'A reply from the document',
+                author: 'Reply author',
+                createdAt: 2,
+                modifiedAt: 2,
+            }],
         }]);
 
         expect(application.store.list()).toMatchObject([{
             kind: 'note',
             contents: 'imported Popup note',
             identity: {pdfRef: '886R'},
+            replies: [{
+                contents: 'A reply from the document',
+                author: 'Reply author',
+            }],
         }]);
         expect(application.listCommentSummaries()).toMatchObject([{
             source: 'pdf',
@@ -328,6 +340,10 @@ describe('AnnotationApplication', () => {
             subtype: 'Text',
             text: 'imported Popup note',
             hasNote: true,
+            replies: [{
+                contents: 'A reply from the document',
+                author: 'Reply author',
+            }],
         }]);
     });
 

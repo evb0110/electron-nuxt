@@ -71,11 +71,7 @@
             />
             <PdfViewerPortalLayers
                 :viewer-container="viewerContainer"
-                :markers-by-page="visibleMarkersByPage"
                 :links-by-page="visibleLinksByPage"
-                @open-note="handleMarkerOpenNote"
-                @context-menu="handleMarkerContextMenu"
-                @move-marker="handleMarkerMove"
                 @link-destination="handleLinkDestination"
             />
         </template>
@@ -179,12 +175,8 @@ const {
     clearPendingImagePlacement,
     regionSnip,
     cropSelection,
-    visibleMarkersByPage,
     visibleLinksByPage,
     isViewerLoadingOverlayVisible,
-    handleMarkerOpenNote,
-    handleMarkerContextMenu,
-    handleMarkerMove,
     handleLinkDestination,
     handleViewerContainerRef,
     pdfViewerPublicApi,

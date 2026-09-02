@@ -302,15 +302,14 @@ describe('annotation architecture boundaries', () => {
         expect(policy).toContain('export const POINT_NOTE_MARKER_MAX_NORMALIZED_SIZE = 0.02;');
         expect(policy).toContain('export const POINT_NOTE_MARKER_SIZE_ROUNDING_TOLERANCE = Number.EPSILON * 16;');
 
-        // Import classification, list classification, the editor bridge, the
-        // page marker view model and the save pipeline must agree, so none of
-        // them may keep a private copy of the threshold.
+        // Import classification, list classification, the editor bridge, and
+        // the save pipeline must agree, so none of them may keep a private
+        // copy of the threshold.
         const callSites = [
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
             'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary.ts',
             'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect.ts',
             'app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect.ts',
-            'app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts',
         ];
         for (const path of callSites) {
             expect(read(path)).toContain('annotation-rules/pointNoteMarkerPolicy\'');

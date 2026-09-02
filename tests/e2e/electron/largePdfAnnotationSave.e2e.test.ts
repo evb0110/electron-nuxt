@@ -345,7 +345,7 @@ async function startIssue139VisibilityProbe(
                 return;
             }
             const editors = Array.from(host.querySelectorAll<HTMLElement>(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                '.freeTextEditor',
             ));
             const visibleEditors = editors.filter(editor => (
                 probeWindow.__issue139IsPainted?.(editor, host) === true
@@ -902,8 +902,8 @@ async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
             host?.querySelectorAll<HTMLTextAreaElement>('textarea.note-window__textarea') ?? [],
         ).find(candidate => candidate.value === text && isVisible(candidate)) ?? null;
         return {
-            markerCount: Array.from(host?.querySelectorAll<HTMLElement>(
-                '.pdf-comment-marker-button',
+            noteCount: Array.from(host?.querySelectorAll<HTMLElement>(
+                '.pdf-annotation-editor-note',
             ) ?? []).filter(isVisible).length,
             text: textarea?.value ?? null,
         };
@@ -1001,7 +1001,7 @@ async function waitForCanonicalImportedTextPopupComment(
     })]);
 }
 
-async function moveImportedTextPopupMarker(
+async function moveImportedTextPopupNote(
     page: Page,
     comment: ICanonicalImportedTextPopupComment,
 ) {
@@ -1009,24 +1009,37 @@ async function moveImportedTextPopupMarker(
     if (!before || !comment.stableKey) {
         throw new Error('Imported Text annotation has no canonical marker rectangle before move');
     }
-    try {
-        await page.waitForFunction((stableKey) => Array.from(
-            document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'),
-        ).some((marker) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return marker.dataset.stableKey === stableKey
-                && style.display !== 'none'
+    const noteCenter = await page.evaluate((stableKey) => {
+        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const notes = Array.from(document.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-note',
+        )).filter(note => note.dataset.stableKey === stableKey);
+        const isVisible = (note: HTMLElement) => {
+            const rect = note.getBoundingClientRect();
+            const style = window.getComputedStyle(note);
+            return style.display !== 'none'
                 && style.visibility !== 'hidden'
                 && Number(style.opacity || '1') > 0
                 && rect.width > 0
                 && rect.height > 0;
-        }), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, comment.stableKey);
-    } catch (error) {
+        };
+        const note = notes.find(candidate => activeHost?.contains(candidate) && isVisible(candidate))
+            ?? notes.find(isVisible)
+            ?? null;
+        if (!note) {
+            return null;
+        }
+        const rect = note.getBoundingClientRect();
+        return {
+            x: rect.x + rect.width / 2,
+            y: rect.y + rect.height / 2,
+        };
+    }, comment.stableKey);
+    if (!noteCenter) {
         const debug = await page.evaluate(() => ({
-            markerKeys: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-                .map(marker => marker.dataset.stableKey ?? null),
-            markerLayers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-layer-vue'))
+            noteKeys: Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-note'))
+                .map(note => note.dataset.stableKey ?? null),
+            noteLayers: Array.from(document.querySelectorAll<HTMLElement>('.pdf-annotation-editor-layer'))
                 .map(layer => layer.outerHTML.slice(0, 2_000)),
             pageContainers: Array.from(document.querySelectorAll<HTMLElement>('.page_container'))
                 .slice(0, 4)
@@ -1035,84 +1048,30 @@ async function moveImportedTextPopupMarker(
                     rect: container.getBoundingClientRect().toJSON(),
                 })),
         }));
-        throw new Error(`Imported Text marker did not mount: ${JSON.stringify({
+        throw new Error(`Imported Text note did not mount: ${JSON.stringify({
             comment,
             debug,
-        })}`, {cause: error});
-    }
-    const dispatched = await page.evaluate((stableKey) => {
-        const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const markers = Array.from(document.querySelectorAll<HTMLElement>('.pdf-comment-marker-button'))
-            .filter(marker => marker.dataset.stableKey === stableKey);
-        const isVisible = (marker: HTMLElement) => {
-            const rect = marker.getBoundingClientRect();
-            const style = window.getComputedStyle(marker);
-            return style.display !== 'none'
-                && style.visibility !== 'hidden'
-                && Number(style.opacity || '1') > 0
-                && rect.width > 0
-                && rect.height > 0;
-        };
-        const marker = markers.find(candidate => activeHost?.contains(candidate) && isVisible(candidate))
-            ?? markers.find(isVisible)
-            ?? null;
-        if (!marker) {
-            return false;
-        }
-        const rect = marker.getBoundingClientRect();
-        const startX = Math.round(rect.x + rect.width / 2);
-        const startY = Math.round(rect.y + rect.height / 2);
-        const pointerId = 1;
-        marker.dispatchEvent(new PointerEvent('pointerdown', {
-            bubbles: true,
-            button: 0,
-            buttons: 1,
-            cancelable: true,
-            clientX: startX,
-            clientY: startY,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointermove', {
-            bubbles: true,
-            button: 0,
-            buttons: 1,
-            cancelable: true,
-            clientX: startX + 110,
-            clientY: startY + 70,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        window.dispatchEvent(new PointerEvent('pointerup', {
-            bubbles: true,
-            button: 0,
-            buttons: 0,
-            cancelable: true,
-            clientX: startX + 110,
-            clientY: startY + 70,
-            isPrimary: true,
-            pointerId,
-            pointerType: 'mouse',
-        }));
-        return true;
-    }, comment.stableKey);
-    if (!dispatched) {
-        throw new Error(`Could not find the imported Text marker for ${comment.stableKey}`);
+        })}`);
     }
 
+    await page.mouse.move(noteCenter.x, noteCenter.y);
+    await page.mouse.down();
+    await page.mouse.move(noteCenter.x + 110, noteCenter.y + 70, {steps: 8});
+    await page.mouse.up();
+
     await expect.poll(async () => {
-        const markerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
+        const markerRect = (await readCanonicalImportedTextPopupComments(page))
+            .find(candidate => candidate.stableKey === comment.stableKey)?.markerRect ?? null;
         return markerRect
             ? Math.hypot(markerRect.left - before.left, markerRect.top - before.top)
             : 0;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBeGreaterThan(0.01);
-    const movedMarkerRect = (await readCanonicalImportedTextPopupComments(page))[0]?.markerRect ?? null;
-    if (!movedMarkerRect) {
+    const movedNoteRect = (await readCanonicalImportedTextPopupComments(page))
+        .find(candidate => candidate.stableKey === comment.stableKey)?.markerRect ?? null;
+    if (!movedNoteRect) {
         throw new Error('Imported Text annotation lost its canonical marker rectangle after move');
     }
-    return movedMarkerRect;
+    return movedNoteRect;
 }
 
 function markerRectToPdfRect(markerRect: {
@@ -1774,7 +1733,7 @@ async function readOrdinaryFreeTextLiveState(page: Page, expectedText: string): 
             });
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editorMatchCount = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            '.freeTextEditor',
         ) ?? [])
             .filter(editor => normalize(editor.textContent) === expected)
             .length;
@@ -3193,11 +3152,12 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             throw new Error(`Imported Text marker is unavailable: ${JSON.stringify(importedComment)}`);
         }
 
-        const movedMarkerRect = await moveImportedTextPopupMarker(
+        const movedMarkerRect = await moveImportedTextPopupNote(
             session.page,
             importedComment,
         );
-        const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))[0];
+        const movedCanonical = (await readCanonicalImportedTextPopupComments(session.page))
+            .find(candidate => candidate.stableKey === importedComment.stableKey);
         expect(movedCanonical).toMatchObject({
             hasNote: true,
             pageIndex: 0,
@@ -3241,7 +3201,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             fixture,
             IMPORTED_TEXT_POPUP_TIMEOUT_MS,
         );
-        const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))[0];
+        const restoredCanonical = (await readCanonicalImportedTextPopupComments(restartedSession.page))
+            .find(candidate => candidate.stableKey === importedComment.stableKey);
         expect(restoredCanonical).toMatchObject({
             hasNote: true,
             pageIndex: 0,
@@ -3515,7 +3476,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         );
         expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
         const firstLiveSession = await readVisibleStickyNoteSession(freshSession.page, firstText);
-        expect(firstLiveSession.markerCount).toBeGreaterThan(0);
+        expect(firstLiveSession.noteCount).toBeGreaterThan(0);
 
         const firstSaveStartedAt = Date.now();
         const firstSaveEvent = await saveViaVisibleToolbarWithDeadline(
@@ -3568,7 +3529,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
                 hasSavedPdfJsAnnotationBaselineChanges:
                     dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
-                markerPresent: liveSession.markerCount > 0,
+                notePresent: liveSession.noteCount > 0,
                 storageEntryPreserved: dirty?.pdfJsAnnotationStorage?.ids.some(
                     id => firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.includes(id) === true,
                 ) ?? false,
@@ -3582,7 +3543,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             hasLivePdfJsAnnotationChanges: false,
             hasPendingUnsavedChanges: false,
             hasSavedPdfJsAnnotationBaselineChanges: false,
-            markerPresent: true,
+            notePresent: true,
             storageEntryPreserved: true,
             textPreserved: true,
         });
@@ -3897,7 +3858,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             return {
                 canonicalCount: Array.isArray(value) ? value.length : -1,
                 editorCount: host?.querySelectorAll(
-                    '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                    '.freeTextEditor',
                 ).length ?? 0,
                 sidebarCount: host?.querySelectorAll('.notes-list .note-item').length ?? 0,
                 visualCount: host?.querySelectorAll(
@@ -3936,7 +3897,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 : comments;
             const host = globalThis.__evbE2E.getActiveWorkspaceHost();
             const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+                '.freeTextEditor',
             ) ?? []);
             const annotationVisuals = Array.from(host?.querySelectorAll<HTMLElement>(
                 '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
@@ -4290,7 +4251,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             const layer = host?.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
             return {
                 activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                editorCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
                 layerClassName: layer?.className ?? null,
             };
         });
@@ -4344,7 +4305,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 return {
                     activeElement: document.activeElement?.outerHTML.slice(0, 1_000) ?? null,
                     activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? null,
-                    editorCount: host?.querySelectorAll('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)').length ?? 0,
+                    editorCount: host?.querySelectorAll('.freeTextEditor').length ?? 0,
                     editors: Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []).map(editor => ({
                         id: editor.id,
                         text: editor.textContent ?? '',

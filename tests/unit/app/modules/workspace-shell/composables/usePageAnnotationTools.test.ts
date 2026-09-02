@@ -65,7 +65,6 @@ function createTextBoxEntity(): ITextBoxEntity {
 
 function createHarness() {
     const viewer = {
-        cancelCommentPlacement: vi.fn(),
         clearSelectedShape: vi.fn(),
         selectedShapeId: null as string | null,
         getSelectedShape: vi.fn<() => IShapeAnnotation | null>(() => null),
@@ -90,21 +89,18 @@ function createHarness() {
 }
 
 describe('usePageAnnotationTools', () => {
-    it('switches tools and clears placement/context state', () => {
+    it('switches tools and clears context state', () => {
         const {
             deps,
             viewer,
             tools,
         } = createHarness();
 
-        tools.annotationPlacingPageNote.value = true;
         tools.handleAnnotationToolChange('highlight');
 
         expect(tools.annotationTool.value).toBe('highlight');
         expect(deps.dragMode.value).toBe(false);
-        expect(viewer.cancelCommentPlacement).toHaveBeenCalledOnce();
         expect(viewer.clearSelectedShape).toHaveBeenCalledOnce();
-        expect(tools.annotationPlacingPageNote.value).toBe(false);
         expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 

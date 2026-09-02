@@ -14,7 +14,6 @@ import { usePdfAnnotationCommentActions } from '@app/modules/pdf-viewer/annotati
 import { usePdfAnnotationCommentModel } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationCommentModel';
 import { usePdfShapeTool } from '@app/modules/pdf-viewer/tools/public';
 import { useAnnotationMutationService } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService';
-import { usePdfViewerPortalAnnotationHandlers } from '@app/modules/pdf-viewer/runtime/annotations/usePdfViewerPortalAnnotationHandlers';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
 import type {
@@ -52,7 +51,6 @@ import type {
 import {normalizeAnnotationText} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import { groupBy } from 'es-toolkit/array';
-import { useAnnotationMarkerViewModel } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
@@ -62,6 +60,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
+import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import { removeAnnotationCommentDom } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/removeAnnotationCommentDom';
 import { createPdfAnnotationEditorCompatibility } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationEditorCompatibility';
@@ -97,7 +96,6 @@ export interface ICreatePdfAnnotationSessionOptions {
     annotationKeepActive: ComputedRef<boolean>;
     annotationSettings: ComputedRef<IAnnotationSettings | null>;
     authorName: ComputedRef<string | null | undefined>;
-    stopDrag: () => void;
     clearPendingImagePlacement: () => void;
     emitAnnotationModified: (payload?: IAnnotationModifiedPayload) => void;
     emitAnnotationState: Parameters<typeof usePdfAppAnnotationHistory>[0]['emitAnnotationState'];
@@ -109,8 +107,6 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationToolAutoReset: () => void;
     emitAnnotationSetting: (payload: TAnnotationSettingChange) => void;
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
-    emitAnnotationToolCancel: () => void;
-    emitAnnotationNotePlacementChange: (active: boolean) => void;
     reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
 }
@@ -340,7 +336,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentModel.emitCommentsForSidebar(annotationCommentsCache.value);
     };
 
-    const { t } = useTypedI18n();
     const linkAnnotations = ref<ILinkAnnotation[]>([]);
     const linksByPage = computed<Record<number, ILinkAnnotation[]>>(() =>
         groupBy(linkAnnotations.value, link => link.pageNumber),
@@ -375,21 +370,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         state => options.emitAnnotationEnrichmentState(state),
         { immediate: true },
     );
-    const {
-        markersByPage,
-        inlineIndicators,
-    } = useAnnotationMarkerViewModel({
-        viewerContainer: options.viewerContainer,
-        annotationCommentsCache,
-        activeCommentStableKey,
-        markerGeometryVersion: rendering.renderedPageStateVersion,
-        labels: {
-            annotation: t('annotations.annotationLabel'),
-            note: t('annotations.stickyNoteLabel'),
-            moreNotes: count => t('annotations.moreNotes', { count }),
-        },
-    });
-
     const {
         editor,
         selectionMarkupStyle,
@@ -426,7 +406,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             }
             const comment = annotationProjection.value.find(candidate => (
                 candidate.appAnnotationId === entity.identity.id
-            ));
+            )) ?? findCanonicalAnnotationComment(annotationApplication.value, entity.identity.id);
             if (comment) {
                 emitAnnotationOpenNoteWithReconciliation(comment);
             }
@@ -523,15 +503,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             annotationId: created.identity.id,
         };
     }
-    const isPlacingComment = ref(false);
     const failCommentAtPoint = createAnnotationCreationFailureReporter(options.reportAnnotationFailure);
-    function setCommentPlacement(active: boolean) {
-        if (isPlacingComment.value === active) {
-            return;
-        }
-        isPlacingComment.value = active;
-        options.emitAnnotationNotePlacementChange(active);
-    }
     async function commentAtPoint(
         pageNumber: number,
         pageX: number,
@@ -545,21 +517,19 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!pageContainerForNumber(pageNumber)) {
             return failCommentAtPoint('page-not-rendered', pageNumber);
         }
+        const position = markerRectFromPoint(pageX, pageY);
+        if (!position) {
+            return failCommentAtPoint('viewer-not-ready', pageNumber);
+        }
         const created = annotationEditorSurface.createNoteAt(
             Math.max(0, Math.trunc(pageNumber) - 1),
-            {
-                left: clamp01(pageX),
-                top: clamp01(pageY),
-                width: 0.018,
-                height: 0.018,
-            },
+            position,
             {open: true},
         );
         annotationEditorSurface.select([created.identity.id]);
         options.emitAnnotationModified();
         const comment = findCanonicalAnnotationComment(annotationApplication.value, created.identity.id);
         emitAnnotationOpenNoteWithReconciliation(comment);
-        setCommentPlacement(false);
         return {
             status: 'created',
             annotationId: created.identity.id,
@@ -583,7 +553,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         return (await highlightSelectionInternal(true)).status === 'created';
     }
     async function maybeApplySelectionMarkup(explicitRange: Range | null = null) {
-        if (!isSelectionMarkupTool(options.annotationTool.value) || isPlacingComment.value) {
+        if (!isSelectionMarkupTool(options.annotationTool.value)) {
             return false;
         }
         return (await highlightSelectionInternal(false, explicitRange)).status === 'created';
@@ -655,18 +625,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         return result(true, match.matchedText);
     }
-    async function placeCommentAtClientPoint(
-        clientX: number,
-        clientY: number,
-        targetElement?: HTMLElement | null,
-    ) {
-        const target = pagePointResolver.resolvePagePointTarget(clientX, clientY, targetElement);
-        if (!target) {
-            return false;
-        }
-        const outcome = await commentAtPoint(target.pageNumber, target.pageX, target.pageY, {preferTextAnchor: false});
-        return outcome.status === 'created';
-    }
     function buildAnnotationContextMenuPayload(
         comment: IAnnotationCommentSummary | null,
         clientX: number,
@@ -686,17 +644,10 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         };
     }
     const highlight = {
-        isPlacingComment,
         highlightSelection,
         commentSelection,
         createTextMarkupFromText,
         commentAtPoint,
-        placeCommentAtClientPoint,
-        startCommentPlacement: () => {
-            options.stopDrag();
-            setCommentPlacement(true);
-        },
-        cancelCommentPlacement: () => setCommentPlacement(false),
         maybeApplySelectionMarkup,
         buildAnnotationContextMenuPayload,
         resolvePagePointTarget: pagePointResolver.resolvePagePointTarget,
@@ -718,7 +669,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     }
     function setActiveSummary(comment: IAnnotationCommentSummary | null) {
         activeCommentStableKey.value = comment?.stableKey ?? null;
-        inlineIndicators.debouncedSyncInlineCommentIndicators();
     }
     const crud = {
         findEditorForComment: (_comment: IAnnotationCommentSummary) => null,
@@ -806,8 +756,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const annotations = {
         editor,
         commentSync,
-        inlineIndicators,
-        markersByPage,
         linksByPage,
         highlight,
         crud,
@@ -844,6 +792,16 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         renderVisiblePages: rendering.renderVisiblePages,
         emitForcedAnnotationMutation,
     });
+    function removeAnnotationFromDom(comment: IAnnotationCommentSummary) {
+        const container = options.viewerContainer.value;
+        if (container) {
+            removeAnnotationCommentDom(container, comment);
+        }
+        if (comment.pageNumber > 0) {
+            rendering.invalidatePages([comment.pageNumber]);
+        }
+        managedEmbeddedPdfShapes.refreshHiddenAnnotationPage(comment);
+    }
     const annotationMutationService = useAnnotationMutationService({
         runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
         updateAnnotationComment: commentCrud.updateAnnotationComment,
@@ -853,16 +811,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         markAnnotationLocallyDeleted: annotationCommentModel.markLocallyDeleted,
         restoreAnnotationLocally: annotationCommentModel.restoreLocally,
         removeAnnotationFromInternalCache: annotationCommentModel.removeFromInternalCache,
-        removeAnnotationFromDom: (comment) => {
-            const container = options.viewerContainer.value;
-            if (!container) {
-                return;
-            }
-            removeAnnotationCommentDom(container, comment);
-            if (comment.pageNumber > 0) {
-                rendering.invalidatePages([comment.pageNumber]);
-            }
-        },
+        removeAnnotationFromDom,
         findAnnotationCommentByStableKey: stableKey => findUniqueAnnotationComment(
             annotationCommentsCache.value,
             comment => comment.stableKey === stableKey,
@@ -912,25 +861,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 annotationApplication.value.store.updateTextBox(id, {rect});
             }
         },
-    });
-    const portalHandlers = usePdfViewerPortalAnnotationHandlers({
-        activeCommentStableKey,
-        removeAnnotationFromDom: annotationMutationService.enqueueAnnotationDomRemoval,
-        refreshHiddenAnnotationPage: managedEmbeddedPdfShapes.refreshHiddenAnnotationPage,
-        emitAnnotationOpenNote: options.emitAnnotationOpenNote,
-        emitAnnotationContextMenu: options.emitAnnotationContextMenu,
-        buildAnnotationContextMenuPayload: highlightComposable.buildAnnotationContextMenuPayload,
-        handleMarkerMove: (comment, markerRect) => annotationMutationService.moveMarker(
-            {
-                comment,
-                rect: markerRect,
-            },
-            { source: 'user' },
-        ),
-        getAnnotationTool: () => options.annotationTool.value,
-        cancelAnnotationTool: options.emitAnnotationToolCancel,
-        isCommentPlacementActive: () => highlightComposable.isPlacingComment.value,
-        cancelCommentPlacement: highlightComposable.cancelCommentPlacement,
     });
     function handleSourceChanged(next: TPdfSource | null, previous: TPdfSource | null) {
         annotationCommentModel.handleSourceChanged(
@@ -1101,12 +1031,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         unsubscribeDocumentTransitions();
         stopStoreOwnershipRefreshWatch();
         detachProjection();
-        annotations.inlineIndicators.cleanup();
         annotations.highlight.clearSelectionCache();
         clearAnnotationProjectionState();
-    });
-    onMounted(() => {
-        annotations.inlineIndicators.attachInlineCommentMarkerObserver();
     });
     const saveTransaction = usePdfViewerSaveTransaction({
         pdfDocument: documentSession.pdfDocument,
@@ -1162,6 +1088,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         shapeComposable,
         selectedShapeCommands,
         managedEmbeddedPdfShapes,
+        removeAnnotationFromDom,
         annotationSettings: options.annotationSettings,
         hiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.hiddenEmbeddedAnnotationIds,
         renderHiddenEmbeddedAnnotationIds: managedEmbeddedPdfShapes.renderHiddenEmbeddedAnnotationIds,
@@ -1172,7 +1099,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         restorePreparedManagedShapesAfterFailedSave: managedEmbeddedPdfShapes.restorePreparedManagedShapesAfterFailedSave,
         highlightComposable,
         commentCrud,
-        markersByPage: annotations.markersByPage,
         linksByPage: annotations.linksByPage,
         annotationEditorSurface,
         registerShapeHistoryCommand,
@@ -1182,7 +1108,6 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         canvasHiddenAnnotationIds,
         scheduleSetAnnotationTool,
         ...saveTransaction,
-        ...portalHandlers,
     };
 };
 

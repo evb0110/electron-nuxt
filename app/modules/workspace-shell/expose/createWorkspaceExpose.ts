@@ -675,7 +675,9 @@ export function createWorkspaceExposeFromOwners(
         canRepairSave: options.canRepairSave,
         canOptimizePdf: options.canOptimizePdf,
         canExportDocx: options.canExportDocx,
-        isPlacingPageNote: annotationSession.annotationPlacingPageNote,
+        // Preserve the automation/toolbar snapshot field as a compatibility
+        // projection. The note tool is the only placement state now.
+        isPlacingPageNote: computed(() => annotationSession.annotationTool.value === 'note'),
         handleGoToPage: options.handleGoToPage,
         handleToggleSidebar: () => { viewerShell.showSidebar.value = !viewerShell.showSidebar.value; },
         handleToggleContinuousScroll: () => {

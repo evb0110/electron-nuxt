@@ -196,7 +196,7 @@ export async function getFreeTextEditorCount(page: Page) {
 
 async function getOrdinaryFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
-        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const selector = '.freeTextEditor';
         const host = globalThis.__evbE2E.getActiveWorkspaceHost(selector);
         return host?.querySelectorAll(selector).length ?? 0;
     });
@@ -1022,13 +1022,19 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+            const selector = '.freeTextEditor';
             const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
                 ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
             const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
-            const createdEditor = editors.length > minCount ? editors[editors.length - 1] : null;
+            const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+                + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+            ) ?? []);
+            const createdEditor = editors.length > minCount
+                ? (activeEditors.at(-1) ?? editors[editors.length - 1] ?? null)
+                : null;
             const createdEditable = createdEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
                 ?? createdEditor;
             if (createdEditable) {
@@ -1041,8 +1047,8 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
 
             const targetLayer = host?.querySelector<HTMLElement>('.annotationEditorLayer.freetextEditing, .annotation-editor-layer.freetextEditing');
             const activeEditor = targetLayer?.querySelector<HTMLElement>(
-                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor) .internal[contenteditable="true"], '
-                + '.freeTextEditor:not(.pdf-comment-marker-anchor-editor) [contenteditable="true"]',
+                '.freeTextEditor .internal[contenteditable="true"], '
+                + '.freeTextEditor [contenteditable="true"]',
             );
             if (!activeEditor) {
                 return false;
@@ -1118,9 +1124,13 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     // into it. Mirrors useAnnotationHighlight.ts:1082-1087.
     await page.evaluate(() => {
         const editors = Array.from(document.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            '.freeTextEditor',
         ));
-        const latest = editors[editors.length - 1];
+        const activeEditors = Array.from(document.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ));
+        const latest = activeEditors.at(-1) ?? editors.at(-1);
         const editable = latest?.querySelector<HTMLElement>('[contenteditable], .internal') ?? latest;
         if (editable) {
             editable.textContent = '\u200B';
@@ -1141,7 +1151,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const selector = '.freeTextEditor';
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -1151,7 +1161,14 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 const rect = editor.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
             });
-        const editor = editors[editors.length - 1];
+        const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ) ?? []).filter((editor) => {
+            const rect = editor.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        });
+        const editor = activeEditors.at(-1) ?? editors.at(-1);
         if (!editor) {
             return null;
         }
@@ -1184,7 +1201,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const selector = '.freeTextEditor';
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
@@ -1194,7 +1211,14 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 const rect = editor.getBoundingClientRect();
                 return rect.width > 0 && rect.height > 0;
             });
-        const latestEditor = editors[editors.length - 1];
+        const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ) ?? []).filter((editor) => {
+            const rect = editor.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0;
+        });
+        const latestEditor = activeEditors.at(-1) ?? editors.at(-1);
         const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
             ?? latestEditor
             ?? null;
@@ -1227,13 +1251,17 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                     );
                 });
             const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-            const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+            const selector = '.freeTextEditor';
             const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
             const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
                 ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
                 ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
             const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
-            const latestEditor = editors[editors.length - 1];
+            const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+                '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+                + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+            ) ?? []);
+            const latestEditor = activeEditors.at(-1) ?? editors.at(-1);
             const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
                 ?? latestEditor
                 ?? null;
@@ -1258,13 +1286,17 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
                 );
             });
         const activeHost = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
-        const selector = '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)';
+        const selector = '.freeTextEditor';
         const matchingHosts = visibleHosts.filter(candidate => candidate.querySelector(selector));
         const host = ((activeHost && visibleHosts.includes(activeHost)) ? activeHost : null)
             ?? (matchingHosts.length === 1 ? matchingHosts[0] : null)
             ?? (visibleHosts.length === 1 ? visibleHosts[0] : null);
         const editors = Array.from(host?.querySelectorAll<HTMLElement>(selector) ?? []);
-        const latestEditor = editors[editors.length - 1];
+        const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ) ?? []);
+        const latestEditor = activeEditors.at(-1) ?? editors.at(-1);
         const editable = latestEditor?.querySelector<HTMLElement>('[contenteditable], .internal')
             ?? latestEditor
             ?? null;
@@ -1408,12 +1440,16 @@ export async function createFreeTextAnnotationWithPointer(
     await page.waitForFunction((minimumCount: number) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            '.freeTextEditor',
         ) ?? []);
         if (editors.length <= minimumCount) {
             return false;
         }
-        const editor = editors[editors.length - 1];
+        const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ) ?? []);
+        const editor = activeEditors.at(-1) ?? editors.at(-1);
         const editable = editor?.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
         return Boolean(editable && (editable === document.activeElement || editable.contains(document.activeElement)));
     }, {timeout: DEFAULT_TIMEOUT_MS}, before);
@@ -1422,9 +1458,13 @@ export async function createFreeTextAnnotationWithPointer(
     await page.waitForFunction((expectedText: string) => {
         const host = globalThis.__evbE2E.getActiveWorkspaceHost();
         const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            '.freeTextEditor',
         ) ?? []);
-        const latest = editors[editors.length - 1];
+        const activeEditors = Array.from(host?.querySelectorAll<HTMLElement>(
+            '.annotationEditorLayer.freetextEditing .freeTextEditor, '
+            + '.annotation-editor-layer.freetextEditing .freeTextEditor',
+        ) ?? []);
+        const latest = activeEditors.at(-1) ?? editors.at(-1);
         return (latest?.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText;
     }, {timeout: DEFAULT_TIMEOUT_MS}, text);
     await page.keyboard.press('Escape');

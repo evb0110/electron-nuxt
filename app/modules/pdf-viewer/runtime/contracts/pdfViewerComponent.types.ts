@@ -86,7 +86,6 @@ export interface IPdfViewerEmit {
     (e: 'annotation-setting', payload: TAnnotationSettingChange): void;
     (e: 'annotation-comment-click', comment: IAnnotationCommentSummary): void;
     (e: 'annotation-tool-cancel'): void;
-    (e: 'annotation-note-placement-change', active: boolean): void;
     (e: 'annotation-failure', failure: IAnnotationCreationFailureReport): void;
     (e: 'shape-context-menu', payload: {
         shapeId: string;

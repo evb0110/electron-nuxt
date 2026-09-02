@@ -294,6 +294,9 @@ export class AnnotationApplication {
                     position: structuredClone(comment.markerRect),
                     color: comment.color ?? null,
                     open: false,
+                    ...(comment.replies
+                        ? {replies: comment.replies.map(reply => ({...reply}))}
+                        : {}),
                 };
             } else {
                 entity = {
@@ -409,6 +412,9 @@ export class AnnotationApplication {
                 hasNote: entity.kind === 'note'
                     || (entity.kind !== 'placed-image' && text.length > 0),
                 markerRect,
+                ...(entity.kind === 'note' && entity.replies
+                    ? {replies: entity.replies.map(reply => ({...reply}))}
+                    : {}),
                 ...(entity.kind === 'text-markup'
                     ? {markupGeometry: structuredClone(entity.quadPoints)}
                     : {}),

@@ -866,40 +866,39 @@ function findPlacedImageEntry(entries: IPdfAnnotationIndexEntry[], stableKey?: s
 async function openPlacedImageContextMenu(page: Page, stableKey: string) {
     await scrollViewerToPage(page, PLACED_IMAGE_PAGE_NUMBER);
     await openAnnotationsTab(page, 30_000);
-    const selector = [
-        `.pdf-comment-marker-button[data-stable-key="${stableKey}"]`,
-        `.pdf-comment-marker-button[data-stable-key="nm:${stableKey}"]`,
-    ].join(', ');
-    await page.waitForSelector(selector, {
-        timeout: 30_000,
-        visible: true,
-    });
-    await page.$eval(selector, element => {
-        element.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-    });
-    await page.waitForFunction((markerSelector: string) => {
-        const marker = document.querySelector<HTMLElement>(markerSelector);
-        if (!marker) {
-            return false;
+    const bounds = await page.evaluate((expectedStableKey, pageNumber) => {
+        const pageSelector = `.page_container[data-page="${pageNumber}"]`;
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
+        const stamp = Array.from(pageContainer?.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-stamp',
+        ) ?? []).find((candidate) => candidate.dataset.annotationId === expectedStableKey);
+        if (!stamp) {
+            return null;
         }
-        const rect = marker.getBoundingClientRect();
-        return rect.width > 0
+        const rect = stamp.getBoundingClientRect();
+        const style = window.getComputedStyle(stamp);
+        const isVisible = style.display !== 'none'
+            && style.visibility !== 'hidden'
+            && Number(style.opacity || '1') > 0
+            && rect.width > 0
             && rect.height > 0
             && rect.bottom > 0
             && rect.top < window.innerHeight
             && rect.right > 0
             && rect.left < window.innerWidth;
-    }, {timeout: 30_000}, selector);
-    const marker = await page.$(selector);
-    if (!marker) {
-        throw new Error(`Placed-image marker was not found for ${stableKey}`);
-    }
-    const bounds = await marker.boundingBox();
+        if (!isVisible) {
+            return null;
+        }
+        return {
+            height: rect.height,
+            width: rect.width,
+            x: rect.x,
+            y: rect.y,
+        };
+    }, stableKey, PLACED_IMAGE_PAGE_NUMBER);
     if (!bounds) {
-        throw new Error(`Placed-image marker has no bounds for ${stableKey}`);
+        throw new Error(`Placed-image editor entity was not found for ${stableKey}`);
     }
     await page.mouse.click(
         bounds.x + bounds.width / 2,

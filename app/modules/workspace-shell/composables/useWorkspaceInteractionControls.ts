@@ -46,7 +46,6 @@ interface IWorkspaceInteractionControlsOptions {
     canSave: Ref<boolean>;
     showSettings: Ref<boolean>;
     annotationTool: Ref<TAnnotationTool>;
-    annotationPlacingPageNote: Ref<boolean>;
     pdfViewerRef: Ref<IWorkspacePdfViewerInteractionPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
     serializePdfForSave?: (
@@ -111,7 +110,6 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         pdfSrc,
         showSettings,
         annotationTool,
-        annotationPlacingPageNote,
         pdfViewerRef,
         documentViewerRef,
         shapePropertiesPopoverVisible,
@@ -188,7 +186,6 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         canSave: options.canSave,
         showSettings,
         annotationTool,
-        annotationPlacingPageNote,
         pdfViewerRef,
         shapePropertiesPopoverVisible,
         annotationContextMenuVisible,

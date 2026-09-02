@@ -98,7 +98,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
     const {
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,
@@ -234,7 +233,6 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         selectedTextBox,
         annotationTool,
         annotationKeepActive,
-        annotationPlacingPageNote,
         annotationSettings,
         annotationComments,
         annotationCommentsStatus,
