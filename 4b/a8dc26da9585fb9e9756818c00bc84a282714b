@@ -1,0 +1,29 @@
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_c57729f2c66bed::t_87e04737b1b975 61,267-276,502
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_c57729f2c66bed::t_87e04737b1b975 379,393
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_c57729f2c66bed::t_87e04737b1b975 256-267
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_c57729f2c66bed::t_15145632cdbee1 480-482,485,487,499-501,504,506,814-817,931
+  s_c57729f2c66bed::t_8fc3393ee960fe 512,518
+  s_c57729f2c66bed::t_3d7a29afcfc08e 486,505
+  s_c57729f2c66bed::t_6636453c9cc319 818
+  s_c57729f2c66bed::t_d7f3a251e431d6 492-498,502-503,507-511,513-517,519-531,804-813,819,928-930,932,958
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4ba8dc26da9585fb9e9756818c00bc84a282714b",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
