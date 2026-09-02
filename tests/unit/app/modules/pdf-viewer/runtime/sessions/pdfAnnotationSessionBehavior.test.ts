@@ -121,7 +121,8 @@ describe('PDF annotation session authority', () => {
         const source = read(sessionPath);
         expect(source).not.toMatch(/attachRenderingPort|renderingPort/);
         expect(source).toMatch(/rendering\.renderVisiblePages/);
-        expect(source).toMatch(/rendering\.renderAnnotationEditorLayerForPage/);
+        expect(source).not.toMatch(/rendering\.renderAnnotationEditorLayerForPage/);
+        expect(source).toContain('usePdfAnnotationEditorSurface');
     });
 
     it('commits current writer results and ignores stale store mutations', () => {

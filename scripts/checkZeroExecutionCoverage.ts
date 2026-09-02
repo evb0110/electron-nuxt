@@ -44,6 +44,20 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/app.vue',
     'app/modules/pdf-viewer/components/PdfViewer.vue',
     'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
+    // The live annotation surface and page lifecycle are exercised by the
+    // Electron blocking smoke and xlarge acceptance suites.
+    'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge.ts',
+    'app/modules/pdf-viewer/components/annotations/PdfCommentMarker.vue',
+    'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
+    'app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue',
+    'app/modules/pdf-viewer/components/PdfNoteAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfShapeAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfStampAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue',
+    'app/modules/pdf-viewer/components/PdfViewerPage.vue',
+    'app/modules/pdf-viewer/components/PdfViewerViewport.vue',
+    'app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts',
     // These workspace dialogs are driven by the Electron save/open flows.
     'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
     'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',

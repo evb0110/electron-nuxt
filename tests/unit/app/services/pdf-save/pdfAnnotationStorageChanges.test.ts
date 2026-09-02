@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import {
+    collectPdfJsAnnotationStorageDebugState,
     collectLivePdfJsAnnotationChangeIds,
     normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint,
     resetLivePdfJsAnnotationStorageModifiedIds,
@@ -101,6 +102,50 @@ function createPersistedCommentMarkerAnchorFixture() {
 }
 
 describe('collectLivePdfJsAnnotationChangeIds', () => {
+    it('reports whether the annotation storage probe actually inspected a document', () => {
+        expect(collectPdfJsAnnotationStorageDebugState(null)).toEqual({
+            reported: false,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        });
+
+        const document = {annotationStorage: {
+            modifiedIds: {ids: new Set(['editor-1'])},
+            serializable: {map: new Map([[
+                'editor-1',
+                {},
+            ]])},
+        }} as never;
+        expect(collectPdfJsAnnotationStorageDebugState(document)).toEqual({
+            reported: true,
+            modifiedIds: ['editor-1'],
+            serializableEntryKeys: ['editor-1'],
+        });
+
+        expect(collectPdfJsAnnotationStorageDebugState({annotationStorage: {
+            modifiedIds: {ids: new Set()},
+            serializable: {map: null},
+        }} as never)).toEqual({
+            reported: true,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        });
+
+        expect(collectPdfJsAnnotationStorageDebugState({annotationStorage: {}} as never)).toEqual({
+            reported: false,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        });
+
+        expect(collectPdfJsAnnotationStorageDebugState({annotationStorage: {get modifiedIds() {
+            throw new Error('storage getter failed');
+        }}} as never)).toEqual({
+            reported: false,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        });
+    });
+
     it('normalizes a known exact saved fingerprint to no live work', () => {
         const pendingEditor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),

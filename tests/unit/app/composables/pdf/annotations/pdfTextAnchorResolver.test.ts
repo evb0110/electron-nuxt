@@ -14,11 +14,29 @@ class FakeTextNode {
     constructor(readonly textContent: string) {}
 }
 
-class FakeSpan {
-    readonly childNodes: FakeTextNode[];
+type TFakeChild = FakeTextNode | FakeElement;
 
-    constructor(text: string) {
-        this.childNodes = [new FakeTextNode(text)];
+class FakeElement {
+    readonly nodeType = 1;
+    parentElement: FakeElement | null = null;
+
+    constructor(readonly childNodes: TFakeChild[]) {
+        childNodes.forEach((child) => {
+            if (child instanceof FakeElement) {
+                child.parentElement = this;
+            }
+        });
+    }
+
+    closest(selector: string) {
+        return selector === 'span' ? this : null;
+    }
+}
+
+class FakeSpan extends FakeElement {
+
+    constructor(...children: Array<string | FakeElement>) {
+        super(children.map(child => typeof child === 'string' ? new FakeTextNode(child) : child));
     }
 }
 
@@ -95,6 +113,47 @@ describe('buildRangeFromPageText', () => {
         expect(match?.startOffset).toBe(7);
         expect(range.setStart).toHaveBeenCalledWith(page.spans[0]!.childNodes[0], 7);
         expect(range.setEnd).toHaveBeenCalledWith(page.spans[0]!.childNodes[0], 13);
+    });
+
+    it('maps a match across multiple text nodes in one span', () => {
+        const range = createFakeRange();
+        Reflect.set(globalThis, 'document', {createRange: () => range});
+        const page = new FakePageContainer([new FakeSpan('split ', 'text')]);
+
+        const match = buildRangeFromPageText(page as never, {text: 'split text'});
+
+        expect(match?.matchedText).toBe('split text');
+        expect(range.setStart).toHaveBeenCalledWith(page.spans[0]!.childNodes[0], 0);
+        expect(range.setEnd).toHaveBeenCalledWith(page.spans[0]!.childNodes[1], 4);
+    });
+
+    it('does not duplicate text from nested text-layer spans', () => {
+        const range = createFakeRange();
+        Reflect.set(globalThis, 'document', {createRange: () => range});
+        const nested = new FakeSpan('nested text');
+        const outer = new FakeSpan(nested);
+        const page = new FakePageContainer([
+            outer,
+            nested,
+        ]);
+
+        const match = buildRangeFromPageText(page as never, {text: 'nested text'});
+
+        expect(match?.matchedText).toBe('nested text');
+        expect(range.setStart).toHaveBeenCalledWith(nested.childNodes[0], 0);
+        expect(range.setEnd).toHaveBeenCalledWith(nested.childNodes[0], 11);
+    });
+
+    it('does not add a word boundary between text nodes inside one span', () => {
+        const range = createFakeRange();
+        Reflect.set(globalThis, 'document', {createRange: () => range});
+        const page = new FakePageContainer([new FakeSpan('joined', 'text')]);
+
+        const match = buildRangeFromPageText(page as never, {text: 'joinedtext'});
+
+        expect(match?.matchedText).toBe('joinedtext');
+        expect(range.setStart).toHaveBeenCalledWith(page.spans[0]!.childNodes[0], 0);
+        expect(range.setEnd).toHaveBeenCalledWith(page.spans[0]!.childNodes[1], 4);
     });
 
     it('honors whole-word matching', () => {

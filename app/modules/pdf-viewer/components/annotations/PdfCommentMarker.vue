@@ -151,7 +151,9 @@ function clearPdfjsAnnotationFocusLeak() {
     if (!(activeElement instanceof HTMLElement)) {
         return;
     }
-    if (!activeElement.closest('.annotationLayer, .annotation-layer, .annotationEditorLayer, .annotation-editor-layer')) {
+    if (!activeElement.closest(
+        '.annotationLayer, .annotation-layer, .pdf-annotation-editor-layer, .annotationEditorLayer, .annotation-editor-layer',
+    )) {
         return;
     }
 

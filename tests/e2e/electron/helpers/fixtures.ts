@@ -27,6 +27,7 @@ import {
     PDFString,
     StandardFonts,
     degrees,
+    drawImage,
     rgb,
 } from 'pdf-lib';
 import * as pdfjs from 'pdfjs-dist/legacy/build/pdf.mjs';
@@ -1534,6 +1535,200 @@ export async function createLinkOnlyFixturePdf(filename: string) {
     }));
     page.node.set(PDFName.of('Annots'), doc.context.obj([link]));
     writeFileSync(filePath, await doc.save({useObjectStreams: false}));
+    return filePath;
+}
+
+const ANNOTATION_SURFACE_STAMP_JPEG = Uint8Array.from(Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+    'base64',
+));
+
+/**
+ * A single-page document containing each canonical annotation kind and one
+ * foreign link. The annotations are deliberately hand-authored so the test
+ * exercises the native parser and the static PDF.js layer together.
+ */
+export async function createCanonicalAnnotationSurfaceFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const document = await PDFDocument.create();
+    const page = document.addPage([
+        612,
+        792,
+    ]);
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    page.drawText('Canonical annotation surface fixture', {
+        font,
+        size: 20,
+        x: 72,
+        y: 720,
+    });
+    page.drawText('Foreign link', {
+        font,
+        size: 14,
+        x: 400,
+        y: 700,
+    });
+
+    const context = document.context;
+    const annotation = (fields: Record<string, unknown>) => context.register(context.obj({
+        Type: PDFName.of('Annot'),
+        P: page.ref,
+        F: PDFNumber.of(4),
+        M: PDFString.of('D:20260901000000Z'),
+        ...fields,
+    }));
+
+    const textBox = annotation({
+        Subtype: PDFName.of('FreeText'),
+        Rect: [
+            72,
+            610,
+            250,
+            660,
+        ],
+        NM: PDFHexString.fromText('surface-text-box'),
+        Contents: PDFHexString.fromText('Store-owned text box'),
+        DA: PDFString.of('/Helvetica 18 Tf 0 0 1 rg'),
+    });
+    const note = annotation({
+        Subtype: PDFName.of('Text'),
+        Rect: [
+            280,
+            610,
+            312,
+            642,
+        ],
+        NM: PDFHexString.fromText('surface-note'),
+        Contents: PDFHexString.fromText('Store-owned note'),
+        C: [
+            1,
+            0.75,
+            0,
+        ],
+        Open: false,
+        T: PDFHexString.fromText('EVB fixture'),
+    });
+    const highlight = annotation({
+        Subtype: PDFName.of('Highlight'),
+        Rect: [
+            72,
+            510,
+            250,
+            535,
+        ],
+        QuadPoints: [
+            72,
+            535,
+            250,
+            535,
+            72,
+            510,
+            250,
+            510,
+        ],
+        NM: PDFHexString.fromText('surface-highlight'),
+        Contents: PDFHexString.fromText('Store-owned highlight'),
+        C: [
+            1,
+            0.8,
+            0,
+        ],
+        CA: PDFNumber.of(0.45),
+    });
+    const shape = annotation({
+        Subtype: PDFName.of('Square'),
+        Rect: [
+            350,
+            510,
+            470,
+            570,
+        ],
+        NM: PDFHexString.fromText('evb-shape:surface-square'),
+        EVBShapeKey: PDFHexString.fromText('evb-shape:surface-square'),
+        C: [
+            0.1,
+            0.4,
+            0.9,
+        ],
+        IC: [
+            0.8,
+            0.9,
+            1,
+        ],
+        CA: PDFNumber.of(0.5),
+        Border: [
+            0,
+            0,
+            2,
+        ],
+    });
+
+    const stampImage = await document.embedJpg(ANNOTATION_SURFACE_STAMP_JPEG);
+    const stampImageName = context.addRandomSuffix('SurfaceImage', 10);
+    const stampAppearance = context.register(context.formXObject(
+        drawImage(stampImageName, {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 70,
+            rotate: degrees(0),
+            xSkew: degrees(0),
+            ySkew: degrees(0),
+        }),
+        {
+            Resources: {XObject: {[stampImageName]: stampImage.ref}},
+            BBox: context.obj([
+                0,
+                0,
+                80,
+                70,
+            ]),
+        },
+    ));
+    const stamp = annotation({
+        Subtype: PDFName.of('Stamp'),
+        Rect: [
+            500,
+            510,
+            580,
+            580,
+        ],
+        NM: PDFHexString.fromText('surface-stamp'),
+        AP: context.obj({N: stampAppearance}),
+        Name: PDFName.of('Approved'),
+    });
+    const link = annotation({
+        Subtype: PDFName.of('Link'),
+        Rect: [
+            390,
+            685,
+            540,
+            715,
+        ],
+        Border: [
+            0,
+            0,
+            1,
+        ],
+        A: context.obj({
+            S: PDFName.of('URI'),
+            URI: PDFString.of('https://example.com/evb-viewer-surface'),
+        }),
+    });
+
+    page.node.set(PDFName.of('Annots'), context.obj([
+        textBox,
+        note,
+        highlight,
+        shape,
+        stamp,
+        link,
+    ]));
+    writeFileSync(filePath, await document.save({
+        addDefaultPage: false,
+        useObjectStreams: false,
+    }));
     return filePath;
 }
 

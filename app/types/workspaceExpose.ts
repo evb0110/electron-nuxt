@@ -295,7 +295,10 @@ export interface IWorkspaceAutomationStateSnapshot {
             hasChanges: boolean;
             hasUnknownChanges: boolean;
             ids: string[];
+            reported: boolean;
+            modifiedIds: string[];
             replayableEditorNoteIds: string[];
+            serializableEntryKeys: string[];
         } | null;
     };
     originalPath: TDocumentRef | null;

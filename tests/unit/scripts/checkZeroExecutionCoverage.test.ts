@@ -149,6 +149,12 @@ describe('zero-execution coverage tripwire', () => {
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/app.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/modules/pdf-viewer/components/PdfViewer.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
             'app/modules/workspace-shell/components/DocumentPasswordDialog.vue',
         );
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(

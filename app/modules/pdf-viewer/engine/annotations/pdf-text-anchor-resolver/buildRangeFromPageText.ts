@@ -17,19 +17,33 @@ function normalizeWhitespace(text: string) {
     return text.trim().replace(/\s+/g, ' ');
 }
 
-function collectTextNodes(pageContainer: HTMLElement) {
+function collectTextNodeGroups(pageContainer: HTMLElement) {
     const spans = Array.from(
         pageContainer.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span'),
     );
-    const textNodes: Text[] = [];
-    spans.forEach((span) => {
-        Array.from(span.childNodes).forEach((node) => {
-            if (node.nodeType === Node.TEXT_NODE && (node.textContent?.length ?? 0) > 0) {
-                textNodes.push(node as Text);
+    const textNodeGroups: Text[][] = [];
+    const collectDescendantTextNodes = (node: Node) => {
+        const textNodes: Text[] = [];
+        const visit = (current: Node) => {
+            if (current.nodeType === Node.TEXT_NODE && (current.textContent?.length ?? 0) > 0) {
+                textNodes.push(current as Text);
+                return;
             }
-        });
+            Array.from(current.childNodes).forEach(visit);
+        };
+        visit(node);
+        return textNodes;
+    };
+    spans.forEach((span) => {
+        if (span.parentElement?.closest('span')) {
+            return;
+        }
+        const textNodes = collectDescendantTextNodes(span);
+        if (textNodes.length > 0) {
+            textNodeGroups.push(textNodes);
+        }
     });
-    return textNodes;
+    return textNodeGroups;
 }
 
 function appendNormalizedChar(
@@ -51,44 +65,48 @@ function appendNormalizedSpace(
     appendNormalizedChar(normalized, ' ', position);
 }
 
-function normalizePageTextNodes(textNodes: Text[]): INormalizedPageText {
+function normalizePageTextNodes(textNodeGroups: Text[][]): INormalizedPageText {
     const normalized: INormalizedPageText = {
         text: '',
         positions: [],
     };
 
-    textNodes.forEach((node, nodeIndex) => {
-        const rawText = node.textContent ?? '';
-        if (!rawText) {
-            return;
-        }
-        if (nodeIndex > 0) {
-            appendNormalizedSpace(normalized, {
-                node,
-                offset: 0,
-            });
-        }
-
-        let previousWasWhitespace = normalized.text.endsWith(' ');
-        for (let charIndex = 0; charIndex < rawText.length; charIndex += 1) {
-            const char = rawText.charAt(charIndex);
-            if (/\s/.test(char)) {
-                if (!previousWasWhitespace) {
-                    appendNormalizedSpace(normalized, {
-                        node,
-                        offset: charIndex,
-                    });
-                    previousWasWhitespace = true;
-                }
-                continue;
+    textNodeGroups.forEach((textNodes, groupIndex) => {
+        let hasTextInGroup = false;
+        textNodes.forEach((node) => {
+            const rawText = node.textContent ?? '';
+            if (!rawText) {
+                return;
+            }
+            if (groupIndex > 0 && !hasTextInGroup) {
+                appendNormalizedSpace(normalized, {
+                    node,
+                    offset: 0,
+                });
             }
 
-            appendNormalizedChar(normalized, char, {
-                node,
-                offset: charIndex,
-            });
-            previousWasWhitespace = false;
-        }
+            let previousWasWhitespace = normalized.text.endsWith(' ');
+            for (let charIndex = 0; charIndex < rawText.length; charIndex += 1) {
+                const char = rawText.charAt(charIndex);
+                if (/\s/.test(char)) {
+                    if (!previousWasWhitespace) {
+                        appendNormalizedSpace(normalized, {
+                            node,
+                            offset: charIndex,
+                        });
+                        previousWasWhitespace = true;
+                    }
+                    continue;
+                }
+
+                appendNormalizedChar(normalized, char, {
+                    node,
+                    offset: charIndex,
+                });
+                previousWasWhitespace = false;
+            }
+            hasTextInGroup = true;
+        });
     });
 
     while (normalized.text.endsWith(' ')) {
@@ -168,7 +186,7 @@ export function buildRangeFromPageText(
     }
 
     const occurrence = Math.max(1, Math.trunc(options.occurrence ?? 1));
-    const normalized = normalizePageTextNodes(collectTextNodes(pageContainer));
+    const normalized = normalizePageTextNodes(collectTextNodeGroups(pageContainer));
     if (!normalized.text || normalized.positions.length === 0) {
         return null;
     }

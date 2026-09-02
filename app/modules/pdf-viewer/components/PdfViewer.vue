@@ -23,7 +23,6 @@
                 :is-spread-single="isSpreadSingle"
                 :is-buffered-page="isPageBuffered"
                 :is-rendered-page="isPageRenderedForClass"
-                :is-shape-overlay-visual-ready-page="isPageVisualReadyForShapeOverlay"
                 :get-page-scale="getPageScale"
                 :get-page-placeholder-style="getPagePlaceholderStyle"
                 :bottom-virtual-spacer-style="bottomVirtualSpacerStyle"
@@ -147,7 +146,6 @@ const {
     t,
     viewerHost,
     viewerContainer,
-    annotationUiManager,
     viewerClass,
     containerStyle,
     scaledMargin,
@@ -158,7 +156,6 @@ const {
     isSpreadSingle,
     isPageBuffered,
     isPageRenderedForClass,
-    isPageVisualReadyForShapeOverlay,
     getPageScale,
     getPagePlaceholderStyle,
     getExactPagePlaceholderStyle,
@@ -495,8 +492,6 @@ onBeforeUnmount(() => {
     const snapshot = chassisAuthority.openSurface.snapshot.value;
     chassisAuthority.openSurface.clearOpeningPageFrame(snapshot.generation, openingPageFrameOwnerId);
 });
-
-void annotationUiManager;
 
 defineExpose(pdfViewerPublicApi);
 </script>

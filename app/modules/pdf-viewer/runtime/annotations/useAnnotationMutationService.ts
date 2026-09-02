@@ -1,4 +1,3 @@
-import { syncPdfjsCommentMarkerAnchor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -22,6 +21,7 @@ export interface IUseAnnotationMutationServiceOptions {
     markAnnotationLocallyDeleted: (comment: IAnnotationCommentSummary) => void;
     restoreAnnotationLocally: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
+    removeAnnotationFromDom?: (comment: IAnnotationCommentSummary) => void;
     findAnnotationCommentByStableKey?: (stableKey: string) => IAnnotationCommentSummary | null;
     clearPendingMarkerMoves: () => void;
     handleMarkerMove: (
@@ -42,7 +42,6 @@ export interface IUseAnnotationMutationServiceOptions {
     resolveCanonicalAnnotationId?: (comment: IAnnotationCommentSummary) => AnnotationId | null;
     setCanonicalNoteText: (id: AnnotationId, text: string) => void;
     deleteCanonicalAnnotation: (id: AnnotationId) => void;
-    setCanonicalColor: (id: AnnotationId, color: string) => void;
     moveCanonicalAnchor: (id: AnnotationId, rect: IAnnotationMarkerRect) => void;
 }
 
@@ -207,35 +206,10 @@ export const useAnnotationMutationService = (
         if (!comment || !id) {
             return false;
         }
-        options.setCanonicalColor(id, input.color);
         const result = input.selected === true
             ? options.updateSelectedTextMarkupAnnotationColor(input.color)
             : options.updateTextMarkupAnnotationColor(comment, input.color);
-        const projectedComment = result.comment ?? {
-            ...comment,
-            color: input.color,
-        };
-        if (result.shouldApplyTextMarkupColor) {
-            visualEffects.enqueue({
-                kind: 'text-markup-color',
-                stableKey: projectedComment.stableKey,
-                annotationId: projectedComment.annotationId,
-                pageNumber: projectedComment.pageNumber,
-                commentSnapshot: projectedComment,
-                color: input.color,
-                sourceColor: result.sourceColor,
-            });
-        }
-        if (result.shouldRefreshPage || !result.updated) {
-            visualEffects.enqueue({
-                kind: 'render-page-text-markup',
-                stableKey: projectedComment.stableKey,
-                annotationId: projectedComment.annotationId,
-                pageNumber: projectedComment.pageNumber,
-                commentSnapshot: projectedComment,
-            });
-        }
-        return true;
+        return result.updated;
     }
 
     function hasPendingAnnotationDomRemoval(comment: IAnnotationCommentSummary) {
@@ -250,6 +224,10 @@ export const useAnnotationMutationService = (
 
     function enqueueAnnotationDomRemoval(comment: IAnnotationCommentSummary) {
         if (hasPendingAnnotationDomRemoval(comment)) {
+            return;
+        }
+        if (options.removeAnnotationFromDom) {
+            options.removeAnnotationFromDom(comment);
             return;
         }
         visualEffects.enqueue({
@@ -302,16 +280,7 @@ export const useAnnotationMutationService = (
             // mutation while its projection is still settling.
             options.markModified();
         }
-        options.handleMarkerMove(input.comment, input.rect, {...(!persistThroughNativeGeometry ? {
-            markEditorPending: (updated, original, markerRect) => {
-                const editor = options.findEditorForComment(updated) ?? options.findEditorForComment(original);
-                if (!editor) {
-                    return;
-                }
-                syncPdfjsCommentMarkerAnchor(editor, markerRect);
-            },
-            markModified: options.markModified,
-        } : {})});
+        options.handleMarkerMove(input.comment, input.rect, {...(!persistThroughNativeGeometry ? {markModified: options.markModified} : {})});
         return true;
     }
 

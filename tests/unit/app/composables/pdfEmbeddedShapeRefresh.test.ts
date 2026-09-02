@@ -14,7 +14,10 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 
 interface IFakeEmbeddedShapeAnnotationElement {
-    dataset: { annotationId?: string; };
+    dataset: {
+        annotationId?: string;
+        pdfAnnotationId?: string;
+    };
     getAttribute?: (name: string) => string | null;
     remove: ReturnType<typeof vi.fn>;
     closest: (selector: string) => Element | IFakeEmbeddedShapeAnnotationElement | null;
@@ -36,14 +39,28 @@ function createFakeAnnotationElement(annotationId: string): IFakeEmbeddedShapeAn
     return element;
 }
 
-function createFakeShapeOverlayAnnotationElement(annotationId: string): IFakeEmbeddedShapeAnnotationElement {
+function createFakeShapeOverlayAnnotationElement(
+    annotationId: string,
+    pdfAnnotationId = annotationId,
+): IFakeEmbeddedShapeAnnotationElement {
     const overlay = Object.assign(Object.create(null) as Element, { classList: { contains: () => false } });
     const element: IFakeEmbeddedShapeAnnotationElement = {
-        dataset: { annotationId },
-        getAttribute: (name: string) => name === 'data-annotation-id' ? annotationId : null,
+        dataset: {
+            annotationId,
+            pdfAnnotationId,
+        },
+        getAttribute: (name: string) => {
+            if (name === 'data-annotation-id') {
+                return annotationId;
+            }
+            if (name === 'data-pdf-annotation-id') {
+                return pdfAnnotationId;
+            }
+            return null;
+        },
         remove: vi.fn(),
         closest: (selector: string) => {
-            if (selector === '.pdf-shape-overlay' || selector === '.pdf-shape-overlay.has-shapes') {
+            if (selector.includes('.pdf-shape-overlay') || selector.includes('.pdf-annotation-editor-layer')) {
                 return overlay;
             }
             if (selector === '[data-annotation-id]') {
@@ -70,7 +87,7 @@ function createFakeViewerContainer(
 ): HTMLElement & IFakeViewerContainer {
     const elements = annotationIds.map(createFakeAnnotationElement);
     const overlayElements = (options.shapeOverlayAnnotationIds ?? [])
-        .map(createFakeShapeOverlayAnnotationElement);
+        .map(annotationId => createFakeShapeOverlayAnnotationElement(annotationId));
     const popups = annotationIds.map(createFakePopup);
 
     return {
@@ -102,18 +119,21 @@ function createFakeHiddenAnnotationContainer(
         hasShapeOverlay: boolean;
         includeShapeOverlayInContainerQuery?: boolean;
         shapeOverlayAnnotationIds?: string[];
+        shapeOverlayPdfAnnotationIds?: string[];
     },
 ) {
     const overlayAnnotationIds = options.shapeOverlayAnnotationIds
         ?? (options.hasShapeOverlay ? [annotationId] : []);
-    const overlayElements = overlayAnnotationIds.map(createFakeShapeOverlayAnnotationElement);
+    const overlayElements = overlayAnnotationIds.map((id, index) => (
+        createFakeShapeOverlayAnnotationElement(id, options.shapeOverlayPdfAnnotationIds?.[index] ?? id)
+    ));
     const querySelector = (selector: string) => (
-        selector === '.pdf-shape-overlay.has-shapes' && overlayElements.length > 0
+        selector.includes('.pdf-shape-overlay.has-shapes') && overlayElements.length > 0
             ? Object.create(null)
             : null
     );
     const querySelectorAll = (selector: string) => (
-        selector === '.pdf-shape-overlay.has-shapes [data-annotation-id]'
+        selector.includes('.pdf-shape-overlay.has-shapes [data-annotation-id]')
             ? overlayElements
             : []
     );
@@ -334,6 +354,21 @@ describe('resolveHiddenEmbeddedAnnotationIdsForPageContainer', () => {
         const { pageContainer } = createFakeHiddenAnnotationContainer('12R', {
             hasShapeOverlay: true,
             shapeOverlayAnnotationIds: ['12R'],
+        });
+        const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds: new Set(['12R0']),
+            managedAnnotationIds: new Set(['12R']),
+            pageContainer,
+        });
+
+        expect(hiddenIds.has('12R')).toBe(true);
+    });
+
+    it('matches a canonical shape overlay by its PDF reference when app identity differs', () => {
+        const { pageContainer } = createFakeHiddenAnnotationContainer('12R', {
+            hasShapeOverlay: true,
+            shapeOverlayAnnotationIds: ['anno_shape'],
+            shapeOverlayPdfAnnotationIds: ['12R'],
         });
         const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({
             hiddenAnnotationIds: new Set(['12R0']),

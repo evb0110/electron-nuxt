@@ -91,6 +91,7 @@ export interface IWorkspacePdfViewerExposeAutomationPort extends
     Partial<Pick<IPdfViewerAnnotationCommandExpose,
         'commentAtPoint'
         | 'collectLiveAnnotationChanges'
+        | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
     >>,
     Partial<Pick<IPdfViewerShapeExpose,

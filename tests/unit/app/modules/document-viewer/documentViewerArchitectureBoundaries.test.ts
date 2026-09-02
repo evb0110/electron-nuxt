@@ -166,15 +166,15 @@ describe('document viewer architecture boundaries', () => {
         const scaleContract = read(
             'app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale.ts',
         );
-        const shapeOverlay = read('app/modules/pdf-viewer/components/PdfShapeOverlay.vue');
+        const annotationEditorLayer = read('app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue');
         const page = read('app/modules/pdf-viewer/components/PdfViewerPage.vue');
 
         expect(scaleContract).toContain('buildPdfPageScaleStyle');
         expect(scaleContract).toContain('toPdfScaledCssLength');
         expect(page).toContain('pageScaleStyle');
-        expect(shapeOverlay).toContain('toPdfScaledCssLength(shape.strokeWidth)');
-        expect(shapeOverlay).not.toContain('getComputedStyle');
-        expect(shapeOverlay).not.toContain('pdfToCssScale');
+        expect(annotationEditorLayer).toContain('PdfShapeAnnotation');
+        expect(annotationEditorLayer).not.toContain('getComputedStyle');
+        expect(annotationEditorLayer).not.toContain('pdfToCssScale');
 
         for (const path of [
             'app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts',

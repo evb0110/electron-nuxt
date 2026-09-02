@@ -41,4 +41,9 @@ describe('PDF.js annotation reference contract', () => {
         expect(normalizePdfJsAnnotationId(' custom-id ')).toBe('custom-id');
         expect(normalizePdfJsAnnotationId('   ')).toBeNull();
     });
+
+    it('normalizes native PDF object references for cross-layer matching', () => {
+        expect(normalizePdfJsAnnotationId(' 42 0 R ')).toBe('42R');
+        expect(normalizePdfJsAnnotationId('42 7 R')).toBe('42R7');
+    });
 });

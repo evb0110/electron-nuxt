@@ -16,7 +16,6 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { Ref } from 'vue';
 import type {
     IAnnotationCommentSummary,
     TAnnotationStableKey,
@@ -29,25 +28,10 @@ vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     GenericL10n: vi.fn(),
 }));
 
-// The session hands its snapshot identity to the annotation sync bridge and
-// keeps no other handle on it. Delegating to the real bridge keeps the session
-// behaviour intact while exposing the identity the session actually wired.
-const { snapshotDocumentIdentity } = vi.hoisted(() => (
-    {snapshotDocumentIdentity: {ref: null as Ref<string> | null}}
-));
-
-vi.mock('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationSync', async (importOriginal) => {
-    const actual = await importOriginal<{useAnnotationSync: (options: {documentIdentity: Ref<string>}) => unknown}>();
-    return {
-        ...actual,
-        useAnnotationSync: (options: {documentIdentity: Ref<string>}) => {
-            snapshotDocumentIdentity.ref = options.documentIdentity;
-            return actual.useAnnotationSync(options);
-        },
-    };
-});
-
-const { createPdfAnnotationSession } = await import(
+const {
+    createPdfAnnotationSession,
+    resolveAnnotationSnapshotDocumentIdentity,
+} = await import(
     '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession'
 );
 
@@ -113,7 +97,6 @@ const mountedSessions: Array<() => void> = [];
 
 afterEach(() => {
     mountedSessions.splice(0).forEach(unmount => unmount());
-    snapshotDocumentIdentity.ref = null;
 });
 
 function mountAnnotationSession(initial: {
@@ -205,7 +188,11 @@ function mountAnnotationSession(initial: {
         pdfDocument,
         emitAnnotationComments,
         storeDocumentKey: () => activeSession.annotationApplication.value.documentKey,
-        snapshotDocumentKey: () => snapshotDocumentIdentity.ref!.value,
+        snapshotDocumentKey: () => resolveAnnotationSnapshotDocumentIdentity({
+            originalPath: originalPath.value,
+            workingCopyPath: workingCopyPath.value,
+            source: src.value,
+        }),
         canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
             .list()
             .map(entity => entity.identity.id),

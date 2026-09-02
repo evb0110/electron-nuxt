@@ -21,6 +21,54 @@ export interface IPdfLiveAnnotationChangeSummary {
     fingerprint: string;
 }
 
+/**
+ * Read-only diagnostics for proving that the retired PDF.js editor storage
+ * stays untouched while the canonical annotation surface is active.
+ */
+export interface IPdfAnnotationStorageDebugState {
+    reported: boolean;
+    modifiedIds: string[];
+    serializableEntryKeys: string[];
+}
+
+export function collectPdfJsAnnotationStorageDebugState(
+    document: PDFDocumentProxy | null | undefined,
+): IPdfAnnotationStorageDebugState {
+    const storage = getPdfJsAnnotationStorage(document);
+    if (!storage || typeof storage !== 'object') {
+        return {
+            reported: false,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        };
+    }
+
+    try {
+        const modifiedIds = storage.modifiedIds?.ids;
+        const serializableMap = storage.serializable?.map;
+        // PDF.js uses a null map as its immutable empty-storage sentinel.
+        // That is an inspected, known-empty state rather than a failed probe.
+        const serializableStateIsInspectable = serializableMap === null
+            || serializableMap instanceof Map;
+        return {
+            reported: modifiedIds instanceof Set && serializableStateIsInspectable,
+            modifiedIds: modifiedIds instanceof Set
+                ? Array.from(modifiedIds).map(String)
+                : [],
+            serializableEntryKeys: serializableMap instanceof Map
+                ? Array.from(serializableMap.keys()).map(String)
+                : [],
+        };
+    } catch (error) {
+        BrowserLogger.debug('workspace', 'Failed to inspect PDF.js annotation storage', error);
+        return {
+            reported: false,
+            modifiedIds: [],
+            serializableEntryKeys: [],
+        };
+    }
+}
+
 /** Unions two observations of the same annotation save work into one summary. */
 export function mergeLivePdfJsAnnotationChanges(
     left: IPdfLiveAnnotationChangeSummary,

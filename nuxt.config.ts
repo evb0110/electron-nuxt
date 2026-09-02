@@ -437,6 +437,7 @@ export default defineNuxtConfig({
         'ph:tree-view',
         'ph:crosshair-simple',
         'ph:chat-circle',
+        'ph:chat-circle-text',
         'ph:chat',
         'ph:chat-circle-dots',
         'ph:sparkle',
@@ -586,6 +587,14 @@ export default defineNuxtConfig({
 
     nitro: {
         sourceMap: false,
+        // The server-only PDF.js runtime uses a top-level dynamic import. The
+        // desktop build runs on Node 24, so keep Nitro's final server transform
+        // in an ESM target that preserves that syntax for prerendering.
+        esbuild: {
+            options: {
+                target: 'esnext',
+            },
+        },
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,

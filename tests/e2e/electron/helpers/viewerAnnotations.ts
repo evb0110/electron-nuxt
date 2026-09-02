@@ -14,6 +14,7 @@ import {
     callWorkspaceCommand,
     collectWorkspaceExposeDebugState,
     installWorkspaceExposeProbe,
+    readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
@@ -605,6 +606,90 @@ export async function collectStickyNoteDebugState(page: Page) {
         ...domDebug,
         toolbarSnapshots: workspaceDebug.toolbarSnapshots,
         matchingComponentSamples: workspaceDebug.matchingComponentSamples,
+    };
+}
+
+
+export interface IAnnotationOwnershipDebugState {
+    annotationStorage: {
+        reported: boolean;
+        modifiedIds: string[];
+        serializableEntryKeys: string[];
+    };
+    canonicalEntities: Array<{
+        id: string;
+        kind: string;
+        selected: boolean;
+    }>;
+    legacyEditorLayerCount: number;
+    staticLinkHrefs: string[];
+    staticNonLinkAnnotationCount: number;
+    storageAvailable: boolean;
+    workspaceState: Record<string, unknown>;
+}
+
+interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {dirtyState?: {pdfJsAnnotationStorage?: {
+    reported?: boolean;
+    modifiedIds?: string[];
+    serializableEntryKeys?: string[];
+} | null;};}
+
+export async function collectAnnotationOwnershipDebugState(page: Page): Promise<IAnnotationOwnershipDebugState> {
+    await installWorkspaceExposeProbe(page);
+    const workspaceState = await readWorkspaceStateValues<IAnnotationOwnershipWorkspaceState>(page, [
+        'annotationComments',
+        'annotationInventory',
+        'documentRevisionToken',
+        'dirtyState',
+        'pdfSourceState',
+        'workingCopyPath',
+    ]);
+    const result = await page.evaluate(() => {
+        const staticLayer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"] .annotation-layer, '
+            + '.editor-pane.is-active .page_container[data-page="1"] .annotationLayer',
+        );
+        const editorLayer = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
+        );
+        const canonicalEntities = Array.from(
+            editorLayer?.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]') ?? [],
+        ).map(entity => ({
+            id: entity.dataset.annotationId ?? '',
+            kind: entity.dataset.annotationKind ?? '',
+            selected: entity.classList.contains('is-selected'),
+        }));
+
+        return {
+            annotationStorage: {
+                reported: false,
+                modifiedIds: [],
+                serializableEntryKeys: [],
+            },
+            canonicalEntities,
+            legacyEditorLayerCount: document.querySelectorAll(
+                '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
+                + '.editor-pane.is-active .page_container[data-page="1"] .annotationEditorLayer',
+            ).length,
+            staticLinkHrefs: Array.from(
+                staticLayer?.querySelectorAll<HTMLAnchorElement>('.linkAnnotation a[data-href]') ?? [],
+            ).map(link => link.dataset.href ?? ''),
+            staticNonLinkAnnotationCount: Array.from(
+                staticLayer?.querySelectorAll<HTMLElement>('[data-annotation-id]') ?? [],
+            ).filter(element => !element.closest('.linkAnnotation')).length,
+            storageAvailable: false,
+        };
+    });
+    const storage = workspaceState.dirtyState?.pdfJsAnnotationStorage;
+    return {
+        ...result,
+        annotationStorage: {
+            reported: storage?.reported === true,
+            modifiedIds: storage?.modifiedIds ?? [],
+            serializableEntryKeys: storage?.serializableEntryKeys ?? [],
+        },
+        storageAvailable: storage !== null && storage !== undefined,
+        workspaceState,
     };
 }
 

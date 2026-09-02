@@ -20,7 +20,10 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type {
+    IPdfAnnotationStorageDebugState,
+    IPdfLiveAnnotationChangeSummary,
+} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 /** @deprecated Use the format-neutral document sidebar tab contract. */
 export type TPdfSidebarTab = TDocumentSidebarTab;
@@ -144,6 +147,7 @@ export interface IPdfViewerAnnotationCommandExpose {
     annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
     collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
+    getAnnotationStorageDebugState?: (() => IPdfAnnotationStorageDebugState) | undefined;
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
     getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;
     clearAnnotationHistory?: () => void;

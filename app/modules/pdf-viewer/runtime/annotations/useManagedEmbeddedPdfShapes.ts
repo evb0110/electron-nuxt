@@ -79,6 +79,10 @@ interface IUseManagedEmbeddedPdfShapesOptions {
      * yet.
      */
     deletedEmbeddedAnnotationIds: Ref<ReadonlySet<string>>;
+    /** All canonical PDF refs, including non-shape annotations and tombstones. */
+    storeOwnedAnnotationIds?: Ref<ReadonlySet<string>>;
+    /** @deprecated The canonical editor layer no longer exposes PDF.js editors. */
+    hideManagedAnnotationEditors?: (..._args: never[]) => void;
     logger: IManagedEmbeddedPdfShapesLogger;
     runGuardedTask: (
         task: () => Promise<unknown>,
@@ -91,7 +95,6 @@ interface IUseManagedEmbeddedPdfShapesOptions {
         visibleRange: IManagedEmbeddedPdfShapesPageRange,
         renderOptions?: IManagedEmbeddedPdfShapesRenderOptions,
     ) => Promise<void>;
-    hideManagedAnnotationEditors: (pageNumber?: number) => void;
     currentPage: Ref<number>;
 }
 
@@ -105,13 +108,13 @@ export const useManagedEmbeddedPdfShapes = ({
     bufferPages,
     shapeComposable,
     deletedEmbeddedAnnotationIds,
+    storeOwnedAnnotationIds,
     logger,
     runGuardedTask,
     nextTick: waitForNextTick,
     isPageRendered,
     invalidatePages: _invalidatePages,
     renderVisiblePages,
-    hideManagedAnnotationEditors,
     currentPage,
 }: IUseManagedEmbeddedPdfShapesOptions) => {
     let embeddedShapeImportToken = 0;
@@ -237,10 +240,13 @@ export const useManagedEmbeddedPdfShapes = ({
     });
 
     const renderHiddenEmbeddedAnnotationIds = computed(() => {
-        // The SVG overlay is the app-rendered source of truth for managed shapes.
-        // Suppress their native PDF canvas paint immediately so PDF border widths
-        // cannot briefly appear zoom-scaled before the overlay is mounted.
-        return new Set(hiddenEmbeddedAnnotationIds.value);
+        // The Vue surface is the source of truth for every canonical annotation.
+        // Suppress their native PDF paint immediately, including tombstones, so
+        // an annotation cannot flash while the page layer catches up.
+        return new Set([
+            ...hiddenEmbeddedAnnotationIds.value,
+            ...(storeOwnedAnnotationIds?.value ?? []),
+        ]);
     });
 
     function queueDeferredHiddenEmbeddedAnnotationDomSync() {
@@ -256,7 +262,6 @@ export const useManagedEmbeddedPdfShapes = ({
                 return;
             }
             syncHiddenEmbeddedAnnotationDom({ retryDeferredManagedAnnotations: false });
-            hideManagedAnnotationEditors();
         };
 
         if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -815,7 +820,6 @@ export const useManagedEmbeddedPdfShapes = ({
             scheduleCapturedImportAfterRenderedPage(pendingPostPaintImport, pageNumber);
         }
         syncHiddenEmbeddedAnnotationDom();
-        hideManagedAnnotationEditors(pageNumber);
     }
 
     watch(hiddenEmbeddedAnnotationIds, (hiddenIds, previouslyHiddenIds) => {
@@ -841,7 +845,6 @@ export const useManagedEmbeddedPdfShapes = ({
                 return;
             }
             syncHiddenEmbeddedAnnotationDom();
-            hideManagedAnnotationEditors();
         });
     });
 

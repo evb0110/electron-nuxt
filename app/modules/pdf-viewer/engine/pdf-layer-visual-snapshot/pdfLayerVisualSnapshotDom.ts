@@ -105,7 +105,9 @@ export function getPdfLayerVisualSnapshotAnnotationEditorLayer(
     pageContainer: HTMLElement | null | undefined,
 ) {
     return typeof pageContainer?.querySelector === 'function'
-        ? pageContainer.querySelector<HTMLElement>('.annotation-editor-layer, .annotationEditorLayer') ?? null
+        ? pageContainer.querySelector<HTMLElement>(
+            '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',
+        ) ?? null
         : null;
 }
 

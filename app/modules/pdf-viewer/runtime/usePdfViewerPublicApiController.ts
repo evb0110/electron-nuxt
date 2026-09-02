@@ -11,6 +11,7 @@ import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import { collectPdfJsAnnotationStorageDebugState } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
@@ -273,6 +274,9 @@ export const usePdfViewerPublicApiController = (
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
         collectLiveAnnotationChanges: annotationRuntime.collectLiveAnnotationChanges,
+        getAnnotationStorageDebugState: () => collectPdfJsAnnotationStorageDebugState(
+            documentSession.pdfDocument.value,
+        ),
         getDeletedCanonicalAnnotationIds: annotationRuntime.getDeletedCanonicalAnnotationIds,
         getDeletedPersistedCanonicalAnnotationCount: annotationRuntime.getDeletedPersistedCanonicalAnnotationCount,
         setWorkspaceCommandSink: annotationSession.appAnnotationHistory.setWorkspaceCommandSink,

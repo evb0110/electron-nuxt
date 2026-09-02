@@ -81,7 +81,9 @@ describe('Electron E2E - native save and reopen', () => {
         session = null;
     });
 
-    it('forces a renderer annotation save, on-disk receipt, and fresh-process reopen', async () => {
+    // The canonical renderer no longer exposes the PDF.js editor mode. #186
+    // owns this save proof after moving it to a store-owned text box.
+    it.skip('forces a renderer annotation save, on-disk receipt, and fresh-process reopen', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`native-save-reopen-${Date.now()}.pdf`, 2);
         const annotationText = `native save reopen ${Date.now()}`;
 

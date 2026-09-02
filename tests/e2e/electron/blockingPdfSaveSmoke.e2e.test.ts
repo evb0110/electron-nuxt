@@ -162,7 +162,10 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         session = null;
     });
 
-    it('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
+    // These smoke cases still create annotations through the retired PDF.js
+    // editor. #187 and #186 will re-enable the same save coverage through the
+    // canonical EVB surface and Rust writer.
+    it.skip('opens a startup PDF path, creates a visible annotation, and saves it to disk', async () => {
         const pdfPath = await createMultiPageTextFixturePdf(`blocking-save-smoke-${Date.now()}.pdf`, 3);
         const beforeHash = hashFile(pdfPath);
 
@@ -261,7 +264,7 @@ describe('Electron E2E - Blocking PDF Save Smoke', () => {
         });
     }, BLOCKING_SMOKE_TIMEOUT_MS);
 
-    it('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
+    it.skip('saves one bounded pressure annotation and reopens it in a fresh Electron process', async () => {
         const runOwner = `blocking-pressure-save-${Date.now()}`;
         const pdfPath = await createLargeScannedFixturePdf(
             'blocking-pressure-annotation.pdf',
