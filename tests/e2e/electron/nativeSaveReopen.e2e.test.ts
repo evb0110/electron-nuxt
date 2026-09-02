@@ -4,10 +4,8 @@ import {
     expect,
     it,
 } from 'vitest';
-import {
-    readFile,
-    stat,
-} from 'node:fs/promises';
+import {execFile} from 'node:child_process';
+import {stat} from 'node:fs/promises';
 import {
     copyProjectFixture,
     createCanonicalAnnotationSurfaceFixturePdf,
@@ -39,9 +37,11 @@ import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import type {KeyInput} from 'puppeteer-core';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import type { TAnnotationResizeHandle } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
+import {promisify} from 'node:util';
 
 const NATIVE_SAVE_REOPEN_TIMEOUT_MS = 120_000;
 const OUTLINE_METADATA_MATRIX_TIMEOUT_MS = 15 * 60_000;
+const execFileAsync = promisify(execFile);
 
 interface IAgentActionResult extends Record<string, unknown> {
     comment?: Record<string, unknown>;
@@ -73,6 +73,11 @@ interface IQpdfOutline {
     title?: string;
     destpageposfrom1?: number;
     kids?: IQpdfOutline[];
+}
+
+interface IQpdfObjectRef {
+    generationNumber: number;
+    objectNumber: number;
 }
 
 function flattenQpdfOutlines(outlines: IQpdfOutline[]): Array<{
@@ -110,6 +115,65 @@ async function waitForOpenedPdf(session: IElectronE2ESession, path: string) {
     await waitForViewerInteractive(session.page, 45_000);
 }
 
+function parseQpdfObjectRefs(value: string): IQpdfObjectRef[] {
+    return Array.from(value.matchAll(/(\d+)\s+(\d+)\s+R/gu)).map(match => ({
+        objectNumber: Number(match[1]),
+        generationNumber: Number(match[2]),
+    }));
+}
+
+async function readQpdfObject(filePath: string, objectRef: IQpdfObjectRef) {
+    const {stdout} = await execFileAsync('qpdf', [
+        `--show-object=${objectRef.objectNumber},${objectRef.generationNumber}`,
+        filePath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 120_000,
+    });
+    return stdout;
+}
+
+async function readFreeTextObjectByName(filePath: string, name: string) {
+    const {stdout: pagesOutput} = await execFileAsync('qpdf', [
+        '--show-pages',
+        filePath,
+    ], {
+        encoding: 'utf8',
+        maxBuffer: 1024 * 1024,
+        timeout: 120_000,
+    });
+    const pageRefMatch = pagesOutput.match(/^page 1: (\d+) (\d+) R$/mu);
+    if (!pageRefMatch) {
+        throw new Error(`qpdf did not report the first page object for ${filePath}`);
+    }
+    const pageObject = await readQpdfObject(filePath, {
+        objectNumber: Number(pageRefMatch[1]),
+        generationNumber: Number(pageRefMatch[2]),
+    });
+    const annotsMatch = pageObject.match(/\/Annots\s+(\[[\s\S]*?\]|\d+\s+\d+\s+R)/u);
+    if (!annotsMatch?.[1]) {
+        throw new Error(`qpdf did not report page annotations for ${filePath}`);
+    }
+    const annotsValue = annotsMatch[1].startsWith('[')
+        ? annotsMatch[1]
+        : await readQpdfObject(filePath, parseQpdfObjectRefs(annotsMatch[1])[0]!);
+    const objectRefs = parseQpdfObjectRefs(annotsValue);
+    for (const objectRef of objectRefs) {
+        const object = await readQpdfObject(filePath, objectRef);
+        if (
+            /\/Subtype\s*\/FreeText(?:\s|$)/u.test(object)
+            && object.includes(`/NM (${name})`)
+        ) {
+            return {
+                object,
+                objectRef,
+            };
+        }
+    }
+    throw new Error(`qpdf did not find FreeText annotation ${name} in ${filePath}`);
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
     return value !== null && typeof value === 'object' && !Array.isArray(value)
         ? value as Record<string, unknown>
@@ -124,6 +188,17 @@ function numberField(record: Record<string, unknown>, name: string) {
 function stringField(record: Record<string, unknown>, name: string) {
     const value = record[name];
     return typeof value === 'string' ? value : null;
+}
+
+function pdfUtf16BeHex(value: string) {
+    return Array.from(`\uFEFF${value}`)
+        .map(character => character.charCodeAt(0).toString(16).padStart(4, '0'))
+        .join('');
+}
+
+function qpdfObjectContainsText(value: string, text: string) {
+    return value.includes(text)
+        || value.replaceAll(/\s+/gu, '').toLowerCase().includes(pdfUtf16BeHex(text));
 }
 
 function roundGeometry(value: number) {
@@ -376,6 +451,10 @@ async function readTextBoxScreenPoints(
                 width: boxRect.width,
                 height: boxRect.height,
             },
+            style: {
+                color: window.getComputedStyle(textBox).color,
+                fontSize: window.getComputedStyle(textBox).fontSize,
+            },
             handle: handleRect
                 ? {
                     x: handleRect.left + handleRect.width / 2,
@@ -384,6 +463,25 @@ async function readTextBoxScreenPoints(
                 : null,
         };
     }, handle);
+}
+
+async function readTextBoxComputedStyle(
+    page: Parameters<typeof evaluateInPage>[0],
+    annotationId: string,
+) {
+    return page.evaluate((id: string) => {
+        const textBox = Array.from(document.querySelectorAll<HTMLElement>(
+            '[data-annotation-kind="text-box"]',
+        )).find(candidate => candidate.dataset.annotationId === id);
+        if (!textBox) {
+            return null;
+        }
+        const style = window.getComputedStyle(textBox);
+        return {
+            color: style.color,
+            fontSize: style.fontSize,
+        };
+    }, annotationId);
 }
 
 async function dragPointer(
@@ -819,6 +917,13 @@ describe('Electron E2E - native save and reopen', () => {
         if (!annotationId) {
             throw new Error('The fixture text box did not expose its canonical identity');
         }
+        const initialRect = normalizedRect(initialComment?.markerRect);
+        const initialStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(initialRect).not.toBeNull();
+        expect(initialStyle).not.toBeNull();
+        if (!initialRect || !initialStyle) {
+            throw new Error('The fixture text box did not expose stable geometry or style');
+        }
         const point = await session.page.evaluate((id: string) => {
             const entity = Array.from(document.querySelectorAll<HTMLElement>(
                 '[data-annotation-kind="text-box"]',
@@ -864,9 +969,31 @@ describe('Electron E2E - native save and reopen', () => {
 
         await saveViaWindowHandle(session.page, 60_000);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText).toBe(3);
-        const savedPdfText = (await readFile(pdfPath)).toString('latin1');
-        expect(savedPdfText).toContain('/NM (lifecycle-text-box-one)');
-        expect(savedPdfText).toContain('/DA (/Helvetica 14 Tf 0 0 1 rg)');
+        const editedSnapshot = await readCanonicalAnnotationSnapshot(session.page);
+        const editedComment = findTextBoxComment(editedSnapshot, editedText);
+        const editedRect = normalizedRect(editedComment?.markerRect);
+        expect(editedRect).toEqual(initialRect);
+        expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(initialStyle);
+        const savedTextBox = await readFreeTextObjectByName(pdfPath, 'lifecycle-text-box-one');
+        expect(qpdfObjectContainsText(savedTextBox.object, editedText)).toBe(true);
+        expect(savedTextBox.object).toContain('/DA (/Helvetica 14 Tf 0 0 1 rg)');
+        expect(savedTextBox.object).toContain('/RC (<body>Foreign rich text sentinel</body>)');
+        expect(savedTextBox.object).toContain('/DS (foreign-style-sentinel)');
+
+        const savedSession = session;
+        session = null;
+        await savedSession.stop();
+        session = await startElectronE2ESession(`e2e-native-save-reopen-foreign-fresh-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
+            initialOpenPaths: [pdfPath],
+        });
+        await waitForOpenedPdf(session, pdfPath);
+        await waitForTextBoxDisplay(session.page);
+        await expect.poll(async () => stringField(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), editedText) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe(editedText);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {
