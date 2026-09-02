@@ -234,6 +234,7 @@ const {
     itemHeight: index => flattenedRows.value[index]?.kind === 'group' ? 36 : 84,
     overscan: 8,
 });
+const searchResultsList = containerProps.ref;
 
 function goToResult(resultIndex: number) {
     emit('goToResult', resultIndex);
@@ -305,6 +306,17 @@ function setResultRef(
     }
 }
 
+function isResultVisibleInSearchList(resultElement: HTMLElement) {
+    const listElement = searchResultsList.value;
+    if (!listElement) {
+        return false;
+    }
+
+    const listRect = listElement.getBoundingClientRect();
+    const resultRect = resultElement.getBoundingClientRect();
+    return resultRect.top >= listRect.top && resultRect.bottom <= listRect.bottom;
+}
+
 watch(
     () => [
         trimmedQuery.value,
@@ -357,20 +369,29 @@ watch(
             return;
         }
 
+        if (nextNavigationId !== currentResultNavigationId) {
+            return;
+        }
+
         expandedPages.value = new Set(expandedPages.value).add(currentResult.pageIndex);
 
         await nextTick();
+        if (nextNavigationId !== currentResultNavigationId) {
+            return;
+        }
+
         const virtualIndex = flattenedRows.value.findIndex(row => (
             row.kind === 'match' && row.resultIndex === nextIndex
         ));
-        if (virtualIndex >= 0) {
-            scrollToVirtualRow(virtualIndex);
-            await nextTick();
+        // VueUse places a scrolled-to row at the top by default. Keep a visible
+        // row at the position where the user selected it.
+        const resultElement = resultItemRefs.get(nextIndex);
+        if (!resultElement || !isResultVisibleInSearchList(resultElement)) {
+            if (virtualIndex >= 0) {
+                scrollToVirtualRow(virtualIndex);
+                await nextTick();
+            }
         }
-        resultItemRefs.get(nextIndex)?.scrollIntoView({
-            block: 'nearest',
-            behavior: 'smooth',
-        });
     },
     { flush: 'post' },
 );

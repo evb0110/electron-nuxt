@@ -224,7 +224,7 @@ describe('mounted assistant panel lifecycle', () => {
         harness.unmount();
     });
 
-    it('keeps a persisted Codex model before the first backend state resolves', async () => {
+    it('replaces a persisted pre-5.6 Codex model before the first backend state resolves', async () => {
         window.localStorage.setItem(STORAGE_KEYS.ASSISTANT_SELECTION, JSON.stringify({
             provider: 'codex',
             modelsByProvider: {codex: 'gpt-5.4'},
@@ -232,7 +232,7 @@ describe('mounted assistant panel lifecycle', () => {
         mocks.getAssistantState.mockReturnValueOnce(new Promise(() => undefined));
         const harness = await mountHarness(null);
 
-        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.4');
+        expect(harness.host.querySelector('.model')?.textContent).toBe('gpt-5.6-sol');
         harness.unmount();
     });
 

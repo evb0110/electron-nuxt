@@ -82,8 +82,15 @@ describe('zero-execution coverage tripwire', () => {
             targetFileCount: 3,
             zeroExecutionFiles: ['electron/platform-ipc/a.ts'],
         });
-        expect(formatZeroExecutionCoverageResult(result)).toContain('Files missing from the coverage report');
-        expect(formatZeroExecutionCoverageResult(result)).toContain('Production files with zero executed lines');
+        const formatted = formatZeroExecutionCoverageResult(result);
+        expect(formatted).toContain('Files missing from the coverage report');
+        expect(formatted).toContain(
+            'packages/contracts/missing.ts: add it to coverage.include or classify it as a NON_UNIT_COVERAGE_ENTRYPOINTS entry.',
+        );
+        expect(formatted).toContain('Production files with zero executed lines');
+        expect(formatted).toContain(
+            'electron/platform-ipc/a.ts: add a unit test that imports and executes this file.',
+        );
     });
 
     it('rejects malformed line summaries at each input boundary', () => {
@@ -303,6 +310,22 @@ describe('zero-execution coverage tripwire', () => {
             headSha,
             projectRoot,
         })).toEqual(['app/components/Viewer.vue']);
+
+        await Promise.all([
+            writeFile(path.join(projectRoot, 'app/components/Modified.ts'), 'export const modified = true;\n', 'utf8'),
+            writeFile(path.join(projectRoot, 'app/components/Untracked.ts'), 'export const untracked = true;\n', 'utf8'),
+        ]);
+        runGit('add', 'app/components/Modified.ts');
+
+        expect(collectChangedProductionCoverageTargets({
+            baseSha,
+            headSha: 'WORKTREE',
+            projectRoot,
+        })).toEqual([
+            'app/components/Modified.ts',
+            'app/components/Untracked.ts',
+            'app/components/Viewer.vue',
+        ]);
     });
 
     it('marks a failed filesystem-backed tripwire run for process failure', async () => {

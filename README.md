@@ -278,9 +278,9 @@ such as `pnpm run validate:iteration -- --file=app/path/to/change.ts`,
 `pnpm exec vitest run --project unit-policy tests/unit/scripts/releasePolicy.test.ts`, or
 `pnpm run test:electron-bundle-static-integrity:no-build` after
 `dist-electron/` already exists. Before a non-trivial direct push to `main`, run
-`node scripts/run-all-gates.mjs --only validate`. Ordinary source pushes do not
-start hosted CI. Pull requests and package metadata changes, including release
-commits, run the hosted checks. The dormant Python page-processor was
+`node scripts/run-all-gates.mjs --only validate`. Every pull request and every
+push to `main` runs the hosted checks; the release cutter trusts only the
+exact-SHA push run. The dormant Python page-processor was
 removed after the native scan-cleanup pipeline superseded it and remains
 recoverable from git history. Electron E2E
 and PDF tab diagnostics run only by manual workflow dispatch until they are stable

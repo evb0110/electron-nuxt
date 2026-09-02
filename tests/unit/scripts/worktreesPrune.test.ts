@@ -1,0 +1,140 @@
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+
+import {
+    classifyWorktree,
+    parseArgs,
+    parseWorktreeList,
+} from '@scripts/worktrees-prune.mjs';
+
+describe('worktrees prune', () => {
+    it('parses porcelain worktree listings including detached and bare entries', () => {
+        expect(parseWorktreeList([
+            'worktree /repo',
+            'HEAD 1111111111111111111111111111111111111111',
+            'branch refs/heads/main',
+            '',
+            'worktree /tmp/ticket-1',
+            'HEAD 2222222222222222222222222222222222222222',
+            'branch refs/heads/ticket/1',
+            '',
+            'worktree /tmp/detached',
+            'HEAD 3333333333333333333333333333333333333333',
+            'detached',
+            '',
+            'worktree /repo/.bare',
+            'bare',
+            '',
+        ].join('\n'))).toEqual([
+            {
+                path: '/repo',
+                head: '1111111111111111111111111111111111111111',
+                branch: 'main',
+                detached: false,
+                bare: false,
+            },
+            {
+                path: '/tmp/ticket-1',
+                head: '2222222222222222222222222222222222222222',
+                branch: 'ticket/1',
+                detached: false,
+                bare: false,
+            },
+            {
+                path: '/tmp/detached',
+                head: '3333333333333333333333333333333333333333',
+                branch: null,
+                detached: true,
+                bare: false,
+            },
+            {
+                path: '/repo/.bare',
+                head: null,
+                branch: null,
+                detached: false,
+                bare: true,
+            },
+        ]);
+    });
+
+    it('forgets registrations whose directory is gone and keeps trees whose status is unreadable', () => {
+        expect(classifyWorktree({
+            isPrimary: false,
+            containsCwd: false,
+            missing: true,
+            dirtyEntries: 0,
+            mergedInto: [],
+        })).toEqual({
+            action: 'remove',
+            reason: 'directory missing; registration is stale',
+        });
+        expect(classifyWorktree({
+            isPrimary: false,
+            containsCwd: false,
+            missing: false,
+            dirtyEntries: null,
+            mergedInto: ['origin/main'],
+        })).toEqual({
+            action: 'keep',
+            reason: 'git status unavailable',
+        });
+    });
+
+    it('removes only clean worktrees that are merged into a base ref', () => {
+        const base = {
+            isPrimary: false,
+            containsCwd: false,
+            dirtyEntries: 0,
+            mergedInto: ['origin/main'],
+        };
+        expect(classifyWorktree(base)).toEqual({
+            action: 'remove',
+            reason: 'merged into origin/main',
+        });
+        expect(classifyWorktree({
+            ...base,
+            isPrimary: true,
+        }).action).toBe('keep');
+        expect(classifyWorktree({
+            ...base,
+            containsCwd: true,
+        }).action).toBe('keep');
+        expect(classifyWorktree({
+            ...base,
+            dirtyEntries: 2,
+        })).toEqual({
+            action: 'keep',
+            reason: '2 uncommitted change(s)',
+        });
+        expect(classifyWorktree({
+            ...base,
+            mergedInto: [],
+        })).toEqual({
+            action: 'keep',
+            reason: 'HEAD not merged into any base ref',
+        });
+    });
+
+    it('defaults to a dry run against origin/main and accumulates --into refs', () => {
+        expect(parseArgs([])).toEqual({
+            apply: false,
+            help: false,
+            into: ['origin/main'],
+        });
+        expect(parseArgs([
+            '--into=origin/own-annotations,origin/main',
+            '--apply',
+        ])).toEqual({
+            apply: true,
+            help: false,
+            into: [
+                'origin/main',
+                'origin/own-annotations',
+            ],
+        });
+        expect(() => parseArgs(['--force'])).toThrow('Unknown argument: --force');
+    });
+});

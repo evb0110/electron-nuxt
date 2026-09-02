@@ -1,62 +1,78 @@
-import { spawn } from 'node:child_process';
+import {spawn} from 'node:child_process';
 import {
     mkdirSync,
     rmSync,
 } from 'node:fs';
-import { createRequire } from 'node:module';
-import {
-    dirname,
-    resolve,
-} from 'node:path';
-import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
+import {createRequire} from 'node:module';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {withTypecheckNodeHeap} from './typecheckNodeEnv.mjs';
 
-const require = createRequire(import.meta.url);
+export function resolveNuxtTypecheckRun({
+    argv = process.argv.slice(2),
+    cwd = process.cwd(),
+    env = process.env,
+} = {}) {
+    const cold = argv.includes('--cold')
+        || env.EVB_TYPECHECK_COLD === '1'
+        || env.EVB_GATE_NO_CACHE === '1';
+    const workspaceArg = argv.find(argument => !argument.startsWith('-'));
+    const workspaceDir = workspaceArg ? path.resolve(cwd, workspaceArg) : cwd;
+    const childEnv = withTypecheckNodeHeap(env);
 
-// Keep vue-tsc pinned in the workspace so CI and local runs share the same
-// typecheck toolchain instead of npm fetching a newer transient version.
-require.resolve('vue-tsc/package.json');
-
-const argv = process.argv.slice(2);
-const cold = argv.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
-const workspaceArg = argv.find(argument => !argument.startsWith('-'));
-const workspaceDir = workspaceArg ? resolve(workspaceArg) : process.cwd();
-const cacheDir = resolve(workspaceDir, '.devkit', 'cache', 'typecheck');
-mkdirSync(cacheDir, {recursive: true});
-if (cold) {
-    rmSync(resolve(cacheDir, 'nuxt.tsbuildinfo'), {force: true});
-}
-const env = withTypecheckNodeHeap();
-
-// pnpm injects npm-specific config vars that newer npm versions warn about when
-// Nuxt shells out through npm internals during typecheck.
-for (const key of Object.keys(env)) {
-    if (!key.startsWith('npm_config_')) {
-        continue;
+    // pnpm injects npm-specific config vars that newer npm versions warn about
+    // when Nuxt shells out through npm internals during typecheck.
+    for (const key of Object.keys(childEnv)) {
+        if (key.startsWith('npm_config_') && key !== 'npm_config_user_agent') {
+            delete childEnv[key];
+        }
     }
 
-    if (key === 'npm_config_user_agent') {
-        continue;
-    }
-
-    delete env[key];
+    return {
+        cacheDir: path.resolve(workspaceDir, '.devkit', 'cache', 'typecheck'),
+        cold,
+        env: childEnv,
+        workspaceDir,
+    };
 }
 
-const nuxtPackageJson = require.resolve('nuxt/package.json');
-const nuxtBin = resolve(dirname(nuxtPackageJson), 'bin/nuxt.mjs');
-const child = spawn(process.execPath, [
-    nuxtBin,
-    'typecheck',
-], {
-    cwd: workspaceDir,
-    env,
-    stdio: 'inherit',
-});
+const isMain = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
-child.on('exit', (code, signal) => {
-    if (signal) {
-        process.kill(process.pid, signal);
-        return;
+if (isMain) {
+    const require = createRequire(import.meta.url);
+
+    // Keep vue-tsc pinned in the workspace so CI and local runs share the same
+    // typecheck toolchain instead of npm fetching a newer transient version.
+    require.resolve('vue-tsc/package.json');
+
+    const {
+        cacheDir,
+        cold,
+        env,
+        workspaceDir,
+    } = resolveNuxtTypecheckRun();
+    mkdirSync(cacheDir, {recursive: true});
+    if (cold) {
+        rmSync(path.resolve(cacheDir, 'nuxt.tsbuildinfo'), {force: true});
     }
 
-    process.exit(code ?? 1);
-});
+    const nuxtBin = path.resolve(path.dirname(require.resolve('nuxt/package.json')), 'bin/nuxt.mjs');
+    const child = spawn(process.execPath, [
+        nuxtBin,
+        'typecheck',
+    ], {
+        cwd: workspaceDir,
+        env,
+        stdio: 'inherit',
+    });
+
+    child.on('exit', (code, signal) => {
+        if (signal) {
+            process.kill(process.pid, signal);
+            return;
+        }
+
+        process.exit(code ?? 1);
+    });
+}

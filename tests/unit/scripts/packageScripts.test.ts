@@ -174,7 +174,10 @@ describe('package scripts', () => {
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
         // OCR-quality, and xlarge-PDF gates.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(109);
+        // The integration branch retains the PDF.js fork provenance command
+        // while main carries the release worktree command, so the merged
+        // package has one more public script than either side alone.
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(111);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

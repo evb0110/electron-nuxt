@@ -53,7 +53,7 @@ export function listWorkflowRuns(workflow, {runCommand = run} = {}) {
         '--limit',
         '20',
         '--json',
-        'createdAt,databaseId,displayTitle,headBranch,headSha,status,conclusion,url',
+        'createdAt,databaseId,displayTitle,event,headBranch,headSha,name,status,conclusion,url,workflowName',
     ]);
     const parsed = JSON.parse(payload);
     if (!Array.isArray(parsed)) {

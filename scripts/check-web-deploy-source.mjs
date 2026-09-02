@@ -306,9 +306,15 @@ export async function validateWebDeploySource({
 const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 
+// Local gates run against an uncommitted worktree; the tracked-file measurement
+// is the same either way, so only the deploy path insists on a clean snapshot.
+export function parseWebDeploySourceCliOptions(argv) {
+    return {requireCleanTrackedSource: !argv.includes('--allow-dirty')};
+}
+
 if (isDirectCliRun) {
     try {
-        const stats = await validateWebDeploySource();
+        const stats = await validateWebDeploySource(parseWebDeploySourceCliOptions(process.argv.slice(2)));
         const mib = (stats.byteLength / 1024 / 1024).toFixed(1);
         console.log(`Web deploy source check passed: ${stats.fileCount} files, ${mib} MiB.`);
     } catch (error) {

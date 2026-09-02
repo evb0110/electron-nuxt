@@ -614,7 +614,6 @@
     --app-assistant-message-indent: var(--app-space-14xl);
     --app-assistant-inline-action-size: var(--app-control-height-xs);
     --app-assistant-message-max-height: 12rem;
-    --app-assistant-switcher-option-min-height: 2.55rem;
     --app-assistant-provider-icon-size: 1em;
     --app-assistant-image-preview-z-index: var(--app-z-preview);
     --app-assistant-image-preview-padding: var(--app-space-16xl);

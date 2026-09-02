@@ -13,10 +13,15 @@ import { execFileSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import {
+    getCommitParentSha,
+    isVersionOnlyPackageCommit,
+} from './shared.mjs';
 
-// A push CI run is created within seconds of the push that precedes the
-// dispatch; ten minutes tolerates API lag without masking a missing run.
-export const EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS = 10 * 60_000;
+// Release commits use [skip ci], so the target may have no push run. The
+// short window leaves enough time for an ordinary run to appear before the
+// verified-by-parent path takes over.
+export const EXACT_SHA_CI_APPEARANCE_TIMEOUT_MS = 60_000;
 // Must cover the slowest blocking CI job's declared timeout (currently 60
 // minutes) plus runner queueing and the gates_ok aggregation tail.
 export const EXACT_SHA_CI_COMPLETION_TIMEOUT_MS = 75 * 60_000;
@@ -24,37 +29,46 @@ export const EXACT_SHA_CI_POLL_INTERVAL_MS = 30_000;
 
 // Exported for its own contract test: every caller in this module invokes
 // the runner as (command, args), so the default adapter must too.
-export function defaultCommandRunner(command, args) {
-    return execFileSync(command, args, {
+export function defaultCommandRunner(command, args, options = {}) {
+    const output = execFileSync(command, args, {
         encoding: 'utf8',
         stdio: [
             'ignore',
             'pipe',
             'pipe',
         ],
-    }).trim();
+        ...options,
+    });
+
+    return output == null ? '' : String(output).trim();
 }
 
-function findLatestMatchingRun(targetSha, runCommand) {
+export function findLatestMatchingRun(targetSha, runCommand = defaultCommandRunner) {
     const payload = runCommand('gh', [
         'api',
         '-H',
         'Accept: application/vnd.github+json',
-        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${targetSha}&event=push&branch=main&per_page=20`,
+        `repos/{owner}/{repo}/actions/workflows/ci.yml/runs?head_sha=${targetSha}&branch=main&per_page=20`,
     ]);
     const workflowRuns = JSON.parse(payload)?.workflow_runs;
     if (!Array.isArray(workflowRuns)) {
         return null;
     }
     return workflowRuns
-        // ci.yml's push trigger is main-only, but require it explicitly so a
-        // future trigger change cannot widen what a release trusts.
-        .filter(runInfo => runInfo && runInfo.head_sha === targetSha && runInfo.head_branch === 'main')
+        // Every push to main runs ci.yml and only push runs carry a gates_ok
+        // verdict (workflow_dispatch routes to the manual lanes). Require
+        // both explicitly so a future trigger change cannot widen what a
+        // release trusts. The API always supplies event; accepting an omitted
+        // value keeps the helper usable with the small unit-test fixtures.
+        .filter(runInfo => runInfo
+            && runInfo.head_sha === targetSha
+            && runInfo.head_branch === 'main'
+            && (!runInfo.event || runInfo.event === 'push'))
         .sort((left, right) => (left.run_number ?? 0) - (right.run_number ?? 0))
         .at(-1) ?? null;
 }
 
-function readGatesOkConclusion(runId, runCommand) {
+export function readGatesOkConclusion(runId, runCommand = defaultCommandRunner) {
     return runCommand('gh', [
         'api',
         '--paginate',
@@ -68,6 +82,73 @@ function readGatesOkConclusion(runId, runCommand) {
 
 function describeRun(runInfo) {
     return `run ${runInfo.id} (${runInfo.html_url ?? 'no url'})`;
+}
+
+function describeParentVerificationFailure(targetSha, error) {
+    return `No accepted CI run appeared for exact target ${targetSha} within 1 minute; verified-by-parent acceptance failed: ${
+        error instanceof Error ? error.message : String(error)}`;
+}
+
+function verifyByParent(targetSha, runCommand) {
+    let parentSha;
+    try {
+        parentSha = getCommitParentSha(targetSha, {runCommand});
+    } catch (error) {
+        throw new Error(
+            `Could not inspect the parent of release target ${targetSha}: ${
+                error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+
+    if (!isVersionOnlyPackageCommit(parentSha, targetSha, {runCommand})) {
+        throw new Error(
+            `Release target ${targetSha} is not a version-only package.json commit; `
+            + 'run CI for the target before releasing.',
+        );
+    }
+
+    const parentRun = findLatestMatchingRun(parentSha, runCommand);
+    if (!parentRun) {
+        throw new Error(
+            `No CI run appeared for release parent ${parentSha}. Every push to main runs ci.yml; `
+            + 'check the Actions page for that commit before releasing.',
+        );
+    }
+    if (parentRun.status !== 'completed') {
+        throw new Error(
+            `Release parent ${parentSha} has ${describeRun(parentRun)} in ${parentRun.status} state; `
+            + 'wait for it to finish.',
+        );
+    }
+    if (parentRun.conclusion !== 'success') {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(parentRun)} concluded '${parentRun.conclusion}'. `
+            + 'Fix the failure with a new green commit and version.',
+        );
+    }
+
+    let gatesConclusion;
+    try {
+        gatesConclusion = readGatesOkConclusion(parentRun.id, runCommand);
+    } catch (error) {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(parentRun)} succeeded but the gates_ok lookup failed: ${
+                error instanceof Error ? error.message : String(error)}`,
+        );
+    }
+    if (gatesConclusion !== 'success') {
+        throw new Error(
+            `Release parent ${parentSha} ${describeRun(parentRun)} did not contain a successful gates_ok `
+            + `aggregate (saw '${gatesConclusion ?? 'no gates_ok job'}').`,
+        );
+    }
+
+    return {
+        id: parentRun.id,
+        parentSha,
+        url: parentRun.html_url ?? '',
+        verifiedByParent: true,
+    };
 }
 
 /**
@@ -134,10 +215,11 @@ export async function waitForExactShaCiGates(targetSha, {
 
         const elapsedMs = nowFn() - startedAt;
         if (!knownRun && elapsedMs >= appearanceTimeoutMs) {
-            throw new Error(
-                `No push CI run appeared for exact target ${targetSha} within `
-                + `${Math.round(appearanceTimeoutMs / 60_000)} minutes.`,
-            );
+            try {
+                return verifyByParent(targetSha, runCommand);
+            } catch (error) {
+                throw new Error(describeParentVerificationFailure(targetSha, error));
+            }
         }
         if (knownRun && elapsedMs >= completionTimeoutMs) {
             throw new Error(

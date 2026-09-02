@@ -25,6 +25,8 @@ import {
     shouldVerifyPackagedStartup,
 } from './policy.mjs';
 import { notarizeMacDmgArtifacts } from './notarize-macos-dmgs.mjs';
+import { getStrictBuildScriptName } from '../run-build-strict.mjs';
+import { isValidationBuildFresh } from '../validation-gates.mjs';
 
 const RELEASE_DIR = 'release';
 
@@ -200,15 +202,23 @@ function main() {
             reason: 'not-requested',
             valid: false,
         };
-    if (receiptResult.valid) {
+    const buildScriptName = getStrictBuildScriptName([], releaseCiEnv);
+    const freshBuildMarker = releaseCiEnv.EVB_GATE_NO_CACHE === '1'
+        ? false
+        : isValidationBuildFresh({buildScriptName});
+    if (receiptResult.valid || freshBuildMarker) {
         process.stdout.write(
-            `Reusing strict build proven fresh by ${receiptPath}.\n`,
+            receiptResult.valid
+                ? `Reusing strict build proven fresh by ${receiptPath}.\n`
+                : 'Reusing strict build proven fresh by the local input marker.\n',
         );
     } else {
         if (receiptPath) {
             process.stdout.write(
                 `Strict-build receipt is not reusable (${receiptResult.reason}); rebuilding.\n`,
             );
+        } else {
+            process.stdout.write('No fresh strict-build marker was found; rebuilding.\n');
         }
         run(buildCommand.command, buildCommand.args, {
             env: releaseCiEnv,

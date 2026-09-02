@@ -28,3 +28,6 @@ codegen-units = 1
 lto = "thin"
 panic = "unwind"
 strip = "symbols"
+
+[profile.test]
+opt-level = 1
