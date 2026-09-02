@@ -15,6 +15,7 @@ import type {
     IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
+    IPdfNativeTextBoxMutation,
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
@@ -85,6 +86,7 @@ export type TNativeSaveRouteRejection =
     | 'shape-payload-unavailable'
     | 'metadata-payload-unavailable'
     | 'native-structured-save-capability-unavailable'
+    | 'native-text-box-payload-unavailable'
     | 'native-write-failed'
     | 'no-native-mutations-projected';
 
@@ -142,6 +144,8 @@ export interface INativePdfMutationProjection {
     noteGeometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes: IPdfNativeFreeTextNote[];
     freeTextEditors: IPdfNativeFreeTextEditor[];
+    /** Canonical text-box mutations. Older projections may omit this field. */
+    textBoxes?: IPdfNativeTextBoxMutation[];
     annotationDeletes: IPdfNativeAnnotationDelete[];
     hasMetadataMutations: boolean;
     hasShapeMutations: boolean;

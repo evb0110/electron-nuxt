@@ -378,7 +378,7 @@ describe('usePdfViewerSaveTransaction', () => {
         );
     });
 
-    it('projects a canonical editor FreeText note to bounded native mutations', async () => {
+    it('projects a canonical editor text box to bounded native mutations', async () => {
         const note = {
             kind: 'text-box',
             identity: {id: asAnnotationId('anno_large_pdf_note')},
@@ -408,6 +408,19 @@ describe('usePdfViewerSaveTransaction', () => {
             capturedFrontierSteps.push('flush');
         });
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            pdfDocument: shallowRef({
+                numPages: 2_243,
+                getPage: vi.fn(async () => ({
+                    rotate: 0,
+                    view: [
+                        0,
+                        0,
+                        1_000,
+                        1_000,
+                    ],
+                    getAnnotations: vi.fn(async () => []),
+                })),
+            } as never),
             materializePdfJsDocumentForInternalUse,
             annotationUiManager: shallowRef({commitOrRemove: () => {
                 capturedFrontierSteps.push('commit');
@@ -456,8 +469,8 @@ describe('usePdfViewerSaveTransaction', () => {
 
         expect(result.source).toBe('native-mutation-projection');
         expect(result.nativeMutationProjection).toMatchObject({
-            phase: 'persist-native-note-changes',
-            mutations: {freeTextNotes: [expect.objectContaining({
+            phase: 'persist-native-text-box-changes',
+            mutations: {textBoxes: [expect.objectContaining({
                 pageIndex: 6,
                 text: 'Large PDF native note',
             })]},
@@ -508,7 +521,16 @@ describe('usePdfViewerSaveTransaction', () => {
             pdfDocument: shallowRef({
                 annotationStorage,
                 numPages: 882,
-                getPage: vi.fn(async () => ({getAnnotations: vi.fn(async () => [{id: '8909R'}])})),
+                getPage: vi.fn(async () => ({
+                    getAnnotations: vi.fn(async () => [{id: '8909R'}]),
+                    rotate: 0,
+                    view: [
+                        0,
+                        0,
+                        1_000,
+                        1_000,
+                    ],
+                })),
             } as never),
             annotationUiManager: shallowRef({commitOrRemove: vi.fn()} as never),
             materializePdfJsDocumentForInternalUse,
@@ -555,8 +577,8 @@ describe('usePdfViewerSaveTransaction', () => {
 
         expect(result.source).toBe('native-mutation-projection');
         expect(result.nativeMutationProjection).toMatchObject({
-            phase: 'persist-native-note-changes',
-            mutations: {freeTextNotes: [expect.objectContaining({
+            phase: 'persist-native-text-box-changes',
+            mutations: {textBoxes: [expect.objectContaining({
                 pageIndex: 0,
                 text: 'фвыафыва',
             })]},
