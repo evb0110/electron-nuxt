@@ -59,10 +59,6 @@
                         @click="onSelectModel(group.provider, model.value)"
                     >
                         <span class="assistant-switcher-option-label">{{ model.displayLabel }}</span>
-                        <span
-                            v-if="model.isRecommended"
-                            class="assistant-switcher-option-meta"
-                        >{{ t('assistant.modelRecommended') }}</span>
                         <span class="assistant-switcher-check-slot">
                             <UIcon
                                 v-if="model.isSelected"
@@ -127,7 +123,6 @@ const groups = computed(() => providers.map(provider => ({
         value: model.id,
         label: model.label,
         displayLabel: trimProviderPrefix(model.label, provider.label),
-        isRecommended: model.id === provider.defaultModel,
         isSelected: provider.id === selectedProvider && model.id === selectedModel,
     })),
 })));

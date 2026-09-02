@@ -482,7 +482,6 @@ export default {
         'refresh': 'Assistentstatus vernieuwen',
         'provider': 'Assistentprovider',
         'model': 'Assistentmodel',
-        'modelRecommended': 'Aanbevolen',
         'reasoning': 'Redenering',
         'reasoningEffort': 'Redeneerinspanning',
         'reasoningEffortAria': 'Redeneerinspanning: {label}',

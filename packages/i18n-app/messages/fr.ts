@@ -482,7 +482,6 @@ export default {
         'refresh': 'Actualiser le statut de l’assistant',
         'provider': 'Fournisseur de l’assistant',
         'model': 'Modèle de l’assistant',
-        'modelRecommended': 'Recommandé',
         'reasoning': 'Raisonnement',
         'reasoningEffort': 'Effort de raisonnement',
         'reasoningEffortAria': 'Effort de raisonnement : {label}',

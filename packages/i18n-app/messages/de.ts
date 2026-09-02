@@ -482,7 +482,6 @@ export default {
         'refresh': 'Assistentenstatus aktualisieren',
         'provider': 'Assistentenanbieter',
         'model': 'Assistentenmodell',
-        'modelRecommended': 'Empfohlen',
         'reasoning': 'Reasoning',
         'reasoningEffort': 'Reasoning-Aufwand',
         'reasoningEffortAria': 'Reasoning-Aufwand: {label}',

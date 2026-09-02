@@ -151,17 +151,6 @@
     white-space: nowrap;
 }
 
-/* Trailing text and the check form one right-aligned cluster; every row
-   reserves the check's width so that cluster stays put whether or not the
-   row is the selected one. */
-.assistant-switcher-option-meta {
-    flex: 0 0 auto;
-    margin-left: auto;
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-caption);
-    font-weight: normal;
-}
-
 .assistant-switcher-check-slot {
     display: inline-flex;
     flex: 0 0 auto;

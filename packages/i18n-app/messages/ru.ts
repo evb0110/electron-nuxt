@@ -17,7 +17,6 @@ export default {
         'refresh': 'Обновить статус ассистента',
         'provider': 'Провайдер ассистента',
         'model': 'Модель ассистента',
-        'modelRecommended': 'Рекомендуемая',
         'reasoning': 'Рассуждение',
         'reasoningEffort': 'Уровень рассуждения',
         'reasoningEffortAria': 'Уровень рассуждения: {label}',

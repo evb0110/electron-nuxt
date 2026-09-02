@@ -482,7 +482,6 @@ export default {
         'refresh': 'Atualizar status do assistente',
         'provider': 'Provedor do assistente',
         'model': 'Modelo do assistente',
-        'modelRecommended': 'Recomendado',
         'reasoning': 'Raciocínio',
         'reasoningEffort': 'Esforço de raciocínio',
         'reasoningEffortAria': 'Esforço de raciocínio: {label}',

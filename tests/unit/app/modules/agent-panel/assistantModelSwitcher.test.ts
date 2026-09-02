@@ -22,9 +22,8 @@ import { createAgentAssistantStatus } from '@tests/helpers/createAgentAssistantS
 
 /**
  * The picker's whole job is to say, without prose, which assistant is talking
- * and which model it will use. These mounts pin the three signals that carry
- * that: the provider tab marked selected, the model row marked checked, and the
- * recommended badge on whichever model the provider reports as its default.
+ * and which model it will use. These mounts pin the two signals that carry
+ * that: the provider group heading and the model row marked checked.
  */
 const { providers } = createAgentAssistantStatus();
 
@@ -155,14 +154,6 @@ describe('AssistantModelSwitcher', () => {
             'false',
         ]);
         expect(options[1]?.querySelector('[data-icon="i-ph-check"]')).not.toBeNull();
-
-        const recommended = options.map(option => option.querySelector('.assistant-switcher-option-meta'));
-        expect(recommended.map(Boolean)).toEqual([
-            true,
-            false,
-            true,
-        ]);
-        expect(textOf(recommended[0] ?? null)).toBe('assistant.modelRecommended');
     });
 
     it('shows the active model on the trigger without repeating the provider name', () => {

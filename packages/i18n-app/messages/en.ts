@@ -17,7 +17,6 @@ export default {
         'refresh': 'Refresh assistant status',
         'provider': 'Assistant provider',
         'model': 'Assistant model',
-        'modelRecommended': 'Recommended',
         'reasoning': 'Reasoning',
         'reasoningEffort': 'Reasoning effort',
         'reasoningEffortAria': 'Reasoning effort: {label}',
