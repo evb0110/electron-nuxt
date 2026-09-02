@@ -18,7 +18,10 @@ function createHarness(nextTick: () => Promise<void>) {
     const scope = effectScope();
     const stopWatch = scope.run(() => createPdfAnnotationOwnershipRefreshWatch({
         documentSession: {pdfDocument: pdfDocument as never} as never,
-        viewport: {visibleRange: ref({start: 1, end: 1})} as never,
+        viewport: {visibleRange: ref({
+            start: 1,
+            end: 1,
+        })} as never,
         rendering: {renderVisiblePages} as never,
         storeOwnedPdfAnnotationIds,
         annotationProjectionReady,
@@ -38,11 +41,11 @@ function createHarness(nextTick: () => Promise<void>) {
 
 describe('createPdfAnnotationOwnershipRefreshWatch', () => {
     it('does not render after its scope is disposed while Vue is settling', async () => {
-        const pendingNextTick = Promise.withResolvers<void>();
+        const pendingNextTick = Promise.withResolvers<undefined>();
         const harness = createHarness(() => pendingNextTick.promise);
 
         harness.scope.stop();
-        pendingNextTick.resolve();
+        pendingNextTick.resolve(undefined);
         await pendingNextTick.promise;
         await Promise.resolve();
 
@@ -51,12 +54,12 @@ describe('createPdfAnnotationOwnershipRefreshWatch', () => {
     });
 
     it('does not render a page from a document replaced during Vue settling', async () => {
-        const pendingNextTick = Promise.withResolvers<void>();
+        const pendingNextTick = Promise.withResolvers<undefined>();
         const harness = createHarness(() => pendingNextTick.promise);
         const replacementDocument = {};
 
         harness.pdfDocument.value = replacementDocument;
-        pendingNextTick.resolve();
+        pendingNextTick.resolve(undefined);
         await pendingNextTick.promise;
         await Promise.resolve();
 
