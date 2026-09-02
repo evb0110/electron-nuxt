@@ -1,0 +1,19 @@
+tests/unit/app/modules/agent-panel/assistantModelSwitcher.test.ts
+  s_db856168e679e7::t_1105f04f5f9f60 25-26
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9db27fcdd00bc4c763da6489e6d34e9c3c959084",
+  "prompts": {},
+  "sessions": {
+    "s_db856168e679e7": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f24ab835-3ad3-4202-a922-ab5a03416e63",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
