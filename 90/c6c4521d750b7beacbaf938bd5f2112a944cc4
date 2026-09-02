@@ -1,0 +1,22 @@
+package.json
+  s_c57729f2c66bed::t_61b2ac31cdd55e 239
+  s_c57729f2c66bed::t_eb7fe97206efe6 240-276,295,309
+pnpm-workspace.yaml
+  s_c57729f2c66bed::t_eb7fe97206efe6 14-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "90c6c4521d750b7beacbaf938bd5f2112a944cc4",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Coverage Test <coverage@example.test>"
+    }
+  }
+}
