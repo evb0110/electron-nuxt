@@ -51,6 +51,8 @@ import {
     isReplayableEditorOnlyFreeTextNote,
     isReplayableCanonicalStickyNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
+import {isReplayableCanonicalTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
+import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
 import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import {
     buildNativeBookmarksMutationForSave,
@@ -86,6 +88,8 @@ export interface IPdfSaveRouteCapabilities {
     readonly deletedEmbeddedShapeStableKeys: string[];
     readonly markupSubtypeOverrides: Map<string, TMarkupSubtype> | undefined;
     readonly markupSubtypeHints: IMarkupSubtypeHint[];
+    /** `undefined` preserves the pre-canonical-text-box compatibility path. */
+    readonly nativeTextBoxes?: IPdfNativeTextBoxMutation[] | null;
 }
 
 export interface IPdfSaveNativeRouteDecision extends INativeAppendSaveRoute {
@@ -281,8 +285,16 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     changedComments: IAnnotationCommentSummary[];
     replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
     liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
+    nativeTextBoxes?: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
 }) {
     const ids = new Set<string>();
+    input.nativeTextBoxes?.forEach((textBox) => {
+        // An imported FreeText can appear in PDF.js storage under both the
+        // canonical /NM and its indirect PDF object ref. The native payload
+        // owns both identities, so neither should force materialization.
+        addReplayableAnnotationId(ids, textBox.stableKey);
+        addReplayableAnnotationId(ids, textBox.annotationId);
+    });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
         addEditorRuntimeAnnotationIdFromStableKey(ids, stableKey);
@@ -302,7 +314,7 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
     });
     input.comments
-        .filter(isReplayableEditorOnlyFreeTextNote)
+        .filter(comment => isReplayableEditorOnlyFreeTextNote(comment) || isReplayableCanonicalTextBox(comment))
         .forEach((comment) => {
             [
                 comment.annotationId,
@@ -354,7 +366,10 @@ function deriveCanonicalSaveInputs(
             pendingDeletes.push(summary);
             return;
         }
-        if ((entity.kind === 'note' || entity.kind === 'text-box') && entity.identity.pdfRef) {
+        if (
+            (entity.kind === 'note' || (entity.kind === 'text-box' && capabilities.nativeTextBoxes === undefined))
+            && entity.identity.pdfRef
+        ) {
             pendingTexts.set(summary.stableKey, summary.text);
         }
     });
@@ -380,6 +395,9 @@ function deriveCanonicalSaveInputs(
             changedComments,
             replayableCanonicalStickyNoteStableKeys,
             liveAnnotationChanges,
+            ...(capabilities.nativeTextBoxes === undefined
+                ? {}
+                : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
         }),
         replayableCanonicalStickyNoteStableKeys,
     };
@@ -394,6 +412,7 @@ function planAnnotationRoute(canonical: IPdfSaveCanonicalInputs): IPdfViewerAnno
         comment.source === 'editor'
         && !parsePdfAnnotationRef(comment.annotationId)
         && !isReplayableEditorOnlyFreeTextNote(comment)
+        && !isReplayableCanonicalTextBox(comment)
         && !canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey),
     );
 
@@ -589,6 +608,37 @@ function markupOverrideMatchesComment(
     ));
 }
 
+function isCanonicalTextBoxComment(comment: IAnnotationCommentSummary) {
+    return Boolean(comment.appAnnotationId)
+        && comment.subtype?.trim().toLowerCase() === 'freetext';
+}
+
+function nativeTextBoxCoversComment(
+    textBox: {
+        stableKey: string;
+        annotationId?: string | null
+    },
+    comment: IAnnotationCommentSummary,
+) {
+    const textBoxIdentities = [
+        textBox.stableKey,
+        textBox.annotationId,
+    ];
+    const commentIdentities = [
+        comment.appAnnotationId,
+        comment.annotationId,
+        comment.id,
+        comment.uid,
+        comment.stableKey,
+    ];
+    return textBoxIdentities.some(textBoxIdentity => (
+        commentIdentities.some(commentIdentity => (
+            textBoxIdentity === commentIdentity
+            || areAnnotationIdentityAliasesEqual(textBoxIdentity, commentIdentity)
+        ))
+    ));
+}
+
 function collectProjectedNativeAnnotationIds(input: {
     changedComments: IAnnotationCommentSummary[];
     deletedComments: readonly IAnnotationCommentSummary[];
@@ -604,6 +654,10 @@ function collectProjectedNativeAnnotationIds(input: {
     }>;
     freeTextNotes: Array<{ stableKey: string }>;
     nativeFreeTextEditors: ReadonlyMap<string, { stableKey: string }>;
+    textBoxes: ReadonlyArray<{
+        stableKey: string;
+        annotationId?: string | null
+    }>;
     markup: {
         overrides: Array<readonly [string, TMarkupSubtype]>;
         hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
@@ -615,6 +669,11 @@ function collectProjectedNativeAnnotationIds(input: {
     const geometryUpdatedRefs = new Set(input.noteGeometryUpdates.map(update =>
         `${update.objectNumber}R${update.generationNumber}`));
     const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
+
+    input.textBoxes.forEach((textBox) => {
+        addReplayableAnnotationId(ids, textBox.stableKey);
+        addReplayableAnnotationId(ids, textBox.annotationId);
+    });
 
     input.changedComments.forEach((comment) => {
         const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
@@ -693,7 +752,9 @@ function buildClassifiedNativeMutationProjection(
         : null;
     const freeTextNotesResult = replayAllowed
         ? buildNativeFreeTextNotesForSave({
-            canonicalComments: changedComments,
+            canonicalComments: capabilities.nativeTextBoxes === undefined
+                ? changedComments
+                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment)),
             replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
         })
         : null;
@@ -712,6 +773,21 @@ function buildClassifiedNativeMutationProjection(
     const freeTextEditors = replayAllowed
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
         : [];
+    const textBoxes = capabilities.nativeTextBoxes === undefined
+        ? []
+        : [
+            ...(replayAllowed ? capabilities.nativeTextBoxes ?? [] : []),
+            ...freeTextEditors,
+        ];
+    if (
+        capabilities.nativeTextBoxes !== undefined
+        && changedComments.some(isCanonicalTextBoxComment)
+        && changedComments
+            .filter(isCanonicalTextBoxComment)
+            .some(comment => !textBoxes.some(textBox => nativeTextBoxCoversComment(textBox, comment)))
+    ) {
+        return 'native-text-box-payload-unavailable';
+    }
     const annotationDeletes = annotationDeletesResult?.value ?? [];
     const pendingDeleteTargetKeys = canonical.pendingDeletes
         .map(getNativeAnnotationDeleteCommentTargetKey);
@@ -749,6 +825,7 @@ function buildClassifiedNativeMutationProjection(
         noteTextUpdates,
         noteGeometryUpdates,
         freeTextNotes,
+        textBoxes,
         nativeFreeTextEditors: replayAllowed
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
             : new Map(),
@@ -756,7 +833,7 @@ function buildClassifiedNativeMutationProjection(
     });
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
-        + freeTextEditors.length
+        + (capabilities.nativeTextBoxes === undefined ? freeTextEditors.length : textBoxes.length)
         + annotationDeletes.length
         + noteGeometryUpdates.length;
     const savedLiveAnnotationAliasesAreNativelyReplayable = (
@@ -849,7 +926,9 @@ function buildClassifiedNativeMutationProjection(
             ...(noteTextUpdates.length > 0 ? {updates: noteTextUpdates} : {}),
             ...(noteGeometryUpdates.length > 0 ? {geometryUpdates: noteGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
-            ...(freeTextEditors.length > 0 ? {freeTextEditors} : {}),
+            ...(capabilities.nativeTextBoxes === undefined
+                ? freeTextEditors.length > 0 ? {freeTextEditors} : {}
+                : textBoxes.length > 0 ? {textBoxes} : {}),
             ...(annotationDeletes.length > 0 ? {deletes: annotationDeletes} : {}),
             ...(pageLabels ? {pageLabels} : {}),
             ...(bookmarks ? {bookmarks} : {}),
@@ -860,6 +939,7 @@ function buildClassifiedNativeMutationProjection(
         noteGeometryUpdates,
         freeTextNotes,
         freeTextEditors,
+        textBoxes,
         annotationDeletes,
         hasMetadataMutations,
         hasShapeMutations,
@@ -870,9 +950,11 @@ function buildClassifiedNativeMutationProjection(
                 ? 'persist-native-annotation-changes'
                 : freeTextEditors.length > 0
                     ? 'persist-native-free-text-editor-changes'
-                    : freeTextNotes.length > 0
-                        ? 'persist-native-note-changes'
-                        : 'persist-native-note-text-updates',
+                    : textBoxes.length > 0
+                        ? 'persist-native-text-box-changes'
+                        : freeTextNotes.length > 0
+                            ? 'persist-native-note-changes'
+                            : 'persist-native-note-text-updates',
     };
 }
 

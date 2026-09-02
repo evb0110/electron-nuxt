@@ -551,6 +551,7 @@ async function persistNativeMutationProjection(
     if (
         projection.hasMetadataMutations
         || projection.hasShapeMutations
+        || (projection.textBoxes?.length ?? 0) > 0
         || projection.freeTextEditors.length > 0
         || !deps.persistence.trySaveEmbeddedNoteTextUpdates
     ) {
@@ -759,6 +760,7 @@ async function executeNativeMutationSave(
                 || (projection.noteGeometryUpdates?.length ?? 0) > 0
                 || projection.freeTextNotes.length > 0
                 || projection.freeTextEditors.length > 0
+                || (projection.textBoxes?.length ?? 0) > 0
                 || projection.annotationDeletes.length > 0
                 || projection.hasMarkupMutations
                 || projection.hasShapeMutations,

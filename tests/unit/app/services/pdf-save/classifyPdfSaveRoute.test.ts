@@ -1129,6 +1129,65 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeMutationProjection.mutations.freeTextEditors).toEqual([importedEditor]);
     });
 
+    it('treats the PDF.js aliases of an imported canonical text box as covered by its native payload', () => {
+        const textBox: ITextBoxEntity = {
+            ...editorTextBox('lifecycle-text-box-one'),
+            identity: {
+                id: asAnnotationId('lifecycle-text-box-one'),
+                pdfRef: '10 0 R',
+            },
+            persistedRevision: 0,
+        };
+        const nativeTextBox = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'lifecycle-text-box-one',
+            annotationId: '10R',
+            text: 'edited fixture text box',
+            rect: [
+                20,
+                30,
+                180,
+                80,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            fontSize: 18,
+            color: [
+                0,
+                0,
+                255,
+            ] as [number, number, number],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([textBox]),
+            capabilities({
+                nativeTextBoxes: [nativeTextBox],
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'lifecycle-text-box-one',
+                        '10R',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'imported-text-box-aliases',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'source-replay',
+            reason: 'live-pdfjs-ids-covered-by-embedded-operations',
+        });
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.textBoxes).toEqual([nativeTextBox]);
+    });
+
     it('covers every PDF.js identity alias when a saved sticky note has a native text update', () => {
         const note: AnnotationEntity = {
             ...embeddedNote('anno_saved_note', '12R'),

@@ -729,6 +729,7 @@ export function createDocumentPersistence(
         const updates = mutations.updates ?? [];
         const geometryUpdates = mutations.geometryUpdates ?? [];
         const freeTextNotes = mutations.freeTextNotes ?? [];
+        const textBoxes = mutations.textBoxes ?? [];
         const freeTextEditors = mutations.freeTextEditors ?? [];
         const deletes = mutations.deletes ?? [];
         const hasPageLabels = mutations.pageLabels !== undefined;
@@ -740,6 +741,7 @@ export function createDocumentPersistence(
         const hasPlacedImages = placedImages.length > 0;
         if (
             freeTextNotes.length === 0
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && updates.length === 0
             && geometryUpdates.length === 0
@@ -762,6 +764,7 @@ export function createDocumentPersistence(
             && !hasMarkup
             && !hasPlacedImages
             && freeTextNotes.length === 0
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && deletes.length === 0
             && updates.length > 0
@@ -776,6 +779,7 @@ export function createDocumentPersistence(
             && !hasPlacedImages
             && expectedNativeIdentityIds.length === 0
             && (geometryUpdates.length > 0 || freeTextNotes.length > 0 || deletes.length > 0)
+            && textBoxes.length === 0
             && freeTextEditors.length === 0
             && typeof documentFiles.savePdfNoteChanges === 'function'
         );
@@ -789,6 +793,7 @@ export function createDocumentPersistence(
                 updateCount: updates.length,
                 geometryUpdateCount: geometryUpdates.length,
                 freeTextNoteCount: freeTextNotes.length,
+                textBoxCount: textBoxes.length,
                 freeTextEditorCount: freeTextEditors.length,
                 deleteCount: deletes.length,
             }));
