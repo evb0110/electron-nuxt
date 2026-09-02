@@ -1,0 +1,54 @@
+.github/workflows/build-target.yml
+  s_a1472c36bbe7ec::t_d74cd562709f92 90-96
+tests/unit/electron/resolvePdfPrintLayoutAdmission.test.ts
+  s_a1472c36bbe7ec::t_64bbeb89ebae6e 1-94
+electron/features/documents/main/buildPrintablePdfPath.ts
+  s_a1472c36bbe7ec::t_64bbeb89ebae6e 13,27,35,42,48-56,66,135-138
+tests/unit/packages/pdf-core/pdfPrintLayout.test.ts
+  s_a1472c36bbe7ec::t_6641dfa5d0e2cc 10-13,110-153
+  s_a1472c36bbe7ec::t_5bc04c82adb246 154
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_a1472c36bbe7ec::t_911f391c9e7915 19,54,73
+  s_a1472c36bbe7ec::t_fc555a36041d2d 23-24
+  s_a1472c36bbe7ec::t_4d4ea5345860b9 2,6,18,20-22,55-72,74-114,137-151,286,289-296,304-328,349
+electron/features/documents/main/resolvePdfPrintLayoutAdmission.ts
+  s_a1472c36bbe7ec::t_64bbeb89ebae6e 1-41
+electron/features/page-ops/main/pageMetadataRemap.ts
+  s_a1472c36bbe7ec::t_d74cd562709f92 283
+tests/e2e/electron/helpers/electronApiHelpers.ts
+  s_a1472c36bbe7ec::t_4d4ea5345860b9 2,220-227,246-249
+  s_a1472c36bbe7ec::t_6b56e60bdfb093 233,243-245,255
+native/pdf-page-ops/src/incremental.rs
+  s_a1472c36bbe7ec::t_d74cd562709f92 478,480-484
+tests/unit/electron/pageMetadataRemap.test.ts
+  s_a1472c36bbe7ec::t_d74cd562709f92 244,314-317
+tests/unit/electron/pageOpsIpcHandlers.test.ts
+  s_a1472c36bbe7ec::t_08e00d7bd1a017 1226-1230
+  s_a1472c36bbe7ec::t_531d21ae340fcd 1218-1225,1231-1239
+tests/unit/electron/buildPrintablePdfPath.test.ts
+  s_a1472c36bbe7ec::t_719cc25641afcb 176,180
+  s_a1472c36bbe7ec::t_5ade44651f27e5 26-30,82,111-115,120-124,132-135
+  s_a1472c36bbe7ec::t_e56e075825af44 1-25,31-81,83-110,116-119,125-131,136-175,177-179,181-193
+docs/research/windows-print-rotate-failure-ledger-2026-09-02.md
+  s_a1472c36bbe7ec::t_8f46784e83981c 1-15,17-19,31-34,36-42,44-51,53,55,57-63,65-69,71,73,75-78,84-88,90-95,99-103,106-109,120-136
+  s_a1472c36bbe7ec::t_e6c4525d55607b 16,20-30,43,52,54,64,72,74,79-83,96-98,104-105
+  s_a1472c36bbe7ec::t_c127faeb08b5e4 35,56,70,89,110-119
+native/pdf-page-ops/src/tests/notes.rs
+  s_a1472c36bbe7ec::t_d74cd562709f92 550-613
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bad17b167363c8a9e348c9d27b75550216a02ce1",
+  "prompts": {},
+  "sessions": {
+    "s_a1472c36bbe7ec": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0621e-9683-7e42-8c05-8bf84b0cc82d",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
