@@ -21,6 +21,7 @@ here is required reading for an ordinary cut.
 - The release commit changes only the `package.json` version and uses `release: <version> [skip ci]`.
 - Release CI accepts that commit through a successful `gates_ok` run on its parent only after checking the exact version-only diff.
 - Core packaging, checksums, mirror staging, and public promotion determine whether the release is complete.
+- The release cutter pushes the `vX.Y.Z` tag with developer credentials before it dispatches `release.yml`; `prepare` requires that tag at the target, and the draft is created against the tag without a `--target`. GitHub demands the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in token cannot hold that scope, so a workflow-created tag or a `--target` on the draft fails with HTTP 403 whenever a workflow change landed on `main` after the release commit. Keep the tag in the cutter; the workflow only verifies it.
 - macOS Intel, Windows ARM64, and Store lanes are supplemental. They never gate public promotion.
 - The publish chain is exercised without a real release by the drill described in [Publish-chain drill](#publish-chain-drill).
 

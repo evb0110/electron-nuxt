@@ -164,14 +164,21 @@ jobs:
             exit 1
           fi
 
-          if git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
-            git fetch --force --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
-            tag_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
-            if [ "$tag_sha" != "$target_sha" ]; then
-              echo "::error::Existing tag $RELEASE_TAG points at $tag_sha, not requested target $target_sha."
-              exit 1
-            fi
-            echo "::notice::Existing tag $RELEASE_TAG already points at $target_sha; continuing for release repair."
+          # The workflow token cannot create a tag for a commit that is
+          # behind the main tip in .github/workflows/ (GitHub requires the
+          # workflows scope for that, and GITHUB_TOKEN never has it). The
+          # cutter pushes the tag with developer credentials before it
+          # dispatches this workflow, so the tag is required here and the
+          # publish job creates the release against it without a target.
+          if ! git ls-remote --exit-code --tags origin "refs/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "::error::Tag $RELEASE_TAG does not exist on origin. The release cutter pushes it before dispatch; run pnpm run release:resume from the release commit."
+            exit 1
+          fi
+          git fetch --force --depth=1 origin "refs/tags/$RELEASE_TAG:refs/tags/$RELEASE_TAG"
+          tag_sha="$(git rev-list -n 1 "refs/tags/$RELEASE_TAG")"
+          if [ "$tag_sha" != "$target_sha" ]; then
+            echo "::error::Tag $RELEASE_TAG points at $tag_sha, not requested target $target_sha."
+            exit 1
           fi
 
           echo "target_sha=$target_sha" >> "$GITHUB_OUTPUT"
@@ -461,7 +468,12 @@ jobs:
               fi
             fi
           elif grep -Fq 'release not found' "$release_view_error"; then
-            gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"
+            # prepare verified refs/tags/$RELEASE_TAG at TARGET_SHA, so the
+            # release binds to that tag and GitHub creates no ref. Naming a
+            # target here would rerun the workflows-scope check against the
+            # main tip and fail with HTTP 403 whenever a workflow change
+            # landed on main after the cut.
+            gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes
           else
             cat "$release_view_error" >&2
             exit 1

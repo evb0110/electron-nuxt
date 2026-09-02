@@ -1022,6 +1022,13 @@ describe('CI topology policy', () => {
             'git checkout --detach "${{ steps.target.outputs.target_sha }}"',
         );
         expect(prepareJob).toContain('git merge-base --is-ancestor "$TARGET_SHA" refs/remotes/origin/main');
+        // The cutter owns the tag; the workflow only verifies that it exists
+        // at the target and never creates or repairs it.
+        expect(prepareJob).toContain('Tag $RELEASE_TAG does not exist on origin.');
+        expect(prepareJob).toContain('Tag $RELEASE_TAG points at $tag_sha, not requested target $target_sha.');
+        expect(prepareJob).not.toContain('continuing for release repair');
+        expect(releaseWorkflow).not.toContain('git tag ');
+        expect(releaseWorkflow).not.toContain('git push');
         // The CI wait lives in a dependency-free, unit-tested script (issue
         // #109); prepare calls it from the trusted dispatch-ref checkout.
         expect(prepareJob).toContain('node scripts/release/wait-for-exact-sha-ci.mjs "$TARGET_SHA"');
@@ -1122,7 +1129,11 @@ describe('CI topology policy', () => {
         expect(publishJob.indexOf('name: Setup release environment')).toBeLessThan(
             publishJob.indexOf('name: Download release artifacts'),
         );
-        expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes --target "$TARGET_SHA"');
+        // The draft binds to the tag the cutter pushed. A --target would make
+        // GitHub re-check the workflows scope against the main tip and fail
+        // with HTTP 403 once a workflow change landed after the release commit.
+        expect(publishJob).toContain('gh release create "$RELEASE_TAG" artifacts/* --draft --generate-notes\n');
+        expect(publishJob).not.toContain('--target "$TARGET_SHA"');
         expect(publishJob).toContain('gh release download "$RELEASE_TAG" --dir downloaded-assets');
         expect(publishJob).toContain('release-checksums.mjs verify downloaded-assets');
         expect(publishJob).not.toContain('gh release edit "$RELEASE_TAG" --draft=false');
@@ -1419,6 +1430,12 @@ describe('CI topology policy', () => {
         expect(releaseScript).not.toContain('refs/tags/${tag}');
         expect(releaseScript).not.toContain('\'tag\',\n            tag');
         expect(releaseScript).not.toContain('\'--atomic\'');
+        // The tag push is a precondition the shared helper owns, not the
+        // trigger: the cutter still dispatches release.yml explicitly.
+        expect(releaseScript).toContain('pushReleaseTagFn({');
+        const sharedScript = await readProjectFile('scripts/release/shared.mjs');
+        expect(sharedScript).toContain('export function pushReleaseTag(');
+        expect(sharedScript).toContain('`refs/tags/${tag}`,\n    ], {stdio: \'inherit\'});');
     });
 
     it('keeps release credentials reachable only through the gated reusable release path', async () => {

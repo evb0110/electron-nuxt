@@ -16,7 +16,9 @@ Before changing `package.json`, the cutter checks the following.
 - `ci.yml` passed for that exact `HEAD`. A running check is awaited. Every push to `main` runs `ci.yml`, so a `HEAD` without a run is one whose run has not appeared yet; the cutter waits up to a minute for it.
 - The current-version GitHub release is not a draft, and the next tag does not exist.
 
-The cutter then writes only the new package version and creates `release: <version> [skip ci]`. The commit is pushed and `release.yml` is dispatched with that commit SHA. The command stops after the workflow appears and prints the run and release links.
+The cutter then writes only the new package version and creates `release: <version> [skip ci]`. The commit is pushed, the cutter pushes the lightweight tag `vX.Y.Z` at that commit, and `release.yml` is dispatched with that commit SHA. The command stops after the workflow appears and prints the run and release links.
+
+The cutter owns the tag because the workflow cannot create it. GitHub requires the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in workflow token never has that scope. Before the cutter pushed the tag, any workflow change merged during the release window made the draft creation fail with `HTTP 403: Resource not accessible by integration`. The workflow now requires the tag at the target and creates the release against it without naming a target commit.
 
 The release workflow waits for exact-SHA CI. For a version-only release commit with `[skip ci]`, it accepts a successful `gates_ok` run from the parent commit. Core packaging, checksum creation, mirror staging, and public promotion run in the core release workflow.
 
@@ -56,7 +58,7 @@ Use resume only from the release commit for the current package version:
 pnpm run release:resume
 ```
 
-Resume checks that `HEAD` is the version-only release commit and that it exists on `origin/main`. A stale draft is deleted before the same tag and release SHA are dispatched again. An already-public release is not redispatched. Check it with `release:status` and repair only the missing supplemental work.
+Resume checks that `HEAD` is the version-only release commit and that it exists on `origin/main`. A stale draft is deleted before the same tag and release SHA are dispatched again. A tag that already points at the release commit is reused; a tag that points anywhere else stops the resume before dispatch. An already-public release is not redispatched. Check it with `release:status` and repair only the missing supplemental work.
 
 ## When a release run is red
 
@@ -65,5 +67,7 @@ Resume checks that `HEAD` is the version-only release commit and that it exists 
 | `prepare` or exact-SHA CI | Inspect the run URL. Every push to `main` runs `ci.yml`, so a release parent without a run means its push run was cancelled or never appeared; check the Actions page for that commit. Only push runs count; a `workflow_dispatch` run of `ci.yml` executes the manual lanes and carries no `gates_ok`. A target with code changes needs a new green commit and version. |
 | A packaged or installed core-PDF journey in the build matrix | Read the step log for the journey, not the packaging. If the verifier or the app behaviour it asserts is wrong, fix it and push; push CI's packaged Linux proof runs the same journey on that commit, so wait for it before cutting again. Do not loosen the journey to get the release out. |
 | Core package, validate, checksum, mirror, or promotion job | Rerun failed jobs on the same run. If a stale draft remains, run `pnpm run release:resume` from the release commit. Do not create a new version for an infrastructure retry. |
+| `prepare` reports that the tag does not exist on origin | The release was dispatched without the cutter, or the tag was deleted. Run `pnpm run release:resume` from the release commit; it pushes the tag with your credentials and redispatches. Do not create the tag from a workflow. |
+| Stage GitHub Release fails with `HTTP 403: Resource not accessible by integration` | The workflow tried to point a new ref at a commit behind the workflow files on `main`. That happens only when the cutter that dispatched the run predates tag ownership. Run `pnpm run release:resume` from the release commit with the current cutter. |
 | macOS Intel, Windows ARM64, or Store supplemental job | The core release can remain public. Check the missing assets with `release:status`, then rerun `gh workflow run release-supplemental.yml -f tag=vX.Y.Z`. Assets already attached are verified, not rebuilt. |
 | A release is already public but the status is incomplete | Keep the tag. Repair the named missing asset or supplemental workflow and use `release:status` again. |

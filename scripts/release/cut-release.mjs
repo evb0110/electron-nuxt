@@ -27,6 +27,7 @@ import {
     getReleaseMainUpstream,
     MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES,
     pushReleaseBranch,
+    pushReleaseTag,
     readVersion,
     run,
     stageFiles,
@@ -256,10 +257,12 @@ export async function assertReleaseCutPreconditions(options = {}) {
 }
 
 /**
- * Publishes the release commit and dispatches the release workflow against
- * exactly the SHA that was pushed. `pushReleaseBranch` runs the publication
- * policy scan first and throws on a violation, so a failing scan leaves both
- * the push and the dispatch undone.
+ * Publishes the release commit, pushes the release tag at that commit, and
+ * dispatches the release workflow against exactly that SHA.
+ * `pushReleaseBranch` runs the publication policy scan first and throws on a
+ * violation, so a failing scan leaves the push, the tag, and the dispatch
+ * undone. The tag is pushed here because the workflow's own token cannot
+ * create it once a later commit changed `.github/workflows/` on main.
  */
 export async function publishReleaseCommit({
     tag,
@@ -269,6 +272,7 @@ export async function publishReleaseCommit({
     dispatchWorkflow = dispatchReleaseWorkflow,
     printHandoff = printReleaseWorkflowHandoff,
     push = true,
+    pushReleaseTag: pushReleaseTagFn = pushReleaseTag,
     runCommand = run,
 } = {}) {
     const targetSha = requestedTargetSha ?? (push
@@ -277,6 +281,12 @@ export async function publishReleaseCommit({
             'rev-parse',
             'HEAD',
         ]));
+
+    pushReleaseTagFn({
+        tag,
+        targetSha,
+        upstream,
+    }, {runCommand});
 
     const dispatchStartedAt = new Date().toISOString();
     dispatchWorkflow({
