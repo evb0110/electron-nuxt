@@ -39,6 +39,7 @@ export interface IWorkspacePdfViewerAnnotationToolsPort extends
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'cancelCommentPlacement'
+        | 'selectedTextBox'
         | 'getSelectedTextBox'
         | 'updateSelectedTextBoxProperties'
     > {}

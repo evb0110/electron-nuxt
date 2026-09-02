@@ -386,6 +386,13 @@ function findTextBoxComment(
     )) ?? null;
 }
 
+function findTextBoxById(snapshot: ICanonicalAnnotationSnapshot, annotationId: string) {
+    return snapshot.comments.find(comment => (
+        stringField(comment, 'subtype') === 'FreeText'
+        && stringField(comment, 'appAnnotationId') === annotationId
+    )) ?? null;
+}
+
 async function readPagePoint(
     page: Parameters<typeof evaluateInPage>[0],
     xRatio: number,
@@ -796,6 +803,17 @@ describe('Electron E2E - native save and reopen', () => {
             throw new Error('The created text box did not expose its canonical identity, geometry, or color');
         }
 
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe('');
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe(typedText);
+
         await clickAnnotationTool(session.page, 'Select');
         await session.page.waitForFunction((id: string) => Array.from(document.querySelectorAll<HTMLElement>(
             '[data-annotation-kind="text-box"]',
@@ -923,6 +941,63 @@ describe('Electron E2E - native save and reopen', () => {
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
         ), {timeout: 20_000}).toEqual(movedRect);
 
+        // Walk the complete history back to the empty fixture and forward to
+        // the saved state. This proves creation and text commit join the same
+        // one-gesture-at-a-time history as style and geometry changes.
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(beforeMoveRect);
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(beforeResizeRect);
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'color',
+        ), {timeout: 20_000}).toBe(originalColor);
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => readTextBoxComputedStyle(session!.page, annotationId), {timeout: 20_000})
+            .toEqual(originalStyle);
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe('');
+        await runHistoryAction(session.page, 'undo');
+        await expect.poll(async () => findTextBoxById(
+            await readCanonicalAnnotationSnapshot(session!.page),
+            annotationId,
+        ), {timeout: 20_000}).toBeNull();
+
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => findTextBoxById(
+            await readCanonicalAnnotationSnapshot(session!.page),
+            annotationId,
+        ), {timeout: 20_000}).not.toBeNull();
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'text',
+        ), {timeout: 20_000}).toBe(typedText);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => readTextBoxComputedStyle(session!.page, annotationId), {timeout: 20_000})
+            .toEqual(resizedFontStyle);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => stringField(
+            findTextBoxById(await readCanonicalAnnotationSnapshot(session!.page), annotationId) ?? {},
+            'color',
+        ), {timeout: 20_000}).toBe('#ef4444');
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(resizedRect);
+        await runHistoryAction(session.page, 'redo');
+        await expect.poll(async () => normalizedRect(
+            findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), typedText)?.markerRect,
+        ), {timeout: 20_000}).toEqual(movedRect);
+
         const finalSnapshot = await readCanonicalAnnotationSnapshot(session.page);
         const finalFingerprint = canonicalAnnotationFingerprint(finalSnapshot);
         const finalStyle = await readTextBoxComputedStyle(session.page, annotationId);
@@ -988,7 +1063,7 @@ describe('Electron E2E - native save and reopen', () => {
         const initialStyle = await readTextBoxComputedStyle(session.page, annotationId);
         expect(initialRect).not.toBeNull();
         expect(initialStyle).not.toBeNull();
-        if (!initialRect || !initialStyle) {
+        if (!initialRect || !initialStyle || initialStyle.fontSize === null) {
             throw new Error('The fixture text box did not expose stable geometry or style');
         }
         const point = await session.page.evaluate((id: string) => {
@@ -1007,6 +1082,28 @@ describe('Electron E2E - native save and reopen', () => {
         expect(point).not.toBeNull();
         if (!point) {
             throw new Error('The fixture text box was not rendered');
+        }
+        await session.page.mouse.click(point.x, point.y);
+        await session.page.waitForSelector(
+            '.annotation-style-popover .style-row-width .style-label',
+            {
+                visible: true,
+                timeout: 20_000,
+            },
+        );
+        await expect.poll(async () => session!.page.evaluate(() => (
+            document.querySelector<HTMLElement>(
+                '.annotation-style-popover .style-row-width .style-label',
+            )?.textContent ?? ''
+        )), {timeout: 20_000}).toContain(String(initialStyle.fontSize));
+        await increaseSelectedTextBoxFontSize(session.page);
+        await expect.poll(async () => (
+            await readTextBoxComputedStyle(session!.page, annotationId)
+        ), {timeout: 20_000}).toMatchObject({fontSize: initialStyle.fontSize + 1});
+        const editedStyle = await readTextBoxComputedStyle(session.page, annotationId);
+        expect(editedStyle).not.toBeNull();
+        if (!editedStyle || editedStyle.fontSize === null) {
+            throw new Error('The selected imported text box did not publish its font-size update');
         }
         await session.page.mouse.click(point.x, point.y, {
             count: 2,
@@ -1040,10 +1137,10 @@ describe('Electron E2E - native save and reopen', () => {
         const editedComment = findTextBoxComment(editedSnapshot, editedText);
         const editedRect = normalizedRect(editedComment?.markerRect);
         expect(editedRect).toEqual(initialRect);
-        expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(initialStyle);
+        expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
         const savedTextBox = await readFreeTextObjectByName(pdfPath, 'lifecycle-text-box-one');
         expect(qpdfObjectContainsText(savedTextBox.object, editedText)).toBe(true);
-        expect(savedTextBox.object).toContain('/DA (/Helvetica 14 Tf 0 0 1 rg)');
+        expect(savedTextBox.object).toContain('/DA (/Helvetica 15 Tf 0 0 1 rg)');
         expect(savedTextBox.object).toContain('/RC (<body>Foreign rich text sentinel</body>)');
         expect(savedTextBox.object).toContain('/DS (foreign-style-sentinel)');
 
@@ -1061,6 +1158,7 @@ describe('Electron E2E - native save and reopen', () => {
             findTextBoxComment(await readCanonicalAnnotationSnapshot(session!.page), editedText) ?? {},
             'text',
         ), {timeout: 20_000}).toBe(editedText);
+        expect(await readTextBoxComputedStyle(session.page, annotationId)).toEqual(editedStyle);
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {

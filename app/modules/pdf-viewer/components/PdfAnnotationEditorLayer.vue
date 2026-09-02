@@ -400,6 +400,9 @@ onBeforeUnmount(() => {
     if (suppressClickTimer !== null) {
         clearTimeout(suppressClickTimer);
     }
+    newTextBoxIds.forEach(annotationId => surface.discardUnsavedAnnotation(annotationId));
+    newTextBoxIds.clear();
+    editingId.value = null;
     pointerGesture.cancel();
 });
 </script>

@@ -207,7 +207,12 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         annotationDirty.value
         || hasAnnotationChanges()
     ));
-    const hasSelectedTextBox = computed(() => Boolean(pdfViewerRef.value?.getSelectedTextBox?.()));
+    const selectedTextBox = computed(() => (
+        pdfViewerRef.value?.selectedTextBox
+        ?? pdfViewerRef.value?.getSelectedTextBox?.()
+        ?? null
+    ));
+    const hasSelectedTextBox = computed(() => selectedTextBox.value !== null);
 
     return {
         annotationContextMenu,
@@ -228,6 +233,7 @@ export const useWorkspaceAnnotationSession = (options: IWorkspaceAnnotationSessi
         hasPreservedLivePdfjsAnnotationSession,
         getSavedPdfJsAnnotationFingerprint,
         hasPendingAnnotationChanges: hasPendingTabChanges,
+        selectedTextBox,
         hasSelectedTextBox,
         annotationTool,
         annotationKeepActive,

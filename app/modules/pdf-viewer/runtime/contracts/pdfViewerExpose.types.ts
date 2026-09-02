@@ -177,6 +177,7 @@ export interface IPdfViewerAnnotationCommandExpose {
         cmd: () => void;
         undo: () => void;
     }) => void;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     getSelectedTextBox?: () => ITextBoxEntity | null;
     updateSelectedTextBoxProperties?: (
         updates: Partial<Pick<ITextBoxEntity, 'fontSize' | 'color'>>,

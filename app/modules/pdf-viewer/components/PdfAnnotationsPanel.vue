@@ -26,6 +26,7 @@
             <PdfAnnotationStyleEditor
                 :tool="styleTool"
                 :settings="settings"
+                :selected-text-box="selectedTextBox"
                 @set-tool="setTool"
                 @update-setting="updateSetting"
             />
@@ -64,6 +65,7 @@
                     <PdfAnnotationStyleEditor
                         :tool="styleTool"
                         :settings="settings"
+                        :selected-text-box="selectedTextBox"
                         @set-tool="setTool"
                         @update-setting="updateSetting"
                         @color-selected="stylePopoverOpen = false"
@@ -97,6 +99,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
@@ -112,6 +115,7 @@ interface IProps {
     inventory?: IAnnotationInventoryCompleteness | null | undefined;
     enrichmentState?: IAnnotationEnrichmentState | undefined;
     activeCommentStableKey?: string | null;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null;
     hasSelectedTextBox?: boolean;
 }
 
@@ -129,6 +133,7 @@ const {
     inventory = null,
     enrichmentState = PENDING_ANNOTATION_ENRICHMENT_STATE,
     activeCommentStableKey: rawActiveCommentStableKey = null,
+    selectedTextBox = null,
     hasSelectedTextBox = false,
 } = defineProps<IProps>();
 const activeCommentStableKey = computed(() => rawActiveCommentStableKey ?? undefined);

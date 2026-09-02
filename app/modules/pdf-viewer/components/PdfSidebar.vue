@@ -18,6 +18,7 @@
                 :inventory="annotationInventory"
                 :enrichment-state="annotationEnrichmentState"
                 :active-comment-stable-key="annotationActiveCommentStableKey"
+                :selected-text-box="selectedTextBox"
                 :has-selected-text-box="hasSelectedTextBox"
                 :keep-active="annotationKeepActive"
                 @set-tool="updateAnnotationTool"
@@ -137,6 +138,7 @@ import type {
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { TPdfSidebarTab } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
+import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import PdfAnnotationsPanel from '@app/modules/pdf-viewer/components/PdfAnnotationsPanel.vue';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
@@ -189,6 +191,7 @@ interface IProps {
     annotationInventory?: IAnnotationInventoryCompleteness | null | undefined;
     annotationEnrichmentState?: IAnnotationEnrichmentState | undefined;
     annotationActiveCommentStableKey?: string | null | undefined;
+    selectedTextBox?: Pick<ITextBoxEntity, 'fontSize' | 'color'> | null | undefined;
     hasSelectedTextBox?: boolean | undefined;
     bookmarkEditMode: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
@@ -210,6 +213,7 @@ const { t } = useTypedI18n();
 const {
     activeTab: activeTabProp = undefined,
     annotationActiveCommentStableKey: annotationActiveCommentStableKeyProp = undefined,
+    selectedTextBox = null,
     hasSelectedTextBox = false,
     annotationTool,
     annotationKeepActive,
