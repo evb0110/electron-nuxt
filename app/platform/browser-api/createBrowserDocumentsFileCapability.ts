@@ -1,6 +1,8 @@
 import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
+    IPdfNativeMutationSet,
+    IPdfNativeSaveResult,
 } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
@@ -54,8 +56,17 @@ import {
 } from '@app/platform/browser-api/browserSaveTargets';
 import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
 import {runBrowserPageOpsWorkerRequest} from '@app/platform/browser-api/browserPageOpsWorkerClient';
+import {
+    isBrowserPageOpsWasmFailure,
+    tryRunBrowserPageOpsWithWasm,
+} from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 import { decodeBrowserPdfAnnotationsOutput } from '@app/platform/browser-api/decodeBrowserPdfAnnotationsOutput';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
+import {
+    commitBrowserStoreStagedArtifact,
+    createBrowserStoreStagedArtifact,
+} from '@app/platform/browser/browserStagedArtifact';
+import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
@@ -70,13 +81,22 @@ export async function createBrowserCombinedPdfFromPaths(
 
 interface ICreateBrowserDocumentsFileCapabilityOptions {
     clearSearchCaches: (pdfPath?: string) => void | Promise<void>;
-    errorMessageProvider?: { largeSaveHandleHint: () => string; };
+    errorMessageProvider?: {
+        largeSaveHandleHint: () => string;
+        useNativeApp?: () => string;
+    };
 }
-const defaultBrowserLargeSaveHandleHintProvider = () => (
-    'Use a browser with local file system access enabled to save large documents.'
-);
-
 type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
+
+async function sha256Hex(bytes: Uint8Array) {
+    const ownedBytes = new Uint8Array(bytes.byteLength);
+    ownedBytes.set(bytes);
+    const digest = new Uint8Array(await crypto.subtle.digest(
+        'SHA-256',
+        ownedBytes,
+    ));
+    return Array.from(digest, byte => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
@@ -90,8 +110,9 @@ export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
 ): IDocumentsFileCapability {
     const { clearSearchCaches } = options;
-    const browserLargeSaveHandleHintProvider = options.errorMessageProvider?.largeSaveHandleHint
-        ?? defaultBrowserLargeSaveHandleHintProvider;
+    const browserNativeMutationBindings = new Map<string, IPdfNativeSaveResult['identityBindings']>();
+    const browserUseNativeAppMessageProvider = options.errorMessageProvider?.useNativeApp
+        ?? (() => 'Use the native app for files this large.');
 
     async function cleanupTransientOpenRefs(paths: string[]) {
         await Promise.all(paths.map(async (path) => {
@@ -180,15 +201,14 @@ export function createBrowserDocumentsFileCapability(
                             bytes = data;
                             if (bytes.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
                                 throw new Error(
-                                    'Saving documents is unavailable in the browser for inputs larger than 64MB '
-                                    + browserLargeSaveHandleHintProvider(),
+                                    `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB. ${browserUseNativeAppMessageProvider()}`,
                                 );
                             }
                         } else {
                             await assertBrowserPathWithinFullReadBudget(
                                 workingCopyPath,
                                 'Saving documents',
-                                browserLargeSaveHandleHintProvider(),
+                                browserUseNativeAppMessageProvider(),
                             );
                             bytes = await browserDocumentStore.read(workingCopyPath);
                         }
@@ -297,7 +317,7 @@ export function createBrowserDocumentsFileCapability(
             });
 
             try {
-                return await openDocumentPaths([registered.ref]);
+                return await openDocumentPaths([registered.ref], undefined, undefined, browserUseNativeAppMessageProvider());
             } catch (error) {
                 if (registered.created) {
                     await cleanupTransientOpenRefs([registered.ref]);
@@ -336,7 +356,7 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await openDocumentPaths(refs);
+                return await openDocumentPaths(refs, undefined, undefined, browserUseNativeAppMessageProvider());
             } catch (error) {
                 await cleanupTransientOpenRefs(refs);
                 throw error;
@@ -364,7 +384,7 @@ export function createBrowserDocumentsFileCapability(
             }
 
             try {
-                return await openDocumentPaths([path], undefined, password);
+                return await openDocumentPaths([path], undefined, password, browserUseNativeAppMessageProvider());
             } catch (error) {
                 if (isFileSystemAccessDeniedError(error)) {
                     return null;
@@ -382,6 +402,8 @@ export function createBrowserDocumentsFileCapability(
                 return await openDocumentPaths(
                     paths,
                     requestId ? { requestId } : undefined,
+                    undefined,
+                    browserUseNativeAppMessageProvider(),
                 );
             } catch (error) {
                 if (isFileSystemAccessDeniedError(error)) {
@@ -463,6 +485,139 @@ export function createBrowserDocumentsFileCapability(
         },
         async readFile(path) {
             return browserDocumentStore.read(path);
+        },
+        async applyPdfNativeMutationsToWorkingCopy(
+            path,
+            mutations: IPdfNativeMutationSet,
+            modifiedAt,
+            options: IDocumentMutationRevisionOptions,
+        ) {
+            await assertBrowserPathWithinFullReadBudget(
+                path,
+                'Saving documents',
+                `. ${browserUseNativeAppMessageProvider()}`,
+            );
+            await browserDocumentStore.assertDocumentRevisionCurrent(
+                path,
+                options.expectedDocumentRevisionToken,
+            );
+            const input = await browserDocumentStore.read(path);
+            const wasmResult = await tryRunBrowserPageOpsWithWasm('saveMutations', {
+                data: input,
+                mutations,
+                modifiedAt,
+            });
+            if (wasmResult === null) {
+                throw new Error('Browser PDF save operation is unavailable');
+            }
+            if (isBrowserPageOpsWasmFailure(wasmResult)) {
+                return {
+                    applied: false,
+                    validation: null,
+                    error: {
+                        code: 'native-failure',
+                        message: wasmResult.error.message,
+                    },
+                } satisfies IPdfNativeSaveResult;
+            }
+            if (wasmResult.data.byteLength > BROWSER_MAX_FULL_READ_BYTES) {
+                throw new Error(
+                    `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB. ${browserUseNativeAppMessageProvider()}`,
+                );
+            }
+            await browserDocumentStore.assertDocumentRevisionCurrent(
+                path,
+                options.expectedDocumentRevisionToken,
+            );
+            const stagedPath = await browserDocumentStore.createStoredDocument(
+                `${getBrowserDocumentFileName(path)}.staged-native-save.pdf`,
+                wasmResult.data,
+                {
+                    mimeType: 'application/pdf',
+                    saveKind: 'pdf',
+                    kind: 'output',
+                    retention: 'transient',
+                },
+            );
+            try {
+                const stagedOutput = await createBrowserStoreStagedArtifact(
+                    browserDocumentStore,
+                    stagedPath,
+                    {
+                        leaseId: crypto.randomUUID(),
+                        sha256: await sha256Hex(wasmResult.data),
+                        validations: {
+                            qpdfCheck: false,
+                            tailCheck: true,
+                            semanticCheck: true,
+                            fsynced: false,
+                        },
+                    },
+                );
+                browserNativeMutationBindings.set(
+                    stagedOutput.path,
+                    wasmResult.identityBindings,
+                );
+                return {
+                    applied: true,
+                    validation: {
+                        isValid: true,
+                        tool: 'browser',
+                        errors: [],
+                        warnings: [],
+                    },
+                    nativeMutationPostconditionsVerified: true,
+                    identityBindings: wasmResult.identityBindings,
+                    stagedOutput,
+                } satisfies IPdfNativeSaveResult;
+            } catch (error) {
+                await browserDocumentStore.remove(stagedPath).catch(() => undefined);
+                throw error;
+            }
+        },
+        async commitStagedPdfNativeMutations(
+            path,
+            stagedOutput: ITypedStagedArtifact,
+            options,
+        ) {
+            if (!options?.expectedDocumentRevisionToken) {
+                throw new Error('Browser staged PDF save requires the document revision');
+            }
+            let committed: boolean;
+            try {
+                committed = await commitBrowserStoreStagedArtifact(
+                    browserDocumentStore,
+                    stagedOutput,
+                    path,
+                    options.expectedDocumentRevisionToken,
+                );
+            } catch (error) {
+                browserNativeMutationBindings.delete(stagedOutput.path);
+                await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
+                throw error;
+            }
+            if (!committed) {
+                browserNativeMutationBindings.delete(stagedOutput.path);
+                await browserDocumentStore.remove(stagedOutput.path).catch(() => undefined);
+                return {
+                    applied: false,
+                    validation: null,
+                } satisfies IPdfNativeSaveResult;
+            }
+            const identityBindings = browserNativeMutationBindings.get(stagedOutput.path);
+            browserNativeMutationBindings.delete(stagedOutput.path);
+            await clearSearchCaches(path);
+            return {
+                applied: true,
+                validation: {
+                    isValid: true,
+                    tool: 'browser',
+                    errors: [],
+                    warnings: [],
+                },
+                nativeMutationPostconditionsVerified: true,
+                ...(identityBindings ? {identityBindings} : {}),
+            } satisfies IPdfNativeSaveResult;
         },
         async parsePdfAnnotations(path, options) {
             await assertBrowserPathWithinFullReadBudget(path, 'Parsing PDF annotations');
@@ -599,7 +754,7 @@ export function createBrowserDocumentsFileCapability(
             const revision = await browserDocumentStore.getDocumentRevision(path);
             const saved = await saveWorkingBytesToSource(
                 path,
-                browserLargeSaveHandleHintProvider,
+                browserUseNativeAppMessageProvider,
                 {expectedDocumentRevisionToken: revision.token},
             );
             if (!saved) {
@@ -703,7 +858,7 @@ export function createBrowserDocumentsFileCapability(
                 const revision = await browserDocumentStore.getDocumentRevision(path);
                 const saved = await saveWorkingBytesToSource(
                     path,
-                    browserLargeSaveHandleHintProvider,
+                    browserUseNativeAppMessageProvider,
                     {expectedDocumentRevisionToken: revision.token},
                 );
                 if (!saved) {
@@ -811,7 +966,7 @@ export function createBrowserDocumentsFileCapability(
         async saveFileStructured(path, revisionOptions) {
             const result = await saveWorkingBytesToSourceStructured(
                 path,
-                browserLargeSaveHandleHintProvider,
+                browserUseNativeAppMessageProvider,
                 revisionOptions,
             );
             if (result.ok) {

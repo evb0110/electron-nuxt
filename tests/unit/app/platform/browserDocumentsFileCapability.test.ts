@@ -993,7 +993,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
         })]);
     });
 
-    it('keeps oversized handle-backed sources lazy during direct open', async () => {
+    it('rejects oversized sources during direct open before reading them', async () => {
         const {
             BROWSER_MAX_FULL_READ_BYTES,
             capability,
@@ -1021,16 +1021,9 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             },
         );
 
-        const result = await capability.openDocumentDirect(sourceRef);
-        const sourceEntry = await browserDocumentStore.requireEntry(sourceRef);
-        const workingEntry = result?.kind === 'pdf'
-            ? await browserDocumentStore.requireEntry(result.workingPath)
-            : null;
-
-        expect(result?.kind).toBe('pdf');
-        expect(sourceEntry.storageMode).toBe('handle');
-        expect(workingEntry?.storageMode).toBe('source-proxy');
-        expect(workingEntry?.sourceRef).toBe(sourceRef);
+        await expect(capability.openDocumentDirect(sourceRef)).rejects.toThrow(
+            'Opening documents is unavailable in the browser for inputs larger than 16MB. Use the native app for files this large.',
+        );
     });
 
     it('streams oversized browser saves to an existing file handle', async () => {
@@ -1798,7 +1791,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             undefined,
             await getRevisionOptions(browserDocumentStore, workingRef),
         )).rejects.toThrow(
-            `Saving documents is unavailable in the browser for inputs larger than ${BROWSER_MAX_FULL_READ_BYTES / (1024 * 1024)}MB Use a browser with local file system access enabled to save large documents.`,
+            'Use the native app for files this large.',
         );
     });
 });

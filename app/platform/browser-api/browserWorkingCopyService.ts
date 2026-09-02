@@ -29,11 +29,12 @@ import {
     tryRunBrowserPageOpsWithWasm,
 } from '@app/platform/browser-api/tryRunBrowserPageOpsWithWasm';
 
-function buildBrowserLargeJobError(label: string, maxBytes: number) {
+function buildBrowserLargeJobError(label: string, maxBytes: number, hint?: string) {
     return buildBrowserByteLimitError(
         label,
         maxBytes,
         'inputs',
+        hint,
     );
 }
 
@@ -153,6 +154,7 @@ export async function openDocumentPaths(
     paths: string[],
     progressOptions?: IBrowserBatchOpenProgressOptions,
     password?: string,
+    largeDocumentMessage?: string,
 ) {
     const startedAt = Date.now();
     const normalizedPaths = normalizeNonEmptyStringPaths(paths);
@@ -182,6 +184,13 @@ export async function openDocumentPaths(
     if (normalizedPaths.length === 1 && isPdfFileName(firstFileName)) {
         const sourcePath = normalizedPaths[0]!;
         const { size } = await browserDocumentStore.stat(sourcePath);
+        if (size > BROWSER_MAX_FULL_READ_BYTES) {
+            throw buildBrowserLargeJobError(
+                'Opening documents',
+                BROWSER_MAX_FULL_READ_BYTES,
+                largeDocumentMessage ? `. ${largeDocumentMessage}` : undefined,
+            );
+        }
         if (size <= BROWSER_MAX_FULL_READ_BYTES) {
             await browserDocumentStore.ensureByteBackedSource(sourcePath);
         }

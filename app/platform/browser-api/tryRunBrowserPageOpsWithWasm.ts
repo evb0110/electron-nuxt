@@ -4,6 +4,10 @@ import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
+import type {
+    IPdfNativeAnnotationIdentityBinding,
+    IPdfNativeMutationSet,
+} from '@contracts/electronApiDocuments';
 import { toTransferableUint8Array } from '@app/platform/browser-api/toTransferableUint8Array';
 import type { ICropMargins } from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -39,14 +43,33 @@ interface IBrowserPageOpsWasmDecryptRequest {
     password: string;
 }
 
-interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap {decrypt: IBrowserPageOpsWasmDecryptRequest;}
+interface IBrowserPageOpsWasmSaveMutationsRequest {
+    data: Uint8Array;
+    mutations: IPdfNativeMutationSet;
+    modifiedAt: string;
+}
+
+interface IBrowserPageOpsWasmRequestMap extends IBrowserPageOpsWorkerRequestMap {
+    decrypt: IBrowserPageOpsWasmDecryptRequest;
+    saveMutations: IBrowserPageOpsWasmSaveMutationsRequest;
+}
 
 interface IBrowserPageOpsWasmDecryptResult {
     data: Uint8Array;
     pageCount: number;
 }
 
-interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {decrypt: IBrowserPageOpsWasmDecryptResult;}
+export interface IBrowserPageOpsWasmSaveMutationsResult {
+    data: Uint8Array;
+    pageCount: number;
+    identityBindings: IPdfNativeAnnotationIdentityBinding[];
+    nativeMutationPostconditionsVerified: true;
+}
+
+interface IBrowserPageOpsWasmResultMap extends IBrowserPageOpsWorkerResultMap {
+    decrypt: IBrowserPageOpsWasmDecryptResult;
+    saveMutations: IBrowserPageOpsWasmSaveMutationsResult;
+}
 
 type TBrowserPageOpsWasmRequestType = keyof IBrowserPageOpsWasmRequestMap;
 
@@ -78,6 +101,7 @@ const OP_REMOVE_CROP = 7;
 const OP_GET_PAGE_GEOMETRY = 8;
 const OP_DECRYPT = 9;
 const OP_PARSE_ANNOTATIONS = 10;
+const OP_SAVE_MUTATIONS = 11;
 const OP_READ_CATALOG = 12;
 const OP_CONFORMANCE = 13;
 const OP_MERGE_PAGES = 14;
@@ -85,6 +109,7 @@ const OP_MERGE_PAGES = 14;
 const RESPONSE_MUTATION = 1;
 const RESPONSE_GEOMETRY = 2;
 const RESPONSE_ANNOTATION_PARSE = 3;
+const RESPONSE_SAVE_MUTATIONS = 4;
 const RESPONSE_JSON = 5;
 const MAX_U32 = 0xffff_ffff;
 const MAX_DOCUMENTS = 500;
@@ -253,6 +278,8 @@ function getOperationCode(type: TBrowserPageOpsWasmRequestType) {
             return OP_DECRYPT;
         case 'parseAnnotations':
             return OP_PARSE_ANNOTATIONS;
+        case 'saveMutations':
+            return OP_SAVE_MUTATIONS;
         case 'readCatalog':
             return OP_READ_CATALOG;
         case 'conformance':
@@ -280,6 +307,8 @@ function getRequestPages(request: TBrowserPageOpsWasmRequest): number[] {
         case 'conformance':
         case 'mergePages':
             return [];
+        case 'saveMutations':
+            return [];
     }
 }
 
@@ -293,9 +322,16 @@ function getRequestData(request: TBrowserPageOpsWasmRequest): Uint8Array {
 }
 
 function getInsertionData(request: TBrowserPageOpsWasmRequest): Uint8Array {
-    return request.type === 'insertPages'
-        ? request.payload.insertionData
-        : new Uint8Array();
+    if (request.type === 'insertPages') {
+        return request.payload.insertionData;
+    }
+    if (request.type === 'saveMutations') {
+        return new TextEncoder().encode(JSON.stringify({
+            mutations: request.payload.mutations,
+            modifiedAt: request.payload.modifiedAt,
+        }));
+    }
+    return new Uint8Array();
 }
 
 function getPassword(request: TBrowserPageOpsWasmRequest) {
@@ -641,6 +677,41 @@ function parseWasmOutput<K extends TBrowserPageOpsWasmRequestType>(
             return null;
         }
         return {data: toTransferableUint8Array(output.slice(8))} as IBrowserPageOpsWasmResultMap[K];
+    }
+
+    if (type === 'saveMutations') {
+        if (kind !== RESPONSE_SAVE_MUTATIONS || output.byteLength < 20) {
+            return null;
+        }
+        const dataLength = view.getUint32(8, true);
+        const identityBindingsLength = view.getUint32(12, true);
+        if (
+            view.getUint32(16, true) !== 1
+            || dataLength + identityBindingsLength + 20 !== output.byteLength
+        ) {
+            return null;
+        }
+        let identityBindings: unknown;
+        try {
+            identityBindings = JSON.parse(new TextDecoder().decode(
+                output.slice(20 + dataLength),
+            )) as unknown;
+        } catch {
+            return null;
+        }
+        if (!Array.isArray(identityBindings) || !identityBindings.every(binding => (
+            isRecord(binding)
+            && typeof binding.annotationId === 'string'
+            && typeof binding.pdfRef === 'string'
+        ))) {
+            return null;
+        }
+        return {
+            data: toTransferableUint8Array(output.slice(20, 20 + dataLength)),
+            pageCount: view.getUint32(4, true),
+            identityBindings: identityBindings as IPdfNativeAnnotationIdentityBinding[],
+            nativeMutationPostconditionsVerified: true,
+        } as IBrowserPageOpsWasmResultMap[K];
     }
 
     if (type === 'readCatalog' || type === 'conformance') {
