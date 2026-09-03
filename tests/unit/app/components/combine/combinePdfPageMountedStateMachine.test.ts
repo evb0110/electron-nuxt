@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 
@@ -153,6 +154,7 @@ describe('mounted Combine PDF page state machine', () => {
     });
 
     it('locks queue mutations, retains a failed-open result, then saves or retries without recombining', async () => {
+        expect(CombinePdfPage).toBeDefined();
         const combined = deferred<TOpenFileResult>();
         const result: TOpenFileResult = {
             kind: 'pdf',

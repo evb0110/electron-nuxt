@@ -152,6 +152,8 @@ describe('zero-execution coverage tripwire', () => {
         ]);
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/app.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/modules/pdf-viewer/components/PdfViewer.vue');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/pages/electron.vue');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('electron/preload.ts');
     });
 
     it('discovers and checks targets across the widened production roots', async () => {

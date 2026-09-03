@@ -50,6 +50,12 @@ export function resolveReleaseIdentityForEnvironment({
     });
 }
 
+/**
+ * @param {{
+ *   identity?: import('../../packages/contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
+ *   environment?: NodeJS.ProcessEnv,
+ * }} options
+ */
 export function publishReleaseIdentityToGithub({
     identity,
     environment = process.env,
