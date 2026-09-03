@@ -416,10 +416,46 @@ async function resolveEditorLayerPoints(
         if (rect.width <= 0 || rect.height <= 0) {
             return null;
         }
-        return input.ratios.map(ratio => ({
-            x: rect.left + rect.width * ratio.x,
-            y: rect.top + rect.height * ratio.y,
+        const minX = Math.min(...input.ratios.map(ratio => ratio.x));
+        const minY = Math.min(...input.ratios.map(ratio => ratio.y));
+        const maxX = Math.max(...input.ratios.map(ratio => ratio.x));
+        const maxY = Math.max(...input.ratios.map(ratio => ratio.y));
+        const width = maxX - minX;
+        const height = maxY - minY;
+        const origins = (maximum: number) => Array.from(
+            {length: Math.floor((0.96 - maximum - 0.04) / 0.08) + 1},
+            (_, index) => 0.04 + index * 0.08,
+        );
+        const toClientPoints = (origin: {
+            x: number;
+            y: number
+        }) => input.ratios.map(ratio => ({
+            x: rect.left + rect.width * (origin.x + ratio.x - minX),
+            y: rect.top + rect.height * (origin.y + ratio.y - minY),
         }));
+        const isAvailable = (point: {
+            x: number;
+            y: number
+        }) => {
+            const target = document.elementFromPoint(point.x, point.y);
+            return Boolean(
+                target
+                && layer.contains(target)
+                && !target.closest('[data-annotation-id]'),
+            );
+        };
+        for (const originY of origins(height)) {
+            for (const originX of origins(width)) {
+                const candidate = toClientPoints({
+                    x: originX,
+                    y: originY,
+                });
+                if (candidate.every(isAvailable)) {
+                    return candidate;
+                }
+            }
+        }
+        throw new Error('Could not find an unobstructed canonical shape area on the page');
     }, {
         pageNumber,
         ratios,
@@ -843,11 +879,11 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
                 ratios: [
                     {
                         x: 0.08,
-                        y: 0.12,
+                        y: 0.42,
                     },
                     {
                         x: 0.18,
-                        y: 0.2,
+                        y: 0.5,
                     },
                 ],
             },
@@ -856,11 +892,11 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
                 ratios: [
                     {
                         x: 0.24,
-                        y: 0.12,
+                        y: 0.42,
                     },
                     {
                         x: 0.34,
-                        y: 0.2,
+                        y: 0.5,
                     },
                 ],
             },
@@ -869,11 +905,11 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
                 ratios: [
                     {
                         x: 0.42,
-                        y: 0.12,
+                        y: 0.42,
                     },
                     {
                         x: 0.56,
-                        y: 0.2,
+                        y: 0.5,
                     },
                 ],
             },
@@ -882,11 +918,11 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
                 ratios: [
                     {
                         x: 0.64,
-                        y: 0.12,
+                        y: 0.42,
                     },
                     {
                         x: 0.78,
-                        y: 0.2,
+                        y: 0.5,
                     },
                 ],
             },
@@ -895,15 +931,15 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
                 ratios: [
                     {
                         x: 0.1,
-                        y: 0.34,
+                        y: 0.58,
                     },
                     {
                         x: 0.15,
-                        y: 0.39,
+                        y: 0.63,
                     },
                     {
                         x: 0.22,
-                        y: 0.35,
+                        y: 0.59,
                     },
                 ],
             },

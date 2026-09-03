@@ -1259,6 +1259,70 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeMutationProjection.phase).toBe('persist-native-text-box-changes');
     });
 
+    it('keeps native text-box payloads when another canonical edit requires materialization', () => {
+        const textBox: ITextBoxEntity = {
+            ...editorTextBox('materialized-text-box'),
+            identity: {
+                id: asAnnotationId('materialized-text-box'),
+                pdfRef: '10 0 R',
+            },
+            persistedRevision: 0,
+        };
+        const markup = editorMarkupWithRuntimeIdentity('materialized-markup');
+        const nativeTextBox = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'materialized-text-box',
+            annotationId: '10R',
+            text: 'edited materialized text box',
+            rect: [
+                20,
+                30,
+                180,
+                80,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            fontSize: 18,
+            color: [
+                0,
+                0,
+                255,
+            ] as [number, number, number],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                textBox,
+                markup,
+            ]),
+            capabilities({
+                nativeTextBoxes: [nativeTextBox],
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'materialized-text-box',
+                        '10R',
+                        'materialized-markup',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'materialized-markup-with-text-box',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            reason: 'live-pdfjs-annotation-storage',
+        });
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.textBoxes).toEqual([nativeTextBox]);
+    });
+
     it('covers every PDF.js identity alias when a saved sticky note has a native text update', () => {
         const note: AnnotationEntity = {
             ...embeddedNote('anno_saved_note', '12R'),
