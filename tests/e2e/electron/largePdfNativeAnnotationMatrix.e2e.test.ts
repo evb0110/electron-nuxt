@@ -371,9 +371,12 @@ async function resolveEditorLayerPoints(
         y: number
     }>,
 ) {
+    await waitForViewerInteractive(page, 30_000);
     await page.waitForFunction((targetPageNumber: number) => Boolean(
-        document.querySelector(
-            `.editor-pane.is-active .page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`,
+        globalThis.__evbE2E.getActiveWorkspaceHost(
+            `.page_container[data-page="${targetPageNumber}"]`,
+        )?.querySelector(
+            `.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`,
         ),
     ), {timeout: 30_000}, pageNumber);
     return page.evaluate(async (input: {
@@ -383,11 +386,11 @@ async function resolveEditorLayerPoints(
             y: number
         }>;
     }) => {
-        const pageContainer = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`,
-        );
+        const pageSelector = `.page_container[data-page="${input.pageNumber}"]`;
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
-        if (!pageContainer || !layer) {
+        if (!host || !pageContainer || !layer) {
             return null;
         }
         pageContainer.scrollIntoView({
@@ -395,6 +398,20 @@ async function resolveEditorLayerPoints(
             inline: 'center',
         });
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+        const scrollViewport = layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+        if (scrollViewport) {
+            const layerRect = layer.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const visibleTop = Math.max(hostRect.top, 24);
+            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+            if (visibleBottom > visibleTop) {
+                const targetY = layerRect.top + layerRect.height * (input.ratios[0]?.y ?? 0.5);
+                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
+                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            }
+        }
+
         const rect = layer.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
             return null;
