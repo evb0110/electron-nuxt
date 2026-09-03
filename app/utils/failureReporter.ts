@@ -29,6 +29,7 @@ import {
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
 import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+import { DIAGNOSTICS_MAX_SUPPRESSED_COUNT } from '@contracts/diagnostics/diagnosticsCapability';
 import { isRecord } from '@contracts/runtimeGuards';
 import { safeGetLocalStorageItem } from '@app/utils/localStorage';
 import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
@@ -87,6 +88,8 @@ export interface IRendererFailureReporter {
     captureRecord(value: unknown): FailureReceipt;
     getHealthSnapshot(): IRendererDiagnosticsHealthSnapshot;
     withSuppressedCapture<T>(callback: () => T): T;
+    /** Adds late-bound integration callbacks without resetting reporter state. */
+    fillMissingOptions(options: IRendererFailureReporterOptions): void;
 }
 
 export interface IRendererFailureCaptureOptions {
@@ -94,7 +97,7 @@ export interface IRendererFailureCaptureOptions {
     runtime?: 'browser-worker-parent';
 }
 
-export const RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = 10_000;
+export const RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
 export const RENDERER_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
 export const RENDERER_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS = 60_000;
 export const RENDERER_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS = 10 * 60_000;
@@ -345,6 +348,30 @@ function resolveRuntime(host: TRendererDiagnosticsHost): DiagnosticRuntime {
     return host === 'electron' ? 'electron-renderer' : 'hosted-browser';
 }
 
+function getElectronDiagnosticSender(): TRendererDiagnosticSender | null {
+    try {
+        const rendererWindow = Reflect.get(globalThis, 'window');
+        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+            return null;
+        }
+        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
+        if (typeof electronApi !== 'object' || electronApi === null) {
+            return null;
+        }
+        const diagnostics = Reflect.get(electronApi, 'diagnostics');
+        if (typeof diagnostics !== 'object' || diagnostics === null) {
+            return null;
+        }
+        const sender = Reflect.get(diagnostics, 'sendRecord');
+        if (typeof sender !== 'function') {
+            return null;
+        }
+        return (record, suppressedCount) => sender(record, suppressedCount);
+    } catch {
+        return null;
+    }
+}
+
 export function createRendererFailureReporter(
     options: IRendererFailureReporterOptions = {},
 ): IRendererFailureReporter {
@@ -366,7 +393,12 @@ export function createRendererFailureReporter(
     const health = createHealthState();
     const recentIds = new Map<DiagnosticEventId, number>();
     const burstStates = new Map<string, IBurstState>();
+    let electronSender = options.electronSender;
     let hostedTransportLoad: Promise<IHostedDiagnosticsTransport> | null = null;
+    let readHostedPreference = options.readHostedPreference;
+    let loadHostedTransport = options.loadHostedTransport;
+    let localSink = options.localSink;
+    let rawWarningSink = options.rawWarningSink;
     let suppressionDepth = 0;
     let warningInProgress = false;
 
@@ -403,13 +435,13 @@ export function createRendererFailureReporter(
     }
 
     function writeRawTransportWarning(record: DiagnosticRecord) {
-        if (warningInProgress || !options.rawWarningSink) {
+        if (warningInProgress || !rawWarningSink) {
             return;
         }
         warningInProgress = true;
         try {
             const message = `Diagnostics transport failed for ${record.code} (${record.eventId})`;
-            options.rawWarningSink(message.slice(0, MAX_TRANSPORT_WARNING_LENGTH));
+            rawWarningSink(message.slice(0, MAX_TRANSPORT_WARNING_LENGTH));
         } catch {
             // The raw sink is intentionally unobserved. It must not become another occurrence.
         } finally {
@@ -419,7 +451,7 @@ export function createRendererFailureReporter(
 
     function recordLocalDetail(detail: LocalFailureDetail, receipt: FailureReceipt) {
         try {
-            options.localSink?.(detail, receipt);
+            localSink?.(detail, receipt);
         } catch {
             // Local logging cannot break the originating failure owner.
         }
@@ -518,12 +550,13 @@ export function createRendererFailureReporter(
 
     function sendElectronRecord(record: DiagnosticRecord, suppressedCount: number) {
         try {
-            if (!options.electronSender) {
+            const sender = electronSender ?? getElectronDiagnosticSender();
+            if (!sender) {
                 return false;
             }
             const result = suppressedCount > 0
-                ? options.electronSender(record, suppressedCount)
-                : options.electronSender(record);
+                ? sender(record, suppressedCount)
+                : sender(record);
             reportTransportResult(result, record);
             return true;
         } catch {
@@ -537,7 +570,7 @@ export function createRendererFailureReporter(
     ) {
         if (hostedTransportLoad === null) {
             try {
-                const loaded = options.loadHostedTransport?.();
+                const loaded = loadHostedTransport?.();
                 if (!loaded) {
                     reportTransportFailure(record);
                     return;
@@ -593,11 +626,15 @@ export function createRendererFailureReporter(
         }
 
         if (host === 'hosted-browser') {
-            health.mode = normalizePreference(
-                options.readHostedPreference
-                    ? options.readHostedPreference()
-                    : readHostedDiagnosticsPreferenceSync(),
-            );
+            try {
+                health.mode = normalizePreference(
+                    readHostedPreference
+                        ? readHostedPreference()
+                        : readHostedDiagnosticsPreferenceSync(),
+                );
+            } catch {
+                health.mode = 'unknown';
+            }
             if (health.mode !== 'granted') {
                 health.policyDropped = increment(health.policyDropped);
                 setDropReason('policy-dropped');
@@ -684,6 +721,14 @@ export function createRendererFailureReporter(
                 suppressionDepth = Math.max(0, suppressionDepth - 1);
             }
         },
+        fillMissingOptions: (lateOptions) => {
+            health.initializationCount = increment(health.initializationCount);
+            electronSender ??= lateOptions.electronSender;
+            readHostedPreference ??= lateOptions.readHostedPreference;
+            loadHostedTransport ??= lateOptions.loadHostedTransport;
+            localSink ??= lateOptions.localSink;
+            rawWarningSink ??= lateOptions.rawWarningSink;
+        },
     };
 }
 
@@ -691,6 +736,7 @@ export function initializeRendererFailureReporter(
     options: IRendererFailureReporterOptions = {},
 ) {
     if (rendererFailureReporter) {
+        rendererFailureReporter.fillMissingOptions(options);
         return rendererFailureReporter;
     }
     rendererFailureReporter = createRendererFailureReporter(options);

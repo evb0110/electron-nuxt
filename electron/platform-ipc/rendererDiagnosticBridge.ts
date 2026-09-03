@@ -1,6 +1,7 @@
 import { ipcMain } from 'electron';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import { decodeDiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
+import { decodeDiagnosticsSuppressedCount } from '@contracts/diagnostics/diagnosticsCapability';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
 export const RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES = 16 * 1024;
@@ -15,7 +16,7 @@ export interface IRendererDiagnosticBridgeHealthSnapshot {
 }
 
 export interface IRendererDiagnosticBridgeOptions {
-    captureRecord: (record: DiagnosticRecord) => unknown;
+    captureRecord: (record: DiagnosticRecord, suppressedCount: number) => unknown;
     isTrustedSender: (
         sender: Electron.WebContents,
         senderFrame: Electron.WebFrameMain | null | undefined,
@@ -26,7 +27,7 @@ export interface IRendererDiagnosticBridgeOptions {
     ratePerSecond?: number;
     registerListener?: (
         channel: string,
-        handler: (event: Electron.IpcMainEvent, payload: unknown) => void,
+        handler: (event: Electron.IpcMainEvent, payload: unknown, suppressedCount?: unknown) => void,
     ) => void;
 }
 
@@ -51,6 +52,32 @@ function getPayloadBytes(value: unknown) {
     }
 }
 
+function safeNow(now: () => number) {
+    try {
+        const value = now();
+        return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : 0;
+    } catch {
+        return 0;
+    }
+}
+
+function readSender(event: unknown): Electron.WebContents | null {
+    try {
+        const sender = (event as {sender?: unknown} | null)?.sender;
+        return typeof sender === 'object' && sender !== null ? sender as Electron.WebContents : null;
+    } catch {
+        return null;
+    }
+}
+
+function readSenderId(sender: Electron.WebContents): number | null {
+    try {
+        return typeof sender.id === 'number' && Number.isSafeInteger(sender.id) ? sender.id : null;
+    } catch {
+        return null;
+    }
+}
+
 export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBridgeOptions) {
     const now = options.now ?? Date.now;
     const ratePerSecond = normalizePositiveInteger(options.ratePerSecond, RENDERER_DIAGNOSTIC_RATE_PER_SECOND);
@@ -65,7 +92,7 @@ export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBri
     };
 
     function consumeRateToken(senderId: number) {
-        const currentTime = now();
+        const currentTime = safeNow(now);
         const state = rateBySender.get(senderId) ?? {
             lastRefillAt: currentTime,
             tokens: rateBurst,
@@ -83,41 +110,71 @@ export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBri
     }
 
     function registerCleanup(sender: Electron.WebContents) {
-        if (cleanupRegistered.has(sender.id)) {
+        const senderId = readSenderId(sender);
+        if (senderId === null || cleanupRegistered.has(senderId)) {
             return;
         }
-        cleanupRegistered.add(sender.id);
+        cleanupRegistered.add(senderId);
         const cleanup = () => {
-            rateBySender.delete(sender.id);
-            cleanupRegistered.delete(sender.id);
-            sender.removeListener('destroyed', cleanup);
-            sender.removeListener('render-process-gone', cleanup);
+            rateBySender.delete(senderId);
+            cleanupRegistered.delete(senderId);
+            try {
+                sender.removeListener('destroyed', cleanup);
+                sender.removeListener('render-process-gone', cleanup);
+            } catch {
+                // Sender teardown is best effort only.
+            }
         };
-        sender.once('destroyed', cleanup);
-        sender.once('render-process-gone', cleanup);
+        try {
+            sender.once('destroyed', cleanup);
+            sender.once('render-process-gone', cleanup);
+        } catch {
+            cleanup();
+        }
     }
 
-    function handle(event: Electron.IpcMainEvent, payload: unknown) {
-        if (!options.isTrustedSender(event.sender, event.senderFrame, CORE_IPC_SEND_CHANNELS.rendererDiagnostic)) {
-            health.untrustedDropped = increment(health.untrustedDropped);
-            return;
-        }
-        registerCleanup(event.sender);
-        if (!consumeRateToken(event.sender.id)) {
-            health.rateDropped = increment(health.rateDropped);
-            return;
-        }
-        if (getPayloadBytes(payload) > RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES) {
-            health.schemaDropped = increment(health.schemaDropped);
-            return;
-        }
-        const record = decodeDiagnosticRecord(payload);
-        if (record === null || record.runtime !== 'electron-renderer') {
-            health.schemaDropped = increment(health.schemaDropped);
-            return;
-        }
+    function handle(event: Electron.IpcMainEvent, payload: unknown, suppressedCount?: unknown) {
         try {
-            if (options.captureRecord(record) !== false) {
+            const sender = readSender(event);
+            const senderId = sender === null ? null : readSenderId(sender);
+            if (sender === null || senderId === null) {
+                health.untrustedDropped = increment(health.untrustedDropped);
+                return;
+            }
+            let trusted = false;
+            try {
+                trusted = options.isTrustedSender(
+                    sender,
+                    event.senderFrame,
+                    CORE_IPC_SEND_CHANNELS.rendererDiagnostic,
+                );
+            } catch {
+                trusted = false;
+            }
+            if (!trusted) {
+                health.untrustedDropped = increment(health.untrustedDropped);
+                return;
+            }
+            registerCleanup(sender);
+            if (!consumeRateToken(senderId)) {
+                health.rateDropped = increment(health.rateDropped);
+                return;
+            }
+            if (getPayloadBytes(payload) > RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES) {
+                health.schemaDropped = increment(health.schemaDropped);
+                return;
+            }
+            const record = decodeDiagnosticRecord(payload);
+            const decodedSuppressedCount = decodeDiagnosticsSuppressedCount(suppressedCount);
+            if (
+                record === null
+                || record.runtime !== 'electron-renderer'
+                || decodedSuppressedCount === null
+            ) {
+                health.schemaDropped = increment(health.schemaDropped);
+                return;
+            }
+            if (options.captureRecord(record, decodedSuppressedCount) !== false) {
                 health.accepted = increment(health.accepted);
             }
         } catch {

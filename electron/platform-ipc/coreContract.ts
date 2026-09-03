@@ -7,10 +7,8 @@ import {
     isDiagnosticEventId,
     type DiagnosticEventId,
 } from '@contracts/diagnostics/diagnosticEventId';
-import type {
-    DiagnosticRecord,
-    FailureSeverity,
-} from '@contracts/diagnostics/diagnosticRecord';
+import type { FailureSeverity } from '@contracts/diagnostics/diagnosticRecord';
+import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IWindowCloseRequest,
@@ -52,9 +50,8 @@ export interface IDiagnosticsFailureRef {
 
 export interface IDiagnosticsDebugLogEntry extends IDebugLogEntry {failureRef?: IDiagnosticsFailureRef;}
 
-export interface IPreloadDiagnosticsApi {
+export interface IPreloadDiagnosticsApi extends IDiagnosticsRendererCapability {
     startupPolicy: Readonly<IDiagnosticsStartupPolicy>;
-    sendRecord: (record: DiagnosticRecord) => void;
     onDebugLog: (callback: (entry: IDiagnosticsDebugLogEntry) => void) => () => void;
 }
 

@@ -27,6 +27,10 @@ import {
     normalizeCanonicalApplicationFrames,
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
+import {
+    decodeDiagnosticsSuppressedCount,
+    DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+} from '@contracts/diagnostics/diagnosticsCapability';
 
 export type TMainDiagnosticsPreference = 'unknown' | 'granted' | 'denied';
 
@@ -61,7 +65,7 @@ export interface IMainDiagnosticsTransport {
 
 export interface IMainFailureReporter {
     capture<C extends DiagnosticCode>(input: CaptureFailureInput<C>): FailureReceipt;
-    captureRecord(value: unknown): FailureReceipt;
+    captureRecord(value: unknown, inheritedSuppressedCount?: unknown): FailureReceipt;
     getHealthSnapshot(): IMainDiagnosticsHealthSnapshot;
     getPreference(): TMainDiagnosticsPreference;
     isTransportReady(): boolean;
@@ -79,7 +83,7 @@ export interface IMainFailureReporterOptions {
     transport?: IMainDiagnosticsTransport;
 }
 
-export const MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = 10_000;
+export const MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
 export const MAIN_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
 export const MAIN_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS = 60_000;
 export const MAIN_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS = 10 * 60_000;
@@ -130,6 +134,21 @@ function increment(value: number) {
     return value >= Number.MAX_SAFE_INTEGER
         ? Number.MAX_SAFE_INTEGER
         : value + 1;
+}
+
+function incrementBy(value: number, amount: number) {
+    if (!Number.isSafeInteger(amount) || amount <= 0) {
+        return value;
+    }
+    return value >= Number.MAX_SAFE_INTEGER - amount ? Number.MAX_SAFE_INTEGER : value + amount;
+}
+
+function addSuppressedCounts(...counts: readonly number[]) {
+    let total = 0;
+    for (const count of counts) {
+        total = Math.min(MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT, total + count);
+    }
+    return total;
 }
 
 function safeNow(now: () => number) {
@@ -400,7 +419,7 @@ export function createMainFailureReporter(
         }
     }
 
-    function sendToTransport(record: DiagnosticRecord, suppressedCount: number) {
+    function sendToTransport(record: DiagnosticRecord, suppressedCount: number): unknown {
         try {
             const sender = transport.send ?? transport.capture;
             if (!sender) {
@@ -409,13 +428,51 @@ export function createMainFailureReporter(
             const result = suppressedCount > 0
                 ? sender(record, suppressedCount)
                 : sender(record);
-            return result !== false;
+            return result;
         } catch {
             return false;
         }
     }
 
-    function decideBurst(record: DiagnosticRecord, currentTime: number): IBurstDecision {
+    function reportTransportFailure() {
+        health.transportFailed = increment(health.transportFailed);
+        setDropReason('transport-failed');
+    }
+
+    function reportTransportResult(result: unknown) {
+        try {
+            if (
+                result === null
+                || (typeof result !== 'object' && typeof result !== 'function')
+                || typeof (result as {then?: unknown}).then !== 'function'
+            ) {
+                if (result === false) {
+                    reportTransportFailure();
+                } else {
+                    health.accepted = increment(health.accepted);
+                }
+                return;
+            }
+            void Promise.resolve<unknown>(result).then(
+                (resolved: unknown) => {
+                    if (resolved === false) {
+                        reportTransportFailure();
+                    } else {
+                        health.accepted = increment(health.accepted);
+                    }
+                },
+                () => reportTransportFailure(),
+            );
+        } catch {
+            reportTransportFailure();
+        }
+    }
+
+    function decideBurst(
+        record: DiagnosticRecord,
+        currentTime: number,
+        inheritedSuppressedCount: number,
+    ): IBurstDecision {
         const key = getBurstKey(record);
         const previous = burstStates.get(key);
         if (!previous || currentTime - previous.startedAt >= burstWindowMs) {
@@ -436,11 +493,15 @@ export function createMainFailureReporter(
         }
 
         if (previous.sentCount >= burstLimit) {
-            previous.suppressedCount = Math.min(
-                MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
-                increment(previous.suppressedCount),
+            previous.suppressedCount = addSuppressedCounts(
+                previous.suppressedCount,
+                1,
+                inheritedSuppressedCount,
             );
-            health.burstSuppressed = increment(health.burstSuppressed);
+            health.burstSuppressed = incrementBy(
+                health.burstSuppressed,
+                1 + inheritedSuppressedCount,
+            );
             setDropReason('burst-suppressed');
             return {
                 key,
@@ -456,7 +517,7 @@ export function createMainFailureReporter(
         };
     }
 
-    function markAccepted(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
+    function reserveAdmission(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
         const state = burstStates.get(decision.key);
         if (state) {
             state.sentCount = increment(state.sentCount);
@@ -464,10 +525,9 @@ export function createMainFailureReporter(
         }
         recentIds.set(record.eventId, currentTime);
         pruneRecentIds(currentTime);
-        health.accepted = increment(health.accepted);
     }
 
-    function processRecord(record: DiagnosticRecord): FailureReceipt {
+    function processRecord(record: DiagnosticRecord, inheritedSuppressedCount = 0): FailureReceipt {
         const receipt = createReceipt(record);
         health.attempted = increment(health.attempted);
 
@@ -488,23 +548,21 @@ export function createMainFailureReporter(
         }
 
         if (!readTransportReady()) {
-            health.transportFailed = increment(health.transportFailed);
-            setDropReason('transport-failed');
+            reportTransportFailure();
             return receipt;
         }
 
-        const decision = decideBurst(record, currentTime);
+        const decision = decideBurst(record, currentTime, inheritedSuppressedCount);
         if (!decision.send) {
             return receipt;
         }
 
-        if (!sendToTransport(record, decision.suppressedCount)) {
-            health.transportFailed = increment(health.transportFailed);
-            setDropReason('transport-failed');
-            return receipt;
-        }
-
-        markAccepted(record, currentTime, decision);
+        const suppressedCount = addSuppressedCounts(
+            decision.suppressedCount,
+            inheritedSuppressedCount,
+        );
+        reserveAdmission(record, currentTime, decision);
+        reportTransportResult(sendToTransport(record, suppressedCount));
         return receipt;
     }
 
@@ -526,11 +584,18 @@ export function createMainFailureReporter(
                 return processRecord(record);
             }
         },
-        captureRecord: (value) => {
+        captureRecord: (value, inheritedSuppressedCount) => {
             try {
                 const record = decodeDiagnosticRecord(value);
+                const decodedSuppressedCount = decodeDiagnosticsSuppressedCount(inheritedSuppressedCount);
+                if (record !== null && decodedSuppressedCount !== null) {
+                    return processRecord(record, decodedSuppressedCount);
+                }
                 if (record !== null) {
-                    return processRecord(record);
+                    health.attempted = increment(health.attempted);
+                    health.schemaDropped = increment(health.schemaDropped);
+                    setDropReason('schema-dropped');
+                    return createReceipt(record);
                 }
             } catch {
                 // A malformed external record is counted below and never crosses transport.

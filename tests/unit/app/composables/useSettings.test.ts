@@ -93,6 +93,7 @@ describe('useSettings', () => {
             optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
+            clientDiagnosticsPreference: 'unknown',
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -122,6 +123,7 @@ describe('useSettings', () => {
             optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
+            clientDiagnosticsPreference: 'unknown',
             suppressDefaultViewerPrompt: false,
         });
 

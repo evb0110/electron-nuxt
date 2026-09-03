@@ -26,6 +26,10 @@ import {
     type DiagnosticRecord,
 } from '@contracts/diagnostics/diagnosticRecord';
 import {
+    decodeDiagnosticsSuppressedCount,
+    DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+} from '@contracts/diagnostics/diagnosticsCapability';
+import {
     decodeStartupCrashMarkerRecord,
     STARTUP_CRASH_MARKER_SCHEMA_VERSION,
     type StartupCrashMarkerRecord,
@@ -137,6 +141,16 @@ function assignForbiddenValue(location: string, value: unknown) {
 }
 
 describe('diagnostic contracts', () => {
+    it('decodes only the bounded renderer suppression count beside a closed record', () => {
+        expect(decodeDiagnosticsSuppressedCount(undefined)).toBe(0);
+        expect(decodeDiagnosticsSuppressedCount(0)).toBe(0);
+        expect(decodeDiagnosticsSuppressedCount(DIAGNOSTICS_MAX_SUPPRESSED_COUNT)).toBe(10_000);
+        expect(decodeDiagnosticsSuppressedCount(-1)).toBeNull();
+        expect(decodeDiagnosticsSuppressedCount(10_001)).toBeNull();
+        expect(decodeDiagnosticsSuppressedCount(1.5)).toBeNull();
+        expect(decodeDiagnosticsSuppressedCount('1')).toBeNull();
+    });
+
     it('derives the closed code union from one registry', () => {
         expect(DIAGNOSTIC_CODES).toEqual([
             'UNCLASSIFIED_RENDERER_ERROR',

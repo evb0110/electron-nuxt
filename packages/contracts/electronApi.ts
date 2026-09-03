@@ -1,5 +1,6 @@
 import type { IPlatformApi } from '@contracts/platformApi';
 import type { IUpdatesCapability } from '@contracts/updatesPlatformFeature';
+import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
 
 export type * from '@contracts/agent';
 export type * from '@contracts/pdfConformance';
@@ -23,4 +24,7 @@ export type * from '@contracts/searchPlatformFeature';
 export type * from '@contracts/settingsPlatformFeature';
 export type * from '@contracts/shellPlatformFeature';
 
-export type IElectronAPI = IPlatformApi & {updates: IUpdatesCapability};
+export type IElectronAPI = IPlatformApi & {
+    diagnostics: IDiagnosticsRendererCapability;
+    updates: IUpdatesCapability;
+};

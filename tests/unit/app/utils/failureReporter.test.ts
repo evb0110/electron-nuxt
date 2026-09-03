@@ -408,4 +408,41 @@ describe('renderer failure reporter', () => {
         expect(receipt).toEqual(expect.objectContaining({eventId: eventId(1)}));
         expect(sender).toHaveBeenCalledOnce();
     });
+
+    it('keeps the early Electron singleton while later initialization fills its missing callbacks', async () => {
+        vi.resetModules();
+        const sendRecord = vi.fn();
+        const localSink = vi.fn();
+        vi.stubGlobal('window', {electronAPI: {diagnostics: {sendRecord}}});
+
+        try {
+            const module = await import('@app/utils/failureReporter');
+            const early = module.initializeRendererFailureReporter({
+                host: 'electron',
+                createEventId: () => eventId(1),
+            });
+            const later = module.initializeRendererFailureReporter({
+                host: 'hosted-browser',
+                localSink,
+                readHostedPreference: () => 'granted',
+                loadHostedTransport: () => ({send: vi.fn()}),
+            });
+
+            const receipt = early.capture(createFailureInput('local only'));
+
+            expect(later).toBe(early);
+            expect(sendRecord).toHaveBeenCalledWith(expect.objectContaining({
+                runtime: 'electron-renderer',
+                eventId: receipt.eventId,
+            }), undefined);
+            expect(localSink).toHaveBeenCalledWith(expect.objectContaining({message: 'local only'}), receipt);
+            expect(early.getHealthSnapshot()).toMatchObject({
+                initializationCount: 2,
+                accepted: 1,
+                duplicate: 0,
+            });
+        } finally {
+            vi.unstubAllGlobals();
+        }
+    });
 });

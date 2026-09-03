@@ -144,6 +144,30 @@ describe('Electron main failure reporter', () => {
         });
     });
 
+    it.each([
+        () => false,
+        () => Promise.reject(new Error('transport rejected')),
+    ])('reserves an event ID after a failed transport send', async (sendResult) => {
+        const send = vi.fn(sendResult);
+        const reporter = createMainFailureReporter({
+            createEventId: () => parseDiagnosticEventId('a'.repeat(32))!,
+            preference: 'granted',
+            transport: {send},
+        });
+
+        reporter.capture(createInput());
+        reporter.capture(createInput('same receipt'));
+
+        expect(send).toHaveBeenCalledOnce();
+        await vi.waitFor(() => {
+            expect(reporter.getHealthSnapshot()).toMatchObject({
+                accepted: 0,
+                duplicate: 1,
+                transportFailed: 1,
+            });
+        });
+    });
+
     it('checks policy before recent-ID dedupe so a later grant can retry the same record', () => {
         const send = vi.fn();
         const reporter = createMainFailureReporter({
@@ -199,6 +223,42 @@ describe('Electron main failure reporter', () => {
             attempted: MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT + 3,
             accepted: 2,
             burstSuppressed: MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT + 1,
+        });
+    });
+
+    it('keeps an inherited renderer summary when main burst aggregation suppresses it', () => {
+        let now = 0;
+        const send = vi.fn();
+        const reporter = createMainFailureReporter({
+            burstLimit: 1,
+            burstWindowMs: 10,
+            now: () => now,
+            preference: 'granted',
+            transport: {send},
+        });
+        const rendererRecord = (eventId: string): DiagnosticRecord => ({
+            schemaVersion: 1,
+            eventId: eventId as DiagnosticRecord['eventId'],
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            severity: 'error',
+            runtime: 'electron-renderer',
+            operation: 'renderer-error',
+            occurredAt: 1,
+            frames: [{module: 'app/utils/failureReporter.ts'}],
+            context: {},
+        });
+
+        reporter.captureRecord(rendererRecord('a'.repeat(32)), 3);
+        reporter.captureRecord(rendererRecord('b'.repeat(32)), 4);
+        now = 10;
+        reporter.captureRecord(rendererRecord('c'.repeat(32)), 6);
+
+        expect(send).toHaveBeenCalledTimes(2);
+        expect(send.mock.calls[0]?.[1]).toBe(3);
+        expect(send.mock.calls[1]?.[1]).toBe(11);
+        expect(reporter.getHealthSnapshot()).toMatchObject({
+            accepted: 2,
+            burstSuppressed: 5,
         });
     });
 

@@ -499,8 +499,8 @@ describe('createElectronApi', () => {
         ]);
         expect(diagnosticsApi.diagnostics.startupPolicy).toBe(policy);
         expect(Object.isFrozen(diagnosticsApi.diagnostics.startupPolicy)).toBe(true);
-        diagnosticsApi.diagnostics.sendRecord({} as never);
-        expect(ipcRenderer.send).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, {});
+        diagnosticsApi.diagnostics.sendRecord({} as never, 7);
+        expect(ipcRenderer.send).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, {}, 7);
 
         diagnosticsApi.diagnostics.onDebugLog(callback);
         listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.({}, {
