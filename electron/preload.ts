@@ -52,12 +52,12 @@ const logDevRecovery = (level: TPreloadLogLevel, message: string, data?: Record<
             console.warn(message);
         }
     } else if (data) {
-        console.error(message, data);
+        console.warn(message, data);
     } else {
-        console.error(message);
+        console.warn(message);
     }
 
-    forwardPreloadLogToMain(level, 'devRecovery', message, data);
+    forwardPreloadLogToMain(level === 'error' ? 'warn' : level, 'devRecovery', message, data);
 };
 
 installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });

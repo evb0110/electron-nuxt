@@ -41,6 +41,10 @@ import {
     type LocalFailureDetail,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
+import {
+    decodeDebugLogEntry,
+    DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY,
+} from '@contracts/electronApiCommon';
 import {createCaptureTransport} from '@tests/helpers/captureTransport';
 
 const VALID_EVENT_ID = parseDiagnosticEventId('a'.repeat(DIAGNOSTIC_EVENT_ID_HEX_LENGTH))!;
@@ -141,6 +145,70 @@ function assignForbiddenValue(location: string, value: unknown) {
 }
 
 describe('diagnostic contracts', () => {
+    it('keeps debug-log failure references closed and restricted to ERROR entries', () => {
+        const failureRef = {
+            eventId: VALID_EVENT_ID,
+            code: 'UNCLASSIFIED_MAIN_ERROR' as const,
+            severity: 'error' as const,
+        };
+        const entry = {
+            source: 'main',
+            message: '[ERROR] main failure',
+            timestamp: '2026-09-03T00:00:00.000Z',
+            level: 'ERROR' as const,
+            failureRef,
+        };
+
+        expect(DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY).toBe(true);
+        expect(decodeDebugLogEntry(entry)).toEqual({
+            ...entry,
+            failureRef: {...failureRef},
+        });
+        expect(decodeDebugLogEntry({
+            ...entry,
+            level: 'WARN',
+        })).toBeNull();
+        expect(decodeDebugLogEntry({
+            ...entry,
+            failureRef: {
+                ...failureRef,
+                unexpected: true,
+            },
+        })).toBeNull();
+        expect(decodeDebugLogEntry({
+            ...entry,
+            extra: true,
+        })).toBeNull();
+        expect(decodeDebugLogEntry({
+            ...entry,
+            failureRef: {
+                ...failureRef,
+                eventId: 'not-an-event-id',
+            },
+        })).toBeNull();
+        expect(decodeDebugLogEntry({
+            ...entry,
+            failureRef: {
+                ...failureRef,
+                severity: 'warning',
+            },
+        })).toBeNull();
+    });
+
+    it('keeps reference-free ERROR entries during the named compatibility migration', () => {
+        expect(decodeDebugLogEntry({
+            source: 'legacy-main',
+            message: '[ERROR] legacy failure',
+            timestamp: '2026-09-03T00:00:00.000Z',
+            level: 'ERROR',
+        })).toEqual({
+            source: 'legacy-main',
+            message: '[ERROR] legacy failure',
+            timestamp: '2026-09-03T00:00:00.000Z',
+            level: 'ERROR',
+        });
+    });
+
     it('decodes only the bounded renderer suppression count beside a closed record', () => {
         expect(decodeDiagnosticsSuppressedCount(undefined)).toBe(0);
         expect(decodeDiagnosticsSuppressedCount(0)).toBe(0);

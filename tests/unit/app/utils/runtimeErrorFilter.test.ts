@@ -6,6 +6,7 @@ import {
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import {
     createDebugLogRuntimeErrorReport,
+    createDebugLogRuntimeErrorPresentation,
     getIgnorableRuntimeErrorMessage,
     isIgnorableRuntimeErrorMessage,
     isUiReportableDebugLog,
@@ -87,6 +88,35 @@ describe('runtime error filter', () => {
             'worker-task\n[ERROR] Worker reported failure: path=scan-cleanup-worker.js '
             + 'elapsedMs=<n> message=pdftoppm failed',
         );
+    });
+
+    it('creates a receipt-aware presentation that keeps the main Error ID in the runtime card detail', () => {
+        const entry: IDebugLogEntry = {
+            source: 'main',
+            message: '[ERROR] Main failure',
+            timestamp: '2026-08-23T08:57:36.046Z',
+            level: 'ERROR',
+            failureRef: {
+                eventId: 'c'.repeat(32) as never,
+                code: 'UNCLASSIFIED_MAIN_ERROR' as const,
+                severity: 'fatal' as const,
+            },
+        };
+
+        expect(createDebugLogRuntimeErrorPresentation(entry, 'Application error')).toEqual({
+            failure: {
+                eventId: 'c'.repeat(32),
+                code: 'UNCLASSIFIED_MAIN_ERROR',
+                occurredAt: Date.parse(entry.timestamp),
+                severity: 'fatal',
+            },
+            title: 'Application error',
+            description: expect.stringContaining(`Error ID: ${'c'.repeat(32)}`),
+        });
+        expect(createDebugLogRuntimeErrorPresentation(
+            debugLogEntry('legacy-main', 'ERROR', '[ERROR] Legacy failure'),
+            'Application error',
+        )).toBeNull();
     });
 
     it('keys the same fault together across elapsed time, process id and stack frames', () => {
