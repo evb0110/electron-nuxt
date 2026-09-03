@@ -86,3 +86,7 @@ names and their runtime purpose here, never their values.
 | Quota alerts | Enabled with pay-as-you-go still disabled | Pending |
 | Source-map access review | Owner-only and verified after upload | Pending |
 | Removal procedure | Tested without sending a production event | Pending |
+
+The alert definitions, weekly deletion procedure, privacy incident response,
+credential rotation, emergency disablement, canary evidence tables, and package
+removal rehearsal are in `sentry-runbook.md`.
