@@ -62,6 +62,7 @@ import {
     shutdownOcrJobManager,
 } from '@electron/ocr/jobManager';
 import {searchWorkerService} from '@electron/features/search/public';
+import {initializeMainFailureReporter} from '@electron/features/diagnostics/public';
 import {
     createWindow,
     configureNativeWindowCloseHandshake,
@@ -150,6 +151,7 @@ if (automationUserDataDir) {
 }
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
+initializeMainFailureReporter({preference: 'unknown'});
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;

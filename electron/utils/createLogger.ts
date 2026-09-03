@@ -16,6 +16,11 @@ import {
 } from 'path';
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
+import {isDiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
+import {isDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {FAILURE_SEVERITIES} from '@contracts/diagnostics/diagnosticRecord';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {getMainFailureReporter} from '@electron/features/diagnostics/public';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
 
@@ -24,13 +29,20 @@ interface ILogMessage {
     message: string;
     timestamp: string;
     level: TLogLevel;
+    failureRef?: IFailureRef;
+}
+
+interface IFailureRef {
+    eventId: FailureReceipt['eventId'];
+    code: FailureReceipt['code'];
+    severity: FailureReceipt['severity'];
 }
 
 export interface ILogger {
     debug(msg: string): void;
     info(msg: string): void;
     warn(msg: string): void;
-    error(msg: string): void;
+    error(msg: string, receipt?: FailureReceipt): FailureReceipt | undefined;
 }
 
 interface ILoggerOptions {broadcastToRenderers?: boolean;}
@@ -380,6 +392,63 @@ export async function flushPendingLogWrites() {
     ));
 }
 
+function isFailureReceipt(value: FailureReceipt | undefined): value is FailureReceipt {
+    try {
+        return value !== undefined
+            && isDiagnosticEventId(value.eventId)
+            && isDiagnosticCode(value.code)
+            && FAILURE_SEVERITIES.includes(value.severity)
+            && Number.isSafeInteger(value.occurredAt)
+            && value.occurredAt >= 0;
+    } catch {
+        return false;
+    }
+}
+
+function toFailureRef(receipt: FailureReceipt | undefined): IFailureRef | undefined {
+    if (!isFailureReceipt(receipt)) {
+        return undefined;
+    }
+    return {
+        eventId: receipt.eventId,
+        code: receipt.code,
+        severity: receipt.severity,
+    };
+}
+
+function captureMainLoggerFailure(source: string, message: string) {
+    if (!isMainThread) {
+        return undefined;
+    }
+
+    const reporter = getMainFailureReporter();
+    if (!reporter) {
+        return undefined;
+    }
+
+    let callSiteStack = '';
+    try {
+        callSiteStack = new Error().stack ?? '';
+    } catch {
+        // The reporter still returns a valid receipt without a stack.
+    }
+
+    try {
+        return reporter.capture({
+            code: 'UNCLASSIFIED_MAIN_ERROR',
+            operation: 'main-error',
+            context: {},
+            local: {
+                source,
+                message,
+                cause: callSiteStack,
+            },
+        });
+    } catch {
+        return undefined;
+    }
+}
+
 export function createLogger(source: string, options: ILoggerOptions = {}): ILogger {
     const logFile = join(LOG_DIR, `${source}.log`);
     const broadcastToRenderersEnabled = options.broadcastToRenderers ?? true;
@@ -390,7 +459,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
         // Ignore
     }
 
-    function log(level: TLogLevel, msg: string) {
+    function log(level: TLogLevel, msg: string, failureRef?: IFailureRef) {
         const ts = new Date().toISOString();
         const redactedMsg = redactElectronLogText(msg);
         const formattedMsg = `[${ts}] [${source}] [${level}] ${redactedMsg}`;
@@ -405,6 +474,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
                 message: `[${level}] ${redactedMsg}`,
                 timestamp: ts,
                 level,
+                ...(level === 'ERROR' && isMainThread && failureRef ? {failureRef} : {}),
             });
         }
     }
@@ -413,7 +483,19 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
         debug: (msg) => log('DEBUG', msg),
         info: (msg) => log('INFO', msg),
         warn: (msg) => log('WARN', msg),
-        error: (msg) => log('ERROR', msg),
+        error: (msg, existingReceipt) => {
+            if (!isMainThread) {
+                log('ERROR', msg);
+                return undefined;
+            }
+
+            const reporter = getMainFailureReporter();
+            const receipt = isFailureReceipt(existingReceipt)
+                ? existingReceipt
+                : reporter ? captureMainLoggerFailure(source, msg) : undefined;
+            log('ERROR', msg, toFailureRef(receipt));
+            return receipt;
+        },
     };
 }
 
