@@ -239,7 +239,7 @@ describe('usePdfViewerVirtualization', () => {
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(2),
-            currentPage: ref(1),
+            currentPage: ref(2),
             continuousScroll: computed(() => false),
             basePageWidth: ref(300),
             basePageHeight: ref(100),
@@ -296,7 +296,7 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('keeps every committed continuous-scroll page stable until navigation applies', () => {
+    it('keeps committed outgoing continuous-scroll pages stable until navigation applies', () => {
         const navigationVisualHandoffTargetPage = ref<number | null>(1);
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
@@ -324,7 +324,7 @@ describe('usePdfViewerVirtualization', () => {
                 start: 1,
                 end: 2,
             }),
-            navigationAnchorPage: ref(1),
+            navigationAnchorPage: ref(null),
             navigationVisualHandoffTargetPage,
             getCommittedPageScale: pageNumber => pageNumber === 1 ? 0.8 : 0.9,
             resizeTransitionAnchorPage: ref(null),
@@ -332,9 +332,9 @@ describe('usePdfViewerVirtualization', () => {
         });
 
         expect(virtualization.getPagePlaceholderStyle(1)).toMatchObject({
-            width: '240px',
-            height: '80px',
-            '--scale-factor': '0.8',
+            width: '300px',
+            height: '100px',
+            '--scale-factor': '1',
         });
         expect(virtualization.getPagePlaceholderStyle(2)).toMatchObject({
             width: '270px',
@@ -356,13 +356,13 @@ describe('usePdfViewerVirtualization', () => {
         });
     });
 
-    it('prepares an uncommitted continuous-scroll target at the destination scale', () => {
+    it('prepares a continuous-scroll target at the destination scale even when pre-rendered', () => {
         const virtualization = usePdfViewerVirtualization({
             performancePolicy: normalPerformancePolicy,
             bufferPages: computed(() => 2),
             viewMode: computed(() => 'single'),
             numPages: ref(2),
-            currentPage: ref(1),
+            currentPage: ref(2),
             continuousScroll: computed(() => true),
             basePageWidth: ref(300),
             basePageHeight: ref(100),
@@ -384,8 +384,8 @@ describe('usePdfViewerVirtualization', () => {
                 end: 1,
             }),
             navigationAnchorPage: ref(2),
-            navigationVisualHandoffTargetPage: ref(2),
-            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : null,
+            navigationVisualHandoffTargetPage: ref(null),
+            getCommittedPageScale: pageNumber => pageNumber === 1 ? 1 : 0.9,
             resizeTransitionAnchorPage: ref(null),
             zoomVirtualizationFreeze: ref(null),
         });
