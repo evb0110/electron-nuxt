@@ -228,7 +228,7 @@ Paths that do not exist yet are marked `new`. Every other path exists at
 | `electron/window.ts`, `electron/window/rendererReady.ts` | renderer death, preload failure, and unresponsive recovery; load-failure regions remain SEN-MIG-07 | SEN-MIG-08 |
 | `electron/utils/workerTask.ts` | worker parent seam; the reported-error `WeakSet` becomes a receipt-carrying `WeakMap` | SEN-MIG-09 |
 | `electron/platform-ipc/coreContract.ts` | new renderer diagnostic send channel and its decoder | SEN-CORE-08 |
-| `electron/platform-ipc/rendererDiagnosticBridge.ts` (new) | trusted-sender check, schema, size, rate, and frame validation | SEN-CORE-08 |
+| `electron/platform-ipc/registerRendererDiagnosticBridge.ts` (new) | trusted-sender check, schema, size, rate, and frame validation | SEN-CORE-08 |
 | `electron/platform-ipc/registerCoreIpcHandlers.ts` | registration of the diagnostic channel | SEN-CORE-08 |
 | `electron/preload.ts`, `electron/preload/createElectronApi.ts` | immutable startup policy snapshot and typed record send only | SEN-CORE-09 |
 | `electron/preload/readDiagnosticsPolicyArgument.ts` (new) | decodes the snapshot passed through `additionalArguments` | SEN-CORE-09 |
@@ -674,7 +674,7 @@ current repository or external-gate status.
 - Depends on: SEN-CORE-04, SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/platform-ipc/coreContract.ts`,
-  `electron/platform-ipc/rendererDiagnosticBridge.ts` (new),
+  `electron/platform-ipc/registerRendererDiagnosticBridge.ts` (new),
   `electron/platform-ipc/registerCoreIpcHandlers.ts`
 - Behavior: one new send channel carries a sanitized `DiagnosticRecord` from
   renderer to main. Main validates the trusted sender, the exact schema, the

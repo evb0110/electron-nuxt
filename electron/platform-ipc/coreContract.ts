@@ -1,8 +1,4 @@
-import {
-    decodeDebugLogEntry,
-    type IDebugLogEntry,
-    type IDebugLogFailureRef,
-} from '@contracts/electronApiCommon';
+import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import {
     DIAGNOSTICS_POLICY_HINTS,
     type IDiagnosticsRendererCapability,
@@ -32,15 +28,7 @@ export const CORE_IPC_SEND_CHANNELS = {
 } as const;
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
-export {DIAGNOSTICS_POLICY_HINTS};
-export type {
-    IDiagnosticsStartupPolicy,
-    TDiagnosticsPolicyHint,
-} from '@contracts/diagnostics/diagnosticsCapability';
-
-/** Compatibility aliases retained while callers converge on the shared entry contract. */
-export type IDiagnosticsFailureRef = IDebugLogFailureRef;
-export type IDiagnosticsDebugLogEntry = IDebugLogEntry;
+export type {IDiagnosticsStartupPolicy} from '@contracts/diagnostics/diagnosticsCapability';
 
 export type IPreloadDiagnosticsApi = IDiagnosticsRendererCapability;
 
@@ -66,8 +54,6 @@ export function encodeDiagnosticsPolicyArgument(value: unknown) {
         .toString('base64url');
     return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
 }
-
-export const decodeDiagnosticsDebugLogEntry = decodeDebugLogEntry;
 
 export interface IShutdownSaveFlushRequest { requestId: string; }
 

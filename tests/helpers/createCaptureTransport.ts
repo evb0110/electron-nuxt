@@ -21,5 +21,3 @@ export function createCaptureTransport<TEvent>(): CaptureTransport<TEvent> {
         },
     };
 }
-
-export const createTestCaptureTransport = createCaptureTransport;

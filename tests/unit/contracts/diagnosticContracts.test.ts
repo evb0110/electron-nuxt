@@ -44,7 +44,7 @@ import {
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import {decodeDebugLogEntry} from '@contracts/electronApiCommon';
-import {createCaptureTransport} from '@tests/helpers/captureTransport';
+import {createCaptureTransport} from '@tests/helpers/createCaptureTransport';
 
 const VALID_EVENT_ID = parseDiagnosticEventId('a'.repeat(DIAGNOSTIC_EVENT_ID_HEX_LENGTH))!;
 

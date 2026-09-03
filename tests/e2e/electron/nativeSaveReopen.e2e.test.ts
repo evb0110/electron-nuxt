@@ -14,6 +14,7 @@ import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/v
 import {
     openAnnotationsTab,
     saveViaWindowHandle,
+    waitForActiveDocumentSource,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -38,6 +39,8 @@ interface IQpdfOutline {
     kids?: IQpdfOutline[];
 }
 
+interface IAutomationFileOpenGrantWindow extends IE2EWindow {__allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;}
+
 function flattenQpdfOutlines(outlines: IQpdfOutline[]): Array<{
     title: string;
     page: number;
@@ -59,16 +62,9 @@ function flattenQpdfOutlines(outlines: IQpdfOutline[]): Array<{
 }
 
 async function waitForOpenedPdf(session: IElectronE2ESession, path: string) {
-    await Promise.all([
-        waitForAutomationEvent(session.page, 'document-opened', {
-            path,
-            timeoutMs: 45_000,
-        }),
-        waitForAutomationEvent(session.page, 'first-page-rendered', {
-            path,
-            timeoutMs: 45_000,
-        }),
-    ]);
+    // Startup events can predate the CDP attachment after a fresh-process
+    // reopen. Verify the exact active source and rendered UI instead.
+    await waitForActiveDocumentSource(session.page, path, 45_000);
     await waitForPdfLoaded(session.page, 45_000);
     await waitForViewerInteractive(session.page, 45_000);
 }
@@ -266,12 +262,18 @@ describe('Electron E2E - native save and reopen', () => {
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-${Date.now()}`, {
                 clean: true,
                 extraEnv: {EVB_PDF_PAGE_OPS_ENABLE: '1'},
-                initialOpenPaths: sourcePath ? [
-                    pdfPath,
-                    sourcePath,
-                ] : [pdfPath],
+                initialOpenPaths: [pdfPath],
             });
             await waitForOpenedPdf(session, pdfPath);
+
+            if (sourcePath) {
+                const granted = await evaluateInPage(session.page, async path => {
+                    const grant = (window as IAutomationFileOpenGrantWindow)
+                        .__allowRendererFileOpenForAutomation;
+                    return typeof grant === 'function' && grant(path);
+                }, sourcePath);
+                expect(granted, 'insert source path automation grant').toBe(true);
+            }
 
             const workingCopyPath = await evaluateInPage(session.page, async path => {
                 const api = (window as IE2EWindow).electronAPI;

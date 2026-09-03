@@ -658,7 +658,9 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             scale.scaledMargin.value,
             scrollOptions,
         );
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber)
+            || singlePageScroll.applyOpeningViewportAnchor(pageNumber)
+            && singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,
             afterScrollTop: options.viewerContainer.value?.scrollTop ?? null,
