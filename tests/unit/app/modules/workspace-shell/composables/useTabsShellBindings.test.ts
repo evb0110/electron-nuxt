@@ -618,7 +618,9 @@ describe('useTabsShellBindings', () => {
         });
         const unmount = await mountBindings(options);
         const { BrowserLogger } = await import('@app/utils/browserLogger');
-        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
+            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+        );
 
         capturedKeydown?.(cast<KeyboardEvent>({
             key: 'o',

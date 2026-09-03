@@ -93,18 +93,18 @@ export function registerCoreIpcHandlers(
         },
     });
     registerRendererDiagnosticBridge({
-        captureRecord: (record) => {
+        captureRecord: (record, suppressedCount) => {
             const reporter = getMainFailureReporter();
             if (!reporter) {
                 return false;
             }
-            reporter.captureRecord(record);
+            reporter.captureRecord(record, suppressedCount);
             return true;
         },
         isTrustedSender: isTrustedWebContentsSender,
         registerListener: (channel, handler) => {
-            ipcMain.on(channel, (event, payload) => {
-                handler(event, payload);
+            ipcMain.on(channel, (event, payload, suppressedCount) => {
+                handler(event, payload, suppressedCount);
             });
         },
     });

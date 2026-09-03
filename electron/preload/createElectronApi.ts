@@ -599,8 +599,8 @@ export function createElectronApi(
 
         diagnostics: {
             startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'}),
-            sendRecord: (record: DiagnosticRecord) => {
-                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, record);
+            sendRecord: (record: DiagnosticRecord, suppressedCount = 0) => {
+                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, record, suppressedCount);
             },
             onDebugLog: (callback) => eventSubscriber.onDecodedPayload(
                 CORE_IPC_EVENT_CHANNELS.debugLog,
