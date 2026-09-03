@@ -6,16 +6,21 @@ import {
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-    reportRuntimeError: vi.fn(),
-    onDebugLog: vi.fn(),
-    hasElectronAPI: vi.fn(() => false),
-    isElectronUserAgent: vi.fn(() => false),
-    waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
-        bridgeReady: false,
-        shouldWait: false,
-    })),
-}));
+const mocks = vi.hoisted(() => {
+    const consoleObserverCleanup = vi.fn();
+    return {
+        reportRuntimeError: vi.fn(),
+        onDebugLog: vi.fn(),
+        consoleObserverCleanup,
+        installConsoleErrorObserver: vi.fn(() => ({cleanup: consoleObserverCleanup})),
+        hasElectronAPI: vi.fn(() => false),
+        isElectronUserAgent: vi.fn(() => false),
+        waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
+            bridgeReady: false,
+            shouldWait: false,
+        })),
+    };
+});
 
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({onDebugLog: mocks.onDebugLog})}));
 vi.mock('@app/utils/platform', () => ({
@@ -34,6 +39,7 @@ const browserLoggerMock = {
 };
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
+vi.mock('@app/utils/consoleErrorObserver', () => ({installConsoleErrorObserver: mocks.installConsoleErrorObserver}));
 
 function installAutoImportStubs() {
     vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin);
@@ -157,6 +163,12 @@ describe('renderer hygiene plugins', () => {
         expect(harness.nuxtApp.vueApp.config.errorHandler).toBe(harness.previousErrorHandler);
         expect(installedErrorHandler).not.toBe(harness.previousErrorHandler);
         expect(harness.originalUnmount).toHaveBeenCalledTimes(1);
+        expect(mocks.installConsoleErrorObserver).toHaveBeenCalledOnce();
+        expect(mocks.installConsoleErrorObserver).toHaveBeenCalledWith(expect.objectContaining({
+            reporter: expect.any(Object),
+            runtime: 'hosted-browser',
+        }));
+        expect(mocks.consoleObserverCleanup).toHaveBeenCalledOnce();
     });
 
     it('creates one receipt per Vue, window, and rejection failure, then passes that receipt to the logger and runtime card', async () => {
