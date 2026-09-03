@@ -92,6 +92,7 @@ const electronE2ERegressionTestFiles = [
     'tests/e2e/electron/inactivePdfTabs.e2e.test.ts',
     'tests/e2e/electron/inactiveDjvuTabs.e2e.test.ts',
     'tests/e2e/electron/annotationLifecycle.e2e.test.ts',
+    'tests/e2e/electron/stampPicker.e2e.test.ts',
     'tests/e2e/electron/squigglyMarkup.e2e.test.ts',
 ];
 

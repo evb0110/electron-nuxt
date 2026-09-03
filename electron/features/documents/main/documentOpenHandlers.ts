@@ -48,6 +48,7 @@ import {isPdfDecryptPassword} from '@contracts/pdfDecryptSchemas';
 
 const logger = createLogger('documents-dialogs');
 const MAX_DIRECT_OPEN_BATCH_PATHS = 512;
+const E2E_OPEN_IMAGE_PATH_ENV = 'EVB_E2E_OPEN_IMAGE_PATH';
 /**
  * The direct batch open requests this main process can still cancel, keyed by
  * sender and request id. Every request that carries an id is registered, not
@@ -335,6 +336,19 @@ export async function handleOpenCombineDialog(context: IDocumentsDialogContext):
 }
 
 export async function handleOpenImageDialog(context: IDocumentsDialogContext) {
+    const e2eImagePath = process.env[E2E_OPEN_IMAGE_PATH_ENV]?.trim();
+    if (e2eImagePath) {
+        if (!isAbsolute(e2eImagePath)) {
+            throw new Error(E2E_OPEN_IMAGE_PATH_ENV + ' must be an absolute path');
+        }
+        const imageStat = await stat(e2eImagePath).catch(() => null);
+        if (!imageStat?.isFile()) {
+            throw new Error(E2E_OPEN_IMAGE_PATH_ENV + ' must point to an image file');
+        }
+        allowOpenPath(e2eImagePath, context.sender);
+        return e2eImagePath;
+    }
+
     const dialogOptions = {
         title: te('dialogs.openImage'),
         defaultPath: getDocumentsDialogDefaultPath(),
