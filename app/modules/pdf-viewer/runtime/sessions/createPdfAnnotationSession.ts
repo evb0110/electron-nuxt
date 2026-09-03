@@ -411,6 +411,29 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         settings: options.annotationSettings,
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
+        runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
+        getPageGeometry: pageIndex => {
+            const metric = documentSession.pageMetrics.value[pageIndex];
+            if (!metric) {
+                return null;
+            }
+            return {
+                pageView: [
+                    0,
+                    0,
+                    metric.width,
+                    metric.height,
+                ],
+                rotation: ([
+                    0,
+                    90,
+                    180,
+                    270,
+                ] as const).includes(metric.rotation as 0 | 90 | 180 | 270)
+                    ? metric.rotation as 0 | 90 | 180 | 270
+                    : 0,
+            };
+        },
         emitOpenNote: entity => {
             if (entity.kind !== 'note') {
                 return;

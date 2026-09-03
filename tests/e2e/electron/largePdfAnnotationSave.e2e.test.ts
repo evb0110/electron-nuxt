@@ -878,11 +878,7 @@ async function expectCleanAnnotationHydration(page: Page) {
             && dirty.hasLivePdfJsAnnotationChanges === false
             && dirty.hasPendingUnsavedChanges === false
             && dirty.hasSavedPdfJsAnnotationBaselineChanges === false
-            && dirty.pdfJsAnnotationStorage !== null
-            && (
-                dirty.pdfJsAnnotationStorage.hasChanges === false
-                && dirty.pdfJsAnnotationStorage.ids.length === 0
-            );
+            && dirty.pdfJsAnnotationStorage === null;
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
 }
 
