@@ -585,6 +585,11 @@ function attachWorkerHandlers<T>({
                 const receipt = workerTaskLog.error(
                     `Worker returned an invalid payload: path=${options.workerPath} `
                     + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                    {
+                        code: 'MAIN_WORKER_TASK_FAILED',
+                        context: {},
+                        cause: error,
+                    },
                 );
                 reject(markWorkerTaskErrorReported(error, receipt));
                 return;
@@ -599,7 +604,11 @@ function attachWorkerHandlers<T>({
                 if (workerError.canceled) {
                     workerTaskLog.info(`Worker reported cancellation: ${summary}`);
                 } else {
-                    const receipt = workerTaskLog.error(`Worker reported failure: ${summary}`);
+                    const receipt = workerTaskLog.error(`Worker reported failure: ${summary}`, {
+                        code: 'MAIN_WORKER_TASK_FAILED',
+                        context: {},
+                        cause: workerError,
+                    });
                     markWorkerTaskErrorReported(workerError, receipt);
                 }
                 reject(workerError);
@@ -611,6 +620,10 @@ function attachWorkerHandlers<T>({
                     const receipt = workerTaskLog.error(
                         `Worker returned an invalid result: path=${options.workerPath} `
                         + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                        {
+                            code: 'MAIN_WORKER_TASK_FAILED',
+                            context: {},
+                        },
                     );
                     reject(markWorkerTaskErrorReported(
                         new Error(invalidResultMessage ?? invalidPayloadMessage),
@@ -649,7 +662,11 @@ function attachWorkerHandlers<T>({
         if (hasPendingCancelError) {
             workerTaskLog.info(`Worker emitted an error while cancelling: ${summary}`);
         } else {
-            receipt = workerTaskLog.error(`Worker emitted an error: ${summary}`);
+            receipt = workerTaskLog.error(`Worker emitted an error: ${summary}`, {
+                code: 'MAIN_WORKER_TASK_FAILED',
+                context: {},
+                cause: error,
+            });
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -678,7 +695,10 @@ function attachWorkerHandlers<T>({
         if (hasPendingCancelError) {
             workerTaskLog.info(`Worker exited while cancelling: ${summary}`);
         } else {
-            receipt = workerTaskLog.error(`Worker exited before returning a result: ${summary}`);
+            receipt = workerTaskLog.error(`Worker exited before returning a result: ${summary}`, {
+                code: 'MAIN_WORKER_TASK_FAILED',
+                context: {},
+            });
         }
         finalize(() => {
             if (hasPendingCancelError) {

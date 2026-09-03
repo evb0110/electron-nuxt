@@ -1,7 +1,9 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     decodeCanonicalAppFrame,
@@ -9,6 +11,10 @@ import {
 } from '@contracts/diagnostics/canonicalAppFrames';
 
 describe('canonical application frame normalization', () => {
+    afterEach(() => {
+        vi.unstubAllGlobals();
+    });
+
     it('normalizes macOS source frames and removes local paths, queries, and fragments', () => {
         const result = normalizeCanonicalApplicationFrames(`Error: local message
     at openDocument (file:///Users/alice/Projects/evb-viewer/app/modules/viewer.ts?document=/Users/alice/private.pdf#secret:12:8)
@@ -72,6 +78,44 @@ describe('canonical application frame normalization', () => {
                 column: 2,
             },
         ]);
+    });
+
+    it('normalizes the production web host, the current preview host, and Nitro task bundles', () => {
+        vi.stubGlobal('location', {hostname: 'evb-viewer-preview-abc.vercel.app'});
+        const result = normalizeCanonicalApplicationFrames(`Error: hosted failure
+    at production (https://web.evb-viewer.com/_nuxt/viewer-abc.js:12:3)
+    at preview (https://evb-viewer-preview-abc.vercel.app/_nuxt/viewer-def.js:13:4)
+    at nitro (file:///var/task/.output/server/chunks/nitro/server.mjs:14:5)
+    at nitroPreset (file:///var/task/server/chunks/routes/api.mjs:15:6)
+    at otherPreview (https://other-project.vercel.app/_nuxt/injected.js:16:7)`);
+
+        expect(result.frames).toEqual([
+            {
+                module: '_nuxt/viewer-abc.js',
+                function: 'production',
+                line: 12,
+                column: 3,
+            },
+            {
+                module: '_nuxt/viewer-def.js',
+                function: 'preview',
+                line: 13,
+                column: 4,
+            },
+            {
+                module: 'server-bundle/chunks/nitro/server.mjs',
+                function: 'nitro',
+                line: 14,
+                column: 5,
+            },
+            {
+                module: 'server-bundle/chunks/routes/api.mjs',
+                function: 'nitroPreset',
+                line: 15,
+                column: 6,
+            },
+        ]);
+        expect(JSON.stringify(result)).not.toContain('/var/task');
     });
 
     it('normalizes source-map protocol paths and updates debug images in the same call', () => {

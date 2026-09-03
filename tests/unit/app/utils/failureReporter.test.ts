@@ -201,7 +201,7 @@ describe('renderer failure reporter', () => {
     it.each([
         'unknown',
         'denied',
-    ] as const)('keeps Electron records closed while the %s startup hint is active', (startupHint) => {
+    ] as const)('forwards closed Electron records to the authoritative main gate while the %s startup hint is active', (startupHint) => {
         const {
             reporter,
             sender,
@@ -212,11 +212,11 @@ describe('renderer failure reporter', () => {
 
         reporter.capture(createFailureInput());
 
-        expect(sender).not.toHaveBeenCalled();
+        expect(sender).toHaveBeenCalledOnce();
         expect(reporter.getHealthSnapshot()).toMatchObject({
             mode: startupHint,
-            policyDropped: 1,
-            accepted: 0,
+            policyDropped: 0,
+            accepted: 1,
         });
     });
 
@@ -307,17 +307,18 @@ describe('renderer failure reporter', () => {
         expect(lease).not.toHaveProperty('getRecord');
         expect(lease?.failure).toEqual(presented.failure);
         expect(lease?.isLive).toBe(true);
-        expect(sender).not.toHaveBeenCalled();
+        expect(sender).toHaveBeenCalledOnce();
 
         reporter.setPreference('granted');
 
         expect(lease?.resendOnceAfterGrant()).toBe(true);
-        expect(sender).toHaveBeenCalledOnce();
+        expect(sender).toHaveBeenCalledTimes(2);
         expect(sender.mock.calls[0]?.[0]).toMatchObject({eventId: presented.failure.eventId});
+        expect(sender.mock.calls[1]?.[0]).toMatchObject({eventId: presented.failure.eventId});
         expect(lease?.isLive).toBe(false);
         expect(lease?.resendOnceAfterGrant()).toBe(false);
         lease?.discard();
-        expect(sender).toHaveBeenCalledOnce();
+        expect(sender).toHaveBeenCalledTimes(2);
     });
 
     it('reserves hosted recent-ID and burst slots before a deferred transport resolves', async () => {

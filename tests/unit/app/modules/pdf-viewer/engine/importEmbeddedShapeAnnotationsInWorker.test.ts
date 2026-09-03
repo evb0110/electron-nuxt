@@ -17,13 +17,17 @@ import { readDocumentBytes } from '@app/utils/documentBytes';
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
-    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
     occurredAt: 1,
     severity: 'error',
 };
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
 
-vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+vi.mock('@app/utils/failureReporter', () => ({
+    detectRendererDiagnosticsHost: () => 'hosted-browser',
+    getRendererFailureReporter: () => failureReporter,
+    initializeRendererFailureReporter: () => failureReporter,
+}));
 
 const documentMocks = vi.hoisted(() => ({
     readFileRange: vi.fn(),

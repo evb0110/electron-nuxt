@@ -66,6 +66,7 @@ import {
     captureMainFailure,
     getMainFailureReporter,
     initializeMainFailureReporter,
+    setMainDiagnosticsPreference,
 } from '@electron/features/diagnostics/public';
 import { readDiagnosticsPreferenceSync } from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
 import {
@@ -95,6 +96,7 @@ import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
 import {
     createLogger,
     flushPendingLogWrites,
+    type ILogger,
 } from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
@@ -239,36 +241,30 @@ function logMainFailure<C extends DiagnosticCode>(
     message: string,
     cause?: unknown,
 ) {
-    let receipt: FailureReceipt | undefined;
     try {
-        receipt = captureMainFailure({
+        return logger.error(message, {
             code,
             operation: 'main-error',
             context,
-            local: {
-                source: 'main',
-                message,
-                cause,
-            },
+            cause,
         });
     } catch {
         // Diagnostics must not change process-death or shutdown behavior.
+        return undefined;
     }
-    logger.error(message, receipt);
-    return receipt;
 }
 
-const shutdownLogger = {
+const shutdownLogger: ILogger = {
     debug: logger.debug,
     info: logger.info,
     warn: logger.warn,
-    error: (message: string, existingReceipt?: FailureReceipt) => {
+    error: (message, failure) => {
         const pending = pendingFatalFailure;
         if (pending !== null && pending.reason === message) {
             pendingFatalFailure = null;
-            return logger.error(message, existingReceipt ?? pending.receipt);
+            return logger.error(message, pending.receipt);
         }
-        return logger.error(message, existingReceipt);
+        return logger.error(message, failure);
     },
 };
 
@@ -309,7 +305,10 @@ const startupTrace = createStartupTrace(logger);
 
 function requestFatalShutdown(reason: string, receipt?: FailureReceipt) {
     if (!shutdownCoordinator) {
-        logger.error(reason, receipt);
+        logger.error(reason, receipt ?? {
+            code: 'MAIN_SHUTDOWN_FAILED',
+            context: {},
+        });
         app.exit(1);
         return;
     }
@@ -481,11 +480,14 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
                         context.preserveRecoveryState = true;
-                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state');
+                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {
+                            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                            context: {},
+                        });
                     }
                     for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
                         workingCopyCleanupSkipPaths.add(workingCopyPath);
-                        logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
+                        logger.warn(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
                     }
                     if (result.flushedWorkingCopyPaths.length > 0) {
                         logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
@@ -517,15 +519,25 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 run: async () => {
                     const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
                     if (!result.completed) {
-                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`);
+                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {
+                            code: 'MAIN_SHUTDOWN_FAILED',
+                            context: {},
+                        });
                         for (const operation of result.pending) {
                             if (operation.workingCopyPath) {
                                 workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
                                 logger.error(
                                     `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
+                                    {
+                                        code: 'MAIN_SHUTDOWN_FAILED',
+                                        context: {},
+                                    },
                                 );
                             } else {
-                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`);
+                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`, {
+                                    code: 'MAIN_SHUTDOWN_FAILED',
+                                    context: {},
+                                });
                             }
                         }
                     }
@@ -643,7 +655,10 @@ process.on('unhandledRejection', (reason) => {
     const recoveryLoggerError = (message: string) => {
         const recoveryReceipt = unhandledRecoveryReceipts.get(decision.subsystem);
         if (!recoveryReceipt) {
-            return logger.error(message);
+            return logger.error(message, {
+                code: 'MAIN_UNHANDLED_REJECTION_RECOVERY',
+                context: {subsystem: decision.subsystem},
+            });
         }
         const projectedReceipt = logger.error(message, recoveryReceipt);
         unhandledRecoveryReceipts.delete(decision.subsystem);
@@ -747,6 +762,7 @@ void runInitSequence({
     initializeElectronTranslations,
     initializeResourceRuntime: async () => {
         const settings = await loadSettings();
+        setMainDiagnosticsPreference(settings.clientDiagnosticsPreference);
         const resourceProfile = initializeHostResourceProfile({
             app,
             performanceMode: readLaunchPerformanceMode(settings),

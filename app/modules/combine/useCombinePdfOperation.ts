@@ -83,7 +83,10 @@ export const useCombinePdfOperation = <T extends {
                 ? null
                 : error instanceof CombinePdfError && error.failure
                     ? error.failure
-                    : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error);
+                    : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error, {
+                        code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED',
+                        context: {},
+                    });
             combineErrorIsExpected.value = expected;
             combineError.value = error instanceof CombinePdfError && error.code === 'canceled'
                 ? null
@@ -123,6 +126,10 @@ export const useCombinePdfOperation = <T extends {
                 'pdf-combine',
                 'Saving the combined PDF failed',
                 error,
+                {
+                    code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED',
+                    context: {},
+                },
             );
         }
     }

@@ -599,7 +599,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             && matchesPdfSnapshotFence(snapshot, pageCount),
         );
     }
-
     async function getPdfAnnotationSnapshot(
         doc: PDFDocumentProxy,
         pageCount: number,
@@ -619,7 +618,6 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         ) {
             return pdfAnnotationSnapshot;
         }
-
         const sharedKey = getSharedSnapshotKey(pageCount);
         const shared = readSharedPdfAnnotationSnapshot(sharedKey, doc);
         if (
@@ -635,12 +633,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             pdfAnnotationSnapshot = cloneSharedPdfAnnotationSnapshot(shared, doc);
             return pdfAnnotationSnapshot;
         }
-
         const reusablePromise = getReusablePdfSnapshotPromise(doc, pageCount, intent);
         if (reusablePromise) {
             return reusablePromise;
         }
-
         const snapshotVersion = pdfAnnotationSnapshotVersion;
         const snapshotPromise = collectPdfAnnotationSnapshot(
             doc,
@@ -1096,6 +1092,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 'annotations',
                 'Failed to synchronize annotation comments',
                 error,
+                {
+                    code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
+                    context: {},
+                },
             );
         }
     }

@@ -80,7 +80,10 @@ describe('file logger write buffering', () => {
         const logger = createLogger('buffer-error-test', {broadcastToRenderers: false});
 
         logger.info('buffered');
-        logger.error('urgent');
+        logger.error('urgent', {
+            code: 'MAIN_WINDOW_OPERATION_FAILED',
+            context: {},
+        });
 
         await vi.advanceTimersByTimeAsync(0);
         expect(countWrittenLines()).toBe(2);

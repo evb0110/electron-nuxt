@@ -369,11 +369,11 @@ export const BrowserLogger = {
         );
     },
 
-    error: <C extends DiagnosticCode = 'UNCLASSIFIED_RENDERER_ERROR'>(
+    error: <C extends DiagnosticCode>(
         section: string,
         message: string,
-        error?: TLazyValue,
-        existingReceiptOrOptions?: FailureReceipt | IBrowserLoggerErrorOptions<C>,
+        error: TLazyValue | undefined,
+        existingReceiptOrOptions: FailureReceipt | IBrowserLoggerErrorOptions<C>,
     ): FailureReceipt => {
         let existingReceipt: FailureReceipt | undefined;
         let diagnosticOptions: IBrowserLoggerErrorOptions<C> | undefined;
@@ -404,11 +404,18 @@ export const BrowserLogger = {
         } else {
             const input: CaptureFailureInput<'UNCLASSIFIED_RENDERER_ERROR'> = {
                 code: 'UNCLASSIFIED_RENDERER_ERROR',
-                context: {},
+                context: {phase: 'operation'},
                 local,
             };
             receipt = captureRendererFailure(input, captureOptions)
                 ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+            try {
+                ORIGINAL_CONSOLE_SINKS.warn(
+                    '[BrowserLogger] ERROR call used the closed unclassified fallback because its diagnostic input was invalid.',
+                );
+            } catch {
+                // Local warning failure cannot interrupt the original error path.
+            }
         }
 
         emitLog('error', section, message, resolved);

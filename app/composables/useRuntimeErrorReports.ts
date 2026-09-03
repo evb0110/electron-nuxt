@@ -1,7 +1,4 @@
-import {
-    isFailurePresentation,
-    type FailurePresentation,
-} from '@app/composables/useFailureToast';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
 import type {ILiveDiagnosticLease} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
@@ -14,34 +11,6 @@ export interface IRuntimeErrorReport {
     occurredAt: number;
     failure: FailureReceipt | null;
     pendingDiagnostic?: ILiveDiagnosticLease | undefined;
-}
-
-interface ILegacyRuntimeErrorReportOptions {
-    title: string;
-    source: string;
-    error: unknown;
-    dedupeKey?: string;
-}
-
-function stringifyErrorForReport(error: unknown) {
-    if (error instanceof Error) {
-        return [
-            `${error.name}: ${error.message}`,
-            error.stack,
-        ].filter(Boolean).join('\n\n');
-    }
-    if (typeof error === 'string') {
-        return error.trim();
-    }
-    try {
-        return JSON.stringify(error, null, 2);
-    } catch {
-        return String(error);
-    }
-}
-
-function createReportKey(source: string, title: string, detail: string) {
-    return `${source}\n${title}\n${detail}`;
 }
 
 export const useRuntimeErrorReports = () => {
@@ -174,44 +143,16 @@ export const useRuntimeErrorReports = () => {
         return false;
     }
 
-    function reportRuntimeError(presentation: FailurePresentation): void;
-    /** Remove this compatibility overload at the Phase 2 exit when the unclassified-code migration report reaches zero. */
-    function reportRuntimeError(options: ILegacyRuntimeErrorReportOptions): void;
-    function reportRuntimeError(
-        presentationOrOptions: FailurePresentation | ILegacyRuntimeErrorReportOptions,
-    ) {
-        if (isFailurePresentation(presentationOrOptions)) {
-            addReport({
-                id: presentationOrOptions.failure.eventId,
-                title: presentationOrOptions.title,
-                detail: presentationOrOptions.description ?? '',
-                source: presentationOrOptions.failure.code,
-                count: 1,
-                occurredAt: Date.now(),
-                failure: presentationOrOptions.failure,
-                pendingDiagnostic: presentationOrOptions.pendingDiagnostic,
-            });
-            return;
-        }
-
-        const options = presentationOrOptions;
-        const detail = stringifyErrorForReport(options.error);
-        if (!detail) {
-            return;
-        }
-
-        const dedupeKey = options.dedupeKey?.trim();
-        const key = dedupeKey && dedupeKey.length > 0
-            ? dedupeKey
-            : createReportKey(options.source, options.title, detail);
+    function reportRuntimeError(presentation: FailurePresentation) {
         addReport({
-            id: key,
-            title: options.title,
-            detail,
-            source: options.source,
+            id: presentation.failure.eventId,
+            title: presentation.title,
+            detail: presentation.description ?? '',
+            source: presentation.failure.code,
             count: 1,
             occurredAt: Date.now(),
-            failure: null,
+            failure: presentation.failure,
+            pendingDiagnostic: presentation.pendingDiagnostic,
         });
     }
 

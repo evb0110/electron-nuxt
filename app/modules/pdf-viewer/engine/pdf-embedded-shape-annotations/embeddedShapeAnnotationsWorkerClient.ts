@@ -22,8 +22,9 @@ import {
 } from '@contracts/annotations';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
-    createRendererFailureReporter,
+    detectRendererDiagnosticsHost,
     getRendererFailureReporter,
+    initializeRendererFailureReporter,
 } from '@app/utils/failureReporter';
 
 const EMBEDDED_SHAPE_IMPORT_TIMEOUT_MS = 90_000;
@@ -107,9 +108,9 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
     const receipt = reporter.capture({
-        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
         context: {},
         local: {
             source: 'embedded-shape-annotations-worker-parent',

@@ -39,6 +39,10 @@ export const useDeferredWorkspaceChunkLoader = (options: IUseDeferredWorkspaceCh
             options.logSection,
             message,
             error,
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
         attachFailureReceipt(error, receipt);
         workspaceChunkFailurePresentation.value = {

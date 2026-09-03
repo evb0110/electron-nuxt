@@ -20,8 +20,9 @@ import {
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
-    createRendererFailureReporter,
+    detectRendererDiagnosticsHost,
     getRendererFailureReporter,
+    initializeRendererFailureReporter,
 } from '@app/utils/failureReporter';
 
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
@@ -93,9 +94,9 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
     const receipt = reporter.capture({
-        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        code: 'RENDERER_PDF_SERIALIZATION_WORKER_FAILED',
         context: {},
         local: {
             source: 'pdf-serialization-worker-parent',

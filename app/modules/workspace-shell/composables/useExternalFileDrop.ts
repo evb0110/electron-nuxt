@@ -103,7 +103,10 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
             'external-file-drop',
             'Failed to register dropped file',
             error,
-            getFailureReceipt(error),
+            getFailureReceipt(error) ?? {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
         presentFailureToast({
             failure,
@@ -168,7 +171,10 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                     'external-file-drop',
                     'Failed to process dropped files',
                     error,
-                    getFailureReceipt(error),
+                    getFailureReceipt(error) ?? {
+                        code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                        context: {},
+                    },
                 );
                 presentFailureToast({
                     failure,

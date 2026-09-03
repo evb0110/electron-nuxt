@@ -11,9 +11,11 @@ import * as vueParser from 'vue-eslint-parser';
 const customPlugin = (await import(new URL('../../../eslint-plugin-custom.mjs', import.meta.url).href)).default;
 
 const sentryRules = {
-    'custom/no-raw-red-presentation': 'warn',
-    'custom/no-direct-console-error': 'warn',
-    'custom/require-failure-receipt': 'warn',
+    'custom/no-raw-red-presentation': 'error',
+    'custom/no-direct-console-error': 'error',
+    'custom/require-failure-receipt': 'error',
+    'custom/require-classified-error-log': 'error',
+    'custom/no-unclassified-diagnostic-code': 'error',
 } as const;
 
 const sentryFilePatterns = [
@@ -22,11 +24,6 @@ const sentryFilePatterns = [
     'landing/**/*.{ts,vue}',
     'server/**/*.ts',
 ];
-const SENTRY_MIGRATION_BASELINES = {
-    redPresentation: 32,
-    unclassifiedCode: 17,
-};
-
 interface ISentryLintMessage {
     column?: number;
     line?: number;
@@ -106,8 +103,8 @@ async function lintFixture(code: string, filePath: string) {
     return result.messages;
 }
 
-describe('SEN-GATE-01 warning migration rules', () => {
-    it('writes separate red-presentation and unclassified-code migration reports', async () => {
+describe('SEN-GATE-01 blocking rules', () => {
+    it('keeps the red-presentation and unclassified-code reports at zero', async () => {
         const eslint = createSentryEslint();
         const results = await eslint.lintFiles(sentryFilePatterns);
         const messages = getSentryMessages(results);
@@ -122,25 +119,25 @@ describe('SEN-GATE-01 warning migration rules', () => {
         printMigrationReport(redReport);
         printMigrationReport(unclassifiedReport);
 
-        expect(messages.every(message => message.severity === 1)).toBe(true);
-        expect(redReport.count).toBeLessThanOrEqual(SENTRY_MIGRATION_BASELINES.redPresentation);
-        expect(unclassifiedReport.count).toBeLessThanOrEqual(SENTRY_MIGRATION_BASELINES.unclassifiedCode);
+        expect(messages.every(message => message.severity === 2)).toBe(true);
+        expect(redReport.count).toBe(0);
+        expect(unclassifiedReport.count).toBe(0);
     }, 30_000);
 
-    it('warns on raw red presenters and allows the shared presenter owners', async () => {
+    it('blocks raw red presenters and allows the shared presenter owners', async () => {
         await expect(lintFixture(
             'const toast = useToast();\ntoast.add({color: \'error\', title: \'Failure\'});',
             'app/components/RawFailureToast.ts',
         )).resolves.toMatchObject([{
             ruleId: 'custom/no-raw-red-presentation',
-            severity: 1,
+            severity: 2,
         }]);
         await expect(lintFixture(
             '<template><UAlert color="error" /></template>',
             'app/components/RawFailureAlert.vue',
         )).resolves.toMatchObject([{
             ruleId: 'custom/no-raw-red-presentation',
-            severity: 1,
+            severity: 2,
         }]);
         await expect(lintFixture(
             'const toast = useToast();\ntoast.add({color: \'error\', title: \'Failure\'});',
@@ -156,13 +153,13 @@ describe('SEN-GATE-01 warning migration rules', () => {
         )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/no-raw-red-presentation'}));
     });
 
-    it('warns on direct console.error and keeps only the documented sinks exempt', async () => {
+    it('blocks direct console.error and keeps only the documented sinks exempt', async () => {
         await expect(lintFixture(
             'console.error(error);',
             'app/components/FailureBoundary.ts',
         )).resolves.toContainEqual(expect.objectContaining({
             ruleId: 'custom/no-direct-console-error',
-            severity: 1,
+            severity: 2,
         }));
         for (const filePath of [
             'app/utils/browserLogger.ts',
@@ -183,7 +180,7 @@ describe('SEN-GATE-01 warning migration rules', () => {
         )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/no-direct-console-error'}));
     });
 
-    it('warns on receipt-free runtime and fatal presentation while accepting receipt-bearing calls', async () => {
+    it('blocks receipt-free runtime and fatal presentation while accepting receipt-bearing calls', async () => {
         await expect(lintFixture(
             'reportRuntimeError({title: \'Failure\', source: \'test\', error});\nsetFatalRuntimeError(\'runtime\', error, \'test\');',
             'app/components/LegacyFailurePresentation.ts',
@@ -197,5 +194,20 @@ describe('SEN-GATE-01 warning migration rules', () => {
             receiptAwareSource,
             'app/components/ReceiptFailurePresentation.ts',
         )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/require-failure-receipt'}));
+    });
+
+    it('blocks unclassified error logs while accepting codes and receipts', async () => {
+        await expect(lintFixture(
+            'BrowserLogger.error(\'scope\', \'failed\', error);\nlogger.error(\'failed\');',
+            'app/components/UnclassifiedErrors.ts',
+        )).resolves.toHaveLength(2);
+        await expect(lintFixture(
+            'BrowserLogger.error(\'scope\', \'failed\', error, {code: \'RENDERER_WORKSPACE_OPERATION_FAILED\', context: {}});\nlogger.error(\'failed\', receipt);',
+            'app/components/ClassifiedErrors.ts',
+        )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/require-classified-error-log'}));
+        await expect(lintFixture(
+            'reporter.capture({code: \'UNCLASSIFIED_RENDERER_ERROR\', context: {}});',
+            'app/components/GenericDiagnosticCode.ts',
+        )).resolves.toContainEqual(expect.objectContaining({ruleId: 'custom/no-unclassified-diagnostic-code'}));
     });
 });

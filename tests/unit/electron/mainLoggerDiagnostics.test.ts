@@ -66,7 +66,7 @@ describe('main logger diagnostic receipt ownership', () => {
         delete process.env.ELECTRON_RENDER_LOG_LEVEL;
     });
 
-    it('uses the fallback code and fresh call-site stack, while preserving redacted local logging', async () => {
+    it('uses a classified code and fresh call-site stack while preserving redacted local logging', async () => {
         const {
             createLogger,
             flushPendingLogWrites,
@@ -74,9 +74,12 @@ describe('main logger diagnostic receipt ownership', () => {
         const logger = createLogger('main-receipt-test');
         const message = 'GET https://user:pass@updates.example.test/latest?token=secret';
 
-        expect(logger.error(message)).toEqual(receipt);
+        expect(logger.error(message, {
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+            context: {},
+        })).toEqual(receipt);
         expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'UNCLASSIFIED_MAIN_ERROR',
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
             operation: 'main-error',
             context: {},
             local: expect.objectContaining({
@@ -168,7 +171,10 @@ describe('main logger diagnostic receipt ownership', () => {
         } = await import('@electron/utils/createLogger');
         const logger = createLogger('main-multi-window-test');
 
-        expect(logger.error('one main failure')).toEqual(receipt);
+        expect(logger.error('one main failure', {
+            code: 'MAIN_WINDOW_OPERATION_FAILED',
+            context: {},
+        })).toEqual(receipt);
         expect(mocks.reporter.capture).toHaveBeenCalledOnce();
         await flushPendingLogWrites();
         await vi.dynamicImportSettled();
@@ -198,7 +204,7 @@ describe('main logger diagnostic receipt ownership', () => {
         ]);
     });
 
-    it('does not attach a reference when the logger has no active main reporter', async () => {
+    it('keeps an unowned ERROR local when the logger has no active main reporter', async () => {
         mocks.activeReporter = false;
         const {
             createLogger,
@@ -206,14 +212,38 @@ describe('main logger diagnostic receipt ownership', () => {
         } = await import('@electron/utils/createLogger');
         const logger = createLogger('main-local-only-test');
 
-        expect(logger.error('local only')).toBeUndefined();
+        expect(logger.error('local only', {
+            code: 'MAIN_WINDOW_OPERATION_FAILED',
+            context: {},
+        })).toBeUndefined();
         logger.warn('warning only');
         await flushPendingLogWrites();
         await vi.dynamicImportSettled();
 
         expect(mocks.reporter.capture).not.toHaveBeenCalled();
-        expect(mocks.broadcasts.every(([
-            , data,
-        ]) => !Object.hasOwn(data as object, 'failureRef'))).toBe(true);
+        expect(mocks.broadcasts).toEqual([[
+            expect.any(String),
+            expect.objectContaining({level: 'WARN'}),
+        ]]);
+    });
+
+    it('falls back to a closed reporter-owned occurrence when context is out of range', async () => {
+        const {createLogger} = await import('@electron/utils/createLogger');
+        const logger = createLogger('main-invalid-context-test');
+
+        expect(logger.error('typed failure with invalid context', {
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            context: {action: 'outside-the-closed-set'} as never,
+        })).toEqual(receipt);
+        expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            context: {},
+        }));
+        await vi.dynamicImportSettled();
+        expect((mocks.broadcasts.at(-1)?.[1] as Record<string, unknown>).failureRef).toEqual({
+            eventId: receipt.eventId,
+            code: receipt.code,
+            severity: receipt.severity,
+        });
     });
 });

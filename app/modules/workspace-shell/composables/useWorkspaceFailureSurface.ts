@@ -99,6 +99,10 @@ export const useWorkspaceFailureSurface = () => {
                 reason,
                 detail: description,
             },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
         const presentation: FailurePresentation = {
             failure: receipt,

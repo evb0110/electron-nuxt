@@ -722,10 +722,133 @@ const requireFailureReceiptRule = {
     },
 };
 
+function isUndefinedExpression(node) {
+    const expression = unwrapPresentationExpression(node);
+    return expression === undefined
+        || expression?.type === 'Identifier' && expression.name === 'undefined'
+        || expression?.type === 'Literal' && expression.value == null;
+}
+
+function hasClosedDiagnosticInput(node) {
+    const expression = unwrapPresentationExpression(node);
+    if (isUndefinedExpression(expression)) {
+        return false;
+    }
+    if (expression?.type !== 'ObjectExpression') {
+        return true;
+    }
+    return expression.properties.some(property => getStaticPropertyName(property) === 'code')
+        && expression.properties.some(property => getStaticPropertyName(property) === 'context');
+}
+
+function isBrowserLoggerErrorCall(node) {
+    return node.callee?.type === 'MemberExpression'
+        && !node.callee.computed
+        && node.callee.object?.type === 'Identifier'
+        && node.callee.object.name === 'BrowserLogger'
+        && node.callee.property?.type === 'Identifier'
+        && node.callee.property.name === 'error';
+}
+
+function isMainLoggerErrorCall(node) {
+    if (
+        node.callee?.type !== 'MemberExpression'
+        || node.callee.computed
+        || node.callee.property?.type !== 'Identifier'
+        || node.callee.property.name !== 'error'
+    ) {
+        return false;
+    }
+    const object = node.callee.object;
+    if (
+        object?.type === 'Identifier'
+        && (
+            object.name === 'log'
+            || object.name === 'logger'
+            || object.name.endsWith('Log')
+            || object.name.endsWith('Logger')
+        )
+    ) {
+        return true;
+    }
+    return object?.type === 'MemberExpression'
+        && !object.computed
+        && object.object?.type === 'Identifier'
+        && object.object.name === 'options'
+        && object.property?.type === 'Identifier'
+        && object.property.name === 'logger';
+}
+
+const requireClassifiedErrorLogRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require application error log owners to supply a closed diagnostic code or existing receipt',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        if (!isApplicationSource(repoPath)) {
+            return {};
+        }
+        return {CallExpression(node) {
+            const diagnosticInput = isBrowserLoggerErrorCall(node)
+                ? node.arguments[3]
+                : isMainLoggerErrorCall(node)
+                    ? node.arguments[1]
+                    : null;
+            if (diagnosticInput !== null && !hasClosedDiagnosticInput(diagnosticInput)) {
+                context.report({
+                    node,
+                    message: 'Error logging requires a closed diagnostic code and context or an existing FailureReceipt.',
+                });
+            }
+        }};
+    },
+};
+
+const noUnclassifiedDiagnosticCodeRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Disallow generic renderer or main diagnostic codes at application-owned capture sites',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        const defensiveDecoderRoots = new Set([
+            'app/utils/browserLogger.ts',
+            'app/utils/failureReporter.ts',
+            'electron/features/diagnostics/mainFailureReporter.ts',
+            'server/utils/serverFailureReporter.ts',
+        ]);
+        if (!isApplicationSource(repoPath) || defensiveDecoderRoots.has(repoPath)) {
+            return {};
+        }
+        return {Literal(node) {
+            if (
+                node.value === 'UNCLASSIFIED_RENDERER_ERROR'
+                || node.value === 'UNCLASSIFIED_MAIN_ERROR'
+            ) {
+                context.report({
+                    node,
+                    message: 'Application-owned failures require a subsystem-specific diagnostic code.',
+                });
+            }
+        }};
+    },
+};
+
 export default {rules: {
     'no-raw-red-presentation': noRawRedPresentationRule,
     'no-direct-console-error': noDirectConsoleErrorRule,
     'require-failure-receipt': requireFailureReceiptRule,
+    'require-classified-error-log': requireClassifiedErrorLogRule,
+    'no-unclassified-diagnostic-code': noUnclassifiedDiagnosticCodeRule,
     'commonjs-named-imports': {
         meta: {
             type: 'problem',

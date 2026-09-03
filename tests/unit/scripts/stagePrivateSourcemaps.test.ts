@@ -259,4 +259,32 @@ describe('private Sentry source-map staging', () => {
         ));
         expect(identities).toContainEqual(lock);
     });
+
+    it('replaces a completed prior-build identity lock for a standalone Electron build', async () => {
+        const projectRoot = await createTemporaryRoot();
+        const previousIdentity = createSentryBuildIdentity({
+            target: 'desktop',
+            version: '1.2.2',
+            dist: 'macos-arm64',
+            environment: 'test',
+        });
+        const nextIdentity = desktopIdentity('macos-arm64');
+
+        await stagePrivateSourcemaps({
+            projectRoot,
+            identity: previousIdentity,
+            outputRoots: [],
+            removePublicOutputMaps: false,
+        });
+        await expect(stagePrivateSourcemaps({
+            projectRoot,
+            identity: nextIdentity,
+            outputRoots: [],
+            removePublicOutputMaps: false,
+            resetCompletedIdentityLock: true,
+        })).resolves.toMatchObject({identity: nextIdentity});
+
+        await expect(readFile(getSentryBuildIdentityLockPath({projectRoot}), 'utf8'))
+            .resolves.toBe(`${JSON.stringify(nextIdentity, null, 2)}\n`);
+    });
 });

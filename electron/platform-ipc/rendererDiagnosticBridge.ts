@@ -36,6 +36,11 @@ interface IRateState {
     tokens: number;
 }
 
+const IPC_RENDERER_RUNTIMES = new Set<DiagnosticRecord['runtime']>([
+    'browser-worker-parent',
+    'electron-renderer',
+]);
+
 function increment(value: number) {
     return value >= Number.MAX_SAFE_INTEGER ? Number.MAX_SAFE_INTEGER : value + 1;
 }
@@ -168,7 +173,7 @@ export function registerRendererDiagnosticBridge(options: IRendererDiagnosticBri
             const decodedSuppressedCount = decodeDiagnosticsSuppressedCount(suppressedCount);
             if (
                 record === null
-                || record.runtime !== 'electron-renderer'
+                || !IPC_RENDERER_RUNTIMES.has(record.runtime)
                 || decodedSuppressedCount === null
             ) {
                 health.schemaDropped = increment(health.schemaDropped);

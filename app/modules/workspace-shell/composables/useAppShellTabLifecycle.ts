@@ -112,7 +112,10 @@ export const useAppShellTabLifecycle = (
             context: context ?? null,
             error: serializeTransitionError(error),
         };
-        const failure = BrowserLogger.error('toolbar-transition', 'Tab transition failed', details);
+        const failure = BrowserLogger.error('toolbar-transition', 'Tab transition failed', details, {
+            code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+            context: {},
+        });
         reportRuntimeError({
             failure,
             title: t('errors.runtime.title'),

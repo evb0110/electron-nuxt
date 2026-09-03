@@ -109,7 +109,10 @@ function reportWindowFailure<C extends DiagnosticCode>(
         // Diagnostics must not change renderer recovery or window teardown.
     }
     if (receipt === undefined) {
-        logger.error(message);
+        logger.error(message, {
+            code: 'MAIN_WINDOW_OPERATION_FAILED',
+            context: {},
+        });
     } else {
         logger.error(message, receipt);
     }
@@ -192,7 +195,11 @@ function createWindowLoadFailureOwner(): IWindowLoadFailureOwner {
             }
 
             attempt.reported = true;
-            const receipt = logger.error(error.message);
+            const receipt = logger.error(error.message, {
+                code: 'MAIN_WINDOW_OPERATION_FAILED',
+                context: {},
+                cause: error,
+            });
             if (receipt) {
                 attempt.receipt = receipt;
             }

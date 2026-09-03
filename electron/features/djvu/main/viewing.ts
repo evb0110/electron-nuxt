@@ -199,7 +199,11 @@ export async function handleDjvuOpenForViewing(
         };
     } catch (error) {
         const message = getErrorMessage(error);
-        logger.error(`DjVu open failed: ${message}`);
+        logger.error(`DjVu open failed: ${message}`, {
+            code: 'MAIN_DJVU_VIEWING_FAILED',
+            context: {},
+            cause: error,
+        });
         return {
             success: false,
             error: message,

@@ -1059,7 +1059,10 @@ export async function runBrowserDjvuConversion(
         }
 
         const failure = getBrowserDjvuFailureReceipt(error)
-            ?? BrowserLogger.error('djvu-browser', 'DjVu conversion failed', error);
+            ?? BrowserLogger.error('djvu-browser', 'DjVu conversion failed', error, {
+                code: 'RENDERER_DJVU_OPERATION_FAILED',
+                context: {},
+            });
         return {
             success: false as const,
             jobId,

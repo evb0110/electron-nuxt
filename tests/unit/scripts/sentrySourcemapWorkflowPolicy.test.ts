@@ -62,13 +62,20 @@ describe('private Sentry source-map workflow policy', () => {
         expect(source).toContain('SENTRY_ORG: ${{ secrets.SENTRY_ORG }}');
     });
 
-    it('keeps non-shipping CI free of upload and makes production credentials blocking', async () => {
-        const source = await workflow('build-target.yml');
-
-        expect(source).toContain('if: ${{ inputs.upload_artifacts }}');
-        expect(source).toContain('[ "$EVB_SENTRY_ENVIRONMENT" != \'production\' ]');
-        expect(source).toContain('Sentry diagnostics credentials are incomplete or absent for a production build.');
-        expect(source).toContain('SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}');
+    it('disables every lane when all credentials are absent and rejects partial configuration', async () => {
+        for (const name of [
+            'build-target.yml',
+            'build-mac-intel.yml',
+            'build-win7-legacy.yml',
+            'store-appx.yml',
+        ]) {
+            const source = await workflow(name);
+            expect(source).toContain('elif [ "$configured" -eq 0 ]; then');
+            expect(source).toContain('Sentry diagnostics credentials are partially configured.');
+            expect(source).not.toContain('[ "$EVB_SENTRY_ENVIRONMENT" != \'production\' ]');
+            expect(source).toContain('SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}');
+        }
+        expect(await workflow('build-target.yml')).toContain('if: ${{ inputs.upload_artifacts }}');
     });
 
     it('does not upload on supplemental re-dispatch paths that reuse attached assets', async () => {

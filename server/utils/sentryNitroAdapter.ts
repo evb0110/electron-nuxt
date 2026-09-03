@@ -11,7 +11,6 @@ import {
 } from '@contracts/diagnostics/diagnosticRecord';
 import {DIAGNOSTIC_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {decodeDiagnosticsSuppressedCount} from '@contracts/diagnostics/diagnosticsCapability';
-import {getRuntimeEnv} from '@server/utils/getRuntimeEnv';
 
 export const SENTRY_NITRO_POLICY_GATE_ENV_KEYS = Object.freeze({
     enabled: 'EVB_SENTRY_NITRO_ENABLED',
@@ -38,6 +37,7 @@ export interface ISentryNitroConfigurationSnapshot {
     readonly hasDsn: boolean;
     readonly identity: SentryBuildIdentity | null;
     readonly policy: ISentryNitroPolicyGates;
+    readonly runtimeMatchesBuild: boolean;
 }
 
 export interface ISentryNitroRuntimeConfig {readonly sentry?: {
@@ -45,7 +45,14 @@ export interface ISentryNitroRuntimeConfig {readonly sentry?: {
     readonly release?: unknown;
     readonly dist?: unknown;
     readonly environment?: unknown;
+    readonly policy?: unknown;
 };}
+
+export interface ISentryNitroBuildConfiguration {
+    readonly dsn: string;
+    readonly identity: SentryBuildIdentity | null;
+    readonly policy: ISentryNitroPolicyGates;
+}
 
 export interface ISentryNitroClient {
     captureEvent: (
@@ -60,8 +67,8 @@ export type TSentryNitroClientFactory = (options: Sentry.NodeOptions) => ISentry
 
 export interface ISentryNitroAdapterOptions {
     readonly runtimeConfig?: unknown;
-    readonly environment?: Record<string, string | undefined>;
-    readonly policy?: Partial<ISentryNitroPolicyGates>;
+    /** Test seam for the build constant replaced by Nitro. */
+    readonly buildConfiguration?: unknown;
     readonly clientFactory?: TSentryNitroClientFactory;
 }
 
@@ -98,6 +105,7 @@ function readString(value: unknown): string {
 // Nitro injects this auto-import into the server bundle. Keep the standalone
 // server project typecheck independent of generated Nitro declarations.
 declare function useRuntimeConfig(): unknown;
+declare const __EVB_SENTRY_NITRO_BUILD_CONFIGURATION__: unknown;
 
 function readRuntimeConfig(): unknown {
     try {
@@ -114,36 +122,58 @@ function readSentryRuntimeConfig(value: unknown): Record<string, unknown> {
     return value.sentry;
 }
 
-function isTruthyGate(value: unknown): boolean {
-    return value === '1';
+const SENTRY_NITRO_POLICY_KEYS = Object.freeze([
+    'enabled',
+    'legitimateInterestsApproved',
+    'legalNoticePublished',
+    'dpaExecuted',
+    'accountHardened',
+    'retentionReady',
+    'objectionReady',
+] as const satisfies ReadonlyArray<keyof ISentryNitroPolicyGates>);
+
+const DISABLED_POLICY: ISentryNitroPolicyGates = Object.freeze({
+    enabled: false,
+    legitimateInterestsApproved: false,
+    legalNoticePublished: false,
+    dpaExecuted: false,
+    accountHardened: false,
+    retentionReady: false,
+    objectionReady: false,
+});
+
+function hasOnlyKeys(value: Record<string, unknown>, keys: readonly string[]) {
+    try {
+        return Reflect.ownKeys(value).every(key => typeof key === 'string' && keys.includes(key));
+    } catch {
+        return false;
+    }
 }
 
-function resolvePolicy(
-    environment: Record<string, string | undefined>,
-    configured: Partial<ISentryNitroPolicyGates> | undefined,
-): ISentryNitroPolicyGates {
-    const resolveGate = (
-        key: keyof ISentryNitroPolicyGates,
-        environmentKey: string,
-    ) => Object.hasOwn(configured ?? {}, key)
-        ? configured?.[key] === true
-        : isTruthyGate(environment[environmentKey]);
-
+function decodePolicy(value: unknown): ISentryNitroPolicyGates | null {
+    if (!isPlainRecord(value) || !hasOnlyKeys(value, SENTRY_NITRO_POLICY_KEYS)) {
+        return null;
+    }
+    if (SENTRY_NITRO_POLICY_KEYS.some(key => typeof value[key] !== 'boolean')) {
+        return null;
+    }
     return Object.freeze({
-        enabled: resolveGate('enabled', SENTRY_NITRO_POLICY_GATE_ENV_KEYS.enabled),
-        legitimateInterestsApproved: resolveGate(
-            'legitimateInterestsApproved',
-            SENTRY_NITRO_POLICY_GATE_ENV_KEYS.legitimateInterestsApproved,
-        ),
-        legalNoticePublished: resolveGate(
-            'legalNoticePublished',
-            SENTRY_NITRO_POLICY_GATE_ENV_KEYS.legalNoticePublished,
-        ),
-        dpaExecuted: resolveGate('dpaExecuted', SENTRY_NITRO_POLICY_GATE_ENV_KEYS.dpaExecuted),
-        accountHardened: resolveGate('accountHardened', SENTRY_NITRO_POLICY_GATE_ENV_KEYS.accountHardened),
-        retentionReady: resolveGate('retentionReady', SENTRY_NITRO_POLICY_GATE_ENV_KEYS.retentionReady),
-        objectionReady: resolveGate('objectionReady', SENTRY_NITRO_POLICY_GATE_ENV_KEYS.objectionReady),
+        enabled: value.enabled === true,
+        legitimateInterestsApproved: value.legitimateInterestsApproved === true,
+        legalNoticePublished: value.legalNoticePublished === true,
+        dpaExecuted: value.dpaExecuted === true,
+        accountHardened: value.accountHardened === true,
+        retentionReady: value.retentionReady === true,
+        objectionReady: value.objectionReady === true,
     });
+}
+
+function readBakedBuildConfiguration(): unknown {
+    try {
+        return __EVB_SENTRY_NITRO_BUILD_CONFIGURATION__;
+    } catch {
+        return null;
+    }
 }
 
 function isValidSentryDsn(value: string): boolean {
@@ -171,14 +201,10 @@ function allPolicyGatesApproved(policy: ISentryNitroPolicyGates): boolean {
     return Object.values(policy).every(value => value === true);
 }
 
-function resolveIdentity(
-    runtimeConfig: Record<string, unknown>,
-    environment: Record<string, string | undefined>,
-): SentryBuildIdentity | null {
-    const release = readString(runtimeConfig.release) || readString(environment.EVB_SENTRY_RELEASE);
-    const dist = readString(runtimeConfig.dist) || readString(environment.EVB_SENTRY_DIST);
-    const sentryEnvironment = readString(runtimeConfig.environment)
-        || readString(environment.EVB_SENTRY_ENVIRONMENT);
+function resolveIdentity(runtimeConfig: Record<string, unknown>): SentryBuildIdentity | null {
+    const release = readString(runtimeConfig.release);
+    const dist = readString(runtimeConfig.dist);
+    const sentryEnvironment = readString(runtimeConfig.environment);
     if (!release || !dist || !sentryEnvironment) {
         return null;
     }
@@ -195,6 +221,57 @@ function resolveIdentity(
     }
 }
 
+function decodeBuildConfiguration(value: unknown): ISentryNitroBuildConfiguration | null {
+    if (!isPlainRecord(value) || !hasOnlyKeys(value, [
+        'dsn',
+        'identity',
+        'policy',
+    ])) {
+        return null;
+    }
+    const policy = decodePolicy(value.policy);
+    if (policy === null) {
+        return null;
+    }
+    let identity: SentryBuildIdentity | null = null;
+    if (value.identity !== null) {
+        try {
+            identity = assertSentryBuildIdentity(value.identity);
+        } catch {
+            return null;
+        }
+        if (identity.target !== 'web') {
+            return null;
+        }
+    }
+    return Object.freeze({
+        dsn: readString(value.dsn),
+        identity,
+        policy,
+    });
+}
+
+function sameIdentity(left: SentryBuildIdentity | null, right: SentryBuildIdentity | null) {
+    return left === null || right === null
+        ? left === right
+        : left.target === right.target
+            && left.release === right.release
+            && left.dist === right.dist
+            && left.environment === right.environment;
+}
+
+function runtimeMatchesBuild(
+    runtimeConfig: Record<string, unknown>,
+    buildConfiguration: ISentryNitroBuildConfiguration,
+) {
+    const runtimePolicy = decodePolicy(runtimeConfig.policy);
+    const runtimeIdentity = resolveIdentity(runtimeConfig);
+    return readString(runtimeConfig.nitroDsn) === buildConfiguration.dsn
+        && sameIdentity(runtimeIdentity, buildConfiguration.identity)
+        && runtimePolicy !== null
+        && SENTRY_NITRO_POLICY_KEYS.every(key => runtimePolicy[key] === buildConfiguration.policy[key]);
+}
+
 interface IResolvedSentryNitroConfiguration {
     readonly dsn: string;
     readonly identity: SentryBuildIdentity | null;
@@ -203,14 +280,19 @@ interface IResolvedSentryNitroConfiguration {
 }
 
 function resolveConfiguration(options: ISentryNitroAdapterOptions): IResolvedSentryNitroConfiguration {
-    const environment = options.environment ?? getRuntimeEnv();
     const runtimeConfig = readSentryRuntimeConfig(options.runtimeConfig ?? readRuntimeConfig());
-    const dsn = readString(runtimeConfig.nitroDsn) || readString(environment.SENTRY_NITRO_DSN);
-    const identity = resolveIdentity(runtimeConfig, environment);
-    const policy = resolvePolicy(environment, options.policy);
+    const buildConfiguration = decodeBuildConfiguration(
+        options.buildConfiguration ?? readBakedBuildConfiguration(),
+    );
+    const dsn = buildConfiguration?.dsn ?? '';
+    const identity = buildConfiguration?.identity ?? null;
+    const policy = buildConfiguration?.policy ?? DISABLED_POLICY;
+    const matchesBuild = buildConfiguration !== null
+        && runtimeMatchesBuild(runtimeConfig, buildConfiguration);
     const ready = isValidSentryDsn(dsn)
         && identity !== null
-        && allPolicyGatesApproved(policy);
+        && allPolicyGatesApproved(policy)
+        && matchesBuild;
 
     return {
         dsn,
@@ -221,6 +303,7 @@ function resolveConfiguration(options: ISentryNitroAdapterOptions): IResolvedSen
             hasDsn: isValidSentryDsn(dsn),
             identity,
             policy,
+            runtimeMatchesBuild: matchesBuild,
         }),
     };
 }

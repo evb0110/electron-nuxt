@@ -482,7 +482,10 @@ export const usePageOperations = (deps: {
                 });
             });
         } catch (e) {
-            const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e);
+            const failure = BrowserLogger.error('page-ops', `${options.operationName} failed`, e, {
+                code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
+                context: {},
+            });
             reportRuntimeError({
                 failure,
                 title: getLocalizedError(options.errorKey),

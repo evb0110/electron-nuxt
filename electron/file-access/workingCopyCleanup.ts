@@ -341,7 +341,7 @@ async function cleanupWorkingCopyDirectory(
             const ocrDir = `${workDir}.ocr`;
             const resolvedOriginalPath = originalPath ? normalizePathForLookup(originalPath) : null;
             if (resolvedOriginalPath && isPathWithin(workDir, resolvedOriginalPath)) {
-                logger.error(`Refused to delete a working directory containing its original backing: ${workDir}`);
+                logger.warn(`Refused to delete a working directory containing its original backing: ${workDir}`);
                 await rm(ocrDir, {
                     recursive: true,
                     force: true,
@@ -855,7 +855,7 @@ export async function clearAllWorkingCopies(options: {skipPaths?: Iterable<strin
         clearPageIdentityStoreInitializations();
     }
     if (skipPaths.size > 0) {
-        logger.error(
+        logger.warn(
             `Skipped shutdown deletion for ${skipPaths.size} working copy path(s) with pending writes or dirty sync state: ${
                 Array.from(skipPaths).join(', ')
             }`,

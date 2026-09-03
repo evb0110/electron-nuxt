@@ -299,7 +299,7 @@ describe('BrowserLogger', () => {
         expect(rendererLog).not.toHaveBeenCalled();
     });
 
-    it('captures a closed fallback receipt while retaining the full local log entry', async () => {
+    it('captures a classified receipt while retaining the full local log entry', async () => {
         const {
             windowStub,
             rendererLog,
@@ -328,14 +328,17 @@ describe('BrowserLogger', () => {
         const receipt = logger.error('browser-logger-test', localOnlyMessage, {
             cause: localOnlyCause,
             argument: 'private BrowserLogger argument',
+        }, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            context: {},
         });
 
         expect(receipt).toMatchObject({
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
             severity: 'error',
         });
         expect(captureRendererFailure).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
             context: {},
             local: expect.objectContaining({
                 cause: expect.objectContaining({
@@ -349,7 +352,7 @@ describe('BrowserLogger', () => {
         }), {localAlreadyRecorded: true});
         expect(initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
         expect(sender).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
             runtime: 'electron-renderer',
         }));
         const record = sender.mock.calls[0]?.[0];
@@ -458,11 +461,35 @@ describe('BrowserLogger', () => {
         const receipt = createTestReceipt('fedcba9876543210fedcba9876543210');
         capture.mockReturnValue(receipt);
 
-        expect(logger.error('early-startup', 'Reporter is not ready')).toBe(receipt);
+        expect(logger.error('early-startup', 'Reporter is not ready', undefined, {
+            code: 'RENDERER_STARTUP_WARMUP_FAILED',
+            context: {},
+        })).toBe(receipt);
 
         expect(initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
-        expect(capture).toHaveBeenCalledWith(expect.objectContaining({code: 'UNCLASSIFIED_RENDERER_ERROR'}), {localAlreadyRecorded: true});
+        expect(capture).toHaveBeenCalledWith(expect.objectContaining({code: 'RENDERER_STARTUP_WARMUP_FAILED'}), {localAlreadyRecorded: true});
         expect(captureRendererFailure).toHaveBeenCalledOnce();
+    });
+
+    it('captures the closed unclassified fallback instead of throwing on invalid runtime input', async () => {
+        const {windowStub} = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        const consoleSpies = spyOnConsole();
+        const captureRendererFailure = vi.fn();
+        const receipt = createTestReceipt('11111111111111111111111111111111');
+        const capture = vi.fn(() => receipt);
+        vi.doMock('@app/utils/failureReporter', () => ({
+            captureRendererFailure,
+            initializeRendererFailureReporter: vi.fn(() => ({capture})),
+        }));
+        const logger = await importBrowserLogger();
+
+        expect(logger.error('invalid-runtime-call', 'still owned', undefined, undefined as never)).toBe(receipt);
+        expect(capture).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {phase: 'operation'},
+        }), {localAlreadyRecorded: true});
+        expect(consoleSpies.warn).toHaveBeenCalledWith(expect.stringContaining('closed unclassified fallback'));
     });
 
     it('uses the sink captured before a console observer replaces console.error', async () => {

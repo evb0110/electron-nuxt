@@ -369,6 +369,21 @@ function resolveRuntime(host: TRendererDiagnosticsHost): DiagnosticRuntime {
     return host === 'electron' ? 'electron-renderer' : 'hosted-browser';
 }
 
+export function detectRendererDiagnosticsHost(): TRendererDiagnosticsHost {
+    try {
+        const rendererWindow = Reflect.get(globalThis, 'window');
+        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+            return 'hosted-browser';
+        }
+        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
+        return typeof electronApi === 'object' && electronApi !== null
+            ? 'electron'
+            : 'hosted-browser';
+    } catch {
+        return 'hosted-browser';
+    }
+}
+
 function getElectronDiagnosticSender(): TRendererDiagnosticSender | null {
     try {
         const rendererWindow = Reflect.get(globalThis, 'window');
@@ -799,7 +814,10 @@ export function createRendererFailureReporter(
         }
 
         syncHostedPreference();
-        if (preference !== 'granted' || liveSender === dropLiveSender) {
+        if (
+            host !== 'electron'
+            && (preference !== 'granted' || liveSender === dropLiveSender)
+        ) {
             health.policyDropped = increment(health.policyDropped);
             setDropReason('policy-dropped');
             return receipt;

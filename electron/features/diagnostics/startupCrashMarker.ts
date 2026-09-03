@@ -270,12 +270,28 @@ export function installStartupCrashMarker(
     const createEventId = options.createEventId ?? createDiagnosticEventId;
     const isLiveDeliveryAvailable = options.isLiveDeliveryAvailable;
 
+    const takePersistedMarker = () => {
+        let marker: StartupCrashMarkerRecord | null = null;
+        try {
+            marker = decodeMarkerText(fileSystem.readFileSync(options.markerPath, 'utf8'));
+        } catch {
+            // Missing, corrupt, partial, and unreadable markers are local-only.
+        } finally {
+            try {
+                fileSystem.unlinkSync(options.markerPath);
+            } catch {
+                // The next launch must never leave a marker queued on disk.
+            }
+        }
+        return marker;
+    };
+
     let armed = isGranted(options.preference)
         && !readBooleanSeam(isLiveDeliveryAvailable);
     let monitorInstalled = false;
     let markerWriteAttempted = false;
-    let markerWritten = false;
     let replayAttempted = false;
+    let pendingReplayMarker = takePersistedMarker();
     let liveAdapter: IStartupCrashMarkerReplayOptions | null = null;
     let liveOccurrenceAttempted = false;
     let liveReceipt: FailureReceipt | undefined;
@@ -333,7 +349,6 @@ export function installStartupCrashMarker(
                 encoding: 'utf8',
                 flag: 'w',
             });
-            markerWritten = true;
         } catch {
             // A marker write is best-effort local evidence. Never report its failure.
         }
@@ -370,46 +385,26 @@ export function installStartupCrashMarker(
         disarm();
     }
 
-    const deleteMarker = () => {
-        try {
-            fileSystem.unlinkSync(options.markerPath);
-        } catch {
-            // Missing, corrupt, partial, and unreadable markers are local-only.
-        }
-    };
-
-    const readMarker = () => {
-        try {
-            return decodeMarkerText(fileSystem.readFileSync(options.markerPath, 'utf8'));
-        } catch {
-            return null;
-        }
-    };
-
     const replayMarkerForReadyAdapter = (
         replayOptions: IStartupCrashMarkerReplayOptions,
     ): StartupCrashMarkerRecord | null => {
         disarm();
         if (replayAttempted) {
-            deleteMarker();
             return null;
         }
         replayAttempted = true;
 
         let sentMarker: StartupCrashMarkerRecord | null = null;
-        try {
-            const marker = readMarker();
-            const replayPreference = replayOptions.preference;
-            if (marker !== null && isGranted(replayPreference)) {
-                sentMarker = marker;
-                try {
-                    observeDeliveryResult(replayOptions.send(marker));
-                } catch {
-                    // Delivery failure must not turn the marker into a queue.
-                }
+        const marker = pendingReplayMarker;
+        pendingReplayMarker = null;
+        const replayPreference = replayOptions.preference;
+        if (marker !== null && isGranted(replayPreference)) {
+            sentMarker = marker;
+            try {
+                observeDeliveryResult(replayOptions.send(marker));
+            } catch {
+                // Delivery failure must not turn the marker into a queue.
             }
-        } finally {
-            deleteMarker();
         }
         return sentMarker;
     };
@@ -419,11 +414,7 @@ export function installStartupCrashMarker(
         isArmed: () => armed,
         onLiveAdapterReady: (replayOptions) => {
             liveAdapter = replayOptions;
-            const sentMarker = replayMarkerForReadyAdapter(replayOptions);
-            if (sentMarker !== null && markerWritten) {
-                liveOccurrenceAttempted = true;
-                liveReceipt = toFailureReceipt(sentMarker);
-            }
+            replayMarkerForReadyAdapter(replayOptions);
         },
         captureLiveException: (error) => {
             if (liveReceipt !== undefined) {

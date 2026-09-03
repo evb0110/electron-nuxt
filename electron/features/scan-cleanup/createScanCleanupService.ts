@@ -331,6 +331,11 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             const existingFailure = getWorkerTaskFailureReceipt(cause);
             const failure = existingFailure ?? scanCleanupJobLogger.error(
                 `Scan cleanup job failed: ${message}`,
+                {
+                    code: 'MAIN_SCAN_CLEANUP_FAILED',
+                    context: {},
+                    cause,
+                },
             );
             return {
                 code: classifyScanCleanupError(cause, false),

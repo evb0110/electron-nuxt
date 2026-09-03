@@ -366,6 +366,33 @@ async function assertLockedBuildIdentity(lockPath, identity) {
     assertSameSentryBuildIdentity(identity, existing);
 }
 
+async function resetCompletedIdentityLockOnConflict(projectRoot, identity) {
+    const lockPath = identityLockPath(projectRoot);
+    if (!(await fileExists(lockPath))) {
+        return;
+    }
+    let existingIdentity;
+    try {
+        existingIdentity = assertSentryBuildIdentity(JSON.parse(await readFile(lockPath, 'utf8')));
+    } catch {
+        return;
+    }
+    try {
+        assertSameSentryBuildIdentity(identity, existingIdentity);
+        return;
+    } catch {
+        // A completed prior build may release its persistent identity lock.
+    }
+    if (!(await fileExists(stageManifestPath(projectRoot, existingIdentity)))) {
+        return;
+    }
+    const currentLock = await readFile(lockPath, 'utf8');
+    if (currentLock !== `${JSON.stringify(existingIdentity, null, 2)}\n`) {
+        return;
+    }
+    await rm(lockPath, {force: true});
+}
+
 function manifestBundleMap(manifest) {
     return new Map((manifest?.bundles ?? []).map(bundle => [
         bundle.bundle,
@@ -494,6 +521,7 @@ async function writeManifest(manifestPath, manifest) {
  *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
  *   outputRoots?: string[],
  *   reset?: boolean,
+ *   resetCompletedIdentityLock?: boolean,
  *   removePublicOutputMaps?: boolean,
  *   includePreload?: boolean,
  * }} options
@@ -503,6 +531,7 @@ export async function stagePrivateSourcemaps({
     identity,
     outputRoots = DEFAULT_OUTPUT_ROOTS,
     reset = false,
+    resetCompletedIdentityLock = false,
     removePublicOutputMaps = true,
     includePreload = false,
 } = {}) {
@@ -517,6 +546,8 @@ export async function stagePrivateSourcemaps({
             force: true,
         });
         await rm(identityLockPath(root), {force: true});
+    } else if (resetCompletedIdentityLock) {
+        await resetCompletedIdentityLockOnConflict(root, normalizedIdentity);
     }
     await lockBuildIdentity(root, normalizedIdentity);
 

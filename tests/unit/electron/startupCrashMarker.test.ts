@@ -210,7 +210,7 @@ describe('startup crash marker', () => {
         // It cannot change this controller until the explicit adapter handoff.
         expect(noOpTransport.isReady).toBe(true);
         expect(setup.controller.isArmed()).toBe(true);
-        expect(setup.unlinkSync).not.toHaveBeenCalled();
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
         expect(setup.hasListener()).toBe(true);
 
         liveDeliveryAvailable = true;
@@ -235,10 +235,14 @@ describe('startup crash marker', () => {
         expect(setup.controller.isArmed()).toBe(false);
     });
 
-    it('disarms, sends a valid marker once after adapter initialization, and deletes in every replay path', () => {
+    it('takes a valid marker off disk during install and replays the in-memory copy once', () => {
         const marker = createMarker();
         const setup = install({}, JSON.stringify(marker));
         const send = vi.fn();
+
+        expect(setup.readFileSync).toHaveBeenCalledOnce();
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
+        expect(setup.getContent()).toBeUndefined();
 
         expect(notifyStartupCrashMarkerAdapterReady({
             preference: 'granted',
@@ -253,7 +257,7 @@ describe('startup crash marker', () => {
         expect(setup.off).toHaveBeenCalledTimes(1);
         expect(send).toHaveBeenCalledTimes(1);
         expect(send).toHaveBeenCalledWith(marker);
-        expect(setup.unlinkSync).toHaveBeenCalledTimes(2);
+        expect(setup.unlinkSync).toHaveBeenCalledOnce();
         expect(setup.getContent()).toBeUndefined();
     });
 
@@ -403,12 +407,20 @@ describe('startup crash marker', () => {
         const reporterIndex = source.indexOf('mainFailureReporterForAdapter = initializeMainFailureReporter({');
         const grantedLoadIndex = source.indexOf('if (diagnosticsPreference === \'granted\')', reporterIndex);
         const bootstrapIndex = source.indexOf('void runInitSequence({');
+        const durableSettingsIndex = source.indexOf('const settings = await loadSettings();', bootstrapIndex);
+        const mainPreferenceIndex = source.indexOf(
+            'setMainDiagnosticsPreference(settings.clientDiagnosticsPreference);',
+            durableSettingsIndex,
+        );
+        const resourceProfileIndex = source.indexOf('initializeHostResourceProfile({', durableSettingsIndex);
 
         expect(preferenceIndex).toBeGreaterThan(-1);
         expect(markerIndex).toBeGreaterThan(preferenceIndex);
         expect(reporterIndex).toBeGreaterThan(markerIndex);
         expect(grantedLoadIndex).toBeGreaterThan(reporterIndex);
         expect(reporterIndex).toBeLessThan(bootstrapIndex);
+        expect(mainPreferenceIndex).toBeGreaterThan(durableSettingsIndex);
+        expect(mainPreferenceIndex).toBeLessThan(resourceProfileIndex);
         expect(source.slice(markerIndex, reporterIndex)).not.toContain('isTransportReady');
         expect(source.slice(reporterIndex, grantedLoadIndex)).not.toContain('import(\'@electron/features/diagnostics/sentryNodeAdapter\')');
     });

@@ -246,7 +246,10 @@ export function createDocumentPageSourcePresentation(options: {
             'pdf-page-source',
             'Failed to render document page',
             cause ?? message,
-            getFailureReceipt(cause),
+            getFailureReceipt(cause) ?? {
+                code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+                context: {},
+            },
         );
         state.failurePresentation = {
             failure: receipt,

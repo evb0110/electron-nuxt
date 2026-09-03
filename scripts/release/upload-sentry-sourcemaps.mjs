@@ -24,19 +24,42 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const execFileAsync = promisify(execFile);
 const SENTRY_EU_API_ORIGIN = 'https://de.sentry.io/';
-const UPLOAD_RECEIPT_SCHEMA_VERSION = 1;
+export const UPLOAD_RECEIPT_SCHEMA_VERSION = 1;
 const SAFE_CONFIGURATION_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
 
 function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
 }
 
-function destinationFingerprint({organization, project, token}) {
+function destinationFingerprint({
+    organization,
+    project,
+    token,
+}) {
     return createHmac('sha256', token)
         .update(organization)
         .update('\0')
         .update(project)
         .digest('hex');
+}
+
+export function assertSentryUploadReceipt(receipt, identity) {
+    const expectedIdentity = assertSentryBuildIdentity(identity);
+    if (
+        !receipt
+        || typeof receipt !== 'object'
+        || receipt.schemaVersion !== UPLOAD_RECEIPT_SCHEMA_VERSION
+        || !Number.isSafeInteger(receipt.bundleCount)
+        || receipt.bundleCount < 1
+        || typeof receipt.destinationFingerprint !== 'string'
+        || !/^[0-9a-f]{64}$/u.test(receipt.destinationFingerprint)
+        || typeof receipt.manifestSha256 !== 'string'
+        || !/^[0-9a-f]{64}$/u.test(receipt.manifestSha256)
+    ) {
+        throw new Error('Private Sentry upload did not return a valid receipt');
+    }
+    assertSameSentryBuildIdentity(expectedIdentity, receipt.identity);
+    return receipt;
 }
 
 function requiredPrivateConfiguration(environment, key, label) {
@@ -229,7 +252,7 @@ export async function uploadSentrySourcemaps({
             `Private source-map upload already recorded for ${normalizedIdentity.release}, `
             + `${normalizedIdentity.dist}.\n`,
         );
-        return existingReceipt;
+        return assertSentryUploadReceipt(existingReceipt, normalizedIdentity);
     }
     const uploadRoot = await mkdtemp(path.join(stageRoot, '.upload-'));
     try {
@@ -276,7 +299,7 @@ export async function uploadSentrySourcemaps({
         `Uploaded ${expectedReceipt.bundleCount} private source-map bundle(s) for `
         + `${normalizedIdentity.release}, ${normalizedIdentity.dist}.\n`,
     );
-    return expectedReceipt;
+    return assertSentryUploadReceipt(expectedReceipt, normalizedIdentity);
 }
 
 async function main() {

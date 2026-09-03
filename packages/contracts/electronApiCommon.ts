@@ -22,9 +22,7 @@ export type TRendererLogLevel = 'debug' | 'info' | 'warn' | 'error';
 /**
  * The only identity a main-process ERROR projection may carry.
  * `decodeDebugLogEntry` enforces that this closed object appears only on an
- * ERROR entry. Reference-free ERROR entries remain valid during the migration
- * until issue #260 switches the compatibility gate to blocking and issue #265
- * removes the compatibility form.
+ * ERROR entry. Reference-free ERROR entries are rejected.
  */
 export interface IDebugLogFailureRef {
     eventId: DiagnosticEventId;
@@ -39,8 +37,8 @@ interface IDebugLogEntryBase {
 }
 
 // Main-process diagnostic logs use the native Electron/logger channel casing.
-// The ERROR branch keeps the migration-compatible ref-free shape, while the
-// non-ERROR branch makes it impossible to attach a main failure identity.
+// The ERROR branch requires a main-owned failure identity. The non-ERROR branch
+// makes it impossible to attach one.
 export type IDebugLogEntry = IDebugLogEntryBase & (
     | {
         level?: Exclude<TDebugLogLevel, 'ERROR'>;
@@ -48,8 +46,7 @@ export type IDebugLogEntry = IDebugLogEntryBase & (
     }
     | {
         level: 'ERROR';
-        /** Present only for main-owned ERROR entries. */
-        failureRef?: IDebugLogFailureRef;
+        failureRef: IDebugLogFailureRef;
     }
 );
 
@@ -73,13 +70,6 @@ const DEBUG_LOG_FAILURE_REF_KEYS = [
     'code',
     'severity',
 ] as const;
-
-/**
- * Temporary migration switch for legacy main ERROR broadcasts. Issue #260
- * changes this to false once the blocking gate is ready; issue #265 removes
- * the switch and the ref-free branch after all legacy producers are gone.
- */
-export const DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY = true;
 
 function hasOnlyKeys(value: Record<string, unknown>, allowedKeys: readonly string[]) {
     try {
@@ -111,7 +101,8 @@ function decodeDebugLogFailureRef(value: unknown): IDebugLogFailureRef | null {
 
 /**
  * Decodes the one closed debug-log envelope used by settings and diagnostics.
- * The legacy ref-free ERROR form is intentionally accepted during migration.
+ * Reference-free ERROR entries are rejected because the renderer must never
+ * reinterpret a main-process error as a new occurrence.
  */
 export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
     try {
@@ -125,16 +116,8 @@ export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
         }
 
         if (value.failureRef === undefined) {
-            if (value.level === 'ERROR' && !DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY) {
-                return null;
-            }
             if (value.level === 'ERROR') {
-                return {
-                    source: value.source,
-                    message: value.message,
-                    timestamp: value.timestamp,
-                    level: 'ERROR',
-                };
+                return null;
             }
             return {
                 source: value.source,
@@ -145,7 +128,7 @@ export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
         }
 
         // A reference without an explicit ERROR level cannot be proven to be a
-        // main-owned failure. Legacy ERROR entries without a ref remain valid.
+        // main-owned failure.
         if (value.level !== 'ERROR') {
             return null;
         }

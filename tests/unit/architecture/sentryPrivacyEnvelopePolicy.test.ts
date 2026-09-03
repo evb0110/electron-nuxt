@@ -56,7 +56,14 @@ const NITRO_RUNTIME_CONFIG = {sentry: {
     release: NITRO_IDENTITY.release,
     dist: NITRO_IDENTITY.dist,
     environment: NITRO_IDENTITY.environment,
+    policy: NITRO_POLICY,
 }} as const;
+
+const NITRO_BUILD_CONFIGURATION = {
+    dsn: NITRO_RUNTIME_CONFIG.sentry.nitroDsn,
+    identity: NITRO_IDENTITY,
+    policy: NITRO_POLICY,
+} as const;
 
 const FORBIDDEN_SENTINELS = Object.freeze({
     rawErrorText: 'SEN-GATE-03-raw-error-text',
@@ -402,7 +409,7 @@ function createNitroFixture() {
     };
     const adapter = createSentryNitroAdapter({
         clientFactory,
-        policy: NITRO_POLICY,
+        buildConfiguration: NITRO_BUILD_CONFIGURATION,
         runtimeConfig: NITRO_RUNTIME_CONFIG,
     });
     return {

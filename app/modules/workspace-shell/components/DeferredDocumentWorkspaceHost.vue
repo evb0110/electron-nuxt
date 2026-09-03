@@ -782,6 +782,9 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
             tabId: tabId,
             error,
+        }, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            context: {},
         });
     },
     overrides: {

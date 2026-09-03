@@ -210,6 +210,16 @@ function normalizeDetectionProgress(progress: TScanCleanupProgress): TScanCleanu
     return progress;
 }
 const logger = createLogger('scan-cleanup-preview');
+function logScanCleanupMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
+    if (level === 'error') {
+        logger.error(message, {
+            code: 'MAIN_SCAN_CLEANUP_FAILED',
+            context: {},
+        });
+        return;
+    }
+    logger[level](message);
+}
 
 
 interface IRetainedDocument {
@@ -568,7 +578,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         const result = await detectSourceDpiDetails(
             sourcePdfPath,
             paths.pdfimages,
-            (level, message) => logger[level](message),
+            logScanCleanupMessage,
             undefined,
             signal,
             [pageNumber],
@@ -580,7 +590,7 @@ const defaultDependencies: IScanCleanupPreviewDependencies = {
         const result = await detectSourceDpiDetails(
             sourcePdfPath,
             paths.pdfimages,
-            (level, message) => logger[level](message),
+            logScanCleanupMessage,
             undefined,
             signal,
             pageNumbers,
@@ -1011,7 +1021,7 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
                     ...(pdfinfoBinary ? {pdfinfoBinary} : {}),
                     tempDir: await document.dir,
                     signal: document.lifetime.signal,
-                    log: (level, message) => logger[level](message),
+                    log: logScanCleanupMessage,
                 });
             } catch (error) {
                 logger.warn(`Scan cleanup could not measure the document canvas: ${getErrorMessage(error)}`);
@@ -1098,7 +1108,7 @@ export function createRawRasterRetention(dependencies: IScanCleanupPreviewDepend
             qpdfBinary: paths.qpdf,
             tempDir: await document.dir,
             signal: document.lifetime.signal,
-            log: (level, message) => logger[level](message),
+            log: logScanCleanupMessage,
         });
         if (document.lifetime.signal.aborted) {
             await store.close();
@@ -1613,7 +1623,7 @@ async function renderUnretainedRawRaster(
     const scratchPath = await retention.rasterScratchPath(document, pageNumber, dpi);
     await dependencies.renderPage(
         {pdftoppmBinary: dependencies.getPdftoppmBinary()},
-        (level, message) => logger[level](message),
+        logScanCleanupMessage,
         pageNumber,
         document.sourcePdfPath,
         scratchPath,
@@ -2237,7 +2247,7 @@ async function runDetailPreview(
                 height: sourceCrop.height,
             },
         }], scratch, readAvailableScratchBytes);
-        logRasterHandoff((level, message) => logger[level](message), 'detail tile', handoff);
+        logRasterHandoff(logScanCleanupMessage, 'detail tile', handoff);
         const inputPath = join(scratch, `detail-source-${half}.${handoff.format}`);
         const renderedSource = await renderRasterToDisk(
             request.sourcePdfPath,
@@ -2245,7 +2255,7 @@ async function runDetailPreview(
             inputPath,
             signal,
             dependencies,
-            (level, message) => logger[level](message),
+            logScanCleanupMessage,
             renderDpi,
             maxSourcePixels,
             sourceCrop,
@@ -2322,7 +2332,7 @@ async function runDetailPreview(
         binary,
         manifestPath,
         signal,
-        (level, message) => logger[level](message),
+        logScanCleanupMessage,
         () => undefined,
         {allowedPathRoot: dependencies.getTempDir()},
     );
@@ -2833,7 +2843,7 @@ async function runPreview(
                     join(scratch, 'source-mrc-selection.png'),
                     join(scratch, 'source-mrc-background.png'),
                     signal,
-                    (level, message) => logger[level](message),
+                    logScanCleanupMessage,
                 );
                 logger.debug(
                     `Scan cleanup preview source-layer extraction page ${String(request.pageNumber)} `
@@ -2909,7 +2919,7 @@ async function runPreview(
             binary,
             manifestPath,
             signal,
-            (level, message) => logger[level](message),
+            logScanCleanupMessage,
             () => undefined,
             {allowedPathRoot: dependencies.getTempDir()},
         );
@@ -3999,7 +4009,7 @@ export function createScanCleanupPreviewService(
                                     updatedAtMs: Date.now(),
                                 });
                             },
-                            (level, message) => logger[level](message),
+                            logScanCleanupMessage,
                         );
                         if (detection.resultStore.pageCount > SCAN_CLEANUP_RESULT_ARRAY_COMPATIBILITY_MAX_PAGES) {
                             const resultStoreId = registerScanCleanupDetectionResultStore({

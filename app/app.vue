@@ -398,6 +398,7 @@ function reportStartupWarmupFailure(title: string, error: unknown) {
     BrowserLogger.error('loader', title, error, presentation.failure);
     reportRuntimeError({
         ...presentation,
+        failure: presentation.failure,
         title,
         description: getErrorMessage(error),
     });
@@ -563,7 +564,10 @@ function installViteReloadDiagnostics() {
     });
 
     hot.on('vite:error', (payload: unknown) => {
-        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload);
+        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload, {
+            code: 'RENDERER_DEVELOPMENT_HMR_FAILED',
+            context: {},
+        });
     });
 }
 

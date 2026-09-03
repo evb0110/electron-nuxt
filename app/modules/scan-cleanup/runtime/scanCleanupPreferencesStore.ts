@@ -255,7 +255,10 @@ function queueRemoteUpdate(
     });
     remoteWriteQueue = queuedWrite.then(() => undefined, () => undefined);
     const observedWrite = queuedWrite.catch(error => {
-        BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error);
+        BrowserLogger.error('scan-cleanup', 'Failed to persist file-backed settings', error, {
+            code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+            context: {},
+        });
         schedulePersistenceRetry();
         throw error;
     });
@@ -316,7 +319,10 @@ async function hydratePreferences() {
         hydrationBaseline = null;
         rebasePendingPreferencesAfterHydration();
     } catch (error) {
-        BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error);
+        BrowserLogger.error('scan-cleanup', 'Failed to load file-backed settings', error, {
+            code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+            context: {},
+        });
         throw error;
     } finally {
         applyingRemotePreferences = false;
@@ -381,7 +387,10 @@ export function flushScanCleanupPreferencesStore(): Promise<void> {
             pendingPreferences = null;
             persistenceRetryAttempt = 0;
         } catch (error) {
-            BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error);
+            BrowserLogger.error('scan-cleanup', 'Failed to persist browser settings', error, {
+                code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                context: {},
+            });
             schedulePersistenceRetry();
             return Promise.reject(error);
         }
@@ -481,7 +490,10 @@ export function loadScanCleanupDocumentSettings(
                     legacyDocumentKey,
                 ));
             } catch (error) {
-                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error);
+                BrowserLogger.error('scan-cleanup', 'Failed to load document settings', error, {
+                    code: 'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+                    context: {},
+                });
             }
         }
         const entry = remoteSettingsFile?.documentOverrides[normalizedSourceSha256];

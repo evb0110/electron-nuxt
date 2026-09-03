@@ -55,6 +55,7 @@ const TRUSTED_ORIGIN_HOSTS = new Set([
     'localhost',
     'evb-viewer.com',
     'www.evb-viewer.com',
+    'web.evb-viewer.com',
 ]);
 
 const WRAPPER_FUNCTIONS = new Set([
@@ -132,7 +133,15 @@ function isProjectRootSegment(segment: string) {
 }
 
 function isTrustedOriginHost(hostname: string) {
-    return TRUSTED_ORIGIN_HOSTS.has(hostname.toLowerCase());
+    const normalized = hostname.toLowerCase();
+    if (TRUSTED_ORIGIN_HOSTS.has(normalized)) {
+        return true;
+    }
+    try {
+        return globalThis.location?.hostname?.toLowerCase() === normalized;
+    } catch {
+        return false;
+    }
 }
 
 interface ExtractedPath {
@@ -215,6 +224,25 @@ function canonicalizePath(value: unknown): string | null {
         const asarIndex = segments.findIndex(segment => segment.toLowerCase() === 'app.asar');
         if (asarIndex >= 0) {
             canonicalSegments = segments.slice(asarIndex + 1);
+        } else if (
+            extracted.absolute
+            && segments[0] === 'var'
+            && segments[1] === 'task'
+        ) {
+            const outputServerIndex = segments.findIndex((segment, index) => (
+                segment === '.output' && segments[index + 1] === 'server'
+            ));
+            const serverChunksIndex = segments.findIndex((segment, index) => (
+                segment === 'server' && segments[index + 1] === 'chunks'
+            ));
+            if (outputServerIndex >= 0) {
+                canonicalSegments = segments.slice(outputServerIndex);
+            } else if (serverChunksIndex >= 0) {
+                canonicalSegments = [
+                    'server-bundle',
+                    ...segments.slice(serverChunksIndex + 1),
+                ];
+            }
         } else if (!extracted.absolute || extracted.trustedOrigin || extracted.sourceMap) {
             canonicalSegments = segments;
         }

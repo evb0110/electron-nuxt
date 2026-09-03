@@ -402,6 +402,9 @@ export function createWorkspaceDocumentOpenTransactions(options: {
         BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Prepared document open timed out before the canonical viewer owner mounted', {
             tabId: options.tabId,
             action: intent.action,
+        }, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            context: {},
         });
         return false;
     }

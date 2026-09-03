@@ -88,16 +88,14 @@ describe('useFatalRuntimeError', () => {
         expect(fatal.fatalRuntimeError.value).toBe(firstState);
     });
 
-    it('keeps the legacy signature receipt-free until the Phase 2 migration exit', async () => {
+    it('rejects the removed receipt-free signature at runtime', async () => {
         const fatal = await createFatalRuntimeError();
 
-        fatal.setFatalRuntimeError('runtime', new Error('legacy failure'), 'legacy-source');
-
-        expect(fatal.fatalRuntimeError.value).toMatchObject({
-            description: null,
-            failure: null,
-            source: 'legacy-source',
-            title: null,
-        });
+        expect(() => Reflect.apply(fatal.setFatalRuntimeError, null, [
+            'runtime',
+            new Error('legacy failure'),
+            'legacy-source',
+        ])).toThrow(TypeError);
+        expect(fatal.fatalRuntimeError.value).toBeNull();
     });
 });

@@ -66,6 +66,24 @@ describe('renderer diagnostic bridge', () => {
         });
     });
 
+    it('accepts a closed browser worker parent record forwarded by an Electron renderer', () => {
+        let listener: ((event: Electron.IpcMainEvent, payload: unknown) => void) | undefined;
+        const captureRecord = vi.fn();
+        registerRendererDiagnosticBridge({
+            captureRecord,
+            isTrustedSender: () => true,
+            registerListener: (_channel, handler) => { listener = handler; },
+        });
+        const workerParentRecord: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {
+            ...record,
+            runtime: 'browser-worker-parent',
+        };
+
+        listener?.(createEvent().event, workerParentRecord);
+
+        expect(captureRecord).toHaveBeenCalledWith(workerParentRecord, 0);
+    });
+
     it('counts untrusted, oversized, malformed, unknown-code, and unknown-context records as rejected', () => {
         let listener: ((event: Electron.IpcMainEvent, payload: unknown) => void) | undefined;
         const captureRecord = vi.fn();

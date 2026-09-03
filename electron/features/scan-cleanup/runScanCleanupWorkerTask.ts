@@ -40,6 +40,11 @@ function decodeProgress(value: unknown): TScanCleanupProgress | null {
         logger.error(
             `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
             + `(${error instanceof Error ? error.message : String(error)})`,
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: error,
+            },
         );
         return null;
     }
@@ -111,7 +116,11 @@ export async function runScanCleanupWorkerTask(
         } else {
             rememberWorkerTaskFailureReceipt(
                 error,
-                logger.error(`Scan cleanup worker task rejected: ${detail}`),
+                logger.error(`Scan cleanup worker task rejected: ${detail}`, {
+                    code: 'MAIN_SCAN_CLEANUP_FAILED',
+                    context: {},
+                    cause: error,
+                }),
             );
         }
         throw error;

@@ -8,13 +8,17 @@ import {
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
-    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    code: 'RENDERER_SEARCH_WORKER_FAILED',
     occurredAt: 1,
     severity: 'error',
 };
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
 
-vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+vi.mock('@app/utils/failureReporter', () => ({
+    detectRendererDiagnosticsHost: () => 'hosted-browser',
+    getRendererFailureReporter: () => failureReporter,
+    initializeRendererFailureReporter: () => failureReporter,
+}));
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
@@ -363,7 +367,7 @@ describe('browserSearchWorkerClient', () => {
 
         expect(failureReporter.capture).toHaveBeenCalledOnce();
         expect(failureReporter.capture).toHaveBeenCalledWith(expect.objectContaining({
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            code: 'RENDERER_SEARCH_WORKER_FAILED',
             context: {},
             local: expect.objectContaining({source: 'browser-search-worker-parent'}),
         }), {runtime: 'browser-worker-parent'});

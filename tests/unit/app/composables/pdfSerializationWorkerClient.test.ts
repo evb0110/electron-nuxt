@@ -11,13 +11,17 @@ import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocume
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
-    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    code: 'RENDERER_PDF_SERIALIZATION_WORKER_FAILED',
     occurredAt: 1,
     severity: 'error',
 };
 const failureReporter = {capture: vi.fn(() => failureReceipt)};
 
-vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+vi.mock('@app/utils/failureReporter', () => ({
+    detectRendererDiagnosticsHost: () => 'hosted-browser',
+    getRendererFailureReporter: () => failureReporter,
+    initializeRendererFailureReporter: () => failureReporter,
+}));
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const serializePdfEditsMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => data));

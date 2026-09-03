@@ -166,11 +166,11 @@ jobs:
           done
           if [ "$configured" -eq 4 ]; then
             echo 'enabled=true' >> "$GITHUB_OUTPUT"
-          elif [ "$configured" -eq 0 ] && [ "$EVB_SENTRY_ENVIRONMENT" != 'production' ]; then
+          elif [ "$configured" -eq 0 ]; then
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
-            echo '::notice::Private Sentry upload is not configured for this non-production build.'
+            echo '::notice::Private Sentry upload is not configured; diagnostics remain disabled.'
           else
-            echo '::error::Sentry diagnostics credentials are incomplete or absent for a production build.'
+            echo '::error::Sentry diagnostics credentials are partially configured.'
             exit 1
           fi
 

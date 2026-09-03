@@ -90,6 +90,23 @@ const sentryBrowserDsn = sentryDiagnosticsEligible
 const sentryNitroDsn = sentryDiagnosticsEligible
     ? process.env.SENTRY_NITRO_DSN?.trim() ?? ''
     : '';
+const sentryNitroIdentity = sentryBuildIdentity?.target === 'web'
+    ? sentryBuildIdentity
+    : null;
+const sentryNitroPolicy = Object.freeze({
+    enabled: process.env.EVB_SENTRY_NITRO_ENABLED === '1',
+    legitimateInterestsApproved: process.env.EVB_SENTRY_NITRO_LIA_APPROVED === '1',
+    legalNoticePublished: process.env.EVB_SENTRY_NITRO_NOTICE_PUBLISHED === '1',
+    dpaExecuted: process.env.EVB_SENTRY_NITRO_DPA_EXECUTED === '1',
+    accountHardened: process.env.EVB_SENTRY_NITRO_ACCOUNT_HARDENED === '1',
+    retentionReady: process.env.EVB_SENTRY_NITRO_RETENTION_READY === '1',
+    objectionReady: process.env.EVB_SENTRY_NITRO_OBJECTION_READY === '1',
+});
+const sentryNitroBuildConfiguration = Object.freeze({
+    dsn: sentryNitroDsn,
+    identity: sentryNitroIdentity,
+    policy: sentryNitroPolicy,
+});
 function resolveSentryEuIngestOrigin(dsn: string) {
     try {
         const url = new URL(dsn);
@@ -323,9 +340,10 @@ export default defineNuxtConfig({
     runtimeConfig: {
         sentry: {
             nitroDsn: sentryNitroDsn,
-            release: sentryBuildIdentity?.release ?? '',
-            dist: sentryBuildIdentity?.dist ?? '',
-            environment: sentryBuildIdentity?.environment ?? '',
+            release: sentryNitroIdentity?.release ?? '',
+            dist: sentryNitroIdentity?.dist ?? '',
+            environment: sentryNitroIdentity?.environment ?? '',
+            policy: sentryNitroPolicy,
         },
         analytics: {
             // Keep writes explicitly opt-in so local dev and preview traffic
@@ -650,6 +668,9 @@ export default defineNuxtConfig({
 
     nitro: {
         sourceMap: sentryDiagnosticsEligible,
+        replace: {
+            __EVB_SENTRY_NITRO_BUILD_CONFIGURATION__: JSON.stringify(sentryNitroBuildConfiguration),
+        },
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,

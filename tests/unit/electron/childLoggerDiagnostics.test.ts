@@ -51,7 +51,10 @@ describe('child logger diagnostic ownership', () => {
         } = await import('@electron/utils/createLogger');
         const logger = createLogger('worker-local-only-test', {broadcastToRenderers: false});
 
-        expect(logger.error('worker failure')).toBeUndefined();
+        expect(logger.error('worker failure', {
+            code: 'MAIN_WORKER_TASK_FAILED',
+            context: {},
+        })).toBeUndefined();
         expect(logger.error('worker typed failure', {
             code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
             context: {action: 'enable'},

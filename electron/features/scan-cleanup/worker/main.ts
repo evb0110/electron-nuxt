@@ -27,6 +27,16 @@ const data = workerData as {
     runtimePolicy?: unknown;
 };
 const logger = createLogger('scan-cleanup-worker');
+function logScanCleanupWorkerMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
+    if (level === 'error') {
+        logger.error(message, {
+            code: 'MAIN_SCAN_CLEANUP_FAILED',
+            context: {},
+        });
+        return;
+    }
+    logger[level](message);
+}
 const abortController = new AbortController();
 const startedAt = performance.now();
 let lastProgressStage: TScanCleanupProgress['stage'] | null = null;
@@ -77,7 +87,7 @@ try {
             });
         },
         runtimePolicy,
-        (level, message) => logger[level](message),
+        logScanCleanupWorkerMessage,
     );
     port.postMessage({
         type: 'result',
@@ -104,6 +114,11 @@ try {
         logger.error(
             `Run failed after ${elapsedMs} ms: `
             + (error instanceof Error ? `${error.message}\n${error.stack ?? ''}` : String(error)),
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: error,
+            },
         );
     }
     port.postMessage({

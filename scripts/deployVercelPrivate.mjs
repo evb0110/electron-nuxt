@@ -28,7 +28,10 @@ import {
 } from '../packages/contracts/diagnostics/releaseIdentity.js';
 import {assertSentryPrivateManifestParity} from './release/build-receipt.mjs';
 import {getPrivateSourcemapManifestPath} from './release/stage-private-sourcemaps.mjs';
-import {uploadSentrySourcemaps} from './release/upload-sentry-sourcemaps.mjs';
+import {
+    assertSentryUploadReceipt,
+    uploadSentrySourcemaps,
+} from './release/upload-sentry-sourcemaps.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const supportedDeployTargets = new Set([
@@ -496,11 +499,12 @@ export async function runPrivateVercelDeploy({
         })
         : null;
     if (identity) {
-        await uploadSourcemaps({
+        const uploadReceipt = await uploadSourcemaps({
             identity,
             projectRoot,
             environment: env,
         });
+        assertSentryUploadReceipt(uploadReceipt, identity);
     }
     const prepared = preparePrivateDeploySource({
         deployTarget,

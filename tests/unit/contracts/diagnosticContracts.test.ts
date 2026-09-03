@@ -43,10 +43,7 @@ import {
     type LocalFailureDetail,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
-import {
-    decodeDebugLogEntry,
-    DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY,
-} from '@contracts/electronApiCommon';
+import {decodeDebugLogEntry} from '@contracts/electronApiCommon';
 import {createCaptureTransport} from '@tests/helpers/captureTransport';
 
 const VALID_EVENT_ID = parseDiagnosticEventId('a'.repeat(DIAGNOSTIC_EVENT_ID_HEX_LENGTH))!;
@@ -161,7 +158,6 @@ describe('diagnostic contracts', () => {
             failureRef,
         };
 
-        expect(DEBUG_LOG_REF_FREE_ERROR_COMPATIBILITY).toBe(true);
         expect(decodeDebugLogEntry(entry)).toEqual({
             ...entry,
             failureRef: {...failureRef},
@@ -197,18 +193,13 @@ describe('diagnostic contracts', () => {
         })).toBeNull();
     });
 
-    it('keeps reference-free ERROR entries during the named compatibility migration', () => {
+    it('rejects reference-free ERROR entries', () => {
         expect(decodeDebugLogEntry({
             source: 'legacy-main',
             message: '[ERROR] legacy failure',
             timestamp: '2026-09-03T00:00:00.000Z',
             level: 'ERROR',
-        })).toEqual({
-            source: 'legacy-main',
-            message: '[ERROR] legacy failure',
-            timestamp: '2026-09-03T00:00:00.000Z',
-            level: 'ERROR',
-        });
+        })).toBeNull();
     });
 
     it('decodes only the bounded renderer suppression count beside a closed record', () => {
@@ -262,6 +253,16 @@ describe('diagnostic contracts', () => {
             'ASSISTANT_ACTION_FAILED',
             'UPDATE_OPERATION_FAILED',
             'RENDERER_STARTUP_WARMUP_FAILED',
+            'RENDERER_DEVELOPMENT_HMR_FAILED',
+            'RENDERER_DJVU_OPERATION_FAILED',
+            'RENDERER_PDF_COMBINE_OPERATION_FAILED',
+            'RENDERER_ANNOTATION_OPERATION_FAILED',
+            'RENDERER_PDF_PAGE_OPERATION_FAILED',
+            'RENDERER_SCAN_CLEANUP_OPERATION_FAILED',
+            'RENDERER_WORKSPACE_OPERATION_FAILED',
+            'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+            'RENDERER_SEARCH_WORKER_FAILED',
+            'RENDERER_PDF_SERIALIZATION_WORKER_FAILED',
             'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
             'MAIN_RECENT_FILES_LOAD_FAILED',
             'MAIN_RECENT_FILES_RECOVERY_FAILED',
@@ -271,6 +272,25 @@ describe('diagnostic contracts', () => {
             'MAIN_UPDATE_INSTALL_FAILED',
             'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
             'MAIN_UPDATE_STARTUP_FAILED',
+            'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+            'MAIN_STARTUP_INITIALIZATION_FAILED',
+            'MAIN_SHUTDOWN_FAILED',
+            'MAIN_DJVU_EXPORT_FAILED',
+            'MAIN_IMAGE_EXPORT_FAILED',
+            'MAIN_DJVU_VIEWING_FAILED',
+            'MAIN_DOCUMENT_OPEN_FAILED',
+            'MAIN_SCAN_CLEANUP_FAILED',
+            'MAIN_SEARCH_WORKER_FAILED',
+            'MAIN_WORKING_COPY_CLEANUP_FAILED',
+            'MAIN_OCR_OPERATION_FAILED',
+            'MAIN_RENDERER_LOG_BRIDGE_FAILED',
+            'MAIN_DEFAULT_VIEWER_PROMPT_FAILED',
+            'MAIN_SETTINGS_OPERATION_FAILED',
+            'MAIN_DETACHED_PROCESS_FAILED',
+            'MAIN_WORKER_TASK_FAILED',
+            'MAIN_WINDOW_OPERATION_FAILED',
+            'MAIN_WORKSPACE_CHECKPOINT_FAILED',
+            'MAIN_PROCESS_RECOVERY_FAILED',
         ]);
         expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
         expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (

@@ -400,7 +400,13 @@ describe('private Vercel deployment source', () => {
                 rawArgs: [],
                 uploadSourcemaps: async () => {
                     lifecycle.push('upload');
-                    return {};
+                    return {
+                        schemaVersion: 1,
+                        bundleCount: 1,
+                        destinationFingerprint: 'a'.repeat(64),
+                        manifestSha256: 'b'.repeat(64),
+                        identity,
+                    };
                 },
                 spawnSyncImpl: (command: string, args: string[]) => {
                     calls.push({

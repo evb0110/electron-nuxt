@@ -33,27 +33,21 @@ const buildGitShaDefine = {
     '__EVB_BUILD_GIT_SHA__': JSON.stringify(buildGitSha),
     'process.env.EVB_BUILD_GIT_SHA': JSON.stringify(buildGitSha ?? ''),
 };
-const buildIdentityDefine = desktopIdentity
-    ? {
-        '__EVB_SENTRY_BUILD_IDENTITY__': JSON.stringify(desktopIdentity),
-        'process.env.EVB_SENTRY_RELEASE': JSON.stringify(desktopIdentity.release),
-        'process.env.EVB_SENTRY_DIST': JSON.stringify(desktopIdentity.dist),
-        'process.env.EVB_SENTRY_ENVIRONMENT': JSON.stringify(desktopIdentity.environment),
-    }
-    : {};
-const buildMetadataDefine = desktopIdentity
-    ? {
-        ...buildGitShaDefine,
-        ...buildIdentityDefine,
-    }
-    : buildGitShaDefine;
-const mainSentryDefine = desktopIdentity
-    ? {
-        ...buildMetadataDefine,
-        '__EVB_SENTRY_DESKTOP_DSN__': JSON.stringify(desktopDsn),
-        'process.env.SENTRY_DESKTOP_DSN': JSON.stringify(desktopDsn),
-    }
-    : buildMetadataDefine;
+const buildIdentityDefine = {
+    '__EVB_SENTRY_BUILD_IDENTITY__': JSON.stringify(desktopIdentity),
+    'process.env.EVB_SENTRY_RELEASE': JSON.stringify(desktopIdentity?.release ?? ''),
+    'process.env.EVB_SENTRY_DIST': JSON.stringify(desktopIdentity?.dist ?? ''),
+    'process.env.EVB_SENTRY_ENVIRONMENT': JSON.stringify(desktopIdentity?.environment ?? ''),
+};
+const buildMetadataDefine = {
+    ...buildGitShaDefine,
+    ...buildIdentityDefine,
+};
+const mainSentryDefine = {
+    ...buildMetadataDefine,
+    '__EVB_SENTRY_DESKTOP_DSN__': JSON.stringify(desktopDsn),
+    'process.env.SENTRY_DESKTOP_DSN': JSON.stringify(desktopDsn),
+};
 const initialBundleOptions = {
     sourcemap: emitSourceMaps ? 'external' : false,
     sourcesContent: false,
@@ -174,5 +168,6 @@ if (desktopIdentity) {
     await stagePrivateSourcemaps({
         identity: desktopIdentity,
         outputRoots: ['dist-electron'],
+        resetCompletedIdentityLock: true,
     });
 }

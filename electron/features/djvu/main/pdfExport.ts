@@ -951,7 +951,10 @@ async function runDjvuPrintPath(
         if (canceled) {
             logger.info(`[${jobId}] DjVu print preparation canceled`);
         } else {
-            logger.error(`[${jobId}] DjVu print preparation failed: ${errorMessage}`);
+            logger.error(`[${jobId}] DjVu print preparation failed: ${errorMessage}`, {
+                code: 'MAIN_DJVU_EXPORT_FAILED',
+                context: {},
+            });
         }
         const result = {
             success: false,
@@ -1181,7 +1184,10 @@ async function runDjvuConvertToPdf(
                 };
             }
             const failure = getDjvuFailureReceipt(result)
-                ?? logger.error(`[${jobId}] Conversion failed: ${error ?? 'DjVu conversion failed'}`);
+                ?? logger.error(`[${jobId}] Conversion failed: ${error ?? 'DjVu conversion failed'}`, {
+                    code: 'MAIN_DJVU_EXPORT_FAILED',
+                    context: {},
+                });
             return failure === undefined ? result : {
                 ...result,
                 failure,
@@ -1215,7 +1221,11 @@ async function runDjvuConvertToPdf(
 
         const errorMessage = getErrorMessage(error);
         const failure = getDjvuFailureReceipt(error)
-            ?? logger.error(`[${jobId}] Conversion failed: ${errorMessage}`);
+            ?? logger.error(`[${jobId}] Conversion failed: ${errorMessage}`, {
+                code: 'MAIN_DJVU_EXPORT_FAILED',
+                context: {},
+                cause: error,
+            });
         const result = {
             success: false,
             jobId,

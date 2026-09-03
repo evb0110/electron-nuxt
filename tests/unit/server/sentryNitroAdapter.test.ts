@@ -28,7 +28,19 @@ const RUNTIME_CONFIG = {sentry: {
     release: 'evb-viewer-web@1.2.3',
     dist: 'production',
     environment: 'production',
+    policy: POLICY,
 }} as const;
+
+const BUILD_CONFIGURATION = {
+    dsn: RUNTIME_CONFIG.sentry.nitroDsn,
+    identity: {
+        target: 'web',
+        release: RUNTIME_CONFIG.sentry.release,
+        dist: RUNTIME_CONFIG.sentry.dist,
+        environment: RUNTIME_CONFIG.sentry.environment,
+    },
+    policy: POLICY,
+} as const;
 
 function createRecord(eventId = '00000000000000000000000000000001'): DiagnosticRecord {
     return {
@@ -65,7 +77,7 @@ function createAdapterFixture() {
     };
     const adapter = createSentryNitroAdapter({
         clientFactory,
-        policy: POLICY,
+        buildConfiguration: BUILD_CONFIGURATION,
         runtimeConfig: RUNTIME_CONFIG,
     });
     return {
@@ -81,9 +93,12 @@ describe('viewer Nitro Sentry adapter', () => {
         const clientFactory = vi.fn<TSentryNitroClientFactory>(() => undefined);
         const base: ISentryNitroAdapterOptions = {
             clientFactory,
-            policy: {
-                ...POLICY,
-                enabled: false,
+            buildConfiguration: {
+                ...BUILD_CONFIGURATION,
+                policy: {
+                    ...POLICY,
+                    enabled: false,
+                },
             },
             runtimeConfig: RUNTIME_CONFIG,
         };
@@ -93,15 +108,22 @@ describe('viewer Nitro Sentry adapter', () => {
 
         const missingGate = createSentryNitroAdapter({
             ...base,
-            policy: {
-                ...POLICY,
-                objectionReady: false,
+            buildConfiguration: {
+                ...BUILD_CONFIGURATION,
+                policy: {
+                    ...POLICY,
+                    objectionReady: false,
+                },
             },
         });
         expect(missingGate.isReady()).toBe(false);
 
         const invalidDsn = createSentryNitroAdapter({
             ...base,
+            buildConfiguration: {
+                ...BUILD_CONFIGURATION,
+                dsn: 'https://public@o123.ingest.de.sentry.io/42?secret=query',
+            },
             runtimeConfig: {
                 ...RUNTIME_CONFIG,
                 sentry: {
@@ -114,6 +136,10 @@ describe('viewer Nitro Sentry adapter', () => {
 
         const nonEuDsn = createSentryNitroAdapter({
             ...base,
+            buildConfiguration: {
+                ...BUILD_CONFIGURATION,
+                dsn: 'https://public@o123.ingest.us.sentry.io/42',
+            },
             runtimeConfig: {sentry: {
                 ...RUNTIME_CONFIG.sentry,
                 nitroDsn: 'https://public@o123.ingest.us.sentry.io/42',
@@ -123,10 +149,31 @@ describe('viewer Nitro Sentry adapter', () => {
 
         const missingIdentity = createSentryNitroAdapter({
             ...base,
-            runtimeConfig: {sentry: {nitroDsn: RUNTIME_CONFIG.sentry.nitroDsn}},
+            buildConfiguration: {
+                ...BUILD_CONFIGURATION,
+                identity: null,
+            },
+            runtimeConfig: {sentry: {
+                nitroDsn: RUNTIME_CONFIG.sentry.nitroDsn,
+                release: '',
+                dist: '',
+                environment: '',
+                policy: POLICY,
+            }},
         });
         expect(missingIdentity.isReady()).toBe(false);
         expect(clientFactory).not.toHaveBeenCalled();
+
+        const runtimeOverride = createSentryNitroAdapter({
+            clientFactory,
+            buildConfiguration: BUILD_CONFIGURATION,
+            runtimeConfig: {sentry: {
+                ...RUNTIME_CONFIG.sentry,
+                environment: 'runtime-override',
+            }},
+        });
+        expect(runtimeOverride.isReady()).toBe(false);
+        expect(runtimeOverride.getConfiguration().runtimeMatchesBuild).toBe(false);
     });
 
     it('passes release, dist, environment, and no-client-report privacy options', () => {
@@ -142,6 +189,7 @@ describe('viewer Nitro Sentry adapter', () => {
                 environment: 'production',
             },
             policy: POLICY,
+            runtimeMatchesBuild: true,
         });
 
         const options = fixture.capturedOptions();

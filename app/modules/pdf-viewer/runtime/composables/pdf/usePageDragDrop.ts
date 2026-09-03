@@ -592,7 +592,10 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
             'page-drag-drop',
             'Failed to register dropped page file',
             error,
-            getFailureReceipt(error),
+            getFailureReceipt(error) ?? {
+                code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
+                context: {},
+            },
         );
         presentFailureToast({
             failure,

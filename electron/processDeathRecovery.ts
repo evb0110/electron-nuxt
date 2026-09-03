@@ -123,7 +123,10 @@ export function createProcessDeathRecovery(options: IProcessDeathRecoveryOptions
             // Diagnostics must not change process-death handling or recovery.
         }
         if (receipt === undefined) {
-            options.logger.error(message);
+            options.logger.error(message, {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            });
         } else {
             options.logger.error(message, receipt);
         }

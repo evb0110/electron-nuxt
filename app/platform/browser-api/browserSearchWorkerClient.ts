@@ -16,8 +16,9 @@ import {
 import { getErrorMessage } from '@app/utils/error';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
-    createRendererFailureReporter,
+    detectRendererDiagnosticsHost,
     getRendererFailureReporter,
+    initializeRendererFailureReporter,
 } from '@app/utils/failureReporter';
 
 interface IPendingWorkerRequest {
@@ -73,9 +74,9 @@ function reportWorkerFailure(error: Error) {
         return error;
     }
 
-    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
     const receipt = reporter.capture({
-        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        code: 'RENDERER_SEARCH_WORKER_FAILED',
         context: {},
         local: {
             source: 'browser-search-worker-parent',

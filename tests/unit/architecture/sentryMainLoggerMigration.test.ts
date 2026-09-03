@@ -8,33 +8,6 @@ import {
     it,
 } from 'vitest';
 
-const EXCLUDED_MAIN_LOGGER_FILES = new Set([
-    'electron/bootstrap/requestShutdownSaveFlush.ts',
-    'electron/bootstrap/runInitSequence.ts',
-    'electron/bootstrap/shutdown.ts',
-    'electron/features/agent/mcpServer.ts',
-    'electron/features/djvu/main/pdfExport.ts',
-    'electron/features/djvu/main/viewing.ts',
-    'electron/features/documents/main/documentOpenHandlers.ts',
-    'electron/features/scan-cleanup/createScanCleanupService.ts',
-    'electron/features/scan-cleanup/runScanCleanupWorkerTask.ts',
-    'electron/features/scan-cleanup/worker/main.ts',
-    'electron/features/search/main/searchWorkerService.ts',
-    'electron/file-access/workingCopyCleanup.ts',
-    'electron/main.ts',
-    'electron/ocr/jobManager.ts',
-    'electron/ocr/ocrJobWorkerLifecycle.ts',
-    'electron/platform-ipc/rendererLogBridge.ts',
-    'electron/preload/installDebugLogListener.ts',
-    'electron/processDeathRecovery.ts',
-    'electron/promptSetDefaultViewer.ts',
-    'electron/settings.ts',
-    'electron/utils/runDetached.ts',
-    'electron/utils/workerTask.ts',
-    'electron/window.ts',
-    'electron/workspaceCheckpointStore.ts',
-]);
-
 interface IAstNode {
     [key: string]: unknown;
     type: string;
@@ -123,8 +96,12 @@ const loggerMigrationRule: Rule.RuleModule = {
             const call = node as ICallExpressionNode;
             const failure = call.arguments[1];
             if (
-                hasNamedObjectProperty(failure, 'code')
-                    && hasNamedObjectProperty(failure, 'context')
+                failure !== undefined
+                && (
+                    asAstNode(failure)?.type !== 'ObjectExpression'
+                    || hasNamedObjectProperty(failure, 'code')
+                        && hasNamedObjectProperty(failure, 'context')
+                )
             ) {
                 return;
             }
@@ -156,7 +133,7 @@ function createLoggerMigrationEslint() {
 }
 
 describe('remaining Electron main logger migration', () => {
-    it('reports zero unclassified callers outside owned feature families', async () => {
+    it('reports zero unclassified callers across Electron', async () => {
         const eslint = createLoggerMigrationEslint();
         const results = await eslint.lintFiles(['electron/**/*.ts']);
         const messages = results.flatMap(result => result.messages
@@ -167,20 +144,12 @@ describe('remaining Electron main logger migration', () => {
                 line: message.line,
                 message: message.message,
             })));
-        const scopedMessages = messages.filter(message => !EXCLUDED_MAIN_LOGGER_FILES.has(message.file));
-        const excludedMessages = messages.filter(message => EXCLUDED_MAIN_LOGGER_FILES.has(message.file));
-
         console.warn(JSON.stringify({
-            count: scopedMessages.length,
-            entries: scopedMessages,
+            count: messages.length,
+            entries: messages,
             name: 'electron-main-unclassified-code',
         }));
-        console.warn(JSON.stringify({
-            count: excludedMessages.length,
-            entries: excludedMessages,
-            name: 'electron-main-excluded-unclassified-code',
-        }));
 
-        expect(scopedMessages).toEqual([]);
+        expect(messages).toEqual([]);
     }, 30_000);
 });

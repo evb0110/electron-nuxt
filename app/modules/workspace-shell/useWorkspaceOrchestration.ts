@@ -1023,7 +1023,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             }
             const message = getErrorMessage(error).trim();
             pdfError.value = message || t('errors.file.open');
-            const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error);
+            const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error, {
+                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+                context: {},
+            });
             pdfFailurePresentation.value = {
                 failure,
                 title: t('errors.file.open'),

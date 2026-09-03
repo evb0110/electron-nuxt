@@ -78,20 +78,19 @@ describe('useRuntimeErrorReports', () => {
         installUseStateStub();
     });
 
-    it('deduplicates by explicit key and keeps the latest detail', async () => {
+    it('deduplicates by receipt and keeps the latest detail', async () => {
         const reports = await createReports();
+        const failure = createFailure('77777777777777777777777777777777');
 
         reports.reportRuntimeError({
+            failure,
             title: 'Application warning',
-            source: 'open-path-capabilities',
-            error: '2026-01-01T00:00:00.000Z\n[WARN] rejected path',
-            dedupeKey: 'open-path-capabilities\n[WARN] rejected path',
+            description: '2026-01-01T00:00:00.000Z\n[WARN] rejected path',
         });
         reports.reportRuntimeError({
+            failure,
             title: 'Application warning',
-            source: 'open-path-capabilities',
-            error: '2026-01-01T00:00:01.000Z\n[WARN] rejected path',
-            dedupeKey: 'open-path-capabilities\n[WARN] rejected path',
+            description: '2026-01-01T00:00:01.000Z\n[WARN] rejected path',
         });
 
         expect(reports.reports.value).toHaveLength(1);
@@ -186,9 +185,9 @@ describe('useRuntimeErrorReports', () => {
         });
         for (let index = 0; index < 6; index += 1) {
             reports.reportRuntimeError({
+                failure: createFailure(index.toString(16).padStart(32, '0')),
                 title: `Report ${index}`,
-                source: 'test',
-                error: `detail ${index}`,
+                description: `detail ${index}`,
             });
         }
         expect(evictedLease.discardCount).toBe(1);
@@ -236,18 +235,20 @@ describe('useRuntimeErrorReports', () => {
 
     it('dismisses one report without clearing the rest', async () => {
         const reports = await createReports();
+        const first = createFailure('88888888888888888888888888888888');
+        const second = createFailure('99999999999999999999999999999999');
 
         reports.reportRuntimeError({
+            failure: first,
             title: 'First',
-            source: 'test',
-            error: 'one',
+            description: 'one',
         });
         reports.reportRuntimeError({
+            failure: second,
             title: 'Second',
-            source: 'test',
-            error: 'two',
+            description: 'two',
         });
-        reports.dismissRuntimeErrorReport('test\nSecond\ntwo');
+        reports.dismissRuntimeErrorReport(second.eventId);
 
         expect(reports.reports.value.map(report => report.title)).toEqual(['First']);
     });

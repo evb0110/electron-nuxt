@@ -181,7 +181,11 @@ async function openDocumentsFromDialog(
     try {
         return await openInputPaths(result.filePaths, {}, context.sender);
     } catch (err) {
-        logger.error(`${failureMessage}: ${getErrorMessage(err)}`);
+        logger.error(`${failureMessage}: ${getErrorMessage(err)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            context: {},
+            cause: err,
+        });
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -213,7 +217,11 @@ export async function handleOpenPdfDirect(
         logger.info(`openDocumentDirect result for ${normalizedPath}: ${result?.kind ?? 'null'}`);
         return result;
     } catch (err) {
-        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`);
+        logger.error(`Failed to create working copy: ${getErrorMessage(err)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            context: {},
+            cause: err,
+        });
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -259,7 +267,11 @@ export async function handleOpenPdfDirectBatch(
             }
         }
     } catch (err) {
-        logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`);
+        logger.error(`Failed to create working copy from batch: ${getErrorMessage(err)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            context: {},
+            cause: err,
+        });
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }
@@ -298,7 +310,11 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     try {
         sortedSupportedPaths = await collectSupportedFolderPaths(folderPath);
     } catch (err) {
-        logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`);
+        logger.error(`Failed to read folder contents: ${getErrorMessage(err)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            context: {},
+            cause: err,
+        });
         throw errorWithDetails(te('errors.file.open'), err);
     }
 
@@ -309,7 +325,11 @@ export async function handleOpenFolderDialog(context: IDocumentsDialogContext): 
     try {
         return await openInputPaths(sortedSupportedPaths, {}, context.sender);
     } catch (err) {
-        logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`);
+        logger.error(`Failed to open folder contents: ${getErrorMessage(err)}`, {
+            code: 'MAIN_DOCUMENT_OPEN_FAILED',
+            context: {},
+            cause: err,
+        });
         throw errorWithDetails(te('errors.file.open'), err);
     }
 }

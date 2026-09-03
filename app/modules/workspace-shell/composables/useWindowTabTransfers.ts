@@ -391,6 +391,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Failed to capture split payload', {
                 tabId,
                 error,
+            }, {
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                context: {},
             });
             return null;
         }
@@ -426,6 +429,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 tabId,
                 payloadKind: payload.kind,
                 error,
+            }, {
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                context: {},
             });
             return false;
         }
@@ -477,6 +483,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Failed to close source workspace after transfer', {
                 tabId,
                 error,
+            }, {
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                context: {},
             });
             return false;
         } finally {
@@ -550,6 +559,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
                 tabId,
                 target,
                 error,
+            }, {
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                context: {},
             });
             await cleanupSplitPayloadSnapshot(payload, {
                 logSection: 'tabs',
@@ -713,6 +725,9 @@ export const useWindowTabTransfers = (options: IUseWindowTabTransfersOptions) =>
             BrowserLogger.error('tabs', 'Unhandled incoming tab transfer failure', {
                 transferId: transfer.transferId,
                 error,
+            }, {
+                code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                context: {},
             });
 
             if (target) {

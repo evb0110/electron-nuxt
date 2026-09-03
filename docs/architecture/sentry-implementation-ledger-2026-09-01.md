@@ -1,13 +1,16 @@
 # Sentry error telemetry implementation ledger
 
-- Status: implementation plan, independently audited and revised
+- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-03
 - Ledger date: 2026-09-01
 - Repository version at planning time: 0.1.445
 - Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
-- Nothing in this plan has been implemented. No code, test, workflow, account,
-  deployment, or release change has been made for it.
+- Implementation snapshot: 49 items are locally implemented, 6 are partially
+  complete, and 9 are blocked by named external or time-based gates.
+- This ledger is current. It is not deferred or superseded. A blocked item
+  remains part of this ledger until its external evidence or observation period
+  is complete.
 
 ## Scope
 
@@ -69,6 +72,60 @@ These are restated so a work item can cite them. They are not reopened.
 - No geographic, locale, timezone, or download-source inference of consent
   policy.
 
+## Current implementation and external gate snapshot
+
+This snapshot separates repository proof from account, deployment, and elapsed
+time proof. A local implementation status does not authorize production
+reporting and does not satisfy a live canary.
+
+### Repository proof
+
+- The renderer migration inventory has 77 `BrowserLogger.error` calls and zero
+  receipt-free or generic-code owners.
+- The Electron migration inventory has 98 statically identified logger error
+  calls and zero receipt-free or generic-code owners.
+- Five custom rules block raw red presentation, direct application
+  `console.error`, receipt-free presentation, unclassified error logging, and
+  application-owned generic diagnostic codes.
+- Typecheck includes a contraction fixture proving the removed logger and
+  presenter signatures no longer compile.
+- The latest desktop diagnostics build staged 81 private maps. That count is
+  build-output evidence, not a fixed acceptance number. Browser-renderer,
+  browser-worker, and Nitro maps join the web manifest when the diagnostics
+  viewer build runs. The privacy envelope suite, architecture boundaries,
+  lint, and typecheck pass locally.
+- Browser, Electron, and Nitro production reporting remain disabled without
+  their separately scoped credentials and environment gates.
+
+### Live control proof recorded on 2026-09-03
+
+- The Sentry organization uses the European Union data region. DPA version
+  5.1.0 and the BAA are signed. Aggregated identifying service-data use and
+  minidump attachment storage are disabled.
+- The organization has one owner, Google is the connected identity, native
+  Sentry 2FA is not enabled, pay-as-you-go is zero, and no payment method is
+  configured.
+- No Sentry project or runtime key exists yet. Enhanced Privacy, required data
+  scrubbers, IP storage prevention, JavaScript source-fetching disablement,
+  access restrictions, and Generative AI disablement remain pending.
+- GitHub Actions has no Sentry secrets. The Vercel viewer project has no Sentry
+  environment variables. Production therefore has no configured transport.
+- The repository-linked public GitHub project records 40 items in progress and
+  12 blocked or not-yet-started items in Todo. Nothing is Done until the final
+  SHA lands on `main` and its hosted checks pass.
+
+### External and elapsed-time gates still open
+
+- A qualified person must approve the viewer Nitro legitimate-interests
+  assessment before Nitro processing starts.
+- The two named Sentry projects, three runtime keys, and one least-privilege
+  source-map upload token still need creation after account hardening.
+- Exact private maps still need live upload and symbolication proof for the
+  nine desktop distributions and the hosted viewer.
+- Desktop and browser preview canaries, the one-week Nitro canary, alert setup,
+  the first weekly operations cycle, production enablement, and the four-week
+  production proof remain incomplete.
+
 ## Current repository baseline
 
 Verified at `55e00c767`. These are the numbers and paths the migration work
@@ -117,7 +174,7 @@ affect implementation sequencing and validation, as follows.
 | Microsoft Store submission automation was removed; AppX packages remain workflow artifacts for manual Partner Center upload | `55e00c767` | The Store opt-in requirement is unchanged and still binds the product. There is no submission job to gate, so the Store consent note belongs in the manual upload runbook in `docs/release-guardrails.md`. |
 | A supplemental re-dispatch now reuses already attached assets instead of rebuilding, because builds are not byte reproducible | `55e00c767` | Debug ID injection, map staging, and map upload for the supplemental macOS Intel and Windows ARM64 targets must happen in the run that first attaches those assets. A later re-dispatch verifies bytes and must not rebuild or re-upload maps. If the first attach run did not upload maps, that artifact ships with diagnostics disabled for that release. |
 | Builds are explicitly not byte reproducible | `55e00c767` | The private map manifest is per artifact build, not per version. Symbolication identity is pinned by injected Debug ID plus receipt hash, never by rebuilding the same version later. |
-| Worktree hygiene rules and `pnpm worktrees:prune` were added | `e16df1bc0`, `0c085e1db` | Implementation happens in the primary checkout. Canary and e2e work follows `docs/agents/workspace-hygiene.md`, including stopping every `electron:run` session in the stage that started it. |
+| Worktree hygiene rules and `pnpm worktrees:prune` were added | `e16df1bc0`, `0c085e1db` | Implementation happens in an isolated integration worktree. Canary and e2e work follows `docs/agents/workspace-hygiene.md`, including stopping every `electron:run` session in the stage that started it. |
 | The Electron launch config now shares one hidden bundle per Electron version and prunes finished session state | `e16df1bc0` | The development runner remains a local-only diagnostic channel. Its session output is owned by the launcher and stays outside every Sentry adapter. |
 
 ## File and owner map
@@ -285,14 +342,14 @@ account change, or network call.
 ## Work items
 
 Every item is written to become one GitHub issue. Status values are `not
-started`, `in progress`, `blocked`, and `done`. Every status below is `not
-started` because no implementation has happened.
+started`, `in progress`, `blocked`, and `done`. Each item below records its
+current repository or external-gate status.
 
 ### Phase 0: acknowledgement and external gates
 
 #### SEN-ACK-01 Shared acknowledgement component and local assets
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: none
 - Difficulty: easy
 - Paths: `landing/app/components/SentryAcknowledgement.vue` (new),
@@ -311,7 +368,7 @@ started` because no implementation has happened.
 
 #### SEN-ACK-02 Acknowledgement in both landing footer paths
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-ACK-01
 - Difficulty: easy
 - Paths: `landing/app/components/SiteFooter.vue`,
@@ -325,7 +382,7 @@ started` because no implementation has happened.
 
 #### SEN-ACK-03 In-app About and Acknowledgements page
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-ACK-01
 - Difficulty: medium
 - Paths: `app/pages/about.vue` (new), the Help menu in `electron/menu.ts`, whose
@@ -350,7 +407,7 @@ started` because no implementation has happened.
 
 #### SEN-ACK-04 Acknowledgement localization and accessibility
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-ACK-03
 - Difficulty: medium
 - Paths: `packages/i18n-app/messages/` for all 9 app locales, the landing i18n
@@ -369,7 +426,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-01 Account recovery and organization access hardening
 
-- Status: not started
+- Status: partially complete; live Sentry permission changes and recovery verification pending
 - Depends on: none
 - Difficulty: medium
 - Scope: Sentry account only. No repository change.
@@ -388,7 +445,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-02 Privacy and scrubbing controls
 
-- Status: not started
+- Status: partially complete; live Sentry privacy-setting changes pending
 - Depends on: SEN-EXT-01
 - Difficulty: medium
 - Scope: Sentry account only.
@@ -405,7 +462,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-03 Legal instruments and notice
 
-- Status: not started
+- Status: partially complete; DPA verified, public deployment verification pending
 - Depends on: SEN-EXT-02, SEN-EXT-05
 - Difficulty: hard
 - Scope: legal, notice, and translation publication after SEN-EXT-05 completes
@@ -427,7 +484,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-04 Viewer Nitro legitimate-interests assessment
 
-- Status: not started
+- Status: blocked; qualified approval and external safeguards pending
 - Depends on: SEN-EXT-03
 - Difficulty: hard
 - Scope: legal. No runtime code.
@@ -442,7 +499,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-05 Shared typed privacy source and root-page migration
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: none
 - Difficulty: hard
 - Paths: `packages/i18n-core/privacyMessages.ts` (new),
@@ -466,7 +523,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-01 Diagnostic definition registry
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: none
 - Difficulty: medium
 - Paths: `packages/contracts/diagnostics/diagnosticCodes.ts` (new)
@@ -484,7 +541,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-02 Record contract, event ID, and strict decoder
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-01
 - Difficulty: medium
 - Paths: `packages/contracts/diagnostics/diagnosticRecord.ts` (new),
@@ -506,7 +563,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-03 Failure receipt and expected outcome types
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-02
 - Difficulty: easy
 - Paths: `packages/contracts/diagnostics/failureReceipt.ts` (new)
@@ -520,7 +577,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-04 Renderer failure reporter
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-03, SEN-CORE-05
 - Difficulty: hard
 - Paths: `app/utils/failureReporter.ts` (new)
@@ -549,7 +606,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-05 Canonical application frame normalization
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-02
 - Difficulty: hard
 - Paths: `packages/contracts/diagnostics/canonicalAppFrames.ts` (new)
@@ -568,7 +625,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-06 Receipt-aware presentation helpers
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-03
 - Difficulty: medium
 - Paths: `app/composables/useRuntimeErrorReports.ts`,
@@ -580,8 +637,8 @@ started` because no implementation has happened.
   local-only title and optional description. Each presenter exposes a short form
   of the event ID labelled `Error ID`, never `Sentry report received`, and the
   copy action includes the full ID and the local details. Presentation never
-  captures. During migration the previous signatures remain available and are
-  marked with their removal condition, which is the Phase 2 exit.
+  captures. The previous receipt-free signatures have been removed, and
+  contraction fixtures prove that they no longer compile.
 - Tests: presenter tests that a receipt is required for red presentation; a test
   that the visible short ID matches the receipt; a test that rerendering a
   presenter creates no new occurrence.
@@ -589,7 +646,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-07 Main failure reporter and adapter seam
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-03, SEN-CORE-05
 - Difficulty: hard
 - Paths: `electron/features/diagnostics/public.ts` (new),
@@ -613,7 +670,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-08 Typed renderer diagnostic IPC
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-04, SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/platform-ipc/coreContract.ts`,
@@ -632,7 +689,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-09 Preload policy snapshot and typed send
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-08
 - Difficulty: medium
 - Paths: `electron/preload.ts`, `electron/preload/createElectronApi.ts`,
@@ -655,7 +712,7 @@ started` because no implementation has happened.
 
 #### SEN-CORE-10 Capture transport and forbidden sentinels
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-04, SEN-CORE-07
 - Difficulty: medium
 - Paths: `tests/unit/` diagnostics suites and a shared test capture transport
@@ -674,50 +731,46 @@ started` because no implementation has happened.
 
 #### SEN-MIG-01 BrowserLogger.error becomes a receipt owner
 
-- Status: not started
+- Status: implemented and locally verified; unclassified report is zero
 - Depends on: SEN-CORE-04
 - Difficulty: hard
 - Paths: `app/utils/browserLogger.ts` and the 45 files that call
   `BrowserLogger.error`
-- Behavior: `BrowserLogger.error` returns a `FailureReceipt`. When given an
-  existing receipt it records the local entry and creates no second occurrence.
-  Without a typed code it creates `UNCLASSIFIED_RENDERER_ERROR` with a fresh
-  call-site stack and sends no message or cause remotely. The rich local entry
-  and the existing renderer log IPC are unchanged. Console output uses a
-  captured original sink so the console observer cannot create a second
-  `UNCLASSIFIED_CONSOLE_ERROR`. Call sites that already own a UI presentation
-  pass the receipt through instead of presenting separately.
-- Tests: fallback code and fresh call-site stack; provided receipt suppresses a
-  second occurrence; local entry still contains the full local detail; one
-  `BrowserLogger.error` call does not trigger the console observer; renderer log
-  direction unchanged.
-- Exit evidence: the unclassified-code migration report lists each remaining
-  renderer call site and is checked in as the input to SEN-OPS-03.
+- Behavior: `BrowserLogger.error` returns a `FailureReceipt`. Every caller must
+  provide a subsystem-specific closed code and context or an existing receipt.
+  A receipt records the local entry without creating a second occurrence. The
+  rich local entry and renderer log IPC are unchanged. Console output uses a
+  captured original sink, so the console observer cannot create a second
+  `UNCLASSIFIED_CONSOLE_ERROR`.
+- Tests: typed code with fresh call-site stack; provided receipt suppresses a
+  second occurrence; local detail remains local; one logger call does not
+  trigger the console observer; renderer log direction unchanged.
+- Exit evidence: the checked-in renderer migration report is zero. The
+  receipt-free overload is removed and its TypeScript contraction test passes.
 
 #### SEN-MIG-02 Main createLogger.error becomes a receipt owner
 
-- Status: not started
+- Status: implemented and locally verified; unclassified report is zero
 - Depends on: SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/utils/createLogger.ts` and the Electron modules that call
   `.error(`
-- Behavior: `logger.error` returns a `FailureReceipt` and creates
-  `UNCLASSIFIED_MAIN_ERROR` when no code is supplied on the main thread.
-  Worker-thread and utility-child uses remain local-only, return no remotely
-  forwardable receipt, and cannot own an event assigned to their parent seam.
-  Reuse the existing `isMainThread` distinction. Redacted local file logging is
-  unchanged. Main-thread `ERROR` broadcasts to renderers carry the closed
-  `failureRef`. `WARN` and lower records are untouched and carry no reference.
-- Tests: fallback code and fresh call-site stack; provided receipt suppresses a
+- Behavior: `logger.error` returns a `FailureReceipt` on the main thread. Every
+  caller must provide a subsystem-specific closed code and context or an
+  existing receipt. Worker-thread and utility-child uses remain local-only,
+  return no remotely forwardable receipt, and cannot own an event assigned to
+  their parent seam. Redacted local file logging is unchanged. Main-thread
+  `ERROR` broadcasts carry the closed `failureRef`; lower levels do not.
+- Tests: typed code with fresh call-site stack; provided receipt suppresses a
   second occurrence; redaction unchanged; only main-thread `ERROR` broadcasts
   carry a reference; a worker-thread `.error` call produces a local log and no
   occurrence.
-- Exit evidence: the unclassified-code migration report lists each remaining
-  main call site.
+- Exit evidence: the checked-in main migration report is zero. The receipt-free
+  overload is removed and its TypeScript contraction test passes.
 
 #### SEN-MIG-03 Global renderer guard owns one occurrence
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-06
 - Difficulty: medium
 - Paths: `app/plugins/rendererErrorGuard.client.ts`
@@ -735,7 +788,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-04 Renderer console observer
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MIG-01
 - Difficulty: hard
 - Paths: `app/utils/consoleErrorObserver.ts` (new), its registration in the
@@ -754,7 +807,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-05 Preload projection stays a projection
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MIG-06
 - Difficulty: easy
 - Paths: `electron/preload/installDebugLogListener.ts`, `electron/preload.ts`,
@@ -770,7 +823,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-06 Debug log failure reference and runtime card
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MIG-01, SEN-MIG-02, SEN-MIG-03
 - Difficulty: medium
 - Paths: `packages/contracts/electronApiCommon.ts`,
@@ -785,9 +838,8 @@ started` because no implementation has happened.
   for its own bridge-initialization catch branch because no main record exists.
   Typed main IPC failure responses also carry `failureRef`, and a renderer that
   shows a red toast or inline error for a main-owned failure reuses it instead of
-  creating a renderer occurrence. An `ERROR` record without a reference is
-  tolerated only while the compatibility migration is active and is rejected at
-  the Phase 2 exit.
+  creating a renderer occurrence. The decoder rejects every `ERROR` record
+  without a main-owned failure reference.
 - Tests: one main error produces one local log and one event and may appear in
   every window without another send; a main IPC failure presented in the renderer
   creates no renderer occurrence; `failureRef` survives `decodeDebugLogEntry`
@@ -799,7 +851,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-07 One window-load failure owner
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/window.ts`, `electron/window/rendererReady.ts`,
@@ -818,7 +870,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-08 Process death and recovery seams
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MIG-07
 - Difficulty: medium
 - Paths: `electron/processDeathRecovery.ts`, `electron/main.ts`,
@@ -836,7 +888,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-09 Worker and utility parent ownership
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/utils/workerTask.ts` and the service parents that wrap it,
@@ -856,7 +908,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-10 Red UI family migration
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-06
 - Difficulty: x-hard
 - Paths: the eleven confirmed red families listed in the migration inventory
@@ -876,7 +928,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-11 Landing reclassification and local seam
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-03
 - Difficulty: easy
 - Paths: `landing/server/api/releases/latest.get.ts`,
@@ -892,7 +944,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-12 Expected-outcome reclassification
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-03
 - Difficulty: hard
 - Paths: `app/modules/workspace-shell/composables/useWorkspaceExport.ts`,
@@ -916,7 +968,7 @@ started` because no implementation has happened.
 
 #### SEN-MIG-13 Browser and renderer worker parent ownership
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-04
 - Difficulty: hard
 - Paths: `app/platform/browser-api/browserPageOpsWorkerClient.ts`,
@@ -939,7 +991,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-01 Diagnostics preference in settings schema version 2
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-01
 - Difficulty: medium
 - Paths: `packages/contracts/shared.ts`, `packages/contracts/settings.ts`,
@@ -961,7 +1013,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-02 Synchronous startup preference reader
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CON-01
 - Difficulty: hard
 - Paths: `electron/features/diagnostics/readDiagnosticsPreferenceSync.ts` (new),
@@ -981,7 +1033,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-03 Startup crash marker
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CON-02
 - Difficulty: x-hard
 - Paths: `electron/features/diagnostics/startupCrashMarker.ts` (new),
@@ -1017,7 +1069,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-04 Settings control and copy
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CON-01
 - Difficulty: medium
 - Paths: `app/components/settings/`, the privacy panel entry, and the app
@@ -1035,7 +1087,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-05 First-error consent prompt
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CON-04
 - Difficulty: hard
 - Paths: `app/composables/useRuntimeErrorReports.ts`,
@@ -1059,7 +1111,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-06 Revocation path
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CON-04
 - Difficulty: hard
 - Paths: `app/utils/failureReporter.ts`,
@@ -1084,30 +1136,29 @@ started` because no implementation has happened.
 
 #### SEN-GATE-01 Red presentation and console gates
 
-- Status: not started
+- Status: implemented and blocking; both reports are zero
 - Depends on: SEN-CORE-06 for warning mode, SEN-MIG-10 for blocking mode
 - Difficulty: medium
 - Paths: `eslint-plugin-custom.mjs`, `eslint.config.mjs`,
   `tests/unit/architecture/`
-- Behavior: three rules land in warning mode with the core and become blocking at
-  the Phase 2 exit. First, raw red toast or alert creation outside the shared
+- Behavior: five rules are blocking at the Phase 2 exit. First, raw red toast or alert creation outside the shared
   presenter is rejected. Second, direct `console.error` in application code is
   rejected outside the captured raw sink in `app/utils/browserLogger.ts`, the
   observer in `app/utils/consoleErrorObserver.ts`, tests, and the main-owned
   projection in `electron/preload/installDebugLogListener.ts`. No generic
   bootstrap exemption exists. Third, a runtime or fatal presentation without a
-  receipt is rejected. The architecture test writes two distinct reports: the
+  receipt is rejected. Fourth, error logger owners must provide a closed code
+  and context or an existing receipt. Fifth, application owners cannot use the
+  generic renderer or main codes. The architecture test writes two reports: the
   red-presentation migration report and the unclassified-code migration report.
   Both counts stay visible before the switch.
-- Tests: fixture files proving each rule fires and each documented exemption does
-  not; a test that the red-presentation migration report is zero at the blocking
-  switch. The unclassified-code report may remain nonzero until SEN-OPS-03.
-- Exit evidence: rules blocking, the red-presentation report at zero, and lint
-  green.
+- Tests: fixtures prove each rule fires and each documented exemption does not.
+  Both repository-wide reports are zero.
+- Exit evidence: rules blocking, both reports zero, and lint green.
 
 #### SEN-GATE-02 Sentry import boundary
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-02
 - Difficulty: hard
 - Paths: `scripts/architecture/boundary-check.mjs`,
@@ -1132,7 +1183,7 @@ started` because no implementation has happened.
 
 #### SEN-GATE-03 Privacy sentinel suite
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-10
 - Difficulty: medium
 - Paths: `tests/unit/` diagnostics privacy suites
@@ -1150,7 +1201,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-06 Projects, client keys, and upload token
 
-- Status: not started
+- Status: blocked; live Sentry provisioning confirmation pending
 - Depends on: SEN-EXT-03
 - Difficulty: hard
 - Scope: Sentry account and CI secrets. The only repository change is the
@@ -1170,7 +1221,7 @@ started` because no implementation has happened.
 
 #### SEN-EXT-07 Disable Sentry source fetching after upload
 
-- Status: not started
+- Status: blocked by source-map upload and symbolication verification
 - Depends on: SEN-MAP-04
 - Difficulty: medium
 - Scope: Sentry account only, plus the credential-free inventory.
@@ -1187,7 +1238,7 @@ started` because no implementation has happened.
 
 #### SEN-SDK-01 Pin compatible SDK and CLI versions
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-EXT-03
 - Difficulty: medium
 - Paths: `package.json`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` build-script
@@ -1201,7 +1252,7 @@ started` because no implementation has happened.
 
 #### SEN-SDK-02 Electron main Node-family adapter
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SDK-01
 - Difficulty: x-hard
 - Paths: `electron/features/diagnostics/sentryNodeAdapter.ts` (new)
@@ -1223,7 +1274,7 @@ started` because no implementation has happened.
 
 #### SEN-SDK-03 Hosted browser adapter and CSP
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SDK-01
 - Difficulty: hard
 - Paths: `app/utils/browserDiagnosticsTransport.ts` (new), `nuxt.config.ts`,
@@ -1231,19 +1282,21 @@ started` because no implementation has happened.
 - Behavior: the browser adapter is imported only after a granted preference is
   read synchronously. It sends directly to the one exact Sentry EU ingest origin
   in the DSN. The browser-only production CSP variant adds exactly that origin
-  and nothing else. Electron routes, including `/electron*`, retain their current
-  `connect-src 'self' blob:` policy. A same-origin proxy is rejected. The same
-  integration, client-report, and reconstruction rules as main apply.
+  and nothing else. Generated Nuxt headers may contain that origin, but packaged
+  Electron does not consume those route headers. Electron session security
+  installs its existing `connect-src 'self' blob:` policy. A same-origin proxy
+  is rejected. The same integration, client-report, and reconstruction rules as
+  main apply.
 - Tests: unknown and denied preferences perform zero module load and zero
   request; the hosted-browser CSP contains the exact single added origin; the
-  `/electron*` CSP remains byte-for-byte unchanged; the built browser bundle
+  packaged Electron's installed CSP remains unchanged; the built browser bundle
   contains no Electron or server DSN.
 - Exit evidence: CSP test green and a module-load assertion under each preference
   value.
 
 #### SEN-SDK-04 Release identity and environments
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SDK-01
 - Difficulty: medium
 - Paths: the adapter roots, `scripts/build-electron.mjs`, `nuxt.config.ts`,
@@ -1265,6 +1318,9 @@ started` because no implementation has happened.
   `evb-viewer-web@<version-or-deployment>` with `production` or
   `preview-<build-id>`. Environments are exactly `production`, `preview`,
   `development`, and `test`. No mutable `latest` release exists.
+  A complete set of four private upload values enables map upload. An entirely
+  absent set keeps diagnostics disabled in every environment, including a
+  production release build. A partial set fails the lane.
 - Tests: a policy test that a build cannot produce two different release or dist
   values; a test that the environment set is closed.
 - Exit evidence: identity policy test green with the computed values recorded in
@@ -1272,7 +1328,7 @@ started` because no implementation has happened.
 
 #### SEN-SDK-05 Viewer Nitro adapter
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SDK-01, SEN-EXT-06
 - Difficulty: hard
 - Paths: `server/utils/sentryNitroAdapter.ts` (new)
@@ -1283,6 +1339,11 @@ started` because no implementation has happened.
   transport; and accepts only a closed `DiagnosticRecord`. Its final event
   reconstruction drops any unmarked event and adds only release, dist,
   environment, runtime, code, bounded context, and canonical application frames.
+  DSN, identity, and every legal gate are baked into the Nitro server bundle.
+  Runtime configuration must match the baked value exactly, so Vercel runtime
+  environment overrides fail closed. The diagnostics-enabled deploy also
+  requires a valid source-map upload receipt for the same build identity before
+  it can submit the prebuilt output.
 - Tests: initialization registers no request or process integration; envelope
   inspection contains one event item and no request-derived or client-report
   item; an unmarked event is dropped; transport state is not persisted.
@@ -1291,7 +1352,7 @@ started` because no implementation has happened.
 
 #### SEN-MAP-01 Emit private maps for every reportable bundle
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SDK-04
 - Difficulty: hard
 - Paths: `scripts/build-electron.mjs`, `nuxt.config.ts`, and the worker and
@@ -1313,7 +1374,7 @@ started` because no implementation has happened.
 
 #### SEN-MAP-02 Inject Debug IDs and stage maps before pruning
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MAP-01
 - Difficulty: x-hard
 - Paths: `scripts/release/stage-private-sourcemaps.mjs` (new), the `build` and
@@ -1340,7 +1401,7 @@ started` because no implementation has happened.
 
 #### SEN-MAP-03 Receipts computed from injected bytes
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-MAP-02
 - Difficulty: hard
 - Paths: `scripts/release/build-receipt.mjs`, the private manifest written by
@@ -1363,7 +1424,7 @@ started` because no implementation has happened.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: not started
+- Status: blocked; live projects and upload credential pending
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1396,15 +1457,15 @@ started` because no implementation has happened.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: not started
+- Status: partially complete; exact prebuilt path implemented, live preview deployment pending
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
   `deploy:web:prod` scripts in `package.json`
-- Behavior: today the viewer deploy uploads tracked source and Vercel builds it
-  remotely, and `--prebuilt` is used nowhere in the repository. For a
-  diagnostics-enabled viewer, build `.vercel/output` locally, inject and stage
-  maps, then copy `.vercel/output` separately into deployment scratch because
+- Behavior: ordinary viewer deploys may still upload tracked source for a
+  remote Vercel build. A diagnostics-enabled viewer builds `.vercel/output`
+  locally, injects and stages maps, requires the matching private upload
+  receipt, then copies `.vercel/output` separately into deployment scratch because
   the tracked-source walker excludes `.vercel`. Thread `--prebuilt` through the
   deploy argument parser and deploy that exact scratch output. Source-archive
   deployment would let Vercel rebuild different JavaScript after the maps were
@@ -1422,7 +1483,7 @@ started` because no implementation has happened.
 
 #### SEN-MAP-06 Public artifact scans
 
-- Status: not started
+- Status: partially complete; local scans pass, served-preview scan pending
 - Depends on: SEN-EXT-07
 - Difficulty: medium
 - Paths: `scripts/check-web-deploy-assets.mjs`,
@@ -1441,7 +1502,7 @@ started` because no implementation has happened.
 
 #### SEN-SRV-01 Viewer Nitro error owner
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-CORE-02, SEN-SDK-05
 - Difficulty: hard
 - Paths: `server/plugins/diagnostics.ts` (new),
@@ -1461,7 +1522,7 @@ started` because no implementation has happened.
 
 #### SEN-SRV-02 Server objection control
 
-- Status: not started
+- Status: implemented and locally verified
 - Depends on: SEN-SRV-01
 - Difficulty: medium
 - Paths: `packages/contracts/diagnostics/serverDiagnosticsObjection.ts` (new),
@@ -1485,7 +1546,7 @@ started` because no implementation has happened.
 
 #### SEN-SRV-03 Enable viewer Nitro reporting
 
-- Status: not started
+- Status: blocked by legal, account, map, and preview gates
 - Depends on: SEN-SRV-02, SEN-EXT-04, SEN-EXT-07, SEN-MAP-04
 - Difficulty: medium
 - Paths: deployment configuration for the viewer environment
@@ -1498,7 +1559,7 @@ started` because no implementation has happened.
 
 #### SEN-CAN-03 Viewer Nitro canary
 
-- Status: not started
+- Status: blocked by preview enablement and one-week observation
 - Depends on: SEN-SRV-03
 - Difficulty: hard
 - Paths: preview and production viewer deployments
@@ -1514,7 +1575,7 @@ started` because no implementation has happened.
 
 #### SEN-CON-07 No-client-report proof
 
-- Status: not started
+- Status: implemented and locally verified; packaged canary proof pending
 - Depends on: SEN-CON-06, SEN-SDK-02, SEN-SDK-03, SEN-SDK-05
 - Difficulty: medium
 - Paths: `electron/features/diagnostics/sentryNodeAdapter.ts`,
@@ -1534,7 +1595,7 @@ started` because no implementation has happened.
 
 #### SEN-CAN-01 Desktop consent canary
 
-- Status: not started
+- Status: blocked by signed artifacts, live project, and map upload
 - Depends on: SEN-CON-03, SEN-CON-05, SEN-CORE-09, SEN-MIG-04, SEN-MIG-07,
   SEN-MIG-09, SEN-MIG-13, SEN-SDK-02, SEN-MAP-04, SEN-CON-07
 - Difficulty: x-hard
@@ -1554,7 +1615,7 @@ started` because no implementation has happened.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: not started
+- Status: blocked by live preview deployment and map upload
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite
@@ -1569,7 +1630,7 @@ started` because no implementation has happened.
 
 #### SEN-OPS-01 Alerts and quota
 
-- Status: not started
+- Status: blocked by live projects and canaries
 - Depends on: SEN-CAN-01, SEN-CAN-02, SEN-CAN-03
 - Difficulty: medium
 - Behavior: configure exactly four alert classes: a new or regressed fatal
@@ -1581,7 +1642,7 @@ started` because no implementation has happened.
 
 #### SEN-OPS-02 Weekly triage procedure
 
-- Status: not started
+- Status: partially complete; runbook implemented, first live weekly cycle pending
 - Depends on: SEN-OPS-01
 - Difficulty: medium
 - Paths: `docs/releasing.md` or a dedicated operations section for the runbook
@@ -1601,24 +1662,26 @@ started` because no implementation has happened.
 
 #### SEN-OPS-03 Remove the compatibility overloads
 
-- Status: not started
+- Status: implemented and locally verified; both reports are zero
 - Depends on: SEN-OPS-02, SEN-MIG-01, SEN-MIG-02
 - Difficulty: hard
 - Paths: `app/utils/browserLogger.ts`, `electron/utils/createLogger.ts`, the
   presenter compatibility signatures from SEN-CORE-06
-- Behavior: remove the unclassified logger overloads and the pre-receipt
-  presenter signatures once the static migration report shows no app-owned
-  unclassified call sites remain. This is the stated removal condition for the
-  temporary compatibility code.
-- Tests: the migration report is zero; the removed signatures no longer compile.
-- Exit evidence: report at zero and the compatibility code deleted.
+- Behavior: the unclassified logger overloads and pre-receipt presenter
+  signatures are removed. Every application-owned logger call supplies a
+  specific code or existing receipt, and every red presenter receives a
+  receipt-bearing presentation.
+- Tests: both migration reports are zero; expected TypeScript errors prove the
+  removed signatures no longer compile.
+- Exit evidence: both zero reports are checked in, compatibility code is
+  deleted, blocking lint is green, and the operations procedure exists. The
+  first live weekly cycle remains an external SEN-OPS-02 item.
 
 ## Migration inventories
 
-These tables are the working state for SEN-MIG-10, SEN-MIG-12, and the static
-migration report. Every row starts unmigrated. The `Owner after migration`
-column names who creates the occurrence, so a reviewer can see that no row has
-two owners.
+These tables record the completed working state for SEN-MIG-10, SEN-MIG-12,
+and the static migration reports. The `Owner after migration` column names who
+creates the occurrence, so a reviewer can see that no row has two owners.
 
 ### Red toast call sites
 
@@ -1626,49 +1689,49 @@ All 24 sites currently call `useToast().add({color: 'error'})` directly.
 
 | Path | Occurrences | Owner after migration | Classification | Status |
 | --- | --- | --- | --- | --- |
-| `app/modules/workspace-shell/composables/useWorkspaceExport.ts` | 7 | export service, one receipt per failed export | Mixed: materialization-limit refusal becomes `validation-rejected` | Not started |
-| `app/components/settings/SettingsContent.vue` | 5 | settings controller | Mixed: persistence failure is a fault, integration refusal is expected | Not started |
-| `app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts` | 2 | run coordinator, reusing the logged receipt | Fault | Not started |
-| `app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts` | 2 | document session owner | Fault | Not started |
-| `app/composables/useRecentFiles.ts` | 1 | recent files composable | Expected: stale entry becomes `handled-absence` | Not started |
-| `app/composables/useDjvu.ts` | 1 | DjVu service, reusing the main IPC `failureRef` | Fault | Not started |
-| `app/modules/workspace-shell/agent/runSettingsAssistantAction.ts` | 2, of which one is the result type declaration | assistant action controller | Mixed: refusal is expected, action failure is a fault | Not started |
-| `app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts` | 1 | workspace failure surface | Fault | Not started |
-| `app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts` | 1 | page drag and drop owner | Mixed: unsupported input becomes `unsupported-input` | Not started |
-| `app/modules/workspace-shell/composables/useWorkspacePrint.ts` | 1 | print orchestration | Fault | Not started |
-| `app/modules/workspace-shell/composables/useExternalFileDrop.ts` | 1 | external drop handler | Mixed: unsupported file type becomes `unsupported-input` | Not started |
+| `app/modules/workspace-shell/composables/useWorkspaceExport.ts` | 7 | export service, one receipt per failed export | Mixed: materialization-limit refusal becomes `validation-rejected` | Implemented |
+| `app/components/settings/SettingsContent.vue` | 5 | settings controller | Mixed: persistence failure is a fault, integration refusal is expected | Implemented |
+| `app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts` | 2 | run coordinator, reusing the logged receipt | Fault | Implemented |
+| `app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts` | 2 | document session owner | Fault | Implemented |
+| `app/composables/useRecentFiles.ts` | 1 | recent files composable | Expected: stale entry becomes `handled-absence` | Implemented |
+| `app/composables/useDjvu.ts` | 1 | DjVu service, reusing the main IPC `failureRef` | Fault | Implemented |
+| `app/modules/workspace-shell/agent/runSettingsAssistantAction.ts` | 2, of which one is the result type declaration | assistant action controller | Mixed: refusal is expected, action failure is a fault | Implemented |
+| `app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts` | 1 | workspace failure surface | Fault | Implemented |
+| `app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts` | 1 | page drag and drop owner | Mixed: unsupported input becomes `unsupported-input` | Implemented |
+| `app/modules/workspace-shell/composables/useWorkspacePrint.ts` | 1 | print orchestration | Fault | Implemented |
+| `app/modules/workspace-shell/composables/useExternalFileDrop.ts` | 1 | external drop handler | Mixed: unsupported file type becomes `unsupported-input` | Implemented |
 
 ### Other red presentation families
 
 | Surface | Path | Owner after migration | Status |
 | --- | --- | --- | --- |
-| Fatal runtime modal | `app/components/AppFatalRuntimeDialog.vue`, `app/composables/useFatalRuntimeError.ts`, `app/pages/electron.vue`, `app/app.vue` | The bootstrap or bridge owner that detected the fault, one receipt reused by the modal | Not started |
-| Top-right runtime card | `app/app.vue`, `app/composables/useRuntimeErrorReports.ts`, `app/plugins/runtimeErrorLogStream.client.ts` | Main `failureRef` for main-origin records, the renderer owner for renderer-origin ones | Not started |
-| Workspace document alerts | `app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue` | The document session controller, presentation only in the component | Not started |
-| Deferred workspace failure panel | `app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue` | The workspace failure surface | Not started |
-| Per-page source error | `app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue` | The page source loader | Not started |
-| Combine PDF alerts | `app/components/combine/CombinePdfPage.vue` | The combine service, reusing its logged receipt | Not started |
-| Scan cleanup error state | `app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts` | The run coordinator, one receipt for the stored state and the toast | Not started |
-| Assistant runtime error state | `app/modules/agent-panel/components/AgentAssistantPanel.vue`, `app/modules/agent-panel/composables/useAgentAssistantPanelController.ts` | The controller, one receipt for the log, the state, and the runtime report | Not started |
-| Optimize dialog | `app/modules/pdf-viewer/components/PdfOptimizeDialog.vue`, `app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue`, `app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog.ts` | The workspace optimize controller | Not started |
-| Print dialog | `app/modules/pdf-viewer/components/PdfPrintDialog.vue`, `app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue`, `app/modules/workspace-shell/composables/useWorkspacePrint.ts` | Print orchestration | Not started |
-| DjVu conversion dialog | `app/modules/djvu-viewer/components/DjvuConvertDialog.vue`, `app/composables/useDjvu.ts` | The DjVu service; warning-only policy and estimate failures remain expected | Not started |
+| Fatal runtime modal | `app/components/AppFatalRuntimeDialog.vue`, `app/composables/useFatalRuntimeError.ts`, `app/pages/electron.vue`, `app/app.vue` | The bootstrap or bridge owner that detected the fault, one receipt reused by the modal | Implemented |
+| Top-right runtime card | `app/app.vue`, `app/composables/useRuntimeErrorReports.ts`, `app/plugins/runtimeErrorLogStream.client.ts` | Main `failureRef` for main-origin records, the renderer owner for renderer-origin ones | Implemented |
+| Workspace document alerts | `app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue` | The document session controller, presentation only in the component | Implemented |
+| Deferred workspace failure panel | `app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue` | The workspace failure surface | Implemented |
+| Per-page source error | `app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue` | The page source loader | Implemented |
+| Combine PDF alerts | `app/components/combine/CombinePdfPage.vue` | The combine service, reusing its logged receipt | Implemented |
+| Scan cleanup error state | `app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts` | The run coordinator, one receipt for the stored state and the toast | Implemented |
+| Assistant runtime error state | `app/modules/agent-panel/components/AgentAssistantPanel.vue`, `app/modules/agent-panel/composables/useAgentAssistantPanelController.ts` | The controller, one receipt for the log, the state, and the runtime report | Implemented |
+| Optimize dialog | `app/modules/pdf-viewer/components/PdfOptimizeDialog.vue`, `app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue`, `app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog.ts` | The workspace optimize controller | Implemented |
+| Print dialog | `app/modules/pdf-viewer/components/PdfPrintDialog.vue`, `app/modules/workspace-shell/components/WorkspaceSaveDialogHost.vue`, `app/modules/workspace-shell/composables/useWorkspacePrint.ts` | Print orchestration | Implemented |
+| DjVu conversion dialog | `app/modules/djvu-viewer/components/DjvuConvertDialog.vue`, `app/composables/useDjvu.ts` | The DjVu service; warning-only policy and estimate failures remain expected | Implemented |
 
 ### Renderer and main logger families
 
 | Family | Scale | Migration | Status |
 | --- | --- | --- | --- |
-| `BrowserLogger.error` | 76 calls in 45 files | High-value startup, save, open, render, worker, update, print, OCR, DjVu, scan-cleanup, and assistant owners get specific codes first. The rest use the fallback until SEN-OPS-03. | Not started |
-| `createLogger(...).error` | 115 call sites across 104 logger constructions | Same rule. Service parents that already classify expected teardown keep their classifiers. | Not started |
-| Global renderer guard | `app/plugins/rendererErrorGuard.client.ts` | One occurrence, inherited handler inside the suppression scope | Not started |
-| Renderer console observer | new observer plus the existing console adapter | `UNCLASSIFIED_CONSOLE_ERROR`, frameless drops counted | Not started |
-| Preload projection | `electron/preload/installDebugLogListener.ts` | Presentation only, no occurrence | Not started |
-| Typed IPC failures | `electron/platform-ipc/` handlers and their contracts | `failureRef` on the response, renderer reuses it | Not started |
-| Electron worker and utility parents | `electron/utils/workerTask.ts` and its service parents | Parent owns the occurrence, child reporters stay local | Not started |
-| Browser and renderer worker parents | the five exact SEN-MIG-13 parent paths | Parent owns the occurrence, child reporters stay local | Not started |
-| Viewer Nitro | `server/` endpoints and the new plugin | Server reporter, no request data | Not started |
-| Landing Nitro | `landing/server/` | Warning for handled upstream unavailability, no-op adapter seam | Not started |
-| Development runners | `scripts/electron-run/`, the development log tooling | Local only, never a Sentry input, covered by SEN-GATE-02 | Not started |
+| `BrowserLogger.error` | 77 calls | Every owner supplies a subsystem-specific code or existing receipt. The receipt-free overload is removed. | Implemented, zero unclassified |
+| Electron logger errors | 98 statically identified owner calls | Every owner supplies a subsystem-specific code or existing receipt. The receipt-free overload is removed. | Implemented, zero unclassified |
+| Global renderer guard | `app/plugins/rendererErrorGuard.client.ts` | One occurrence, inherited handler inside the suppression scope | Implemented |
+| Renderer console observer | new observer plus the existing console adapter | `UNCLASSIFIED_CONSOLE_ERROR`, frameless drops counted | Implemented |
+| Preload projection | `electron/preload/installDebugLogListener.ts` | Presentation only, no occurrence | Implemented |
+| Typed IPC failures | `electron/platform-ipc/` handlers and their contracts | `failureRef` on the response, renderer reuses it | Implemented |
+| Electron worker and utility parents | `electron/utils/workerTask.ts` and its service parents | Parent owns the occurrence, child reporters stay local | Implemented |
+| Browser and renderer worker parents | the five exact SEN-MIG-13 parent paths | Parent owns the occurrence, child reporters stay local | Implemented |
+| Viewer Nitro | `server/` endpoints and the new plugin | Server reporter, no request data | Implemented, disabled pending gates |
+| Landing Nitro | `landing/server/` | Warning for handled upstream unavailability, no-op adapter seam | Implemented |
+| Development runners | `scripts/electron-run/`, the development log tooling | Local only, never a Sentry input, covered by SEN-GATE-02 | Implemented |
 
 ## Test matrix
 
@@ -1852,40 +1915,31 @@ architecture changes:
 | Weekly deletion of resolved issues is a manual step | Retention promise in the notice could drift from practice | The weekly runbook includes the deletion step and records the date | SEN-OPS-02 |
 | A privacy incident could be treated as a useful detail | Erosion of the whole contract | Any forbidden field is an incident with a defined response and a sentinel regression | SEN-GATE-03, SEN-OPS-02 |
 
-### Package-specific proofs still open
+### Package-specific proof disposition
 
-These come from the architecture ledger and remain open. They are settled by the
-implementation spike and do not change the architecture.
+The implementation spike resolved the package and lifecycle questions without
+changing the architecture.
 
-1. Exact mutually compatible Sentry browser, Node, core, and CLI versions for
-   the installed Nuxt and Electron dependency graph.
-2. Whether the pinned Node client with the disabled defaults registers any
-   process handler or global patch.
-3. Which supported stack parser produces canonical frames without exposing raw
-   values or relying on unstable internal exports.
-4. How browser Debug ID metadata is read when the renderer has no Sentry SDK.
-5. Proof that the one-shot first-error consent path emits exactly one envelope
-   with one event item, with no pre-consent queue, client report, or revocation
-   flush.
-6. Which Nitro hook registers exactly once in normal, packaged, and prebuilt
-   output.
-7. Confirmation of Sentry's platform event retention, currently 90 days unless
-   the plan exposes a shorter control, and proof of weekly deletion.
-8. Proof that the synchronous preference reader and single marker write survive
-   missing, corrupt, partial, and newer settings, complete without changing exit
-   code or fail-fast timing, and delete the marker after the next launch.
-9. Proof that the consolidated window-load owner carries one occurrence ID
-   through `did-fail-load`, `loadURL` rejection, renderer readiness, and
-   bootstrap failure without hiding a distinct second fault.
-
-Two further proofs are specific to this plan:
-
-10. Whether Debug ID injection can run after every existing post-build transform
-    in both the Nuxt and Electron build chains without invalidating the existing
-    bundle static-integrity checks.
-11. Whether a prebuilt viewer deployment reproduces the current runtime behavior
-    of the source-upload path, including the existing local-artifact exclusions
-    and the deploy asset checks.
+1. Compatible browser, Node, core, and CLI versions are pinned in the lockfile.
+2. Node-client construction disables default integrations, process ownership,
+   client reports, and persistence; lifecycle tests cover the resulting client.
+3. Canonical frame parsing lives in shared contracts and emits only closed
+   frame values.
+4. Browser Debug ID metadata comes from the injected build identity and private
+   manifest rather than a renderer SDK.
+5. Consent and revocation tests prove no pre-consent queue, one event item for
+   the live granted occurrence, and no client-report or close-time flush.
+6. Nitro registration tests prove one owner in normal and prebuilt output.
+7. Platform retention and the first weekly deletion remain live-control proof
+   for SEN-EXT-03 and SEN-OPS-02.
+8. Preference-reader and startup-marker tests cover missing, corrupt, partial,
+   and newer settings, marker deletion, and unchanged fatal timing.
+9. Window-load ownership tests carry one receipt through the competing failure
+   seams without hiding a distinct second failure.
+10. Debug ID injection and private staging run after transforms and before public
+    map pruning and final-byte receipts; build tests verify the order.
+11. The exact prebuilt viewer path and local parity checks are implemented. Live
+    served-byte parity remains part of the hosted-browser canary.
 
 ## Review ledger
 
@@ -1898,6 +1952,7 @@ survived repository verification.
 | --- | --- | --- | --- | --- |
 | Independent audit A | 2026-09-01 | Approve with required changes | Make Electron main the mutable gate; disarm the startup marker after adapter initialization; limit CLI exceptions; move the frame parser into shared contracts; cover preload references, main-thread logger ownership, Nitro, five browser worker parents, shared privacy copy, all artifact identities, and phase-consistent canaries | Yes |
 | Independent audit B | 2026-09-01 | Approve with required changes | Add account project and credential ownership; correct receipt inputs and Vercel parity; deploy prebuilt output before upload; keep external evidence credential-free and tracked; protect Electron CSP; name map flags and workflows; cover Store and supplemental builds; add objection and no-client-report proofs | Yes |
+| Final Fable implementation audit | 2026-09-03 | Approve with required changes | Preserve worker-parent records over IPC; consume startup markers at next-launch install; allow zero-credential production builds; trust the actual hosted viewer and Nitro bundle paths; reconcile durable settings into main; remove ref-free main ERROR projection; make Electron main the sole mutable gate; bake Nitro configuration and require an upload receipt; close build and worker initialization fallbacks; correct stale ledger claims | Yes |
 
 Audit scope for both passes:
 
@@ -1924,3 +1979,18 @@ browser worker parents, the three load-failure registrations, and every exact
 path added by the audits. The final issue links only tracked repository files
 and contains no credential, private account path, local filesystem path, or
 model attribution.
+
+### Current implementation review
+
+The integration worktree was re-audited after the settings merge. Every
+renderer and Electron error logger owner is classified, expected working-copy
+refusals are warnings, both unclassified migration reports are zero, and the
+temporary logger and presenter overloads are removed. The one authorized final
+Fable pass returned `APPROVE WITH REQUIRED CHANGES`. All four high, five medium,
+and four low findings were checked against the repository and applied before
+publication. The corrections cover IPC runtime admission, startup-marker disk
+lifetime, zero-credential release behavior, hosted and Nitro frame recognition,
+settings reconciliation, mandatory main ERROR receipts, Electron gate ownership,
+immutable Nitro configuration, upload-receipt admission, non-diagnostics build
+defines, BrowserLogger fallback ownership, singleton worker reporters, completed
+identity-lock rollover, and the stale text corrected in this ledger.

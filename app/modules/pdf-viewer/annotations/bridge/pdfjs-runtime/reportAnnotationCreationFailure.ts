@@ -33,6 +33,10 @@ export function reportAnnotationCreationFailure(
         'annotations',
         'Annotation creation failed',
         {reason: input.reason},
+        {
+            code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
+            context: {},
+        },
     );
     report?.({
         ...input,

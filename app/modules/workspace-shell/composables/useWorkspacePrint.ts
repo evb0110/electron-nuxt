@@ -1001,7 +1001,10 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 'workspace-print',
                 'Document print failed',
                 error,
-                getFailureReceipt(error) ?? preparationFailureReceipt,
+                getFailureReceipt(error) ?? preparationFailureReceipt ?? {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    context: {},
+                },
             );
             const presentation: FailurePresentation = {
                 failure,

@@ -56,7 +56,7 @@ export interface ILogger {
     warn(msg: string): void;
     error<C extends DiagnosticCode = DiagnosticCode>(
         msg: string,
-        failure?: FailureReceipt | ILoggerFailureInput<C>,
+        failure: FailureReceipt | ILoggerFailureInput<C>,
     ): FailureReceipt | undefined;
 }
 
@@ -466,9 +466,6 @@ function decodeLoggerFailureInput(value: unknown): ILoggerFailureInput | undefin
     ) {
         return undefined;
     }
-    if (decodeDiagnosticContext(value.code, value.context) === null) {
-        return undefined;
-    }
     return value as ILoggerFailureInput;
 }
 
@@ -483,7 +480,7 @@ function getFailureReceiptFromCause(cause: unknown) {
 function captureMainLoggerFailure<C extends DiagnosticCode>(
     source: string,
     message: string,
-    failureInput?: ILoggerFailureInput<C>,
+    failureInput: ILoggerFailureInput<C>,
 ) {
     if (!isMainThread) {
         return undefined;
@@ -495,7 +492,10 @@ function captureMainLoggerFailure<C extends DiagnosticCode>(
     }
 
     const decodedInput = decodeLoggerFailureInput(failureInput);
-    const inheritedReceipt = getFailureReceiptFromCause(decodedInput?.cause);
+    if (!decodedInput) {
+        return undefined;
+    }
+    const inheritedReceipt = getFailureReceiptFromCause(decodedInput.cause);
     if (inheritedReceipt) {
         return inheritedReceipt;
     }
@@ -509,16 +509,14 @@ function captureMainLoggerFailure<C extends DiagnosticCode>(
 
     try {
         return reporter.capture({
-            code: decodedInput?.code ?? 'UNCLASSIFIED_MAIN_ERROR',
-            ...(decodedInput?.severity === undefined ? {} : {severity: decodedInput.severity}),
-            operation: decodedInput?.operation ?? 'main-error',
-            context: decodedInput
-                ? decodeDiagnosticContext(decodedInput.code, decodedInput.context) ?? {}
-                : {},
+            code: decodedInput.code,
+            ...(decodedInput.severity === undefined ? {} : {severity: decodedInput.severity}),
+            operation: decodedInput.operation ?? 'main-error',
+            context: decodeDiagnosticContext(decodedInput.code, decodedInput.context) ?? {},
             local: {
                 source,
                 message,
-                cause: decodedInput?.cause ?? callSiteStack,
+                cause: decodedInput.cause ?? callSiteStack,
             },
         });
     } catch {
@@ -545,7 +543,8 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
             enqueueWrite(source, logFile, formattedMsg, level);
         }
 
-        if (broadcastToRenderersEnabled && shouldLog(level, RENDER_LOG_LEVEL)) {
+        const canBroadcast = level !== 'ERROR' || (isMainThread && failureRef !== undefined);
+        if (broadcastToRenderersEnabled && canBroadcast && shouldLog(level, RENDER_LOG_LEVEL)) {
             void broadcastToRenderers({
                 source,
                 message: `[${level}] ${redactedMsg}`,

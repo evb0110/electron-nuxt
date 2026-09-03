@@ -395,7 +395,10 @@ function dispatchRendererLogLine(level: TRendererLogLevel, line: string) {
         return;
     }
     if (level === 'error') {
-        rendererLogger.error(line);
+        rendererLogger.error(line, {
+            code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
+            context: {},
+        });
         return;
     }
     rendererLogger.info(line);

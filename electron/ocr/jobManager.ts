@@ -304,7 +304,10 @@ function handleWorkerMessage(
             if (message.level === 'warn') {
                 log.warn(message.message);
             } else if (message.level === 'error') {
-                log.error(`[worker-error] ${message.message}`);
+                log.error(`[worker-error] ${message.message}`, {
+                    code: 'MAIN_OCR_OPERATION_FAILED',
+                    context: {},
+                });
             } else {
                 log.debug(`[worker] ${message.message}`);
             }
@@ -389,7 +392,10 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         workerAdmissionLease.release();
         releaseOcrDocumentJobReservation(job.scopedJobId, job.documentJobKey);
         job.resolveWorkerSettlement(result);
-        log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`);
+        log.error(`Failed to start OCR worker for job ${job.requestId}: ${message}`, {
+            code: 'MAIN_OCR_OPERATION_FAILED',
+            context: {},
+        });
         return job.workerSettlement;
     }
 
@@ -430,7 +436,11 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             return;
         }
 
-        log.error(`Worker error for job ${job.requestId}: ${err.message}`);
+        log.error(`Worker error for job ${job.requestId}: ${err.message}`, {
+            code: 'MAIN_OCR_OPERATION_FAILED',
+            context: {},
+            cause: err,
+        });
         const active = activeJobs.get(job.scopedJobId);
         if (!active) {
             return;
@@ -448,7 +458,10 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
         const active = activeJobs.get(job.scopedJobId);
         if (!active) {
             if (code !== 0) {
-                log.error(`Worker exited with code ${code} after OCR job ${job.requestId} was no longer active`);
+                log.error(`Worker exited with code ${code} after OCR job ${job.requestId} was no longer active`, {
+                    code: 'MAIN_OCR_OPERATION_FAILED',
+                    context: {},
+                });
             }
             return;
         }
@@ -458,7 +471,10 @@ function startBrokerAdmittedJob(job: IOcrQueuedJob, workerAdmissionLease: IJobBr
             || active.terminalResultSent;
 
         if (code !== 0 && !wasCompletedOrTerminated) {
-            log.error(`Worker exited with code ${code} for job ${job.requestId}`);
+            log.error(`Worker exited with code ${code} for job ${job.requestId}`, {
+                code: 'MAIN_OCR_OPERATION_FAILED',
+                context: {},
+            });
             sendJobFailure(active, `Worker exited unexpectedly with code ${code}`);
             active.terminalResultSent = true;
         } else if (active.pendingCompletionResult && !active.terminalResultSent) {
@@ -856,7 +872,11 @@ export async function handleOcrCreateSearchablePdfAsync(
         return await startResult.promise;
     } catch (error) {
         const message = getErrorMessage(error);
-        log.error(`Failed to queue OCR worker job: ${message}`);
+        log.error(`Failed to queue OCR worker job: ${message}`, {
+            code: 'MAIN_OCR_OPERATION_FAILED',
+            context: {},
+            cause: error,
+        });
         return createOcrQueueFailure(
             requestId,
             message,

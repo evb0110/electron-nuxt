@@ -110,6 +110,7 @@ describe('Electron build script', () => {
                 environment: 'test',
             },
             outputRoots: ['dist-electron'],
+            resetCompletedIdentityLock: true,
         });
     });
 });

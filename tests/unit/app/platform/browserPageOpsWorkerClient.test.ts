@@ -8,7 +8,7 @@ import {
 
 const failureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef',
-    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
     occurredAt: 1,
     severity: 'error',
 };
@@ -17,8 +17,9 @@ const failureReporter = {capture: vi.fn(() => failureReceipt)};
 const fallbackReporter = vi.fn(() => failureReporter);
 
 vi.mock('@app/utils/failureReporter', () => ({
-    createRendererFailureReporter: fallbackReporter,
+    detectRendererDiagnosticsHost: () => 'hosted-browser',
     getRendererFailureReporter: () => reporterAvailable ? failureReporter : null,
+    initializeRendererFailureReporter: fallbackReporter,
 }));
 
 class FakeWorker {
