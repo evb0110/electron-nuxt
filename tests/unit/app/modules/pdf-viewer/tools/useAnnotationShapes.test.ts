@@ -338,6 +338,10 @@ describe('useAnnotationShapes', () => {
 
         expect(projection.shapes.selectedShapeId.value).toBeNull();
         expect(projection.shapes.hasShapes.value).toBe(true);
+        expect(projection.shapes.getAllShapes()[0]).toMatchObject({
+            id: created!.id,
+            source: 'local',
+        });
     });
 
     it('timestamps created drawings and updates their modified time on canonical edits', () => {
@@ -531,7 +535,7 @@ describe('useAnnotationShapes', () => {
         deleteShape(projection, embeddedInkShape.id);
 
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
         expect(projection.shapes.hasShapes.value).toBe(false);
 
         const frontier = projection.store.beginSave();
@@ -652,13 +656,13 @@ describe('useAnnotationShapes', () => {
         replaceEmbeddedShapes(projection, [embeddedInkShape]);
 
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
         expect(projection.shapes.hasShapes.value).toBe(false);
 
         replaceEmbeddedShapes(projection, []);
 
         expect(projection.shapes.getDeletedEmbeddedAnnotationIds()).toEqual(['21R']);
-        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(projection.shapes.getDeletedEmbeddedShapeStableKeys()).toEqual(['evb-shape:embedded-ink-1']);
         expect(projection.shapes.hasShapes.value).toBe(false);
     });
 

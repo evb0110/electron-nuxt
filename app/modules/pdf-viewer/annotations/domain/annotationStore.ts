@@ -121,6 +121,46 @@ function identityWithPdfRef(identity: IAnnotationIdentity, pdfRef: string | unde
     return rebaseAnnotationPersistenceIdentity(identity, pdfRef);
 }
 
+function hasRectLineEndpoints(entity: IShapeEntity) {
+    if ((entity.tool !== 'line' && entity.tool !== 'arrow') || entity.points?.length !== 2) {
+        return false;
+    }
+    const [
+        start,
+        end,
+    ] = entity.points;
+    const epsilon = 1e-6;
+    const left = entity.rect.left;
+    const top = entity.rect.top;
+    const right = left + entity.rect.width;
+    const bottom = top + entity.rect.height;
+    const matches = (first: typeof start, last: typeof end) => (
+        Math.abs(first!.x - left) <= epsilon
+        && Math.abs(first!.y - top) <= epsilon
+        && Math.abs(last!.x - right) <= epsilon
+        && Math.abs(last!.y - bottom) <= epsilon
+    );
+    return matches(start, end) || matches(end, start);
+}
+
+function saveReconciliationFingerprint(entity: AnnotationEntity) {
+    if (entity.kind === 'shape') {
+        const withoutDeletion = {
+            ...entity,
+            deleted: false,
+        };
+        if (!hasRectLineEndpoints(entity)) {
+            return semanticEntityFingerprint(withoutDeletion);
+        }
+        const {
+            points: _points,
+            ...withoutPoints
+        } = withoutDeletion;
+        return semanticEntityFingerprint(withoutPoints);
+    }
+    return semanticEntityFingerprint(entity);
+}
+
 export class AnnotationStore {
     readonly #entities = new Map<AnnotationId, AnnotationEntity>();
     readonly #identities = new ExternalIdentityIndex();
@@ -303,12 +343,36 @@ export class AnnotationStore {
         entities: readonly AnnotationEntity[],
         foreign: readonly IPdfForeignAnnotationRecord[],
     ) {
+        const currentEntities = Array.from(this.#entities.values());
+        const usedCurrentIds = new Set<AnnotationId>();
+        const fingerprintMatchedIds = new Set<AnnotationId>();
         const parsedById = new Map<AnnotationId, AnnotationEntity>();
         entities.forEach((entity) => {
-            const id = entity.identity.id;
+            let id = entity.identity.id;
+            if (!this.#entities.has(id)) {
+                const matches = currentEntities.filter(current => (
+                    (current.persistedRevision >= 0 || current.kind === 'shape')
+                    && !usedCurrentIds.has(current.identity.id)
+                    && current.kind === entity.kind
+                    && current.pageIndex === entity.pageIndex
+                    && saveReconciliationFingerprint(current) === saveReconciliationFingerprint(entity)
+                ));
+                if (matches.length === 1) {
+                    id = matches[0]!.identity.id;
+                    fingerprintMatchedIds.add(id);
+                    entity = {
+                        ...entity,
+                        identity: {
+                            ...entity.identity,
+                            id,
+                        },
+                    };
+                }
+            }
             if (parsedById.has(id)) {
                 throw new Error(`Duplicate parsed AnnotationId ${id}`);
             }
+            usedCurrentIds.add(id);
             parsedById.set(id, cloneCanonicalEntity(entity));
         });
 
@@ -318,7 +382,11 @@ export class AnnotationStore {
         this.#entities.forEach((current, id) => {
             const parsed = parsedById.get(id);
             if (!parsed) {
-                if (isDirty(current)) {
+                const materializedLocalShapeTombstone = current.kind === 'shape'
+                    && current.deleted
+                    && current.identity.pdfRef === undefined
+                    && current.materialized === true;
+                if (isDirty(current) && !materializedLocalShapeTombstone) {
                     next.set(id, cloneEntity(current));
                     const saved = this.#savedSemanticSnapshot.get(id);
                     if (saved !== undefined) {
@@ -337,7 +405,17 @@ export class AnnotationStore {
             if (isDirty(current)) {
                 next.set(id, {
                     ...cloneEntity(current),
-                    identity: identityWithPdfRef(current.identity, parsed.identity.pdfRef),
+                    identity: current.kind === 'shape'
+                        && fingerprintMatchedIds.has(id)
+                        && current.persistedRevision < 0
+                        && current.identity.pdfRef === undefined
+                        ? current.identity
+                        : identityWithPdfRef(current.identity, parsed.identity.pdfRef),
+                    ...(current.kind === 'shape'
+                        && fingerprintMatchedIds.has(id)
+                        && current.identity.pdfRef === undefined
+                        ? {materialized: true}
+                        : {}),
                 });
                 return;
             }

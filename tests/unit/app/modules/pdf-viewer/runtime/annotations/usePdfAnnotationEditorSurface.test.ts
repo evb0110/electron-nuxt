@@ -45,6 +45,7 @@ function baseEntity(id: string, pageIndex = 0) {
 function createSurfaceHarness() {
     const annotationApplication = shallowRef(new AnnotationApplication('surface-test'));
     const emitAnnotationModified = vi.fn();
+    const emitShapeContextMenu = vi.fn();
     const scope = effectScope();
     activeScopes.add(scope);
     const surface = scope.run(() => usePdfAnnotationEditorSurface({
@@ -52,6 +53,7 @@ function createSurfaceHarness() {
         activeTool: computed<TAnnotationTool>(() => 'select'),
         settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
         emitAnnotationModified,
+        emitShapeContextMenu,
     }))!;
     const stop = () => {
         if (!activeScopes.delete(scope)) {
@@ -62,6 +64,7 @@ function createSurfaceHarness() {
     return {
         annotationApplication,
         emitAnnotationModified,
+        emitShapeContextMenu,
         surface,
         stop,
     };
@@ -210,6 +213,34 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.annotationApplication.value.store.delete(entity.identity.id);
 
         expect(harness.surface.getEntitiesForPage(0)).toEqual([]);
+        harness.stop();
+    });
+
+    it('forwards canonical shape context-menu selection to the workspace bridge', () => {
+        const harness = createSurfaceHarness();
+        const entity = {
+            kind: 'shape' as const,
+            ...baseEntity('context-shape'),
+            tool: 'rectangle' as const,
+            rect,
+            strokeColor: '#dc2626',
+            strokeWidth: 2,
+            fill: null,
+            opacity: 1,
+        };
+        harness.annotationApplication.value.store.createShape(entity);
+
+        harness.surface.openShapeContextMenu({
+            shapeId: entity.identity.id,
+            clientX: 120,
+            clientY: 240,
+        });
+
+        expect(harness.emitShapeContextMenu).toHaveBeenCalledWith({
+            shapeId: entity.identity.id,
+            clientX: 120,
+            clientY: 240,
+        });
         harness.stop();
     });
 

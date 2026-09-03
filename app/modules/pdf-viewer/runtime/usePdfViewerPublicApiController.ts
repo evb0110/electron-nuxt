@@ -353,6 +353,7 @@ export const usePdfViewerPublicApiController = (
         clearShapes: shapeComposable.clearShapes,
         clearSelectedShape: selectedShapeCommands.clearSelectedShape,
         deleteSelectedShape: selectedShapeCommands.deleteSelectedShape,
+        deleteShapeById: selectedShapeCommands.deleteShapeById,
         hasShapes: shapeComposable.hasShapes,
         selectedShapeId: shapeComposable.selectedShapeId,
         updateShape: selectedShapeCommands.updateShape,

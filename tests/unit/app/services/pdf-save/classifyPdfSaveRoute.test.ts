@@ -11,6 +11,7 @@ import {
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
     AnnotationEntity,
+    IShapeEntity,
     ITextBoxEntity,
     INoteEntity,
     ITextMarkupEntity,
@@ -199,6 +200,36 @@ function nativeShape(): IShapeAnnotation {
     };
 }
 
+function nativeShapeWithRef(annotationId: string): IShapeAnnotation {
+    return {
+        ...nativeShape(),
+        annotationId,
+    };
+}
+
+function deletedShape(id: string, pdfRef?: string): IShapeEntity {
+    return {
+        kind: 'shape',
+        identity: {
+            id: asAnnotationId(id),
+            ...(pdfRef ? {pdfRef} : {}),
+        },
+        pageIndex: 0,
+        revision: 2,
+        persistedRevision: pdfRef ? 1 : -1,
+        deleted: true,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: 1_781_000_000_100,
+        author: null,
+        tool: 'rectangle',
+        rect: MARKER_RECT,
+        strokeColor: '#00aaff',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 1,
+    };
+}
+
 function planOf(
     dirty: readonly AnnotationEntity[],
     entities: readonly AnnotationEntity[] = dirty,
@@ -270,6 +301,29 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
 }
 
 describe('classifyPdfSaveRoute annotation routes', () => {
+    it('does not require a native delete for a local shape deleted beside a persisted shape', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                deletedShape('local-shape'),
+                deletedShape('persisted-shape', '44R'),
+            ]),
+            capabilities({
+                dirtyState: {
+                    ...capabilities().dirtyState!,
+                    shapeStateDirty: true,
+                },
+                shapes: [nativeShapeWithRef('44R')],
+                deletedEmbeddedShapeAnnotationIds: ['44R'],
+            }),
+        );
+
+        expect(decision.canonical.pendingDeletes).toHaveLength(0);
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.shapes?.deletedAnnotationIds)
+            .toContain('44R');
+    });
+
     it('replays pending embedded annotation operations from source bytes', () => {
         const decision = classifyPdfSaveRoute(planOf([embeddedNote('anno_editor_note', '19R')]), capabilities());
 

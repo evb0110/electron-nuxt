@@ -11,6 +11,7 @@
         @pointerup="handlePointerUp"
         @pointercancel="handlePointerCancel"
         @click.stop="handleSurfaceClick"
+        @contextmenu.prevent.stop="handleSurfaceContextMenu"
         @dblclick.stop="handleSurfaceDblClick"
         @keydown="handleKeydown"
     >
@@ -439,7 +440,10 @@ function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent) {
     if (!point) {
         return;
     }
-    surface.select([entity.identity.id], {additive: event.shiftKey});
+    const wasSelected = surface.selectedIds.value.has(entity.identity.id);
+    if (!wasSelected || event.shiftKey) {
+        surface.select([entity.identity.id], {additive: event.shiftKey});
+    }
     if (event.shiftKey || (surface.activeTool.value !== 'select' && surface.activeTool.value !== 'none')) {
         return;
     }
@@ -459,7 +463,10 @@ function handleNotePointerDown(entity: INoteEntity, event: PointerEvent) {
     if (!point) {
         return;
     }
-    surface.select([entity.identity.id], {additive: event.shiftKey});
+    const wasSelected = surface.selectedIds.value.has(entity.identity.id);
+    if (!wasSelected || event.shiftKey) {
+        surface.select([entity.identity.id], {additive: event.shiftKey});
+    }
     if (event.shiftKey || (surface.activeTool.value !== 'select' && surface.activeTool.value !== 'none')) {
         return;
     }
@@ -502,7 +509,10 @@ function handleSurfacePointerDown(event: PointerEvent) {
     focusLayer();
     const id = entityIdFromEvent(event);
     if (id) {
-        surface.select([id], {additive: event.shiftKey});
+        const wasSelected = surface.selectedIds.value.has(id);
+        if (!wasSelected || event.shiftKey) {
+            surface.select([id], {additive: event.shiftKey});
+        }
         if (!event.shiftKey && (surface.activeTool.value === 'select' || surface.activeTool.value === 'none')) {
             const point = pointFromEvent(event);
             if (point && pointerGesture.beginMove(id, point, event)) {
@@ -691,6 +701,19 @@ function handleSurfaceClick(event: MouseEvent) {
         return;
     }
     surface.select([id], {additive: event.shiftKey});
+}
+
+function handleSurfaceContextMenu(event: MouseEvent) {
+    const id = entityIdFromEvent(event);
+    if (!id) {
+        return;
+    }
+    surface.select([id], {additive: event.shiftKey});
+    surface.openShapeContextMenu({
+        shapeId: id,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
 }
 
 function handleSurfaceDblClick(event: MouseEvent) {

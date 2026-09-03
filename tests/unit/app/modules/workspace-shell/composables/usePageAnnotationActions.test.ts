@@ -183,6 +183,8 @@ function createHarness() {
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
         deleteSelectedShape: vi.fn(),
+        deleteShapeById: vi.fn(),
+        getAllShapes: vi.fn(() => []),
         runSaveTransaction: vi.fn(async () => ({
             source: 'pdfjs-materialize' as const,
             baseBytes: null,
