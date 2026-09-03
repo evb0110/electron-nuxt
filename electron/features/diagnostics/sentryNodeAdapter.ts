@@ -1,13 +1,14 @@
 /* eslint-disable custom/file-naming */
 
 import {
+    createTransport,
     createEventEnvelope,
     getEnvelopeEndpointWithUrlEncodedAuth,
     makeDsn,
     type Event,
     type Transport,
 } from '@sentry/core';
-import {makeNodeTransport} from '@sentry/node';
+import {request as requestHttps} from 'node:https';
 import {DIAGNOSTIC_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {
     decodeDiagnosticRecord,
@@ -23,7 +24,12 @@ import type {IMainDiagnosticsTransport} from '@electron/features/diagnostics/mai
 const EVB_DIAGNOSTIC_SCHEMA_MARKER = 'evb-diagnostic-v1';
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 
-type TSentryTransportFactory = (options: Parameters<typeof makeNodeTransport>[0]) => Transport;
+interface INodeEnvelopeTransportOptions {
+    readonly url: string;
+    readonly recordDroppedEvent: () => void;
+}
+
+type TSentryTransportFactory = (options: INodeEnvelopeTransportOptions) => Transport;
 
 export interface ISentryNodeAdapterOptions {
     dsn: string;
@@ -146,6 +152,41 @@ function isSuccessfulResponse(value: Awaited<ReturnType<Transport['send']>>) {
         || value.statusCode >= 200 && value.statusCode < 300;
 }
 
+function createNodeEnvelopeTransport(options: INodeEnvelopeTransportOptions) {
+    return createTransport({
+        bufferSize: 16,
+        recordDroppedEvent: options.recordDroppedEvent,
+    }, request => new Promise((resolve, reject) => {
+        const body = request.body;
+        const outgoing = requestHttps(options.url, {
+            method: 'POST',
+            headers: {
+                'content-type': 'application/x-sentry-envelope',
+                'content-length': String(typeof body === 'string'
+                    ? Buffer.byteLength(body)
+                    : body.byteLength),
+            },
+        }, response => {
+            response.resume();
+            response.once('end', () => {
+                resolve({
+                    ...(response.statusCode === undefined ? {} : {statusCode: response.statusCode}),
+                    headers: {
+                        'retry-after': typeof response.headers['retry-after'] === 'string'
+                            ? response.headers['retry-after']
+                            : null,
+                        'x-sentry-rate-limits': typeof response.headers['x-sentry-rate-limits'] === 'string'
+                            ? response.headers['x-sentry-rate-limits']
+                            : null,
+                    },
+                });
+            });
+        });
+        outgoing.once('error', reject);
+        outgoing.end(body);
+    }));
+}
+
 export function createSentryNodeDiagnosticsTransport(
     options: ISentryNodeAdapterOptions,
 ): IMainDiagnosticsTransport {
@@ -172,7 +213,7 @@ export function createSentryNodeDiagnosticsTransport(
         throw new Error('Desktop diagnostics require an exact desktop build identity');
     }
     const dsn = requireEuDsn(options.dsn);
-    const makeTransport = options.makeTransport ?? makeNodeTransport;
+    const makeTransport = options.makeTransport ?? createNodeEnvelopeTransport;
     const transport = makeTransport({
         url: getEnvelopeEndpointWithUrlEncodedAuth(dsn),
         recordDroppedEvent: () => undefined,
