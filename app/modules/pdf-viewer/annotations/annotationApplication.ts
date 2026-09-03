@@ -146,6 +146,9 @@ function shapeToolFromLegacyShape(shape: IShapeAnnotation): TDrawableShapeType {
     if (shape.type === 'polyline') {
         return 'draw';
     }
+    if (shape.type === 'arrow') {
+        return 'arrow';
+    }
     if (shape.type === 'line' && shape.lineEndStyle === 'closedArrow') {
         return 'arrow';
     }
