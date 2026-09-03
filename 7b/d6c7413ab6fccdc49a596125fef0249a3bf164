@@ -1,0 +1,79 @@
+electron/preload/debugLogBuffer.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 1,4,6
+packages/contracts/diagnostics/diagnosticsCapability.ts
+  s_b412fd4cd3f576::t_8ba4643aaeb21b 2-5,9-18,33,36-40
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_72eef48718f163 122
+  s_b412fd4cd3f576::t_d0945428b501f7 119-121
+  s_b412fd4cd3f576::t_eca89df46a5c87 14
+  s_b412fd4cd3f576::t_b079f3c38c4e72 27,123
+tests/unit/electron/debugLogBuffer.test.ts
+  s_b412fd4cd3f576::t_68fdd2c0b4f92b 8-11,23,26-44
+  s_b412fd4cd3f576::t_faf8ae1805d288 1-7,12-22,24-25,45-58
+tests/unit/electron/mainLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_0d14a7131d7ddf 132-133,138-140
+  s_b412fd4cd3f576::t_68fdd2c0b4f92b 16-19,22,55-58,121-131,134-137,141-159
+  s_b412fd4cd3f576::t_8cb8f8b0b48580 160-161
+tests/unit/electron/installDebugLogListener.test.ts
+  s_b412fd4cd3f576::t_faf8ae1805d288 47-70
+  s_b412fd4cd3f576::t_68fdd2c0b4f92b 2,22-25
+electron/preload/createElectronApi.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 17-20,608
+electron/preload/installViteOutdatedOptimizeDepRecovery.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 95,97
+electron/preload.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 55,57,60
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 5,16,128-130,132-137,140
+  s_b412fd4cd3f576::t_8980fc4995033b 127
+  s_b412fd4cd3f576::t_b079f3c38c4e72 131
+  s_b412fd4cd3f576::t_49c4c7702c45cd 15,118,126
+  s_b412fd4cd3f576::t_b25384fb8c0e6d 2,55-67,117,119-120,122-124
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_faf8ae1805d288 44-47,148-162,167-211
+  s_b412fd4cd3f576::t_0404681e4bed07 163-166
+electron/preload/installDebugLogListener.ts
+  s_b412fd4cd3f576::t_8980fc4995033b 2
+  s_b412fd4cd3f576::t_5b940ee49f799c 7,26-28
+packages/contracts/electronApiCommon.ts
+  s_b412fd4cd3f576::t_8980fc4995033b 10-13,26-27
+  s_b412fd4cd3f576::t_5b940ee49f799c 1-9,14,22-25,28-34,39-40,56-76,84-127,139-166
+  s_b412fd4cd3f576::t_d74d71d5c313c0 77-83,128-129,138
+  s_b412fd4cd3f576::t_3901328df6d710 35,41-55,130-137
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_b412fd4cd3f576::t_eca89df46a5c87 94-98
+  s_b412fd4cd3f576::t_faf8ae1805d288 9,93,99-119
+  s_b412fd4cd3f576::t_df233860cf58a5 120-121
+app/utils/runtimeErrorFilter.ts
+  s_b412fd4cd3f576::t_5b940ee49f799c 2,130-162,164
+  s_b412fd4cd3f576::t_339bace1bf1a63 163
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_03ffa3b1d402ae 85
+  s_b412fd4cd3f576::t_b079f3c38c4e72 29,86
+  s_b412fd4cd3f576::t_eca89df46a5c87 16
+  s_b412fd4cd3f576::t_0404681e4bed07 1-15,17-23,25-28,33-56,58-80,87-150
+  s_b412fd4cd3f576::t_f1fcb79b05183b 24,30-32,57,81-84
+tests/unit/electron/installViteOutdatedOptimizeDepRecovery.test.ts
+  s_b412fd4cd3f576::t_0404681e4bed07 1-34,36-74
+  s_b412fd4cd3f576::t_e361a9b6ca5e9f 35
+  s_b412fd4cd3f576::t_b12116cfdb6a44 75-83
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_8ebfb4fd27f2ad 7-11,35-39,45
+  s_b412fd4cd3f576::t_5b940ee49f799c 2-5,41-43,70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7bd6c7413ab6fccdc49a596125fef0249a3bf164",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
