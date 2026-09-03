@@ -1,0 +1,29 @@
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_119bb52352139e::t_799047dca54929 25,66,68,137
+  s_119bb52352139e::t_22999fa9e755da 71-74,139-142
+  s_119bb52352139e::t_f8a322d76a155d 296-298,309,311-312,364,370-383,395-405,414-422,586,588,563
+  s_119bb52352139e::t_13c2e9429b9dbc 384-386,406-413
+  s_119bb52352139e::t_ead0ef4e79c79b 387-394
+  s_119bb52352139e::t_96a0a10a9d0976 571-572
+  s_119bb52352139e::t_d6b1604d9011d6 591
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_119bb52352139e::t_dc017b25f248c6 414
+  s_119bb52352139e::t_d6b1604d9011d6 416-417,421,434-437
+  s_119bb52352139e::t_22999fa9e755da 418-420,422-433
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c2994bc9ec6498efb31c0e4ea83d079a51cbfc4d",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,23 @@
+packages/pdf-core/loadPdfStructure.ts
+  s_c57729f2c66bed::t_6d8c56c8a58eea 1-32
+packages/pdf-core/index.ts
+  s_c57729f2c66bed::t_90a7f90594e86a 11,43-44
+packages/pdf-core/pdfCombineCatalog.ts
+  s_c57729f2c66bed::t_4c0c84db05b7b0 1-11,32-49,51-58,60-73,75-79,81-86,88-95,97-111,113-155,157-164,166-173,175-178,180-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "8b38b084d1216df0cecdd9f14918ae24153cd910",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
