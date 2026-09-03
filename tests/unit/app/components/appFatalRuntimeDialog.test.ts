@@ -15,6 +15,7 @@ import {
     Teleport,
 } from 'vue';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const AlertStub = defineComponent({setup: (_props, {slots}) => () => h('section', [
     slots.title?.(),
@@ -37,26 +38,30 @@ const activeUnmounts = new Set<() => void>();
 function mountDialog(
     detail: string | null = 'Error: renderer failed',
     initiallyOpen = true,
+    failure: FailureReceipt | null = null,
 ) {
     const host = document.createElement('div');
     document.body.append(host);
     const open = ref(initiallyOpen);
     let reloadCount = 0;
     let copyCount = 0;
+    let copiedText: string | undefined;
     const app = createApp(defineComponent({setup: () => () => h(AppFatalRuntimeDialog, {
         open: open.value,
         title: 'EVB Viewer stopped',
         description: 'Reload the application to recover.',
         detail,
         detailLabel: 'Details',
+        failure,
         reloadLabel: 'Reload',
         copyLabel: 'Copy Details',
         copied: false,
         onReload: () => {
             reloadCount += 1;
         },
-        onCopy: () => {
+        onCopy: (text?: string) => {
             copyCount += 1;
+            copiedText = text;
         },
     }, {default: () => [
         h('button', {'data-workspace-action': ''}, 'Workspace action'),
@@ -77,6 +82,7 @@ function mountDialog(
             copy: copyCount,
             reload: reloadCount,
         }),
+        copiedText: () => copiedText,
         dialog: () => host.querySelector<HTMLElement>('[role="alertdialog"]')!,
         heading: () => host.querySelector<HTMLHeadingElement>('#fatal-runtime-title')!,
         host,
@@ -178,6 +184,28 @@ describe('AppFatalRuntimeDialog', () => {
         expect(dialogAfterEscape).not.toBeNull();
         expect(dialogAfterEscape?.open).toBe(true);
         expect(mounted.workspace().hasAttribute('inert')).toBe(true);
+    });
+
+    it('shows one short Error ID and copies the full receipt with local details', async () => {
+        const failure: FailureReceipt = {
+            eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: Date.now(),
+            severity: 'error',
+        };
+        const mounted = mountDialog('Renderer stack details', true, failure);
+        await nextTick();
+
+        const dialog = mounted.dialog();
+        expect(dialog.textContent).toContain('Error ID');
+        expect(dialog.textContent).toContain('01234567');
+        expect(dialog.textContent).not.toContain(failure.eventId);
+
+        mounted.host.querySelector<HTMLButtonElement>('[data-fatal-runtime-action="copy"]')!.click();
+
+        expect(mounted.copiedText()).toContain(`Error ID: ${failure.eventId}`);
+        expect(mounted.copiedText()).toContain('EVB Viewer stopped');
+        expect(mounted.copiedText()).toContain('Renderer stack details');
     });
 
     it('keeps focus on Reload when no diagnostic details are available', async () => {

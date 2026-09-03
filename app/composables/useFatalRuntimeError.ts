@@ -1,3 +1,9 @@
+import {
+    isFailurePresentation,
+    type FailurePresentation,
+} from '@app/composables/useFailureToast';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
 export type TFatalRuntimeErrorKind = 'runtime' | 'startup';
 
 export interface IFatalRuntimeError {
@@ -5,6 +11,9 @@ export interface IFatalRuntimeError {
     detail: string | null;
     source: string;
     occurredAt: number;
+    failure: FailureReceipt | null;
+    title: string | null;
+    description: string | null;
 }
 
 function stringifyErrorObject(error: Error) {
@@ -60,25 +69,52 @@ function isSameFatalRuntimeError(
     kind: TFatalRuntimeErrorKind,
     detail: string | null,
     source: string,
+    failure: FailureReceipt | null,
 ) {
     return Boolean(
         current
         && current.kind === kind
         && current.detail === detail
-        && current.source === source,
+        && current.source === source
+        && current.failure?.eventId === failure?.eventId,
     );
 }
 
 export const useFatalRuntimeError = () => {
     const fatalRuntimeError = useState<IFatalRuntimeError | null>('fatal-runtime-error', () => null);
 
+    function setFatalRuntimeError(presentation: FailurePresentation): void;
+    function setFatalRuntimeError(
+        kind: TFatalRuntimeErrorKind,
+        presentation: FailurePresentation,
+    ): void;
+    /** Remove this compatibility overload at the Phase 2 exit when the unclassified-code migration report reaches zero. */
     function setFatalRuntimeError(
         kind: TFatalRuntimeErrorKind,
         error: unknown,
         source: string,
+    ): void;
+    function setFatalRuntimeError(
+        kindOrPresentation: TFatalRuntimeErrorKind | FailurePresentation,
+        errorOrPresentation?: unknown,
+        legacySource?: string,
     ) {
-        const detail = stringifyRuntimeError(error);
-        if (isSameFatalRuntimeError(fatalRuntimeError.value, kind, detail, source)) {
+        const hasLeadingPresentation = isFailurePresentation(kindOrPresentation);
+        const hasSecondPresentation = isFailurePresentation(errorOrPresentation);
+        const kind = hasLeadingPresentation ? 'runtime' : kindOrPresentation;
+        const presentation = hasLeadingPresentation
+            ? kindOrPresentation
+            : hasSecondPresentation
+                ? errorOrPresentation
+                : null;
+        const failure = presentation?.failure ?? null;
+        const detail = presentation
+            ? presentation.description ?? null
+            : stringifyRuntimeError(errorOrPresentation);
+        const source = presentation
+            ? presentation.failure.code
+            : legacySource ?? '';
+        if (isSameFatalRuntimeError(fatalRuntimeError.value, kind, detail, source, failure)) {
             return;
         }
 
@@ -87,6 +123,9 @@ export const useFatalRuntimeError = () => {
             detail,
             source,
             occurredAt: Date.now(),
+            failure,
+            title: presentation?.title ?? null,
+            description: presentation?.description ?? null,
         };
     }
 
