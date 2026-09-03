@@ -1,0 +1,50 @@
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_a4da7b833dc72e 173
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_80266ea65a7201 443-444
+  s_b412fd4cd3f576::t_a4da7b833dc72e 387,393-396,470,476,480
+  s_b412fd4cd3f576::t_3bdd970dc99755 445-447,461
+  s_b412fd4cd3f576::t_f69e0aa22df89a 413-417,442,448-449,454-460,462,466,468,471-472
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_0da8b824309606 77-80
+  s_b412fd4cd3f576::t_7cbf22c9b59142 130-138,150-161,166-170,172-174,180-185,187-192,232,274-275
+  s_b412fd4cd3f576::t_df948ea84e1dad 171,193-231
+  s_b412fd4cd3f576::t_14f56e008aef47 69-76,81-84,149,162-165,177,186,233-273
+  s_b412fd4cd3f576::t_fda7e8aa145a49 175-176,178-179
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_43c6c385128231 466,621-622,794
+  s_b412fd4cd3f576::t_b98220f861a5db 609-611,784,818
+  s_b412fd4cd3f576::t_42382aaa9eed24 745-748
+  s_b412fd4cd3f576::t_b257532594b0b3 694,726
+  s_b412fd4cd3f576::t_28ce87eb7c4393 736
+  s_b412fd4cd3f576::t_df948ea84e1dad 425-450,468-472,483-487,491,590-593,595
+  s_b412fd4cd3f576::t_14f56e008aef47 43-48,417-424,451-465,467,473-482,488-490,492-499,571,587-589,594,596-599,607,729,780,783,787
+  s_b412fd4cd3f576::t_7cbf22c9b59142 42,410-413,569-570,572-586,600-606,608,689,691,716,722-724,727-728,730-735,737-739,750,785-786,795-796,814-817
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_927c64ccb6417f 30
+  s_b412fd4cd3f576::t_3bdd970dc99755 372
+  s_b412fd4cd3f576::t_a4da7b833dc72e 31-33,303,307,350-354,530,542,546
+  s_b412fd4cd3f576::t_f69e0aa22df89a 312-313,318-321,327-342,356-371
+  s_b412fd4cd3f576::t_9d26b6f97cd3ea 314-317,322-326
+  s_b412fd4cd3f576::t_d7e413449c52a5 355
+  s_b412fd4cd3f576::t_7cbf22c9b59142 401-404
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_7cbf22c9b59142 222,250-253
+  s_b412fd4cd3f576::t_b7d1f4d81fc55b 254-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d8b97c8350eea26cc7285ff2f30d12f986a81a77",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

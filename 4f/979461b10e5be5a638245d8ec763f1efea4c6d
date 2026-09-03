@@ -1,0 +1,52 @@
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_a4da7b833dc72e 173
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_fda7e8aa145a49 176-177,179-180
+  s_b412fd4cd3f576::t_d15b2c2d73028e 92,335
+  s_b412fd4cd3f576::t_14f56e008aef47 69-76,81-84,150,163-166,178,187,234-274
+  s_b412fd4cd3f576::t_0da8b824309606 77-80
+  s_b412fd4cd3f576::t_7cbf22c9b59142 131-139,151-162,167-171,173-175,181-186,188-193,233,275-276
+  s_b412fd4cd3f576::t_df948ea84e1dad 172,194-232
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_7cbf22c9b59142 401-404
+  s_b412fd4cd3f576::t_3bdd970dc99755 372
+  s_b412fd4cd3f576::t_a4da7b833dc72e 31-33,303,307,350-354,530,542,546
+  s_b412fd4cd3f576::t_d7e413449c52a5 355
+  s_b412fd4cd3f576::t_927c64ccb6417f 30
+  s_b412fd4cd3f576::t_9d26b6f97cd3ea 314-317,322-326
+  s_b412fd4cd3f576::t_f69e0aa22df89a 312-313,318-321,327-342,356-371
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_3bdd970dc99755 445-447,461
+  s_b412fd4cd3f576::t_a4da7b833dc72e 387,393-396,470,476,480
+  s_b412fd4cd3f576::t_f69e0aa22df89a 413-417,442,448-449,454-460,462,466,468,471-472
+  s_b412fd4cd3f576::t_80266ea65a7201 443-444
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_7cbf22c9b59142 222,250-253
+  s_b412fd4cd3f576::t_b7d1f4d81fc55b 254-255
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_7cbf22c9b59142 42,411-414,570-571,573-587,601-607,609,690,692,717,723-725,728-729,731-736,738-740,751,786-787,796-797,815-818
+  s_b412fd4cd3f576::t_df948ea84e1dad 426-451,469-473,484-488,492,591-594,596
+  s_b412fd4cd3f576::t_b98220f861a5db 610-612,785,819
+  s_b412fd4cd3f576::t_28ce87eb7c4393 737
+  s_b412fd4cd3f576::t_43c6c385128231 467,622-623,795
+  s_b412fd4cd3f576::t_b257532594b0b3 695,727
+  s_b412fd4cd3f576::t_d15b2c2d73028e 237
+  s_b412fd4cd3f576::t_42382aaa9eed24 746-749
+  s_b412fd4cd3f576::t_14f56e008aef47 43-48,418-425,452-466,468,474-483,489-491,493-500,572,588-590,595,597-600,608,730,781,784,788
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4f979461b10e5be5a638245d8ec763f1efea4c6d",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}

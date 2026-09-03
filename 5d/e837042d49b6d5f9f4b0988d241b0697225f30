@@ -1,0 +1,31 @@
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_f69e0aa22df89a 312-313,318-321,327-342,356-371
+  s_b412fd4cd3f576::t_9d26b6f97cd3ea 314-317,322-326
+  s_b412fd4cd3f576::t_a4da7b833dc72e 31-33,303,307,350-354,527,539,543
+  s_b412fd4cd3f576::t_3bdd970dc99755 372
+  s_b412fd4cd3f576::t_927c64ccb6417f 30
+  s_b412fd4cd3f576::t_d7e413449c52a5 355
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_a4da7b833dc72e 173
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_f69e0aa22df89a 413-417,442,448-449,454-460,462,466,468,471-472
+  s_b412fd4cd3f576::t_a4da7b833dc72e 387,393-396,470,476,480
+  s_b412fd4cd3f576::t_3bdd970dc99755 445-447,461
+  s_b412fd4cd3f576::t_80266ea65a7201 443-444
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5de837042d49b6d5f9f4b0988d241b0697225f30",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
