@@ -2,7 +2,11 @@ import type {
     IAppUpdateStatus,
     TAppUpdatePhase,
 } from '@contracts/updatesPlatformFeature';
+import type { DiagnosticContext } from '@contracts/diagnostics/diagnosticCodes';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { initializeRendererFailureReporter } from '@app/utils/failureReporter';
 import {
     getUpdatesCapability,
     isUpdatesCapabilitySupported,
@@ -17,7 +21,10 @@ export interface IUpdateDialogState {
     version: string | null;
     percent: number | null;
     message: string | null;
+    failure: IPresentedFailureCapture | null;
 }
+
+type TUpdateFailureAction = NonNullable<DiagnosticContext<'UPDATE_OPERATION_FAILED'>['action']>;
 
 const DEFAULT_STATUS: IAppUpdateStatus = {
     phase: 'idle',
@@ -34,6 +41,7 @@ const DEFAULT_DIALOG: IUpdateDialogState = {
     version: null,
     percent: null,
     message: null,
+    failure: null,
 };
 
 const status = ref<IAppUpdateStatus>({ ...DEFAULT_STATUS });
@@ -41,6 +49,7 @@ const dialog = ref<IUpdateDialogState>({ ...DEFAULT_DIALOG });
 const initialized = ref(false);
 let statusUnsubscribe: (() => void) | null = null;
 let initializationPromise: Promise<boolean> | null = null;
+let activeUpdateFailure: IPresentedFailureCapture | null = null;
 
 function toErrorMessage(error: unknown) {
     if (error instanceof Error && error.message.trim().length > 0) {
@@ -49,7 +58,10 @@ function toErrorMessage(error: unknown) {
     return String(error);
 }
 
-function openStatusDialog(nextStatus: IAppUpdateStatus) {
+function openStatusDialog(
+    nextStatus: IAppUpdateStatus,
+    failure: IPresentedFailureCapture | null,
+) {
     if (nextStatus.phase === 'idle' || nextStatus.phase === 'downloaded') {
         return;
     }
@@ -61,6 +73,7 @@ function openStatusDialog(nextStatus: IAppUpdateStatus) {
         version: nextStatus.version,
         percent: nextStatus.percent,
         message: nextStatus.message,
+        failure,
     };
 }
 
@@ -72,6 +85,7 @@ function openReadyDialog(version: string | null) {
         version,
         percent: 100,
         message: null,
+        failure: null,
     };
 }
 
@@ -83,6 +97,7 @@ function openAvailableDialog(version: string | null) {
         version,
         percent: null,
         message: null,
+        failure: null,
     };
 }
 
@@ -90,8 +105,45 @@ function closeDialog() {
     dialog.value.open = false;
 }
 
-function applyStatus(nextStatus: IAppUpdateStatus) {
+function captureUpdateFailure(
+    error: unknown,
+    action: TUpdateFailureAction,
+    message: string,
+): IPresentedFailureCapture {
+    const existingFailure = getFailureReceipt(error);
+    const presentation = existingFailure
+        ? {failure: existingFailure}
+        : initializeRendererFailureReporter().captureForPresentation({
+            code: 'UPDATE_OPERATION_FAILED',
+            context: {action},
+            local: {
+                source: 'updates',
+                message,
+                cause: error,
+                data: {action},
+            },
+        }, {localAlreadyRecorded: true});
+    BrowserLogger.error('updates', message, error, presentation.failure);
+    return presentation;
+}
+
+function applyStatus(
+    nextStatus: IAppUpdateStatus,
+    failure: IPresentedFailureCapture | null = null,
+) {
     status.value = nextStatus;
+
+    if (nextStatus.phase === 'error') {
+        activeUpdateFailure = failure
+            ?? activeUpdateFailure
+            ?? captureUpdateFailure(
+                new Error(nextStatus.message ?? 'Update status reported an error.'),
+                'status',
+                'Update status reported an error',
+            );
+    } else {
+        activeUpdateFailure = null;
+    }
 
     if (nextStatus.phase === 'available') {
         openAvailableDialog(nextStatus.version);
@@ -103,11 +155,11 @@ function applyStatus(nextStatus: IAppUpdateStatus) {
         return;
     }
 
-    if (
+    if (nextStatus.phase === 'error' || (
         nextStatus.origin === 'manual'
         && nextStatus.phase !== 'idle'
-    ) {
-        openStatusDialog(nextStatus);
+    )) {
+        openStatusDialog(nextStatus, activeUpdateFailure);
     }
 }
 
@@ -116,14 +168,14 @@ async function downloadUpdate() {
         await getUpdatesCapability()?.download();
     } catch (error) {
         const message = toErrorMessage(error);
-        BrowserLogger.error('updates', 'Failed to download update', error);
+        const failure = captureUpdateFailure(error, 'download', 'Failed to download update');
         applyStatus({
             phase: 'error',
             origin: 'manual',
             version: status.value.version,
             percent: null,
             message,
-        });
+        }, failure);
     }
 }
 
@@ -159,11 +211,20 @@ async function ensureInitialized() {
             initialized.value = true;
             return true;
         } catch (error) {
-            BrowserLogger.error('updates', 'Failed to load update status', error);
+            const message = toErrorMessage(error);
+            const failure = captureUpdateFailure(error, 'load', 'Failed to load update status');
             if (receivedPushedStatus) {
                 initialized.value = true;
                 return true;
             }
+
+            applyStatus({
+                phase: 'error',
+                origin: 'manual',
+                version: status.value.version,
+                percent: null,
+                message,
+            }, failure);
 
             if (statusUnsubscribe === unsubscribe) {
                 statusUnsubscribe();
@@ -184,19 +245,19 @@ async function ensureInitialized() {
 async function checkForUpdates() {
     try {
         if (!await ensureInitialized()) {
-            throw new Error('Updates status initialization failed.');
+            return;
         }
         await getUpdatesCapability()?.check();
     } catch (error) {
         const message = toErrorMessage(error);
-        BrowserLogger.error('updates', 'Failed to check for updates', error);
+        const failure = captureUpdateFailure(error, 'check', 'Failed to check for updates');
         applyStatus({
             phase: 'error',
             origin: 'manual',
             version: status.value.version,
             percent: null,
             message,
-        });
+        }, failure);
     }
 }
 
@@ -206,14 +267,14 @@ async function installUpdateNow() {
         await getUpdatesCapability()?.install();
     } catch (error) {
         const message = toErrorMessage(error);
-        BrowserLogger.error('updates', 'Failed to install update', error);
+        const failure = captureUpdateFailure(error, 'install', 'Failed to install update');
         applyStatus({
             phase: 'error',
             origin: 'manual',
             version: status.value.version,
             percent: null,
             message,
-        });
+        }, failure);
     }
 }
 
@@ -223,14 +284,14 @@ async function deferUpdate() {
         await getUpdatesCapability()?.defer();
     } catch (error) {
         const message = toErrorMessage(error);
-        BrowserLogger.error('updates', 'Failed to defer update', error);
+        const failure = captureUpdateFailure(error, 'defer', 'Failed to defer update');
         applyStatus({
             phase: 'error',
             origin: 'manual',
             version: status.value.version,
             percent: null,
             message,
-        });
+        }, failure);
     }
 }
 
@@ -246,14 +307,14 @@ async function skipUpdateVersion() {
         await getUpdatesCapability()?.skipVersion(version);
     } catch (error) {
         const message = toErrorMessage(error);
-        BrowserLogger.error('updates', 'Failed to skip update version', error);
+        const failure = captureUpdateFailure(error, 'skip', 'Failed to skip update version');
         applyStatus({
             phase: 'error',
             origin: 'manual',
             version: status.value.version,
             percent: null,
             message,
-        });
+        }, failure);
     }
 }
 
@@ -292,6 +353,7 @@ if (import.meta.hot) {
         }
         initializationPromise = null;
         initialized.value = false;
+        activeUpdateFailure = null;
         status.value = { ...DEFAULT_STATUS };
         dialog.value = { ...DEFAULT_DIALOG };
     });

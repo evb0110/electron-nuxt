@@ -195,6 +195,43 @@ const UNRESPONSIVE_RECOVERY_CONTEXT = {
     },
 } as const satisfies DiagnosticContextDefinition;
 
+const ASSISTANT_FAILURE_ACTIONS = [
+    'refresh',
+    'install',
+    'login',
+    'cancel',
+    'switch-provider',
+    'load',
+    'scope-refresh',
+    'send',
+    'retry',
+    'interrupt',
+    'reset',
+    'mcp-refresh',
+    'mcp-update',
+    'mcp-install',
+] as const;
+
+const UPDATE_FAILURE_ACTIONS = [
+    'load',
+    'check',
+    'download',
+    'install',
+    'defer',
+    'skip',
+    'status',
+] as const;
+
+const ASSISTANT_FAILURE_CONTEXT = {action: {
+    kind: 'enum',
+    values: ASSISTANT_FAILURE_ACTIONS,
+}} as const satisfies DiagnosticContextDefinition;
+
+const UPDATE_FAILURE_CONTEXT = {action: {
+    kind: 'enum',
+    values: UPDATE_FAILURE_ACTIONS,
+}} as const satisfies DiagnosticContextDefinition;
+
 export function normalizeProcessGoneReason(reason: string) {
     return PROCESS_GONE_REASONS.includes(reason as typeof PROCESS_GONE_REASONS[number])
         ? reason as typeof PROCESS_GONE_REASONS[number]
@@ -344,6 +381,51 @@ export const DIAGNOSTIC_DEFINITIONS = {
         grouping: 'code-and-top-frame',
         stackPolicy: 'call-site',
         context: UNHANDLED_REJECTION_CONTEXT,
+    },
+    SETTINGS_LOAD_FAILED: {
+        exceptionType: 'SettingsLoadFailed',
+        exceptionValue: 'Settings load failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    SETTINGS_SAVE_FAILED: {
+        exceptionType: 'SettingsSaveFailed',
+        exceptionValue: 'Settings save failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    ASSISTANT_ACTION_FAILED: {
+        exceptionType: 'AssistantActionFailed',
+        exceptionValue: 'Assistant action failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: ASSISTANT_FAILURE_CONTEXT,
+    },
+    UPDATE_OPERATION_FAILED: {
+        exceptionType: 'UpdateOperationFailed',
+        exceptionValue: 'Update operation failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UPDATE_FAILURE_CONTEXT,
+    },
+    RENDERER_STARTUP_WARMUP_FAILED: {
+        exceptionType: 'RendererStartupWarmupFailed',
+        exceptionValue: 'Renderer startup warmup failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
     },
 } as const satisfies Readonly<Record<string, IDiagnosticDefinition>>;
 

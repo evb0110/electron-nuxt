@@ -234,6 +234,11 @@ describe('diagnostic contracts', () => {
             'MAIN_GPU_SAFE_MODE_RECOVERY',
             'MAIN_UNHANDLED_REJECTION',
             'MAIN_UNHANDLED_REJECTION_RECOVERY',
+            'SETTINGS_LOAD_FAILED',
+            'SETTINGS_SAVE_FAILED',
+            'ASSISTANT_ACTION_FAILED',
+            'UPDATE_OPERATION_FAILED',
+            'RENDERER_STARTUP_WARMUP_FAILED',
         ]);
         expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
         expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (

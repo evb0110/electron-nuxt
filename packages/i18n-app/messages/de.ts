@@ -1357,6 +1357,8 @@ export default {
         'privacy': 'Datenschutz',
         'clientDiagnostics': 'Datenschutzbereinigte Fehlerdiagnosen senden',
         'clientDiagnosticsDescription': 'Fehlercodes, App-Version, Plattform und EVB-Viewer-Anwendungs-Stackframes an Sentry senden. Dokumente, Dateinamen, Pfade, Dokumenttext, Anmerkungen, Suchen, Screenshots, lokale Protokolle und Kontoinformationen werden nicht gesendet.',
+        'serverDiagnosticsOptOut': 'Keine Serverdiagnosen senden',
+        'serverDiagnosticsOptOutDescription': 'Serverseitige technische Diagnosedaten aus den EVB-Viewer-Dienstprotokollen fernhalten. Diese Auswahl wird in einem eigenen Cookie gespeichert und ist von der Einwilligung für Client-Fehlerberichte getrennt.',
         'clientDiagnosticsPrivacyNotice': 'Vollständigen Datenschutzhinweis lesen',
         'dialogDescription': 'Konfigurieren Sie den Viewer, die Standardwerte für Anmerkungen, Kurzbefehle und Aktualisierungen.',
         'browserDialogDescription': 'Konfigurieren Sie den Browser-Viewer, die Standardwerte für Anmerkungen und die im Web verfügbaren Kurzbefehle.',

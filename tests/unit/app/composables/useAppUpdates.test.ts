@@ -191,6 +191,10 @@ describe('useAppUpdates', () => {
         const updates = useAppUpdates();
 
         await expect(updates.ensureInitialized()).resolves.toBe(false);
+        expect(browserLoggerErrorMock).toHaveBeenCalledOnce();
+        expect(browserLoggerErrorMock.mock.calls[0]?.[3]?.eventId)
+            .toBe(updates.dialog.value.failure?.failure.eventId);
+        expect(updates.dialog.value.failure?.failure.code).toBe('UPDATE_OPERATION_FAILED');
         await expect(updates.ensureInitialized()).resolves.toBe(true);
 
         expect(getState).toHaveBeenCalledTimes(2);

@@ -1,12 +1,17 @@
 import type { Ref } from 'vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
+import {
+    captureAssistantFailure,
+    getAssistantExpectedOutcome,
+} from '@app/modules/agent-panel/utils/assistantFailure';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { TTranslateFn } from '@i18n-app';
 
 export type TSettingsAssistantAction = 'refresh' | 'install' | 'login' | 'cancel';
 
 export interface ISettingsAssistantActionToast {add: (options: {
-    color: 'error';
+    color: 'warning' | 'neutral';
     title: string;
     description: string;
 }) => void;}
@@ -20,6 +25,7 @@ export async function runSettingsAssistantAction(
         isActive?: () => boolean;
         t: TTranslateFn;
         toast: ISettingsAssistantActionToast;
+        onFailure?: (presentation: FailurePresentation) => void;
     },
 ) {
     if (
@@ -35,16 +41,34 @@ export async function runSettingsAssistantAction(
         await options.run();
         return true;
     } catch (error) {
-        BrowserLogger.warn('settings', 'Assistant settings action failed', {
-            action: options.action,
+        const expected = getAssistantExpectedOutcome(
             error,
+            options.action === 'cancel' ? 'canceled' : undefined,
+        );
+        if (expected) {
+            BrowserLogger.warn('settings', 'Assistant settings action was not completed', {
+                action: options.action,
+                expected,
+                error,
+            });
+            if (options.isActive?.() !== false) {
+                options.toast.add({
+                    color: 'warning',
+                    title: options.t('settings.assistantPanel'),
+                    description: getErrorMessage(error),
+                });
+            }
+            return false;
+        }
+
+        const presentation = captureAssistantFailure(error, {
+            action: options.action,
+            section: 'settings',
+            logMessage: 'Assistant settings action failed',
+            title: options.t('settings.assistantPanel'),
         });
         if (options.isActive?.() !== false) {
-            options.toast.add({
-                color: 'error',
-                title: options.t('settings.assistantPanel'),
-                description: getErrorMessage(error),
-            });
+            options.onFailure?.(presentation);
         }
         return false;
     } finally {

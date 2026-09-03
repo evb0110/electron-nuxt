@@ -2,6 +2,7 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { IUpdateDialogState } from '@app/composables/useAppUpdates';
 
 interface IUseAppShellUpdatesDialogOptions {
@@ -72,6 +73,18 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         }
     });
 
+    const updatesDialogFailurePresentation = computed<FailurePresentation | null>(() => {
+        const failure = options.updatesDialog.value.failure;
+        if (!failure) {
+            return null;
+        }
+        return {
+            ...failure,
+            title: updatesDialogTitle.value,
+            description: updatesDialogDescription.value,
+        };
+    });
+
     return {
         handleDeferUpdate() {
             options.closeUpdatesDialog();
@@ -88,6 +101,7 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
             void options.skipUpdateVersion();
         },
         updatesDialogDescription,
+        updatesDialogFailurePresentation,
         updatesDialogTitle,
     };
 };

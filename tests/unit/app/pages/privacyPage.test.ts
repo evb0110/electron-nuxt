@@ -65,6 +65,8 @@ describe('privacy page', () => {
         expect(assistantSection?.textContent).toContain('sent to that provider under your account');
         expect(assistantSection?.querySelectorAll('p')).toHaveLength(1);
         expect(host.textContent).not.toContain('report control');
+        expect(host.textContent).toContain('diagnosticsServerOptOut');
+        expect(host.textContent).toContain('SameSite=Lax');
         expect(host.querySelector('h1')?.textContent).toBe('Privacy Policy');
         expect(head).toHaveBeenCalledOnce();
     });

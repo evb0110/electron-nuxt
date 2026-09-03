@@ -3,7 +3,9 @@ import {
     normalizeTheme,
     sanitizeSettings,
 } from '@contracts/settings';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { ISettingsData } from '@contracts/shared';
+import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import {
@@ -13,7 +15,10 @@ import {
     parseBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
-import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
+import {
+    initializeRendererFailureReporter,
+    setRendererDiagnosticsPreference,
+} from '@app/utils/failureReporter';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import {
     createSettingsPersistenceQueue,
@@ -33,6 +38,29 @@ let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;
 let settingsSaveDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 let flushDebouncedSettingsSave: (() => void) | null = null;
 let settingsSaveFlushListener: (() => void) | null = null;
+
+type TSettingsPersistenceFailureCode = 'SETTINGS_LOAD_FAILED' | 'SETTINGS_SAVE_FAILED';
+
+function captureSettingsPersistenceFailure(
+    code: TSettingsPersistenceFailureCode,
+    error: unknown,
+    message: string,
+): IPresentedFailureCapture {
+    const existingFailure = getFailureReceipt(error);
+    const presentation = existingFailure
+        ? {failure: existingFailure}
+        : initializeRendererFailureReporter().captureForPresentation({
+            code,
+            context: {},
+            local: {
+                source: 'settings',
+                message,
+                cause: error,
+            },
+        }, {localAlreadyRecorded: true});
+    BrowserLogger.error('settings', message, error, presentation.failure);
+    return presentation;
+}
 
 function cancelDebouncedSettingsSave() {
     if (settingsSaveDebounceTimer !== null) {
@@ -70,6 +98,8 @@ export const useSettings = () => {
     );
     const settingsSaveStatus = useState<TSettingsPersistenceStatus>('settings:save-status', () => 'idle');
     const settingsSaveError = useState<string | null>('settings:save-error', () => null);
+    const settingsLoadFailure = useState<IPresentedFailureCapture | null>('settings:load-failure', () => null);
+    const settingsSaveFailure = useState<IPresentedFailureCapture | null>('settings:save-failure', () => null);
     const isSettingsSavePendingRetry = computed(() => settingsSaveStatus.value === 'retry-pending');
 
     function rememberSavedSettings(nextSettings: ISettingsData) {
@@ -98,9 +128,14 @@ export const useSettings = () => {
             refreshSettingsBootstrapCookieSnapshot();
             rememberSavedSettings(nextSettings);
             setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
+            settingsLoadFailure.value = null;
         },
         onError(loadError) {
-            BrowserLogger.error('settings', 'Failed to load settings', loadError);
+            settingsLoadFailure.value ??= captureSettingsPersistenceFailure(
+                'SETTINGS_LOAD_FAILED',
+                loadError,
+                'Failed to load settings',
+            );
         },
     });
 
@@ -129,9 +164,14 @@ export const useSettings = () => {
                 rememberSavedSettings(nextSettings);
                 refreshSettingsBootstrapCookieSnapshot();
                 setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
+                settingsSaveFailure.value = null;
             },
             onSaveError(error) {
-                BrowserLogger.error('settings', 'Failed to save settings', error);
+                settingsSaveFailure.value ??= captureSettingsPersistenceFailure(
+                    'SETTINGS_SAVE_FAILED',
+                    error,
+                    'Failed to save settings',
+                );
             },
             onStatusChanged(status, error) {
                 settingsSaveStatus.value = status;
@@ -188,8 +228,10 @@ export const useSettings = () => {
         load,
         loadOrThrow,
         settingsLoadError,
+        settingsLoadFailure,
         save,
         settingsSaveError,
+        settingsSaveFailure,
         settingsSaveStatus,
         updateSetting,
     };

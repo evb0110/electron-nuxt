@@ -179,7 +179,7 @@
 }
 
 .agent-assistant-placeholder .agent-assistant-setup-error {
-    color: var(--ui-error);
+    color: var(--ui-text-muted);
 }
 
 .agent-assistant-placeholder-actions {
@@ -359,9 +359,9 @@
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-bubble {
-    border-color: color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
-    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
-    color: var(--ui-error);
+    border-color: color-mix(in oklab, var(--ui-warning) 30%, var(--ui-border) 70%);
+    background: color-mix(in oklab, var(--ui-warning) 8%, var(--ui-bg) 92%);
+    color: var(--ui-warning);
 }
 
 .agent-assistant-message.is-pending .agent-assistant-message-bubble {
@@ -464,17 +464,17 @@
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-code-block {
-    border-color: color-mix(in oklab, var(--ui-error) 28%, transparent);
-    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
-    color: var(--ui-error);
+    border-color: color-mix(in oklab, var(--ui-warning) 28%, transparent);
+    background: color-mix(in oklab, var(--ui-warning) 8%, var(--ui-bg) 92%);
+    color: var(--ui-warning);
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-blockquote {
-    border-left-color: color-mix(in oklab, var(--ui-error) 38%, transparent);
+    border-left-color: color-mix(in oklab, var(--ui-warning) 38%, transparent);
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-rule {
-    border-top-color: color-mix(in oklab, var(--ui-error) 24%, transparent);
+    border-top-color: color-mix(in oklab, var(--ui-warning) 24%, transparent);
 }
 
 .agent-assistant-message-copy {
@@ -525,10 +525,10 @@
 .agent-assistant-error {
     margin: 0 0.875rem 0.875rem;
     padding: var(--app-space-3xl) var(--app-space-8xl);
-    border: 1px solid color-mix(in oklab, var(--ui-error) 30%, var(--ui-border) 70%);
+    border: 1px solid var(--ui-border);
     border-radius: var(--ui-radius);
-    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
-    color: var(--ui-error);
+    background: var(--ui-bg-elevated);
+    color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }

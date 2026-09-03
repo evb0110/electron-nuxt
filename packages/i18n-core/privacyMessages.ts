@@ -50,7 +50,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optional error reports',
-            body: 'If you grant permission, EVB Viewer sends privacy-sanitized error reports only. Reports contain limited technical diagnostics needed to understand an error. They do not contain document contents, text, file paths, attachments, local logs, account information, or user identity. Turning reporting off stops future sends; it cannot recall reports already received or already in flight.',
+            body: 'If you grant permission, EVB Viewer sends privacy-sanitized error reports only. Reports contain limited technical diagnostics needed to understand an error. They do not contain document contents, text, file paths, attachments, local logs, account information, or user identity. Turning reporting off stops future sends; it cannot recall reports already received or already in flight. The browser app offers a separate server-diagnostics opt-out. It stores the typed diagnosticsServerOptOut choice in a first-party cookie for up to 365 days, with SameSite=Lax and Secure in production, and no identifier. This choice is separate from client error-report consent.',
         },
         analytics: {
             heading: 'Analytics and technical information',
@@ -94,7 +94,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optionale Fehlerberichte',
-            body: 'Wenn du die Erlaubnis erteilst, sendet EVB Viewer ausschließlich datenschutzbereinigte Fehlerberichte. Die Berichte enthalten nur die begrenzten technischen Diagnosedaten, die zum Verständnis eines Fehlers erforderlich sind. Sie enthalten keine Dokumentinhalte, Texte, Dateipfade, Anhänge, lokalen Protokolle, Kontoinformationen oder Angaben zu deiner Identität. Wenn du die Berichte deaktivierst, werden künftig keine weiteren gesendet; bereits empfangene oder bereits laufende Berichte können nicht zurückgerufen werden.',
+            body: 'Wenn du die Erlaubnis erteilst, sendet EVB Viewer ausschließlich datenschutzbereinigte Fehlerberichte. Die Berichte enthalten nur die begrenzten technischen Diagnosedaten, die zum Verständnis eines Fehlers erforderlich sind. Sie enthalten keine Dokumentinhalte, Texte, Dateipfade, Anhänge, lokalen Protokolle, Kontoinformationen oder Angaben zu deiner Identität. Wenn du die Berichte deaktivierst, werden künftig keine weiteren gesendet; bereits empfangene oder bereits laufende Berichte können nicht zurückgerufen werden. Die Browser-App bietet eine separate Ablehnung der Serverdiagnose. Die typisierte Auswahl diagnosticsServerOptOut wird bis zu 365 Tage in einem eigenen Cookie gespeichert, mit SameSite=Lax und in der Produktion mit Secure, ohne Identifikator. Diese Auswahl ist von der Einwilligung zu Client-Fehlerberichten getrennt.',
         },
         analytics: {
             heading: 'Analyse- und technische Informationen',
@@ -138,7 +138,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Informes de errores opcionales',
-            body: 'Si das tu permiso, EVB Viewer envía únicamente informes de errores protegidos por privacidad. Los informes contienen los datos técnicos limitados necesarios para entender un error. No contienen contenido de documentos, texto, rutas de archivos, archivos adjuntos, registros locales, información de la cuenta ni tu identidad. Desactivar los informes detiene los envíos futuros; no puede retirar los informes ya recibidos o que ya estén en curso.',
+            body: 'Si das tu permiso, EVB Viewer envía únicamente informes de errores protegidos por privacidad. Los informes contienen los datos técnicos limitados necesarios para entender un error. No contienen contenido de documentos, texto, rutas de archivos, archivos adjuntos, registros locales, información de la cuenta ni tu identidad. Desactivar los informes detiene los envíos futuros; no puede retirar los informes ya recibidos o que ya estén en curso. La aplicación web ofrece una exclusión independiente de los diagnósticos del servidor. Guarda la elección tipada diagnosticsServerOptOut en una cookie propia durante un máximo de 365 días, con SameSite=Lax y Secure en producción, sin identificador. Esta elección es independiente del consentimiento para los informes de errores del cliente.',
         },
         analytics: {
             heading: 'Datos analíticos e información técnica',
@@ -182,7 +182,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Rapports d’erreur facultatifs',
-            body: 'Si vous donnez votre autorisation, EVB Viewer envoie uniquement des rapports d’erreur nettoyés pour protéger la vie privée. Ces rapports contiennent les données techniques limitées nécessaires à la compréhension d’une erreur. Ils ne contiennent ni contenu de document, ni texte, ni chemins de fichiers, ni pièces jointes, ni journaux locaux, ni informations de compte, ni identité utilisateur. Désactiver les rapports arrête les envois futurs ; cela ne peut pas rappeler les rapports déjà reçus ou déjà en cours d’envoi.',
+            body: 'Si vous donnez votre autorisation, EVB Viewer envoie uniquement des rapports d’erreur nettoyés pour protéger la vie privée. Ces rapports contiennent les données techniques limitées nécessaires à la compréhension d’une erreur. Ils ne contiennent ni contenu de document, ni texte, ni chemins de fichiers, ni pièces jointes, ni journaux locaux, ni informations de compte, ni identité utilisateur. Désactiver les rapports arrête les envois futurs ; cela ne peut pas rappeler les rapports déjà reçus ou déjà en cours d’envoi. L’application web propose une opposition distincte aux diagnostics du serveur. Elle enregistre le choix typé diagnosticsServerOptOut dans un cookie interne pendant 365 jours au maximum, avec SameSite=Lax et Secure en production, sans identifiant. Ce choix reste distinct du consentement aux rapports d’erreur du client.',
         },
         analytics: {
             heading: 'Données analytiques et techniques',
@@ -226,7 +226,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Report di errore opzionali',
-            body: 'Se concedi il permesso, EVB Viewer invia solo report di errore protetti per la privacy. I report contengono i dati tecnici limitati necessari per comprendere un errore. Non contengono contenuti dei documenti, testo, percorsi dei file, allegati, registri locali, informazioni sull’account o la tua identità. Disattivare i report interrompe gli invii futuri; non può richiamare i report già ricevuti o già in corso di invio.',
+            body: 'Se concedi il permesso, EVB Viewer invia solo report di errore protetti per la privacy. I report contengono i dati tecnici limitati necessari per comprendere un errore. Non contengono contenuti dei documenti, testo, percorsi dei file, allegati, registri locali, informazioni sull’account o la tua identità. Disattivare i report interrompe gli invii futuri; non può richiamare i report già ricevuti o già in corso di invio. L’app browser offre un’opposizione separata alla diagnostica del server. Salva la scelta tipizzata diagnosticsServerOptOut in un cookie proprietario per un massimo di 365 giorni, con SameSite=Lax e Secure in produzione, senza identificatore. Questa scelta è separata dal consenso ai report di errore del client.',
         },
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
@@ -270,7 +270,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Optionele foutrapporten',
-            body: 'Als je toestemming geeft, verzendt EVB Viewer alleen privacyvriendelijke foutrapporten. De rapporten bevatten de beperkte technische diagnostiek die nodig is om een fout te begrijpen. Ze bevatten geen documentinhoud, tekst, bestandspaden, bijlagen, lokale logboeken, accountgegevens of je identiteit. Als je rapporten uitschakelt, worden toekomstige rapporten niet meer verzonden; rapporten die al zijn ontvangen of worden verzonden, kunnen niet worden ingetrokken.',
+            body: 'Als je toestemming geeft, verzendt EVB Viewer alleen privacyvriendelijke foutrapporten. De rapporten bevatten de beperkte technische diagnostiek die nodig is om een fout te begrijpen. Ze bevatten geen documentinhoud, tekst, bestandspaden, bijlagen, lokale logboeken, accountgegevens of je identiteit. Als je rapporten uitschakelt, worden toekomstige rapporten niet meer verzonden; rapporten die al zijn ontvangen of worden verzonden, kunnen niet worden ingetrokken. De browser-app biedt een aparte afmelding voor serverdiagnostiek. De getypeerde keuze diagnosticsServerOptOut wordt maximaal 365 dagen opgeslagen in een eigen cookie, met SameSite=Lax en Secure in productie, zonder identifier. Deze keuze staat los van toestemming voor foutmeldingen van de client.',
         },
         analytics: {
             heading: 'Analyse- en technische gegevens',
@@ -314,7 +314,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Relatórios de erros opcionais',
-            body: 'Se der autorização, o EVB Viewer envia apenas relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para compreender um erro. Não contêm conteúdo de documentos, texto, caminhos de ficheiros, anexos, registos locais, informações da conta nem a sua identidade. Desativar os relatórios interrompe os envios futuros; não é possível recolher relatórios já recebidos ou já em envio.',
+            body: 'Se der autorização, o EVB Viewer envia apenas relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para compreender um erro. Não contêm conteúdo de documentos, texto, caminhos de ficheiros, anexos, registos locais, informações da conta nem a sua identidade. Desativar os relatórios interrompe os envios futuros; não é possível recolher relatórios já recebidos ou já em envio. A aplicação no navegador oferece uma oposição separada aos diagnósticos do servidor. Guarda a escolha tipada diagnosticsServerOptOut num cookie próprio por um máximo de 365 dias, com SameSite=Lax e Secure em produção, sem identificador. Esta escolha é separada do consentimento para relatórios de erros do cliente.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -358,7 +358,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Relatórios de erros opcionais',
-            body: 'Se você der permissão, o EVB Viewer enviará somente relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para entender um erro. Eles não contêm conteúdo de documentos, texto, caminhos de arquivos, anexos, registros locais, informações da conta nem sua identidade. Desativar os relatórios interrompe os próximos envios; não é possível recolher relatórios já recebidos ou já em trânsito.',
+            body: 'Se você der permissão, o EVB Viewer enviará somente relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para entender um erro. Eles não contêm conteúdo de documentos, texto, caminhos de arquivos, anexos, registros locais, informações da conta nem sua identidade. Desativar os relatórios interrompe os próximos envios; não é possível recolher relatórios já recebidos ou já em trânsito. O aplicativo web oferece uma recusa separada aos diagnósticos do servidor. A escolha tipada diagnosticsServerOptOut fica armazenada em um cookie próprio por até 365 dias, com SameSite=Lax e Secure em produção, sem identificador. Essa escolha é separada do consentimento para relatórios de erros do cliente.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -402,7 +402,7 @@ export const PRIVACY_MESSAGES = {
         },
         diagnostics: {
             heading: 'Необязательные отчёты об ошибках',
-            body: 'Если вы дадите разрешение, EVB Viewer будет отправлять только защищённые от раскрытия личных данных отчёты об ошибках. Отчёты содержат ограниченные технические диагностические данные, необходимые для понимания ошибки. В них нет содержимого документов, текста, путей к файлам, вложений, локальных журналов, сведений об учётной записи или данных о вашей личности. Отключение отчётов прекращает будущие отправки; уже полученные или уже отправляемые отчёты отозвать нельзя.',
+            body: 'Если вы дадите разрешение, EVB Viewer будет отправлять только защищённые от раскрытия личных данных отчёты об ошибках. Отчёты содержат ограниченные технические диагностические данные, необходимые для понимания ошибки. В них нет содержимого документов, текста, путей к файлам, вложений, локальных журналов, сведений об учётной записи или данных о вашей личности. Отключение отчётов прекращает будущие отправки; уже полученные или уже отправляемые отчёты отозвать нельзя. Браузерная версия предлагает отдельный отказ от серверной диагностики. Типизированный выбор diagnosticsServerOptOut хранится в собственном cookie не более 365 дней, с атрибутом SameSite=Lax и Secure в production, без идентификатора. Этот выбор не связан с согласием на отчёты об ошибках клиента.',
         },
         analytics: {
             heading: 'Аналитика и техническая информация',

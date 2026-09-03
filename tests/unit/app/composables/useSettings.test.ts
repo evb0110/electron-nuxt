@@ -152,12 +152,18 @@ describe('useSettings', () => {
             .mockRejectedValueOnce(new Error('temporary failure'))
             .mockResolvedValue(undefined);
 
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'denied',
+        });
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             isSettingsSavePendingRetry,
             settings,
             save,
             settingsSaveError,
+            settingsSaveFailure,
             settingsSaveStatus,
         } = useSettings();
 
@@ -166,6 +172,9 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenCalledTimes(1);
         expect(settingsSaveStatus.value).toBe('retry-pending');
         expect(settingsSaveError.value).toBe('temporary failure');
+        const firstFailure = settingsSaveFailure.value;
+        expect(firstFailure?.failure.code).toBe('SETTINGS_SAVE_FAILED');
+        expect(reporter.getHealthSnapshot().attempted).toBe(1);
         expect(isSettingsSavePendingRetry.value).toBe(true);
 
         settings.value.locale = 'de';
@@ -175,6 +184,9 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
+        expect(settingsSaveFailure.value).toBeNull();
+        expect(reporter.getHealthSnapshot().attempted).toBe(1);
+        expect(firstFailure?.failure.eventId).toBeDefined();
         expect(isSettingsSavePendingRetry.value).toBe(false);
         vi.useRealTimers();
     });

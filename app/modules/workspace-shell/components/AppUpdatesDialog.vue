@@ -13,10 +13,15 @@
 
         <template #body>
             <div class="flex flex-col gap-3">
-                <p class="text-sm text-muted">
+                <AppFailureAlert
+                    v-if="failure"
+                    :presentation="failure"
+                    icon="i-ph-warning-circle"
+                />
+                <p v-else class="text-sm text-muted">
                     {{ description }}
                 </p>
-                <AppProgressBar v-if="!available" :value="progressPercent ?? null" />
+                <AppProgressBar v-if="!available && !failure" :value="progressPercent ?? null" />
             </div>
         </template>
 
@@ -53,6 +58,8 @@
 </template>
 
 <script setup lang="ts">
+import type { FailurePresentation } from '@app/composables/useFailureToast';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
 
 defineProps<{
@@ -62,6 +69,7 @@ defineProps<{
     progressPercent?: number | null;
     available: boolean;
     ready: boolean;
+    failure: FailurePresentation | null;
 }>();
 
 const emit = defineEmits<{

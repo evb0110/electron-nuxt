@@ -140,7 +140,7 @@
 
         <UAlert
             v-if="openError"
-            color="error"
+            color="warning"
             variant="soft"
             class="mx-3 mt-2 shrink-0"
             :description="openError"
@@ -148,7 +148,7 @@
         />
         <UAlert
             v-if="isSearchOpen && searchError"
-            color="error"
+            color="warning"
             variant="soft"
             class="mx-3 mt-2 shrink-0"
             :description="searchError"

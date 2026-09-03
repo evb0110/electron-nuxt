@@ -5,8 +5,14 @@
         :role="settingsLoadFailed ? 'alert' : 'status'"
         aria-live="polite"
     >
+        <AppFailureAlert
+            v-if="settingsLoadFailed && settingsLoadFailurePresentation"
+            :presentation="settingsLoadFailurePresentation"
+            icon="i-ph-warning-circle"
+        />
         <UAlert
-            :color="settingsLoadFailed ? 'error' : 'neutral'"
+            v-else
+            color="neutral"
             variant="soft"
             icon="i-ph-warning-circle"
             :description="settingsLoadFailed
@@ -122,8 +128,14 @@
         role="alert"
         aria-live="assertive"
     >
+        <AppFailureAlert
+            v-if="settingsSaveFailurePresentation"
+            :presentation="settingsSaveFailurePresentation"
+            icon="i-ph-warning"
+        />
         <UAlert
-            color="error"
+            v-else
+            color="warning"
             variant="soft"
             icon="i-ph-warning"
             :description="settingsSaveError ? `${t('status.saveFailed')}: ${settingsSaveError}` : t('status.saveFailed')"
@@ -153,13 +165,22 @@ import type {
     IAgentAssistantState,
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
+import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { LOCALE_DEFINITIONS } from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { getShellCapability } from '@app/utils/getShellCapability';
+import {
+    captureAssistantFailure,
+    getAssistantExpectedOutcome,
+} from '@app/modules/agent-panel/utils/assistantFailure';
+import type { TAssistantFailureAction } from '@app/modules/agent-panel/utils/assistantFailure';
 import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
@@ -269,14 +290,17 @@ const {
 } = useTypedI18n();
 const colorMode = useColorMode();
 const toast = useToast();
+const { presentFailureToast } = useFailureToast();
 const {
     settings,
     isLoaded,
     load,
     loadOrThrow,
     settingsLoadError,
+    settingsLoadFailure,
     save,
     settingsSaveError,
+    settingsSaveFailure,
     settingsSaveStatus,
     updateSetting,
 } = useSettings();
@@ -303,6 +327,30 @@ const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
 let diagnosticsPreferenceSave: Promise<boolean> | null = null;
+
+const settingsLoadFailurePresentation = computed<FailurePresentation | null>(() => {
+    const capture = settingsLoadFailure.value;
+    if (!settingsLoadFailed.value || !capture) {
+        return null;
+    }
+    return {
+        ...capture,
+        title: t('errors.settings.load'),
+        description: settingsLoadError.value ?? t('errors.runtime.description'),
+    };
+});
+
+const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() => {
+    const capture = settingsSaveFailure.value;
+    if (!capture) {
+        return null;
+    }
+    return {
+        ...capture,
+        title: t('status.saveFailed'),
+        description: settingsSaveError.value ?? t('status.saveFailed'),
+    };
+});
 
 watch(isLoaded, (loaded) => {
     if (loaded) {
@@ -678,16 +726,51 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     }
 
     if (!saved) {
-        toast.add({
-            color: 'error',
-            title: t('errors.file.save'),
-        });
         return;
     }
 
     if (enabled) {
         await refreshAssistantState();
     }
+}
+
+function showExpectedAssistantOutcome(
+    action: TAssistantFailureAction,
+    expected: ExpectedOutcome,
+    description: string,
+) {
+    BrowserLogger.warn('settings', 'Assistant settings operation was not completed', {
+        action,
+        expected,
+    });
+    toast.add({
+        color: 'warning',
+        title: t('settings.agentMcpStatusError'),
+        description,
+    });
+}
+
+function presentAssistantFailure(
+    error: unknown,
+    action: TAssistantFailureAction,
+    logMessage: string,
+) {
+    const expected = getAssistantExpectedOutcome(error);
+    if (expected) {
+        showExpectedAssistantOutcome(
+            action,
+            expected,
+            getErrorMessage(error) || t('settings.agentMcpUnavailable'),
+        );
+        return;
+    }
+
+    presentFailureToast(captureAssistantFailure(error, {
+        action,
+        section: 'settings',
+        logMessage,
+        title: t('settings.agentMcpStatusError'),
+    }));
 }
 
 async function refreshAgentMcpStatus() {
@@ -706,12 +789,11 @@ async function refreshAgentMcpStatus() {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to refresh agent MCP integration status', { error });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+        presentAssistantFailure(
+            error,
+            'mcp-refresh',
+            'Failed to refresh agent MCP integration status',
+        );
     } finally {
         if (!disposed) {
             isAgentMcpBusy.value = false;
@@ -735,26 +817,25 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (disposed) {
             return;
         }
-        if (!result.ok && result.error) {
-            toast.add({
-                color: 'error',
-                title: t('settings.agentMcpStatusError'),
-                description: result.error,
-            });
+        if (!result.ok) {
+            showExpectedAssistantOutcome(
+                'mcp-update',
+                {
+                    kind: 'expected',
+                    code: result.cancelled ? 'canceled' : 'temporarily-unavailable',
+                },
+                result.error ?? t('settings.agentMcpUnavailable'),
+            );
         }
     } catch (error) {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to update agent MCP integration status', {
-            enabled,
+        presentAssistantFailure(
             error,
-        });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+            'mcp-update',
+            'Failed to update agent MCP integration status',
+        );
         try {
             const status = await getAgentCapability().getMcpIntegrationStatus();
             if (!disposed) {
@@ -776,15 +857,7 @@ function openAgentMcpInstall() {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to open agent MCP install URL', {
-            installUrl,
-            error,
-        });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+        presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
     });
 }
 

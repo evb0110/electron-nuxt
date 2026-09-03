@@ -16,6 +16,13 @@ import { DEFAULT_SETTINGS } from '@contracts/settings';
 import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.vue';
 
 vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
+const serverDiagnosticsOptOut = vi.hoisted(() => vi.fn(() => false));
+const writeServerDiagnosticsOptOut = vi.hoisted(() => vi.fn(() => true));
+
+vi.mock('@app/utils/diagnosticsServerOptOut', () => ({
+    readDiagnosticsServerOptOut: serverDiagnosticsOptOut,
+    writeDiagnosticsServerOptOut: writeServerDiagnosticsOptOut,
+}));
 
 const FormFieldStub = defineComponent({
     props: {help: {
@@ -44,7 +51,11 @@ const LinkStub = defineComponent({
 });
 const activeUnmounts = new Set<() => void>();
 
-function mount(preference = DEFAULT_SETTINGS.clientDiagnosticsPreference) {
+function mount(
+    preference = DEFAULT_SETTINGS.clientDiagnosticsPreference,
+    serverOptOut = false,
+) {
+    serverDiagnosticsOptOut.mockReturnValue(serverOptOut);
     const emitted: string[] = [];
     const host = document.createElement('div');
     document.body.append(host);
@@ -84,6 +95,8 @@ describe('SettingsPrivacyPanel', () => {
         expect(host.querySelector('button')?.getAttribute('aria-pressed')).toBe('false');
         expect(host.textContent).toContain('settings.clientDiagnostics');
         expect(host.textContent).toContain('settings.clientDiagnosticsDescription');
+        expect(host.textContent).toContain('settings.serverDiagnosticsOptOut');
+        expect(host.textContent).toContain('settings.serverDiagnosticsOptOutDescription');
         expect(host.querySelector('a')?.getAttribute('href')).toBe('/privacy');
     });
 
@@ -95,5 +108,18 @@ describe('SettingsPrivacyPanel', () => {
         const enabled = mount('granted');
         enabled.host.querySelector('button')?.click();
         expect(enabled.emitted).toEqual(['denied']);
+    });
+
+    it('keeps the server objection separate and persists its typed cookie choice', () => {
+        const browser = mount('granted', true);
+        const switches = browser.host.querySelectorAll('button');
+
+        expect(switches[0]?.getAttribute('aria-pressed')).toBe('true');
+        expect(switches[1]?.getAttribute('aria-pressed')).toBe('true');
+
+        switches[1]?.click();
+
+        expect(writeServerDiagnosticsOptOut).toHaveBeenCalledWith(false);
+        expect(browser.emitted).toEqual([]);
     });
 });

@@ -22,14 +22,14 @@
                     class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
                 >
                     <div class="flex items-start gap-3">
-                        <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
+                        <UIcon name="i-ph-warning-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-warning)]" />
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2">
                                 <p class="truncate text-sm font-medium text-default">
                                     {{ t('errors.runtime.reportReady') }}
                                 </p>
                                 <UBadge
-                                    color="error"
+                                    color="neutral"
                                     variant="soft"
                                     size="sm"
                                 >
@@ -87,7 +87,7 @@
                                         </p>
                                         <UBadge
                                             v-if="report.count > 1"
-                                            color="error"
+                                            color="neutral"
                                             variant="soft"
                                             size="sm"
                                         >
@@ -163,9 +163,13 @@
 import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
-import {setRendererDiagnosticsPreference} from '@app/utils/failureReporter';
+import {
+    initializeRendererFailureReporter,
+    setRendererDiagnosticsPreference,
+} from '@app/utils/failureReporter';
 import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
@@ -382,11 +386,20 @@ function denyDiagnosticsConsent(report: IRuntimeErrorReport) {
 }
 
 function reportStartupWarmupFailure(title: string, error: unknown) {
-    BrowserLogger.warn('loader', title, error);
+    const presentation = initializeRendererFailureReporter().captureForPresentation({
+        code: 'RENDERER_STARTUP_WARMUP_FAILED',
+        context: {},
+        local: {
+            source: 'loader',
+            message: title,
+            cause: error,
+        },
+    }, {localAlreadyRecorded: true});
+    BrowserLogger.error('loader', title, error, presentation.failure);
     reportRuntimeError({
+        ...presentation,
         title,
-        source: 'loader',
-        error,
+        description: getErrorMessage(error),
     });
 }
 

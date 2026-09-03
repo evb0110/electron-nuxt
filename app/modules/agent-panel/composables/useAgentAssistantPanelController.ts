@@ -15,6 +15,7 @@ import {
     type TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
+import type {ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
@@ -46,7 +47,6 @@ import {
 import { useAssistantComposerAutofocus } from '@app/modules/agent-panel/utils/useAssistantComposerAutofocus';
 import { isAssistantSelectionLocked } from '@app/modules/agent-panel/utils/isAssistantSelectionLocked';
 import { getAgentAssistantPanelView } from '@app/modules/agent-panel/utils/getAgentAssistantPanelView';
-import { guardAsync } from '@app/utils/asyncGuard';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
@@ -68,6 +68,13 @@ import {
     type IAssistantSubmitPayload,
 } from '@app/modules/agent-panel/utils/createAssistantSteering';
 import { useAssistantImageComposer } from '@app/modules/agent-panel/composables/useAssistantImageComposer';
+import {
+    captureAssistantFailure,
+    createAssistantActionOptions,
+    getAssistantExpectedOutcome,
+    type IAssistantActionErrorOptions,
+} from '@app/modules/agent-panel/utils/assistantFailure';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 import {
     ASSISTANT_AUTO_REFRESH_MIN_INTERVAL_MS,
     ASSISTANT_STATUS_HEARTBEAT_MS,
@@ -118,6 +125,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const draft = ref('');
     const composerImages = ref<IAgentAssistantImageAttachment[]>([]);
     const composerError = ref('');
+    const assistantFailurePresentation = shallowRef<FailurePresentation | null>(null);
     const composerInputRef = ref<HTMLTextAreaElement | null>(null);
     const state = ref<IAgentAssistantState | null>(null);
     const selectedProvider = ref<TAgentAssistantProviderId>(initialSelectedProvider);
@@ -133,12 +141,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     let assistantSwitchGeneration = 0;
     let lastRefreshStartedAt = 0;
     const acceptAssistantEvent = createAssistantEventFence();
-    type TAssistantActionErrorTarget = 'status' | 'composer' | 'none';
-    interface IAssistantActionErrorOptions {
-        title: string;
-        target?: TAssistantActionErrorTarget;
-        log?: boolean;
-    }
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
     const queuedSteerSendInFlight = ref(false);
     const interruptInFlight = ref(false);
@@ -397,27 +399,44 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         hasLoadedState.value = true;
     }
 
-    function reportAssistantActionError(error: unknown, options: IAssistantActionErrorOptions) {
-        if (options.log !== false) {
-            const failure = BrowserLogger.error('assistant', options.title, error);
-            reportRuntimeError({
-                failure,
-                title: options.title,
+    function reportAssistantActionError(
+        error: unknown,
+        options: IAssistantActionErrorOptions,
+    ): { expected: ExpectedOutcome } | { presentation: FailurePresentation } {
+        const expected = getAssistantExpectedOutcome(error, options.expected);
+        if (expected) {
+            BrowserLogger.warn('assistant', 'Assistant action was not completed', {
+                action: options.action,
+                expected,
+                error,
             });
-            return;
+            return { expected };
         }
 
-        reportRuntimeError({
-            title: options.title,
-            source: 'assistant',
-            error,
+        const presentation = captureAssistantFailure(error, {
+            action: options.action,
+            description: getAssistantActionErrorMessage(error),
+            logMessage: options.title,
+            section: 'assistant',
+            title: t('assistant.runtimeErrorTitle'),
         });
+        reportRuntimeError(presentation);
+        if (options.target !== 'none') {
+            assistantFailurePresentation.value = presentation;
+        }
+        return { presentation };
     }
 
     function handleAssistantActionError(error: unknown, options: IAssistantActionErrorOptions) {
         const message = getAssistantActionErrorMessage(error);
         const target = options.target ?? 'status';
-        reportAssistantActionError(error, options);
+        const report = reportAssistantActionError(error, options);
+        if ('expected' in report) {
+            if (target === 'composer') {
+                composerError.value = '';
+            }
+            return message;
+        }
         if (target === 'status') {
             applyAssistantStatusError(message);
         } else if (target === 'composer') {
@@ -426,13 +445,13 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         return message;
     }
 
-    function runAssistantUiAction(
-        task: () => Promise<unknown>,
+    function runAssistantAction(
+        task: (() => Promise<unknown>) | Promise<unknown>,
         options: IAssistantActionErrorOptions,
     ) {
         void (async () => {
             try {
-                await task();
+                await (typeof task === 'function' ? task() : task);
             } catch (error) {
                 handleAssistantActionError(error, options);
             }
@@ -521,15 +540,10 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
 
         sendGeneration += 1;
-        guardAsync(getAgentCapability().interruptAssistant(createAssistantStateRequestFromState(assistantState)), {
-            category: 'user-visible-operation',
-            scope: 'assistant',
-            message: title,
-            onError: error => reportAssistantActionError(error, {
-                title,
-                log: false,
-            }),
-        });
+        runAssistantAction(
+            getAgentCapability().interruptAssistant(createAssistantStateRequestFromState(assistantState)),
+            createAssistantActionOptions('interrupt', title, 'none', 'canceled'),
+        );
     }
 
     function isAssistantMessagesNearBottom() {
@@ -571,6 +585,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         selectedEffort.value = normalizeEffortValue(adjustedState.status.effort)
             ?? providerDefaultEffort(adjustedState.status.providers, adjustedState.status.provider);
         selectedSpeedMode.value = resolveSelectedSpeedModeFromState(adjustedState, providerStatus);
+        assistantFailurePresentation.value = null;
         state.value = adjustedState;
         hasLoadedState.value = true;
         isSending.value = isActiveAssistantTurnPhase(adjustedState.status.turn.phase);
@@ -716,19 +731,11 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         queuedSteerSendInFlight.value = false;
         isSending.value = false;
         isSwitchingAssistant.value = true;
-        guardAsync(refreshState().finally(() => {
+        runAssistantAction(refreshState().finally(() => {
             if (nextSwitchGeneration === assistantSwitchGeneration) {
                 isSwitchingAssistant.value = false;
             }
-        }), {
-            category: 'user-visible-operation',
-            scope: 'assistant',
-            message: 'Failed to switch assistant provider',
-            onError: error => handleAssistantActionError(error, {
-                title: 'Failed to switch assistant provider',
-                log: false,
-            }),
-        });
+        }), createAssistantActionOptions('switch-provider', 'Failed to switch assistant provider'));
     }
 
     function updateModel(value: unknown) {
@@ -780,11 +787,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
             return;
         }
 
-        guardAsync(refreshState(), {
-            category: 'background-diagnostic',
-            scope: 'assistant',
-            message: 'Failed to refresh assistant state after app focus',
-        });
+        runAssistantAction(refreshState(), createAssistantActionOptions('refresh', 'Failed to refresh assistant state after app focus'));
     }
     async function installCodex() {
         isInstalling.value = true;
@@ -814,16 +817,16 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         deviceCode.value = '';
     }
     function handleInstallCodex() {
-        runAssistantUiAction(installCodex, { title: 'Failed to install assistant Codex' });
+        runAssistantAction(installCodex, createAssistantActionOptions('install', 'Failed to install assistant Codex'));
     }
     function handleStartLogin(mode: TAgentAssistantLoginMode) {
-        runAssistantUiAction(() => startLogin(mode), { title: 'Failed to start assistant login' });
+        runAssistantAction(() => startLogin(mode), createAssistantActionOptions('login', 'Failed to start assistant login'));
     }
     function handleCancelLogin() {
-        runAssistantUiAction(cancelLogin, { title: 'Failed to cancel assistant login' });
+        runAssistantAction(cancelLogin, createAssistantActionOptions('cancel', 'Failed to cancel assistant login', undefined, 'canceled'));
     }
     function handleRefreshState() {
-        runAssistantUiAction(refreshState, { title: 'Failed to refresh assistant state' });
+        runAssistantAction(refreshState, createAssistantActionOptions('refresh', 'Failed to refresh assistant state'));
     }
     async function submitAssistantPayload(
         payload: IAssistantSubmitPayload,
@@ -855,12 +858,9 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         } catch (error) {
             if (generation === sendGeneration) {
                 onSendError?.();
-                handleAssistantActionError(error, {
-                    title: errorTitle,
-                    target: 'composer',
-                });
+                handleAssistantActionError(error, createAssistantActionOptions('send', errorTitle, 'composer'));
             } else {
-                reportAssistantActionError(error, { title: 'Stale assistant message request failed' });
+                reportAssistantActionError(error, createAssistantActionOptions('send', 'Stale assistant message request failed', 'none'));
             }
             return false;
         } finally {
@@ -986,7 +986,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
     }
     function handleInterrupt() {
-        runAssistantUiAction(interrupt, { title: 'Failed to interrupt assistant turn' });
+        runAssistantAction(interrupt, createAssistantActionOptions('interrupt', 'Failed to interrupt assistant turn', undefined, 'canceled'));
     }
     async function resetChat() {
         if (!chatScope.value) {
@@ -1006,7 +1006,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         }
     }
     function handleResetChat() {
-        runAssistantUiAction(resetChat, { title: 'Failed to reset assistant chat' });
+        runAssistantAction(resetChat, createAssistantActionOptions('reset', 'Failed to reset assistant chat'));
     }
     function roleLabel(role: TAgentAssistantMessageRole) {
         if (role === 'user') {
@@ -1028,15 +1028,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         queuedSteer.value = null;
         queuedSteerSendInFlight.value = false;
         isSending.value = false;
-        guardAsync(refreshState(), {
-            category: 'user-visible-operation',
-            scope: 'assistant',
-            message: 'Failed to refresh assistant state for document',
-            onError: error => handleAssistantActionError(error, {
-                title: 'Failed to refresh assistant state for document',
-                log: false,
-            }),
-        });
+        runAssistantAction(refreshState(), createAssistantActionOptions('scope-refresh', 'Failed to refresh assistant state for document'));
     });
     let unsubscribe: (() => void) | null = null;
     useAssistantComposerAutofocus(composerInputRef, canFocusComposerInput);
@@ -1049,15 +1041,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     }, { flush: 'post' });
     onMounted(() => {
         unsubscribe = getAgentCapability().onAssistantEvent(handleAssistantEvent);
-        guardAsync(refreshState(), {
-            category: 'user-visible-operation',
-            scope: 'assistant',
-            message: 'Failed to load assistant state',
-            onError: error => handleAssistantActionError(error, {
-                title: 'Failed to load assistant state',
-                log: false,
-            }),
-        });
+        runAssistantAction(refreshState(), createAssistantActionOptions('load', 'Failed to load assistant state'));
     });
 
     useEventListener(defaultWindow, 'focus', refreshStateAfterWindowReturn);
@@ -1074,6 +1058,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     return {
         ASSISTANT_PRESETS,
         activeDocumentName,
+        assistantFailurePresentation,
         assistantSelectionLocked,
         availableEfforts,
         availableSpeedModes,

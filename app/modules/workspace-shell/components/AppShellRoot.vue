@@ -25,7 +25,6 @@
                 <UIcon name="i-ph-x" class="browser-install-dismiss-icon" />
             </button>
         </div>
-
         <div v-show="!activeToolPage" class="editor-global-toolbar-shell">
             <ShellWorkspaceToolbar
                 v-show="showShellToolbar"
@@ -138,6 +137,7 @@
             :progress-percent="updatesDialog.phase === 'downloading' ? updatesDialog.percent : null"
             :available="updatesDialog.kind === 'available'"
             :ready="updatesDialog.kind === 'ready'"
+            :failure="updatesDialogBindings.updatesDialogFailurePresentation"
             @update:open="updatesDialog.open = $event"
             @defer="updatesDialogBindings.handleDeferUpdate"
             @download="updatesDialogBindings.handleDownloadUpdate"
