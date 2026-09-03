@@ -1,0 +1,92 @@
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_b412fd4cd3f576::t_c7e260bc33df10 291-294
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_6a98dda02c5a84 1120
+tests/unit/app/composables/useOcr.test.ts
+  s_b412fd4cd3f576::t_f059465daa091e 28-31,63-68,710-743,799-804
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_b412fd4cd3f576::t_cd8a03be44c18f 19-24,88,642-645,668-671,721-722,726-729,731-732,736
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController.ts
+  s_b412fd4cd3f576::t_c7e260bc33df10 54-57,76-79
+tests/unit/app/platform/lazyBrowserPlatformApi.test.ts
+  s_b412fd4cd3f576::t_f70210ad4b5160 104-107
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_d8fea6cf8653f5 371-397,402-413,415-423,425-426
+  s_b412fd4cd3f576::t_76a00baa8014a7 398-401,414,424
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_b412fd4cd3f576::t_df129f9a7d62f8 774-777
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_b412fd4cd3f576::t_0e83f9a27e5bd5 10,221-233,238,618,656-667,788,806
+  s_b412fd4cd3f576::t_76a00baa8014a7 197-200,234-237
+app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery.ts
+  s_b412fd4cd3f576::t_c7e260bc33df10 228-231,255-258
+docs/architecture/unclassified-renderer-error-migration-report-2026-09-03.md
+  s_b412fd4cd3f576::t_313aac706f9c9d 74
+  s_b412fd4cd3f576::t_7b561d204d0725 3,6-8,10-11,19-26,30-34,37,39-42,44-48,71,75-79
+  s_b412fd4cd3f576::t_c28136becb4a53 12-18,36,49,72-73
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_f408743438e5a3 71-85,98,230,235,245,301,320-436
+  s_b412fd4cd3f576::t_0cacf78e511804 87-97,250,255,284-300
+  s_b412fd4cd3f576::t_3b372975d86395 86,226-229,231-234,236-244,246-249,251-254
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_0cacf78e511804 55-71,73-74,86,151-153
+  s_b412fd4cd3f576::t_3b372975d86395 54,72
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_b412fd4cd3f576::t_f70210ad4b5160 30,53,427
+app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator.ts
+  s_b412fd4cd3f576::t_df129f9a7d62f8 37
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_0cacf78e511804 155-160,162-163,207,235,257
+app/platform/lazyBrowserPlatformApi.ts
+  s_b412fd4cd3f576::t_1a3fdfe5c35632 149-152
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts
+  s_b412fd4cd3f576::t_c7e260bc33df10 233-235
+tests/unit/app/utils/asyncGuard.test.ts
+  s_b412fd4cd3f576::t_f70210ad4b5160 38-40,62-64,86-87,115-123
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_0cacf78e511804 225-226,281-284
+  s_b412fd4cd3f576::t_f70210ad4b5160 229-241,278,290
+  s_b412fd4cd3f576::t_76a00baa8014a7 279-280,285-289
+  s_b412fd4cd3f576::t_e433522555c34f 291-292
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_840c00833d58e8 190-191
+  s_b412fd4cd3f576::t_550174dfaf4f9f 185-189
+  s_b412fd4cd3f576::t_0cacf78e511804 134-171
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox.ts
+  s_b412fd4cd3f576::t_df129f9a7d62f8 14,56
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_b412fd4cd3f576::t_1a3fdfe5c35632 536
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_b412fd4cd3f576::t_0e83f9a27e5bd5 348
+app/utils/browserLogger.ts
+  s_b412fd4cd3f576::t_96f36b3ee1147c 6,8-11,21-25,174-177,372,376,386-391,393-412
+  s_b412fd4cd3f576::t_a457e851d2abe5 378-384
+  s_b412fd4cd3f576::t_0cacf78e511804 3-5,7
+tests/unit/app/modules/pdf-viewer/engine/pdfDocumentSource.test.ts
+  s_b412fd4cd3f576::t_f70210ad4b5160 36
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_550174dfaf4f9f 222-224
+  s_b412fd4cd3f576::t_840c00833d58e8 225-230
+app/composables/useOcr.ts
+  s_b412fd4cd3f576::t_1a3fdfe5c35632 475,480-496,563,565-572,574-577
+app/utils/asyncGuard.ts
+  s_b412fd4cd3f576::t_1a3fdfe5c35632 70-77,81-83
+app/modules/native-pdf-viewer/components/NativePdfViewer.vue
+  s_b412fd4cd3f576::t_0cacf78e511804 1204-1206,1249-1251
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d863a5af5e1b3e6ff009cab4ca925eca3fe626a8",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
