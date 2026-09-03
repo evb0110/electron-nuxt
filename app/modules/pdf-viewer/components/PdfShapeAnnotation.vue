@@ -21,12 +21,12 @@
                 :points="arrowHeadPoints"
             />
         </template>
-        <ellipse
+            <ellipse
             v-else-if="entity.tool === 'circle'"
             :cx="entity.rect.left + entity.rect.width / 2"
             :cy="entity.rect.top + entity.rect.height / 2"
             :rx="Math.abs(entity.rect.width / 2)"
-            :ry="Math.abs(entity.rect.height / 2)"
+                :ry="Math.abs(entity.rect.height / 2)"
         />
         <template v-else-if="entity.tool === 'draw'">
             <polyline
