@@ -1,5 +1,6 @@
 import type { IAnnotationEditorSurface } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IAnnotationKeyboardEvent {
     readonly key: string;
@@ -48,6 +49,14 @@ export const useAnnotationKeyboardCommands = (
     const modifier = event.metaKey || event.ctrlKey;
     if (modifier && !event.altKey && event.key.toLowerCase() === 'z') {
         const handled = event.shiftKey ? options.surface.redo() : options.surface.undo();
+        if (handled instanceof Promise) {
+            event.preventDefault();
+            event.stopPropagation();
+            void handled.catch((error: unknown) => {
+                BrowserLogger.warn('annotations', 'Keyboard history action failed', error);
+            });
+            return true;
+        }
         if (handled) {
             event.preventDefault();
             event.stopPropagation();
