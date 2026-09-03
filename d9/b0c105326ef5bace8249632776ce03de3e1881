@@ -1,0 +1,29 @@
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_9b1a72328982ad 173
+  s_b412fd4cd3f576::t_4b061dac5f0213 4,11,27-32,155-172,174-189,216
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_5e2170dd0ee76d 73-75,78
+  s_b412fd4cd3f576::t_e483e32bd232cf 76
+  s_b412fd4cd3f576::t_f8810f6b41cffc 77
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_f8810f6b41cffc 233-234,240
+  s_b412fd4cd3f576::t_e483e32bd232cf 238-239,241-242,266-268,274
+  s_b412fd4cd3f576::t_76075fcaa6c67f 232,235
+  s_b412fd4cd3f576::t_904c27e38a2b31 236-237
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d9b0c105326ef5bace8249632776ce03de3e1881",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
