@@ -512,6 +512,46 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
             inline: 'center',
         });
     }, input);
+    await page.evaluate(async (selection: {
+        id: string;
+        pageNumber: number
+    }) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+        )).find(candidate => (
+            candidate.dataset.annotationId === selection.id
+            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
+        ));
+        const layer = entity?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+        const host = entity?.closest<HTMLElement>('.workspace-host');
+        const scrollViewport = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+        if (!entity || !layer || !host || !scrollViewport) {
+            return;
+        }
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        const entityRect = entity.getBoundingClientRect();
+        const hostRect = host.getBoundingClientRect();
+        const visibleTop = Math.max(hostRect.top, 24);
+        const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+        if (visibleBottom > visibleTop) {
+            scrollViewport.scrollTop += entityRect.top + entityRect.height / 2 - ((visibleTop + visibleBottom) / 2);
+            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+        }
+    }, input);
+    const kind = await page.$eval(
+        `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
+        element => element.getAttribute('data-annotation-kind'),
+    );
+    if (kind === 'note') {
+        await page.focus(`.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`);
+        await page.keyboard.press('Enter');
+        await page.waitForFunction((annotationId: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+        )).some(candidate => candidate.dataset.annotationId === annotationId), {timeout: 10_000}, id);
+        await clickLatestVisibleNoteWindowClose(page);
+        await waitForNoOpenNoteWindows(page);
+        return;
+    }
     await page.waitForFunction((selection: {
         id: string;
         pageNumber: number
@@ -574,6 +614,10 @@ async function focusCanonicalLayer(page: Page, pageNumber: number) {
 
 async function moveCanonicalEntityWithKeyboard(page: Page, entity: ICanonicalEntitySnapshot) {
     await clickCanonicalEntity(page, entity.id, entity.pageNumber);
+    const currentLeft = await page.$eval(
+        `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${entity.id}"]`,
+        element => element.getBoundingClientRect().left,
+    );
     await focusCanonicalLayer(page, entity.pageNumber);
     await page.keyboard.press('ArrowRight');
     await page.waitForFunction((input: {
@@ -586,7 +630,7 @@ async function moveCanonicalEntityWithKeyboard(page: Page, entity: ICanonicalEnt
         return (current?.getBoundingClientRect().left ?? input.left) > input.left + 0.05;
     }, {timeout: 10_000}, {
         id: entity.id,
-        left: entity.left,
+        left: currentLeft,
     });
 }
 
@@ -617,6 +661,8 @@ async function dragCanonicalEntity(
             ? {
                 x: rect.left + rect.width / 2,
                 y: rect.top + rect.height / 2,
+                left: rect.left,
+                top: rect.top,
             }
             : null;
     }, entity.id);
@@ -641,8 +687,8 @@ async function dragCanonicalEntity(
             && Math.abs(rect.top - input.top) > 4;
     }, {timeout: 10_000}, {
         id: entity.id,
-        left: entity.left,
-        top: entity.top,
+        left: point.left,
+        top: point.top,
     });
 }
 
