@@ -15,7 +15,10 @@ import { createLogger } from '@electron/utils/createLogger';
 import { createWindowRuntime } from '@electron/window/createWindowRuntime';
 import { createWindowSecurity } from '@electron/window/createWindowSecurity';
 import { getErrorMessage } from '@electron/utils/error';
-import { waitForInitialRendererReady } from '@electron/window/rendererReady';
+import {
+    notifyWindowRendererLoadFailure,
+    waitForInitialRendererReady,
+} from '@electron/window/rendererReady';
 import { loadStartupPlaceholder } from '@electron/window/loadStartupPlaceholder';
 import {
     getAllRegisteredAppWindows,
@@ -30,6 +33,7 @@ import {
 } from '@electron/resources/hostResourceProfile';
 import { getMainFailureReporter } from '@electron/features/diagnostics/public';
 import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -77,6 +81,52 @@ interface ICreateAppWindowOptions {
     showStartupPlaceholder?: boolean;
     waitForInitialRendererReady?: boolean;
 }
+
+interface IWindowLoadAttempt {
+    reported: boolean;
+    receipt?: FailureReceipt;
+}
+
+interface IWindowLoadFailureOwner {
+    initialAttempt: IWindowLoadAttempt;
+    getCurrentAttempt: () => IWindowLoadAttempt;
+    observeTopLevelNavigation: (url: string, isInPlace: boolean, isMainFrame: boolean) => void;
+    report: (attempt: IWindowLoadAttempt, error: Error) => FailureReceipt | undefined;
+}
+
+function createWindowLoadFailureOwner(): IWindowLoadFailureOwner {
+    const initialAttempt: IWindowLoadAttempt = {reported: false};
+    let currentAttempt = initialAttempt;
+    let observedInitialNavigation = false;
+
+    return {
+        initialAttempt,
+        getCurrentAttempt: () => currentAttempt,
+        observeTopLevelNavigation: (url, isInPlace, isMainFrame) => {
+            if (!isMainFrame || isInPlace || url === 'about:blank') {
+                return;
+            }
+            if (!observedInitialNavigation) {
+                observedInitialNavigation = true;
+                return;
+            }
+            currentAttempt = {reported: false};
+        },
+        report: (attempt, error) => {
+            if (attempt.reported) {
+                return attempt.receipt;
+            }
+
+            attempt.reported = true;
+            const receipt = logger.error(error.message);
+            if (receipt) {
+                attempt.receipt = receipt;
+            }
+            return receipt;
+        },
+    };
+}
+
 const windowSecurity = createWindowSecurity({
     getTrustedRendererUrl: () => config.renderer.trustedUrl,
     logger,
@@ -316,18 +366,6 @@ function attachRendererDiagnostics(window: BrowserWindow) {
         logger.info(`[renderer] did-finish-load (windowId=${windowId}, url=${webContents.getURL()})`);
     });
 
-    webContents.on('did-fail-load', (
-        _event,
-        errorCode,
-        errorDescription,
-        validatedURL,
-        isMainFrame,
-    ) => {
-        logger.error(
-            `[renderer] did-fail-load (windowId=${windowId}, mainFrame=${String(isMainFrame)}, `
-            + `code=${errorCode}, desc=${errorDescription}, url=${validatedURL})`,
-        );
-    });
 }
 
 
@@ -369,14 +407,54 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
 
     const shouldWaitForInitialRendererReady = options.waitForInitialRendererReady ?? false;
     const shouldShowStartupPlaceholder = options.showStartupPlaceholder ?? !shouldWaitForInitialRendererReady;
+    const windowLoadFailureOwner = createWindowLoadFailureOwner();
+    const initialLoadAttempt = windowLoadFailureOwner.initialAttempt;
     windowSecurity.hardenWindowWebContents(window);
     attachRendererDiagnostics(window);
-    attachShowLifecycle(window, {
+    const showLifecycle = attachShowLifecycle(window, {
         blockShowUntilRendererReady: shouldWaitForInitialRendererReady,
         isDev: config.isDev,
         logger,
         showAndFocusMaximizedWindow,
         logWindowStartup,
+    });
+
+    const handleTopLevelNavigationStart = (
+        _event: unknown,
+        url: string,
+        isInPlace: boolean,
+        isMainFrame: boolean,
+    ) => {
+        windowLoadFailureOwner.observeTopLevelNavigation(url, isInPlace, isMainFrame);
+    };
+    const handleMainFrameLoadFailure = (
+        _event: unknown,
+        errorCode: number,
+        errorDescription: string,
+        validatedURL: string,
+        isMainFrame?: boolean,
+    ) => {
+        if (isMainFrame === false) {
+            return;
+        }
+
+        const attempt = windowLoadFailureOwner.getCurrentAttempt();
+        const error = new Error(
+            attempt === initialLoadAttempt
+                ? `Initial renderer load failed (${errorCode}: ${errorDescription}) for ${validatedURL}`
+                : `Renderer navigation failed (${errorCode}: ${errorDescription}) for ${validatedURL}`,
+        );
+        windowLoadFailureOwner.report(attempt, error);
+        if (attempt === initialLoadAttempt) {
+            notifyWindowRendererLoadFailure(window.id, error);
+        }
+        showLifecycle.handleMainFrameLoadFailure();
+    };
+    window.webContents.on('did-start-navigation', handleTopLevelNavigationStart);
+    window.webContents.on('did-fail-load', handleMainFrameLoadFailure);
+    window.on('closed', () => {
+        window.webContents.removeListener('did-start-navigation', handleTopLevelNavigationStart);
+        window.webContents.removeListener('did-fail-load', handleMainFrameLoadFailure);
     });
 
     const startupPlaceholderPromise = shouldShowStartupPlaceholder
@@ -397,10 +475,15 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
         await window.loadURL(config.renderer.url);
     })();
     void initialLoadPromise.catch((error) => {
-        logger.error(`Initial loadURL failed: ${getErrorMessage(error)}`);
+        windowLoadFailureOwner.report(
+            initialLoadAttempt,
+            new Error(`Initial loadURL failed: ${getErrorMessage(error)}`),
+        );
     });
     const initialRendererReadyPromise = shouldWaitForInitialRendererReady
-        ? waitForInitialRendererReady(window, initialLoadPromise)
+        ? waitForInitialRendererReady(window, initialLoadPromise, {onInitialLoadFailure: error => {
+            windowLoadFailureOwner.report(initialLoadAttempt, error);
+        }})
         : null;
     window.webContents.on('did-finish-load', () => {
         void lockRendererZoom(window);

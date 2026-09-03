@@ -5,6 +5,7 @@
             :title="fatalRuntimeTitle"
             :description="fatalRuntimeDescription"
             :detail="fatalRuntimeError?.detail ?? null"
+            :failure="fatalRuntimeError?.failure ?? null"
             :detail-label="t('errors.runtime.details')"
             :reload-label="t('errors.runtime.reload')"
             :copy-label="t('errors.runtime.copy')"
@@ -130,6 +131,7 @@ import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
@@ -485,7 +487,15 @@ onMounted(async () => {
             desktopRuntime: isDesktopRuntime.value,
         });
         if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady && isElectronUserAgent()) {
-            throw new Error('Electron preload bridge is unavailable during app bootstrap.');
+            const presentation = getOrCaptureRendererBootstrapFailure({
+                error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
+                key: 'electron-preload-bridge',
+                message: 'App bootstrap failed',
+                section: 'loader',
+                title: t('errors.runtime.title'),
+            });
+            setFatalRuntimeError('startup', presentation);
+            return;
         }
 
         applyUiScaleToDocument(uiEffectiveScale.value, uiHostSnapshot.value);
@@ -505,11 +515,14 @@ onMounted(async () => {
         dispatchAppReady();
         schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
     } catch (error) {
-        const failure = BrowserLogger.error('loader', 'App bootstrap failed', error);
-        setFatalRuntimeError('startup', {
-            failure,
+        const presentation = getOrCaptureRendererBootstrapFailure({
+            error,
+            key: 'app-bootstrap',
+            message: 'App bootstrap failed',
+            section: 'loader',
             title: t('errors.runtime.title'),
         });
+        setFatalRuntimeError('startup', presentation);
     }
 });
 </script>

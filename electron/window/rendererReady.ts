@@ -5,18 +5,25 @@ import { getErrorMessage } from '@electron/utils/error';
 interface IWindowStartupWaiter {
     resolve: () => void;
     reject: (error: Error) => void;
+    rejectInitialLoadFailure: (error: Error) => void;
     timeoutHandle: NodeJS.Timeout | null;
 }
 
 const windowStartupWaiters = new Map<number, IWindowStartupWaiter>();
 const windowRendererReadyCallbacks = new Map<number, () => void>();
 
+export interface IWaitForInitialRendererReadyOptions { onInitialLoadFailure?: (error: Error) => void }
+
 export function setWindowRendererReadyCallback(windowId: number, callback: () => void) {
     windowRendererReadyCallbacks.set(windowId, callback);
 }
 
-export function deleteWindowRendererReadyState(windowId: number) {
+export function deleteWindowRendererReadyCallback(windowId: number) {
     windowRendererReadyCallbacks.delete(windowId);
+}
+
+export function deleteWindowRendererReadyState(windowId: number) {
+    deleteWindowRendererReadyCallback(windowId);
     const waiter = windowStartupWaiters.get(windowId);
     if (waiter?.timeoutHandle) {
         clearTimeout(waiter.timeoutHandle);
@@ -27,6 +34,7 @@ export function deleteWindowRendererReadyState(windowId: number) {
 export function waitForInitialRendererReady(
     window: BrowserWindow,
     initialLoadPromise: Promise<void>,
+    options: IWaitForInitialRendererReadyOptions = {},
 ) {
     const windowId = window.id;
     const windowWebContents = window.webContents;
@@ -34,7 +42,6 @@ export function waitForInitialRendererReady(
         let settled = false;
 
         const cleanup = () => {
-            windowWebContents.removeListener('did-fail-load', handleFailLoad);
             windowWebContents.removeListener('render-process-gone', handleRenderProcessGone);
             window.removeListener('closed', handleClosed);
 
@@ -63,20 +70,13 @@ export function waitForInitialRendererReady(
             reject(error);
         };
 
-        const handleFailLoad = (
-            _event: unknown,
-            errorCode: number,
-            errorDescription: string,
-            validatedURL: string,
-            isMainFrame?: boolean,
-        ) => {
-            if (isMainFrame === false) {
-                return;
+        const rejectInitialLoadFailure = (error: Error) => {
+            try {
+                options.onInitialLoadFailure?.(error);
+            } catch {
+                // Diagnostic reporting must not change readiness rejection behavior.
             }
-
-            rejectReady(new Error(
-                `Initial renderer load failed (${errorCode}: ${errorDescription}) for ${validatedURL}`,
-            ));
+            rejectReady(error);
         };
 
         const handleRenderProcessGone = (
@@ -96,17 +96,17 @@ export function waitForInitialRendererReady(
         };
 
         const timeoutHandle = setTimeout(() => {
-            rejectReady(new Error(`Renderer startup timed out after ${WINDOW_RENDERER_READY_TIMEOUT_MS}ms`));
+            rejectInitialLoadFailure(new Error(`Renderer startup timed out after ${WINDOW_RENDERER_READY_TIMEOUT_MS}ms`));
         }, WINDOW_RENDERER_READY_TIMEOUT_MS);
         timeoutHandle.unref?.();
 
         windowStartupWaiters.set(windowId, {
             resolve: resolveReady,
             reject: rejectReady,
+            rejectInitialLoadFailure,
             timeoutHandle,
         });
 
-        windowWebContents.on('did-fail-load', handleFailLoad);
         windowWebContents.on('render-process-gone', handleRenderProcessGone);
         window.on('closed', handleClosed);
 
@@ -116,10 +116,14 @@ export function waitForInitialRendererReady(
                 if (!waiter) {
                     return;
                 }
-                rejectReady(new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));
+                waiter.rejectInitialLoadFailure(new Error(`Initial loadURL failed: ${getErrorMessage(error)}`));
             });
         });
     });
+}
+
+export function notifyWindowRendererLoadFailure(windowId: number, error: Error) {
+    windowStartupWaiters.get(windowId)?.rejectInitialLoadFailure(error);
 }
 
 export function markWindowRendererReady(windowId: number) {
