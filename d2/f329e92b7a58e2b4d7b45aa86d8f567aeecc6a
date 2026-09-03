@@ -1,0 +1,166 @@
+app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader.ts
+  s_b412fd4cd3f576::t_044e391594d713 3-6
+  s_b412fd4cd3f576::t_e8292915fe09be 18-31,37-53,78,105
+  s_b412fd4cd3f576::t_8ee1b71b7304b3 7,34,64-68,86,109
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_b412fd4cd3f576::t_b4e62ca083becd 8,113,151,176,187
+app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog.ts
+  s_b412fd4cd3f576::t_0c1c9ec660cc66 6,11,17,23,79
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 18,1019
+  s_b412fd4cd3f576::t_88a741354544fe 1012,1015-1018,1020-1021,1033,1153
+  s_b412fd4cd3f576::t_64174b3da1096d 1156-1159
+  s_b412fd4cd3f576::t_cb6345fcc4eaf6 1
+app/modules/workspace-shell/composables/usePdfFile.ts
+  s_b412fd4cd3f576::t_b4e62ca083becd 38,210
+app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts
+  s_b412fd4cd3f576::t_2c9137473c287e 212
+  s_b412fd4cd3f576::t_80bd4976c83975 213,441-445
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_b412fd4cd3f576::t_bad1a029f4fb5d 601,616-619
+  s_b412fd4cd3f576::t_39807f32dc401e 678
+  s_b412fd4cd3f576::t_8ee1b71b7304b3 181,343-351
+  s_b412fd4cd3f576::t_43d6c9fd7c6a02 69
+  s_b412fd4cd3f576::t_188ecdbedadce7 352
+eslint-plugin-custom.mjs
+  s_b412fd4cd3f576::t_cdb8a6e07f0141 544-545
+app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 626
+  s_b412fd4cd3f576::t_044e391594d713 9-12
+  s_b412fd4cd3f576::t_a647cd579487ae 34-35,88,591-598,623-625
+app/modules/workspace-shell/composables/useExternalFileDrop.ts
+  s_b412fd4cd3f576::t_044e391594d713 11-14
+  s_b412fd4cd3f576::t_18bb2ecba89850 15,77-79,96,102-109,167-177
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 80
+tests/unit/app/composables/useRecentFiles.test.ts
+  s_b412fd4cd3f576::t_dca50d3a842d4c 243
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_b412fd4cd3f576::t_2c9137473c287e 920
+  s_b412fd4cd3f576::t_80bd4976c83975 1027
+  s_b412fd4cd3f576::t_082caec2bceba3 1180
+  s_b412fd4cd3f576::t_cb6345fcc4eaf6 1
+  s_b412fd4cd3f576::t_08420a9b92cc19 922-924
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_b412fd4cd3f576::t_dca50d3a842d4c 118,139,482,485-486,705,711,727
+app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue
+  s_b412fd4cd3f576::t_b598397fbe0f43 7-9,19-27
+tests/unit/app/modules/workspace-shell/composables/useExternalFileDrop.test.ts
+  s_b412fd4cd3f576::t_dca50d3a842d4c 213,216-217
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_b412fd4cd3f576::t_dca50d3a842d4c 192,195-196,231,234-235
+app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue
+  s_b412fd4cd3f576::t_b598397fbe0f43 23,50-53,77
+  s_b412fd4cd3f576::t_ee0424bbc1f800 64
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b412fd4cd3f576::t_77e475f0824d35 18-20,251,305-307,386-387
+  s_b412fd4cd3f576::t_dca50d3a842d4c 411-415,872,1415,2338
+  s_b412fd4cd3f576::t_2cebe74c5fb54e 863-865,867-868
+  s_b412fd4cd3f576::t_491cb1d2f27bac 2,828-862,869-871
+  s_b412fd4cd3f576::t_e34300afa9f968 866
+  s_b412fd4cd3f576::t_8a53efc50ee142 388-389,873-877
+app/modules/pdf-viewer/components/PdfOptimizeDialog.vue
+  s_b412fd4cd3f576::t_b389b53f08aae4 48,50,88
+  s_b412fd4cd3f576::t_face22bd2787c3 87
+  s_b412fd4cd3f576::t_b598397fbe0f43 104
+app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts
+  s_b412fd4cd3f576::t_044e391594d713 15-18
+  s_b412fd4cd3f576::t_89b11b768d59e0 44-59,224-231,256,400,564-568,646,744
+  s_b412fd4cd3f576::t_3f8d05087e0116 19
+  s_b412fd4cd3f576::t_082caec2bceba3 20,35,137,147,221-223,232,245-255,343,398,562,644,743
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_b412fd4cd3f576::t_46ace151ee84e8 54
+  s_b412fd4cd3f576::t_541c074141b5ae 11,80,207-217,222-224,227-228,299-302,409,469,529
+  s_b412fd4cd3f576::t_4914a70dd312cd 247
+  s_b412fd4cd3f576::t_262ba091d9a77e 221,552,576
+  s_b412fd4cd3f576::t_044e391594d713 5-8
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 225
+  s_b412fd4cd3f576::t_ad8e72f2c7e67c 519-524
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_b412fd4cd3f576::t_b4e62ca083becd 117,343
+app/composables/useRecentFiles.ts
+  s_b412fd4cd3f576::t_a647cd579487ae 14,129-131,134
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 13,132
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFailureSurface.test.ts
+  s_b412fd4cd3f576::t_599f85aafad805 51,83,112
+  s_b412fd4cd3f576::t_64b94cbf638d54 3,10-11,32-50,52-53,64
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b412fd4cd3f576::t_044e391594d713 2-6
+  s_b412fd4cd3f576::t_f7975394ad5106 32-36,159,165,869-871,873-877,984-987,989-994,996,999
+  s_b412fd4cd3f576::t_8ab0b8830dcdef 872
+  s_b412fd4cd3f576::t_f1973334886192 762
+  s_b412fd4cd3f576::t_3a2c416a74e1a6 133
+  s_b412fd4cd3f576::t_794c7a7008d617 174,857,988,1008
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_b412fd4cd3f576::t_536b10b5694205 2,12,33,163-166,754-760,774-775
+app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash.ts
+  s_b412fd4cd3f576::t_bad1a029f4fb5d 32,42
+  s_b412fd4cd3f576::t_c1698f0cb78dbe 2
+packages/contracts/diagnostics/failureReceipt.ts
+  s_b412fd4cd3f576::t_b7d447ef25b3cc 33-36,43-44
+  s_b412fd4cd3f576::t_face22bd2787c3 37-42
+tests/unit/app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash.test.ts
+  s_b412fd4cd3f576::t_bad1a029f4fb5d 20,32
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b412fd4cd3f576::t_50a0d08f60e6ce 1148
+  s_b412fd4cd3f576::t_34e63141feec4f 88
+  s_b412fd4cd3f576::t_a8f341aec1f987 612
+  s_b412fd4cd3f576::t_546e667b40f868 633
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_b412fd4cd3f576::t_b159220f8a7b2f 429-432
+  s_b412fd4cd3f576::t_b4e62ca083becd 205-220,269,313-316,390,513,515,546,655
+  s_b412fd4cd3f576::t_7dfaad3474a7d3 222,226
+  s_b412fd4cd3f576::t_099d83f23bd5a6 221,223-225,227-230,624
+  s_b412fd4cd3f576::t_044e391594d713 8-11
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts
+  s_b412fd4cd3f576::t_5551d13b1afaea 16,101,320-325,332,338-339
+  s_b412fd4cd3f576::t_3a10585aebcec9 17
+  s_b412fd4cd3f576::t_3c6e4e76dca9f8 326-327
+app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue
+  s_b412fd4cd3f576::t_face22bd2787c3 49
+  s_b412fd4cd3f576::t_b598397fbe0f43 56,59
+  s_b412fd4cd3f576::t_b389b53f08aae4 3-9,11-12,21-27,29-30,50
+app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway.ts
+  s_b412fd4cd3f576::t_39807f32dc401e 67-70
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_b412fd4cd3f576::t_face22bd2787c3 142
+  s_b412fd4cd3f576::t_b598397fbe0f43 172
+  s_b412fd4cd3f576::t_b389b53f08aae4 104,106,143
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_b412fd4cd3f576::t_80bd4976c83975 63,1026
+  s_b412fd4cd3f576::t_c2bf28ace7e9f3 58,138
+  s_b412fd4cd3f576::t_8fa9592ddada8e 876
+  s_b412fd4cd3f576::t_cb6345fcc4eaf6 1
+  s_b412fd4cd3f576::t_1327514db0cd87 56
+  s_b412fd4cd3f576::t_3d26f95255f178 1147
+  s_b412fd4cd3f576::t_6a813232e59ce1 1021,1027-1031
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourcePresentationLifecycle.test.ts
+  s_b412fd4cd3f576::t_d2df0c3a4ffb00 20-21,302-308,319-320,324
+  s_b412fd4cd3f576::t_5104aecf28620b 139
+tests/unit/app/modules/pdf-viewer/composables/pdf/usePageDragDrop.test.ts
+  s_b412fd4cd3f576::t_dca50d3a842d4c 164,167-168
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_b412fd4cd3f576::t_8d15efdde3309c 2,11,39-42,57,76,148-149,155-157,174,255,401,427,451,471,492
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_b412fd4cd3f576::t_cdb8a6e07f0141 153-156
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_b412fd4cd3f576::t_64174b3da1096d 111-114,121-125
+  s_b412fd4cd3f576::t_9e0161c9118ef0 2,4-7,35,37,47-60,86,109,115-120,126-133,139-140,189-190
+app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue
+  s_b412fd4cd3f576::t_082caec2bceba3 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d2f329e92b7a58e2b4d7b45aa86d8f567aeecc6a",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
