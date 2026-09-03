@@ -203,6 +203,7 @@ describe('usePdfAnnotationColorCommands', () => {
             shouldScheduleCommentSync: true,
             sourceColor: '#ef4444',
             comment: expect.objectContaining({
+                appAnnotationId: 'anno-markup',
                 annotationId: 'anno-markup',
                 color: '#22c55e',
                 subtype: 'Underline',

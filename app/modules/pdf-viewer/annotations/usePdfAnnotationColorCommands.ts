@@ -70,6 +70,8 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
             subtype: entity.subtype,
             color: entity.color ?? '',
             markerRect: entity.quadPoints[0] ?? null,
+            opacity: entity.opacity,
+            contents: entity.contents,
         };
     }
 
@@ -187,6 +189,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
 
 export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
     return {
+        appAnnotationId: markup.id,
         id: markup.id,
         stableKey: computeSummaryStableKey({
             id: markup.id,
@@ -196,7 +199,7 @@ export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationPropert
         }),
         pageIndex: markup.pageIndex,
         pageNumber: markup.pageIndex + 1,
-        text: '',
+        text: markup.contents ?? '',
         author: null,
         modifiedAt: null,
         color: markup.color,

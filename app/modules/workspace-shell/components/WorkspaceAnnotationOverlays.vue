@@ -137,6 +137,7 @@
         :x="textMarkupPropertiesX"
         :y="textMarkupPropertiesY"
         @update-color="emit('text-markup-color-update', $event)"
+        @update-opacity="emit('text-markup-opacity-update', $event)"
         @close="emit('text-markup-close')"
     />
     </div>
@@ -226,6 +227,7 @@ const emit = defineEmits<{
     'shape-close': [];
     'shape-delete': [];
     'text-markup-color-update': [color: string];
+    'text-markup-opacity-update': [opacity: number];
     'text-markup-close': [];
 }>();
 

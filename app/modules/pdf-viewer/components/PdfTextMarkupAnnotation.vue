@@ -4,6 +4,7 @@
         :class="{'is-selected': selected}"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="text-markup"
+        :data-markup-subtype="entity.subtype"
         :style="markupStyle"
         aria-label="Text markup annotation"
     >

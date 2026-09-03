@@ -217,6 +217,10 @@ export interface IPdfViewerAnnotationCommentExpose {
         color: string,
         selected: ITextMarkupAnnotationProperties,
     ) => boolean;
+    updateSelectedTextMarkupAnnotationProperties?: (
+        updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
+        selected: ITextMarkupAnnotationProperties,
+    ) => boolean;
     updateTextMarkupAnnotationColor?: (comment: IAnnotationCommentSummary, color: string) => boolean;
 }
 

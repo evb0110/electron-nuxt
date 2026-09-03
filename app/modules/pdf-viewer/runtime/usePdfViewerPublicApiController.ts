@@ -331,6 +331,14 @@ export const usePdfViewerPublicApiController = (
             },
             { source: 'user' },
         ),
+        updateSelectedTextMarkupAnnotationProperties: (updates, selected) => annotationMutationService
+            .updateSelectedTextMarkupAnnotationProperties(
+                {
+                    updates,
+                    selected,
+                },
+                { source: 'user' },
+            ),
         updateTextMarkupAnnotationColor: (comment, color) => annotationMutationService.updateColor(
             {
                 comment,

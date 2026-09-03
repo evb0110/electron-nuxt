@@ -285,6 +285,7 @@ export class AnnotationApplication {
                     quadPoints,
                     color: comment.color ?? null,
                     opacity: comment.opacity ?? null,
+                    selectedText: comment.previewText ?? null,
                 };
             } else if (comment.hasNote === true || comment.subtype === 'Text') {
                 entity = {
@@ -396,6 +397,9 @@ export class AnnotationApplication {
                 pageIndex: entity.pageIndex,
                 pageNumber: entity.pageIndex + 1,
                 text,
+                ...(entity.kind === 'text-markup'
+                    ? {previewText: entity.selectedText ?? null}
+                    : {}),
                 subtype,
                 author: entity.author,
                 createdAt: entity.createdAt,

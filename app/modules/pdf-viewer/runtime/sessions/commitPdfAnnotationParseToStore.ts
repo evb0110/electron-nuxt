@@ -4,6 +4,7 @@ import type {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/a
 import {
     mapPdfAnnotationParseEntity,
     mapPdfAnnotationParseForeign,
+    pdfAnnotationRefKey,
 } from '@app/modules/pdf-viewer/runtime/sessions/mapPdfAnnotationParseEntity';
 
 export interface ICommitPdfAnnotationParseToStoreOptions {
@@ -18,6 +19,7 @@ export interface ICommitPdfAnnotationParseToStoreOptions {
     currentWorkingCopyPath: string | null;
     expectedRevisionToken: TDocumentRevisionToken;
     currentRevisionToken: TDocumentRevisionToken | null;
+    selectedTextByPdfRef?: ReadonlyMap<string, string | null>;
 }
 
 /**
@@ -41,7 +43,10 @@ export function commitPdfAnnotationParseToStore(
     }
 
     options.targetStore.replaceFromDocument(
-        options.result.entities.map(mapPdfAnnotationParseEntity),
+        options.result.entities.map((entry) => mapPdfAnnotationParseEntity(
+            entry,
+            options.selectedTextByPdfRef?.get(pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber)),
+        )),
         options.result.foreign.map(mapPdfAnnotationParseForeign),
     );
     return true;

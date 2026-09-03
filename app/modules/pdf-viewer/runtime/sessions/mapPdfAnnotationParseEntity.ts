@@ -9,11 +9,15 @@ import type {
     TPdfAnnotationParseEntity,
 } from '@contracts/pdfAnnotationParseTypes';
 
+export function pdfAnnotationRefKey(objectNumber: number, generationNumber: number) {
+    return `${objectNumber} ${generationNumber} R`;
+}
+
 function parsedPdfRef(entry: {
     objectNumber: number;
     generationNumber: number
 }) {
-    return `${entry.objectNumber} ${entry.generationNumber} R`;
+    return pdfAnnotationRefKey(entry.objectNumber, entry.generationNumber);
 }
 
 function parsedEntityBase(entry: TPdfAnnotationParseEntity) {
@@ -32,7 +36,10 @@ function parsedEntityBase(entry: TPdfAnnotationParseEntity) {
     };
 }
 
-export function mapPdfAnnotationParseEntity(entry: TPdfAnnotationParseEntity): AnnotationEntity {
+export function mapPdfAnnotationParseEntity(
+    entry: TPdfAnnotationParseEntity,
+    selectedText?: string | null,
+): AnnotationEntity {
     switch (entry.kind) {
         case 'text-box':
             return {
@@ -63,6 +70,7 @@ export function mapPdfAnnotationParseEntity(entry: TPdfAnnotationParseEntity): A
                 quadPoints: entry.quadPoints.map(rect => ({...rect})),
                 color: entry.color,
                 opacity: entry.opacity,
+                ...(selectedText === undefined ? {} : {selectedText}),
             };
         case 'stamp':
             return {

@@ -12,6 +12,7 @@ import {
     type AnnotationEntity,
     type ITextBoxEntity,
     type INoteEntity,
+    type ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 const rect = {
@@ -63,6 +64,27 @@ function textBox(id: string, overrides: Partial<ITextBoxEntity> = {}): ITextBoxE
     };
 }
 
+function textMarkup(id: string, overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEntity {
+    return {
+        identity: {id: asAnnotationId(id)},
+        pageIndex: 0,
+        revision: 0,
+        persistedRevision: -1,
+        deleted: false,
+        createdAt: 1,
+        modifiedAt: 1,
+        author: 'Author',
+        kind: 'text-markup',
+        subtype: 'Highlight',
+        contents: '',
+        quadPoints: [rect],
+        color: '#ffff00',
+        opacity: 1,
+        selectedText: null,
+        ...overrides,
+    };
+}
+
 function foreign(): IPdfForeignAnnotationRecord {
     return {
         pageIndex: 2,
@@ -75,6 +97,26 @@ function foreign(): IPdfForeignAnnotationRecord {
 }
 
 describe('AnnotationStore.replaceFromDocument', () => {
+    it('updates derived markup text without creating an authored revision', () => {
+        const store = new AnnotationStore();
+        const markup = store.createTextMarkup(textMarkup('derived-text'));
+        const epoch = store.mutationEpoch;
+        const canUndo = store.canUndo;
+
+        expect(store.updateTextMarkupSelectedText(markup.identity.id, 'selected text')).toBe(true);
+        expect(store.get(markup.identity.id)).toMatchObject({
+            selectedText: 'selected text',
+            revision: 0,
+            persistedRevision: -1,
+        });
+        expect(store.mutationEpoch).toBe(epoch);
+        expect(store.canUndo).toBe(canUndo);
+        expect(store.updateTextMarkupSelectedText(markup.identity.id, 'selected text')).toBe(false);
+        const missingId = asAnnotationId('missing');
+        expect(store.updateTextMarkupSelectedText(missingId, 'selected text')).toBe(false);
+        expect(store.get(missingId)).toBeNull();
+    });
+
     it('keeps a dirty local entity and adopts only the parsed PDF reference', () => {
         const store = new AnnotationStore();
         const local = store.createNote(note('paired', {identity: {

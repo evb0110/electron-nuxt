@@ -36,6 +36,17 @@ const textLayerTextMappingCache = new WeakMap<HTMLElement, {
     textContentItemsStr: readonly string[];
 }>();
 
+/** Returns the renderer's registered text mapping without creating another cache. */
+export function getTextLayerTextMapping(textLayerDiv: HTMLElement): ITextLayerTextMapping | null {
+    const mapping = textLayerTextMappingCache.get(textLayerDiv);
+    return mapping
+        ? {
+            textDivs: mapping.textDivs,
+            textContentItemsStr: mapping.textContentItemsStr,
+        }
+        : null;
+}
+
 function buildTextLayerIndex(textLayerDiv: HTMLElement): {
     text: string;
     runs: TTextLayerRun[];

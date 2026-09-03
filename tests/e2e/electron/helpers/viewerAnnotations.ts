@@ -186,6 +186,90 @@ export async function setAnnotationColor(page: Page, colorHex: string) {
     });
 }
 
+export interface IEvbTextMarkupVisualSnapshot {
+    pageNumber: number | null;
+    subtype: string | null;
+    rects: Array<{
+        height: number;
+        left: number;
+        top: number;
+        width: number;
+    }>;
+}
+
+export async function readEvbTextMarkupVisuals(page: Page): Promise<IEvbTextMarkupVisualSnapshot[]> {
+    return page.evaluate(() => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        return Array.from(host?.querySelectorAll<SVGGElement>(
+            '.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
+        ) ?? []).map(group => ({
+            pageNumber: Number(group.closest<HTMLElement>('.page_container')?.dataset.page) || null,
+            subtype: group.dataset.markupSubtype ?? null,
+            rects: Array.from(group.querySelectorAll<SVGRectElement>('rect')).map(rect => ({
+                height: Number(rect.getAttribute('height') ?? 0),
+                left: Number(rect.getAttribute('x') ?? 0),
+                top: Number(rect.getAttribute('y') ?? 0),
+                width: Number(rect.getAttribute('width') ?? 0),
+            })),
+        }));
+    });
+}
+
+export async function waitForEvbTextMarkupVisualCount(
+    page: Page,
+    expectedCount: number,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
+    await page.waitForFunction((count: number) => {
+        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
+        return (host?.querySelectorAll(
+            '.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]',
+        ).length ?? 0) === count;
+    }, {timeout: timeoutMs}, expectedCount);
+}
+
+export async function selectTextFromRenderedSpans(
+    page: Page,
+    options: {
+        startPage: number;
+        startSpan: number;
+        endPage: number;
+        endSpan: number;
+    },
+) {
+    const selectionText = await page.evaluate((selectionOptions) => {
+        const textSpansForPage = (pageNumber: number) => {
+            const page = document.querySelector<HTMLElement>(
+                `.page_container[data-page="${pageNumber}"]`,
+            );
+            return Array.from(page?.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span') ?? [])
+                .filter(span => (span.textContent ?? '').trim().length > 0);
+        };
+        const startSpan = textSpansForPage(selectionOptions.startPage)[selectionOptions.startSpan];
+        const endSpan = textSpansForPage(selectionOptions.endPage)[selectionOptions.endSpan];
+        const startNode = startSpan?.firstChild;
+        const endNode = endSpan?.firstChild;
+        if (!(startNode instanceof Text) || !(endNode instanceof Text)) {
+            throw new Error(`Unable to select rendered text spans: ${JSON.stringify(selectionOptions)}`);
+        }
+        const range = document.createRange();
+        range.setStart(startNode, 0);
+        range.setEnd(endNode, endNode.length);
+        const selection = document.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        return selection?.toString() ?? '';
+    }, options);
+    if (!selectionText.trim()) {
+        throw new Error(`Rendered text selection was empty: ${JSON.stringify(options)}`);
+    }
+    return selectionText;
+}
+
+export async function clearTextSelection(page: Page) {
+    await page.evaluate(() => document.getSelection()?.removeAllRanges());
+}
+
 
 export async function getFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
@@ -201,15 +285,6 @@ async function getOrdinaryFreeTextEditorCount(page: Page) {
         return host?.querySelectorAll(selector).length ?? 0;
     });
 }
-
-export async function getHighlightEditorCount(page: Page) {
-    return page.evaluate(() => {
-        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host')
-            ?? null;
-        return host?.querySelectorAll('.highlightEditor').length ?? 0;
-    });
-}
-
 
 async function getVisibleHighlightEditorCounts(page: Page) {
     return page.evaluate(() => {

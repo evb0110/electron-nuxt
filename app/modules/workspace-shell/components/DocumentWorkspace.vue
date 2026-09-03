@@ -323,6 +323,7 @@
             @shape-delete="annotationSession.handleDeleteSelectedShape"
             @shape-close="annotationSession.closeShapeProperties"
             @text-markup-color-update="annotationSession.handleTextMarkupColorUpdate"
+            @text-markup-opacity-update="annotationSession.handleTextMarkupOpacityUpdate"
             @text-markup-close="annotationSession.closeTextMarkupProperties"
         />
         <DjvuConversionOverlay
