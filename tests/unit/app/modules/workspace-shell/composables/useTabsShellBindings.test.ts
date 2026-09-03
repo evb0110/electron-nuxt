@@ -643,6 +643,10 @@ describe('useTabsShellBindings', () => {
                 category: 'user-visible-operation',
                 error: expect.any(Error),
             },
+            {
+                code: 'RENDERER_ASYNC_GUARD_FAILED',
+                context: {category: 'user-visible-operation'},
+            },
         );
 
         unmount();

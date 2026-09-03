@@ -392,7 +392,9 @@ describe('workspaceSaveService native persistence', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringMatching(
+                /^errors\.save\.notCompleted\nError ID: [0-9a-f]{8}$/u,
+            ),
         }));
     });
 
@@ -448,7 +450,9 @@ describe('workspaceSaveService native persistence', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringMatching(
+                /^errors\.save\.notCompleted\nError ID: [0-9a-f]{8}$/u,
+            ),
         }));
     });
 
@@ -1177,7 +1181,9 @@ describe('workspaceSaveService native persistence', () => {
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'errors.file.save',
-                description: 'PDF.js saveDocument timed out',
+                description: expect.stringMatching(
+                    /^PDF\.js saveDocument timed out\nError ID: [0-9a-f]{8}$/u,
+                ),
             }));
         } finally {
             vi.useRealTimers();
@@ -1277,7 +1283,9 @@ describe('workspaceSaveService native persistence', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'saveDocument returned no data',
+            description: expect.stringMatching(
+                /^saveDocument returned no data\nError ID: [0-9a-f]{8}$/u,
+            ),
         }));
     });
 });

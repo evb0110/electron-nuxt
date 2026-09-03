@@ -189,6 +189,10 @@ describe('usePageFileOperations', () => {
             'recent-open',
             'Switch blocked: save before switch threw',
             { error: 'disk full' },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
     });
 
@@ -515,6 +519,10 @@ describe('usePageFileOperations', () => {
             'recent-open',
             'Switch blocked: save before switch threw',
             { error: 'cannot save' },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
     });
 

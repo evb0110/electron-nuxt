@@ -36,7 +36,17 @@ describe('handleDocumentWorkspaceCrash', () => {
             expect.objectContaining({
                 tabId: 'tab-7',
                 component: 'PdfViewer',
+                error: expect.objectContaining({
+                    name: 'Error',
+                    message: 'viewer failed',
+                    stack: expect.stringContaining('viewer failed'),
+                    cause: null,
+                }),
             }),
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
     });
 });

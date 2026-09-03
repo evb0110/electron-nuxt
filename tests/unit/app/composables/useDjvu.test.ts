@@ -485,6 +485,10 @@ describe('useDjvu', () => {
                 'djvu',
                 'Conversion failed',
                 'Windows converter failed',
+                {
+                    code: 'RENDERER_DJVU_OPERATION_FAILED',
+                    context: {},
+                },
             );
             expect(djvu.conversionState.value.isConverting).toBe(false);
             expect(mockDocumentWorkingCopyCapability.cleanupFile).not.toHaveBeenCalled();
@@ -608,6 +612,10 @@ describe('useDjvu', () => {
                     path: '/tmp/input.djvu',
                     error: expect.any(Error),
                 }),
+                {
+                    code: 'RENDERER_DJVU_OPERATION_FAILED',
+                    context: {},
+                },
             );
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',

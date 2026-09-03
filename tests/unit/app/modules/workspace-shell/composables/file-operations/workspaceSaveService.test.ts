@@ -162,7 +162,9 @@ describe('workspaceSaveService', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'Document changed while this edit was being prepared',
+            description: expect.stringMatching(
+                /^Document changed while this edit was being prepared\nError ID: [0-9a-f]{8}$/u,
+            ),
         }));
     });
 
@@ -1024,7 +1026,9 @@ describe('workspaceSaveService', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringMatching(
+                /^errors\.save\.notCompleted\nError ID: [0-9a-f]{8}$/u,
+            ),
         }));
     });
 

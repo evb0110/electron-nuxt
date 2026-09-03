@@ -584,7 +584,15 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.insertPages(5, 0)).resolves.toBe(false);
 
-        expect(loggerError).toHaveBeenCalledWith('page-ops', 'insertPages failed', 'ipc failed');
+        expect(loggerError).toHaveBeenCalledWith(
+            'page-ops',
+            'insertPages failed',
+            'ipc failed',
+            {
+                code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
+                context: {},
+            },
+        );
         expect(reportRuntimeError).toHaveBeenCalledExactlyOnceWith({
             failure: pageOperationFailure,
             title: 'msg:errors.pageOps.insert',
