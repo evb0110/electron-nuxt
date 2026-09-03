@@ -190,7 +190,11 @@ const mocks = vi.hoisted(() => {
         openExternal: vi.fn(async () => {}),
         setupContentSecurityPolicy: vi.fn(),
         te: vi.fn((key: string) => key),
-        getMainFailureReporter: vi.fn(() => ({getPreference: () => 'granted'})),
+        reporter: {capture: vi.fn()},
+        getMainFailureReporter: vi.fn(() => ({
+            getPreference: () => 'granted',
+            capture: mocks.reporter.capture,
+        })),
     };
 });
 
@@ -215,7 +219,17 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({
     encodeHostResourceProfileArgument: vi.fn(() => '--evb-host-resource-profile=test'),
     getHostResourceProfileSnapshot: vi.fn(() => ({})),
 }));
-vi.mock('@electron/features/diagnostics/public', () => ({getMainFailureReporter: mocks.getMainFailureReporter}));
+vi.mock('@electron/features/diagnostics/public', () => ({
+    captureMainFailure: (input: {code: string}) => mocks.reporter.capture(input),
+    getMainFailureReporter: mocks.getMainFailureReporter,
+}));
+
+const windowFailureReceipt = {
+    eventId: 'b'.repeat(32),
+    code: 'MAIN_RENDERER_PROCESS_GONE',
+    occurredAt: 1,
+    severity: 'error',
+};
 
 describe('window runtime readiness', () => {
     beforeEach(() => {
@@ -225,6 +239,11 @@ describe('window runtime readiness', () => {
         mocks.BrowserWindow.windows.length = 0;
         mocks.loadURL.mockReset();
         mocks.loadURL.mockResolvedValue(undefined);
+        mocks.dialog.showMessageBox.mockReset().mockResolvedValue({response: 0});
+        mocks.reporter.capture.mockReset().mockImplementation((input: {code: string}) => ({
+            ...windowFailureReceipt,
+            code: input.code,
+        }));
         mocks.config.automation.hideWindow = true;
         mocks.config.automation.noFocus = false;
         mocks.config.isDev = false;
@@ -695,6 +714,243 @@ describe('window runtime readiness', () => {
         window?.emit('responsive');
     });
 
+    it('owns one renderer-gone occurrence and reuses its receipt for the error projection', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        window?.emitWebContents('render-process-gone', {}, {
+            exitCode: 1,
+            reason: 'crashed',
+        });
+        await vi.waitFor(() => {
+            expect(mocks.loadURL).toHaveBeenCalledTimes(1);
+        });
+
+        expect(mocks.reporter.capture).toHaveBeenCalledOnce();
+        expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'MAIN_RENDERER_PROCESS_GONE',
+            operation: 'main-error',
+            context: {
+                reason: 'crashed',
+                exitCode: 1,
+            },
+        }));
+        expect(mocks.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: windowFailureReceipt.eventId}));
+    });
+
+    it('does not duplicate an initial renderer death through the renderer-ready load owner', async () => {
+        const { createAppWindow } = await import('@electron/window');
+        const createPromise = createAppWindow({waitForInitialRendererReady: true});
+        await vi.waitFor(() => {
+            expect(mocks.BrowserWindow.windows).toHaveLength(1);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        window?.emitWebContents('render-process-gone', {}, {
+            exitCode: 1,
+            reason: 'crashed',
+        });
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            mocks.config.renderer.url,
+            true,
+        );
+
+        await expect(createPromise).rejects.toThrow('Renderer process exited before startup completed');
+        expect(mocks.reporter.capture).toHaveBeenCalledOnce();
+        expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({code: 'MAIN_RENDERER_PROCESS_GONE'}));
+        expect(mocks.logger.error).toHaveBeenCalledOnce();
+    });
+
+    it('owns a failed renderer recovery load with its bounded trigger and attempt', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+        mocks.loadURL.mockRejectedValueOnce(new Error('recovery load failed'));
+
+        window?.emitWebContents('render-process-gone', {}, {
+            exitCode: 1,
+            reason: 'oom',
+        });
+        window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            mocks.config.renderer.url,
+            true,
+        );
+        await vi.waitFor(() => {
+            expect(mocks.reporter.capture).toHaveBeenCalledTimes(2);
+        });
+
+        expect(mocks.reporter.capture.mock.calls.map(([input]) => input.code)).toEqual([
+            'MAIN_RENDERER_PROCESS_GONE',
+            'MAIN_RENDERER_RECOVERY_FAILED',
+        ]);
+        expect(mocks.reporter.capture.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
+            trigger: 'renderer-gone',
+            recoveryAttempt: 1,
+        }}));
+        expect(mocks.logger.error).toHaveBeenCalledTimes(2);
+    });
+
+    it('owns one bounded preload failure occurrence without sending its path or stack', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+        const preloadError = new Error('preload secret stack');
+
+        window?.emitWebContents('preload-error', {}, '/private/secret/preload.cjs', preloadError);
+
+        expect(mocks.reporter.capture).toHaveBeenCalledOnce();
+        expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'MAIN_PRELOAD_ERROR',
+            context: {hasStack: true},
+            local: expect.objectContaining({
+                source: 'window',
+                cause: preloadError,
+            }),
+        }));
+        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('preload secret stack'), expect.anything());
+        const capturedInput = mocks.reporter.capture.mock.calls[0]?.[0] as {
+            context: unknown;
+            local: {message: string}
+        };
+        expect(capturedInput.context).toEqual({hasStack: true});
+        expect(JSON.stringify(capturedInput.context)).not.toContain('/private/secret/preload.cjs');
+        expect(capturedInput.local.message).toContain('/private/secret/preload.cjs');
+    });
+
+    it('reports delayed unresponsive recovery once and keeps its timer and reload behavior', async () => {
+        vi.useFakeTimers();
+        try {
+            const { createAppWindow } = await import('@electron/window');
+
+            await createAppWindow();
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            vi.clearAllMocks();
+
+            window?.emit('unresponsive');
+            expect(mocks.reporter.capture).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(14_999);
+            expect(mocks.reporter.capture).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            await vi.waitFor(() => {
+                expect(mocks.loadURL).toHaveBeenCalledTimes(1);
+            });
+
+            expect(mocks.reporter.capture).toHaveBeenCalledOnce();
+            expect(mocks.reporter.capture).toHaveBeenCalledWith(expect.objectContaining({
+                code: 'MAIN_UNRESPONSIVE_RENDERER',
+                context: {
+                    automated: true,
+                    recoveryAttempt: 0,
+                },
+            }));
+            expect(mocks.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: windowFailureReceipt.eventId}));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('reports an unresponsive prompt failure once and still uses the fallback reload', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            mocks.dialog.showMessageBox.mockRejectedValueOnce(new Error('dialog unavailable'));
+            const { createAppWindow } = await import('@electron/window');
+
+            await createAppWindow();
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            vi.clearAllMocks();
+
+            window?.emit('unresponsive');
+            await vi.advanceTimersByTimeAsync(15_000);
+            await vi.waitFor(() => {
+                expect(mocks.loadURL).toHaveBeenCalledTimes(1);
+            });
+
+            expect(mocks.reporter.capture).toHaveBeenCalledTimes(2);
+            expect(mocks.reporter.capture.mock.calls.map(([input]) => input.code)).toEqual([
+                'MAIN_UNRESPONSIVE_RENDERER',
+                'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
+            ]);
+            expect(mocks.reporter.capture.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
+                trigger: 'unresponsive-dialog-prompt',
+                recoveryAttempt: 1,
+            }}));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('uses the unresponsive recovery code when its reload fails', async () => {
+        vi.useFakeTimers();
+        try {
+            const { createAppWindow } = await import('@electron/window');
+
+            await createAppWindow();
+            const window = mocks.BrowserWindow.windows[0];
+            expect(window).toBeDefined();
+            vi.clearAllMocks();
+            mocks.loadURL.mockRejectedValueOnce(new Error('unresponsive reload failed'));
+
+            window?.emit('unresponsive');
+            await vi.advanceTimersByTimeAsync(15_000);
+            await vi.waitFor(() => {
+                expect(mocks.reporter.capture).toHaveBeenCalledTimes(2);
+            });
+
+            expect(mocks.reporter.capture.mock.calls.map(([input]) => input.code)).toEqual([
+                'MAIN_UNRESPONSIVE_RENDERER',
+                'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
+            ]);
+            expect(mocks.reporter.capture.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
+                trigger: 'unresponsive-automation',
+                recoveryAttempt: 1,
+            }}));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('keeps renderer death during teardown at info level with no occurrence', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow();
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        window?.destroy();
+        window?.emitWebContents('render-process-gone', {}, {
+            exitCode: 1,
+            reason: 'killed',
+        });
+        window?.emitWebContents('preload-error', {}, '/private/preload.cjs', new Error('teardown'));
+
+        expect(mocks.reporter.capture).not.toHaveBeenCalled();
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+        expect(mocks.logger.info).toHaveBeenCalledTimes(2);
+    });
+
     it('rearms renderer recovery after a completed reload while bounding crash loops', async () => {
         const { createAppWindow } = await import('@electron/window');
 
@@ -766,6 +1022,7 @@ describe('window runtime readiness', () => {
 
             expect(mocks.logger.error).toHaveBeenCalledWith(
                 '[renderer] window remained unresponsive after 15000ms (windowId=1)',
+                expect.objectContaining({eventId: windowFailureReceipt.eventId}),
             );
             expect(mocks.dialog.showMessageBox).toHaveBeenCalledTimes(1);
         } finally {

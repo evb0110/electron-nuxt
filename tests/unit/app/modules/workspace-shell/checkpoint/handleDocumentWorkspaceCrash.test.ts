@@ -17,7 +17,7 @@ describe('handleDocumentWorkspaceCrash', () => {
         const resetWorkspaceLoad = vi.fn();
         const setError = vi.fn();
 
-        handleDocumentWorkspaceCrash(error, 'PdfViewer', 'render', {
+        const failure = handleDocumentWorkspaceCrash(error, 'PdfViewer', 'render', {
             tabId: 'tab-7',
             failActiveTransaction,
             releaseWorkspace,
@@ -29,6 +29,7 @@ describe('handleDocumentWorkspaceCrash', () => {
         expect(releaseWorkspace).toHaveBeenCalledOnce();
         expect(resetWorkspaceLoad).toHaveBeenCalledOnce();
         expect(setError).toHaveBeenCalledWith(error);
+        expect(failure).toEqual(loggerError.mock.results[0]?.value);
         expect(loggerError).toHaveBeenCalledWith(
             'workspace-host',
             'Document tab crashed; isolating the failed workspace',

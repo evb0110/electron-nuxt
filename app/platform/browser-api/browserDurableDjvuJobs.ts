@@ -3,6 +3,10 @@ import type {
     IDjvuOpenResult,
     TDocumentOutputJobState,
 } from '@contracts/electronApiDjvu';
+import {
+    decodeFailureReceipt,
+    isExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
 
 const DEFAULT_TERMINAL_JOB_TTL_MS = 60 * 60 * 1_000;
 const DEFAULT_MAX_TERMINAL_JOBS = 64;
@@ -15,6 +19,28 @@ interface ITerminalBrowserDjvuJob {
 
 function getErrorMessage(error: unknown) {
     return error instanceof Error ? error.message : String(error);
+}
+
+function getFailureReceipt(error: unknown) {
+    if (typeof error !== 'object' || error === null || !('failure' in error)) {
+        return undefined;
+    }
+    return decodeFailureReceipt(error.failure) ?? undefined;
+}
+
+function getExpectedOutcome(error: unknown) {
+    if (typeof error !== 'object' || error === null || !('expected' in error)) {
+        return undefined;
+    }
+    return isExpectedOutcome(error.expected) ? error.expected : undefined;
+}
+
+function getResultFailure(result: IDjvuOpenResult | IDjvuConvertResult) {
+    return 'failure' in result ? result.failure : undefined;
+}
+
+function getResultExpectedOutcome(result: IDjvuOpenResult | IDjvuConvertResult) {
+    return 'expected' in result ? result.expected : undefined;
 }
 
 export class BrowserDurableDjvuJobs {
@@ -68,10 +94,16 @@ export class BrowserDurableDjvuJobs {
     ) {
         if (!this.#convertJobs.has(jobId)) {
             this.#states.set(jobId, this.#createState(jobId, 'djvu-convert', 'converting'));
-            const job = Promise.resolve().then(run).catch((error: unknown): IDjvuConvertResult => ({
-                success: false,
-                error: getErrorMessage(error),
-            })).then((result) => {
+            const job = Promise.resolve().then(run).catch((error: unknown): IDjvuConvertResult => {
+                const expected = getExpectedOutcome(error);
+                const failure = expected === undefined ? getFailureReceipt(error) : undefined;
+                return {
+                    success: false,
+                    error: getErrorMessage(error),
+                    ...(failure === undefined ? {} : {failure}),
+                    ...(expected === undefined ? {} : {expected}),
+                };
+            }).then((result) => {
                 this.#states.set(jobId, this.#finishState(jobId, 'djvu-convert', 'converting', result));
                 const normalizedResult = {
                     ...result,
@@ -174,10 +206,16 @@ export class BrowserDurableDjvuJobs {
         phase: 'loading' | 'converting',
         result: IDjvuOpenResult | IDjvuConvertResult,
     ): TDocumentOutputJobState {
+        const expected = getResultExpectedOutcome(result);
+        const failure = expected === undefined ? getResultFailure(result) : undefined;
         return {
             jobId,
             operation,
-            status: result.success ? 'completed' : 'failed',
+            status: result.success
+                ? 'completed'
+                : 'expected' in result && result.expected?.code === 'canceled'
+                    ? 'canceled'
+                    : 'failed',
             progress: {
                 jobId,
                 phase,
@@ -185,6 +223,8 @@ export class BrowserDurableDjvuJobs {
             },
             updatedAtMs: Date.now(),
             ...(result.success || !result.error ? {} : {error: result.error}),
+            ...(failure === undefined ? {} : {failure}),
+            ...(expected === undefined ? {} : {expected}),
             ...('pdfPath' in result && result.pdfPath ? {artifactPath: result.pdfPath} : {}),
         };
     }

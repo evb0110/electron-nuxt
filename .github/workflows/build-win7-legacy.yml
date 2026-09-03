@@ -16,6 +16,15 @@ on:
       artifact_ready:
         description: Whether the legacy Windows 7 artifact was produced.
         value: ${{ jobs.build_win7_legacy.outputs.artifact_ready }}
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DESKTOP_PROJECT:
+        required: false
+      SENTRY_DESKTOP_DSN:
+        required: false
 
 permissions:
   contents: read
@@ -36,6 +45,7 @@ jobs:
       EVB_RELEASE_TARGET_DIST: win7-legacy-x64
       EVB_SENTRY_TARGET: desktop
       EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.ready }}
 
@@ -138,6 +148,40 @@ jobs:
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "::notice::Windows 7 legacy artifact was not produced; main release artifacts remain unaffected."
           fi
+
+      - name: Check private Sentry upload readiness
+        id: sentry_upload
+        if: steps.artifact_status.outputs.ready == 'true'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: |
+          set -euo pipefail
+          configured=0
+          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
+            if [ -n "$value" ]; then configured=$((configured + 1)); fi
+          done
+          if [ "$configured" -eq 4 ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [ "$configured" -eq 0 ] && [ "$EVB_SENTRY_ENVIRONMENT" != 'production' ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Private Sentry upload is not configured for this non-production build.'
+          else
+            echo '::error::Sentry diagnostics credentials are incomplete or absent for a production build.'
+            exit 1
+          fi
+
+      - name: Upload private Sentry source maps
+        if: steps.sentry_upload.outputs.enabled == 'true'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs
 
       - name: Upload artifacts
         if: steps.artifact_status.outputs.ready == 'true'

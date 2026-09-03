@@ -209,7 +209,8 @@ export async function openDocumentPageSource(
     context: {
         chassisAuthority: IDocumentViewerChassisAuthority | null;
         emit: IDocumentPageSourceFeaturePackEmit;
-        commitPageTerminalError: (pageNumber: number) => string;
+        commitPageTerminalError: (pageNumber: number, cause?: unknown) => string;
+        createPageFailureError: (pageNumber: number, message?: string) => Error;
         ensureExactPageMetric: (
             source: IDocumentPageSource, loadGeneration: number, pageNumber: number,
             signal: AbortSignal, isCurrent: () => boolean,
@@ -437,8 +438,11 @@ export async function openDocumentPageSource(
     } catch (error) {
         if (transition.isCurrent() && !(error instanceof DOMException && error.name === 'AbortError')) {
             context.emit('loading', false);
-            context.commitPageTerminalError(Math.max(1, Math.trunc(context.readCurrentPage())));
-            context.emit('loadError', error);
+            const pageNumber = Math.max(1, Math.trunc(context.readCurrentPage()));
+            const message = context.commitPageTerminalError(pageNumber, error);
+            context.emit('loadError', error instanceof Error
+                ? error
+                : context.createPageFailureError(pageNumber, message));
         }
         return false;
     }

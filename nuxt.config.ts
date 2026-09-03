@@ -90,6 +90,21 @@ const sentryBrowserDsn = sentryDiagnosticsEligible
 const sentryNitroDsn = sentryDiagnosticsEligible
     ? process.env.SENTRY_NITRO_DSN?.trim() ?? ''
     : '';
+function resolveSentryEuIngestOrigin(dsn: string) {
+    try {
+        const url = new URL(dsn);
+        return url.protocol === 'https:'
+            && /(?:^|\.)ingest\.de\.sentry\.io$/u.test(url.hostname)
+            && url.username.length > 0
+            && url.password.length === 0
+            && /^\/\d+\/?$/u.test(url.pathname)
+            ? url.origin
+            : '';
+    } catch {
+        return '';
+    }
+}
+const sentryBrowserIngestOrigin = resolveSentryEuIngestOrigin(sentryBrowserDsn);
 const sentryNuxtOutputRoot = isVercelBuildOutput
     ? '.vercel/output'
     : isolatedNuxtOutputDir || 'nuxt-output';
@@ -124,7 +139,7 @@ const appContentSecurityPolicy = [
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}`,
+    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}${sentryBrowserIngestOrigin ? ` ${sentryBrowserIngestOrigin}` : ''}`,
     "worker-src 'self' blob:",
     "frame-src 'self' blob:",
     "object-src 'none'",

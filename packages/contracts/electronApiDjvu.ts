@@ -1,4 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {
+    ExpectedOutcome,
+    FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import type { TDjvuPdfExportStrategy } from '@contracts/djvuConversionPolicy';
 import type { THostResourceTier } from '@contracts/hostResourceProfile';
 import type {
@@ -78,6 +82,8 @@ export type TDocumentOutputJobState =
         operation: TDocumentOutputOperation;
         status: 'canceled' | 'failed';
         error?: string;
+        failure?: FailureReceipt;
+        expected?: ExpectedOutcome;
         progress: IDjvuProgress;
         updatedAtMs: number;
     };
@@ -314,6 +320,8 @@ export interface IDjvuConvertResult {
     requestId?: string;
     documentRef?: TDocumentRef;
     error?: string;
+    failure?: FailureReceipt;
+    expected?: ExpectedOutcome;
 }
 
 export interface IDjvuPrintResult {

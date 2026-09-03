@@ -215,6 +215,11 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_win_arm64:
     name: Package Supplemental Windows ARM64 Assets
@@ -230,6 +235,11 @@ jobs:
       platform: win
       arch: arm64
       artifact_group: supplemental-win-arm64
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_mac_intel:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
@@ -241,6 +251,11 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_win7_legacy:
     name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
@@ -252,6 +267,11 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_store:
     name: Package Microsoft Store AppX
@@ -263,6 +283,11 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   summarize:
     name: Summarize Artifact Downloads

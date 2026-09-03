@@ -8,6 +8,11 @@ import {
 } from '@app/utils/platformDocuments';
 import { isSupportedWorkspaceDocumentPath } from '@app/utils/supportedDocumentPaths';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    getFailureReceipt,
+    type ExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
+import { useFailureToast } from '@app/composables/useFailureToast';
 
 interface IUseExternalFileDropOptions {
     openPathsInAppropriateTab: (paths: TDocumentRef[]) => Promise<void>;
@@ -69,6 +74,10 @@ async function getDroppedDocumentPaths(
                 seen.add(path);
                 paths.push(path);
             } else {
+                BrowserLogger.warn('external-file-drop', 'Dropped file type is unsupported', {
+                    kind: 'expected',
+                    code: 'unsupported-input',
+                } satisfies ExpectedOutcome);
                 await getDocumentWorkingCopyCapability().cleanupFile(path)
                     .catch(() => undefined);
             }
@@ -84,14 +93,20 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         isEnabled,
     } = options;
     const { t } = useTypedI18n();
-    const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     let queue: Promise<void> = Promise.resolve();
     let lifecycleToken = 0;
     let disposed = false;
 
     function notifyRegistrationFailure(error: unknown) {
-        toast.add({
-            color: 'error',
+        const failure = BrowserLogger.error(
+            'external-file-drop',
+            'Failed to register dropped file',
+            error,
+            getFailureReceipt(error),
+        );
+        presentFailureToast({
+            failure,
             title: t('errors.file.open'),
             description: getErrorMessage(error),
         });
@@ -149,7 +164,17 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
                 await processDroppedPaths(paths, tokenAtSchedule);
             })
             .catch(error => {
-                BrowserLogger.error('external-file-drop', 'Failed to process dropped files', error);
+                const failure = BrowserLogger.error(
+                    'external-file-drop',
+                    'Failed to process dropped files',
+                    error,
+                    getFailureReceipt(error),
+                );
+                presentFailureToast({
+                    failure,
+                    title: t('errors.file.open'),
+                    description: getErrorMessage(error),
+                });
             });
     }
 

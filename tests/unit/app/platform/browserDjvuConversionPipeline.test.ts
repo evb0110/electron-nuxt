@@ -7,22 +7,40 @@ import {
 
 import {
     assertBrowserDjvuSource,
+    runBrowserDjvuConversion,
     resolveBrowserDjvuCompactExportPlan,
     resolveBrowserDjvuConversionPreflight,
     resolveBrowserDjvuPdfRenderConcurrency,
     resolveBrowserDjvuPdfRenderSettings,
     withBrowserDjvuWorker,
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
+import {browserDocumentStore} from '@app/platform/browserDocumentStore';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
     getPageSizes: vi.fn(),
+    loggerError: vi.fn(),
+    loggerInfo: vi.fn(),
+    loggerWarn: vi.fn(),
 }));
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
     createDjvuWorkerFromPath: mocks.createWorker,
     getDjvuWorkerPageSizes: mocks.getPageSizes,
 }));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    error: mocks.loggerError,
+    info: mocks.loggerInfo,
+    warn: mocks.loggerWarn,
+}}));
+
+const browserFailure: FailureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
 
 describe('browserDjvuConversionPipeline', () => {
     it('refuses absolute paths without a native DjVu bridge before worker creation', () => {
@@ -228,5 +246,72 @@ describe('browserDjvuConversionPipeline', () => {
             allowed: false,
             reason: 'page-pixels',
         });
+    });
+
+    it('classifies invalid browser output as an expected outcome without capturing', async () => {
+        mocks.loggerError.mockClear();
+
+        await expect(runBrowserDjvuConversion(
+            'browser://documents/book.djvu',
+            '/tmp/output.pdf',
+            {jobId: 'djvu-convert-invalid-output'},
+        )).resolves.toMatchObject({
+            success: false,
+            expected: {
+                kind: 'expected',
+                code: 'validation-rejected',
+            },
+        });
+        expect(mocks.loggerError).not.toHaveBeenCalled();
+    });
+
+    it('reuses a browser worker receipt instead of capturing in the conversion parent', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        const workerError = Object.assign(new Error('DjVu decoder failed'), {failure: browserFailure});
+        mocks.createWorker.mockRejectedValueOnce(workerError);
+        mocks.loggerError.mockClear();
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                'browser://documents/book.djvu',
+                'browser://documents/output.pdf',
+                {jobId: 'djvu-convert-worker-failure'},
+            )).resolves.toMatchObject({
+                success: false,
+                error: 'DjVu decoder failed',
+                failure: browserFailure,
+            });
+            expect(mocks.loggerError).not.toHaveBeenCalled();
+        } finally {
+            stat.mockRestore();
+        }
+    });
+
+    it('captures abort-related conversion faults instead of treating them as cancellation', async () => {
+        const stat = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
+            size: 1,
+            modifiedAt: 1,
+        });
+        mocks.createWorker.mockRejectedValueOnce(new Error('Failed to abort PDF output cleanup'));
+        mocks.loggerError.mockReturnValue(browserFailure);
+        mocks.loggerError.mockClear();
+
+        try {
+            await expect(runBrowserDjvuConversion(
+                'browser://documents/book.djvu',
+                'browser://documents/output.pdf',
+                {jobId: 'djvu-convert-abort-wording-failure'},
+            )).resolves.toMatchObject({
+                success: false,
+                error: 'Failed to abort PDF output cleanup',
+                failure: browserFailure,
+            });
+            expect(mocks.loggerError).toHaveBeenCalledOnce();
+        } finally {
+            stat.mockRestore();
+        }
     });
 });
