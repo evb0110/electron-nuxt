@@ -1,3 +1,5 @@
+import { PRIVACY_MESSAGES } from '@i18n-core';
+
 export default {
     app: {
         title: 'EVB Viewer',
@@ -17,47 +19,12 @@ export default {
         docs: 'Documentazione',
         features: 'Funzionalità',
         viewSource: 'Vedi sorgente',
-    },
-    privacy: {
-        seo: {
-            title: 'Informativa sulla privacy',
-            description: 'Informativa sulla privacy per l’app desktop, l’app browser, il sito e le funzionalità opzionali dell’assistente di EVB Viewer.',
-        },
-        hero: {
-            title: 'Informativa sulla privacy',
-            subtitle: 'Come EVB Viewer gestisce documenti, impostazioni, dati analitici e funzionalità opzionali dell’assistente.',
-            effectiveDate: 'In vigore dal 19 agosto 2026',
-        },
-        documents: {
-            heading: 'Documenti ed elaborazione locale',
-            body: 'EVB Viewer apre i documenti selezionati da te. Nell’app desktop, visualizzazione, OCR, annotazioni, operazioni sulle pagine ed esportazione avvengono sul tuo dispositivo. L’app browser elabora i documenti selezionati nel browser, a meno che tu non scelga una funzionalità che usa esplicitamente un servizio esterno. Per impostazione predefinita, EVB Viewer non carica i tuoi documenti presso lo sviluppatore.',
-        },
-        assistant: {
-            heading: 'Servizi opzionali dell’assistente',
-            body: 'Le funzionalità dell’assistente sono opzionali. Quando utilizzi un assistente basato su Codex, OpenAI o Anthropic Claude, le richieste e gli eventuali contenuti o allegati che scegli di includere vengono inviati a quel fornitore tramite il tuo account e sono regolati dai suoi termini e dalla sua informativa sulla privacy. EVB Viewer non vende queste informazioni.',
-        },
-        analytics: {
-            heading: 'Dati analitici e informazioni tecniche',
-            body: 'Il sito e l’app browser di EVB Viewer possono raccogliere eventi d’uso e dati tecnici limitati, come percorsi delle pagine, eventi delle funzionalità, lingua, categoria dello schermo, referrer, user agent del browser, area geografica approssimativa e un identificatore del visitatore sottoposto a hash e ruotato. Questi dati servono a comprendere affidabilità e utilizzo del prodotto, non a identificare il contenuto dei documenti.',
-        },
-        settings: {
-            heading: 'Impostazioni, file recenti e aggiornamenti',
-            body: 'Le preferenze dell’app, lo stato dell’area di lavoro e i riferimenti ai file recenti possono essere archiviati localmente sul tuo dispositivo. L’app desktop può contattare GitHub per cercare e scaricare aggiornamenti software. Il sistema operativo e i servizi dello store possono elaborare ulteriori informazioni tecniche secondo le proprie politiche.',
-        },
-        storage: {
-            heading: 'Cookie e archiviazione del browser',
-            body: 'EVB Viewer utilizza cookie di preferenza proprietari per ricordare la lingua e, nell’app browser, il tema. I cookie della lingua possono durare fino a un anno e quello del tema fino a 180 giorni. Il sito di download utilizza per un massimo di 90 giorni un cookie di coorte opaco e HttpOnly per mantenere coerenti i suggerimenti durante i rilasci graduali; non viene usato per pubblicità o tracciamento tra siti. L’app browser utilizza inoltre archiviazione locale, archiviazione di sessione e IndexedDB per preferenze, riferimenti ai file recenti, stato dell’area di lavoro, dati dei documenti che scegli di conservare e un identificatore analitico casuale per sessione. EVB Viewer non imposta cookie pubblicitari o di terze parti. Puoi eliminare cookie e dati memorizzati dal browser tramite i controlli dei dati dei siti del browser; questa operazione reimposta le preferenze e i dati locali dell’app.',
-        },
-        retention: {
-            heading: 'Conservazione e scelte',
-            body: 'I dati locali dell’app rimangono sul dispositivo finché non li rimuovi o disinstalli l’app. Sei tu a decidere quali documenti e allegati aprire o inviare ai servizi opzionali dell’assistente. I dati analitici del sito vengono conservati solo per il tempo necessario al funzionamento del prodotto, alla sicurezza e all’analisi delle tendenze e ne è programmata l’eliminazione automatica dopo 90 giorni.',
-        },
-        contact: {
-            heading: 'Contatti',
-            intro: 'Puoi inviare domande o richieste relative alla privacy tramite il',
-            linkLabel: 'tracker delle segnalazioni di EVB Viewer',
+        sentryAcknowledgement: {
+            message: 'Grazie a Sentry per sostenere EVB Viewer attraverso il suo programma open source.',
+            linkLabel: 'Scopri Sentry per l’open source',
         },
     },
+    privacy: PRIVACY_MESSAGES['it'],
     home: {
         seo: {
             title: 'App web EVB Viewer e download desktop',
