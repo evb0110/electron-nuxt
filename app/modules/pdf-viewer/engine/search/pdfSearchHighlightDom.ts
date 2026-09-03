@@ -77,12 +77,9 @@ function buildTextLayerIndex(textLayerDiv: HTMLElement): {
             return;
         }
 
-        const isRootTextSpan = element.tagName === 'SPAN'
-            && !element.parentElement?.closest('span');
         if (element.tagName === 'SPAN' && (
             element.children.length === 0
             || mappedTextBySpan?.has(element)
-            || isRootTextSpan
         )) {
             const span = element;
             const text = mappedTextBySpan?.get(span) ?? span.textContent ?? '';

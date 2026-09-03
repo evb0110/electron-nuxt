@@ -66,9 +66,16 @@ function buildLayerSearchMatches(
             if (match.index === undefined) {
                 return [];
             }
+            const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
+                startOffset: match.index,
+                endOffset: match.index + match[0].length,
+            });
+            if (!mapped) {
+                return [];
+            }
             return [{
-                start: match.index,
-                end: match.index + match[0].length,
+                start: mapped.startOffset,
+                end: mapped.endOffset,
                 matchIndex: backendMatch?.matchIndex ?? index,
                 pageMatchIndex: index,
                 canUseBackendIdentity: canUseBackendIdentity && backendMatch !== undefined,
@@ -163,9 +170,19 @@ export function buildVisualMatchesWithCurrent(
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IHighlightMatchRange[] {
+    const layerMatches = buildLayerSearchMatches(pageMatches, assembledLayerText);
     const backendMatches = buildBackendVisualMatches(pageMatches, assembledLayerText);
+    const backendMatchesPointAtLayerOccurrences = !pageMatches.searchQuery
+        || backendMatches.every(backendMatch => layerMatches.some(layerMatch => (
+            layerMatch.start === backendMatch.start
+            && layerMatch.end === backendMatch.end
+        )));
     const matches = backendMatches.length === pageMatches.matches.length
+        && backendMatchesPointAtLayerOccurrences
         ? backendMatches
-        : buildLayerSearchMatches(pageMatches, assembledLayerText);
+        : layerMatches.map(match => ({
+            ...match,
+            canUseBackendIdentity: false,
+        }));
     return markVisualMatchesWithCurrent(matches, pageMatches, currentMatch);
 }
