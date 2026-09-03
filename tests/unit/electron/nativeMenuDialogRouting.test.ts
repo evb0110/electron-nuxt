@@ -4,6 +4,7 @@ import type {
 } from 'electron';
 import { BrowserWindow } from 'electron';
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -31,6 +32,7 @@ import { cast } from '@tests/helpers/cast';
 interface IMenuItemLike {
     click?: (item: unknown, window?: unknown) => unknown;
     label?: string;
+    role?: string;
     submenu?: IMenuItemLike[] | unknown;
 }
 
@@ -51,7 +53,9 @@ const mocks = vi.hoisted(() => ({
     },
     emitRendererEvent: ((_channel: string, ..._args: unknown[]) => undefined),
     focusedWindow: null as unknown,
+    isMac: false,
     lastMenuTemplate: [] as IMenuItemLike[],
+    showAboutPanel: vi.fn(),
 }));
 
 vi.mock('electron', () => {
@@ -101,7 +105,7 @@ vi.mock('electron', () => {
             getPath: vi.fn(() => '/Users/Test/Documents'),
             on: vi.fn(),
             quit: vi.fn(),
-            showAboutPanel: vi.fn(),
+            showAboutPanel: mocks.showAboutPanel,
         },
         BrowserWindow: MockBrowserWindow,
         dialog: mocks.dialog,
@@ -115,7 +119,7 @@ vi.mock('electron', () => {
     };
 });
 
-vi.mock('@electron/config', () => ({config: {isMac: false}}));
+vi.mock('@electron/config', () => ({config: {get isMac() { return mocks.isMac; }}}));
 vi.mock('@electron/recentFiles', () => ({getRecentFilesSync: () => []}));
 vi.mock('@electron/te', () => ({te: (key: string) => key}));
 vi.mock('@electron/window/registry', () => ({
@@ -138,6 +142,13 @@ async function flushCommandRoute() {
     await Promise.resolve();
     await new Promise(resolve => setTimeout(resolve, 0));
 }
+
+afterEach(() => {
+    mocks.focusedWindow = null;
+    mocks.isMac = false;
+    mocks.lastMenuTemplate = [];
+    vi.clearAllMocks();
+});
 
 describe('native menu and dialog routing', () => {
     it('routes native menu commands through preload, workspace, IPC codecs, and the OS dialog boundary', async () => {
@@ -260,5 +271,29 @@ describe('native menu and dialog routing', () => {
         await flushCommandRoute();
         expect(print).toHaveBeenCalledOnce();
         expect(deletePages).toHaveBeenCalledOnce();
+    });
+
+    it('keeps native About and opens Acknowledgements as a local renderer page', async () => {
+        const window = new BrowserWindow(43 as never);
+        mocks.focusedWindow = window;
+
+        setupMenu();
+
+        findMenuItem('menu.help', 'menu.about').click?.({}, window);
+        expect(mocks.showAboutPanel).toHaveBeenCalledOnce();
+
+        findMenuItem('menu.help', 'menu.acknowledgements').click?.({}, window);
+        await flushCommandRoute();
+        expect(window.webContents.executeJavaScript).toHaveBeenCalledWith(
+            expect.stringContaining('window.history.pushState({}, \'\', \'/about\')'),
+            true,
+        );
+
+        mocks.isMac = true;
+        setupMenu();
+        const appMenu = mocks.lastMenuTemplate[0];
+        const appSubmenu = Array.isArray(appMenu?.submenu) ? appMenu.submenu : [];
+        expect(appSubmenu[0]?.role).toBe('about');
+        expect(findMenuItem('menu.help', 'menu.acknowledgements')).toBeDefined();
     });
 });

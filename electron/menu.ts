@@ -120,6 +120,12 @@ const TEXT_EDITING_FOCUS_SCRIPT = `
         || element instanceof HTMLTextAreaElement;
 })()
 `;
+const OPEN_ACKNOWLEDGEMENTS_PAGE_SCRIPT = `
+(() => {
+    window.history.pushState({}, '', '/about');
+    window.dispatchEvent(new PopStateEvent('popstate'));
+})()
+`;
 
 function getFocusedAppWindow() {
     const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -731,6 +737,20 @@ function getHelpMenu(): MenuItemConstructorOptions {
                     label: te('menu.about'),
                     click: () => { app.showAboutPanel(); },
                 },
+            { type: 'separator' },
+            {
+                label: te('menu.acknowledgements'),
+                click: (_item, window) => {
+                    const targetWindow = resolveWindowFromMenuContext(window);
+                    if (!targetWindow || targetWindow.isDestroyed() || targetWindow.webContents.isDestroyed()) {
+                        return;
+                    }
+
+                    void targetWindow.webContents.executeJavaScript(OPEN_ACKNOWLEDGEMENTS_PAGE_SCRIPT, true).catch((error) => {
+                        logger.warn(`Failed to open acknowledgements page: ${getErrorMessage(error)}`);
+                    });
+                },
+            },
         ],
     };
 }
