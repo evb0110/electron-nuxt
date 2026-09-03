@@ -1,0 +1,87 @@
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_14e0d57f1207f9 1-2,5-6,10,13,63-66,71-74,76,78
+app/app.vue
+  s_b412fd4cd3f576::t_2867ab5565a2e2 42-74,166-167,212,214-215,249-250,253,269-272,334-383,416-419,433-437,573
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_45861eb8c1abdd 70,171,283-286,305,458-502
+app/composables/useRuntimeErrorReports.ts
+  s_b412fd4cd3f576::t_69dcfd4c6cc674 5,16,50-84,88-89,92,98-109,113-115,118-174,192,219-220,225-227,236-237
+app/composables/useSettings.ts
+  s_b412fd4cd3f576::t_053231d67da8e1 16,100,131,177-179
+app/pages/privacy.vue
+  s_b412fd4cd3f576::t_50188bac5fb1f6 23-27
+app/platform/browser-api/browserSettingsCapability.ts
+  s_b412fd4cd3f576::t_013b3774ffb535 16-19,39,43-44,111,115,118-130,222,230-250,261-281
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_8049809ebef01a 156,167
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_a91bd83ded636f 131,140
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_3862f498222434 71,84-95,101-104,107-109,149,396-419,438-441,443,454-503,621-625,632-634,645-647,654-658,661-663,686,693,698,704-710,715-721,723-725,731-733,735-781,801-807,831,835-843,848-856,861-924,926-934,961-965,976-978,995-1002,1010-1015
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_e2e7c2f94c3d59 71,104-107,378-381,419-420,422-423,425,433,451-457,464-466,476-478,485-489,492-494,591,593-596,600-615,663,666
+electron/features/settings/createSettingsMainBindings.ts
+  s_b412fd4cd3f576::t_6c4d3017e16b9a 16,56-69,130-137
+electron/settings.ts
+  s_b412fd4cd3f576::t_914c7d8a16653f 163-174
+landing/app/pages/privacy.vue
+  s_b412fd4cd3f576::t_385b7aeaea9031 29-33
+packages/i18n-app/messages/de.ts
+  s_b412fd4cd3f576::t_110d696ae9c047 1599-1602
+packages/i18n-app/messages/en.ts
+  s_b412fd4cd3f576::t_28f70012a47c15 1599-1602
+packages/i18n-app/messages/es.ts
+  s_b412fd4cd3f576::t_8d6d5340cea85d 1599-1602
+packages/i18n-app/messages/fr.ts
+  s_b412fd4cd3f576::t_44bcbc6a00e5f5 1610-1613
+packages/i18n-app/messages/it.ts
+  s_b412fd4cd3f576::t_b2bb10a6f4f4ab 1599-1602
+packages/i18n-app/messages/nl.ts
+  s_b412fd4cd3f576::t_20c5db720a38d3 1599-1602
+packages/i18n-app/messages/pt.ts
+  s_b412fd4cd3f576::t_dcb77d23a5f136 1610-1613
+packages/i18n-app/messages/ptBr.ts
+  s_b412fd4cd3f576::t_359cbb9a8a95db 1610-1613
+packages/i18n-app/messages/ru.ts
+  s_b412fd4cd3f576::t_4699c4485eafe0 1634-1637
+packages/i18n-core/privacyMessages.ts
+  s_b412fd4cd3f576::t_3e834f57e3aa6c 20,51-54,95-98,139-142,183-186,227-230,271-274,315-318,359-362,403-406
+tests/unit/app/composables/useFailureToast.test.ts
+  s_b412fd4cd3f576::t_966e6279eabb67 104-120
+tests/unit/app/composables/useRuntimeErrorReports.test.ts
+  s_b412fd4cd3f576::t_e1d84adfbf5cfa 30-71,106,129-236
+tests/unit/app/composables/useSettings.test.ts
+  s_b412fd4cd3f576::t_d0deed7c21fdde 218-235
+tests/unit/app/platform/settingsCapability.test.ts
+  s_b412fd4cd3f576::t_228187dfd9cf57 253-339
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_0c08246694518a 15,88-91,93,146-147
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_d3ac62e705aed4 316
+tests/unit/app/utils/consoleErrorObserver.test.ts
+  s_b412fd4cd3f576::t_2cd4f5b7169979 45
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_2abb9e1d8bef22 46,126,158,204,208-211,215,217-219,293-322,366-435,460,507,530
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_927424006e967b 187,202-245
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_b412fd4cd3f576::t_83cc958e78a0f7 1-96
+tests/unit/electron/settingsMainBindingsDiagnostics.test.ts
+  s_b412fd4cd3f576::t_7cf282c7a251be 1-83
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f90f9b92caacd9974240a92d27e2a0c343e72180",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
