@@ -24,7 +24,7 @@ const POLICY = {
 } as const;
 
 const RUNTIME_CONFIG = {sentry: {
-    nitroDsn: 'https://public@o123.ingest.sentry.io/42',
+    nitroDsn: 'https://public@o123.ingest.de.sentry.io/42',
     release: 'evb-viewer-web@1.2.3',
     dist: 'production',
     environment: 'production',
@@ -106,11 +106,20 @@ describe('viewer Nitro Sentry adapter', () => {
                 ...RUNTIME_CONFIG,
                 sentry: {
                     ...RUNTIME_CONFIG.sentry,
-                    nitroDsn: 'https://public@o123.ingest.sentry.io/42?secret=query',
+                    nitroDsn: 'https://public@o123.ingest.de.sentry.io/42?secret=query',
                 },
             },
         });
         expect(invalidDsn.isReady()).toBe(false);
+
+        const nonEuDsn = createSentryNitroAdapter({
+            ...base,
+            runtimeConfig: {sentry: {
+                ...RUNTIME_CONFIG.sentry,
+                nitroDsn: 'https://public@o123.ingest.us.sentry.io/42',
+            }},
+        });
+        expect(nonEuDsn.isReady()).toBe(false);
 
         const missingIdentity = createSentryNitroAdapter({
             ...base,
@@ -179,9 +188,10 @@ describe('viewer Nitro Sentry adapter', () => {
             dist: RUNTIME_CONFIG.sentry.dist,
             environment: RUNTIME_CONFIG.sentry.environment,
             tags: {
-                runtime: 'viewer-nitro',
-                code: 'UNCLASSIFIED_MAIN_ERROR',
-                operation: 'main-error',
+                evb_schema: 'evb-diagnostic-v1',
+                diagnostic_runtime: 'viewer-nitro',
+                diagnostic_code: 'UNCLASSIFIED_MAIN_ERROR',
+                diagnostic_operation: 'main-error',
             },
         });
         const finalEvent = fixture.adapter.sanitizeEvent(event);

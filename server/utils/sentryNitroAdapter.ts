@@ -74,6 +74,7 @@ export interface ISentryNitroAdapter {
 }
 
 const SENTRY_NITRO_RUNTIME = 'viewer-nitro' as const;
+const SENTRY_NITRO_SCHEMA_MARKER = 'evb-diagnostic-v1';
 const SENTRY_NITRO_MARKER_KEY = '__evb_diagnostic_record';
 const SENTRY_NITRO_SUPPRESSED_COUNT_KEY = '__evb_diagnostic_suppressed_count';
 const SENTRY_NITRO_DIAGNOSTICS_CONTEXT_KEY = 'diagnostics';
@@ -156,7 +157,7 @@ function isValidSentryDsn(value: string): boolean {
         return parsed.protocol === 'https:'
             && parsed.username.length > 0
             && parsed.password.length === 0
-            && (parsed.hostname === 'sentry.io' || parsed.hostname.endsWith('.sentry.io'))
+            && /(?:^|\.)ingest\.de\.sentry\.io$/u.test(parsed.hostname)
             && parsed.search.length === 0
             && parsed.hash.length === 0
             && projectId !== undefined
@@ -240,6 +241,15 @@ function toSentryStackFrame(frame: CanonicalAppFrame): Sentry.StackFrame {
     };
 }
 
+function readNodeMajorVersion() {
+    const processValue = (globalThis as {readonly process?: {readonly versions?: {readonly node?: unknown};}}).process;
+    const nodeVersion = processValue?.versions?.node;
+    const match = typeof nodeVersion === 'string'
+        ? nodeVersion.match(/^(\d+)/u)
+        : null;
+    return match?.[1] ?? 'unknown';
+}
+
 function buildDiagnosticContext(record: DiagnosticRecord, suppressedCount: number) {
     const context: Record<string, string | number | boolean> = {
         schemaVersion: record.schemaVersion,
@@ -270,30 +280,43 @@ function buildSentryEventInternal(
     includeMarker = true,
 ): Sentry.Event {
     const definition = DIAGNOSTIC_DEFINITIONS[record.code];
+    const topFrame = record.frames[0];
     const boundedSuppressedCount = decodeDiagnosticsSuppressedCount(suppressedCount) ?? 0;
     const event: Sentry.Event = {
         event_id: record.eventId,
         timestamp: Math.floor(record.occurredAt / 1_000),
         level: record.severity,
-        platform: 'node',
+        platform: 'javascript',
         release: identity.release,
         dist: identity.dist,
         environment: identity.environment,
         tags: {
-            runtime: record.runtime,
-            code: record.code,
-            ...(record.operation === undefined ? {} : {operation: record.operation}),
+            evb_schema: SENTRY_NITRO_SCHEMA_MARKER,
+            diagnostic_runtime: record.runtime,
+            diagnostic_code: record.code,
+            ...(record.operation === undefined ? {} : {diagnostic_operation: record.operation}),
         },
-        contexts: {[SENTRY_NITRO_DIAGNOSTICS_CONTEXT_KEY]: buildDiagnosticContext(
-            record,
-            boundedSuppressedCount,
-        )},
+        fingerprint: [
+            record.runtime,
+            record.code,
+            topFrame?.module ?? 'no-application-frame',
+        ],
+        contexts: {
+            [SENTRY_NITRO_DIAGNOSTICS_CONTEXT_KEY]: buildDiagnosticContext(
+                record,
+                boundedSuppressedCount,
+            ),
+            runtime: {
+                name: 'node',
+                version: readNodeMajorVersion(),
+            },
+        },
         exception: {values: [{
             type: definition.exceptionType,
             value: definition.exceptionValue,
             ...(record.frames.length === 0
                 ? {}
-                : {stacktrace: {frames: record.frames.map(toSentryStackFrame)}}),
+                : {stacktrace: {frames: [...record.frames].reverse().map(toSentryStackFrame)}}),
         }]},
     };
     if (includeMarker) {
@@ -396,6 +419,7 @@ function createClientOptions(
         maxBreadcrumbs: 0,
         beforeBreadcrumb: () => null,
         sampleRate: 1,
+        tracesSampleRate: 0,
         tracePropagationTargets: [],
         propagateTraceparent: false,
         streamGenAiSpans: false,
