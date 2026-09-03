@@ -1,0 +1,40 @@
+app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.ts
+  s_95b49b919a9cd9::t_de32747f69b28e 4,7,11,13,15-20,24-40,44-50,52-56,58-62,64-85
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_95b49b919a9cd9::t_2899db47e107da 220-231,234-238,240-241,243-244,246-247,249-259,261-274,482-484,503,597
+  s_95b49b919a9cd9::t_029593b9cb9b2f 210-217
+  s_95b49b919a9cd9::t_1a206e5deb70ee 416-419,441-448,451-455,485-487
+  s_95b49b919a9cd9::t_ca47c6b802e23e 511-512,524,529-534,563-565,569-577,580,582,584,588,605
+  s_95b49b919a9cd9::t_6d8726e5d43902 583,585-587
+  s_95b49b919a9cd9::t_f685ed16151b1a 176-178,180-192,194-200,219
+  s_95b49b919a9cd9::t_227d00e544596a 85-88,121
+  s_95b49b919a9cd9::t_21e1f37d5c91ba 163-170,460-464,468-469
+  s_95b49b919a9cd9::t_ecf5759a0119b1 33-37
+  s_95b49b919a9cd9::t_0878c78edcf033 578-579
+  s_95b49b919a9cd9::t_06d61c9ddb3829 232-233,239,242,245,248
+  s_95b49b919a9cd9::t_681b8f67931e36 525-528
+  s_95b49b919a9cd9::t_a9851a9d977f4b 117-120,122-124,137-138,153,161-162,171
+  s_95b49b919a9cd9::t_6b2e6370f8b847 193,201-209,218,260,581
+app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture.ts
+  s_95b49b919a9cd9::t_2899db47e107da 64-65,192,198,241
+  s_95b49b919a9cd9::t_452beaa6be707d 77-78,88-90,174
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_95b49b919a9cd9::t_24bb6d75e501ee 177-178,181,184,186-187,189,207-208
+  s_95b49b919a9cd9::t_6d8726e5d43902 163-176,179-180,182-183,185,188,205-206,210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "a01303c735f4ab11a83da79a6a194f0f25b08a03",
+  "prompts": {},
+  "sessions": {
+    "s_95b49b919a9cd9": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-17b1-7e33-a1be-9faa82b05530",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
