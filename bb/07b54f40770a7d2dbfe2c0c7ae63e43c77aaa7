@@ -1,0 +1,40 @@
+tests/unit/app/plugins/diagnosticsTransport.test.ts
+  s_b412fd4cd3f576::t_527a8d65f9b363 1-62
+tests/unit/app/modules/workspace-shell/components/appUpdatesDialog.test.ts
+  s_b412fd4cd3f576::t_7c4031a9e8e07c 1-99
+  s_b412fd4cd3f576::t_4e8d5cc7cb2a2e 100-102
+tests/unit/app/modules/workspace-shell/composables/appShellLifecycleAndUpdates.test.ts
+  s_b412fd4cd3f576::t_7290236c5e4cfb 1-2,5-8,66-86,105-107,111-112
+  s_b412fd4cd3f576::t_f9eb22b89be02e 3-4,9-65,87-104,108-110,113-173
+scripts/release/resolve-sentry-build-identity.mjs
+  s_b412fd4cd3f576::t_2ee911cb4efc0d 53-58
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_b412fd4cd3f576::t_45fe0e4d31fece 155-156
+scripts/checkZeroExecutionCoverage.ts
+  s_b412fd4cd3f576::t_ef4215ed67edbf 51,53
+tests/unit/app/modules/workspace-shell/expose/fallbackToolbarCommandListeners.test.ts
+  s_b412fd4cd3f576::t_814e32174569ef 1-65
+tests/unit/scripts/resolveSentryBuildIdentity.test.ts
+  s_b412fd4cd3f576::t_083033fe61cdd9 1-86
+  s_b412fd4cd3f576::t_3d3cd45693fcdb 87-89
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_b412fd4cd3f576::t_75a142596c41be 19,157
+tests/unit/app/pages/runtimeEntryPages.test.ts
+  s_b412fd4cd3f576::t_9eecbb59e761ea 1-16
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "bb07b54f40770a7d2dbfe2c0c7ae63e43c77aaa7",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
