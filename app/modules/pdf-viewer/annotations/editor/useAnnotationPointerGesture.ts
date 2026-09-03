@@ -3,6 +3,7 @@ import type {
     AnnotationId,
     INoteEntity,
     ITextBoxEntity,
+    IShapeEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IAnnotationGesture,
@@ -60,7 +61,8 @@ export interface IAnnotationPointerGesture {
         point: IAnnotationEditorPoint,
         event: IAnnotationPointerEvent,
     ): boolean;
-    update(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): void;
+    update(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): boolean;
+    isActiveForPointer(pointerId: number): boolean;
     finish(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent): IAnnotationPointerGestureCompletion | null;
     cancel(): void;
 }
@@ -70,14 +72,10 @@ interface IUseAnnotationPointerGestureOptions {
     pageIndex: number;
 }
 
-function isTextBox(entity: IAnnotationGesture['entity']): entity is ITextBoxEntity {
-    return entity.kind === 'text-box';
-}
-
 function isMovableEntity(
     entity: IAnnotationGesture['entity'],
-): entity is ITextBoxEntity | INoteEntity {
-    return entity.kind === 'text-box' || entity.kind === 'note';
+): entity is ITextBoxEntity | INoteEntity | IShapeEntity {
+    return entity.kind === 'text-box' || entity.kind === 'note' || entity.kind === 'shape';
 }
 
 function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
@@ -86,6 +84,9 @@ function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotation
     }
     if (entity.kind === 'note') {
         return entity.position;
+    }
+    if (entity.kind === 'shape') {
+        return entity.rect;
     }
     return null;
 }
@@ -170,7 +171,7 @@ export const useAnnotationPointerGesture = (
             return false;
         }
         const gesture = options.surface.beginResize(annotationId);
-        if (!gesture || !isTextBox(gesture.entity)) {
+        if (!gesture || !isMovableEntity(gesture.entity)) {
             return false;
         }
         active.value = {
@@ -188,12 +189,13 @@ export const useAnnotationPointerGesture = (
 
     function update(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent) {
         if (!matchesPointer(event)) {
-            return;
+            return false;
         }
         active.value = {
             ...active.value!,
             current: point,
         };
+        return true;
     }
 
     function finish(point: IAnnotationEditorPoint, event: IAnnotationPointerEvent) {
@@ -236,6 +238,7 @@ export const useAnnotationPointerGesture = (
         beginMove,
         beginResize,
         update,
+        isActiveForPointer: pointerId => active.value?.pointerId === pointerId,
         finish,
         cancel,
     };
