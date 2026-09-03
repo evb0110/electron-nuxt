@@ -1,0 +1,126 @@
+app/modules/agent-panel/components/AssistantTurnStatus.vue
+  s_b412fd4cd3f576::t_2e3e4f1827d2f6 122
+packages/i18n-app/messages/fr.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1371-1372
+app/modules/agent-panel/components/AgentAssistantPanel.vue
+  s_b412fd4cd3f576::t_29a64c7d34a880 708
+  s_b412fd4cd3f576::t_a9fbc9cbfb858d 59-60,123,154,468,596,674
+  s_b412fd4cd3f576::t_41fae96627ab38 56-58
+app/modules/workspace-shell/components/AppShellRoot.vue
+  s_b412fd4cd3f576::t_437ec061bdf148 140
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_e275382ce3c37e 225-228,230-233
+  s_b412fd4cd3f576::t_3b8dbf214132d5 198-224,229,234,385-429
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_b412fd4cd3f576::t_0f6914aca79a89 18
+  s_b412fd4cd3f576::t_990a6082f67cf0 402-411,413,416-421,423-427,433-439
+  s_b412fd4cd3f576::t_2c673da89dd80e 448-449,454,543,734
+  s_b412fd4cd3f576::t_9e1a52298a92f8 128
+  s_b412fd4cd3f576::t_e275382ce3c37e 545,738,790,820,823,826,829,861,863,989,1009,1031,1044
+  s_b412fd4cd3f576::t_353ce5f6f7e153 544,546,588
+  s_b412fd4cd3f576::t_1eccb2b620059d 73,75
+  s_b412fd4cd3f576::t_8c2f6f42d4b5db 1061
+  s_b412fd4cd3f576::t_a7808ee4f8ff9b 71-72,74,76-77
+app/utils/diagnosticsServerOptOut.ts
+  s_b412fd4cd3f576::t_fab33358878320 1-10,32,52-54,56
+  s_b412fd4cd3f576::t_2e3e4f1827d2f6 16
+  s_b412fd4cd3f576::t_b6fc435552e411 14-15
+  s_b412fd4cd3f576::t_3f9a9d95d443b5 11-13,17-31,33-51,55,57-61
+app/composables/useSettings.ts
+  s_b412fd4cd3f576::t_47722dbbd5101d 8,18-21,42-64,101-102,131,134-138,167,170-174,231,234
+  s_b412fd4cd3f576::t_491f3a8d1440e8 6
+packages/i18n-app/messages/pt.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1371-1372
+tests/unit/app/composables/useSettings.test.ts
+  s_b412fd4cd3f576::t_37c384a97905bd 155-159,166,175-177,187-189
+app/modules/agent-panel/utils/assistantFailure.ts
+  s_b412fd4cd3f576::t_b6fc435552e411 12,86-89,101-104
+  s_b412fd4cd3f576::t_145bb890007c85 1-11,13-15,44-85,90-100,105-146
+  s_b412fd4cd3f576::t_1eccb2b620059d 16-43
+app/modules/agent-panel/components/AssistantMessageSegments.vue
+  s_b412fd4cd3f576::t_2e3e4f1827d2f6 54,58-60
+app/composables/useAppUpdates.ts
+  s_b412fd4cd3f576::t_7cf57726025084 44
+  s_b412fd4cd3f576::t_fec90ab8faa0f9 5,7,24,27-28,52,61-64,76,88,100,108-133,136-147,158,161-162,171,178,214-215,221-227,253,260,270,277,287,294,310,317
+  s_b412fd4cd3f576::t_7aa7b2cdcda921 356
+  s_b412fd4cd3f576::t_491f3a8d1440e8 6
+  s_b412fd4cd3f576::t_b6fc435552e411 9
+  s_b412fd4cd3f576::t_516cb7e08f37c0 248
+  s_b412fd4cd3f576::t_eb3c07fff7fc46 228
+tests/unit/app/modules/agent-panel/agentAssistantPanelRuntimeError.test.ts
+  s_b412fd4cd3f576::t_2e3e4f1827d2f6 26
+packages/i18n-app/messages/en.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1360-1361
+app/modules/agent-panel/components/AgentAssistantPanel.shell.css
+  s_b412fd4cd3f576::t_9fba3c2e0e1d04 182,362-364,467-469,473,477,528,530-531
+tests/unit/app/pages/privacyPage.test.ts
+  s_b412fd4cd3f576::t_e3475627953436 68-69
+app/modules/agent-panel/components/AgentAssistantPanel.composer.css
+  s_b412fd4cd3f576::t_9fba3c2e0e1d04 72
+packages/i18n-core/privacyMessages.ts
+  s_b412fd4cd3f576::t_fab33358878320 53,97,141,185,229,273,317,361,405
+app/pages/mobile-reader-proof.vue
+  s_b412fd4cd3f576::t_65addda90dc9c1 143,151
+app/modules/workspace-shell/components/AppUpdatesDialog.vue
+  s_b412fd4cd3f576::t_0f8eae4b3fb163 16-21,24,61-62,72
+app/app.vue
+  s_b412fd4cd3f576::t_3f1786abfe5f9a 25,32,90
+  s_b412fd4cd3f576::t_3aa0129ff17a47 166-169,172,389-398,400,402
+packages/i18n-app/messages/ru.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1395-1396
+tests/unit/app/components/settings/settingsPrivacyPanel.test.ts
+  s_b412fd4cd3f576::t_21c0dcaeaffcf8 19-25,54-58,98-99,112-123
+  s_b412fd4cd3f576::t_3d30d1f6a2d2e3 124
+packages/i18n-app/messages/it.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1360-1361
+app/modules/workspace-shell/agent/runSettingsAssistantAction.ts
+  s_b412fd4cd3f576::t_b025d0fa6aa815 4-8,14,28,44,46-68,71
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_8eb4aea4bc4162 237-241
+tests/unit/app/modules/workspace-shell/agent/runSettingsAssistantAction.test.ts
+  s_b412fd4cd3f576::t_e275382ce3c37e 49-52
+  s_b412fd4cd3f576::t_a1923321079273 12,15,26,31-34,39-48,53-61
+  s_b412fd4cd3f576::t_838b6b3082e1e0 62-63
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_fa356493e3ad9c 737-775,792-796,820-828,834,836-838,860
+  s_b412fd4cd3f576::t_be7f10cb1ae9b1 8-12,14-15,131-135,137-138
+  s_b412fd4cd3f576::t_cfc6fec82c6e92 168,170-171,177-181
+  s_b412fd4cd3f576::t_b6fc435552e411 183
+  s_b412fd4cd3f576::t_2108506d17808c 293,300,303,331-353
+  s_b412fd4cd3f576::t_d7e2439792d025 354
+packages/i18n-app/messages/nl.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1360-1361
+packages/i18n-app/messages/ptBr.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1371-1372
+packages/i18n-app/messages/de.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1360-1361
+packages/i18n-app/messages/es.ts
+  s_b412fd4cd3f576::t_dcd2a2e6015cea 1360-1361
+app/modules/workspace-shell/composables/useAppShellUpdatesDialog.ts
+  s_b412fd4cd3f576::t_4d9a56aa7e1804 5,76-87,104
+tests/unit/app/utils/diagnosticsServerOptOut.test.ts
+  s_b412fd4cd3f576::t_e76a2c89346a81 18-21
+  s_b412fd4cd3f576::t_21c0dcaeaffcf8 1-8,11,14-17,22-47,49-56,58,60-65,67-68
+  s_b412fd4cd3f576::t_fab33358878320 9-10,12-13,48,57,59,66
+app/components/settings/SettingsPrivacyPanel.vue
+  s_b412fd4cd3f576::t_6e8e4f78dbe82c 18-30,40-44,51-58
+tests/unit/app/composables/useAppUpdates.test.ts
+  s_b412fd4cd3f576::t_c64b1302a0ee6e 194,197
+  s_b412fd4cd3f576::t_660ef36b2d3fc0 195-196
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f47a5c403517234e808ec7655b7a170a458a3791",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
