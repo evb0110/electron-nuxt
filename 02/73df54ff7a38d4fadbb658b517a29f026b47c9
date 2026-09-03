@@ -1,0 +1,20 @@
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_4b432991d8168e 39,42,544-557
+  s_b412fd4cd3f576::t_fefd1731198112 558-562
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0273df54ff7a38d4fadbb658b517a29f026b47c9",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
