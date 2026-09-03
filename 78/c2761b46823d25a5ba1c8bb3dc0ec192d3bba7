@@ -1,0 +1,56 @@
+electron/menu.ts
+  s_b412fd4cd3f576::t_c5e59c8b0345b2 123-128,740-753
+packages/i18n-app/messages/de.ts
+  s_b412fd4cd3f576::t_33274366655e6c 986,1335-1350,1354-1356
+public/sentry-wordmark.svg
+  s_b412fd4cd3f576::t_65324c68e9ee44 1-5
+packages/i18n-app/messages/en.ts
+  s_b412fd4cd3f576::t_33274366655e6c 986,1335-1350,1354-1356
+packages/i18n-app/messages/fr.ts
+  s_b412fd4cd3f576::t_33274366655e6c 987,1346-1361,1365-1367
+packages/i18n-app/messages/es.ts
+  s_b412fd4cd3f576::t_33274366655e6c 986,1335-1350,1354-1356
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_827045de56783d 99-109,802-846
+  s_b412fd4cd3f576::t_8c6936c5f1ec42 847
+packages/i18n-app/messages/pt.ts
+  s_b412fd4cd3f576::t_33274366655e6c 987,1346-1361,1365-1367
+tests/unit/i18n/aboutPageLocalization.test.ts
+  s_b412fd4cd3f576::t_692eb9a4581475 1-68
+  s_b412fd4cd3f576::t_8b3fe1b07535e7 69-71
+tests/unit/electron/nativeMenuDialogRouting.test.ts
+  s_b412fd4cd3f576::t_94c1b43490c0c9 149,288
+  s_b412fd4cd3f576::t_c329f293fbdb0f 7,35,56,58,108,122,146-148,150-152,275-287,289-297
+  s_b412fd4cd3f576::t_29cfa81bf31535 298
+packages/i18n-app/messages/ptBr.ts
+  s_b412fd4cd3f576::t_33274366655e6c 987,1346-1361,1365-1367
+app/pages/about.vue
+  s_b412fd4cd3f576::t_12550bf7172f1c 16,77
+  s_b412fd4cd3f576::t_7cfe36353471b1 73
+  s_b412fd4cd3f576::t_369530d6b6c954 1-15,17-72,74-76,78-242
+packages/i18n-app/messages/it.ts
+  s_b412fd4cd3f576::t_33274366655e6c 986,1335-1350,1354-1356
+tests/unit/app/pages/aboutPage.test.ts
+  s_b412fd4cd3f576::t_692eb9a4581475 1-178
+  s_b412fd4cd3f576::t_18c8fd609a0a45 179-181
+packages/i18n-app/messages/nl.ts
+  s_b412fd4cd3f576::t_33274366655e6c 986,1335-1350,1354-1356
+packages/i18n-app/messages/ru.ts
+  s_b412fd4cd3f576::t_33274366655e6c 993,1370-1385,1389-1391
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "78c2761b46823d25a5ba1c8bb3dc0ec192d3bba7",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
