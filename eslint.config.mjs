@@ -188,7 +188,7 @@ const projectConfig = withNuxt(
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
         ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1083],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
-        ['scripts/architecture/boundary-check.mjs', 1232],
+        ['scripts/architecture/boundary-check.mjs', 1650],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
         ['electron/features/djvu/main/pdfExport.ts', 1288],
         ['packages/contracts/djvuPlatformFeature.ts', 1328],

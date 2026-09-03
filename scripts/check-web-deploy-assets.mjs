@@ -20,6 +20,7 @@ const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
     'pdf-lib',
     'utif',
     'pako',
+    '@sentry/',
 ];
 const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
     default: Object.freeze({
@@ -166,9 +167,11 @@ export async function assertInitialRendererDependencyGraph(rootPath) {
         visited.add(assetPath);
 
         const source = await readFile(path.join(rootPath, assetPath.slice(1)), 'utf8');
-        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(
-            dependency => new RegExp(`\\b${dependency}\\b`, 'iu').test(source),
-        );
+        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(dependency => (
+            dependency.endsWith('/')
+                ? source.includes(dependency)
+                : new RegExp(`\\b${dependency}\\b`, 'iu').test(source)
+        ));
         if (forbiddenDependency) {
             throw new Error(
                 `Initial renderer dependency graph contains ${forbiddenDependency}: ${assetPath}`,

@@ -1461,9 +1461,9 @@ async function runLint(argv) {
     }
     if (
         full
-        || relevantFiles.some(file => /^(?:app|electron|packages|scripts|server)\//u.test(file))
+        || relevantFiles.some(file => /^(?:app|electron|landing|packages|scripts|server)\//u.test(file))
     ) {
-        commands.push(nodeStage('lint.architecture', 'scripts/architecture/boundary-check.mjs', ['--scope=focused'], {
+        commands.push(nodeStage('lint.architecture', 'scripts/architecture/boundary-check.mjs', ['--scope=all'], {
             additionalInputPaths: relevantFiles,
             cacheable: true,
             inputScope: 'lint',

@@ -290,6 +290,37 @@ describe('web deploy assets check', () => {
         }
     });
 
+    it('rejects Sentry modules reached by the initial renderer imports', async () => {
+        const tempRoot = await createTempProject();
+        const outputRoot = path.join(tempRoot, 'nuxt-output/public');
+        try {
+            await mkdir(path.join(outputRoot, '_nuxt'), {recursive: true});
+            await writeFile(
+                path.join(outputRoot, 'electron/index.html'),
+                '<link rel="modulepreload" href="/_nuxt/entry.js">',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/entry.js'),
+                'import "./sentry.js";',
+                'utf8',
+            );
+            await writeFile(
+                path.join(outputRoot, '_nuxt/sentry.js'),
+                'export const value = "@sentry/browser";',
+                'utf8',
+            );
+
+            await expect(assertInitialRendererDependencyGraph(outputRoot))
+                .rejects.toThrow('Initial renderer dependency graph contains @sentry/: /_nuxt/sentry.js');
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('does not treat dynamic imports as initial renderer dependencies', async () => {
         const tempRoot = await createTempProject();
         const outputRoot = path.join(tempRoot, 'nuxt-output/public');
