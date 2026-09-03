@@ -74,6 +74,13 @@ export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
     }
 }
 
+export function getFailureReceipt(value: unknown): FailureReceipt | undefined {
+    if (!value || typeof value !== 'object') {
+        return undefined;
+    }
+    return decodeFailureReceipt((value as {failure?: unknown}).failure) ?? undefined;
+}
+
 export const EXPECTED_OUTCOME_CODES = [
     'canceled',
     'validation-rejected',

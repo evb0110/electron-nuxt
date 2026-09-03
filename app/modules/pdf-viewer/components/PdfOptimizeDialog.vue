@@ -45,12 +45,10 @@
                     />
                 </div>
 
-                <UAlert
+                <AppFailureAlert
                     v-if="error"
-                    color="error"
-                    variant="soft"
+                    :presentation="error"
                     icon="i-ph-warning-circle"
-                    :description="error"
                 />
             </div>
         </template>
@@ -86,6 +84,8 @@
 </template>
 
 <script setup lang="ts">
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
 import type {
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
@@ -101,7 +101,7 @@ const {
 } = defineProps<{
     isRunning: boolean;
     progress: IPdfOptimizeProgress | null;
-    error: string | null;
+    error: FailurePresentation | null;
 }>();
 
 const emit = defineEmits<{submit: [payload: IPdfOptimizeOptions];}>();

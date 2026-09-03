@@ -5,6 +5,10 @@ import type {
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    getFailureReceipt,
+    type ExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -198,6 +202,32 @@ export function createDocumentOpenFlow(
         return deps.openEpoch.begin();
     }
 
+    function recordOpenFailure(message: string, error: unknown, data?: unknown) {
+        const receipt = BrowserLogger.error(
+            RECENT_OPEN_LOG_SECTION,
+            'Document open failed',
+            data ?? error,
+            getFailureReceipt(error),
+        );
+        state.error.value = message;
+        state.failurePresentation.value = {
+            failure: receipt,
+            title: deps.t('errors.file.open'),
+            description: message,
+        };
+        return receipt;
+    }
+
+    function recordHandledOpenAbsence(message: string, data?: unknown) {
+        BrowserLogger.debug(RECENT_OPEN_LOG_SECTION, 'Document open returned no document', data);
+        BrowserLogger.warn(RECENT_OPEN_LOG_SECTION, 'Document open returned no document', {
+            kind: 'expected',
+            code: 'handled-absence',
+        } satisfies ExpectedOutcome);
+        state.error.value = message;
+        state.failurePresentation.value = null;
+    }
+
     function isCurrentOpenRequest(requestId: number) {
         return deps.openEpoch.isCurrent(requestId);
     }
@@ -236,6 +266,7 @@ export function createDocumentOpenFlow(
     async function openFile(preSelected?: TOpenFileResult) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
+        state.failurePresentation.value = null;
         state.pendingDjvu.value = null;
         state.openBatchProgress.value = null;
         try {
@@ -279,7 +310,10 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
             const message = classifyOpenError(e, preSelected?.originalPath ?? null);
-            state.error.value = message;
+            recordOpenFailure(message, e, {
+                path: preSelected?.originalPath ?? null,
+                error: e,
+            });
             return {
                 status: 'failed',
                 error: message,
@@ -353,6 +387,7 @@ export function createDocumentOpenFlow(
     async function openFileDirect(path: TDocumentRef, options: TDocumentDirectOpenOptions = {}) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
+        state.failurePresentation.value = null;
         state.pendingDjvu.value = null;
         state.openBatchProgress.value = null;
         logPdfRenderTrace('pdf-open-direct-start', {
@@ -391,12 +426,10 @@ export function createDocumentOpenFlow(
             }
             if (!result) {
                 const message = deps.t('errors.file.invalid');
-                state.error.value = message;
-                BrowserLogger.warn(
-                    RECENT_OPEN_LOG_SECTION,
-                    'openDocumentDirect returned null',
-                    { path },
-                );
+                recordHandledOpenAbsence(message, {
+                    path,
+                    reason: 'null-open-result',
+                });
                 return {
                     status: 'failed',
                     error: message,
@@ -477,10 +510,9 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
             const message = classifyOpenError(e, path);
-            state.error.value = message;
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'openFileDirect failed', {
+            recordOpenFailure(message, e, {
                 path,
-                error: getErrorMessage(e),
+                error: e,
             });
             logPdfRenderTrace('pdf-open-direct-end', {
                 openRequestId,
@@ -511,6 +543,7 @@ export function createDocumentOpenFlow(
     async function openFileDirectBatch(paths: TDocumentRef[]) {
         const openRequestId = beginOpenRequest();
         state.error.value = null;
+        state.failurePresentation.value = null;
         state.pendingDjvu.value = null;
         state.openBatchProgress.value = null;
         try {
@@ -588,7 +621,7 @@ export function createDocumentOpenFlow(
             if (!result) {
                 state.openBatchProgress.value = null;
                 const message = deps.t('errors.file.invalid');
-                state.error.value = message;
+                recordHandledOpenAbsence(message, {reason: 'null-batch-open-result'});
                 return {
                     status: 'failed',
                     error: message,
@@ -619,7 +652,7 @@ export function createDocumentOpenFlow(
             }
             state.openBatchProgress.value = null;
             const message = e instanceof Error ? e.message : deps.t('errors.file.open');
-            state.error.value = message;
+            recordOpenFailure(message, e);
             return {
                 status: 'failed',
                 error: message,

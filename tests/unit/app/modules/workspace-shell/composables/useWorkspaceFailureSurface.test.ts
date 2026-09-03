@@ -1,11 +1,14 @@
 import {
     afterAll,
+    afterEach,
     beforeEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const toastAddMock = vi.fn();
 vi.stubGlobal('useTypedI18n', () => ({t: (key: string) => key}));
@@ -26,6 +29,28 @@ describe('useWorkspaceFailureSurface', () => {
         toastAddMock.mockClear();
     });
 
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    it('keeps one captured receipt in the log and red presentation', () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: 'receipt-save-123456789',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const capture = vi.spyOn(BrowserLogger, 'error').mockReturnValue(receipt);
+        const surface = useWorkspaceFailureSurface();
+
+        expect(surface.reportSaveFailure('save-1', 'persist-rejected')).toBe(true);
+        expect(surface.reportSaveFailure('save-1', 'persist-rejected')).toBe(false);
+
+        expect(capture).toHaveBeenCalledOnce();
+        expect(surface.saveFailurePresentation.value?.failure).toBe(receipt);
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('Error ID: receipt')}));
+    });
+
     it('shows one toast when a low-level failure and a service result share an operation', () => {
         const surface = useWorkspaceFailureSurface();
 
@@ -36,7 +61,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.validation',
+            description: expect.stringContaining('errors.save.validation'),
         }));
         expect(surface.hasSaveFailure.value).toBe(true);
     });
@@ -55,7 +80,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         surface.reportSaveFailure('save-1', 'unexpected-error', 'disk exploded');
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: 'disk exploded'}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('disk exploded')}));
     });
 
     it('drops the durable state when the save domain is cleared', () => {
@@ -84,7 +109,7 @@ describe('useWorkspaceFailureSurface', () => {
 
         expect(surface.reportSaveFailure('save-1', 'document-changed')).toBe(true);
 
-        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: 'errors.save.documentChanged'}));
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({description: expect.stringContaining('errors.save.documentChanged')}));
         expect(surface.hasSaveFailure.value).toBe(false);
     });
 

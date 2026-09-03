@@ -1,4 +1,5 @@
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
 interface IDocumentWorkspaceCrashOptions {
     failActiveTransaction: () => void;
@@ -28,7 +29,7 @@ export function handleDocumentWorkspaceCrash(
                 : error.cause ?? null,
         }
         : error;
-    BrowserLogger.error('workspace-host', 'Document tab crashed; isolating the failed workspace', {
+    const failure = getFailureReceipt(error) ?? BrowserLogger.error('workspace-host', 'Document tab crashed; isolating the failed workspace', {
         tabId: options.tabId,
         component: componentName,
         info,
@@ -38,4 +39,5 @@ export function handleDocumentWorkspaceCrash(
     options.releaseWorkspace();
     options.resetWorkspaceLoad();
     options.setError(error);
+    return failure;
 }

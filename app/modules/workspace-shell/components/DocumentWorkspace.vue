@@ -85,6 +85,7 @@
         <WorkspaceDocumentAlerts
             :visible="surfaceMode === 'reader'"
             :pdf-error="pdfError"
+            :pdf-failure-presentation="pdfFailurePresentation"
             :show-djvu-conversion-ui="showDjvuConversionUi"
             :djvu-error="djvuError"
             :show-djvu-banner="showDjvuConversionBanner"
@@ -608,6 +609,7 @@ const orchestration = useWorkspaceOrchestration({
     emit,
 });
 const {
+    failureSurface,
     documentDriver,
     fileLifecycle,
     viewerShell,
@@ -628,6 +630,7 @@ const {
 const {
     pdfSrc,
     pdfError,
+    pdfFailurePresentation,
     workingCopyPath,
     originalPath,
     documentKey,
@@ -1142,6 +1145,7 @@ const {
 } = useDocumentWorkspaceOptimizeDialog({
     canOptimizePdf: canOptimizePdfForDisplay,
     handleOptimizePdfAsCopy,
+    getLastFailurePresentation: failureSurface.getLastFailurePresentation,
     onOptimizeSuccess: () => {
         toast.add({
             color: 'success',

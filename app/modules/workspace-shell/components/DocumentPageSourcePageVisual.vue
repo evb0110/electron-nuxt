@@ -20,7 +20,7 @@
         data-document-page-visual="error"
         role="alert"
     >
-        {{ errorMessage }}
+        {{ errorPresentation ? formatFailurePresentationDescription(errorPresentation) : errorMessage }}
     </div>
     <img
         v-if="surface"
@@ -47,6 +47,10 @@
 </template>
 
 <script setup lang="ts">
+import {
+    formatFailurePresentationDescription,
+    type FailurePresentation,
+} from '@app/composables/useFailureToast';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import DocumentPageSourceSearchLayer from '@app/modules/workspace-shell/components/DocumentPageSourceSearchLayer.vue';
@@ -57,6 +61,7 @@ const {
     currentSearchResultIndex,
     documentLoadGeneration,
     errorMessage,
+    errorPresentation = null,
     hostOwnsSkeleton = false,
     openSurfaceGeneration,
     pageNumber,
@@ -69,6 +74,7 @@ const {
     currentSearchResultIndex: number;
     documentLoadGeneration: number;
     errorMessage: string;
+    errorPresentation?: FailurePresentation | null;
     hostOwnsSkeleton?: boolean;
     openSurfaceGeneration: number | null;
     pageNumber: number;
