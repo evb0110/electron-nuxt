@@ -82,6 +82,17 @@ describe('renderer failure reporter', () => {
         });
     });
 
+    it('uses the browser worker parent runtime for an overridden capture', () => {
+        const {
+            reporter,
+            sender,
+        } = createElectronReporter();
+
+        reporter.capture(createFailureInput(), {runtime: 'browser-worker-parent'});
+
+        expect(sender).toHaveBeenCalledWith(expect.objectContaining({runtime: 'browser-worker-parent'}));
+    });
+
     it('rejects a repeated event ID without a second local projection or send', () => {
         const localSink = vi.fn();
         const {

@@ -76,11 +76,16 @@ export interface IRendererFailureReporterOptions {
 }
 
 export interface IRendererFailureReporter {
-    capture<C extends DiagnosticCode>(input: CaptureFailureInput<C>): FailureReceipt;
+    capture<C extends DiagnosticCode>(
+        input: CaptureFailureInput<C>,
+        options?: IRendererFailureCaptureOptions,
+    ): FailureReceipt;
     captureRecord(value: unknown): FailureReceipt;
     getHealthSnapshot(): IRendererDiagnosticsHealthSnapshot;
     withSuppressedCapture<T>(callback: () => T): T;
 }
+
+export interface IRendererFailureCaptureOptions {runtime?: DiagnosticRuntime;}
 
 export const RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = 10_000;
 export const RENDERER_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
@@ -584,11 +589,15 @@ export function createRendererFailureReporter(
     }
 
     return {
-        capture: <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => {
+        capture: <C extends DiagnosticCode>(
+            input: CaptureFailureInput<C>,
+            options: IRendererFailureCaptureOptions = {},
+        ) => {
+            const runtime = options.runtime ?? resolveRuntime(host);
             try {
                 const record = buildClosedRecord(
                     input,
-                    resolveRuntime(host),
+                    runtime,
                     createSafeEventId(createEventId),
                     safeNow(now),
                 );
