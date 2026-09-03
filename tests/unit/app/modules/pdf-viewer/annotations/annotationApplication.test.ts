@@ -1185,6 +1185,50 @@ describe('AnnotationApplication', () => {
         expect(projected.at(-1)).toHaveLength(1);
     });
 
+    it('preserves an arrow when a legacy shape crosses the canonical adapter', () => {
+        const application = new AnnotationApplication('document');
+        const arrow = shape({
+            type: 'arrow',
+            x: 0.2,
+            y: 0.3,
+            x2: 0.6,
+            y2: 0.7,
+            width: 0.4,
+            height: 0.4,
+            lineEndStyle: 'closedArrow',
+            pdfSubtype: 'Line',
+        });
+
+        const entity = toCanonicalShapeEntity(arrow, asAnnotationId('shape-arrow'));
+
+        expect(entity).toMatchObject({
+            tool: 'arrow',
+            points: [
+                {
+                    x: 0.2,
+                    y: 0.3,
+                },
+                {
+                    x: 0.6,
+                    y: 0.7,
+                },
+            ],
+        });
+        expect(entity.rect.left).toBeCloseTo(0.2);
+        expect(entity.rect.top).toBeCloseTo(0.3);
+        expect(entity.rect.width).toBeCloseTo(0.4);
+        expect(entity.rect.height).toBeCloseTo(0.4);
+        expect(application.toLegacyShape(entity)).toMatchObject({
+            type: 'arrow',
+            pdfSubtype: 'Line',
+            x: 0.2,
+            y: 0.3,
+            x2: 0.6,
+            y2: 0.7,
+            lineEndStyle: 'closedArrow',
+        });
+    });
+
     it('remaps surviving annotation and shape identities through a page-tree delta', () => {
         const application = new AnnotationApplication('document');
         application.store.createNote(note({pageIndex: 0}));
