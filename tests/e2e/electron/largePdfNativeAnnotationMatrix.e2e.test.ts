@@ -563,30 +563,139 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         await waitForNoOpenNoteWindows(page);
         return;
     }
-    await page.waitForFunction((selection: {
-        id: string;
-        pageNumber: number
-    }) => {
-        const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-        )).find(candidate => (
-            candidate.dataset.annotationId === selection.id
-            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
-        ));
-        if (!entity) {
-            return false;
-        }
-        const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
-        const viewer = layer?.closest<HTMLElement>('.pdfViewer');
-        const rect = entity.getBoundingClientRect();
-        return rect.width > 0
-            && rect.height > 0
-            && rect.top >= 0
-            && rect.bottom <= window.innerHeight
-            && viewer?.classList.contains('pdfViewer--resize-transition') !== true
-            && layer !== null
-            && getComputedStyle(layer).pointerEvents !== 'none';
-    }, {timeout: 10_000}, input);
+    try {
+        await page.waitForFunction((selection: {
+            id: string;
+            pageNumber: number
+        }) => {
+            const entity = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+            )).find(candidate => (
+                candidate.dataset.annotationId === selection.id
+                && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
+            ));
+            if (!entity) {
+                return false;
+            }
+            const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
+            const viewer = layer?.closest<HTMLElement>('.pdfViewer');
+            const rect = entity.getBoundingClientRect();
+            return rect.width > 0
+                && rect.height > 0
+                && rect.top >= 0
+                && rect.bottom <= window.innerHeight
+                && viewer?.classList.contains('pdfViewer--resize-transition') !== true
+                && layer !== null
+                && getComputedStyle(layer).pointerEvents !== 'none';
+        }, {timeout: 10_000}, input);
+    } catch (error) {
+        const diagnostics = await page.evaluate((selection: {
+            id: string;
+            pageNumber: number
+        }) => {
+            const activeLayers = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer',
+            ));
+            const candidates = activeLayers.flatMap(layer => Array.from(layer.querySelectorAll<HTMLElement>(
+                '[data-annotation-id][data-annotation-kind]',
+            )).map(entity => {
+                const rect = entity.getBoundingClientRect();
+                const page = entity.closest<HTMLElement>('.page_container');
+                const styles = getComputedStyle(entity);
+                return {
+                    annotationId: entity.dataset.annotationId ?? null,
+                    bounds: {
+                        bottom: rect.bottom,
+                        height: rect.height,
+                        left: rect.left,
+                        right: rect.right,
+                        top: rect.top,
+                        width: rect.width,
+                    },
+                    className: entity.className,
+                    isSelected: entity.classList.contains('is-selected'),
+                    kind: entity.dataset.annotationKind ?? null,
+                    page: page?.dataset.page ?? null,
+                    pointerEvents: styles.pointerEvents,
+                    visibility: {
+                        display: styles.display,
+                        opacity: styles.opacity,
+                        visibility: styles.visibility,
+                    },
+                };
+            }));
+            const target = candidates.find(candidate => candidate.annotationId === selection.id);
+            const point = target
+                ? {
+                    x: target.bounds.left + target.bounds.width / 2,
+                    y: target.bounds.top + target.bounds.height / 2,
+                }
+                : null;
+            const hit = point ? document.elementFromPoint(point.x, point.y) : null;
+            const scrollContainers = Array.from(new Set([
+                ...activeLayers.map(layer => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
+                ...activeLayers.map(layer => layer.closest<HTMLElement>('.pdfViewer')),
+            ].filter((element): element is HTMLElement => element !== null)));
+            const describeContainer = (element: HTMLElement | null) => {
+                if (!element) {
+                    return null;
+                }
+                const rect = element.getBoundingClientRect();
+                return {
+                    bounds: {
+                        bottom: rect.bottom,
+                        height: rect.height,
+                        left: rect.left,
+                        right: rect.right,
+                        top: rect.top,
+                        width: rect.width,
+                    },
+                    className: element.className,
+                    scrollHeight: element.scrollHeight,
+                    scrollLeft: element.scrollLeft,
+                    scrollTop: element.scrollTop,
+                    scrollWidth: element.scrollWidth,
+                };
+            };
+            return {
+                activeLayerCount: activeLayers.length,
+                activeLayerCandidates: candidates,
+                elementFromPoint: hit
+                    ? {
+                        annotationId: hit.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
+                        className: hit.className,
+                        tagName: hit.tagName,
+                    }
+                    : null,
+                expected: selection,
+                pageContainers: Array.from(document.querySelectorAll<HTMLElement>(
+                    '.editor-pane.is-active .page_container',
+                )).map(page => {
+                    const rect = page.getBoundingClientRect();
+                    return {
+                        bounds: {
+                            bottom: rect.bottom,
+                            height: rect.height,
+                            left: rect.left,
+                            right: rect.right,
+                            top: rect.top,
+                            width: rect.width,
+                        },
+                        page: page.dataset.page ?? null,
+                    };
+                }),
+                point,
+                scrollContainers: scrollContainers.map(describeContainer),
+                target: target ?? null,
+                viewport: {
+                    devicePixelRatio: window.devicePixelRatio,
+                    height: window.innerHeight,
+                    width: window.innerWidth,
+                },
+            };
+        }, input);
+        throw new Error(`Canonical entity failed pre-click visibility: ${JSON.stringify(diagnostics)}`, {cause: error});
+    }
     const point = await page.evaluate((selection: {
         id: string;
         pageNumber: number
