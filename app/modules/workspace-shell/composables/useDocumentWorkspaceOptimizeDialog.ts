@@ -3,21 +3,24 @@ import type {
     IPdfOptimizeProgress,
 } from '@contracts/electronApiDocuments';
 import type { ComputedRef } from 'vue';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 
 interface IUseDocumentWorkspaceOptimizeDialogOptions {
     canOptimizePdf: ComputedRef<boolean>;
     handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: string) => Promise<boolean>;
+    getLastFailurePresentation?: () => FailurePresentation | null;
     onOptimizeSuccess: () => void;
 }
 
 export const useDocumentWorkspaceOptimizeDialog = ({
     canOptimizePdf,
+    getLastFailurePresentation,
     handleOptimizePdfAsCopy,
     onOptimizeSuccess,
 }: IUseDocumentWorkspaceOptimizeDialogOptions) => {
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
-    const optimizeDialogError = ref<string | null>(null);
+    const optimizeDialogError = ref<FailurePresentation | null>(null);
     const optimizeRequestId = ref<string | null>(null);
     const isOptimizeDialogRunning = computed(() => optimizeRequestId.value !== null);
 
@@ -73,6 +76,7 @@ export const useDocumentWorkspaceOptimizeDialog = ({
             optimizeDialogOpen.value = false;
             onOptimizeSuccess();
         } else {
+            optimizeDialogError.value = getLastFailurePresentation?.() ?? null;
             optimizeProgress.value = null;
         }
 

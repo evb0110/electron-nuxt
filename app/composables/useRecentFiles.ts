@@ -10,6 +10,8 @@ import {
     getDocumentOpenCapability as getPlatformDocumentOpenCapability,
     getDocumentRecentFilesCapability as getPlatformDocumentRecentFilesCapability,
 } from '@app/utils/platformDocuments';
+import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const ELECTRON_BRIDGE_RETRY_DELAY_MS = 25;
 const ELECTRON_BRIDGE_RETRY_ATTEMPTS = 20;
@@ -124,8 +126,12 @@ export const useRecentFiles = () => {
             );
             isResolved.value = true;
             clearRetryTimer();
+            BrowserLogger.warn('recent-files', 'Recent file was absent and removed', {
+                kind: 'expected',
+                code: 'handled-absence',
+            } satisfies ExpectedOutcome);
             toast.add({
-                color: 'error',
+                color: 'warning',
                 title: t('errors.recent.notFoundTitle'),
                 description: t('errors.recent.notFoundDescription', {name: file.fileName}),
             });

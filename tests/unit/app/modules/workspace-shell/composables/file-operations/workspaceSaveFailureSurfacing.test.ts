@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -7,6 +8,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     createDeps,
     createShapeAnnotation,
@@ -34,6 +36,10 @@ describe('workspace save failure surfacing', () => {
         toastAddMock.mockClear();
     });
 
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('reports a validation rejection instead of returning a silent false', async () => {
         const { deps } = createDeps({validatePdfPath: vi.fn(async () => ({
             isValid: false,
@@ -48,7 +54,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.validation',
+            description: expect.stringContaining('errors.save.validation'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
         expectWorkspaceSaveNotMarked(deps);
@@ -67,7 +73,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.openNotes',
+            description: expect.stringContaining('errors.save.openNotes'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
         expect(deps.saveFile).not.toHaveBeenCalled();
@@ -139,18 +145,16 @@ describe('workspace save failure surfacing', () => {
         expect(service.hasSaveFailure.value).toBe(false);
     });
 
-    it('reports an absent optional persistence capability', async () => {
+    it('treats an unavailable optimization-copy capability as an expected refusal', async () => {
+        const capture = vi.spyOn(BrowserLogger, 'error');
         const { deps } = createDeps();
         const service = useWorkspaceSaveServiceForTest(deps);
 
         await expect(service.handleOptimizePdfAsCopy({preset: 'blackAndWhite'})).resolves.toBe(false);
 
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
-        }));
-        expect(service.hasSaveFailure.value).toBe(true);
+        expect(capture).not.toHaveBeenCalled();
+        expect(toastAddMock).not.toHaveBeenCalled();
+        expect(service.hasSaveFailure.value).toBe(false);
     });
 
     it('reports an optional capability that refuses to persist', async () => {
@@ -167,7 +171,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringContaining('errors.save.notCompleted'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
     });
@@ -248,7 +252,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.documentChanged',
+            description: expect.stringContaining('errors.save.documentChanged'),
         }));
         // The document on screen is no longer the one that failed.
         expect(service.hasSaveFailure.value).toBe(false);
@@ -394,7 +398,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.validation',
+            description: expect.stringContaining('errors.save.validation'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
         expect(deps.documentRevisionToken.value).toBe('rev-1');
@@ -420,7 +424,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringContaining('errors.save.notCompleted'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
     });
@@ -444,7 +448,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringContaining('errors.save.notCompleted'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
         expectWorkspaceSaveNotMarked(deps);
@@ -464,7 +468,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'errors.save.notCompleted',
+            description: expect.stringContaining('errors.save.notCompleted'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
         expectWorkspaceSaveNotMarked(deps);
@@ -485,7 +489,7 @@ describe('workspace save failure surfacing', () => {
         expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.save',
-            description: 'disk exploded',
+            description: expect.stringContaining('disk exploded'),
         }));
         expect(service.hasSaveFailure.value).toBe(true);
     });

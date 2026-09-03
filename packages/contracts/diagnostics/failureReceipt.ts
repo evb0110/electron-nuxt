@@ -30,6 +30,18 @@ export interface FailureReceipt {
     severity: FailureSeverity;
 }
 
+export function getFailureReceipt(value: unknown): FailureReceipt | undefined {
+    if (!value || typeof value !== 'object') {
+        return undefined;
+    }
+    const candidate = (value as {failure?: unknown}).failure;
+    if (!candidate || typeof candidate !== 'object') {
+        return undefined;
+    }
+    const eventId = (candidate as {eventId?: unknown}).eventId;
+    return typeof eventId === 'string' ? candidate as FailureReceipt : undefined;
+}
+
 export const EXPECTED_OUTCOME_CODES = [
     'canceled',
     'validation-rejected',

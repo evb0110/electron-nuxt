@@ -1,4 +1,5 @@
 import {
+    afterEach,
     beforeEach,
     describe,
     expect,
@@ -14,6 +15,9 @@ import { range } from 'es-toolkit/math';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
 import {
@@ -244,6 +248,7 @@ function createState(options?: {
     getPrintableSourceData?: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     ensurePrintReady?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
+    getLastFailurePresentation?: () => FailurePresentation | null;
     canPrintDjvuSource?: boolean;
     getCurrentPrintPage?: () => number | null | undefined;
     printDjvuSource?: (
@@ -296,6 +301,9 @@ function createState(options?: {
         ...(options?.ensurePrintReady ? {ensurePrintReady: options.ensurePrintReady} : {}),
         ...(options?.ensureWorkingCopyFreshForRead
             ? {ensureWorkingCopyFreshForRead: options.ensureWorkingCopyFreshForRead}
+            : {}),
+        ...(options?.getLastFailurePresentation
+            ? {getLastFailurePresentation: options.getLastFailurePresentation}
             : {}),
         getPrintableSourceData,
         ...(options?.printDjvuSource
@@ -375,6 +383,10 @@ describe('useWorkspacePrint', () => {
         });
     });
 
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
     it('refuses a large partial compact selection instead of printing all pages', async () => {
         const selection = createRangePageSelection(1_000_000, 2, 100_002);
         const {
@@ -396,7 +408,11 @@ describe('useWorkspacePrint', () => {
             });
 
             expect(documentsCapabilityMock.printPdfPath).not.toHaveBeenCalled();
-            expect(state.printError.value).toContain('print.selectionTooLarge');
+            expect(state.printError.value).toBeNull();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'warning',
+                title: 'print.selectionTooLarge',
+            }));
         } finally {
             scope.stop();
         }
@@ -803,6 +819,56 @@ describe('useWorkspacePrint', () => {
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 description: expect.stringContaining('native desktop dialog is unavailable'),
+            }));
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('reuses the save receipt when dirty-path preparation cannot refresh the working copy', async () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: 'save-failure-123456789',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const savePresentation: FailurePresentation = {
+            failure: receipt,
+            title: 'errors.file.save',
+            description: 'errors.save.notCompleted',
+        };
+        const capture = vi.spyOn(BrowserLogger, 'error');
+        const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
+        const {
+            scope,
+            state,
+        } = createState({
+            sourcePdf: {
+                kind: 'path',
+                path: '/tmp/dirty-print.pdf',
+                size: 10,
+            },
+            hasPendingUnsavedChanges: true,
+            ensureWorkingCopyFreshForRead,
+            getLastFailurePresentation: () => savePresentation,
+        });
+
+        try {
+            await state.handlePrintDialogSubmit({
+                viewMode: 'single',
+                orientation: 'auto',
+            }, {reopenDialogOnError: false});
+
+            expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
+            expect(capture).toHaveBeenCalledWith(
+                'workspace-print',
+                'Document print failed',
+                expect.any(Error),
+                receipt,
+            );
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: expect.stringContaining('dirty working copy could not be saved as a path'),
             }));
         } finally {
             scope.stop();
@@ -1346,7 +1412,7 @@ describe('useWorkspacePrint', () => {
             });
 
             expect(documentsCapabilityMock.unsubscribeNativePrintDialogOpened).toHaveBeenCalledOnce();
-            expect(state.printError.value).toContain('native print failed');
+            expect(state.printError.value?.description).toContain('native print failed');
         } finally {
             scope.stop();
         }
@@ -2269,7 +2335,7 @@ describe('useWorkspacePrint', () => {
             );
             expect(createObjectURLMock).not.toHaveBeenCalled();
             expect(state.printDialogOpen.value).toBe(true);
-            expect(state.printError.value).toContain('Rendered browser printing failed');
+            expect(state.printError.value?.description).toContain('Rendered browser printing failed');
         } finally {
             scope.stop();
         }

@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- Page-source lifecycle and viewer binding share one generation fence. */
 import { useResizeObserver } from '@vueuse/core';
 import type { IDocumentViewerExpose } from '@app/modules/pdf-viewer/public';
 import type {
@@ -916,9 +917,11 @@ export const useDocumentPageSourceRuntime = (options: {
                     && !signal.aborted
                     && !(error instanceof DOMException && error.name === 'AbortError')
                 ) {
-                    const message = presentation.commitTerminalError(normalized);
+                    const message = presentation.commitTerminalError(normalized, error);
                     if (normalized === props.value.currentPage) {
-                        emit('loadError', error instanceof Error ? error : new Error(message));
+                        emit('loadError', error instanceof Error
+                            ? error
+                            : presentation.createFailureError(normalized, message));
                     }
                 }
             });
@@ -1021,6 +1024,7 @@ export const useDocumentPageSourceRuntime = (options: {
         loadSettled = openDocumentPageSource(transition, {
             chassisAuthority,
             commitPageTerminalError: presentation.commitTerminalError,
+            createPageFailureError: presentation.createFailureError,
             emit,
             ensureExactPageMetric,
             getOpeningShellTarget: getChassisOpeningShellTarget,
@@ -1173,6 +1177,7 @@ export const useDocumentPageSourceRuntime = (options: {
         getSurface: presentation.getSurface,
         getVisual: presentation.getVisual,
         getVisualError: presentation.getVisualError,
+        getVisualFailurePresentation: presentation.getVisualFailurePresentation,
         handleSurfaceError: presentation.handleSurfaceError,
         handleSurfaceLoad: presentation.handleSurfaceLoad,
         loadGeneration: transitions.loadGeneration,

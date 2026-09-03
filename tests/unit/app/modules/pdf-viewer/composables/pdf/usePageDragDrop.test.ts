@@ -161,11 +161,11 @@ describe('usePageDragDrop', () => {
             '/ignored/b.png',
         ]));
 
-        expect(toastAddMock).toHaveBeenCalledWith({
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.open',
-            description: 'page ingestion failed',
-        });
+            description: expect.stringContaining('page ingestion failed'),
+        }));
         expect(onExternalFileDrop).toHaveBeenCalledWith(3, ['/docs/b.png']);
     });
 

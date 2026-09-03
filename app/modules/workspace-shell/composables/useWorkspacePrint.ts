@@ -1,4 +1,9 @@
 import type { Ref } from 'vue';
+import {
+    getFailureReceipt,
+    type ExpectedOutcome,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import { uniq } from 'es-toolkit/array';
 import type { TPdfViewMode } from '@contracts/shared';
 import type {
@@ -24,6 +29,11 @@ import {
     materializePageSelection,
     pageSelectionCount,
 } from '@contracts/pageNumbers';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    useFailureToast,
+    type FailurePresentation,
+} from '@app/composables/useFailureToast';
 
 const BROWSER_PRINT_CLEANUP_TIMEOUT_MS = 60000;
 const BROWSER_PRINT_LOAD_TIMEOUT_MS = 30000;
@@ -120,6 +130,7 @@ interface IWorkspacePrintDeps {
     getQuickPrintPageMetrics: () => Promise<IPdfPageMetric[] | null>;
     ensurePrintReady?: () => Promise<boolean>;
     ensureWorkingCopyFreshForRead?: () => Promise<boolean | string | null>;
+    getLastFailurePresentation?: () => FailurePresentation | null;
     getPrintableSourceData: (options?: { signal?: AbortSignal }) => Promise<Uint8Array | null>;
     renderLoadedPdfPagesForBrowserPrint?: (
         targetDocument: IBrowserPrintDocument,
@@ -145,12 +156,13 @@ interface IPrintDialogSubmitPayload {
 export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     const printDialogOpen = ref(false);
     const printDialogSelectedPages = ref<number[]>([]);
     const printDialogPageSelection = shallowRef<TPageSelection | null>(null);
     const isPreparingPrint = ref(false);
     const activePrintAction = ref<'default' | 'current-page' | null>(null);
-    const printError = ref<string | null>(null);
+    const printError = ref<FailurePresentation | null>(null);
     const activePrintFrame = ref<HTMLIFrameElement | null>(null);
     const printStatus = computed(() => isPreparingPrint.value ? t('print.preparing') : null);
     const isPreparingCurrentPagePrint = computed(() => (
@@ -159,6 +171,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
     let removeAfterPrintListener: (() => void) | null = null;
     let browserPrintCleanupTimer: number | null = null;
     let activePrintAbortController: AbortController | null = null;
+    let preparationFailureReceipt: FailureReceipt | undefined;
     let activePrintResourceOwner: number | null = null;
     let nextPrintRunId = 0;
     let closeDialogForSystemPrint = false;
@@ -746,6 +759,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             const freshPath = await deps.ensureWorkingCopyFreshForRead();
             throwIfPrintAborted(signal);
             if (freshPath === false || freshPath === null) {
+                preparationFailureReceipt = deps.getLastFailurePresentation?.()?.failure;
                 throw new NativePrintRequiredError(
                     'Native PDF printing is required because the dirty working copy could not be saved as a path',
                 );
@@ -840,6 +854,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
         isPreparingPrint.value = true;
         activePrintAction.value = options.action ?? 'default';
         resetPrintError();
+        preparationFailureReceipt = undefined;
         if (!printDialogOpen.value) {
             schedulePreparingPrintToast();
         }
@@ -851,7 +866,15 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                     : resolveCurrentPageSelection();
                 const selectedCount = pageSelectionCount(selection);
                 if (selectedCount > PRINT_SELECTION_MATERIALIZATION_LIMIT) {
-                    throw new Error(t('print.selectionTooLarge'));
+                    BrowserLogger.warn('workspace-print', 'Print selection was rejected', {
+                        kind: 'expected',
+                        code: 'validation-rejected',
+                    } satisfies ExpectedOutcome);
+                    toast.add({
+                        color: 'warning',
+                        title: t('print.selectionTooLarge'),
+                    });
+                    return;
                 }
                 payload = {
                     viewMode: payload.viewMode,
@@ -955,19 +978,25 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             if (isPrintAbortError(error)) {
                 return;
             }
-
             const localizedError = error instanceof Error && error.message
                 ? t('print.failedWithReason', { reason: error.message })
                 : t('print.failed');
+            const failure = BrowserLogger.error(
+                'workspace-print',
+                'Document print failed',
+                error,
+                getFailureReceipt(error) ?? preparationFailureReceipt,
+            );
+            const presentation: FailurePresentation = {
+                failure,
+                title: t('print.failed'),
+                description: localizedError,
+            };
             if (options.reopenDialogOnError === false) {
-                toast.add({
-                    color: 'error',
-                    title: t('print.failed'),
-                    description: localizedError,
-                });
+                presentFailureToast(presentation);
             } else {
                 printDialogOpen.value = true;
-                printError.value = localizedError;
+                printError.value = presentation;
             }
         } finally {
             if (activePrintAbortController === abortController) {
@@ -976,6 +1005,7 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
                 isPreparingPrint.value = false;
                 activePrintAction.value = null;
                 closeDialogForSystemPrint = false;
+                preparationFailureReceipt = undefined;
             }
         }
     }

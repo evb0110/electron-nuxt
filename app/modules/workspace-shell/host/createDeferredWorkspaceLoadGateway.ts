@@ -64,7 +64,10 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 return true;
             })
             .catch((error) => {
-                BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
+                // The async component loader owns the terminal failure. A
+                // preload is only a best-effort warm-up and can be retried by
+                // the real mount path, so it must not create an occurrence.
+                BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
                     tabId: options.tabId,
                     reason,
                     error: error instanceof Error ? error.message : String(error),
