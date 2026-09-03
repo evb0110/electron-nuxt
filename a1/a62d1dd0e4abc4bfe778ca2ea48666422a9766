@@ -1,0 +1,33 @@
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_56634a052d29a7 1-37,39-119,122-130,132-138,169-185,190-192,194-204,209-246,251-252,296,298-299,301-309,311-312,314-328,330-334
+  s_b412fd4cd3f576::t_45645cb07629a3 139-168,186-189,193,205-208,247-250,300
+  s_b412fd4cd3f576::t_9bd536f6f4c5c1 38,120,131,310
+  s_b412fd4cd3f576::t_e07514136ce4bd 253-295,313,329
+  s_b412fd4cd3f576::t_e28f1756810549 121,297
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_6976a7c63be183 12,22,161-237
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_b0812f4b053c0e 6-7,138-159,161,167-177,179-196,201,224,246
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_2cb122f0059d2a 1-59,61,63-91,93-336,338-451,478-479,481,490-498,511-512,515-518,520-521,526,529-564,567-572,575-613,615-635
+  s_b412fd4cd3f576::t_8429fc97dbb5c7 466-467
+  s_b412fd4cd3f576::t_e07514136ce4bd 574
+  s_b412fd4cd3f576::t_94340e4d5f8bbd 62,92,337,452-465,468-477,485-489,499-510,513-514,519,522-525,527-528,565,573,614
+  s_b412fd4cd3f576::t_9bd536f6f4c5c1 60,480,482-484,566
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a1a62d1dd0e4abc4bfe778ca2ea48666422a9766",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
