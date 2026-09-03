@@ -149,7 +149,7 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
-    it('centers the clicked duplicate match after a high-zoom xlarge search', async () => {
+    it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -313,6 +313,84 @@ describe('Electron E2E - PDF search match scrolling', () => {
             targetPage: searchMatchScrollConfig.targetViewerPage,
         });
 
+        const sidebarStatusGeometry = await session.page.evaluate(({
+            targetMatch,
+            targetPage,
+        }: {
+            targetMatch: number;
+            targetPage: number;
+        }) => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            const sidebarContent = sidebar?.querySelector<HTMLElement>('.app-sidebar-shell__content');
+            const panel = sidebar?.querySelector<HTMLElement>('.document-search-panel');
+            const results = sidebar?.querySelector<HTMLElement>('.document-search-results');
+            const listShell = sidebar?.querySelector<HTMLElement>('.document-search-results-list-shell');
+            const list = sidebar?.querySelector<HTMLElement>('.document-search-results-list');
+            const result = sidebar?.querySelector<HTMLElement>(
+                `.document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+            );
+            const status = document.querySelector<HTMLElement>('#editor-global-status-host .status-bar');
+            if (!sidebar || !sidebarContent || !panel || !results || !listShell || !list || !result || !status) {
+                throw new Error('Sidebar status geometry could not be measured');
+            }
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const sidebarContentRect = sidebarContent.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const resultsRect = results.getBoundingClientRect();
+            const listShellRect = listShell.getBoundingClientRect();
+            const listRect = list.getBoundingClientRect();
+            const resultRect = result.getBoundingClientRect();
+            const statusRect = status.getBoundingClientRect();
+            const resultCenterX = resultRect.left + resultRect.width / 2;
+            const resultCenterY = resultRect.top + resultRect.height / 2;
+            const hitTarget = document.elementFromPoint(resultCenterX, resultCenterY);
+            return {
+                listBottom: listRect.bottom,
+                listShellBottom: listShellRect.bottom,
+                panelBottom: panelRect.bottom,
+                resultBottom: resultRect.bottom,
+                resultCenterX,
+                resultCenterY,
+                resultHitTarget: hitTarget === result || Boolean(hitTarget && result.contains(hitTarget)),
+                resultIndex: Number(result.dataset.resultIndex),
+                resultsBottom: resultsRect.bottom,
+                sidebarContentBottom: sidebarContentRect.bottom,
+                sidebarBottom: sidebarRect.bottom,
+                statusTop: statusRect.top,
+            };
+        }, {
+            targetMatch: searchMatchScrollConfig.targetMatch,
+            targetPage: searchMatchScrollConfig.targetViewerPage,
+        });
+        expect(
+            sidebarStatusGeometry.sidebarBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
+        expect(
+            Math.abs(sidebarStatusGeometry.panelBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(sidebarStatusGeometry.resultsBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(sidebarStatusGeometry.listShellBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            sidebarStatusGeometry.listBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.sidebarContentBottom + 1);
+        expect(
+            sidebarStatusGeometry.resultBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
+        expect(sidebarStatusGeometry.resultIndex).toBe(searchMatchScrollConfig.expectedResultCount - 1);
+        expect(sidebarStatusGeometry.resultHitTarget, JSON.stringify({sidebarStatusGeometry})).toBe(true);
+
         await session.page.evaluate(() => {
             const diagnosticWindow = window as Window & {
                 __clearPdfNavLog?: () => void;
@@ -334,9 +412,11 @@ describe('Electron E2E - PDF search match scrolling', () => {
             const matchText = result?.querySelector<HTMLElement>(
                 '.document-search-result-highlight',
             )?.textContent ?? '';
+            const resultRect = result?.getBoundingClientRect();
             const clickedAtMs = performance.now();
-            result?.click();
-            return result ? {
+            return result && resultRect ? {
+                centerX: resultRect.left + resultRect.width / 2,
+                centerY: resultRect.top + resultRect.height / 2,
                 clickedAtMs,
                 matchText,
             } : null;
@@ -346,6 +426,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
         });
         expect(clickedTarget).not.toBeNull();
         expect(clickedTarget!.matchText.trim().length).toBeGreaterThan(0);
+        await session.page.mouse.click(clickedTarget!.centerX, clickedTarget!.centerY);
 
         await waitForFunctionInPage(session.page, ({
             targetMatch,

@@ -73,6 +73,14 @@ selection uses the same calculation and leaves an already visible row in place.
 The virtualizer reads the same fixed-height CSS tokens that size the rendered
 group and match rows, whose labels are truncated instead of wrapping.
 
+Sidebar panels keep controls and summaries in normal flow as fixed-size flex
+children. One remaining flex child owns vertical scrolling and must use a
+flex-derived block size with `min-height: 0`. A results or empty-state child below
+panel controls must not claim `min-height: 100%`, since that percentage excludes
+its siblings and pushes the scroll rail beyond the sidebar's clip edge. The
+global status row owns no sidebar compensation; the app shell already reserves
+its height outside the workspace row.
+
 ## Current-page resolution per renderer stack
 
 Each renderer stack answers "which page is the user looking at?" with its own

@@ -1,5 +1,5 @@
 <template>
-    <div class="document-search-results flex flex-col">
+    <div class="document-search-results">
         <DocumentPanelEmptyState
             v-if="!trimmedQuery"
             icon="i-ph-magnifying-glass"
@@ -430,7 +430,11 @@ watch(
 
 <style lang="scss" scoped>
 .document-search-results {
-    min-height: 100%;
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .document-search-results-virtual-match {

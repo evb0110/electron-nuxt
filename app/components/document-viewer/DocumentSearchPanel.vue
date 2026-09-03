@@ -101,9 +101,7 @@ defineExpose({focus});
 }
 
 .document-search-panel__header {
-    position: sticky;
-    z-index: var(--app-z-local-raised);
-    top: 0;
+    flex: 0 0 auto;
     border-bottom: 1px solid var(--ui-border);
     background: inherit;
 }

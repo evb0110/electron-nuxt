@@ -64,6 +64,31 @@ describe('shared sidebar shell integration', () => {
         expect(sharedStyles).toContain('flex: 0 1 auto;');
     });
 
+    it('keeps sidebar panel controls outside one bounded scroll rail', () => {
+        const searchPanel = readWorkspaceFile('app/components/document-viewer/DocumentSearchPanel.vue');
+        const searchResults = readWorkspaceFile('app/components/document-viewer/DocumentSearchResults.vue');
+        const emptyState = readWorkspaceFile('app/components/document-viewer/DocumentPanelEmptyState.vue');
+
+        expect(searchPanel).toMatch(
+            /\.document-search-panel__header\s*\{[^}]*flex: 0 0 auto;/su,
+        );
+        expect(searchPanel).not.toMatch(
+            /\.document-search-panel__header\s*\{[^}]*position: sticky;/su,
+        );
+        expect(searchResults).toMatch(
+            /\.document-search-results\s*\{[^}]*flex: 1 1 0;[^}]*min-height: 0;[^}]*overflow: hidden;/su,
+        );
+        expect(emptyState).toMatch(
+            /\.document-panel-empty-state\s*\{[^}]*flex: 1 1 auto;[^}]*min-height: 0;/su,
+        );
+        for (const source of [
+            searchResults,
+            emptyState,
+        ]) {
+            expect(source).not.toContain('min-height: 100%');
+        }
+    });
+
     it('keeps compact tab labels available to assistive technology', () => {
         const shell = readWorkspaceFile('app/components/sidebar/AppSidebarShell.vue');
 
