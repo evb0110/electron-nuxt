@@ -9,6 +9,16 @@ import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engin
 import { requireDocumentRevisionToken } from '@contracts';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
+const failureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
+const failureReporter = {capture: vi.fn(() => failureReceipt)};
+
+vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const serializePdfEditsMock = vi.hoisted(() => vi.fn(async (data: Uint8Array) => data));
 const readDocumentBytesMock = vi.hoisted(() => vi.fn());
@@ -43,6 +53,7 @@ function createSavePayload(): IPdfSerializationSavePayload {
 
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
+    public static failWithError = false;
 
     public onmessage: ((this: Worker, ev: MessageEvent) => unknown) | null = null;
 
@@ -54,6 +65,7 @@ class FakeWorker {
     }> = [];
 
     private readonly messageHandlers = new Set<(event: MessageEvent) => void>();
+    private readonly errorHandlers = new Set<(event: ErrorEvent) => void>();
 
     public constructor(
         _scriptUrl: string | URL,
@@ -67,6 +79,9 @@ class FakeWorker {
         handler: EventListenerOrEventListenerObject | null,
     ) {
         if (type !== 'message' || typeof handler !== 'function') {
+            if (type === 'error' && typeof handler === 'function') {
+                this.errorHandlers.add(handler as (event: ErrorEvent) => void);
+            }
             return;
         }
         this.messageHandlers.add(handler as (event: MessageEvent) => void);
@@ -77,6 +92,9 @@ class FakeWorker {
         handler: EventListenerOrEventListenerObject | null,
     ) {
         if (type !== 'message' || typeof handler !== 'function') {
+            if (type === 'error' && typeof handler === 'function') {
+                this.errorHandlers.delete(handler as (event: ErrorEvent) => void);
+            }
             return;
         }
         this.messageHandlers.delete(handler as (event: MessageEvent) => void);
@@ -87,11 +105,24 @@ class FakeWorker {
         this.messageHandlers.forEach((handler) => handler(event));
     }
 
+    public dispatchError(error: Error) {
+        const event = {
+            error,
+            message: error.message,
+        } as ErrorEvent;
+        this.errorHandlers.forEach((handler) => handler(event));
+    }
+
     public postMessage(message: unknown, transfer: Transferable[]) {
         this.postMessageCalls.push({
             message,
             transfer,
         });
+
+        if (FakeWorker.failWithError) {
+            queueMicrotask(() => this.dispatchError(new Error('serialization worker crashed')));
+            return;
+        }
 
         queueMicrotask(() => {
             const request = message as {
@@ -128,6 +159,8 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
         vi.unstubAllGlobals();
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
+        FakeWorker.failWithError = false;
+        failureReporter.capture.mockClear();
         yieldToBrowserMock.mockReset();
         yieldToBrowserMock.mockResolvedValue(undefined);
         serializePdfEditsMock.mockReset();
@@ -427,6 +460,41 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
 
         await vi.advanceTimersByTimeAsync(15_000);
         expect(terminateSpy).toHaveBeenCalledTimes(1);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('owns a worker failure once and preserves its receipt through fallback rejection', async () => {
+        FakeWorker.failWithError = true;
+        const fallbackError = new Error('serialization fallback failed');
+        serializePdfEditsMock.mockRejectedValue(fallbackError);
+        const {serializePdfEditsOffThread} = await import(
+            '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/serializePdfEditsOffThread'
+        );
+
+        const error = await serializePdfEditsOffThread(
+            new Uint8Array([
+                1,
+                2,
+                3,
+            ]),
+            createSavePayload(),
+        ).then(
+            () => { throw new Error('Expected a worker failure'); },
+            value => {
+                if (!(value instanceof Error)) {
+                    throw new Error('Expected a worker failure');
+                }
+                return value as Error & {failure?: unknown};
+            },
+        );
+
+        expect(failureReporter.capture).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).toHaveBeenCalledWith(
+            expect.objectContaining({local: expect.objectContaining({source: 'pdf-serialization-worker-parent'})}),
+            {runtime: 'browser-worker-parent'},
+        );
+        expect(error.failure).toBe(failureReceipt);
+        expect({failure: error.failure}.failure).toBe(failureReceipt);
     });
 
     it('rejects and resets the worker when the worker never replies', async () => {

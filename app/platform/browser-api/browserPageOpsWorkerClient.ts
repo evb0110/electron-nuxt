@@ -22,6 +22,11 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    createRendererFailureReporter,
+    getRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 const BROWSER_PAGE_OPS_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS = 90_000;
@@ -31,6 +36,40 @@ export class BrowserPageOpsWorkerUnavailableError extends Error {
         super(message);
         this.name = 'BrowserPageOpsWorkerUnavailableError';
     }
+}
+
+interface IBrowserPageOpsWorkerFailure extends Error {failure?: FailureReceipt;}
+
+function getWorkerFailureReceipt(error: unknown) {
+    if (!(error instanceof Error)) {
+        return undefined;
+    }
+    return (error as IBrowserPageOpsWorkerFailure).failure;
+}
+
+function reportWorkerFailure(error: Error) {
+    const existingReceipt = getWorkerFailureReceipt(error);
+    if (existingReceipt) {
+        return error;
+    }
+
+    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const receipt = reporter.capture({
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        context: {},
+        local: {
+            source: 'browser-page-ops-worker-parent',
+            message: error.message,
+            cause: error,
+        },
+    }, {runtime: 'browser-worker-parent'});
+    if (receipt) {
+        Object.defineProperty(error, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+    }
+    return error;
 }
 
 function buildWorkerRequestWithTransfers(
@@ -155,14 +194,14 @@ const browserPageOpsWorkerClient = new BrowserWorkerClient<IPendingBrowserWorker
                 { type: 'module' },
             );
         } catch (error) {
-            throw new BrowserPageOpsWorkerUnavailableError(
+            throw reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
                 getErrorMessage(error),
-            );
+            ));
         }
     },
-    createError: event => new BrowserPageOpsWorkerUnavailableError(
+    createError: event => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
         event.error instanceof Error ? event.error.message : event.message,
-    ),
+    )),
     handleMessage: settleBrowserWorkerResult,
 });
 
@@ -189,10 +228,10 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
                 resolve(decoded);
                 return true;
             },
-            reject,
-        }, () => new BrowserPageOpsWorkerUnavailableError(
+            reject: error => reject(reportWorkerFailure(error)),
+        }, () => reportWorkerFailure(new BrowserPageOpsWorkerUnavailableError(
             `Browser page operation worker request timed out after ${BROWSER_PAGE_OPS_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        ));
+        )));
 
         try {
             const workerRequest = buildWorkerRequestWithTransfers(request as TBrowserPageOpsWorkerRequest);
@@ -200,7 +239,7 @@ export async function runBrowserPageOpsWorkerRequest<K extends TBrowserPageOpsWo
         } catch (error) {
             browserPageOpsWorkerClient.cancelPendingRequest(
                 request.id,
-                error instanceof Error ? error : new Error(String(error)),
+                reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
             );
         }
     });

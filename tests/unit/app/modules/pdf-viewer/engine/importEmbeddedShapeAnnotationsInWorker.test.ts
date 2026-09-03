@@ -15,6 +15,16 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient';
 import { readDocumentBytes } from '@app/utils/documentBytes';
 
+const failureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
+const failureReporter = {capture: vi.fn(() => failureReceipt)};
+
+vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+
 const documentMocks = vi.hoisted(() => ({
     readFileRange: vi.fn(),
     statFile: vi.fn(),
@@ -30,6 +40,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         documentMocks.readFileRange.mockReset();
         documentMocks.statFile.mockReset();
         vi.mocked(readDocumentBytes).mockReset();
+        failureReporter.capture.mockClear();
     });
 
     afterEach(() => {
@@ -363,5 +374,44 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         await Promise.resolve();
         expect(terminate).toHaveBeenCalledOnce();
         expect(postMessage).not.toHaveBeenCalled();
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
+        class FailingWorker {
+            public static lastInstance: FailingWorker | null = null;
+            public onmessage: ((event: MessageEvent) => void) | null = null;
+            public onerror: ((event: ErrorEvent) => void) | null = null;
+
+            public constructor() {
+                FailingWorker.lastInstance = this;
+            }
+
+            public postMessage() {}
+
+            public terminate() {}
+        }
+        vi.stubGlobal('window', {});
+        vi.stubGlobal('Worker', FailingWorker);
+
+        const importPromise = importEmbeddedShapeAnnotationsUsingWorker(new Uint8Array([1]));
+        FailingWorker.lastInstance?.onerror?.({message: 'shape worker crashed'} as ErrorEvent);
+        const error = await importPromise.then(
+            () => { throw new Error('Expected a worker failure'); },
+            value => {
+                if (!(value instanceof Error)) {
+                    throw new Error('Expected a worker failure');
+                }
+                return value as Error & {failure?: unknown};
+            },
+        );
+
+        expect(failureReporter.capture).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).toHaveBeenCalledWith(
+            expect.objectContaining({local: expect.objectContaining({source: 'embedded-shape-annotations-worker-parent'})}),
+            {runtime: 'browser-worker-parent'},
+        );
+        expect(error.failure).toBe(failureReceipt);
+        expect({failure: error.failure}.failure).toBe(failureReceipt);
     });
 });

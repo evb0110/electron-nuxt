@@ -14,6 +14,11 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    createRendererFailureReporter,
+    getRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 interface IPendingWorkerRequest {
     requestType: TBrowserSearchWorkerRequestType;
@@ -44,6 +49,47 @@ class BrowserSearchWorkerRequestError extends Error {
         super(message);
         this.name = 'BrowserSearchWorkerRequestError';
     }
+}
+
+interface IBrowserSearchWorkerFailure extends Error {failure?: FailureReceipt;}
+
+function getWorkerFailureReceipt(error: unknown) {
+    if (!(error instanceof Error)) {
+        return undefined;
+    }
+    return (error as IBrowserSearchWorkerFailure).failure;
+}
+
+function isExpectedWorkerTermination(error: Error) {
+    return error.message === 'ERR_BROWSER_SEARCH_CANCELED';
+}
+
+function reportWorkerFailure(error: Error) {
+    if (isExpectedWorkerTermination(error)) {
+        return error;
+    }
+    const existingReceipt = getWorkerFailureReceipt(error);
+    if (existingReceipt) {
+        return error;
+    }
+
+    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const receipt = reporter.capture({
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        context: {},
+        local: {
+            source: 'browser-search-worker-parent',
+            message: error.message,
+            cause: error,
+        },
+    }, {runtime: 'browser-worker-parent'});
+    if (receipt) {
+        Object.defineProperty(error, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+    }
+    return error;
 }
 
 function getSearchWorkerResponseId(response: unknown) {
@@ -245,14 +291,14 @@ const browserSearchWorkerClient = new BrowserWorkerClient<IPendingWorkerRequest>
                 { type: 'module' },
             );
         } catch (error) {
-            throw new BrowserSearchWorkerUnavailableError(
+            throw reportWorkerFailure(new BrowserSearchWorkerUnavailableError(
                 getErrorMessage(error),
-            );
+            ));
         }
     },
-    createError: event => new BrowserSearchWorkerRequestError(
+    createError: event => reportWorkerFailure(new BrowserSearchWorkerRequestError(
         event.error instanceof Error ? event.error.message : event.message,
-    ),
+    )),
     handleMessage: settleSearchWorkerResponse,
 });
 
@@ -284,18 +330,18 @@ function postBrowserSearchWorkerRequest<K extends TBrowserSearchWorkerRequestTyp
                     resolve(decoded);
                     return true;
                 },
-                reject,
+                reject: error => reject(reportWorkerFailure(error)),
                 ...(onProgress ? { onProgress } : {}),
-            }, () => new BrowserSearchWorkerRequestError(
+            }, () => reportWorkerFailure(new BrowserSearchWorkerRequestError(
                 `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
-            ));
+            )));
 
             try {
                 worker.postMessage(request);
             } catch (error) {
                 browserSearchWorkerClient.cancelPendingRequest(
                     request.id,
-                    new BrowserSearchWorkerRequestError(getErrorMessage(error)),
+                    reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
                 );
             }
         });
@@ -443,7 +489,11 @@ export function createBrowserSearchWorkerPageStreamRequest(
                 type: 'acknowledgePage',
                 payload: {requestId: request.id},
             };
-            worker.postMessage(acknowledgeRequest);
+            try {
+                worker.postMessage(acknowledgeRequest);
+            } catch (error) {
+                throw reportWorkerFailure(error instanceof Error ? error : new Error(String(error)));
+            }
         },
         () => cancelBrowserSearchWorkerRequest(request.id),
     );
@@ -461,19 +511,19 @@ export function createBrowserSearchWorkerPageStreamRequest(
             },
             reject: (error) => {
                 pageQueue.fail(error);
-                reject(error);
+                reject(reportWorkerFailure(error));
             },
             onPage: pageQueue.push,
-        }, () => new BrowserSearchWorkerRequestError(
+        }, () => reportWorkerFailure(new BrowserSearchWorkerRequestError(
             `Browser search worker request timed out after ${BROWSER_SEARCH_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        ));
+        )));
 
         try {
             worker.postMessage(request);
         } catch (error) {
             browserSearchWorkerClient.cancelPendingRequest(
                 request.id,
-                new BrowserSearchWorkerRequestError(getErrorMessage(error)),
+                reportWorkerFailure(new BrowserSearchWorkerRequestError(getErrorMessage(error))),
             );
         }
     });
