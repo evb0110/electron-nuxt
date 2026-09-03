@@ -229,6 +229,7 @@ jobs:
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
       release_environment: release
+      sentry_environment: production
     secrets:
       CSC_LINK: ${{ secrets.CSC_LINK }}
       CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}

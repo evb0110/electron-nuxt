@@ -214,6 +214,7 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
 
   build_win_arm64:
     name: Package Supplemental Windows ARM64 Assets
@@ -224,6 +225,7 @@ jobs:
     uses: ./.github/workflows/build-target.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
       os: windows-11-arm
       platform: win
       arch: arm64
@@ -238,6 +240,7 @@ jobs:
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
 
   build_win7_legacy:
     name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
@@ -248,6 +251,7 @@ jobs:
     uses: ./.github/workflows/build-win7-legacy.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
 
   build_store:
     name: Package Microsoft Store AppX
@@ -258,6 +262,7 @@ jobs:
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
 
   summarize:
     name: Summarize Artifact Downloads

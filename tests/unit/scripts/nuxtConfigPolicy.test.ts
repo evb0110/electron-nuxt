@@ -106,6 +106,7 @@ describe('Nuxt config policy', () => {
 
     it('publishes the cookie and browser-storage disclosure in every privacy locale', async () => {
         const rootPrivacy = await readProjectFile('app/pages/privacy.vue');
+        const rootPrivacyMessages = await readProjectFile('packages/i18n-core/privacyMessages.ts');
         const landingPrivacy = await readProjectFile('landing/app/pages/privacy.vue');
         const landingLocalePaths = [
             'de',
@@ -119,22 +120,23 @@ describe('Nuxt config policy', () => {
             'ru',
         ].map(locale => `landing/app/locales/${locale}.ts`);
 
-        expect(rootPrivacy).toContain('Cookies and browser storage');
-        expect(rootPrivacy).toContain('opaque, HttpOnly cohort cookie for up to 90 days');
-        expect(rootPrivacy).toContain('random per-session analytics identifier');
-        expect(rootPrivacy).toContain('does not set advertising or third-party cookies');
-        expect(rootPrivacy).toContain('Файлы cookie языка могут храниться до одного года');
-        expect(rootPrivacy).toContain('файл cookie темы — до 180 дней');
-        expect(rootPrivacy).toContain('файл cookie когорты с атрибутом HttpOnly сроком до 90 дней');
-        expect(landingPrivacy).toContain('t(\'privacy.storage.heading\')');
-        expect(landingPrivacy).toContain('t(\'privacy.storage.body\')');
+        expect(rootPrivacy).toContain('PRIVACY_MESSAGES[locale.value]');
+        expect(rootPrivacyMessages).toContain('Cookies and browser storage');
+        expect(rootPrivacyMessages).toContain('opaque, HttpOnly cohort cookie for up to 90 days');
+        expect(rootPrivacyMessages).toContain('random per-session analytics identifier');
+        expect(rootPrivacyMessages).toContain('does not set advertising or third-party cookies');
+        expect(rootPrivacyMessages).toContain('Файлы cookie языка могут храниться до одного года');
+        expect(rootPrivacyMessages).toContain('файл cookie темы — до 180 дней');
+        expect(rootPrivacyMessages).toContain('файл cookie когорты с атрибутом HttpOnly сроком до 90 дней');
+        expect(landingPrivacy).toContain('privacy.storage.heading');
+        expect(landingPrivacy).toContain('privacy.storage.body');
 
         for (const localePath of landingLocalePaths) {
             const localeSource = await readProjectFile(localePath);
-            expect(localeSource, localePath).toContain('storage: {');
-            expect(localeSource, localePath).toContain('HttpOnly');
-            expect(localeSource, localePath).toContain('90');
-            expect(localeSource, localePath).toContain('IndexedDB');
+            const locale = localePath.slice(localePath.lastIndexOf('/') + 1, -3);
+            const privacyLocale = locale === 'ptBr' ? 'pt-BR' : locale;
+            expect(localeSource, localePath).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\'');
+            expect(localeSource, localePath).toContain(`privacy: PRIVACY_MESSAGES['${privacyLocale}']`);
         }
     });
 
@@ -147,6 +149,53 @@ describe('Nuxt config policy', () => {
         const format = getPropertyInitializer(workerConfig, 'format');
 
         expect(format && isStringLiteral(format) ? format.text : null).toBe('es');
+    });
+
+    it('keeps Sentry identity private to diagnostics builds and exposes only the browser DSN publicly', async () => {
+        const source = await readProjectFile('nuxt.config.ts');
+        const sourceFile = createSourceFile('nuxt.config.ts', source, ScriptTarget.Latest, true);
+        const configObject = findNuxtConfigObject(sourceFile);
+        const runtimeConfig = getRequiredObjectProperty(configObject, 'runtimeConfig');
+        const privateSentry = getRequiredObjectProperty(runtimeConfig, 'sentry');
+        const publicConfig = getRequiredObjectProperty(runtimeConfig, 'public');
+        const publicSentry = getRequiredObjectProperty(publicConfig, 'sentry');
+
+        expect(getPropertyInitializer(privateSentry, 'nitroDsn')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'release')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'dist')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'environment')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'dsn')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'release')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'dist')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'environment')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'nitroDsn')).toBeNull();
+        expect(source).toContain('const sentryDiagnosticsEligible = isSentryDiagnosticsBuild(process.env);');
+        expect(source).toContain('\'build:done\': stageNuxtPrivateSourcemaps');
+    });
+
+    it('enables every Nuxt map control only for the closed diagnostics build', async () => {
+        const source = await readProjectFile('nuxt.config.ts');
+        const sourceFile = createSourceFile('nuxt.config.ts', source, ScriptTarget.Latest, true);
+        const configObject = findNuxtConfigObject(sourceFile);
+        const sourcemap = getRequiredObjectProperty(configObject, 'sourcemap');
+        const vite = getRequiredObjectProperty(configObject, 'vite');
+        const viteBuild = getRequiredObjectProperty(vite, 'build');
+        const nitro = getRequiredObjectProperty(configObject, 'nitro');
+
+        for (const propertyName of [
+            'server',
+            'client',
+        ]) {
+            expect(getPropertyInitializer(sourcemap, propertyName)).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        }
+        expect(getPropertyInitializer(viteBuild, 'sourcemap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        expect(getPropertyInitializer(nitro, 'sourceMap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        expect(source).toContain('sourcemapExcludeSources: sentryDiagnosticsEligible');
+    });
+
+    it('keeps the landing build free of Sentry identity configuration', async () => {
+        const landingSource = await readProjectFile('landing/nuxt.config.ts');
+        expect(landingSource).not.toMatch(/SENTRY|sentryBuildIdentity|diagnosticsEligible/iu);
     });
 
     it('composes the complete app security policy into every explicit route header rule', async () => {

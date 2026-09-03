@@ -11,6 +11,11 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { getRequestedNativeRustTarget } from '../native-rust-targets.mjs';
+import {
+    isSentryDiagnosticsBuild,
+    resolveSentryBuildIdentity,
+    resolveSentryBuildTarget,
+} from '../../packages/contracts/diagnostics/releaseIdentity.js';
 
 const RECEIPT_SCHEMA_VERSION = 1;
 export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
@@ -47,11 +52,21 @@ const BUILD_ENVIRONMENT_KEYS = [
     'npm_config_arch',
     'EVB_NATIVE_TARGET_ARCH',
     'EVB_NATIVE_TARGET_PLATFORM',
+    'EVB_RELEASE_TARGET_ARCH',
+    'EVB_RELEASE_TARGET_PLATFORM',
+    'EVB_RELEASE_TARGET_DIST',
+    'EVB_SENTRY_TARGET',
+    'EVB_SENTRY_RELEASE',
+    'EVB_SENTRY_DIST',
+    'EVB_SENTRY_ENVIRONMENT',
+    'EVB_SENTRY_DIAGNOSTICS_BUILD',
+    'EVB_ELECTRON_SOURCEMAP',
 ];
 const BUILD_ENVIRONMENT_PREFIXES = [
     'NUXT_',
     'VITE_',
 ];
+const SENSITIVE_BUILD_ENVIRONMENT_KEY = /(?:AUTH|CREDENTIAL|DATABASE|DSN|ENDPOINT|KEY|PASSWORD|PRIVATE|SECRET|TOKEN)/iu;
 
 function normalizedRelativePath(projectRoot, filePath) {
     return path.relative(projectRoot, filePath).split(path.sep).join('/');
@@ -130,8 +145,34 @@ function buildEnvironment(env) {
         .filter(([key]) => (
             BUILD_ENVIRONMENT_KEYS.includes(key)
             || BUILD_ENVIRONMENT_PREFIXES.some(prefix => key.startsWith(prefix))
-        ))
+        ) && !SENSITIVE_BUILD_ENVIRONMENT_KEY.test(key))
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
+}
+
+function readPackageVersion(projectRoot, env) {
+    const packagePath = path.join(projectRoot, 'package.json');
+    try {
+        const packageJson = JSON.parse(readFileSync(packagePath, 'utf8'));
+        return typeof packageJson.version === 'string'
+            ? packageJson.version
+            : undefined;
+    } catch (error) {
+        if (error?.code !== 'ENOENT') {
+            throw error;
+        }
+        return env.EVB_PACKAGE_VERSION ?? env.npm_package_version;
+    }
+}
+
+function buildSentryIdentity(env, projectRoot) {
+    if (!isSentryDiagnosticsBuild(env)) {
+        return null;
+    }
+    return resolveSentryBuildIdentity({
+        target: resolveSentryBuildTarget(env),
+        version: readPackageVersion(projectRoot, env),
+        environment: env,
+    });
 }
 
 function toolchain(runCommand) {
@@ -167,6 +208,7 @@ export function computeReleaseBuildState({
         environment: buildEnvironment(env),
         platform: process.platform,
         architecture: process.arch,
+        sentryIdentity: buildSentryIdentity(env, projectRoot),
         toolchain: toolchain(runCommand),
     };
     const contractHash = createHash('sha256')

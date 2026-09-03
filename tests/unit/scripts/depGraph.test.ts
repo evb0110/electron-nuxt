@@ -164,6 +164,23 @@ describe('dependency graph', () => {
         ]]);
     });
 
+    it('does not turn JSDoc module type imports into runtime dependency edges', async () => {
+        const projectRoot = await mkdtemp(join(tmpdir(), 'evb-dep-graph-'));
+        await mkdir(join(projectRoot, 'packages/contracts/diagnostics'), { recursive: true });
+        await writeFile(
+            join(projectRoot, 'packages/contracts/diagnostics/identity.js'),
+            '/** @returns {import(\'./identity.js\').Identity} */\nexport const identity = true;\n',
+        );
+
+        const graph = await buildDependencyGraph({
+            projectRoot,
+            roots: ['packages/contracts/diagnostics'],
+        });
+
+        expect(graph.edges).toEqual([]);
+        expect(graph.cycles).toEqual([]);
+    });
+
     it('keeps the contracts package dependency graph acyclic', async () => {
         const graph = await buildDependencyGraph({
             projectRoot: process.cwd(),

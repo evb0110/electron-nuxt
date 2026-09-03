@@ -177,8 +177,15 @@ async function assertRootsExist(projectRoot, roots) {
 
 function extractImportSpecifiers(sourceText) {
     const specifiers = [];
+    // The dependency graph tracks runtime/module edges. Keep JSDoc type
+    // imports out of that graph, otherwise a module API reference in its own
+    // type guard becomes a false self-cycle.
+    const sourceWithoutBlockComments = sourceText.replace(
+        /\/\*[\s\S]*?\*\//gu,
+        comment => comment.replace(/[^\r\n]/gu, ' '),
+    );
     for (const pattern of IMPORT_PATTERNS) {
-        for (const match of sourceText.matchAll(pattern)) {
+        for (const match of sourceWithoutBlockComments.matchAll(pattern)) {
             specifiers.push(match[1]);
         }
     }

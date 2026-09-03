@@ -12,6 +12,11 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
     secrets:
       CSC_LINK:
         required: false
@@ -60,6 +65,7 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       release_environment: ${{ inputs.release_environment }}
+      sentry_environment: ${{ inputs.sentry_environment }}
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
       arch: ${{ matrix.arch }}

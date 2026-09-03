@@ -28,6 +28,11 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
       upload_artifacts:
         description: >-
           Upload the verified release files as a workflow artifact. Push CI's
@@ -71,6 +76,8 @@ jobs:
     env:
       EVB_RELEASE_TARGET_ARCH: ${{ inputs.arch }}
       EVB_RELEASE_TARGET_PLATFORM: ${{ inputs.platform }}
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}
     runs-on: ${{ inputs.os }}
@@ -97,6 +104,10 @@ jobs:
           rust-targets: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
           brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
+
+      - name: Resolve Sentry build identity
+        shell: bash
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Test Windows PDF append sharing
         if: runner.os == 'Windows' && inputs.arch == 'x64'

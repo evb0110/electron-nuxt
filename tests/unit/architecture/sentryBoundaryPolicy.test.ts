@@ -11,6 +11,7 @@ const projectRoot = process.cwd();
 const {buildDependencyGraph} = await import(pathToFileURL(resolve(projectRoot, 'scripts/architecture/dep-graph.mjs')).href);
 const {
     checkArchitectureBoundarySource,
+    SENTRY_BUILD_CONFIG_ROOTS,
     SENTRY_RELEASE_TOOL_ROOTS,
     SENTRY_RUNTIME_ADAPTER_ROOTS,
 } = await import(
@@ -158,6 +159,25 @@ describe('Sentry SDK and CLI architecture policy', () => {
         ] of runtimeFixtures) {
             expect(sentryViolations(source, sourceText), source).toEqual([]);
         }
+    });
+
+    it('allows DSN pass-through only in the exact build configuration roots', () => {
+        const buildSource = [
+            'const browserDsn = process.env.SENTRY_BROWSER_DSN ?? \'\';',
+            'const nitroDsn = process.env.SENTRY_NITRO_DSN ?? \'\';',
+            'const dsn = browserDsn;',
+        ].join('\n');
+
+        for (const source of SENTRY_BUILD_CONFIG_ROOTS) {
+            expect(sentryViolations(source, buildSource), source).toEqual([]);
+        }
+
+        expect(sentryViolations('scripts/release/build-receipt.mjs', buildSource))
+            .toEqual([expect.objectContaining({rule: 'sentry-dsn-boundary'})]);
+        expect(SENTRY_BUILD_CONFIG_ROOTS).toEqual(new Set([
+            'scripts/build-electron.mjs',
+            'nuxt.config.ts',
+        ]));
     });
 
     it('allows only the exact release tools to spawn the CLI and read its token', () => {
