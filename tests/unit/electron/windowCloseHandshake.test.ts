@@ -26,7 +26,7 @@ function createHarness(options: {
         isDestroyed: vi.fn(() => false),
         send: vi.fn(),
     };
-    const logger = {error: vi.fn()};
+    const logger = {warn: vi.fn()};
 
     const window = {
         id: 7,
@@ -194,7 +194,7 @@ describe('native window close handshake', () => {
         await vi.advanceTimersByTimeAsync(25);
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.error).toHaveBeenCalledWith(
+        expect(harness.logger.warn).toHaveBeenCalledWith(
             expect.stringContaining('timed out after 25ms'),
         );
 
@@ -216,7 +216,7 @@ describe('native window close handshake', () => {
         });
 
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.error).toHaveBeenCalledWith(
+        expect(harness.logger.warn).toHaveBeenCalledWith(
             expect.stringContaining('multiple-handlers'),
         );
     });
@@ -232,7 +232,7 @@ describe('native window close handshake', () => {
 
         expect(closeEvent.preventDefault).toHaveBeenCalledOnce();
         expect(harness.window.close).not.toHaveBeenCalled();
-        expect(harness.logger.error).toHaveBeenCalledWith(
+        expect(harness.logger.warn).toHaveBeenCalledWith(
             expect.stringContaining('Failed to send close request'),
         );
     });

@@ -195,6 +195,67 @@ const UNRESPONSIVE_RECOVERY_CONTEXT = {
     },
 } as const satisfies DiagnosticContextDefinition;
 
+const MAIN_LOCALE_CODES = [
+    'en',
+    'ru',
+    'fr',
+    'de',
+    'es',
+    'it',
+    'pt',
+    'pt-BR',
+    'nl',
+] as const;
+
+const EXTERNAL_OPEN_CONTEXT = {phase: {
+    kind: 'enum',
+    values: ['prepare-window'],
+}} as const satisfies DiagnosticContextDefinition;
+
+const CODEX_MCP_INTEGRATION_CONTEXT = {action: {
+    kind: 'enum',
+    values: [
+        'enable',
+        'disable',
+    ],
+}} as const satisfies DiagnosticContextDefinition;
+
+const ELECTRON_LOCALE_LOAD_CONTEXT = {locale: {
+    kind: 'enum',
+    values: MAIN_LOCALE_CODES,
+}} as const satisfies DiagnosticContextDefinition;
+
+const RECENT_FILES_LOAD_CONTEXT = {phase: {
+    kind: 'enum',
+    values: [
+        'read',
+        'parse',
+    ],
+}} as const satisfies DiagnosticContextDefinition;
+
+const UPDATE_CHECK_CONTEXT = {origin: {
+    kind: 'enum',
+    values: [
+        'auto',
+        'manual',
+    ],
+}} as const satisfies DiagnosticContextDefinition;
+
+const UPDATE_STARTUP_CONTEXT = {
+    phase: {
+        kind: 'enum',
+        values: [
+            'installation',
+            'renderer-readiness',
+        ],
+    },
+    attempt: {
+        kind: 'integer',
+        min: 1,
+        max: MAX_DIAGNOSTIC_ATTEMPT,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
 export function normalizeProcessGoneReason(reason: string) {
     return PROCESS_GONE_REASONS.includes(reason as typeof PROCESS_GONE_REASONS[number])
         ? reason as typeof PROCESS_GONE_REASONS[number]
@@ -211,6 +272,13 @@ export function normalizeProcessGoneExitCode(exitCode: number) {
         && exitCode <= PROCESS_GONE_EXIT_CODE_MAX
         ? exitCode
         : undefined;
+}
+
+export function normalizeDiagnosticAttempt(attempt: number) {
+    if (!Number.isSafeInteger(attempt)) {
+        return 1;
+    }
+    return Math.min(MAX_DIAGNOSTIC_ATTEMPT, Math.max(1, attempt));
 }
 
 export const DIAGNOSTIC_DEFINITIONS = {
@@ -344,6 +412,123 @@ export const DIAGNOSTIC_DEFINITIONS = {
         grouping: 'code-and-top-frame',
         stackPolicy: 'call-site',
         context: UNHANDLED_REJECTION_CONTEXT,
+    },
+    MAIN_EXTERNAL_OPEN_FAILED: {
+        exceptionType: 'MainExternalOpenFailed',
+        exceptionValue: 'Main external open failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: EXTERNAL_OPEN_CONTEXT,
+    },
+    MAIN_ATOMIC_REPLACE_RESTORE_FAILED: {
+        exceptionType: 'MainAtomicReplaceRestoreFailed',
+        exceptionValue: 'Main atomic replace restore failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_CODEX_MCP_INTEGRATION_FAILED: {
+        exceptionType: 'MainCodexMcpIntegrationFailed',
+        exceptionValue: 'Main Codex MCP integration failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: CODEX_MCP_INTEGRATION_CONTEXT,
+    },
+    MAIN_DOCUMENT_REVEAL_FAILED: {
+        exceptionType: 'MainDocumentRevealFailed',
+        exceptionValue: 'Main document reveal failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_ELECTRON_LOCALE_LOAD_FAILED: {
+        exceptionType: 'MainElectronLocaleLoadFailed',
+        exceptionValue: 'Main Electron locale load failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: ELECTRON_LOCALE_LOAD_CONTEXT,
+    },
+    MAIN_RECENT_FILES_LOAD_FAILED: {
+        exceptionType: 'MainRecentFilesLoadFailed',
+        exceptionValue: 'Main recent-files load failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: RECENT_FILES_LOAD_CONTEXT,
+    },
+    MAIN_RECENT_FILES_RECOVERY_FAILED: {
+        exceptionType: 'MainRecentFilesRecoveryFailed',
+        exceptionValue: 'Main recent-files recovery failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_RECENT_FILES_SAVE_FAILED: {
+        exceptionType: 'MainRecentFilesSaveFailed',
+        exceptionValue: 'Main recent-files save failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_UPDATE_CHECK_FAILED: {
+        exceptionType: 'MainUpdateCheckFailed',
+        exceptionValue: 'Main update check failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UPDATE_CHECK_CONTEXT,
+    },
+    MAIN_UPDATE_DOWNLOAD_FAILED: {
+        exceptionType: 'MainUpdateDownloadFailed',
+        exceptionValue: 'Main update download failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_UPDATE_INSTALL_FAILED: {
+        exceptionType: 'MainUpdateInstallFailed',
+        exceptionValue: 'Main update install failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_UPDATE_INSTALL_PREPARATION_FAILED: {
+        exceptionType: 'MainUpdateInstallPreparationFailed',
+        exceptionValue: 'Main update install preparation failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    MAIN_UPDATE_STARTUP_FAILED: {
+        exceptionType: 'MainUpdateStartupFailed',
+        exceptionValue: 'Main update startup failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UPDATE_STARTUP_CONTEXT,
     },
 } as const satisfies Readonly<Record<string, IDiagnosticDefinition>>;
 

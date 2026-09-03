@@ -152,6 +152,27 @@ describe('codexMcpIntegration', () => {
         expect(state.settings.agentMcpEnabled).toBe(true);
     });
 
+    it('classifies a failed integration action with its bounded action context', async () => {
+        mocks.runCodexCli.mockResolvedValue({
+            ok: false,
+            stdout: '',
+            stderr: 'Codex registration refused',
+        });
+
+        const {setAgentMcpIntegrationEnabled} = await import('@electron/features/agent/codexMcpIntegration');
+        const result = await setAgentMcpIntegrationEnabled(true);
+
+        expect(result.ok).toBe(false);
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('Failed to enable Codex MCP integration'),
+            {
+                code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                context: {action: 'enable'},
+                cause: expect.any(Error),
+            },
+        );
+    });
+
     it('treats legacy URL-only Codex registrations as mismatched and preserves authenticated setup snippets', async () => {
         state.settings = {agentMcpEnabled: true};
         state.serverRunning = true;
@@ -207,7 +228,7 @@ describe('codexMcpIntegration', () => {
         await expect(syncAgentMcpServerWithSettings()).resolves.toBeUndefined();
         expect(state.settings.agentMcpEnabled).toBe(true);
         expect(mocks.shutdownLocalMcpServer).toHaveBeenCalledOnce();
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining(startupError.message));
+        expect(mocks.logger.warn).toHaveBeenCalledWith(expect.stringContaining(startupError.message));
 
         await expect(getAgentMcpIntegrationStatus()).resolves.toMatchObject({
             enabled: true,
@@ -229,7 +250,7 @@ describe('codexMcpIntegration', () => {
 
         expect(mocks.startLocalMcpServer).not.toHaveBeenCalled();
         expect(mocks.shutdownLocalMcpServer).not.toHaveBeenCalled();
-        expect(mocks.logger.error).toHaveBeenCalledWith(
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
             expect.stringContaining('Failed to load external MCP setting'),
         );
     });

@@ -8,7 +8,10 @@ import {
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(),
-    logger: {error: vi.fn()},
+    logger: {
+        error: vi.fn(),
+        warn: vi.fn(),
+    },
 }));
 
 vi.mock('@electron/settings', () => ({loadSettings: mocks.loadSettings}));
@@ -59,7 +62,7 @@ describe('Electron translations', () => {
         mocks.loadSettings.mockRejectedValueOnce(new Error('settings unavailable'));
         await initializeElectronTranslations();
         expect(te('assistant.open')).toBe('Open EVB Assistant');
-        expect(mocks.logger.error).toHaveBeenCalledWith(
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
             'Failed to initialize Electron translations: settings unavailable',
         );
     });

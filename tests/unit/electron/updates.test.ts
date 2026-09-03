@@ -273,6 +273,37 @@ describe('updates robustness', () => {
         });
     });
 
+    it('classifies a manual updater failure with its bounded check context', async () => {
+        mocks.fetch.mockResolvedValue(createMetadataResponse('1.1.0'));
+        mocks.autoUpdater.checkForUpdates.mockRejectedValue(new Error('updater rejected the feed'));
+
+        const updates = await loadUpdatesModule();
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            'Update check failed: updater rejected the feed',
+            {
+                code: 'MAIN_UPDATE_CHECK_FAILED',
+                context: {origin: 'manual'},
+                cause: expect.any(Error),
+            },
+        );
+    });
+
+    it('keeps ordinary offline update checks at warning level without an occurrence', async () => {
+        mocks.fetch.mockRejectedValue(Object.assign(new Error('network is offline'), {code: 'ENETUNREACH'}));
+
+        const updates = await loadUpdatesModule();
+        await updates.triggerManualUpdateCheck();
+        await flushPromises();
+
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
+            expect.stringContaining('network is offline'),
+        );
+    });
+
     it('surfaces a failed install when the old application version is relaunched', async () => {
         mocks.recordPendingUpdateStartup.mockResolvedValue({
             installationApplied: false,
@@ -293,6 +324,17 @@ describe('updates robustness', () => {
             phase: 'error',
             version: '1.1.0',
         });
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('Update installation failed: 1.1.0 could not be installed'),
+            {
+                code: 'MAIN_UPDATE_STARTUP_FAILED',
+                context: {
+                    phase: 'installation',
+                    attempt: 1,
+                },
+                cause: expect.objectContaining({pendingVersion: '1.1.0'}),
+            },
+        );
     });
 
     it('returns automatic no-update checks to idle state', async () => {
@@ -785,7 +827,7 @@ describe('updates robustness', () => {
         await expect(updates.installDownloadedUpdate()).resolves.toEqual({started: false});
         expect(mocks.markUpdateInstallPending).not.toHaveBeenCalled();
         expect(mocks.autoUpdater.quitAndInstall).not.toHaveBeenCalled();
-        expect(mocks.logger.error).toHaveBeenCalledWith(
+        expect(mocks.logger.warn).toHaveBeenCalledWith(
             'Update installation failed: Downloaded update 1.1.0 is not newer than the running version 1.1.0',
         );
     });

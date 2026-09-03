@@ -16,10 +16,22 @@ import {
 } from 'path';
 import { sortBy } from 'es-toolkit/array';
 import { sumBy } from 'es-toolkit/math';
-import {isDiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
+import {
+    decodeDiagnosticContext,
+    isDiagnosticCode,
+    isDiagnosticOperation,
+    type DiagnosticCode,
+} from '@contracts/diagnostics/diagnosticCodes';
 import {isDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
-import {FAILURE_SEVERITIES} from '@contracts/diagnostics/diagnosticRecord';
-import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    FAILURE_SEVERITIES,
+    type FailureSeverity,
+} from '@contracts/diagnostics/diagnosticRecord';
+import {
+    decodeFailureReceipt,
+    type CaptureFailureInput,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import {getMainFailureReporter} from '@electron/features/diagnostics/public';
 import { CORE_IPC_EVENT_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
@@ -42,8 +54,16 @@ export interface ILogger {
     debug(msg: string): void;
     info(msg: string): void;
     warn(msg: string): void;
-    error(msg: string, receipt?: FailureReceipt): FailureReceipt | undefined;
+    error<C extends DiagnosticCode = DiagnosticCode>(
+        msg: string,
+        failure?: FailureReceipt | ILoggerFailureInput<C>,
+    ): FailureReceipt | undefined;
 }
+
+export type ILoggerFailureInput<C extends DiagnosticCode = DiagnosticCode> = Pick<
+    CaptureFailureInput<C>,
+    'code' | 'severity' | 'operation' | 'context'
+> & {cause?: unknown;};
 
 interface ILoggerOptions {broadcastToRenderers?: boolean;}
 
@@ -392,14 +412,28 @@ export async function flushPendingLogWrites() {
     ));
 }
 
-function isFailureReceipt(value: FailureReceipt | undefined): value is FailureReceipt {
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return false;
+    }
+    try {
+        const prototype = Reflect.getPrototypeOf(value);
+        return prototype === Object.prototype || prototype === null;
+    } catch {
+        return false;
+    }
+}
+
+function isFailureReceipt(value: unknown): value is FailureReceipt {
     try {
         return value !== undefined
-            && isDiagnosticEventId(value.eventId)
-            && isDiagnosticCode(value.code)
-            && FAILURE_SEVERITIES.includes(value.severity)
-            && Number.isSafeInteger(value.occurredAt)
-            && value.occurredAt >= 0;
+            && typeof value === 'object'
+            && value !== null
+            && isDiagnosticEventId((value as FailureReceipt).eventId)
+            && isDiagnosticCode((value as FailureReceipt).code)
+            && FAILURE_SEVERITIES.includes((value as FailureReceipt).severity)
+            && Number.isSafeInteger((value as FailureReceipt).occurredAt)
+            && (value as FailureReceipt).occurredAt >= 0;
     } catch {
         return false;
     }
@@ -416,7 +450,44 @@ function toFailureRef(receipt: FailureReceipt | undefined): IFailureRef | undefi
     };
 }
 
-function captureMainLoggerFailure(source: string, message: string) {
+function decodeLoggerFailureInput(value: unknown): ILoggerFailureInput | undefined {
+    if (!isPlainRecord(value) || !isDiagnosticCode(value.code)) {
+        return undefined;
+    }
+    if (
+        value.severity !== undefined
+        && !FAILURE_SEVERITIES.includes(value.severity as FailureSeverity)
+    ) {
+        return undefined;
+    }
+    if (
+        value.operation !== undefined
+        && !isDiagnosticOperation(value.operation)
+    ) {
+        return undefined;
+    }
+    if (decodeDiagnosticContext(value.code, value.context) === null) {
+        return undefined;
+    }
+    return value as ILoggerFailureInput;
+}
+
+function getFailureReceiptFromCause(cause: unknown) {
+    if (typeof cause !== 'object' || cause === null) {
+        return undefined;
+    }
+    try {
+        return decodeFailureReceipt((cause as {failure?: unknown}).failure) ?? undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function captureMainLoggerFailure<C extends DiagnosticCode>(
+    source: string,
+    message: string,
+    failureInput?: ILoggerFailureInput<C>,
+) {
     if (!isMainThread) {
         return undefined;
     }
@@ -424,6 +495,12 @@ function captureMainLoggerFailure(source: string, message: string) {
     const reporter = getMainFailureReporter();
     if (!reporter) {
         return undefined;
+    }
+
+    const decodedInput = decodeLoggerFailureInput(failureInput);
+    const inheritedReceipt = getFailureReceiptFromCause(decodedInput?.cause);
+    if (inheritedReceipt) {
+        return inheritedReceipt;
     }
 
     let callSiteStack = '';
@@ -435,13 +512,16 @@ function captureMainLoggerFailure(source: string, message: string) {
 
     try {
         return reporter.capture({
-            code: 'UNCLASSIFIED_MAIN_ERROR',
-            operation: 'main-error',
-            context: {},
+            code: decodedInput?.code ?? 'UNCLASSIFIED_MAIN_ERROR',
+            ...(decodedInput?.severity === undefined ? {} : {severity: decodedInput.severity}),
+            operation: decodedInput?.operation ?? 'main-error',
+            context: decodedInput
+                ? decodeDiagnosticContext(decodedInput.code, decodedInput.context) ?? {}
+                : {},
             local: {
                 source,
                 message,
-                cause: callSiteStack,
+                cause: decodedInput?.cause ?? callSiteStack,
             },
         });
     } catch {
@@ -492,7 +572,7 @@ export function createLogger(source: string, options: ILoggerOptions = {}): ILog
             const reporter = getMainFailureReporter();
             const receipt = isFailureReceipt(existingReceipt)
                 ? existingReceipt
-                : reporter ? captureMainLoggerFailure(source, msg) : undefined;
+                : reporter ? captureMainLoggerFailure(source, msg, existingReceipt) : undefined;
             log('ERROR', msg, toFailureRef(receipt));
             return receipt;
         },

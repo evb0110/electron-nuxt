@@ -10,6 +10,7 @@ import type {
     IAppUpdateStatus,
     TAppUpdateCheckOrigin,
 } from '@contracts/updatesPlatformFeature';
+import {normalizeDiagnosticAttempt} from '@contracts/diagnostics/diagnosticCodes';
 import { config } from '@electron/config';
 import {
     loadSettings,
@@ -19,6 +20,7 @@ import { isAbortError } from '@electron/utils/abort';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
+import { isExpectedUpdateNetworkError } from '@electron/utils/isExpectedUpdateNetworkError';
 import {
     compareVersions,
     normalizeVersion,
@@ -94,6 +96,18 @@ type TUpdateInstallShutdownRequester = (install: () => void) => void;
 let requestUpdateInstallShutdown: TUpdateInstallShutdownRequester = (install) => {
     install();
 };
+function logUpdateCheckFailure(error: unknown, origin: TAppUpdateCheckOrigin) {
+    const message = `Update check failed: ${getErrorMessage(error)}`;
+    if (origin === 'auto' || isExpectedUpdateNetworkError(error)) {
+        logger.warn(message);
+        return;
+    }
+    logger.error(message, {
+        code: 'MAIN_UPDATE_CHECK_FAILED',
+        context: {origin},
+        cause: error,
+    });
+}
 
 export function configureUpdateInstallShutdown(requester: TUpdateInstallShutdownRequester | null) {
     requestUpdateInstallShutdown = requester ?? ((install) => {
@@ -419,7 +433,7 @@ function schedulePollTimer(delayMs: number, failureLogPrefix: string) {
         }
         void checkForUpdates('auto')
             .catch((error) => {
-                logger.error(`${failureLogPrefix}: ${getErrorMessage(error)}`);
+                logger.warn(`${failureLogPrefix}: ${getErrorMessage(error)}`);
             })
             .finally(() => {
                 if (!isShuttingDown) {
@@ -510,7 +524,30 @@ function setAutoUpdaterListeners() {
                 ? 'Update installation failed'
                 : 'Update check failed';
         const message = `${failedOperation}: ${getErrorMessage(error)}`;
-        logger.error(message);
+        if (
+            currentCheckOrigin !== 'manual'
+            || isExpectedUpdateNetworkError(error)
+        ) {
+            logger.warn(message);
+        } else if (status.phase === 'downloading') {
+            logger.error(message, {
+                code: 'MAIN_UPDATE_DOWNLOAD_FAILED',
+                context: {},
+                cause: error,
+            });
+        } else if (status.phase === 'downloaded') {
+            logger.error(message, {
+                code: 'MAIN_UPDATE_INSTALL_FAILED',
+                context: {},
+                cause: error,
+            });
+        } else {
+            logger.error(message, {
+                code: 'MAIN_UPDATE_CHECK_FAILED',
+                context: {origin: 'manual'},
+                cause: error,
+            });
+        }
         if (currentCheckOrigin !== 'manual') {
             pendingVersion = null;
             setIdleStatus('auto');
@@ -579,7 +616,7 @@ function setAutoUpdaterListeners() {
                         clearDownloadedCandidate(version);
                     }
                     const message = `Downloaded update ${version ?? 'unknown'} did not match approved version ${approvedVersion}`;
-                    logger.error(message);
+                    logger.warn(message);
                     updateStatus({
                         phase: 'error',
                         origin: 'manual',
@@ -603,7 +640,11 @@ function setAutoUpdaterListeners() {
             });
         } catch (error) {
             const message = `Update install preparation failed: ${getErrorMessage(error)}`;
-            logger.error(message);
+            logger.error(message, {
+                code: 'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+                context: {},
+                cause: error,
+            });
             updateStatus({
                 phase: 'error',
                 origin: currentCheckOrigin,
@@ -648,7 +689,7 @@ async function resolveUpdaterCheckDecision(): Promise<IUpdaterCheckDecision> {
 
     const suppressedVersion = await getSuppressedUpdateVersion(currentVersion);
     if (suppressedVersion === latestVersion) {
-        logger.error(`Suppressing update ${latestVersion} after repeated startup failures; install a newer candidate or update manually`);
+        logger.info(`Suppressing update ${latestVersion} after repeated startup failures; install a newer candidate or update manually`);
         pendingVersion = null;
         return {
             shouldCheck: false,
@@ -818,7 +859,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
                 await autoUpdater.checkForUpdates();
             } catch (error) {
                 const message = `Update check failed: ${getErrorMessage(error)}`;
-                logger.error(message);
+                logUpdateCheckFailure(error, origin);
                 updateStatus({
                     phase: 'error',
                     origin,
@@ -834,7 +875,7 @@ async function checkForUpdates(origin: TAppUpdateCheckOrigin) {
         await currentCheckPromise;
     } catch (error) {
         const message = `Update check failed: ${getErrorMessage(error)}`;
-        logger.error(message);
+        logger.warn(message);
         updateStatus({
             phase: 'error',
             origin,
@@ -862,7 +903,14 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                 const marker = await recordPendingUpdateStartup(currentVersion);
                 if (marker && !marker.installationApplied) {
                     const message = `Update installation failed: ${marker.pendingVersion} could not be installed; version ${currentVersion} was relaunched`;
-                    logger.error(message);
+                    logger.error(message, {
+                        code: 'MAIN_UPDATE_STARTUP_FAILED',
+                        context: {
+                            phase: 'installation',
+                            attempt: normalizeDiagnosticAttempt(marker.startupAttempts),
+                        },
+                        cause: marker,
+                    });
                     updateStatus({
                         phase: 'error',
                         origin: 'manual',
@@ -873,6 +921,14 @@ export function initializeUpdates(onStatus: (status: IAppUpdateStatus) => void) 
                 } else if (marker && marker.startupAttempts >= UPDATE_STARTUP_FAILURE_THRESHOLD) {
                     logger.error(
                         `Update ${currentVersion} failed to reach renderer readiness on ${marker.startupAttempts} consecutive startups`,
+                        {
+                            code: 'MAIN_UPDATE_STARTUP_FAILED',
+                            context: {
+                                phase: 'renderer-readiness',
+                                attempt: normalizeDiagnosticAttempt(marker.startupAttempts),
+                            },
+                            cause: marker,
+                        },
                     );
                 }
             },
@@ -976,7 +1032,15 @@ export function downloadAvailableUpdate() {
                 approvedDownloadAndInstallVersion = null;
             }
             const message = `Update download failed: ${getErrorMessage(error)}`;
-            logger.error(message);
+            if (isExpectedUpdateNetworkError(error)) {
+                logger.warn(message);
+            } else {
+                logger.error(message, {
+                    code: 'MAIN_UPDATE_DOWNLOAD_FAILED',
+                    context: {},
+                    cause: error,
+                });
+            }
             updateStatus({
                 phase: 'error',
                 origin: 'manual',
@@ -1011,7 +1075,7 @@ export async function installDownloadedUpdate() {
     } catch (error) {
         clearDownloadedCandidate(candidateVersion);
         const message = `Update installation failed: ${getErrorMessage(error)}`;
-        logger.error(message);
+        logger.warn(message);
         updateStatus({
             phase: 'error',
             origin: 'manual',

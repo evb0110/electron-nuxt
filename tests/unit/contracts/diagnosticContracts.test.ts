@@ -234,6 +234,19 @@ describe('diagnostic contracts', () => {
             'MAIN_GPU_SAFE_MODE_RECOVERY',
             'MAIN_UNHANDLED_REJECTION',
             'MAIN_UNHANDLED_REJECTION_RECOVERY',
+            'MAIN_EXTERNAL_OPEN_FAILED',
+            'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
+            'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            'MAIN_DOCUMENT_REVEAL_FAILED',
+            'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
+            'MAIN_RECENT_FILES_LOAD_FAILED',
+            'MAIN_RECENT_FILES_RECOVERY_FAILED',
+            'MAIN_RECENT_FILES_SAVE_FAILED',
+            'MAIN_UPDATE_CHECK_FAILED',
+            'MAIN_UPDATE_DOWNLOAD_FAILED',
+            'MAIN_UPDATE_INSTALL_FAILED',
+            'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+            'MAIN_UPDATE_STARTUP_FAILED',
         ]);
         expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
         expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (
@@ -258,6 +271,31 @@ describe('diagnostic contracts', () => {
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: Number.POSITIVE_INFINITY})).toBeNull();
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {unexpected: true})).toBeNull();
         expect(decodeDiagnosticContext('MAIN_STARTUP_CRASH', {attempt: 1})).toBeNull();
+    });
+
+    it('decodes the bounded context for remaining Electron main failure owners', () => {
+        expect(decodeDiagnosticContext('MAIN_EXTERNAL_OPEN_FAILED', {phase: 'prepare-window'})).toEqual({phase: 'prepare-window'});
+        expect(decodeDiagnosticContext('MAIN_CODEX_MCP_INTEGRATION_FAILED', {action: 'disable'})).toEqual({action: 'disable'});
+        expect(decodeDiagnosticContext('MAIN_CODEX_MCP_INTEGRATION_FAILED', {action: 'start'})).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_ELECTRON_LOCALE_LOAD_FAILED', {locale: 'pt-BR'})).toEqual({locale: 'pt-BR'});
+        expect(decodeDiagnosticContext('MAIN_ELECTRON_LOCALE_LOAD_FAILED', {locale: 'ja'})).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_RECENT_FILES_LOAD_FAILED', {phase: 'parse'})).toEqual({phase: 'parse'});
+        expect(decodeDiagnosticContext('MAIN_UPDATE_CHECK_FAILED', {origin: 'manual'})).toEqual({origin: 'manual'});
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 3,
+        })).toEqual({
+            phase: 'renderer-readiness',
+            attempt: 3,
+        });
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 0,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 101,
+        })).toBeNull();
     });
 
     it('keeps process-death and recovery context closed and bounded', () => {

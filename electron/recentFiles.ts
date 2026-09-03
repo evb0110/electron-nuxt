@@ -16,6 +16,7 @@ import {
     uniqBy,
 } from 'es-toolkit/array';
 import type { IRecentFile } from '@contracts/shared';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     inferDocumentRefBackend,
     isNativeLegacyDocumentRef,
@@ -91,6 +92,24 @@ class RecentFileStatTimeoutError extends Error {
         this.filePath = filePath;
         this.timeoutMs = timeoutMs;
     }
+}
+
+function attachFailureReceipt(error: unknown, receipt: FailureReceipt | undefined) {
+    if (!receipt || typeof error !== 'object' || error === null) {
+        return error;
+    }
+    try {
+        if (Object.hasOwn(error, 'failure')) {
+            return error;
+        }
+        Object.defineProperty(error, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+    } catch {
+        // A diagnostic receipt must never change the persistence outcome.
+    }
+    return error;
 }
 
 const TRANSIENT_RECENT_FILE_STAT_ERROR_CODES = new Set([
@@ -331,8 +350,12 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
             const bootstrapData = await loadBootstrapRecentFilesData();
             return bootstrapData ?? emptyRecentFilesData();
         }
-        logger.error(`Failed to read recent files: ${getErrorMessage(err)}`);
-        throw err;
+        const receipt = logger.error(`Failed to read recent files: ${getErrorMessage(err)}`, {
+            code: 'MAIN_RECENT_FILES_LOAD_FAILED',
+            context: {phase: 'read'},
+            cause: err,
+        });
+        throw attachFailureReceipt(err, receipt);
     }
 
     let normalizedData: IRecentFilesData;
@@ -340,15 +363,24 @@ async function loadRecentFilesData(): Promise<IRecentFilesData> {
         const parsed: unknown = JSON.parse(content);
         normalizedData = normalizeRecentFilesData(parsed);
     } catch (err) {
-        logger.error(`Failed to load recent files: ${getErrorMessage(err)}`);
+        const receipt = logger.error(`Failed to load recent files: ${getErrorMessage(err)}`, {
+            code: 'MAIN_RECENT_FILES_LOAD_FAILED',
+            context: {phase: 'parse'},
+            cause: err,
+        });
         const emptyData = emptyRecentFilesData();
         try {
             const quarantinePath = await quarantineCorruptFile(storagePath);
             await saveRecentFilesData(emptyData);
             logger.warn(`Quarantined corrupt recent-files state at ${quarantinePath ?? storagePath}`);
         } catch (recoveryError) {
-            logger.error(`Failed to recover corrupt recent files: ${getErrorMessage(recoveryError)}`);
+            logger.error(`Failed to recover corrupt recent files: ${getErrorMessage(recoveryError)}`, {
+                code: 'MAIN_RECENT_FILES_RECOVERY_FAILED',
+                context: {},
+                cause: recoveryError,
+            });
         }
+        attachFailureReceipt(err, receipt);
         return emptyData;
     }
 
@@ -374,13 +406,17 @@ async function saveRecentFilesData(data: IRecentFilesData) {
         await writeFile(tempPath, JSON.stringify(data, null, 2), 'utf-8');
         await atomicReplace(tempPath, storagePath);
     } catch (err) {
-        logger.error(`Failed to save recent files: ${getErrorMessage(err)}`);
+        const receipt = logger.error(`Failed to save recent files: ${getErrorMessage(err)}`, {
+            code: 'MAIN_RECENT_FILES_SAVE_FAILED',
+            context: {},
+            cause: err,
+        });
         try {
             await unlink(tempPath);
         } catch {
             // Best-effort temp file cleanup.
         }
-        throw err;
+        throw attachFailureReceipt(err, receipt);
     }
 }
 

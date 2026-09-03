@@ -15,6 +15,7 @@ import {
     join,
 } from 'path';
 import { isErrnoException } from '@contracts/runtimeGuards';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {assertNoSymlinkPathSegments} from '@electron/file-access/assertNoSymlinkPathSegments';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
@@ -24,6 +25,23 @@ import { markActiveWorkingCopyMutationCommitStarted } from '@electron/file-acces
 const logger = createLogger('atomicReplace');
 const DEFAULT_ATOMIC_REPLACE_BACKUP_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATOMIC_REPLACE_BACKUP_NAME_PATTERN = /^(?<destination>.+)\.bak-[0-9a-f]{16}$/u;
+
+function attachFailureReceipt(error: Error, receipt: FailureReceipt | undefined) {
+    if (!receipt) {
+        return error;
+    }
+    try {
+        if (!Object.hasOwn(error, 'failure')) {
+            Object.defineProperty(error, 'failure', {
+                configurable: true,
+                value: receipt,
+            });
+        }
+    } catch {
+        // A diagnostic receipt must never change the atomic replacement outcome.
+    }
+    return error;
+}
 
 export interface IAtomicReplaceBackupCleanupOptions {
     isDestinationActive?: (destinationPath: string) => boolean;
@@ -312,8 +330,18 @@ export async function atomicReplace(
     } catch (error) {
         if (hasBackup) {
             await rename(backupPath, dst).catch(async (restoreError) => {
-                logger.error(`Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`);
-                throw await createRestoreFailureError(dst, backupPath, error, restoreError);
+                const receipt = logger.error(
+                    `Failed to restore backup after atomic replace failure: ${getErrorMessage(restoreError)}`,
+                    {
+                        code: 'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
+                        context: {},
+                        cause: restoreError,
+                    },
+                );
+                throw attachFailureReceipt(
+                    await createRestoreFailureError(dst, backupPath, error, restoreError),
+                    receipt,
+                );
             });
             await assertPathExists(dst, 'Atomic replace failed after restoring backup');
         }
