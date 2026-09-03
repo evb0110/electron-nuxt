@@ -98,6 +98,8 @@ describe('PdfImagePlacementOverlay', () => {
     it('disables placement controls while the editor finalizes the image', () => {
         const {host} = mountOverlay(true);
 
-        expect(host.querySelectorAll<HTMLButtonElement>('button:disabled')).toHaveLength(12);
+        const buttons = [...host.querySelectorAll<HTMLButtonElement>('button')];
+        expect(buttons.length).toBeGreaterThan(0);
+        expect(buttons.every(button => button.disabled)).toBe(true);
     });
 });

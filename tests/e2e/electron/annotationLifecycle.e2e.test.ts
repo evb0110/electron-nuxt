@@ -88,8 +88,27 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
         if (!files?.createManagedTempFileHandle) {
             throw new Error('Managed image handles are unavailable');
         }
-        const handle = await files.createManagedTempFileHandle(input.imagePath);
         const NativeFile = window.File;
+        const originalFileDescriptor = Object.getOwnPropertyDescriptor(window, 'File');
+        const originalClipboardDescriptor = Object.getOwnPropertyDescriptor(navigator, 'clipboard');
+        Object.defineProperty(window, '__evbRestoreManagedClipboard', {
+            configurable: true,
+            value: () => {
+                if (originalFileDescriptor) {
+                    Object.defineProperty(window, 'File', originalFileDescriptor);
+                }
+                else {
+                    Reflect.deleteProperty(window, 'File');
+                }
+                if (originalClipboardDescriptor) {
+                    Object.defineProperty(navigator, 'clipboard', originalClipboardDescriptor);
+                }
+                else {
+                    Reflect.deleteProperty(navigator, 'clipboard');
+                }
+            },
+        });
+        const handle = await files.createManagedTempFileHandle(input.imagePath);
         const ManagedFile = new Proxy(NativeFile, {construct(target, args) {
             return Object.assign(Reflect.construct(target, args), {nativeSourceHandle: handle});
         }});
@@ -119,6 +138,14 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             leaseId: handle.leaseId,
         };
     }, {imagePath});
+}
+
+async function uninstallManagedJpegClipboard(page: Page) {
+    await page.evaluate(() => {
+        const windowWithRestore = window as Window & {__evbRestoreManagedClipboard?: () => void;};
+        windowWithRestore.__evbRestoreManagedClipboard?.();
+        delete windowWithRestore.__evbRestoreManagedClipboard;
+    });
 }
 
 async function dragImagePlacementControl(
@@ -1255,7 +1282,15 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const imagePath = join(dirname(state.workingCopyPath), `annotation-lifecycle-${process.pid}-stamp.jpg`);
         writeFileSync(imagePath, PLACED_IMAGE_JPEG);
         onTestFinished(() => rmSync(imagePath, {force: true}));
+        let clipboardLeaseId: string | null = null;
+        onTestFinished(async () => {
+            await uninstallManagedJpegClipboard(page);
+            if (clipboardLeaseId) {
+                await releaseManagedImageHandle(page, clipboardLeaseId);
+            }
+        });
         const clipboard = await installManagedJpegClipboard(page, imagePath);
+        clipboardLeaseId = clipboard.leaseId;
         expect(clipboard).toMatchObject({
             dimensions: {
                 height: 40,
@@ -1279,7 +1314,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 48,
                 32,
             );
-            await delay(100);
+            await page.waitForFunction((selector: string, previousLeft: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                return frame ? Math.abs(Number.parseFloat(frame.style.left) - (previousLeft * 100)) > 0.5 : false;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, initial.left);
             const moved = await readPendingImagePlacementSnapshot(page);
             expect(Math.abs(moved.left - initial.left)).toBeGreaterThan(0.005);
             expect(Math.abs(moved.top - initial.top)).toBeGreaterThan(0.005);
@@ -1292,14 +1330,26 @@ describe('Electron E2E - Annotation Lifecycle', () => {
                 18,
                 true,
             );
-            await delay(100);
+            await page.waitForFunction((selector: string, previousWidth: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                return frame ? Number.parseFloat(frame.style.width) > (previousWidth * 100) : false;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, moved.width);
             const resized = await readPendingImagePlacementSnapshot(page);
             expect(resized.width).toBeGreaterThan(moved.width);
             expect(resized.height).toBeGreaterThan(moved.height);
             expect(resized.width / resized.height).toBeCloseTo(aspectRatio, 2);
 
             await rotateImagePlacementByQuarterTurn(page);
-            await delay(100);
+            await page.waitForFunction((selector: string, previousRotation: number) => {
+                const frame = document.querySelector<HTMLElement>(selector);
+                const transform = frame?.querySelector<HTMLElement>('.pdf-image-placement__transform');
+                const rotation = Number.parseFloat(
+                    getComputedStyle(transform ?? frame ?? document.body)
+                        .getPropertyValue('--pdf-image-placement-rotation')
+                        .replace(/deg$/u, ''),
+                ) || 0;
+                return Math.abs(rotation - previousRotation) > 5;
+            }, {timeout: 10_000}, ACTIVE_IMAGE_PLACEMENT_SELECTOR, resized.rotationDegrees);
             const rotated = await readPendingImagePlacementSnapshot(page);
             expect(Math.abs(rotated.rotationDegrees)).toBeGreaterThan(5);
 
@@ -1348,8 +1398,13 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
             const reopened = await readCanonicalStampSnapshot(page);
             expect(reopened).toEqual(created);
-        } finally {
-            await releaseManagedImageHandle(page, clipboard.leaseId);
+        }
+        finally {
+            await uninstallManagedJpegClipboard(page);
+            if (clipboardLeaseId) {
+                await releaseManagedImageHandle(page, clipboardLeaseId);
+                clipboardLeaseId = null;
+            }
         }
     }, 120_000);
 

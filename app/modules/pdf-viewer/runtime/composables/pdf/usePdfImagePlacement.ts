@@ -336,7 +336,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         }
 
         const targetPixels = getPendingImagePlacementTargetPixels(placement);
-        const placementToken = placement;
+        const placementToken = placement.stableKey;
         isPendingImagePlacementFinalizing.value = true;
         // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
         let result: void | boolean | Promise<boolean>;
@@ -365,7 +365,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         }
         if (result instanceof Promise) {
             void result.then(success => {
-                if (pendingImagePlacement.value !== placementToken) {
+                if (pendingImagePlacement.value?.stableKey !== placementToken) {
                     return;
                 }
                 if (success) {
@@ -374,7 +374,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
                     restorePendingImagePlacement();
                 }
             }).catch(() => {
-                if (pendingImagePlacement.value !== placementToken) {
+                if (pendingImagePlacement.value?.stableKey !== placementToken) {
                     return;
                 }
                 restorePendingImagePlacement();

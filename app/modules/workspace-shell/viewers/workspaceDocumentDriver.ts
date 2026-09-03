@@ -27,6 +27,7 @@ import type {
 } from '@app/modules/pdf-viewer/public';
 import {isPathPdfSource} from '@app/modules/pdf-viewer/public';
 import type { TPdfRasterDisplayProfile } from '@app/types/pdfRasterDisplayProfile';
+import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
@@ -531,7 +532,8 @@ export interface IWorkspaceDocumentDriverBindingOptions {
     onRasterSchedulerUpdate: (scheduler: IPdfPageRasterScheduler | null) => void;
     onEffectiveZoomUpdate: (value: number) => void;
     onFitModeUpdate: (value: TFitMode) => void;
-    onImagePlacementFinalize: unknown;
+    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+    onImagePlacementFinalize: (payload: IPdfPlacedImageFinalizePayload) => void | Promise<boolean>;
     onInitialVisualPending: () => void;
     onInitialVisualReady: () => void;
     onLoadError: (error: unknown) => void;
