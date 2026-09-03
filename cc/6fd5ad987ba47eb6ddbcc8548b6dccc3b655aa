@@ -1,0 +1,21 @@
+app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent.ts
+  s_91eeab35c4598e::t_7795090bd15d4b 86-106,197
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearchHighlight.test.ts
+  s_91eeab35c4598e::t_7795090bd15d4b 252-288
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "cc6fd5ad987ba47eb6ddbcc8548b6dccc3b655aa",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
