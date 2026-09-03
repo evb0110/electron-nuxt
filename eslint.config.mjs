@@ -131,6 +131,11 @@ const projectConfig = withNuxt(
             'custom/commonjs-named-imports': 'error',
             'custom/file-naming': 'error',
             'custom/no-core-correctness-timers': 'error',
+            // SEN-GATE-01 warning mode. Phase 2 owns the blocking switch after
+            // the migration reports reach their documented exit conditions.
+            'custom/no-raw-red-presentation': 'warn',
+            'custom/no-direct-console-error': 'warn',
+            'custom/require-failure-receipt': 'warn',
             ...stylisticRules,
         },
     },

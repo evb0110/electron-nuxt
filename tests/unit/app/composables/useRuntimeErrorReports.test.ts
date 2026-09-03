@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const stateStore = new Map<string, ReturnType<typeof ref>>();
 
@@ -55,6 +56,36 @@ describe('useRuntimeErrorReports', () => {
         expect(reports.reports.value[0]).toMatchObject({
             count: 2,
             detail: '2026-01-01T00:00:01.000Z\n[WARN] rejected path',
+        });
+    });
+
+    it('deduplicates receipt-aware presentations by their event ID', async () => {
+        const reports = await createReports();
+        const failure: FailureReceipt = {
+            eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: Date.now(),
+            severity: 'error',
+        };
+
+        reports.reportRuntimeError({
+            failure,
+            title: 'Renderer failure',
+            description: 'The document could not be opened.',
+        });
+        reports.reportRuntimeError({
+            failure,
+            title: 'Renderer failure',
+            description: 'The document could not be opened again.',
+        });
+
+        expect(reports.reports.value).toHaveLength(1);
+        expect(reports.reports.value[0]).toMatchObject({
+            id: failure.eventId,
+            count: 2,
+            detail: 'The document could not be opened again.',
+            failure,
+            source: failure.code,
         });
     });
 
