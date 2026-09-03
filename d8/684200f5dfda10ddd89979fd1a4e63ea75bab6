@@ -1,0 +1,29 @@
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_c57729f2c66bed::t_a99bf0829c33a2 776-784,786-789
+tests/unit/app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.test.ts
+  s_c57729f2c66bed::t_a99bf0829c33a2 490-509,560-561,563,573-575,577-579,581,645-648
+  s_c57729f2c66bed::t_310551db2c662d 489,510-559,564-565,567-569,571-572,582-644,649-652,654-657
+app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes.ts
+  s_c57729f2c66bed::t_a99bf0829c33a2 54
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_c57729f2c66bed::t_f6dc990b2eac6d 496-499,510-513,546-547
+  s_c57729f2c66bed::t_79aab6f79b6764 528-529,534-537
+  s_c57729f2c66bed::t_70763640ae3e2c 500,507-509,514-527,530-533,538-545,557
+  s_c57729f2c66bed::t_524a0eddbf6010 998
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d8684200f5dfda10ddd89979fd1a4e63ea75bab6",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
