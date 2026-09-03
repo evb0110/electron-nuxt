@@ -63,6 +63,7 @@ import {
 } from '@electron/ocr/jobManager';
 import {searchWorkerService} from '@electron/features/search/public';
 import {initializeMainFailureReporter} from '@electron/features/diagnostics/public';
+import { readDiagnosticsPreferenceSync } from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
 import {
     createWindow,
     configureNativeWindowCloseHandshake,
@@ -151,7 +152,7 @@ if (automationUserDataDir) {
 }
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
-initializeMainFailureReporter({preference: 'unknown'});
+initializeMainFailureReporter({preference: readDiagnosticsPreferenceSync()});
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;

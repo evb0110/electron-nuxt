@@ -76,6 +76,8 @@ troubleshooting notes out of tracked docs. To ship a Store update:
 
 Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
 
+Before submitting an AppX package, confirm that `Send privacy-sanitized error diagnostics` is off until the user enables it in Privacy settings. Microsoft Store Policy 10.5.2 requires express in-product permission before publishing customer personal information to an outside service. Every AppX ships client diagnostics off by default.
+
 ## Publication policy gate
 
 `scripts/check-commit-attribution.mjs` is the single gate on what becomes public: the pre-commit hook checks the staged tree, the pre-push hook checks everything a push would newly publish (including annotated tag objects), the release cutter and the artifact-only flow run it before their push, and CI reruns it for pushes and pull requests. It rejects prohibited commit attribution and the local-only artifacts listed in `scripts/lib/local-artifact-policy.mjs`.

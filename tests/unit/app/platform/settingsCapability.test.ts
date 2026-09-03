@@ -239,6 +239,40 @@ describe('browserSettingsCapability', () => {
         });
     });
 
+    it('round-trips a granted diagnostics preference through browser local storage only', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'granted'});
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('clientDiagnosticsPreference');
+    });
+
+    it('keeps an otherwise valid browser settings snapshot when diagnostics preference is invalid', async () => {
+        const localStorage = new MemoryStorage();
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            version: 2,
+            authorName: 'Stored user',
+            theme: 'dark',
+            locale: 'en',
+            defaultZoomPreset: 'fit-width',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+            defaultAnnotationColor: '#ffd400',
+            clientDiagnosticsPreference: false,
+        }));
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({
+            authorName: 'Stored user',
+            theme: 'dark',
+            clientDiagnosticsPreference: 'unknown',
+        });
+    });
+
     it('rejects a browser settings write when localStorage refuses it', async () => {
         vi.stubGlobal('window', {localStorage: {
             getItem: () => null,

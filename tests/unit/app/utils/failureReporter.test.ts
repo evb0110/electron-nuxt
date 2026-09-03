@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {
     createRendererFailureReporter,
+    readHostedDiagnosticsPreferenceSync,
     type IHostedDiagnosticsTransport,
     type TRendererDiagnosticSender,
 } from '@app/utils/failureReporter';
@@ -226,6 +227,28 @@ describe('renderer failure reporter', () => {
             policyDropped: 1,
             accepted: 0,
         });
+    });
+
+    it('reads the hosted preference from local storage before loading a transport', () => {
+        const localStorage = {getItem: vi.fn(() => JSON.stringify({clientDiagnosticsPreference: 'denied'}))};
+        vi.stubGlobal('window', {localStorage});
+        const loadHostedTransport = vi.fn();
+
+        try {
+            const reporter = createRendererFailureReporter({
+                host: 'hosted-browser',
+                loadHostedTransport,
+                createEventId: () => eventId(1),
+            });
+
+            expect(readHostedDiagnosticsPreferenceSync()).toBe('denied');
+            reporter.capture(createFailureInput());
+
+            expect(localStorage.getItem).toHaveBeenCalledWith('evb-viewer:browser:settings');
+            expect(loadHostedTransport).not.toHaveBeenCalled();
+        } finally {
+            vi.unstubAllGlobals();
+        }
     });
 
     it('uses the hosted runtime and transport after a local grant', async () => {

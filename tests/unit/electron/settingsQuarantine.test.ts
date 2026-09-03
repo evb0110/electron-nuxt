@@ -17,6 +17,7 @@ import {
 } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+    setMainDiagnosticsPreference: vi.fn(),
     userDataPath: '',
     logger: {
         debug: vi.fn(),
@@ -28,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock('electron', () => ({app: {getPath: () => mocks.userDataPath}}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
+vi.mock('@electron/features/diagnostics/public', () => ({setMainDiagnosticsPreference: mocks.setMainDiagnosticsPreference}));
 
 describe('settings corruption quarantine', () => {
     afterEach(() => {
@@ -72,6 +74,36 @@ describe('settings corruption quarantine', () => {
         expect(readdirSync(mocks.userDataPath)).toEqual(['settings.json']);
     });
 
+    it('keeps the diagnostics preference through Electron settings persistence', async () => {
+        mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-diagnostics-preference-'));
+        const settingsPath = join(mocks.userDataPath, 'settings.json');
+        const {
+            loadSettings,
+            updateSettings,
+        } = await import('@electron/settings');
+
+        await updateSettings(() => ({clientDiagnosticsPreference: 'granted'}));
+
+        expect(JSON.parse(readFileSync(settingsPath, 'utf-8'))).toMatchObject({clientDiagnosticsPreference: 'granted'});
+        expect(await loadSettings()).toMatchObject({clientDiagnosticsPreference: 'granted'});
+        expect(mocks.setMainDiagnosticsPreference).toHaveBeenCalledOnce();
+        expect(mocks.setMainDiagnosticsPreference).toHaveBeenCalledWith('granted');
+    });
+
+    it('loads an older settings schema with diagnostics disabled', async () => {
+        mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-older-schema-'));
+        writeFileSync(join(mocks.userDataPath, 'settings.json'), JSON.stringify({
+            version: 1,
+            authorName: 'Older user',
+        }));
+        const {loadSettings} = await import('@electron/settings');
+
+        await expect(loadSettings()).resolves.toMatchObject({
+            authorName: 'Older user',
+            clientDiagnosticsPreference: 'unknown',
+        });
+    });
+
     it('preserves the existing target and removes staged data when atomic promotion fails', async () => {
         mocks.userDataPath = mkdtempSync(join(tmpdir(), 'evb-settings-atomic-failure-'));
         const settingsPath = join(mocks.userDataPath, 'settings.json');
@@ -83,6 +115,7 @@ describe('settings corruption quarantine', () => {
             theme: 'dark',
         }))).rejects.toThrow();
 
+        expect(mocks.setMainDiagnosticsPreference).not.toHaveBeenCalled();
         expect(readdirSync(settingsPath)).toEqual([]);
         expect(readdirSync(mocks.userDataPath)).toEqual(['settings.json']);
     });
