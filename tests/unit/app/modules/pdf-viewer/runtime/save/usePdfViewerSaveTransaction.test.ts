@@ -486,6 +486,175 @@ describe('usePdfViewerSaveTransaction', () => {
         expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
     });
 
+    it('keeps a canonical text box on the native route beside materializing markup', async () => {
+        const note = {
+            kind: 'note',
+            identity: {id: asAnnotationId('materialized-note')},
+            pageIndex: 0,
+            revision: 1,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: 'Tester',
+            contents: 'materialized route note',
+            position: {
+                left: 0.7,
+                top: 0.2,
+                width: 0.02,
+                height: 0.02,
+            },
+            color: '#ffcc00',
+            open: false,
+        } as const;
+        const textBox = {
+            kind: 'text-box',
+            identity: {
+                id: asAnnotationId('materialized-text-box'),
+                pdfRef: '10R',
+            },
+            pageIndex: 0,
+            revision: 1,
+            persistedRevision: 0,
+            deleted: false,
+            createdAt: 1_781_000_000_000,
+            modifiedAt: null,
+            author: 'Tester',
+            text: 'edited materialized text box',
+            rect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.2,
+                height: 0.1,
+            },
+            rotation: 0,
+            fontSize: 16,
+            color: '#ffcc00',
+        } as const;
+        const markup = {
+            kind: 'text-markup',
+            identity: {id: asAnnotationId('materialized-markup')},
+            pageIndex: 0,
+            revision: 1,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: 1,
+            author: null,
+            subtype: 'Highlight',
+            contents: '',
+            quadPoints: [{
+                left: 0.4,
+                top: 0.2,
+                width: 0.2,
+                height: 0.1,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        } as const;
+        const plan = buildSerializationPlan({
+            epoch: 1,
+            entityBaselineHash: 'materialized-markup-with-text-box',
+            documentRevisionToken: requireDocumentRevisionToken('materialized-markup-with-text-box-revision'),
+            revisions: new Map([
+                [
+                    note.identity.id,
+                    note.revision,
+                ],
+                [
+                    textBox.identity.id,
+                    textBox.revision,
+                ],
+                [
+                    markup.identity.id,
+                    markup.revision,
+                ],
+            ]),
+        }, [
+            note,
+            textBox,
+            markup,
+        ], [
+            note,
+            textBox,
+            markup,
+        ]);
+        const getSourcePdfData = vi.fn(async () => new Uint8Array([9]));
+        const materializePdfJsDocumentForInternalUse = vi.fn(async () => new Uint8Array([8]));
+        const {runSaveTransaction} = usePdfViewerSaveTransaction({
+            getPdfDocument: () => ({
+                annotationStorage: {
+                    serializable: {map: new Map()},
+                    modifiedIds: {ids: new Set()},
+                    resetModifiedIds: vi.fn(),
+                },
+                numPages: 4,
+                getPage: vi.fn(async () => ({
+                    rotate: 0,
+                    view: [
+                        0,
+                        0,
+                        1_000,
+                        1_000,
+                    ],
+                    getAnnotations: vi.fn(async () => []),
+                })),
+            } as never),
+            materializePdfJsDocumentForInternalUse,
+            prepareAnnotationSave: () => ({
+                plan,
+                verify: vi.fn(async () => undefined),
+                commit: vi.fn(),
+            }),
+        });
+
+        const result = await runSaveTransaction({
+            mode: 'persist',
+            planOnly: true,
+            source: {getSourcePdfData},
+            nativeCapabilities: {
+                hasNativePdfMutationCapability: true,
+                canPersistNativeMetadataMutations: true,
+            },
+            dirtyState: {
+                annotationDirty: true,
+                hasAnnotationChanges: true,
+                hasLivePdfJsAnnotationChanges: true,
+                savedPdfjsAnnotationBaselineDirty: false,
+                shapeStateDirty: false,
+            },
+            documentStructure: {
+                pageLabelsDirty: false,
+                pageLabelRanges: [],
+                bookmarksDirty: false,
+                bookmarkItems: [],
+                untitledBookmarkLabel: 'Untitled',
+                totalPages: 4,
+            },
+        });
+
+        expect(result.source).toBe('native-mutation-projection');
+        expect(result.annotationSavePlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            reason: 'live-pdfjs-annotation-storage',
+        });
+        expect(result.nativeMutationProjection?.mutations.textBoxes).toEqual([expect.objectContaining({
+            stableKey: 'materialized-text-box',
+            annotationId: '10R',
+            text: 'edited materialized text box',
+        })]);
+        expect(result.nativeMutationProjection?.mutations.freeTextNotes).toEqual([expect.objectContaining({
+            stableKey: 'materialized-note',
+            text: 'materialized route note',
+        })]);
+        expect(result.nativeMutationProjection?.mutations.markup?.hints).toEqual([expect.objectContaining({
+            appAnnotationId: 'materialized-markup',
+            subtype: 'Highlight',
+        })]);
+        expect(getSourcePdfData).not.toHaveBeenCalled();
+        expect(materializePdfJsDocumentForInternalUse).not.toHaveBeenCalled();
+    });
+
     it('keeps a restored Cyrillic popup note on the bounded native route', async () => {
         const note = {
             kind: 'text-box',
