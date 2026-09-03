@@ -1,4 +1,16 @@
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import {
+    isDiagnosticCode,
+    type DiagnosticCode,
+} from '@contracts/diagnostics/diagnosticCodes';
+import {
+    isDiagnosticEventId,
+    type DiagnosticEventId,
+} from '@contracts/diagnostics/diagnosticEventId';
+import type {
+    DiagnosticRecord,
+    FailureSeverity,
+} from '@contracts/diagnostics/diagnosticRecord';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IWindowCloseRequest,
@@ -15,16 +27,90 @@ export const CORE_IPC_EVENT_CHANNELS = {
 } as const;
 
 export const CORE_IPC_SEND_CHANNELS = {
+    rendererDiagnostic: 'renderer:diagnostic',
     rendererLog: 'renderer:log',
     shutdownSaveFlushResult: 'shutdown:saveFlushResult',
     windowCloseResponse: 'window:closeResponse',
 } as const;
+
+export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
+export const DIAGNOSTICS_POLICY_HINTS = [
+    'unknown',
+    'granted',
+    'denied',
+] as const;
+
+export type TDiagnosticsPolicyHint = typeof DIAGNOSTICS_POLICY_HINTS[number];
+
+export interface IDiagnosticsStartupPolicy {mode: TDiagnosticsPolicyHint;}
+
+export interface IDiagnosticsFailureRef {
+    eventId: DiagnosticEventId;
+    code: DiagnosticCode;
+    severity: FailureSeverity;
+}
+
+export interface IDiagnosticsDebugLogEntry extends IDebugLogEntry {failureRef?: IDiagnosticsFailureRef;}
+
+export interface IPreloadDiagnosticsApi {
+    startupPolicy: Readonly<IDiagnosticsStartupPolicy>;
+    sendRecord: (record: DiagnosticRecord) => void;
+    onDebugLog: (callback: (entry: IDiagnosticsDebugLogEntry) => void) => () => void;
+}
 
 export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates]: undefined;
     [CORE_IPC_EVENT_CHANNELS.debugLog]: IDebugLogEntry;
     [CORE_IPC_EVENT_CHANNELS.shutdownSaveFlushRequest]: IShutdownSaveFlushRequest;
     [CORE_IPC_EVENT_CHANNELS.windowCloseRequest]: IWindowCloseRequest;
+}
+
+function isDiagnosticsPolicyHint(value: unknown): value is TDiagnosticsPolicyHint {
+    return typeof value === 'string'
+        && (DIAGNOSTICS_POLICY_HINTS as readonly string[]).includes(value);
+}
+
+export function createDiagnosticsStartupPolicy(value: unknown): Readonly<IDiagnosticsStartupPolicy> {
+    return Object.freeze({mode: isDiagnosticsPolicyHint(value) ? value : 'unknown'});
+}
+
+export function encodeDiagnosticsPolicyArgument(value: unknown) {
+    const encoded = Buffer
+        .from(JSON.stringify(createDiagnosticsStartupPolicy(value)), 'utf8')
+        .toString('base64url');
+    return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
+}
+
+export function decodeDiagnosticsDebugLogEntry(value: unknown): IDiagnosticsDebugLogEntry | null {
+    if (!isRecord(value)
+        || typeof value.source !== 'string'
+        || typeof value.message !== 'string'
+        || typeof value.timestamp !== 'string'
+        || (value.level !== undefined
+            && value.level !== 'DEBUG'
+            && value.level !== 'INFO'
+            && value.level !== 'WARN'
+            && value.level !== 'ERROR')) {
+        return null;
+    }
+
+    const failureRef = value.failureRef;
+    if (failureRef !== undefined && (!isRecord(failureRef)
+        || !isDiagnosticEventId(failureRef.eventId)
+        || !isDiagnosticCode(failureRef.code)
+        || (failureRef.severity !== 'error' && failureRef.severity !== 'fatal')
+        || Reflect.ownKeys(failureRef).some(key => key !== 'eventId' && key !== 'code' && key !== 'severity'))) {
+        return null;
+    }
+    const decodedFailureRef = failureRef as IDiagnosticsFailureRef | undefined;
+
+    return {
+        source: value.source,
+        message: value.message,
+        timestamp: value.timestamp,
+        ...(value.level === undefined ? {} : {level: value.level}),
+        ...(decodedFailureRef === undefined ? {} : {failureRef: decodedFailureRef}),
+    };
 }
 
 export interface IShutdownSaveFlushRequest { requestId: string; }

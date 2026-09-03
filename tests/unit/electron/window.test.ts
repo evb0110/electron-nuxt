@@ -190,6 +190,7 @@ const mocks = vi.hoisted(() => {
         openExternal: vi.fn(async () => {}),
         setupContentSecurityPolicy: vi.fn(),
         te: vi.fn((key: string) => key),
+        getMainFailureReporter: vi.fn(() => ({getPreference: () => 'granted'})),
     };
 });
 
@@ -214,6 +215,7 @@ vi.mock('@electron/resources/hostResourceProfile', () => ({
     encodeHostResourceProfileArgument: vi.fn(() => '--evb-host-resource-profile=test'),
     getHostResourceProfileSnapshot: vi.fn(() => ({})),
 }));
+vi.mock('@electron/features/diagnostics/public', () => ({getMainFailureReporter: mocks.getMainFailureReporter}));
 
 describe('window runtime readiness', () => {
     beforeEach(() => {
@@ -238,7 +240,10 @@ describe('window runtime readiness', () => {
         const window = mocks.BrowserWindow.windows[0];
         expect(window?.options).toEqual(expect.objectContaining({autoHideMenuBar: false}));
         expect(window?.options).toEqual(expect.objectContaining({webPreferences: expect.objectContaining({
-            additionalArguments: ['--evb-host-resource-profile=test'],
+            additionalArguments: [
+                '--evb-host-resource-profile=test',
+                '--evb-diagnostics-policy=eyJtb2RlIjoiZ3JhbnRlZCJ9',
+            ],
             contextIsolation: true,
             nodeIntegration: false,
             sandbox: true,

@@ -16,6 +16,7 @@ import type {
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
 import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import type {
     TWindowCloseDecision,
     TWindowCloseUnavailableReason,
@@ -59,6 +60,8 @@ import {
     CORE_IPC_CHANNELS,
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
+    decodeDiagnosticsDebugLogEntry,
+    type IPreloadDiagnosticsApi,
     type ICoreEventMap,
     type IShutdownSaveFlushRequest,
     type IShutdownSaveFlushResult,
@@ -152,6 +155,7 @@ function readSystemMemoryInfo() {
 }
 
 interface ICreateElectronApiOptions {
+    diagnosticsPolicy?: IPreloadDiagnosticsApi['startupPolicy'];
     resourceProfile?: IHostResourceProfileSnapshot | null;
     waitForDocumentOpenDirect?: (path: string) => Promise<void>;
 }
@@ -160,7 +164,7 @@ export function createElectronApi(
     ipcRenderer: IpcRenderer,
     electronWebUtils: typeof webUtils,
     options: ICreateElectronApiOptions = {},
-): IElectronAPI {
+): IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;} {
     const invokeDocuments = createCodecIpcInvoker<IDocumentsInvokeMap>(ipcRenderer, DOCUMENTS_IPC_CODECS);
     const eventSubscriber = createTypedIpcEventSubscriber<ICoreEventMap>(ipcRenderer);
     const baseDocuments = createDocumentsPreloadClient(ipcRenderer);
@@ -593,6 +597,18 @@ export function createElectronApi(
             rendererLog: (entry) => ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererLog, entry),
         },
 
+        diagnostics: {
+            startupPolicy: options.diagnosticsPolicy ?? Object.freeze({mode: 'unknown'}),
+            sendRecord: (record: DiagnosticRecord) => {
+                ipcRenderer.send(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, record);
+            },
+            onDebugLog: (callback) => eventSubscriber.onDecodedPayload(
+                CORE_IPC_EVENT_CHANNELS.debugLog,
+                decodeDiagnosticsDebugLogEntry,
+                callback,
+            ),
+        },
+
         system: {
             ...systemIpc,
             onShutdownSaveFlushRequest: (callback) => {
@@ -632,7 +648,7 @@ export function createElectronApi(
                 windowTabsIpc.claimPendingExternalOpenPaths,
             ),
         },
-    } satisfies IElectronAPI;
+    } satisfies IElectronAPI & {diagnostics: IPreloadDiagnosticsApi;};
 
     return api;
 }
