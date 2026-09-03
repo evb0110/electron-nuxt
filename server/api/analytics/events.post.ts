@@ -23,6 +23,7 @@ import {
 import { readBoundedAnalyticsJsonBody } from '@server/utils/analyticsRequestBody';
 import { decodeViewerAnalyticsEventsBody } from '@server/utils/decodeViewerAnalyticsEventsBody';
 import { getRuntimeEnv } from '@server/utils/getRuntimeEnv';
+import {captureServerFailure} from '@server/utils/serverFailureReporter';
 
 export default defineEventHandler(async (event) => {
     setHeader(event, 'cache-control', 'no-store');
@@ -43,7 +44,15 @@ export default defineEventHandler(async (event) => {
     try {
         db = getOptionalAnalyticsDb(event);
     } catch (error) {
-        console.error('viewer analytics database initialization failed', error);
+        captureServerFailure({
+            code: 'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',
+            context: {},
+            local: {
+                source: 'viewer-analytics',
+                message: 'Viewer analytics database initialization failed',
+                cause: error,
+            },
+        }, event);
         return {
             ok: false,
             persisted: false,
@@ -95,7 +104,15 @@ export default defineEventHandler(async (event) => {
                 persisted: false,
             };
         }
-        console.error('viewer analytics insert failed', error);
+        captureServerFailure({
+            code: 'NITRO_ANALYTICS_INSERT_FAILED',
+            context: {},
+            local: {
+                source: 'viewer-analytics',
+                message: 'Viewer analytics insert failed',
+                cause: error,
+            },
+        }, event);
         return {
             ok: false,
             persisted: false,

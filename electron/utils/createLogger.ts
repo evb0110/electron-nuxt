@@ -28,7 +28,7 @@ import {
     type FailureSeverity,
 } from '@contracts/diagnostics/diagnosticRecord';
 import {
-    decodeFailureReceipt,
+    getFailureReceipt,
     type CaptureFailureInput,
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
@@ -473,11 +473,8 @@ function decodeLoggerFailureInput(value: unknown): ILoggerFailureInput | undefin
 }
 
 function getFailureReceiptFromCause(cause: unknown) {
-    if (typeof cause !== 'object' || cause === null) {
-        return undefined;
-    }
     try {
-        return decodeFailureReceipt((cause as {failure?: unknown}).failure) ?? undefined;
+        return getFailureReceipt(cause);
     } catch {
         return undefined;
     }

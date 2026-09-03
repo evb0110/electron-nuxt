@@ -84,6 +84,7 @@ function getPageVisualProps(pageNumber: number, hostOwnsSkeleton = false) {
         currentSearchResultIndex,
         documentLoadGeneration: runtime.loadGeneration,
         errorMessage: runtime.getVisualError(pageNumber),
+        errorPresentation: runtime.getVisualFailurePresentation(pageNumber),
         hostOwnsSkeleton,
         onSurfaceError: (surface: string, event: Event) => runtime.handleSurfaceError(pageNumber, surface, event),
         onSurfaceLoad: (surface: string, event: Event) => runtime.handleSurfaceLoad(pageNumber, surface, event),

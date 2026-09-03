@@ -2,8 +2,13 @@ import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    getFailureReceipt,
+    type ExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
 import { uniq } from 'es-toolkit/array';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { useAnalytics } from '@app/composables/useAnalytics';
 import type {
     IImageExportProgress,
@@ -46,10 +51,7 @@ type TExportSelectionResolution =
         kind: 'selection';
         selection: TPageSelection;
     }
-    | {
-        kind: 'refused';
-        selectedPageCount: number;
-    };
+    | {kind: 'refused'};
 
 export interface IWorkspaceExportOverlay {
     kind: 'images' | 'multipage-tiff';
@@ -75,6 +77,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     const analytics = useAnalytics();
     const { t } = useTypedI18n();
     const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     const {
         workingCopyPath,
         sourceKind = ref('pdf'),
@@ -201,19 +204,28 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         startExportOverlayResetTimer(kind, pageCount);
     }
 
-    function showImageExportFailureToast(description?: string) {
-        toast.add({
-            color: 'error',
-            title: t('errors.export.images'),
-            ...(description ? { description } : {}),
+    function showExportFailure(title: string, error: unknown) {
+        const failure = BrowserLogger.error(
+            'workspace-export',
+            'Document export failed',
+            error,
+            getFailureReceipt(error),
+        );
+        presentFailureToast({
+            failure,
+            title,
+            description: getErrorMessage(error),
         });
     }
 
-    function showFreshReadFailureToast() {
+    function showExportSelectionRefusalToast() {
+        BrowserLogger.warn('workspace-export', 'Export selection was rejected', {
+            kind: 'expected',
+            code: 'validation-rejected',
+        } satisfies ExpectedOutcome);
         toast.add({
-            color: 'error',
-            title: t('errors.export.images'),
-            description: t('errors.file.save'),
+            color: 'warning',
+            title: t('export.selectionTooLarge'),
         });
     }
 
@@ -232,22 +244,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             return {kind: 'all'};
         }
         if (selectedPageCount > EXPORT_SELECTION_MATERIALIZATION_LIMIT) {
-            return {
-                kind: 'refused',
-                selectedPageCount,
-            };
+            return {kind: 'refused'};
         }
         return {
             kind: 'selection',
             selection,
         };
-    }
-
-    function showExportSelectionRefusalToast() {
-        toast.add({
-            color: 'error',
-            title: t('export.selectionTooLarge'),
-        });
     }
 
     function getSelectedPageCount(pageNumbers?: number[]) {
@@ -294,7 +296,10 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         if (!result.success) {
             setExportOverlay(null);
             if (!result.canceled) {
-                showImageExportFailureToast();
+                const resultError = 'error' in result && typeof result.error === 'string'
+                    ? result.error
+                    : t('errors.export.images');
+                showExportFailure(t('errors.export.images'), resultError);
             }
             return;
         }
@@ -361,13 +366,9 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     function acceptRasterExportPreflight(
         identity: NonNullable<ReturnType<typeof captureExportIdentity>>,
         isFreshForRead: boolean,
-        showFreshReadFailure: () => void,
     ) {
         if (!isFreshForRead || !ownsExportSource(identity)) {
             setExportOverlay(null);
-            if (isFreshForRead === false && ownsExportSource(identity)) {
-                showFreshReadFailure();
-            }
             return false;
         }
         return true;
@@ -388,7 +389,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
 
     async function runRasterExport(
         pageNumbers: number[] | undefined,
-        showFreshReadFailure: () => void,
         task: (generation: number, selectedPageCount: number) => Promise<void>,
         handleFailure: (error: unknown) => void,
     ) {
@@ -406,7 +406,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
             const isFreshForRead = typeof preflight.isFreshForRead === 'boolean'
                 ? preflight.isFreshForRead
                 : await preflight.isFreshForRead;
-            if (!acceptRasterExportPreflight(preflight.identity, isFreshForRead, showFreshReadFailure)) {
+            if (!acceptRasterExportPreflight(preflight.identity, isFreshForRead)) {
                 return;
             }
             await task(generation, selectedPageCount);
@@ -426,7 +426,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     function runImageExport(pageNumbers?: number[]) {
         return runRasterExport(
             pageNumbers,
-            showFreshReadFailureToast,
             async (generation, selectedPageCount) => {
                 await runWithDocumentOperationLease('raster-export', async () => {
                     const identity = captureExportIdentity(generation);
@@ -467,8 +466,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                 });
             },
             (error) => {
-                BrowserLogger.error('workspace', 'export images failed', error);
-                showImageExportFailureToast(getErrorMessage(error));
+                showExportFailure(t('errors.export.images'), error);
             },
         );
     }
@@ -476,13 +474,6 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     function runMultiPageTiffExport(pageNumbers?: number[]) {
         return runRasterExport(
             pageNumbers,
-            () => {
-                toast.add({
-                    color: 'error',
-                    title: t('errors.export.multiPageTiff'),
-                    description: t('errors.file.save'),
-                });
-            },
             async (generation, selectedPageCount) => {
                 await runWithDocumentOperationLease('raster-export', async () => {
                     const identity = captureExportIdentity(generation);
@@ -525,16 +516,17 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                         showExportSuccess('multipage-tiff', selectedPageCount);
                     } else {
                         setExportOverlay(null);
+                        if (!result.canceled) {
+                            const resultError = 'error' in result && typeof result.error === 'string'
+                                ? result.error
+                                : t('errors.export.multiPageTiff');
+                            showExportFailure(t('errors.export.multiPageTiff'), resultError);
+                        }
                     }
                 });
             },
             (error) => {
-                BrowserLogger.error('workspace', 'export multi-page tiff failed', error);
-                toast.add({
-                    color: 'error',
-                    title: t('errors.export.multiPageTiff'),
-                    description: getErrorMessage(error),
-                });
+                showExportFailure(t('errors.export.multiPageTiff'), error);
             },
         );
     }
@@ -557,10 +549,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
         const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
         if (pageNumbers === null) {
-            toast.add({
-                color: 'error',
-                title: t('export.selectionTooLarge'),
-            });
+            showExportSelectionRefusalToast();
             return;
         }
         await runImageExport(pageNumbers);
@@ -584,10 +573,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         }
         const pageNumbers = selection === undefined ? undefined : resolveExportPageNumbers(selection);
         if (pageNumbers === null) {
-            toast.add({
-                color: 'error',
-                title: t('export.selectionTooLarge'),
-            });
+            showExportSelectionRefusalToast();
             return;
         }
         await runMultiPageTiffExport(pageNumbers);

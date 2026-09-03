@@ -72,7 +72,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         workingCopyPath,
         isDjvuMode,
         djvuSourcePath,
-        pdfError,
         currentPage,
         totalPages,
         pdfDocument,
@@ -104,12 +103,6 @@ export const useDocumentTransitions = (deps: IDocumentTransitionDeps) => {
         hasPendingProgrammaticPageNavigation,
         clearProgrammaticPageNavigation,
     } = deps;
-
-    watch(pdfError, (err: unknown) => {
-        if (err) {
-            BrowserLogger.error('pdf', 'PDF Error', err);
-        }
-    });
 
     watch(
         () => [

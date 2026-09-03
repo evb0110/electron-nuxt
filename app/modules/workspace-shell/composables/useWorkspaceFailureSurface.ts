@@ -1,5 +1,13 @@
-import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/public';
+import type {
+    IAnnotationCreationFailureReport,
+    TAnnotationCreationFailureReason,
+} from '@app/modules/pdf-viewer/public';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    useFailureToast,
+    type FailurePresentation,
+} from '@app/composables/useFailureToast';
 
 /**
  * One place where workspace operations that failed become visible.
@@ -27,41 +35,31 @@ export type TWorkspaceSaveFailureReason =
 export const useWorkspaceFailureSurface = () => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     const hasSaveFailureState = ref(false);
+    const saveFailurePresentation = shallowRef<FailurePresentation | null>(null);
     // Only the operation reported last per domain, so a long session of failed
     // attempts cannot accumulate ids nothing will ever read again.
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
 
-    /**
-     * Shows the toast unless this operation already produced one. A low-level
-     * failure and the service result that follows it share one operation id,
-     * so the user sees one toast for one failed action.
-     */
-    function toastOnce(failure: {
+    function isDuplicateFailure(failure: {
         domain: TWorkspaceFailureDomain;
         operationId: string;
-        title: string;
-        description: string | null;
     }) {
         if (lastReportedOperationIds.get(failure.domain) === failure.operationId) {
             BrowserLogger.debug('workspace', 'Suppressed duplicate workspace failure toast', {
                 domain: failure.domain,
                 operationId: failure.operationId,
             });
-            return false;
+            return true;
         }
-        lastReportedOperationIds.set(failure.domain, failure.operationId);
-        toast.add({
-            color: 'error',
-            title: failure.title,
-            ...(failure.description ? {description: failure.description} : {}),
-        });
-        return true;
+        return false;
     }
 
     function clearSaveFailure() {
         lastReportedOperationIds.delete('save');
         hasSaveFailureState.value = false;
+        saveFailurePresentation.value = null;
     }
 
     function describeSaveFailure(reason: TWorkspaceSaveFailureReason) {
@@ -84,18 +82,38 @@ export const useWorkspaceFailureSurface = () => {
         operationId: string,
         reason: TWorkspaceSaveFailureReason,
         detail?: string | null,
+        existingReceipt?: FailureReceipt,
     ) {
+        if (isDuplicateFailure({
+            domain: 'save',
+            operationId,
+        })) {
+            return false;
+        }
+        const description = detail ?? describeSaveFailure(reason);
+        const receipt = existingReceipt ?? BrowserLogger.error(
+            'workspace',
+            'Workspace save failed',
+            {
+                operationId,
+                reason,
+                detail: description,
+            },
+        );
+        const presentation: FailurePresentation = {
+            failure: receipt,
+            title: t('errors.file.save'),
+            description,
+        };
+        lastReportedOperationIds.set('save', operationId);
+        saveFailurePresentation.value = presentation;
         // A save that lost its target says nothing about the document now on
         // screen, so it is told once and not kept.
         if (reason !== 'document-changed') {
             hasSaveFailureState.value = true;
         }
-        return toastOnce({
-            domain: 'save',
-            operationId,
-            title: t('errors.file.save'),
-            description: detail ?? describeSaveFailure(reason),
-        });
+        presentFailureToast(presentation);
+        return true;
     }
 
     /**
@@ -125,25 +143,40 @@ export const useWorkspaceFailureSurface = () => {
         }
     }
 
-    function reportAnnotationFailure(failure: {
-        operationId: string;
-        reason: TAnnotationCreationFailureReason;
-    }) {
+    function reportAnnotationFailure(failure: IAnnotationCreationFailureReport) {
         const described = describeAnnotationFailure(failure.reason);
         if (!described) {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
-        return toastOnce({
+        if (isDuplicateFailure({
             domain: 'annotation',
             operationId: failure.operationId,
+        })) {
+            return false;
+        }
+        lastReportedOperationIds.set('annotation', failure.operationId);
+        if (failure.kind === 'expected') {
+            BrowserLogger.warn('annotations', 'Annotation creation ended with an expected outcome', failure.outcome);
+            toast.add({
+                color: 'warning',
+                title: t('errors.annotation.create'),
+                ...(described.description ? {description: described.description} : {}),
+            });
+            return true;
+        }
+        presentFailureToast({
+            failure: failure.failure,
             title: t('errors.annotation.create'),
-            description: described.description,
+            ...(described.description ? {description: described.description} : {}),
         });
+        return true;
     }
 
     return {
         hasSaveFailure: computed(() => hasSaveFailureState.value),
+        saveFailurePresentation,
+        getLastFailurePresentation: () => saveFailurePresentation.value,
         clearSaveFailure,
         reportSaveFailure,
         reportAnnotationFailure,

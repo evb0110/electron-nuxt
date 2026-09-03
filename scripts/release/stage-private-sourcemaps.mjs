@@ -229,7 +229,17 @@ function isVirtualSource(source) {
         || source.startsWith('virtual:')
         || source.startsWith('data:')
         || source.startsWith('http://')
-        || source.startsWith('https://');
+        || source.startsWith('https://')
+        || source.startsWith('webpack:')
+        || source.startsWith('vite:')
+        || /^<[^>\r\n]+>$/u.test(source);
+}
+
+function privateProjectSource(relativePath) {
+    return relativePath === null
+        || relativePath.split('/').includes('node_modules')
+        ? null
+        : relativePath;
 }
 
 function resolveMapSource(projectRoot, mapPath, sourceRoot, source) {
@@ -253,13 +263,15 @@ function resolveMapSource(projectRoot, mapPath, sourceRoot, source) {
         }
     } else if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(sourcePath)) {
         sourcePath = sourcePath.replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u, '').replace(/^\/+/, '');
-        return relativeProjectPath(projectRoot, path.resolve(projectRoot, sourcePath));
+        return privateProjectSource(
+            relativeProjectPath(projectRoot, path.resolve(projectRoot, sourcePath)),
+        );
     }
 
     const absolutePath = path.isAbsolute(sourcePath)
         ? path.resolve(sourcePath)
         : path.resolve(path.dirname(mapPath), sourcePath);
-    return relativeProjectPath(projectRoot, absolutePath);
+    return privateProjectSource(relativeProjectPath(projectRoot, absolutePath));
 }
 
 function assertSourceMapPayload(payload, mapRelativePath) {

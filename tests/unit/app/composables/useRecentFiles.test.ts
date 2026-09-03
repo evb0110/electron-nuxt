@@ -240,7 +240,7 @@ describe('useRecentFiles', () => {
         expect(electronRecentFilesRemoveIfMissing).toHaveBeenCalledWith(file.originalPath);
         expect(recentFiles.value).toEqual([]);
         expect(toastAdd).toHaveBeenCalledWith({
-            color: 'error',
+            color: 'warning',
             title: 'errors.recent.notFoundTitle',
             description: 'errors.recent.notFoundDescription:{"name":"missing.pdf"}',
         });

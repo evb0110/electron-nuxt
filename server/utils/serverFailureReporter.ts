@@ -1,3 +1,4 @@
+import type {H3Event} from 'h3';
 import {
     decodeDiagnosticContext,
     DIAGNOSTIC_DEFINITIONS,
@@ -22,6 +23,7 @@ import {
 import type {
     CaptureFailureInput,
     FailureReceipt,
+    LocalFailureDetail,
 } from '@contracts/diagnostics/failureReceipt';
 import {
     normalizeCanonicalApplicationFrames,
@@ -31,10 +33,12 @@ import {
     decodeDiagnosticsSuppressedCount,
     DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
 } from '@contracts/diagnostics/diagnosticsCapability';
+import {hasDiagnosticsServerObjection} from '@server/utils/diagnosticsObjection';
+import {createSentryNitroAdapter} from '@server/utils/sentryNitroAdapter';
 
-export type TMainDiagnosticsPreference = 'unknown' | 'granted' | 'denied';
+export type TServerDiagnosticsMode = 'disabled' | 'enabled';
 
-export type TMainDiagnosticsDropReason =
+export type TServerDiagnosticsDropReason =
     | 'policy-dropped'
     | 'duplicate'
     | 'burst-suppressed'
@@ -42,8 +46,8 @@ export type TMainDiagnosticsDropReason =
     | 'frameless-dropped'
     | 'transport-failed';
 
-export interface IMainDiagnosticsHealthSnapshot {
-    mode: TMainDiagnosticsPreference;
+export interface IServerDiagnosticsHealthSnapshot {
+    mode: TServerDiagnosticsMode;
     initializationCount: number;
     attempted: number;
     accepted: number;
@@ -54,59 +58,55 @@ export interface IMainDiagnosticsHealthSnapshot {
     framelessDropped: number;
     ownedProjection: number;
     transportFailed: number;
-    lastDropReason: TMainDiagnosticsDropReason | null;
+    lastDropReason: TServerDiagnosticsDropReason | null;
 }
 
-export interface IMainDiagnosticsTransport {
-    isReady?: boolean | (() => boolean);
-    send?: (record: DiagnosticRecord, suppressedCount?: number) => unknown;
-    capture?: (record: DiagnosticRecord, suppressedCount?: number) => unknown;
+export interface IServerDiagnosticsTransport {
+    readonly isReady?: boolean | (() => boolean);
+    readonly send?: (record: DiagnosticRecord, suppressedCount?: number) => unknown;
+    readonly capture?: (record: DiagnosticRecord, suppressedCount?: number) => unknown;
 }
 
-export interface IMainFailureReporter {
-    capture<C extends DiagnosticCode>(input: CaptureFailureInput<C>): FailureReceipt;
-    captureRecord(value: unknown, inheritedSuppressedCount?: unknown): FailureReceipt;
-    getHealthSnapshot(): IMainDiagnosticsHealthSnapshot;
-    getPreference(): TMainDiagnosticsPreference;
-    getGeneration(): number;
+export interface IServerFailureReporter {
+    capture<C extends DiagnosticCode>(
+        input: CaptureFailureInput<C>,
+        event?: H3Event,
+    ): FailureReceipt;
+    captureUncaught(error: unknown, event?: H3Event): FailureReceipt | undefined;
+    captureRecord(
+        value: unknown,
+        inheritedSuppressedCount?: unknown,
+        event?: H3Event,
+    ): FailureReceipt;
+    getHealthSnapshot(): IServerDiagnosticsHealthSnapshot;
     isTransportReady(): boolean;
-    setTransport(transport: IMainDiagnosticsTransport): void;
-    setPreference(preference: unknown): void;
 }
 
-export interface IMainFailureReporterOptions {
-    adapter?: IMainDiagnosticsTransport;
-    burstLimit?: number;
-    burstWindowMs?: number;
-    createEventId?: () => DiagnosticEventId;
-    now?: () => number;
-    preference?: unknown;
-    recentIdWindowMs?: number;
-    transport?: IMainDiagnosticsTransport;
-    onPreferenceGranted?: () => void;
+export interface IServerFailureReporterOptions {
+    readonly adapter?: IServerDiagnosticsTransport;
+    readonly burstLimit?: number;
+    readonly burstWindowMs?: number;
+    readonly createEventId?: () => DiagnosticEventId;
+    readonly localSink?: (detail: LocalFailureDetail) => void;
+    readonly now?: () => number;
+    readonly recentIdWindowMs?: number;
+    readonly transport?: IServerDiagnosticsTransport;
 }
 
-export const MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
-export const MAIN_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
-export const MAIN_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS = 60_000;
-export const MAIN_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS = 10 * 60_000;
+export const SERVER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
+export const SERVER_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
+export const SERVER_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS = 60_000;
+export const SERVER_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS = 10 * 60_000;
 
-const MAIN_DIAGNOSTICS_RUNTIME: DiagnosticRuntime = 'electron-main';
-const MAIN_DIAGNOSTICS_MAX_RECENT_IDS = 4_096;
-const MAIN_DIAGNOSTICS_MAX_BURST_KEYS = 1_024;
-const MAIN_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES = [
-    'electron/features/diagnostics/mainFailureReporter.ts',
-    'electron/utils/createLogger.ts',
+const SERVER_DIAGNOSTICS_RUNTIME: DiagnosticRuntime = 'viewer-nitro';
+const SERVER_DIAGNOSTICS_MAX_RECENT_IDS = 4_096;
+const SERVER_DIAGNOSTICS_MAX_BURST_KEYS = 1_024;
+const SERVER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES = [
+    'server/plugins/diagnostics.ts',
+    'server/utils/diagnosticsObjection.ts',
+    'server/utils/serverFailureReporter.ts',
+    'server/utils/sentryNitroAdapter.ts',
 ] as const;
-
-const NOOP_MAIN_DIAGNOSTICS_TRANSPORT: IMainDiagnosticsTransport = Object.freeze({
-    isReady: true,
-    send: () => undefined,
-});
-const DROPPED_MAIN_DIAGNOSTICS_TRANSPORT: IMainDiagnosticsTransport = Object.freeze({
-    isReady: false,
-    send: () => false,
-});
 
 interface IBurstState {
     sentCount: number;
@@ -120,14 +120,15 @@ interface IBurstDecision {
     suppressedCount: number;
 }
 
-interface IHealthState extends IMainDiagnosticsHealthSnapshot {}
+interface IHealthState extends IServerDiagnosticsHealthSnapshot {}
+
+interface IProcessResult {
+    readonly policyDropped: boolean;
+    readonly receipt: FailureReceipt;
+}
 
 let fallbackEventIdCounter = 0;
-let mainFailureReporter: IMainFailureReporter | null = null;
-
-function normalizePreference(value: unknown): TMainDiagnosticsPreference {
-    return value === 'granted' || value === 'denied' ? value : 'unknown';
-}
+let serverFailureReporter: IServerFailureReporter | null = null;
 
 function normalizePositiveInteger(value: unknown, fallback: number) {
     return typeof value === 'number'
@@ -147,13 +148,15 @@ function incrementBy(value: number, amount: number) {
     if (!Number.isSafeInteger(amount) || amount <= 0) {
         return value;
     }
-    return value >= Number.MAX_SAFE_INTEGER - amount ? Number.MAX_SAFE_INTEGER : value + amount;
+    return value >= Number.MAX_SAFE_INTEGER - amount
+        ? Number.MAX_SAFE_INTEGER
+        : value + amount;
 }
 
 function addSuppressedCounts(...counts: readonly number[]) {
     let total = 0;
     for (const count of counts) {
-        total = Math.min(MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT, total + count);
+        total = Math.min(SERVER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT, total + count);
     }
     return total;
 }
@@ -200,7 +203,7 @@ function readStack(value: unknown): string | undefined {
         return undefined;
     }
     try {
-        const stack = (value as {stack?: unknown}).stack;
+        const stack = (value as {readonly stack?: unknown}).stack;
         return typeof stack === 'string' ? stack : undefined;
     } catch {
         return undefined;
@@ -216,7 +219,7 @@ function captureCallSiteStack() {
 }
 
 function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
-    return frames.filter(frame => !MAIN_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES.some(suffix => (
+    return frames.filter(frame => !SERVER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES.some(suffix => (
         frame.module === suffix || frame.module.endsWith(`/${suffix}`)
     )));
 }
@@ -241,6 +244,7 @@ function buildClosedRecord(
     input: CaptureFailureInput,
     eventId: DiagnosticEventId,
     occurredAt: number,
+    stackPolicyOverride?: DiagnosticStackPolicy,
 ): DiagnosticRecord {
     let code: DiagnosticCode = 'UNCLASSIFIED_MAIN_ERROR';
     let severity: FailureSeverity = DIAGNOSTIC_DEFINITIONS.UNCLASSIFIED_MAIN_ERROR.defaultSeverity;
@@ -260,7 +264,7 @@ function buildClosedRecord(
             ? input.operation
             : definition.operation;
         context = decodeDiagnosticContext(code, input.context) ?? fallbackContext(code);
-        frames = buildFrames(input, definition.stackPolicy);
+        frames = buildFrames(input, stackPolicyOverride ?? definition.stackPolicy);
     } catch {
         // The logger is a last-resort failure path. The fallback below remains closed.
     }
@@ -270,7 +274,7 @@ function buildClosedRecord(
         eventId,
         code,
         severity,
-        runtime: MAIN_DIAGNOSTICS_RUNTIME,
+        runtime: SERVER_DIAGNOSTICS_RUNTIME,
         operation,
         occurredAt,
         frames,
@@ -285,7 +289,7 @@ function buildClosedRecord(
         eventId,
         code: 'UNCLASSIFIED_MAIN_ERROR',
         severity: 'error',
-        runtime: MAIN_DIAGNOSTICS_RUNTIME,
+        runtime: SERVER_DIAGNOSTICS_RUNTIME,
         operation: 'main-error',
         occurredAt,
         frames: [],
@@ -319,9 +323,9 @@ function getBurstKey(record: DiagnosticRecord) {
     return `${record.code}|${getTopFrameKey(record)}`;
 }
 
-function createHealthState(preference: TMainDiagnosticsPreference): IHealthState {
+function createHealthState(mode: TServerDiagnosticsMode): IHealthState {
     return {
-        mode: preference,
+        mode,
         initializationCount: 1,
         attempted: 0,
         accepted: 0,
@@ -336,7 +340,7 @@ function createHealthState(preference: TMainDiagnosticsPreference): IHealthState
     };
 }
 
-function serializeHealthState(state: IHealthState): IMainDiagnosticsHealthSnapshot {
+function serializeHealthState(state: IHealthState): IServerDiagnosticsHealthSnapshot {
     return Object.freeze({
         mode: state.mode,
         initializationCount: state.initializationCount,
@@ -353,38 +357,90 @@ function serializeHealthState(state: IHealthState): IMainDiagnosticsHealthSnapsh
     });
 }
 
-export function createNoopMainDiagnosticsTransport() {
-    return NOOP_MAIN_DIAGNOSTICS_TRANSPORT;
+function readStatusCode(value: unknown): number | undefined {
+    if (typeof value !== 'object' || value === null) {
+        return undefined;
+    }
+    try {
+        const statusCode = (value as {readonly statusCode?: unknown}).statusCode;
+        return typeof statusCode === 'number'
+            && Number.isSafeInteger(statusCode)
+            ? statusCode
+            : undefined;
+    } catch {
+        return undefined;
+    }
 }
 
-export function createMainFailureReporter(
-    options: IMainFailureReporterOptions = {},
-): IMainFailureReporter {
+function isExpectedHttpOutcome(value: unknown) {
+    const statusCode = readStatusCode(value);
+    return statusCode !== undefined && statusCode >= 100 && statusCode < 500;
+}
+
+function readCauseObject(input: CaptureFailureInput): object | undefined {
+    try {
+        const cause = input.local?.cause;
+        return typeof cause === 'object' && cause !== null
+            || typeof cause === 'function'
+            ? cause
+            : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function readObjection(event: H3Event | undefined) {
+    if (event === undefined) {
+        return false;
+    }
+    try {
+        return hasDiagnosticsServerObjection(event);
+    } catch {
+        // An unavailable objection reader must fail closed.
+        return true;
+    }
+}
+
+function safeLocalSink(
+    localSink: ((detail: LocalFailureDetail) => void) | undefined,
+    input: CaptureFailureInput,
+) {
+    if (localSink === undefined) {
+        return;
+    }
+    try {
+        localSink(input.local);
+    } catch {
+        // Local diagnostics must not change the server response or reporter path.
+    }
+}
+
+export function createServerFailureReporter(
+    options: IServerFailureReporterOptions = {},
+): IServerFailureReporter {
     const now = options.now ?? Date.now;
     const createEventId = options.createEventId ?? createDiagnosticEventId;
     const burstLimit = normalizePositiveInteger(
         options.burstLimit,
-        MAIN_DIAGNOSTICS_DEFAULT_BURST_LIMIT,
+        SERVER_DIAGNOSTICS_DEFAULT_BURST_LIMIT,
     );
     const burstWindowMs = normalizePositiveInteger(
         options.burstWindowMs,
-        MAIN_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS,
+        SERVER_DIAGNOSTICS_DEFAULT_BURST_WINDOW_MS,
     );
     const recentIdWindowMs = normalizePositiveInteger(
         options.recentIdWindowMs,
-        MAIN_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS,
+        SERVER_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS,
     );
-    let transport = options.transport ?? options.adapter ?? NOOP_MAIN_DIAGNOSTICS_TRANSPORT;
-    let preference = normalizePreference(options.preference);
-    const health = createHealthState(preference);
-    let generation = 0;
-    let liveTransport = preference === 'granted'
-        ? transport
-        : DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
+    const transport: IServerDiagnosticsTransport = options.transport
+        ?? options.adapter
+        ?? createSentryNitroAdapter();
+    const health = createHealthState(readTransportReady(transport) ? 'enabled' : 'disabled');
     const recentIds = new Map<DiagnosticEventId, number>();
     const burstStates = new Map<string, IBurstState>();
+    const ownedFailures = new WeakMap<object, FailureReceipt>();
 
-    function setDropReason(reason: TMainDiagnosticsDropReason) {
+    function setDropReason(reason: TServerDiagnosticsDropReason) {
         health.lastDropReason = reason;
     }
 
@@ -397,7 +453,7 @@ export function createMainFailureReporter(
                 recentIds.delete(eventId);
             }
         }
-        while (recentIds.size > MAIN_DIAGNOSTICS_MAX_RECENT_IDS) {
+        while (recentIds.size > SERVER_DIAGNOSTICS_MAX_RECENT_IDS) {
             const oldestEventId = recentIds.keys().next().value;
             if (oldestEventId === undefined) {
                 break;
@@ -407,7 +463,7 @@ export function createMainFailureReporter(
     }
 
     function pruneBurstStates() {
-        while (burstStates.size > MAIN_DIAGNOSTICS_MAX_BURST_KEYS) {
+        while (burstStates.size > SERVER_DIAGNOSTICS_MAX_BURST_KEYS) {
             const oldestKey = burstStates.keys().next().value;
             if (oldestKey === undefined) {
                 break;
@@ -416,30 +472,19 @@ export function createMainFailureReporter(
         }
     }
 
-    function readTransportReady() {
-        try {
-            if (typeof liveTransport.isReady === 'function') {
-                return liveTransport.isReady() === true;
-            }
-            if (typeof liveTransport.isReady === 'boolean') {
-                return liveTransport.isReady;
-            }
-            return typeof liveTransport.send === 'function' || typeof liveTransport.capture === 'function';
-        } catch {
-            return false;
-        }
+    function readLiveTransportReady() {
+        return readTransportReady(transport);
     }
 
     function sendToTransport(record: DiagnosticRecord, suppressedCount: number): unknown {
         try {
-            const sender = liveTransport.send ?? liveTransport.capture;
-            if (!sender) {
+            const sender = transport.send ?? transport.capture;
+            if (sender === undefined) {
                 return false;
             }
-            const result = suppressedCount > 0
+            return suppressedCount > 0
                 ? sender(record, suppressedCount)
                 : sender(record);
-            return result;
         } catch {
             return false;
         }
@@ -450,22 +495,13 @@ export function createMainFailureReporter(
         setDropReason('transport-failed');
     }
 
-    function reportTransportResult(
-        result: unknown,
-        generationAtAdmission: number,
-    ) {
-        const isCurrent = () => generationAtAdmission === generation
-            && preference === 'granted'
-            && liveTransport !== DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
+    function reportTransportResult(result: unknown) {
         try {
             if (
                 result === null
                 || (typeof result !== 'object' && typeof result !== 'function')
-                || typeof (result as {then?: unknown}).then !== 'function'
+                || typeof (result as {readonly then?: unknown}).then !== 'function'
             ) {
-                if (!isCurrent()) {
-                    return;
-                }
                 if (result === false) {
                     reportTransportFailure();
                 } else {
@@ -474,10 +510,7 @@ export function createMainFailureReporter(
                 return;
             }
             void Promise.resolve<unknown>(result).then(
-                (resolved: unknown) => {
-                    if (!isCurrent()) {
-                        return;
-                    }
+                resolved => {
                     if (resolved === false) {
                         reportTransportFailure();
                     } else {
@@ -485,15 +518,11 @@ export function createMainFailureReporter(
                     }
                 },
                 () => {
-                    if (isCurrent()) {
-                        reportTransportFailure();
-                    }
+                    reportTransportFailure();
                 },
             );
         } catch {
-            if (isCurrent()) {
-                reportTransportFailure();
-            }
+            reportTransportFailure();
         }
     }
 
@@ -516,7 +545,7 @@ export function createMainFailureReporter(
                 send: true,
                 suppressedCount: Math.min(
                     previous?.suppressedCount ?? 0,
-                    MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+                    SERVER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
                 ),
             };
         }
@@ -556,16 +585,22 @@ export function createMainFailureReporter(
         pruneRecentIds(currentTime);
     }
 
-    function processRecord(record: DiagnosticRecord, inheritedSuppressedCount = 0): FailureReceipt {
+    function processRecord(
+        record: DiagnosticRecord,
+        inheritedSuppressedCount: number,
+        objecting: boolean,
+    ): IProcessResult {
         const receipt = createReceipt(record);
         health.attempted = increment(health.attempted);
 
-        // Policy must run before either dedupe set is touched. A later grant may
-        // retry this exact event ID once without losing the occurrence.
-        if (preference !== 'granted') {
+        // The objection check runs before recent-ID or burst admission.
+        if (objecting || !readLiveTransportReady()) {
             health.policyDropped = increment(health.policyDropped);
             setDropReason('policy-dropped');
-            return receipt;
+            return {
+                policyDropped: true,
+                receipt,
+            };
         }
 
         const currentTime = safeNow(now);
@@ -573,72 +608,110 @@ export function createMainFailureReporter(
         if (recentIds.has(record.eventId)) {
             health.duplicate = increment(health.duplicate);
             setDropReason('duplicate');
-            return receipt;
-        }
-
-        if (!readTransportReady()) {
-            reportTransportFailure();
-            return receipt;
+            return {
+                policyDropped: false,
+                receipt,
+            };
         }
 
         const decision = decideBurst(record, currentTime, inheritedSuppressedCount);
         if (!decision.send) {
-            return receipt;
+            return {
+                policyDropped: false,
+                receipt,
+            };
         }
 
         const suppressedCount = addSuppressedCounts(
             decision.suppressedCount,
             inheritedSuppressedCount,
         );
-        const generationAtAdmission = generation;
         reserveAdmission(record, currentTime, decision);
-        reportTransportResult(
-            sendToTransport(record, suppressedCount),
-            generationAtAdmission,
-        );
-        return receipt;
+        reportTransportResult(sendToTransport(record, suppressedCount));
+        return {
+            policyDropped: false,
+            receipt,
+        };
     }
 
-    function applyPreference(value: unknown) {
-        const nextPreference = normalizePreference(value);
-        if (nextPreference !== 'granted') {
-            // The drop transport is installed before the generation changes so
-            // no later asynchronous work can use the old live path.
-            liveTransport = DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
-            if (preference !== nextPreference) {
-                generation = increment(generation);
+    function captureInput(
+        input: CaptureFailureInput,
+        event: H3Event | undefined,
+        stackPolicyOverride?: DiagnosticStackPolicy,
+    ): FailureReceipt {
+        const objecting = readObjection(event);
+        const causeObject = readCauseObject(input);
+        if (!objecting && causeObject !== undefined) {
+            const existingReceipt = ownedFailures.get(causeObject);
+            if (existingReceipt !== undefined) {
+                return existingReceipt;
             }
-        } else {
-            liveTransport = transport;
         }
-        preference = nextPreference;
-        health.mode = nextPreference;
+
+        safeLocalSink(options.localSink, input);
+        let record: DiagnosticRecord;
+        try {
+            record = buildClosedRecord(
+                input,
+                createSafeEventId(createEventId),
+                safeNow(now),
+                stackPolicyOverride,
+            );
+        } catch {
+            record = buildClosedRecord(
+                {} as CaptureFailureInput,
+                createFallbackEventId(),
+                safeNow(now),
+                stackPolicyOverride,
+            );
+        }
+
+        const result = processRecord(record, 0, objecting);
+        if (!result.policyDropped && causeObject !== undefined) {
+            ownedFailures.set(causeObject, result.receipt);
+        }
+        return result.receipt;
     }
 
-    const reporter: IMainFailureReporter = {
-        capture: <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => {
+    const reporter: IServerFailureReporter = {
+        capture: (input, event) => {
             try {
-                const record = buildClosedRecord(
-                    input,
-                    createSafeEventId(createEventId),
-                    safeNow(now),
-                );
-                return processRecord(record);
+                return captureInput(input, event);
             } catch {
-                const record = buildClosedRecord(
-                    {} as CaptureFailureInput,
-                    createFallbackEventId(),
-                    safeNow(now),
-                );
-                return processRecord(record);
+                return captureInput({
+                    code: 'UNCLASSIFIED_MAIN_ERROR',
+                    context: {},
+                    local: {
+                        source: 'nitro-failure-reporter',
+                        message: 'Unhandled Nitro server failure',
+                    },
+                }, event);
             }
         },
-        captureRecord: (value, inheritedSuppressedCount) => {
+        captureUncaught: (error, event) => {
+            if (isExpectedHttpOutcome(error)) {
+                return undefined;
+            }
+            return captureInput({
+                code: 'UNCLASSIFIED_MAIN_ERROR',
+                context: {},
+                local: {
+                    source: 'nitro-error-hook',
+                    message: 'Unhandled Nitro server error',
+                    cause: error,
+                },
+            }, event, 'source');
+        },
+        captureRecord: (value, inheritedSuppressedCount, event) => {
             try {
                 const record = decodeDiagnosticRecord(value);
                 const decodedSuppressedCount = decodeDiagnosticsSuppressedCount(inheritedSuppressedCount);
-                if (record !== null && decodedSuppressedCount !== null) {
-                    return processRecord(record, decodedSuppressedCount);
+                if (
+                    record !== null
+                    && record.runtime === SERVER_DIAGNOSTICS_RUNTIME
+                    && decodedSuppressedCount !== null
+                ) {
+                    return processRecord(record, decodedSuppressedCount, readObjection(event)).receipt;
                 }
                 if (record !== null) {
                     health.attempted = increment(health.attempted);
@@ -661,50 +734,45 @@ export function createMainFailureReporter(
             return createReceipt(fallbackRecord);
         },
         getHealthSnapshot: () => serializeHealthState(health),
-        getPreference: () => preference,
-        getGeneration: () => generation,
-        isTransportReady: readTransportReady,
-        setTransport: (nextTransport) => {
-            transport = nextTransport;
-            if (preference === 'granted') {
-                generation = increment(generation);
-                liveTransport = nextTransport;
-            }
-        },
-        setPreference: (value) => {
-            const wasGranted = preference === 'granted';
-            applyPreference(value);
-            if (!wasGranted && preference === 'granted') {
-                try {
-                    options.onPreferenceGranted?.();
-                } catch {
-                    // Adapter loading is best effort and must not affect app state.
-                }
-            }
-        },
+        isTransportReady: readLiveTransportReady,
     };
 
     return reporter;
 }
 
-export function initializeMainFailureReporter(
-    options: IMainFailureReporterOptions = {},
+export const createViewerNitroFailureReporter = createServerFailureReporter;
+
+export function initializeServerFailureReporter(
+    options: IServerFailureReporterOptions = {},
 ) {
-    if (mainFailureReporter) {
-        return mainFailureReporter;
+    if (serverFailureReporter) {
+        return serverFailureReporter;
     }
-    mainFailureReporter = createMainFailureReporter(options);
-    return mainFailureReporter;
+    serverFailureReporter = createServerFailureReporter(options);
+    return serverFailureReporter;
 }
 
-export function getMainFailureReporter() {
-    return mainFailureReporter;
+export function getServerFailureReporter() {
+    return serverFailureReporter;
 }
 
-export function captureMainFailure<C extends DiagnosticCode>(input: CaptureFailureInput<C>) {
-    return mainFailureReporter?.capture(input);
+export function captureServerFailure<C extends DiagnosticCode>(
+    input: CaptureFailureInput<C>,
+    event?: H3Event,
+) {
+    return serverFailureReporter?.capture(input, event);
 }
 
-export function setMainDiagnosticsPreference(preference: unknown) {
-    mainFailureReporter?.setPreference(preference);
+function readTransportReady(transport: IServerDiagnosticsTransport) {
+    try {
+        if (typeof transport.isReady === 'function') {
+            return transport.isReady() === true;
+        }
+        if (typeof transport.isReady === 'boolean') {
+            return transport.isReady;
+        }
+        return typeof transport.send === 'function' || typeof transport.capture === 'function';
+    } catch {
+        return false;
+    }
 }
