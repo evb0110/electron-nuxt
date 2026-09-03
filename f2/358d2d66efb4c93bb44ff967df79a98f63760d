@@ -1,0 +1,37 @@
+tests/unit/scripts/packageScripts.test.ts
+  s_c57729f2c66bed::t_2303adbe6029f0 178
+.fallowrc.json
+  s_c57729f2c66bed::t_9cfa1697199633 33-35,41
+tests/unit/architecture/xlargeDocumentPathArchitecture.test.ts
+  s_c57729f2c66bed::t_9cfa1697199633 213-222
+electron/platform-ipc/rendererDiagnosticBridge.ts
+  s_c57729f2c66bed::t_554409a8a7cba1 7,9,11,14
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_c57729f2c66bed::t_2303adbe6029f0 25
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_c57729f2c66bed::t_7924b49e70f0ef 149
+electron/preload/installDebugLogListener.ts
+  s_c57729f2c66bed::t_554409a8a7cba1 7
+app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationSessionHelpers.ts
+  s_c57729f2c66bed::t_9cfa1697199633 7,48
+app/modules/workspace-shell/composables/file-operations/unencryptedSaveNoticeGate.ts
+  s_c57729f2c66bed::t_9cfa1697199633 49-53
+electron/platform-ipc/coreContract.ts
+  s_c57729f2c66bed::t_554409a8a7cba1 35,39,44,46,74
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f2358d2d66efb4c93bb44ff967df79a98f63760d",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
