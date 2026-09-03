@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import type { ref } from 'vue';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import { parseDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import {
     createDebugLogRuntimeErrorPresentation,
     isUiReportableDebugLog,
@@ -44,19 +45,25 @@ function logEntry(
     level: NonNullable<IDebugLogEntry['level']>,
     message: string,
 ): IDebugLogEntry {
-    const failureRef = level === 'ERROR'
-        ? {
-            eventId: (source === 'working-copy' ? 'b' : 'a').repeat(32) as never,
-            code: 'UNCLASSIFIED_MAIN_ERROR' as const,
-            severity: 'error' as const,
-        }
-        : undefined;
-    return {
+    const base = {
         source,
         message: `[${level}] ${message}`,
         timestamp: '2026-08-23T08:57:36.046Z',
+    };
+    if (level === 'ERROR') {
+        return {
+            ...base,
+            level,
+            failureRef: {
+                eventId: parseDiagnosticEventId((source === 'working-copy' ? 'b' : 'a').repeat(32))!,
+                code: 'UNCLASSIFIED_MAIN_ERROR',
+                severity: 'error',
+            },
+        };
+    }
+    return {
+        ...base,
         level,
-        ...(failureRef ? {failureRef} : {}),
     };
 }
 

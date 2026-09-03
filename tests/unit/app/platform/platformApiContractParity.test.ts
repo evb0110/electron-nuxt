@@ -5,10 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    PLATFORM_API_DESCRIPTOR,
-    type IPlatformApi,
-} from '@contracts/platformApi';
+import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import { browserPlatformApi } from '@app/platform/browserPlatformApi';
 import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
 import {
@@ -58,7 +55,7 @@ function collectCallablePaths(
 }
 
 function expectCallablePathParity(
-    api: IPlatformApi,
+    api: unknown,
     expectedPaths: ReadonlyArray<readonly string[]>,
 ) {
     const formattedExpectedPaths = expectedPaths.map(formatPath).sort();

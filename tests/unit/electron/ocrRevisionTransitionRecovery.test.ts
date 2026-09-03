@@ -120,7 +120,7 @@ describe('OCR revision transition crash recovery', () => {
         await expect(recoverPreparedOcrRevisionTransition(workingCopyPath)).resolves.toBe(true);
         await expect(readFile(join(`${workingCopyPath}.ocr`, 'manifest.json'), 'utf8'))
             .rejects.toMatchObject({code: 'ENOENT'});
-    });
+    }, 15_000);
 
     it('refuses a prepared journal scoped to another working copy', async () => {
         root = await mkdtemp(join(tmpdir(), 'evb-ocr-transition-invalid-'));

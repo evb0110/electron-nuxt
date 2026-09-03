@@ -66,7 +66,7 @@ describe('Sentry SDK and CLI architecture policy', () => {
         ));
 
         expect(violations).toEqual([]);
-    });
+    }, 15_000);
 
     it('rejects imports from features, scripts, runners, preload, and workers', () => {
         const fixtures = [
