@@ -1,0 +1,45 @@
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_7fb22ff405e983 92-95,630,632,636,644,651
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_73d8320f12bde6 11-12,15-26,378,401
+electron/features/diagnostics/readDiagnosticsPreferenceSync.ts
+  s_b412fd4cd3f576::t_6d27d637994c96 9,12,18
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts
+  s_b412fd4cd3f576::t_66dcc7341e05ba 23-27,84-134,496-504,516,542,545,581,611,624,631
+app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts
+  s_b412fd4cd3f576::t_0ce5a3e4934c25 21-25,70-108,365-367,483,485,492,496-498,500,503,505,507,514,517-519,521,523
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_b412fd4cd3f576::t_3f7579e5180537 25-29,41-74,197,199,202,204,231-232,234,242
+app/platform/browser-api/browserPdfCombineWorkerClient.ts
+  s_b412fd4cd3f576::t_5935d10cced596 19-23,35-75,151,153,156,158,208,210,212,223
+app/platform/browser-api/browserSearchWorkerClient.ts
+  s_b412fd4cd3f576::t_8055041ec6c4b8 17-21,54-94,294,296,299,301,333,335,337,344,492-496,514,517,519,526
+tests/unit/app/composables/pdfSerializationWorkerClient.test.ts
+  s_b412fd4cd3f576::t_f6ec71eb328b1d 12-21,56,68,82-84,95-97,108-115,122-126,162-163,463-497
+tests/unit/app/modules/pdf-viewer/engine/importEmbeddedShapeAnnotationsInWorker.test.ts
+  s_b412fd4cd3f576::t_df81a66ccf8fb9 18-27,43,377-415
+tests/unit/app/platform/browserPageOpsWorkerClient.test.ts
+  s_b412fd4cd3f576::t_20f023c6e37f76 1-172
+tests/unit/app/platform/browserPdfCombineWorkerClient.test.ts
+  s_b412fd4cd3f576::t_e0561723be9348 9-18,32,46-48,59-61,109-116,131,296-330,347
+tests/unit/app/platform/browserSearchWorkerClient.test.ts
+  s_b412fd4cd3f576::t_ce542a658eb7da 9-18,123-130,144,341-373,411,488
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_98a7147232858a 86-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "baa8e1147c0aa8b8dbe8187b1d984fc77f71e2df",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
