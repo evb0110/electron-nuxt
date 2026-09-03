@@ -22,10 +22,12 @@
 import type { IPlacedImageEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type { IAnnotationMarkerRect } from '@app/types/annotations';
 
 const props = defineProps<{
     entity: IPlacedImageEntity;
     selected: boolean;
+    displayRect?: IAnnotationMarkerRect | undefined;
 }>();
 const { t } = useTypedI18n();
 const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
@@ -58,10 +60,10 @@ onBeforeUnmount(() => {
 });
 
 const rectStyle = computed(() => ({
-    left: `${props.entity.rect.left * 100}%`,
-    top: `${props.entity.rect.top * 100}%`,
-    width: `${props.entity.rect.width * 100}%`,
-    height: `${props.entity.rect.height * 100}%`,
+    left: `${(props.displayRect ?? props.entity.rect).left * 100}%`,
+    top: `${(props.displayRect ?? props.entity.rect).top * 100}%`,
+    width: `${(props.displayRect ?? props.entity.rect).width * 100}%`,
+    height: `${(props.displayRect ?? props.entity.rect).height * 100}%`,
     transform: `rotate(${props.entity.rotation}deg)`,
 }));
 </script>
