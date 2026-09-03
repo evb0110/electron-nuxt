@@ -604,6 +604,10 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
                     ? options.pdfOpeningRevisionToken.value
                     : options.documentRevisionToken.value,
                 authorName: options.authorName.value,
+                // Temporary direct command seam. #193 removes the legacy
+                // workspace stamp persistence route after writer ownership is
+                // complete.
+                finalizeImagePlacement: options.onImagePlacementFinalize,
             };
         }
 
@@ -664,7 +668,6 @@ export const useWorkspaceDocumentDriverBinding = (options: IWorkspaceDocumentDri
             annotationSetting: options.onAnnotationSetting,
             annotationFailure: options.onAnnotationFailure,
             shapeContextMenu: options.onShapeContextMenu,
-            imagePlacementFinalize: options.onImagePlacementFinalize,
         };
     });
 

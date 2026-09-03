@@ -14,7 +14,10 @@ import {
     createPdfRenderingSession,
     type TPdfRenderingSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
-import {createPdfAnnotationSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
+import {
+    createPdfAnnotationSession,
+    type TPdfAnnotationSession,
+} from '@app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession';
 import { usePdfViewerPublicApiController } from '@app/modules/pdf-viewer/runtime/usePdfViewerPublicApiController';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -90,6 +93,7 @@ export const usePdfViewerFeatureController = (
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
     const renderingSessionRef = shallowRef<TPdfRenderingSession | null>(null);
+    const annotationSessionRef = shallowRef<TPdfAnnotationSession | null>(null);
     const viewerCurrentPage = computed(() => viewportSessionRef.value?.currentPage.value ?? 1);
     const viewerEffectiveScale = computed(() => viewportSessionRef.value?.scale.effectiveScale.value ?? 1);
 
@@ -129,7 +133,8 @@ export const usePdfViewerFeatureController = (
         currentPage: viewerCurrentPage,
         numPages: documentSession.numPages,
         effectiveScale: viewerEffectiveScale,
-        emitFinalize: viewerEvents.imagePlacementFinalize,
+        finalizePlacement: payload => annotationSessionRef.value?.finalizeImagePlacement(payload)
+            ?? Promise.resolve(false),
     });
 
     const {
@@ -313,7 +318,9 @@ export const usePdfViewerFeatureController = (
         emitAnnotationCommentClick: viewerEvents.annotationCommentClick,
         reportAnnotationFailure: viewerEvents.annotationFailure,
         emitShapeContextMenu: viewerEvents.shapeContextMenu,
+        finalizeImagePlacement: props.finalizeImagePlacement,
     });
+    annotationSessionRef.value = annotationSession;
 
     const renderViewModel = usePdfRenderViewModel({
         src,

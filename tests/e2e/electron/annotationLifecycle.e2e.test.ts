@@ -9,7 +9,12 @@ import {
     copyFileSync,
     realpathSync,
     rmSync,
+    writeFileSync,
 } from 'node:fs';
+import {
+    dirname,
+    join,
+} from 'node:path';
 import { delay } from 'es-toolkit/promise';
 import type { Page } from 'puppeteer-core';
 import {
@@ -60,6 +65,175 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
+const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
+const CANONICAL_STAMP_SELECTOR = '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-stamp';
+const PLACED_IMAGE_JPEG = Buffer.from(
+    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+    'base64',
+);
+
+interface IStampVisualSnapshot {
+    annotationId: string | null;
+    height: number;
+    imageSource: string | null;
+    left: number;
+    rotationDegrees: number;
+    top: number;
+    width: number;
+}
+
+async function installManagedJpegClipboard(page: Page, imagePath: string) {
+    return page.evaluate(async (input: {imagePath: string;}) => {
+        const files = window.electronAPI?.documentFiles;
+        if (!files?.createManagedTempFileHandle) {
+            throw new Error('Managed image handles are unavailable');
+        }
+        const handle = await files.createManagedTempFileHandle(input.imagePath);
+        const NativeFile = window.File;
+        const ManagedFile = new Proxy(NativeFile, {construct(target, args) {
+            return Object.assign(Reflect.construct(target, args), {nativeSourceHandle: handle});
+        }});
+        Object.defineProperty(window, 'File', {
+            configurable: true,
+            value: ManagedFile,
+        });
+        const bytes = await files.readFile(input.imagePath);
+        const blob = new Blob([bytes as BlobPart], {type: 'image/jpeg'});
+        const probeFile = new ManagedFile([blob], 'clipboard-probe.jpg', {type: 'image/jpeg'});
+        const bitmap = await createImageBitmap(probeFile);
+        const dimensions = {
+            height: bitmap.height,
+            width: bitmap.width,
+        };
+        bitmap.close();
+        Object.defineProperty(navigator, 'clipboard', {
+            configurable: true,
+            value: {read: async () => [{
+                types: ['image/jpeg'],
+                getType: async () => blob,
+            }]},
+        });
+        return {
+            dimensions,
+            hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
+            leaseId: handle.leaseId,
+        };
+    }, {imagePath});
+}
+
+async function dragImagePlacementControl(
+    page: Page,
+    selector: string,
+    deltaX: number,
+    deltaY: number,
+    holdShift = false,
+) {
+    await page.$eval(selector, element => {
+        element.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+    });
+    const center = await page.$eval(selector, element => {
+        const rect = element.getBoundingClientRect();
+        return {
+            x: rect.left + rect.width / 2,
+            y: rect.top + rect.height / 2,
+        };
+    });
+    if (holdShift) {
+        await page.keyboard.down('Shift');
+    }
+    try {
+        await page.mouse.move(center.x, center.y);
+        await page.mouse.down();
+        await page.mouse.move(center.x + deltaX, center.y + deltaY, {steps: 8});
+        await page.mouse.up();
+    } finally {
+        if (holdShift) {
+            await page.keyboard.up('Shift');
+        }
+    }
+}
+
+async function rotateImagePlacementByQuarterTurn(page: Page) {
+    const points = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
+        const frameRect = element.getBoundingClientRect();
+        const center = {
+            x: frameRect.left + frameRect.width / 2,
+            y: frameRect.top + frameRect.height / 2,
+        };
+        const handle = element.querySelector<HTMLElement>('.pdf-image-placement__rotate-handle');
+        if (!handle) {
+            throw new Error('Image placement rotate handle is unavailable');
+        }
+        const handleRect = handle.getBoundingClientRect();
+        const start = {
+            x: handleRect.left + handleRect.width / 2,
+            y: handleRect.top + handleRect.height / 2,
+        };
+        const offset = {
+            x: start.x - center.x,
+            y: start.y - center.y,
+        };
+        return {
+            start,
+            target: {
+                x: center.x - offset.y,
+                y: center.y + offset.x,
+            },
+        };
+    });
+    await page.keyboard.down('Shift');
+    try {
+        await page.mouse.move(points.start.x, points.start.y);
+        await page.mouse.down();
+        await page.mouse.move(points.target.x, points.target.y, {steps: 8});
+        await page.mouse.up();
+    } finally {
+        await page.keyboard.up('Shift');
+    }
+}
+
+async function readPendingImagePlacementSnapshot(page: Page) {
+    return page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
+        const frame = element as HTMLElement;
+        const transform = frame.querySelector<HTMLElement>('.pdf-image-placement__transform');
+        const rotation = getComputedStyle(transform ?? frame)
+            .getPropertyValue('--pdf-image-placement-rotation')
+            .trim();
+        return {
+            height: Number.parseFloat(frame.style.height) / 100,
+            left: Number.parseFloat(frame.style.left) / 100,
+            rotationDegrees: Number.parseFloat(rotation.replace(/deg$/u, '')) || 0,
+            top: Number.parseFloat(frame.style.top) / 100,
+            width: Number.parseFloat(frame.style.width) / 100,
+        };
+    });
+}
+
+async function readCanonicalStampSnapshot(page: Page): Promise<IStampVisualSnapshot> {
+    return page.$eval(CANONICAL_STAMP_SELECTOR, element => {
+        const stamp = element as HTMLElement;
+        const image = stamp.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+        const rotation = /rotate\((-?[0-9.]+)deg\)/u.exec(stamp.style.transform)?.[1];
+        return {
+            annotationId: stamp.dataset.annotationId ?? null,
+            height: Number.parseFloat(stamp.style.height) / 100,
+            imageSource: image?.src ?? null,
+            left: Number.parseFloat(stamp.style.left) / 100,
+            rotationDegrees: rotation ? Number.parseFloat(rotation) : 0,
+            top: Number.parseFloat(stamp.style.top) / 100,
+            width: Number.parseFloat(stamp.style.width) / 100,
+        };
+    });
+}
+
+async function releaseManagedImageHandle(page: Page, leaseId: string) {
+    await page.evaluate(async (id: string) => {
+        await window.electronAPI?.documentFiles.releaseManagedTempFileHandle?.(id);
+    }, leaseId);
+}
 
 interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}
 
@@ -1057,6 +1231,127 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(afterInteraction.annotationStorage.modifiedIds).toEqual([]);
         expect(afterInteraction.annotationStorage.serializableEntryKeys).toEqual([]);
     }, 90_000);
+
+    it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createMultiPageTextFixturePdf(
+            `annotation-lifecycle-${Date.now()}-stamp-round-trip.pdf`,
+            1,
+        );
+        const reopenPath = fixturePath.replace(/\.pdf$/u, '-reopen.pdf');
+        onTestFinished(() => rmSync(reopenPath, {force: true}));
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const state = await readWorkspaceStateValues<{workingCopyPath?: string | null}>(page, ['workingCopyPath']);
+        if (typeof state.workingCopyPath !== 'string') {
+            throw new Error('Stamp lifecycle working copy is unavailable');
+        }
+        const imagePath = join(dirname(state.workingCopyPath), `annotation-lifecycle-${process.pid}-stamp.jpg`);
+        writeFileSync(imagePath, PLACED_IMAGE_JPEG);
+        onTestFinished(() => rmSync(imagePath, {force: true}));
+        const clipboard = await installManagedJpegClipboard(page, imagePath);
+        expect(clipboard).toMatchObject({
+            dimensions: {
+                height: 40,
+                width: 64,
+            },
+            hasNativeSourceHandle: true,
+        });
+
+        try {
+            const pasteResult = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
+            expect(pasteResult.called).toBe(true);
+            await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
+                timeout: 30_000,
+                visible: true,
+            });
+
+            const initial = await readPendingImagePlacementSnapshot(page);
+            await dragImagePlacementControl(
+                page,
+                `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__surface`,
+                48,
+                32,
+            );
+            await delay(100);
+            const moved = await readPendingImagePlacementSnapshot(page);
+            expect(Math.abs(moved.left - initial.left)).toBeGreaterThan(0.005);
+            expect(Math.abs(moved.top - initial.top)).toBeGreaterThan(0.005);
+
+            const aspectRatio = moved.width / moved.height;
+            await dragImagePlacementControl(
+                page,
+                `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__resizer--se`,
+                42,
+                18,
+                true,
+            );
+            await delay(100);
+            const resized = await readPendingImagePlacementSnapshot(page);
+            expect(resized.width).toBeGreaterThan(moved.width);
+            expect(resized.height).toBeGreaterThan(moved.height);
+            expect(resized.width / resized.height).toBeCloseTo(aspectRatio, 2);
+
+            await rotateImagePlacementByQuarterTurn(page);
+            await delay(100);
+            const rotated = await readPendingImagePlacementSnapshot(page);
+            expect(Math.abs(rotated.rotationDegrees)).toBeGreaterThan(5);
+
+            await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
+            await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
+                hidden: true,
+                timeout: 60_000,
+            });
+            await page.waitForFunction((selector: string) => {
+                const stamp = document.querySelector<HTMLElement>(selector);
+                const image = stamp?.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                return Boolean(
+                    stamp
+                    && image?.complete
+                    && image.naturalWidth > 0
+                    && image.naturalHeight > 0,
+                );
+            }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
+
+            const created = await readCanonicalStampSnapshot(page);
+            expect(created.annotationId).toMatch(/^anno_/u);
+            expect(created.left + (created.width / 2)).toBeCloseTo(rotated.left + (rotated.width / 2), 3);
+            expect(created.top + (created.height / 2)).toBeCloseTo(rotated.top + (rotated.height / 2), 3);
+            expect(created.width).toBeGreaterThan(0);
+            expect(created.height).toBeGreaterThan(0);
+            expect(created.rotationDegrees).toBeCloseTo(rotated.rotationDegrees, 3);
+            expect(created.imageSource).toMatch(/^data:image\/png;base64,/u);
+
+            const saveEvent = await saveViaVisibleToolbar(page, 30_000);
+            expect(realpathSync(String(saveEvent.detail.path))).toBe(realpathSync(fixturePath));
+
+            copyFileSync(fixturePath, reopenPath);
+            await openPdfInApp(page, reopenPath);
+            await waitForPdfLoaded(page);
+            await waitForViewerInteractive(page);
+            await page.waitForFunction((selector: string) => {
+                const stamp = document.querySelector<HTMLElement>(selector);
+                const image = stamp?.querySelector<HTMLImageElement>('.pdf-annotation-editor-stamp__image');
+                return Boolean(
+                    stamp
+                    && image?.complete
+                    && image.naturalWidth > 0
+                    && image.naturalHeight > 0,
+                );
+            }, {timeout: 30_000}, CANONICAL_STAMP_SELECTOR);
+
+            const reopened = await readCanonicalStampSnapshot(page);
+            expect(reopened).toEqual(created);
+        } finally {
+            await releaseManagedImageHandle(page, clipboard.leaseId);
+        }
+    }, 120_000);
 
     // Retired with #185's live PDF.js editor detachment. Canonical creation,
     // editing, note-anchor, markup, and history proofs return with #187, #188,

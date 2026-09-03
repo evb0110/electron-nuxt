@@ -47,7 +47,10 @@ import type {
     TAnnotationCreationFailureReason,
     TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import {normalizeAnnotationText} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    mintAnnotationId,
+    normalizeAnnotationText,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import { groupBy } from 'es-toolkit/array';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
@@ -80,6 +83,7 @@ import type {
     ICreateTextMarkupFromTextOptions,
     ICreateTextMarkupFromTextResult,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerExpose.types';
+import type {IPdfPlacedImageFinalizePayload} from '@app/types/pdfImagePlacement';
 export interface ICreatePdfAnnotationSessionOptions {
     document: TPdfDocumentSession;
     viewport: TPdfViewportSession;
@@ -111,6 +115,10 @@ export interface ICreatePdfAnnotationSessionOptions {
     emitAnnotationCommentClick: (comment: IAnnotationCommentSummary) => void;
     reportAnnotationFailure?: (failure: IAnnotationCreationFailureReport) => void;
     emitShapeContextMenu: Parameters<typeof usePdfShapeTool>[0]['emitShapeContextMenu'];
+    // Temporary command seam. #193 removes the legacy workspace persistence
+    // route once the writer owns stamp byte storage end to end.
+    // eslint-disable-next-line @typescript-eslint/no-invalid-void-type
+    finalizeImagePlacement?: ((payload: IPdfPlacedImageFinalizePayload) => void | Promise<boolean>) | undefined;
 }
 interface IAnnotationStoreDocumentIdentityInput {
     workingCopyPath: string | null;
@@ -1144,6 +1152,19 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         canvasHiddenAnnotationIds,
         scheduleSetAnnotationTool,
         ...saveTransaction,
+        finalizeImagePlacement: async (payload: IPdfPlacedImageFinalizePayload) => {
+            const finalizer = options.finalizeImagePlacement;
+            if (!finalizer) {
+                return false;
+            }
+            const canonicalPayload = payload.annotationId
+                ? payload
+                : {
+                    ...payload,
+                    stableKey: mintAnnotationId(),
+                };
+            return await finalizer(canonicalPayload) ?? true;
+        },
     };
 };
 
