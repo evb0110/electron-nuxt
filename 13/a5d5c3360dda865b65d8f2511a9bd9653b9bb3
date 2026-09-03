@@ -1,0 +1,62 @@
+tests/unit/app/platform/browserDocumentsFileCapability.test.ts
+  s_b0edba852670f7::t_5f786e1d504729 1025
+  s_b0edba852670f7::t_74a1e3293d7eee 996,1024,1026,1794
+app/platform/browser-api/createBrowserDocumentsCapability.ts
+  s_b0edba852670f7::t_c8a518b429c3ff 124-127
+packages/i18n-app/messages/en.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1520-1521
+packages/i18n-app/messages/it.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1520-1521
+app/platform/browser-api/browserPlatformHelpers.ts
+  s_b0edba852670f7::t_e4ad0b0dd63dad 49
+packages/i18n-app/messages/es.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1520-1521
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_b0edba852670f7::t_b591114b753409 4-5,59-62,65-69,91,94-95,97-99
+  s_b0edba852670f7::t_d1047275118d8f 84-85,87,114-115,495-497,499
+  s_b0edba852670f7::t_c8a518b429c3ff 86
+  s_b0edba852670f7::t_438583ec33b830 113
+  s_b0edba852670f7::t_3641600dc8d69b 320,359,387,405-406
+  s_b0edba852670f7::t_e4ad0b0dd63dad 498
+  s_b0edba852670f7::t_114d922742497d 211,757,861,969
+  s_b0edba852670f7::t_b5e2f37e5d836a 600-601
+  s_b0edba852670f7::t_fe3439633def7f 204,525
+  s_b0edba852670f7::t_008b4820dd9478 92-93,96
+  s_b0edba852670f7::t_7bd7d6c357a3c4 489-494,500-524,526-585,599,602-621
+  s_b0edba852670f7::t_383095b5b45657 586-598
+packages/i18n-app/messages/pt.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1531-1532
+packages/i18n-app/messages/nl.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1520-1521
+packages/i18n-app/messages/fr.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1531-1532
+packages/i18n-app/messages/ru.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1555-1556
+app/platform/browser-api/browserWorkingCopyService.ts
+  s_b0edba852670f7::t_3641600dc8d69b 32,37,157,187-190,192-193
+  s_b0edba852670f7::t_7be114bdecc649 191
+packages/i18n-app/messages/ptBr.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1531-1532
+packages/i18n-app/messages/de.ts
+  s_b0edba852670f7::t_d7def8dd10343a 1520-1521
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_b0edba852670f7::t_cee7947915ec1c 7-10,703
+  s_b0edba852670f7::t_07833e7a410d69 46-55,62-72,104,281-282,310-311,325-334,682,684-702,704-714
+  s_b0edba852670f7::t_e5896e73d53089 112,683
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "13a5d5c3360dda865b65d8f2511a9bd9653b9bb3",
+  "prompts": {},
+  "sessions": {
+    "s_b0edba852670f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-20f9-7b02-98b3-e5f072b7c0e5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
