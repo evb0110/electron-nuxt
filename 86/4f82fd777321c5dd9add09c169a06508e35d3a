@@ -1,0 +1,23 @@
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_c57729f2c66bed::t_65cb080dd16537 43-50
+  s_c57729f2c66bed::t_ba857e0527952d 1-5,7-10,40,42,55,64,66,72,95,97-123,129-130,160,166,169-183,185,187,226-227
+  s_c57729f2c66bed::t_0b463955307825 196,199-202,221
+  s_c57729f2c66bed::t_b3be3a8816dfbc 203-217
+  s_c57729f2c66bed::t_9e64368b78927b 195
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "864f82fd777321c5dd9add09c169a06508e35d3a",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
