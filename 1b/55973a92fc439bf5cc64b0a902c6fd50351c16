@@ -1,0 +1,63 @@
+packages/i18n-app/messages/es.ts
+  s_b0edba852670f7::t_f10871924b4d98 1520
+tests/integration/browser/browserAnnotationSaveAcceptance.test.ts
+  s_b0edba852670f7::t_b5ec5faee94e3d 40
+  s_b0edba852670f7::t_bd6d809d1868e2 1-27,29-35,37-39,41-45,55,57-60,66-85,90-97,102-126
+  s_b0edba852670f7::t_6ddee43e833ff6 28,36,46-54,56,61-65
+  s_b0edba852670f7::t_14a8ca25c7629d 86-89,98-101
+app/platform/browser-api/tryRunBrowserPageOpsWithWasm.ts
+  s_b0edba852670f7::t_eacf803bedeb83 62
+packages/i18n-app/messages/de.ts
+  s_b0edba852670f7::t_f10871924b4d98 1520
+packages/i18n-app/messages/ptBr.ts
+  s_b0edba852670f7::t_f10871924b4d98 1531
+scripts/platform-api/generatePlatformApiArtifacts.ts
+  s_b0edba852670f7::t_b5eb0539f14535 32-33
+packages/i18n-app/messages/it.ts
+  s_b0edba852670f7::t_f10871924b4d98 1520
+packages/contracts/nativePdfSemanticScope.ts
+  s_b0edba852670f7::t_87149d036ac420 1,3
+  s_b0edba852670f7::t_8aa71f732d0e8d 2
+tests/unit/app/platform/browserStagedArtifact.test.ts
+  s_b0edba852670f7::t_e78d77d538b04b 153-186
+packages/i18n-app/messages/ru.ts
+  s_b0edba852670f7::t_f10871924b4d98 1555
+packages/i18n-app/messages/pt.ts
+  s_b0edba852670f7::t_f10871924b4d98 1531
+app/platform/generated/createLazyBrowserPlatformApiGenerated.ts
+  s_b0edba852670f7::t_1bff141500d281 85-86,328-329
+packages/i18n-app/messages/nl.ts
+  s_b0edba852670f7::t_f10871924b4d98 1520
+tests/integration/browser/browserAnnotationSaveAcceptanceEntry.ts
+  s_b0edba852670f7::t_0f07721c06cb8d 98
+  s_b0edba852670f7::t_bd6d809d1868e2 1-18,23-34,37-72,74-80,86-97,99-105,107-155,161-186
+  s_b0edba852670f7::t_14a8ca25c7629d 19-22,35-36,73,81-85,106,156-160
+packages/i18n-app/messages/en.ts
+  s_b0edba852670f7::t_f10871924b4d98 1520
+packages/i18n-app/messages/fr.ts
+  s_b0edba852670f7::t_f10871924b4d98 1531
+app/platform/browser-api/createBrowserDocumentsFileCapability.ts
+  s_b0edba852670f7::t_8aa71f732d0e8d 70,554
+app/platform/generated/browserPlatformPathDescriptorsGenerated.ts
+  s_b0edba852670f7::t_1bff141500d281 78-79
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_b0edba852670f7::t_8aa71f732d0e8d 12,132
+packages/contracts/documentsPlatformFeature.ts
+  s_b0edba852670f7::t_cf581169c859b9 746,754
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "1b55973a92fc439bf5cc64b0a902c6fd50351c16",
+  "prompts": {},
+  "sessions": {
+    "s_b0edba852670f7": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-20f9-7b02-98b3-e5f072b7c0e5",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
