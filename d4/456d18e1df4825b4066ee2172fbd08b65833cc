@@ -1,0 +1,22 @@
+scripts/pre-push-gate.mjs
+  s_b412fd4cd3f576::t_a1ce6fbee59375 47-63,68-75,190
+tests/unit/scripts/prePushGate.test.ts
+  s_b412fd4cd3f576::t_a1ce6fbee59375 8,95-104,125-126
+  s_b412fd4cd3f576::t_7307ede46f9918 9,105-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d4456d18e1df4825b4066ee2172fbd08b65833cc",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
