@@ -70,6 +70,12 @@ async function writeFixture(projectRoot: string) {
     await writeSource(projectRoot, 'electron/main.ts', 'const source = "private-source";\n');
     await writeSource(projectRoot, 'electron/preload.ts');
     await writeBundle(projectRoot, 'dist-electron/main.js', '../electron/main.ts');
+    const mainMapPath = path.join(projectRoot, 'dist-electron/main.js.map');
+    const mainMap = JSON.parse(await readFile(mainMapPath, 'utf8')) as {sources: string[]};
+    mainMap.sources.push('<define:__EVB_SENTRY_BUILD_IDENTITY__>');
+    mainMap.sources.push('../node_modules/.pnpm/dependency/src/missing.ts');
+    mainMap.sources.push('webpack://pdf.js/node_modules/core-js/internals/a-callable.js');
+    await writeFile(mainMapPath, `${JSON.stringify(mainMap)}\n`);
     await writeBundle(projectRoot, 'dist-electron/main-chunk-renderer.js', '../electron/main.ts');
     await writeBundle(projectRoot, 'dist-electron/preload.cjs', '../electron/preload.ts');
     await writeSource(projectRoot, 'dist-electron/pdf.worker.mjs');

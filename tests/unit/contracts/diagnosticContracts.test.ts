@@ -36,8 +36,10 @@ import {
 } from '@contracts/diagnostics/startupCrashMarker';
 import {
     type CaptureFailureInput,
+    decodeFailureReceipt,
     type ExpectedOutcome,
     type FailureReceipt,
+    getFailureReceipt,
     type LocalFailureDetail,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
@@ -226,6 +228,8 @@ describe('diagnostic contracts', () => {
             'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
             'UNCLASSIFIED_MAIN_ERROR',
             'UNCLASSIFIED_CONSOLE_ERROR',
+            'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',
+            'NITRO_ANALYTICS_INSERT_FAILED',
             'RENDERER_OCR_BACKEND_FAILED',
             'RENDERER_OCR_RUN_FAILED',
             'RENDERER_NATIVE_PDF_VIEWER_FAILED',
@@ -567,6 +571,25 @@ describe('diagnostic contracts', () => {
             code: 'canceled',
             extra: true,
         })).toBe(false);
+    });
+
+    it('strictly decodes direct and embedded failure receipts', () => {
+        const receipt: FailureReceipt = {
+            eventId: VALID_EVENT_ID,
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: 1_757_000_000_000,
+            severity: 'error',
+        };
+
+        expect(decodeFailureReceipt(receipt)).toEqual(receipt);
+        expect(decodeFailureReceipt(receipt)).not.toBe(receipt);
+        expect(getFailureReceipt({failure: receipt})).toEqual(receipt);
+        expect(getFailureReceipt({failure: {
+            ...receipt,
+            raw: 'forbidden',
+        }})).toBeUndefined();
+        expect(getFailureReceipt({failure: {eventId: VALID_EVENT_ID}})).toBeUndefined();
+        expect(getFailureReceipt(receipt)).toBeUndefined();
     });
 
     it('rejects forbidden sentinel values before the capture transport records them', () => {

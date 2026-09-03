@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- The workspace coordinator owns lifecycle and output identity wiring. */
 import type {
     ComputedRef,
     Ref,
@@ -52,11 +53,14 @@ import type {
 } from '@app/utils/document-viewer/source/documentPageSource';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/search/documentSearch';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { getErrorMessage } from '@app/utils/error';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { createWorkspaceViewerUpdateHandlers } from '@app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createWorkspacePageNavigationFence } from '@app/modules/workspace-shell/viewers/createWorkspacePageNavigationFence';
+
 interface IWorkspaceOrchestrationDeps {
     analyticsDocumentScope: IAnalyticsDocumentScope;
     tabId: string;
@@ -131,6 +135,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         fileName,
         isDirty,
         pdfError,
+        pdfFailurePresentation,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
@@ -868,6 +873,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         getQuickPrintPageMetrics,
         ensurePrintReady,
         ensureWorkingCopyFreshForRead,
+        getLastFailurePresentation: failureSurface.getLastFailurePresentation,
         getPrintableSourceData,
         renderLoadedPdfPagesForBrowserPrint,
         printDjvuSource: printDriverSource,
@@ -1012,10 +1018,17 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         function handleLoadError(error: unknown) {
             if (error === null || error === undefined) {
                 pdfError.value = null;
+                pdfFailurePresentation.value = null;
                 return;
             }
             const message = getErrorMessage(error).trim();
             pdfError.value = message || t('errors.file.open');
+            const failure = getFailureReceipt(error) ?? BrowserLogger.error('pdf', 'PDF rendering failed', error);
+            pdfFailurePresentation.value = {
+                failure,
+                title: t('errors.file.open'),
+                description: message || t('errors.file.open'),
+            };
         }
         function handleAnnotationComments(comments: IAnnotationCommentSummary[]) {
             if (
@@ -1131,6 +1144,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         });
     }
     return {
+        failureSurface,
         documentDriver: {
             ...documentDriver,
             bindView: bindDocumentView,

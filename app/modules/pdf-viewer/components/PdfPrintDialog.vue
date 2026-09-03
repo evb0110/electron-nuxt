@@ -101,12 +101,10 @@
                     {{ status || '\u00A0' }}
                 </p>
 
-                <UAlert
+                <AppFailureAlert
                     v-if="error"
-                    color="error"
-                    variant="soft"
+                    :presentation="error"
                     icon="i-ph-warning-circle"
-                    :description="error"
                 />
             </div>
         </template>
@@ -141,6 +139,8 @@
 </template>
 
 <script setup lang="ts">
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
 import type { TPdfViewMode } from '@contracts/shared';
 import {
     parsePrintPageRangeSelectionInput,
@@ -169,7 +169,7 @@ const {
     defaultViewMode: TPdfViewMode;
     isPreparing: boolean;
     status: string | null;
-    error: string | null;
+    error: FailurePresentation | null;
     supportsAdvancedPrintOptions?: boolean;
     supportsFirstPageSinglePrintLayout?: boolean;
 }>();

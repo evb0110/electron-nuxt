@@ -200,6 +200,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
             outputPath: options.outputPath,
             fileSize: 0,
             error: 'No DjVu pages available for compact PDF export',
+            expected: {
+                kind: 'expected' as const,
+                code: 'validation-rejected' as const,
+            },
         };
     }
     const structurePath = join(options.tempDir, `.djvu-structure-${randomUUID()}.jsonl`);
@@ -337,6 +341,10 @@ export async function buildCompactDjvuAwarePdfFromDjvu(options: ICompactDjvuPdfE
                 outputPath: options.outputPath,
                 fileSize: 0,
                 error: 'Native PDF image combiner is unavailable',
+                expected: {
+                    kind: 'expected' as const,
+                    code: 'temporarily-unavailable' as const,
+                },
             };
         }
 

@@ -1,4 +1,10 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    decodeFailureReceipt,
+    isExpectedOutcome,
+    type ExpectedOutcome,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type {
     IDjvuProgress,
@@ -37,6 +43,7 @@ import {
     useDocumentSourceSession,
 } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import {
     getDocumentRefBaseName,
     isBrowserDocumentRef,
@@ -80,6 +87,43 @@ function isPromiseLike(value: unknown): value is PromiseLike<void> {
         && value !== null
         && 'then' in value
         && typeof value.then === 'function';
+}
+
+function getDjvuFailureReceipt(value: unknown): FailureReceipt | undefined {
+    if (typeof value !== 'object' || value === null || !('failure' in value)) {
+        return undefined;
+    }
+    return decodeFailureReceipt(value.failure) ?? undefined;
+}
+
+function getDjvuExpectedOutcome(value: unknown): ExpectedOutcome | undefined {
+    if (typeof value !== 'object' || value === null || !('expected' in value)) {
+        return undefined;
+    }
+    return isExpectedOutcome(value.expected) ? value.expected : undefined;
+}
+
+function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome | undefined {
+    if (
+        error instanceof DOMException && error.name === 'AbortError'
+        || error instanceof Error && (
+            error.name === 'AbortError'
+            || error.name === 'DjvuCanceledError'
+        )
+    ) {
+        return {
+            kind: 'expected',
+            code: 'canceled',
+        };
+    }
+
+    if (error instanceof Error && error.message.trim().toLowerCase() === 'djvu conversion canceled') {
+        return {
+            kind: 'expected',
+            code: 'canceled',
+        };
+    }
+    return undefined;
 }
 
 const DJVU_PROJECTION_SOURCE_CAPABILITIES: IDocumentSourceCapabilities = {
@@ -147,6 +191,7 @@ function createTrustedRasterDjvuPdfDisplayProfile(
 export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | undefined} = {}) => {
     const { t } = useTypedI18n();
     const toast = useToast();
+    const {presentFailureToast} = useFailureToast();
 
     const {
         isDjvuSource: isDjvuMode,
@@ -238,12 +283,40 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
         sourceError.value = null;
     }
 
-    function showConversionError(message: string) {
-        toast.add({
-            color: 'error',
+    function showConversionError(message: string, failure: FailureReceipt) {
+        presentFailureToast({
+            failure,
             title: t('errors.djvu.convert'),
             description: message,
         });
+    }
+
+    function showExpectedConversionOutcome(message: string, expected: ExpectedOutcome) {
+        if (expected.code === 'canceled') {
+            return;
+        }
+        toast.add({
+            color: 'warning',
+            title: t('errors.djvu.convert'),
+            description: message,
+        });
+    }
+
+    function presentConversionFailure(
+        message: string,
+        existingFailure?: FailureReceipt,
+        expected?: ExpectedOutcome,
+    ) {
+        if (expected !== undefined) {
+            showExpectedConversionOutcome(message, expected);
+            return;
+        }
+        const failure = existingFailure ?? BrowserLogger.error(
+            'djvu',
+            'Conversion failed',
+            message,
+        );
+        showConversionError(message, failure);
     }
 
     function createConversionRequestId() {
@@ -621,6 +694,10 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             const outputError = outputState && 'error' in outputState
                 ? outputState.error
                 : undefined;
+            const failure = getDjvuFailureReceipt(result)
+                ?? getDjvuFailureReceipt(outputState);
+            const expected = getDjvuExpectedOutcome(result)
+                ?? getDjvuExpectedOutcome(outputState);
 
             if (
                 !result.success
@@ -629,8 +706,11 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
                 || outputState.operation !== 'djvu-convert'
                 || (outputState.status !== 'completed' && outputState.status !== 'handoff')
             ) {
-                BrowserLogger.error('djvu', 'Conversion failed', result.error);
-                showConversionError(result.error ?? outputError ?? t('errors.djvu.convert'));
+                presentConversionFailure(
+                    result.error ?? outputError ?? t('errors.djvu.convert'),
+                    failure,
+                    expected,
+                );
                 return null;
             }
             shouldCleanupSavePath = false;
@@ -684,11 +764,18 @@ export const useDjvu = (config: {openSurface?: IDocumentOpenSurfaceSession | und
             const message = error instanceof Error && error.message.trim().length > 0
                 ? error.message
                 : t('errors.djvu.convert');
-            BrowserLogger.error('djvu', 'Conversion crashed', {
-                path: sourcePath,
-                error,
-            });
-            showConversionError(message);
+            const expected = getDjvuExpectedOutcome(error)
+                ?? classifyDjvuConversionExpectedOutcome(error);
+            const failure = getDjvuFailureReceipt(error);
+            if (expected !== undefined) {
+                showExpectedConversionOutcome(message, expected);
+            } else {
+                const ownedFailure = failure ?? BrowserLogger.error('djvu', 'Conversion crashed', {
+                    path: sourcePath,
+                    error,
+                });
+                showConversionError(message, ownedFailure);
+            }
         } finally {
             if (activeConversionGeneration === generation) {
                 activeConversionGeneration = null;

@@ -7,6 +7,10 @@ import type {
     TPageMoveOperation,
 } from '@contracts/pageNumbers';
 import {
+    getFailureReceipt,
+    type ExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
+import {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
     createPageMoveRange,
@@ -27,6 +31,8 @@ import {
 } from '@app/utils/platformDocuments';
 import { isSupportedPdfInsertFilePath } from '@app/utils/supportedDocumentPaths';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 interface IPageDragDropDeps {
     containerRef: Ref<HTMLElement | null>;
@@ -79,7 +85,7 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     const autoScrollContainer = ref<HTMLElement | null>(null);
     const autoScrollStep = ref(0);
     const { t } = useTypedI18n();
-    const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
 
     const THRESHOLD = 5;
     const SCROLL_ZONE = 40;
@@ -582,8 +588,14 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
     }
 
     function notifyRegistrationFailure(error: unknown) {
-        toast.add({
-            color: 'error',
+        const failure = BrowserLogger.error(
+            'page-drag-drop',
+            'Failed to register dropped page file',
+            error,
+            getFailureReceipt(error),
+        );
+        presentFailureToast({
+            failure,
             title: t('errors.file.open'),
             description: getErrorMessage(error),
         });
@@ -608,6 +620,10 @@ export const usePageDragDrop = (deps: IPageDragDropDeps) => {
                     continue;
                 }
                 if (!isSupportedPdfInsertFilePath(filePath)) {
+                    BrowserLogger.warn('page-drag-drop', 'Dropped page file type is unsupported', {
+                        kind: 'expected',
+                        code: 'unsupported-input',
+                    } satisfies ExpectedOutcome);
                     void getDocumentWorkingCopyCapability().cleanupFile(filePath)
                         .catch(() => undefined);
                     continue;

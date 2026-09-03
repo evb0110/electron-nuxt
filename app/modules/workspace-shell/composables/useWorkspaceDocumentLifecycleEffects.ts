@@ -13,6 +13,8 @@ import { getSearchCapability } from '@app/utils/getSearchCapability';
 import { isStaleRevisionError } from '@contracts/documentMutationErrors';
 import type { IOcrSearchablePdfResult } from '@app/utils/ocr/ocrTypes';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { useFailureToast } from '@app/composables/useFailureToast';
+import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 
 interface IOcrCompletePayload extends IOcrSearchablePdfResult {
@@ -96,6 +98,7 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
     const documentFiles = getDocumentFilesCapability();
     const {t} = useTypedI18n();
     const toast = useToast();
+    const { presentFailureToast } = useFailureToast();
     let revisionRefreshRequestId = 0;
 
     async function refreshDocumentRevision(path: TDocumentRef) {
@@ -314,20 +317,26 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         } catch (error) {
             if (isStaleRevisionError(error)) {
                 await acknowledgeOcrResultFile(payload);
-                toast.add({
-                    color: 'error',
+                const failure = BrowserLogger.error(
+                    'ocr',
+                    'OCR result could not be applied because the document changed',
+                    error,
+                    getFailureReceipt(error),
+                );
+                presentFailureToast({
+                    failure,
                     title: t('errors.ocr.changedReload'),
                 });
                 return;
             }
-            BrowserLogger.error('ocr', 'Failed to apply OCR result', {
+            const failure = BrowserLogger.error('ocr', 'Failed to apply OCR result', {
                 requestId: payload.requestId,
                 sourceWorkingCopyPath: payload.sourceWorkingCopyPath,
                 pdfPath: payload.pdfPath,
                 error,
             });
-            toast.add({
-                color: 'error',
+            presentFailureToast({
+                failure,
                 title: t('errors.ocr.createSearchablePdf'),
             });
         }
