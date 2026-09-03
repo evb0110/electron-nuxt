@@ -3,6 +3,8 @@ import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
+import {createRendererFailureReporter} from '@app/utils/failureReporter';
+import {hasElectronAPI} from '@app/utils/platform';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
 const RENDERER_GUARD_WARN_THROTTLE_MS = 5000;
@@ -133,26 +135,70 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
-    const report = (logMessage: string, details: Record<string, unknown>) => {
-        BrowserLogger.error('renderer-guard', logMessage, details);
+    const reporter = createRendererFailureReporter({
+        host: hasElectronAPI() ? 'electron' : 'hosted-browser',
+        localSink: (detail, receipt) => {
+            BrowserLogger.error('renderer-guard', detail.message, {
+                failure: receipt,
+                cause: detail.cause,
+                details: detail.data,
+            });
+        },
+    });
+
+    const report = (logMessage: string, cause: unknown, details: Record<string, unknown>) => {
+        const receipt = reporter.capture({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {},
+            local: {
+                source: 'renderer-guard',
+                message: logMessage,
+                cause,
+                data: details,
+            },
+        });
         reportRuntimeError({
+            failure: receipt,
             title: t('errors.runtime.title'),
-            source: 'renderer-guard',
-            error: details,
         });
     };
 
     const previousHandler = nuxtApp.vueApp.config.errorHandler;
+    const invokePreviousHandler = (
+        error: unknown,
+        instance: ComponentPublicInstance | null,
+        info: string,
+    ) => {
+        if (typeof previousHandler !== 'function') {
+            return;
+        }
+        reporter.withSuppressedCapture(() => previousHandler(error, instance, info));
+    };
+
     const errorHandler = (error: unknown, instance: ComponentPublicInstance | null, info: string) => {
-        report('Vue renderer error', {
+        const ignorableMessage = getIgnorableRuntimeErrorMessage(error);
+        if (ignorableMessage) {
+            BrowserLogger.warnThrottled(
+                'renderer-guard',
+                ignorableMessage,
+                RENDERER_GUARD_WARN_THROTTLE_MS,
+                'Ignored benign Vue error',
+                {
+                    info,
+                    component: getComponentName(instance),
+                    error: serializeError(error),
+                },
+            );
+            invokePreviousHandler(error, instance, info);
+            return;
+        }
+
+        report('Vue renderer error', error, {
             info,
             component: getComponentName(instance),
             error: serializeError(error),
         });
-
-        if (typeof previousHandler === 'function') {
-            previousHandler(error, instance, info);
-        }
+        invokePreviousHandler(error, instance, info);
     };
     nuxtApp.vueApp.config.errorHandler = errorHandler;
 
@@ -175,7 +221,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Window error', {
+        report('Window error', event.error ?? event.message, {
             message: event.message,
             filename: event.filename,
             lineno: event.lineno,
@@ -197,7 +243,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Unhandled promise rejection', { reason: serializeError(event.reason) });
+        report('Unhandled promise rejection', event.reason, { reason: serializeError(event.reason) });
     };
 
     const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);
