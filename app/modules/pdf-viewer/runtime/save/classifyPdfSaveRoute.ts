@@ -799,7 +799,9 @@ function buildClassifiedNativeMutationProjection(
     const textBoxes = capabilities.nativeTextBoxes === undefined
         ? []
         : [
-            ...(replayAllowed ? capabilities.nativeTextBoxes ?? [] : []),
+            // Native text-box mutations are already a bounded projection. They
+            // remain valid when unrelated live PDF.js work selects materialization.
+            ...(capabilities.nativeTextBoxes ?? []),
             ...freeTextEditors,
         ];
     if (
