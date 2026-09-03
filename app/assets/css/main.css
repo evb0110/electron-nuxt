@@ -379,7 +379,8 @@
     --app-panel-empty-padding: var(--app-space-16xl);
     --app-panel-empty-icon-size: var(--app-control-height-xs);
     --app-panel-empty-max-width: 22rem;
-    --app-search-virtual-row-height: 5.25rem;
+    --app-search-virtual-group-row-height: 36px;
+    --app-search-virtual-row-height: 84px;
     --app-search-progress-height: 3px;
     --app-ocr-language-picker-max-height: max(9rem, calc(100dvh - 36rem));
     --app-sidebar-content-min-height: 5rem;

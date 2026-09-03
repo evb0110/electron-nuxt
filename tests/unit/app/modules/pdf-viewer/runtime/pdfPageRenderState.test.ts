@@ -18,10 +18,12 @@ describe('pdfPageRenderState', () => {
             visual: 'none',
             canvasReadiness: 'none',
             layerReadiness: 'none',
+            textLayerReadiness: 'none',
             job: 'rendering',
             version: 2,
             contentVersion: 2,
             requestId: 11,
+            hydrationRequestId: null,
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
@@ -58,10 +60,12 @@ describe('pdfPageRenderState', () => {
             visual: 'none',
             canvasReadiness: 'none',
             layerReadiness: 'none',
+            textLayerReadiness: 'none',
             job: 'failed',
             version: 11,
             contentVersion: 11,
             requestId: 15,
+            hydrationRequestId: null,
             documentToken: 'document-a',
             targetScale: 2,
             targetOutputScale: 1,
@@ -148,7 +152,9 @@ describe('pdfPageRenderState', () => {
         }));
         expect(state.beginLayerHydration(3, 8, 22, 'document-a', 1.25, 2, container)).toBe(true);
         expect(state.getSlot(3).layerReadiness).toBe('hydrating');
-        expect(state.markLayersReady(3, 8, container)).toBe(true);
+        expect(state.markTextLayerReady(3, 8, 22, container)).toBe(true);
+        expect(state.getSlot(3).textLayerReadiness).toBe('ready');
+        expect(state.markLayersReady(3, 8, 22, container)).toBe(true);
         expect(state.completeRender(3, 8, 22)).toBe(true);
         expect(state.getSlot(3).layerReadiness).toBe('ready');
         expect(state.getSlot(3).committedRasterQuality).toEqual(bufferQuality);
@@ -186,7 +192,7 @@ describe('pdfPageRenderState', () => {
         state.markCanvasOnly(3, 9, 22);
         state.completeRender(3, 9, 22);
 
-        expect(state.markLayersReady(3, 8, staleContainer)).toBe(false);
+        expect(state.markLayersReady(3, 8, 21, staleContainer)).toBe(false);
         expect(state.failLayerHydration(3, 8, 21)).toBe(false);
         expect(state.getSlot(3)).toEqual(expect.objectContaining({
             canvasReadiness: 'ready',
@@ -194,6 +200,74 @@ describe('pdfPageRenderState', () => {
             container: currentContainer,
             layerReadiness: 'canvas-only',
         }));
+    });
+
+    it('gives each layer hydration one owner until that owner settles', () => {
+        const state = createPdfPageRenderState();
+        const container = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1.25, 2, container);
+        state.commitVisual(3, 8, 21);
+        state.markCanvasOnly(3, 8, 21);
+        state.completeRender(3, 8, 21);
+
+        expect(state.beginLayerHydration(3, 8, 22, 'document-a', 1.25, 2, container)).toBe(true);
+        expect(state.beginLayerHydration(3, 8, 23, 'document-a', 1.25, 2, container)).toBe(false);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            hydrationRequestId: 22,
+            layerReadiness: 'hydrating',
+        }));
+        expect(state.markLayersHydrating(3, 8, 22)).toBe(true);
+        expect(state.markLayersHydrating(3, 8, 23)).toBe(false);
+        expect(state.markTextLayerReady(3, 8, 23, container)).toBe(false);
+        expect(state.markLayersReady(3, 8, 23, container)).toBe(false);
+        expect(state.markLayersCanvasOnly(3, 8, 23, container)).toBe(false);
+        expect(state.markLayersCanvasOnly(3, 8, 22, container)).toBe(true);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            hydrationRequestId: null,
+            layerReadiness: 'canvas-only',
+        }));
+    });
+
+    it('promotes only canvas-ready pages whose layers have no active owner', () => {
+        const state = createPdfPageRenderState();
+        const container = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1.25, 2, container);
+        state.commitVisual(3, 8, 21);
+        expect(state.isLayerPromotionEligible(3)).toBe(false);
+        state.completeRender(3, 8, 21);
+        expect(state.isLayerPromotionEligible(3)).toBe(true);
+
+        expect(state.beginLayerHydration(3, 8, 22, 'document-a', 1.25, 2, container)).toBe(true);
+        expect(state.getSlot(3).hydrationRequestId).toBe(22);
+        expect(state.isLayerPromotionEligible(3)).toBe(false);
+        state.markTextLayerReady(3, 8, 22, container);
+        state.markLayersReady(3, 8, 22, container);
+        state.completeRender(3, 8, 22);
+        expect(state.isLayerPromotionEligible(3)).toBe(false);
+
+        state.beginRender(4, 8, 22, 'document-a', 1.25, 2, container);
+        expect(state.isLayerPromotionEligible(4)).toBe(false);
+        state.commitVisual(4, 8, 22);
+        state.markCanvasOnly(4, 8, 22);
+        state.completeRender(4, 8, 22);
+        expect(state.isLayerPromotionEligible(4)).toBe(true);
+    });
+
+    it('invalidates an active hydration owner when adopting a committed canvas version', () => {
+        const state = createPdfPageRenderState();
+        const container = {} as HTMLElement;
+        state.beginRender(3, 8, 21, 'document-a', 1.25, 2, container);
+        state.commitCanvas(3, 8, 21);
+        expect(state.beginLayerHydration(3, 8, 22, 'document-a', 1.25, 2, container)).toBe(true);
+        expect(state.getSlot(3).hydrationRequestId).toBe(22);
+
+        expect(state.adoptCommittedCanvasVersion(3, 9)).toBe(true);
+        expect(state.getSlot(3)).toEqual(expect.objectContaining({
+            contentVersion: 9,
+            hydrationRequestId: null,
+            layerReadiness: 'canvas-only',
+        }));
+        expect(state.markLayersReady(3, 8, 22, container)).toBe(false);
     });
 
     it('re-authorizes a committed canvas without letting old-token work commit afterward', () => {

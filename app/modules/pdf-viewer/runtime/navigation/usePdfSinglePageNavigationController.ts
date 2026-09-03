@@ -338,6 +338,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 preserveRenderedPages: true,
                 retainOnlyCurrentResidentRaster: true,
                 suppressResidentRasterDemand: false,
+                ...(readiness === 'text-layer' ? {prioritizeTextLayer: true} : {}),
             });
             await ensureTextLayerReady();
             if (container && !isPdfNavigationReady(

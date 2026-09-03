@@ -49,11 +49,16 @@ import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewpo
 import type { IPdfSemanticAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportGeometry';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import { createPdfPageTextLayerReadyWaiter } from '@app/modules/pdf-viewer/runtime/sessions/createPdfPageTextLayerReadyWaiter';
+import { promotePrioritizedTextLayers } from '@app/modules/pdf-viewer/runtime/sessions/promotePrioritizedTextLayers';
 import type {
     IPdfViewportDemand,
     TPdfViewportSession,
 } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import { DOCUMENT_WHEEL_ZOOM_GESTURE_GRACE_MS } from '@app/utils/document-viewer/input/documentWheelInteraction';
+import type {
+    IPdfViewportRasterJob,
+    TPdfPageRasterState,
+} from '@app/modules/pdf-viewer/runtime/sessions/pdfViewportRasterJob';
 const PDF_RASTER_SCALE_RELATIVE_TOLERANCE = 0.000_1;
 export interface ICreatePdfRenderingSessionOptions {
     document: TPdfDocumentSession;
@@ -111,7 +116,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     });
     const pageRenderState = createPdfPageRenderState();
     const pageCanvases = new Map<number, HTMLCanvasElement>();
-    const viewportRasterJobs = new Map<string, IViewportRasterJob>();
+    const viewportRasterJobs = new Map<string, IPdfViewportRasterJob>();
     const viewportRasterWaiters = new Map<number, Set<() => void>>();
     const renderMutex = new Mutex();
     let activeRasterScheduler: IPdfPageRasterScheduler | null = null;
@@ -119,16 +124,8 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     let renderVersion = 0;
     let visibleRenderRequestId = 0;
     let latestDemand: IPdfViewportDemand = viewport.demand.value;
-    type TPdfPageRasterState = 'current' | 'absent' | 'in-flight' | 'stale-scale' | 'failed';
-    interface IViewportRasterJob {
-        demand: IPdfRasterDemand;
-        rasterState: TPdfPageRasterState;
-        renderOptions: IRenderVisiblePagesOptions;
-        targetOutputScale: number;
-        targetScale: number;
-    }
     interface IPreparedViewportRaster {
-        job: IViewportRasterJob;
+        job: IPdfViewportRasterJob;
         requestId: number;
         container: HTMLElement;
         canvasHost: HTMLDivElement;
@@ -137,7 +134,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
     const getRenderDocumentToken = () => `${String(options.workingCopyPath.value ?? '')}\0${String(options.documentRevisionToken.value ?? '')}`;
     const getMountedRasterTarget = (pageNumber: number) => getMountedPdfRasterTarget(options.viewerContainer.value, pageNumber);
     const pageTextLayerReadyWaiter = createPdfPageTextLayerReadyWaiter({isReady: pageNumber => (
-        pageRenderState.getSlot(pageNumber).layerReadiness === 'ready'
+        pageRenderState.getSlot(pageNumber).textLayerReadiness === 'ready'
         && getMountedRasterTarget(pageNumber)?.container.querySelector<HTMLElement>('.text-layer, .textLayer')
             ?.dataset.pdfTextLayerReady === 'true'
     )});
@@ -145,7 +142,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         return Math.abs(targetScale - currentScale)
             <= Math.max(1, Math.abs(currentScale)) * PDF_RASTER_SCALE_RELATIVE_TOLERANCE;
     }
-    function isViewportRasterJobScaleCurrent(job: IViewportRasterJob) {
+    function isViewportRasterJobScaleCurrent(job: IPdfViewportRasterJob) {
         return isRasterScaleCurrent(job.targetScale, viewport.scale.effectiveScale.value)
             && isRasterScaleCurrent(job.targetOutputScale, options.outputScale.value);
     }
@@ -211,7 +208,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             viewportRasterWaiters.set(pageNumber, waiters);
         });
     }
-    function shouldRasterizeViewportJob(job: IViewportRasterJob) {
+    function shouldRasterizeViewportJob(job: IPdfViewportRasterJob) {
         return job.rasterState === 'absent'
             || job.rasterState === 'stale-scale'
             || job.rasterState === 'failed' && job.renderOptions.forceRerender === true
@@ -386,7 +383,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         );
         const scale = viewport.scale.effectiveScale.value;
         const outputScale = options.outputScale.value;
-        const jobs: IViewportRasterJob[] = [];
+        const jobs: IPdfViewportRasterJob[] = [];
         const pageNumbers = resolvePdfRasterJobPages({
             start,
             end,
@@ -526,6 +523,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
             : [];
         const requestedJobs = buildViewportRasterJobs(range, renderOptions, scheduler);
         const requestedPages = new Set(requestedJobs.map(job => job.demand.pageNumber));
+        const targetPages = [...requestedPages].filter(page => page >= range.start && page <= range.end);
         const jobs = [
             ...residentJobs.filter(job => (
                 !requestedPages.has(job.demand.pageNumber)
@@ -572,18 +570,19 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
                 demand: job.demand,
                 target: viewportRasterTarget,
             })));
-            return;
+        } else {
+            scheduler.setDemand({
+                sourceId: 'pdf-viewport',
+                input: schedulableJobs.map(job => job.demand),
+                policy: {
+                    expand: input => input,
+                    compareWithinLane: (left, right) => left.ordinal - right.ordinal,
+                },
+                target: viewportRasterTarget,
+            });
+            await Promise.all(waits);
         }
-        scheduler.setDemand({
-            sourceId: 'pdf-viewport',
-            input: schedulableJobs.map(job => job.demand),
-            policy: {
-                expand: input => input,
-                compareWithinLane: (left, right) => left.ordinal - right.ordinal,
-            },
-            target: viewportRasterTarget,
-        });
-        await Promise.all(waits);
+        await promotePrioritizedTextLayers(pageRenderer, targetPages, renderOptions);
     }
     const pageRenderer = usePdfPageRenderer({
         container: options.viewerContainer,

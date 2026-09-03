@@ -20,6 +20,7 @@ import type { IPageRange } from '@app/types/pdfUi';
 import type { IPdfDocumentTransition } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type { IPdfViewportDemand } from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type { TPdfPageRenderState } from '@app/modules/pdf-viewer/runtime/rendering/pdfPageRenderState';
+import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes';
 import { createPdfPageRasterScheduler } from '@app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
@@ -33,6 +34,7 @@ const rendererFixture = vi.hoisted(() => {
         cancelPendingSearchScroll: vi.fn(),
         cleanupAllLayers: vi.fn(async () => undefined),
         hideManagedAnnotationEditors: vi.fn(),
+        queuePrioritizedTextLayerPromotions: vi.fn(),
         releasePageLayers: vi.fn(),
         renderAnnotationEditorLayerForPage: vi.fn(),
         renderCommittedPageLayers: vi.fn(async (_commit: {
@@ -41,7 +43,12 @@ const rendererFixture = vi.hoisted(() => {
             version: number;
         }) => undefined),
         renderLayerPromotions: vi.fn(async () => undefined),
-        resolveLayerPromotionDemand: vi.fn(() => null),
+        resolveLayerPromotionDemand: vi.fn<(
+            pages: readonly number[],
+        ) => {
+            range: IPageRange;
+            options: IRenderVisiblePagesOptions;
+        } | null>(() => null),
         canvasHiddenAnnotationIds: {value: new Set<string>()},
         requestScrollToCurrentResult: vi.fn(),
     };
@@ -148,6 +155,7 @@ function createRenderingFixture(fixtureOptions: {
     authoritativeRaster?: boolean;
     bufferPages?: number;
     clampBufferedPages?: readonly number[];
+    prioritizeTextLayer?: boolean;
     residentPages?: readonly number[];
     withChassisAuthority?: boolean;
 } = {}) {
@@ -177,6 +185,9 @@ function createRenderingFixture(fixtureOptions: {
                 ...(fixtureOptions.authoritativeRaster === undefined
                     ? {}
                     : {authoritativeRaster: fixtureOptions.authoritativeRaster}),
+                ...(fixtureOptions.prioritizeTextLayer === true
+                    ? {prioritizeTextLayer: true}
+                    : {}),
                 bufferOverride: 0,
                 suppressResidentRasterDemand: true,
             },
@@ -576,6 +587,8 @@ describe('PdfRenderingSession behavior', () => {
         vi.clearAllMocks();
         rendererFixture.options = null;
         rerenderCoordinatorFixture.options = null;
+        rendererFixture.api.resolveLayerPromotionDemand.mockReturnValue(null);
+        rendererFixture.api.renderLayerPromotions.mockResolvedValue(undefined);
         rendererFixture.api.renderCommittedPageLayers.mockImplementation(async (commit: {
             pageNumber: number;
             requestId: number;
@@ -985,6 +998,89 @@ describe('PdfRenderingSession behavior', () => {
             await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
         } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('passes text-first priority from mandatory raster demand into committed layers', async () => {
+        const fixture = createRenderingFixture({
+            authoritativeRaster: true,
+            prioritizeTextLayer: true,
+        });
+        try {
+            await vi.waitFor(() => expect(
+                rendererFixture.api.renderCommittedPageLayers,
+            ).toHaveBeenCalledOnce());
+            expect(rendererFixture.api.renderCommittedPageLayers).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    pageNumber: 3,
+                    renderOptions: expect.objectContaining({prioritizeTextLayer: true}),
+                }),
+            );
+            expect(rendererFixture.api.queuePrioritizedTextLayerPromotions).toHaveBeenCalledWith(
+                [3],
+                expect.objectContaining({prioritizeTextLayer: true}),
+            );
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+        } finally {
+            await fixture.dispose();
+        }
+    });
+
+    it('promotes an already-current mandatory text target before settling demand', async () => {
+        const fixture = createRenderingFixture();
+        const promotion = Promise.withResolvers<undefined>();
+        try {
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
+            rendererFixture.api.resolveLayerPromotionDemand.mockReturnValue({
+                range: {
+                    start: 3,
+                    end: 3,
+                },
+                options: {
+                    bufferOverride: 0,
+                    contentIntent: 'layers-only-promotion',
+                    rasterDemandPages: [3],
+                },
+            });
+            rendererFixture.api.renderLayerPromotions.mockImplementation(() => promotion.promise);
+            fixture.demand.value = {
+                ...fixture.demand.value,
+                revision: 2,
+                mandatoryRaster: {
+                    id: 2,
+                    range: {
+                        start: 3,
+                        end: 3,
+                    },
+                    options: {
+                        bufferOverride: 0,
+                        prioritizeTextLayer: true,
+                    },
+                },
+            };
+
+            await vi.waitFor(() => expect(
+                rendererFixture.api.renderLayerPromotions,
+            ).toHaveBeenCalledWith(
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    bufferOverride: 0,
+                    contentIntent: 'layers-only-promotion',
+                    prioritizeTextLayer: true,
+                    rasterDemandPages: [3],
+                },
+            ));
+            expect(rendererFixture.api.resolveLayerPromotionDemand).toHaveBeenCalledWith([3]);
+            expect(fixture.settleMandatoryRaster).not.toHaveBeenCalledWith(2);
+
+            promotion.resolve(undefined);
+            await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(2));
+        } finally {
+            promotion.resolve(undefined);
             await fixture.dispose();
         }
     });
