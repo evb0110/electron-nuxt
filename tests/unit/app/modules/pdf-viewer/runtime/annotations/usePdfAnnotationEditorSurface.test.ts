@@ -226,6 +226,31 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.stop();
     });
 
+    it('creates and selects one canonical stamp with its JPEG image reference', () => {
+        const harness = createSurfaceHarness();
+        const image = {
+            objectNumber: 17,
+            generationNumber: 0,
+            byteLength: 4,
+            sha256: 'b'.repeat(64),
+        };
+
+        const created = harness.surface.createStampAt(1, rect, image);
+
+        expect(created).toMatchObject({
+            kind: 'placed-image',
+            pageIndex: 1,
+            rect,
+            rotation: 0,
+            image,
+        });
+        expect(harness.annotationApplication.value.store.list()).toEqual([created]);
+        harness.surface.select([created.identity.id]);
+        expect(harness.surface.selectedIds.value).toEqual(new Set([created.identity.id]));
+
+        harness.stop();
+    });
+
     it('creates, selects, styles, and deletes a text box through the canonical surface', () => {
         const harness = createSurfaceHarness();
 

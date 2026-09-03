@@ -5,6 +5,7 @@ import {
     vi,
 } from 'vitest';
 import type {
+    IPlacedImageEntity,
     INoteEntity,
     ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -49,6 +50,26 @@ const note = {
     open: false,
 } satisfies INoteEntity;
 
+const stamp = {
+    kind: 'placed-image',
+    identity: {id: 'stamp' as IPlacedImageEntity['identity']['id']},
+    pageIndex: 2,
+    revision: 0,
+    persistedRevision: -1,
+    deleted: false,
+    createdAt: null,
+    modifiedAt: null,
+    author: null,
+    rect: entity.rect,
+    rotation: 0,
+    image: {
+        objectNumber: 10,
+        generationNumber: 0,
+        byteLength: 4,
+        sha256: 'a'.repeat(64),
+    },
+} satisfies IPlacedImageEntity;
+
 describe('useAnnotationCreationTools', () => {
     it('creates and selects only the text tool entity', () => {
         const createTextBoxAt = vi.fn(() => entity);
@@ -79,5 +100,20 @@ describe('useAnnotationCreationTools', () => {
         expect(tools.create('note', 2, note.position)).toBe(note);
         expect(createNoteAt).toHaveBeenCalledWith(2, note.position);
         expect(select).toHaveBeenCalledWith([note.identity.id]);
+    });
+
+    it('creates and selects a canonical stamp when the placement supplies its image reference', () => {
+        const createStampAt = vi.fn(() => stamp);
+        const select = vi.fn();
+        const tools = useAnnotationCreationTools({surface: {
+            createStampAt,
+            select,
+        } as Pick<IAnnotationEditorSurface, 'createStampAt' | 'select'> as IAnnotationEditorSurface});
+
+        expect(tools.create('stamp', 2, stamp.rect, stamp.image)).toBe(stamp);
+        expect(createStampAt).toHaveBeenCalledWith(2, stamp.rect, stamp.image);
+        expect(select).toHaveBeenCalledWith([stamp.identity.id]);
+        expect(tools.create('stamp', 2, stamp.rect)).toBeNull();
+        expect(createStampAt).toHaveBeenCalledOnce();
     });
 });
