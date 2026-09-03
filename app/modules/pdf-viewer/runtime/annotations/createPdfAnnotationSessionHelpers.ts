@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { reportAnnotationCreationFailure } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/reportAnnotationCreationFailure';
 import type {
     IAnnotationCreationFailureReport,
     TAnnotationCreationOutcome,
@@ -44,7 +45,7 @@ export function createAnnotationCreationFailureReporter(
         pageNumber: number,
     ): TAnnotationCreationOutcome => {
         annotationCreationAttempts += 1;
-        reportAnnotationFailure?.({
+        reportAnnotationCreationFailure(reportAnnotationFailure, {
             operationId: `annotation-create-${annotationCreationAttempts}`,
             reason,
             pageNumber,

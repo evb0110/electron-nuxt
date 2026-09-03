@@ -22,7 +22,7 @@ function debugLogEntry(
         message: level === undefined ? message : `[${level}] ${message}`,
         timestamp: '2026-08-23T08:57:36.046Z',
         ...(level === undefined ? {} : {level}),
-    };
+    } as IDebugLogEntry;
 }
 
 describe('runtime error filter', () => {

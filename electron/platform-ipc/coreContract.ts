@@ -32,14 +32,18 @@ export const CORE_IPC_SEND_CHANNELS = {
 } as const;
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
+// fallow-ignore-next-line unused-export -- Retained for consumers of the public IPC contract.
 export {DIAGNOSTICS_POLICY_HINTS};
 export type {
     IDiagnosticsStartupPolicy,
+    // fallow-ignore-next-line unused-type -- Compatibility type for the public IPC contract.
     TDiagnosticsPolicyHint,
 } from '@contracts/diagnostics/diagnosticsCapability';
 
 /** Compatibility aliases retained while callers converge on the shared entry contract. */
+// fallow-ignore-next-line unused-type -- Compatibility alias removed with the legacy diagnostics bridge.
 export type IDiagnosticsFailureRef = IDebugLogFailureRef;
+// fallow-ignore-next-line unused-type -- Compatibility alias removed with the legacy diagnostics bridge.
 export type IDiagnosticsDebugLogEntry = IDebugLogEntry;
 
 export type IPreloadDiagnosticsApi = IDiagnosticsRendererCapability;
@@ -67,6 +71,7 @@ export function encodeDiagnosticsPolicyArgument(value: unknown) {
     return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
 }
 
+// fallow-ignore-next-line unused-export -- Compatibility decoder for the public IPC contract.
 export const decodeDiagnosticsDebugLogEntry = decodeDebugLogEntry;
 
 export interface IShutdownSaveFlushRequest { requestId: string; }

@@ -30,11 +30,15 @@
         "electron/features/scan-cleanup/worker/main.ts",
         "electron/search/worker.ts",
         "packages/*/index.ts",
+        // The package export map exposes nested diagnostics contracts as
+        // public subpath entry points, not only through the root barrel.
+        "packages/contracts/diagnostics/**/*.{ts,js}",
         "scripts/**/*.{ts,mjs,cjs}",
         "tests/fixtures/ocr/*.mjs",
         "tests/setup.ts",
         "tests/e2e/electron/globalSetup.ts",
         "tests/mocks/**/*.ts",
+        "tests/typecheck/**/*.ts",
         "tests/types/**/*.ts"
     ],
     "ignorePatterns": [

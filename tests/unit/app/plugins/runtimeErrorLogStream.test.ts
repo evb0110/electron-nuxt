@@ -146,7 +146,7 @@ describe('runtime error log stream', () => {
             message: '[ERROR] legacy main failure',
             timestamp: '2026-09-03T00:00:00.000Z',
             level: 'ERROR',
-        });
+        } as IDebugLogEntry);
 
         expect(mocks.captureForPresentation).toHaveBeenCalledOnce();
         expect(mocks.captureForPresentation).toHaveBeenCalledWith({

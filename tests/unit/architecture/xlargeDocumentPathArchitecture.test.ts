@@ -210,6 +210,17 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Remove both loads when print layout work is path-backed or limited to explicitly small input.',
     },
     {
+        module: 'packages/pdf-core/loadPdfStructure.ts',
+        primitive: 'PDFDocument.load',
+        occurrences: 1,
+        maximumBytesClassifier:
+      'Caller-owned Uint8Array with no maximum byte classifier, structural in-memory utility',
+        reason:
+      'Structural inspection accepts bytes directly and does not classify path size at this layer.',
+        removalCondition:
+      'Remove the whole-document load when structural inspection consumes bounded qpdf/native results.',
+    },
+    {
         module:
       'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
         primitive: 'PDF.js getData',
