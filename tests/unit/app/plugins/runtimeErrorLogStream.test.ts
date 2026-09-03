@@ -131,6 +131,44 @@ describe('runtime error log stream', () => {
         expect(unsubscribe).toHaveBeenCalledOnce();
     });
 
+    it('owns a receipt-free main error projection with a bounded renderer code', async () => {
+        mocks.onDebugLog.mockReturnValue(vi.fn());
+        const plugin = await loadPlugin();
+        const harness = createNuxtApp();
+
+        plugin(harness.nuxtApp);
+        harness.hooks.get('app:mounted')?.();
+        await flushPluginTasks();
+
+        const callback = mocks.onDebugLog.mock.calls[0]?.[0] as (entry: IDebugLogEntry) => void;
+        callback({
+            source: 'main',
+            message: '[ERROR] legacy main failure',
+            timestamp: '2026-09-03T00:00:00.000Z',
+            level: 'ERROR',
+        });
+
+        expect(mocks.captureForPresentation).toHaveBeenCalledOnce();
+        expect(mocks.captureForPresentation).toHaveBeenCalledWith({
+            code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
+            context: {phase: 'legacy-error-projection'},
+            local: {
+                source: 'runtime-error-log-stream',
+                message: 'Main runtime error log entry has no failure receipt',
+                data: {
+                    source: 'main',
+                    timestamp: '2026-09-03T00:00:00.000Z',
+                    message: '[ERROR] legacy main failure',
+                },
+            },
+        }, {localAlreadyRecorded: true});
+        expect(mocks.reportRuntimeError).toHaveBeenCalledWith({
+            failure,
+            title: 'errors.runtime.streamError',
+            description: '2026-09-03T00:00:00.000Z\n[ERROR] legacy main failure',
+        });
+    });
+
     it('owns one renderer occurrence for a bridge-init defect and keeps arbitrary error text out of capture input', async () => {
         mocks.onDebugLog.mockImplementation(() => {
             throw new Error('private bridge failure details');
@@ -144,7 +182,13 @@ describe('runtime error log stream', () => {
 
         expect(mocks.initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
         expect(mocks.captureForPresentation).toHaveBeenCalledOnce();
-        const [captureInput] = mocks.captureForPresentation.mock.calls[0] as [{local: {message: string}}];
+        const [captureInput] = mocks.captureForPresentation.mock.calls[0] as [{
+            code: string;
+            context: unknown;
+            local: {message: string};
+        }];
+        expect(captureInput.code).toBe('RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED');
+        expect(captureInput.context).toEqual({phase: 'subscription-initialization'});
         expect(captureInput.local.message).toBe('Electron diagnostics log stream initialization failed');
         expect(JSON.stringify(captureInput)).not.toContain('private bridge failure details');
         expect(mocks.reportRuntimeError).toHaveBeenCalledWith({

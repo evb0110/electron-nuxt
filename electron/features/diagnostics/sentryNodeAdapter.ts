@@ -1,5 +1,3 @@
-/* eslint-disable custom/file-naming */
-
 import {
     createTransport,
     createEventEnvelope,
@@ -44,6 +42,11 @@ export interface ISentryNodeAdapterOptions {
     };
     makeTransport?: TSentryTransportFactory;
 }
+
+export type TSentryNodeRuntimeOptions = Omit<
+    ISentryNodeAdapterOptions,
+    'dsn' | 'identity'
+>;
 
 function majorVersion(value: string | undefined) {
     const match = value?.match(/^(\d+)/u);
@@ -240,6 +243,21 @@ export function createSentryNodeDiagnosticsTransport(
             } catch {
                 return false;
             }
+        },
+    });
+}
+
+export function createSentryNodeDiagnosticsTransportFromEnvironment(
+    options: TSentryNodeRuntimeOptions,
+) {
+    return createSentryNodeDiagnosticsTransport({
+        ...options,
+        dsn: process.env.SENTRY_DESKTOP_DSN ?? '',
+        identity: {
+            target: 'desktop',
+            release: process.env.EVB_SENTRY_RELEASE ?? '',
+            dist: process.env.EVB_SENTRY_DIST ?? '',
+            environment: process.env.EVB_SENTRY_ENVIRONMENT as SentryBuildIdentity['environment'],
         },
     });
 }

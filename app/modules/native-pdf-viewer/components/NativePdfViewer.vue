@@ -1201,9 +1201,9 @@ watch(
             }
             clearFailedLoadSource(generation);
             viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
-            BrowserLogger.error('native-pdf-viewer', 'Failed to initialize native PDF viewer', {
-                src: nextSrc,
-                error,
+            BrowserLogger.error('native-pdf-viewer', 'Failed to initialize native PDF viewer', Object.assign({src: nextSrc}, {error}), {
+                code: 'RENDERER_NATIVE_PDF_VIEWER_FAILED',
+                context: {phase: 'initialize'},
             });
             markInitialVisualFailed(generation, error);
         } finally {
@@ -1246,9 +1246,9 @@ watch(isActive, async (active) => {
             }
             clearFailedLoadSource(generation);
             viewerError.value = error instanceof Error ? error.message : t('errors.file.open');
-            BrowserLogger.error('native-pdf-viewer', 'Failed to resume native PDF viewer', {
-                src,
-                error,
+            BrowserLogger.error('native-pdf-viewer', 'Failed to resume native PDF viewer', Object.assign({src}, {error}), {
+                code: 'RENDERER_NATIVE_PDF_VIEWER_FAILED',
+                context: {phase: 'resume'},
             });
             markInitialVisualFailed(generation, error);
         }

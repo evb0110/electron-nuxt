@@ -368,6 +368,62 @@ describe('BrowserLogger', () => {
         }));
     });
 
+    it('captures typed renderer failures with only closed remote fields', async () => {
+        const {
+            windowStub,
+            rendererLog,
+        } = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        spyOnConsole();
+        const captureRendererFailure = vi.fn();
+        const sender = vi.fn();
+        const actualFailureReporter = await vi.importActual<typeof FailureReporterModule>(
+            '@app/utils/failureReporter',
+        );
+        const reporter = actualFailureReporter.createRendererFailureReporter({
+            host: 'electron',
+            preference: 'granted',
+            electronSender: sender,
+        });
+        vi.doMock('@app/utils/failureReporter', () => ({
+            captureRendererFailure,
+            initializeRendererFailureReporter: vi.fn(() => reporter),
+        }));
+        const logger = await importBrowserLogger();
+
+        const receipt = logger.error(
+            'browser-logger-test',
+            'private typed renderer detail',
+            {
+                cause: new Error('private typed cause'),
+                secret: 'private typed value',
+            },
+            {
+                code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+                context: {operation: 'apply-highlights'},
+            },
+        );
+
+        expect(receipt).toMatchObject({
+            code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+            severity: 'error',
+        });
+        expect(captureRendererFailure).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+            context: {operation: 'apply-highlights'},
+            local: expect.objectContaining({message: 'private typed renderer detail'}),
+        }), {localAlreadyRecorded: true});
+        const record = sender.mock.calls[0]?.[0];
+        expect(record).toMatchObject({
+            code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+            context: {operation: 'apply-highlights'},
+        });
+        expect(JSON.stringify(record)).not.toContain('private typed renderer detail');
+        expect(JSON.stringify(record)).not.toContain('private typed cause');
+        expect(JSON.stringify(record)).not.toContain('private typed value');
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({message: 'private typed renderer detail'}));
+    });
+
     it('reuses a supplied receipt without recapturing and keeps the renderer log entry intact', async () => {
         const {
             windowStub,

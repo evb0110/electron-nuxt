@@ -27,7 +27,7 @@ import {requireDocumentRevisionToken} from '@contracts';
 const useOcrMock = vi.hoisted(() => vi.fn());
 const copyClipboardTextMock = vi.hoisted(() => vi.fn());
 const getDebugLogsMock = vi.hoisted(() => vi.fn());
-const browserLoggerErrorMock = vi.hoisted(() => vi.fn());
+const browserLoggerWarnMock = vi.hoisted(() => vi.fn());
 const timeoutStartMock = vi.hoisted(() => vi.fn());
 const timeoutStopMock = vi.hoisted(() => vi.fn());
 const translateMock = vi.hoisted(() => (key: string, params?: Record<string, unknown>) => {
@@ -50,7 +50,7 @@ vi.mock('@vueuse/core', () => ({
     }),
 }));
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({getDebugLogs: getDebugLogsMock})}));
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: browserLoggerErrorMock}}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {warn: browserLoggerWarnMock}}));
 
 const { useOcrPopupPresenter } = await import('@app/modules/ocr-panel/runtime/useOcrPopupPresenter');
 
@@ -424,7 +424,7 @@ describe('useOcrPopupPresenter', () => {
 
             expect(harness.presenter.copyLogsState.value).toBe('failed');
             expect(harness.presenter.copyLogsTooltip.value).toBe('ocr.logsCopyFailed');
-            expect(browserLoggerErrorMock).toHaveBeenCalledWith(
+            expect(browserLoggerWarnMock).toHaveBeenCalledWith(
                 'ocr',
                 'Failed to copy OCR debug logs',
                 expect.any(Error),

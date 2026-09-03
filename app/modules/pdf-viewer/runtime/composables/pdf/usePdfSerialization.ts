@@ -230,6 +230,9 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 mimeType: payload.mimeType,
                 targetPixelWidth: payload.targetPixelWidth,
                 targetPixelHeight: payload.targetPixelHeight,
+            }, {
+                code: 'RENDERER_PDF_IMAGE_RASTERIZATION_FAILED',
+                context: {},
             });
             throw new Error('Failed to rasterize placed image for PDF embedding');
         }

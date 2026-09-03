@@ -219,6 +219,15 @@ describe('renderer hygiene plugins', () => {
         ] of browserLoggerMock.error.mock.calls) {
             expect(data).toEqual(expect.objectContaining({failure: expect.objectContaining({eventId: expect.stringMatching(/^[0-9a-f]{32}$/u)})}));
         }
+        expect(browserLoggerMock.error.mock.calls.map(([
+            , , data,
+        ]) => (
+            (data as {failure?: {code?: string}}).failure?.code
+        ))).toEqual([
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_ERROR_GUARD_FAILED',
+        ]);
     });
 
     it('short circuits ignorable Vue, window, and rejection messages before an occurrence', async () => {

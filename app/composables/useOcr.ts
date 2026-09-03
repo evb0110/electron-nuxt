@@ -472,12 +472,28 @@ export const useOcr = () => {
             return;
         }
 
-        BrowserLogger.error('ocr', 'OCR backend reported page failures', {
+        const details = {
             requestId,
             success: response.success,
             errors: response.errors,
             errorCode: response.errorEnvelope?.code,
-        });
+        };
+        if (
+            response.errorEnvelope === undefined
+            || response.errorEnvelope.code === 'OCR_INTERNAL_ERROR'
+        ) {
+            BrowserLogger.error(
+                'ocr',
+                'OCR backend reported page failures',
+                details,
+                {
+                    code: 'RENDERER_OCR_BACKEND_FAILED',
+                    context: {},
+                },
+            );
+        } else {
+            BrowserLogger.warn('ocr', 'OCR backend reported an expected outcome', details);
+        }
         if (response.errorEnvelope !== undefined) {
             error.value = localizeOcrError(response.errorEnvelope, 'errors.ocr.createSearchablePdf');
             return;
@@ -544,18 +560,21 @@ export const useOcr = () => {
     }
 
     function logOcrRunFailure(requestId: string, caughtError: unknown) {
-        const errMsg = getErrorMessage(caughtError);
-        const errStack = caughtError instanceof Error ? caughtError.stack : undefined;
-        BrowserLogger.error('ocr', 'OCR run failed', {
+        const details = {
             requestId,
-            error: errMsg,
-        });
-        if (errStack) {
-            BrowserLogger.error('ocr', 'OCR stack trace', {
-                requestId,
-                stack: errStack,
-            });
+            error: getErrorMessage(caughtError),
+        };
+        if (
+            caughtError instanceof OcrJobStartError
+            && caughtError.errorEnvelope?.code !== 'OCR_INTERNAL_ERROR'
+        ) {
+            BrowserLogger.warn('ocr', 'OCR run was not started', details);
+            return;
         }
+        BrowserLogger.error('ocr', 'OCR run failed', details, {
+            code: 'RENDERER_OCR_RUN_FAILED',
+            context: {},
+        });
     }
 
     function validateOcrRunRequest(
