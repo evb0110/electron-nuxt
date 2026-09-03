@@ -1,0 +1,180 @@
+app/utils/diagnosticsServerOptOut.ts
+  s_b412fd4cd3f576::t_b2e6382293ad8a 12-24,27-28
+app/modules/agent-panel/public/assistantFailure.ts
+  s_b412fd4cd3f576::t_5925d5a925da6d 1-4
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_517d7a670731a5 39,42,227-228,231-245,257-258,260-261,265-273,300-339,619-636
+  s_5e1de6d1cc8bf6::t_db21a5da9c4438 637
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_f473535b0e96c3 71-98,263-353,372-378,389-406,425-559,673-690,700-717,745-825
+app/modules/workspace-shell/agent/runSettingsAssistantAction.ts
+  s_b412fd4cd3f576::t_8db72e193da2d9 7
+app/composables/useOcr.ts
+  s_b412fd4cd3f576::t_b51d3059d23a06 475,480-496,563,565-572,574-577
+app/modules/native-pdf-viewer/components/NativePdfViewer.vue
+  s_b412fd4cd3f576::t_476b875d6e9b25 1204-1206,1249-1251
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_b412fd4cd3f576::t_c4b2a04b2a1239 536
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_b412fd4cd3f576::t_4b75f024aabcfa 774-777
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox.ts
+  s_b412fd4cd3f576::t_bc94398bafec95 14,56
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_b412fd4cd3f576::t_3373f60db5aa5c 348
+app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator.ts
+  s_b412fd4cd3f576::t_d83a97c8091be3 37
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts
+  s_b412fd4cd3f576::t_b40db0299cb7ff 233-235
+app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery.ts
+  s_b412fd4cd3f576::t_16c4123cf822c4 228-231,255-258
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_b412fd4cd3f576::t_b8673843f75a3f 291-294
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController.ts
+  s_b412fd4cd3f576::t_5cc2c22234b390 54-57,76-79
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_83690c473c5f98 1120
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_b412fd4cd3f576::t_a9c6cde2becbea 10,197-200,221-238,618,656-667,788,806
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_b412fd4cd3f576::t_15ba2acaf0ca06 1-4,146,152,155-169,171,173
+app/platform/lazyBrowserPlatformApi.ts
+  s_b412fd4cd3f576::t_3783cc0df7b48e 149-152
+app/plugins/diagnosticsTransport.client.ts
+  s_b412fd4cd3f576::t_7f346b192851ab 1-16
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_596084db1b992b 155-160,162-163,173,208,236,258
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_10e1ac19ba7299 16,55-90,99,102,167-169,175,177
+app/utils/asyncGuard.ts
+  s_b412fd4cd3f576::t_55984a8790acb9 70-77,81-83
+app/utils/browserDiagnosticsTransport.ts
+  s_b412fd4cd3f576::t_5083334c1fbfc8 1-174
+app/utils/browserLogger.ts
+  s_b412fd4cd3f576::t_e0b9e37c21a8de 3-11,21-25,174-177,372,376,378-384,386-391,393-412
+docs/architecture/unclassified-renderer-error-migration-report-2026-09-03.md
+  s_b412fd4cd3f576::t_39ea5e129a0e94 3,6-8,10-26,30-34,36-37,39-42,44-49,71-79
+electron/bootstrap/externalOpen.ts
+  s_b412fd4cd3f576::t_7232b25feea766 476-480
+electron/features/agent/codexMcpIntegration.ts
+  s_b412fd4cd3f576::t_d3a2d221a8312d 345-352,366,381
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_1385be2b9464ab 73,86,377,667-673,675,677-683
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_0b2eee95b061b8 1-263
+electron/features/documents/main/documentWindowHandlers.ts
+  s_b412fd4cd3f576::t_1067356e1b8bad 81-85
+electron/main.ts
+  s_b412fd4cd3f576::t_1643c794ed8e86 73,171-172,178-179,181-226
+electron/recentFiles.ts
+  s_b412fd4cd3f576::t_95c2165cb8f018 19,97-114,353-358,366-370,377-381,383,409-413,419
+electron/te.ts
+  s_b412fd4cd3f576::t_2603a103baca6b 78-85,99
+electron/updates.ts
+  s_b412fd4cd3f576::t_2eaa7b0157d339 13,23,99-110,436,527-550,619,643-647,692,862,878,906-913,924-931,1035-1043,1078
+electron/utils/atomicReplace.ts
+  s_b412fd4cd3f576::t_1391494e102421 18,29-45,333-344
+electron/utils/createLogger.ts
+  s_b412fd4cd3f576::t_930bc038954de5 19-24,26-34,57-60,63-67,415-427,430-436,453-487,497-502,512-517,521,572
+electron/utils/isExpectedUpdateNetworkError.ts
+  s_b412fd4cd3f576::t_40079cd0da0f21 1-39
+electron/window/windowCloseHandshake.ts
+  s_b412fd4cd3f576::t_78126e34d6d891 19,62,69,80,99,112,125,135
+nuxt.config.ts
+  s_b412fd4cd3f576::t_21cc537aab0c0e 93-107,142
+packages/contracts/diagnostics/serverDiagnosticsObjection.ts
+  s_b412fd4cd3f576::t_ce6d24cc1cebd1 1-52
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_b62530a1d05455 232-242,266-268,274
+server/api/analytics/events.post.ts
+  s_b412fd4cd3f576::t_ae3b1402cd1217 26,47-55,107-115
+server/plugins/diagnostics.ts
+  s_b412fd4cd3f576::t_0371b62ed3b91e 1-35
+server/utils/diagnosticsObjection.ts
+  s_b412fd4cd3f576::t_0cd110da87a557 1-63
+server/utils/sentryNitroAdapter.ts
+  s_b412fd4cd3f576::t_e19ed9b802608e 1-528
+server/utils/serverFailureReporter.ts
+  s_b412fd4cd3f576::t_f1ead01b48868e 1-778
+tests/unit/app/composables/useOcr.test.ts
+  s_b412fd4cd3f576::t_6544dca75e2352 28-31,63-68,710-743,799-804
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_b412fd4cd3f576::t_406557f6ec87bb 30,53,427
+tests/unit/app/modules/pdf-viewer/engine/pdfDocumentSource.test.ts
+  s_b412fd4cd3f576::t_5b6dcb8b3a0102 36
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_b412fd4cd3f576::t_bc7ad4eb2f25f3 19-24,88,642-645,668-671,721-722,726-729,731-732,736
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFailureSurface.test.ts
+  s_b412fd4cd3f576::t_d121dc1b89b55a 11,22-41,140-143,146,157,165-176,181-188,192,194,196,199-200,203-204
+tests/unit/app/platform/lazyBrowserPlatformApi.test.ts
+  s_b412fd4cd3f576::t_999b8adc14eeb2 104-107
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_34565260793c55 222-230
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_2d8d226362b5e3 134-171,185-191
+tests/unit/app/utils/asyncGuard.test.ts
+  s_b412fd4cd3f576::t_36cfc5179bb0b6 38-40,62-64,86-87,115-123
+tests/unit/app/utils/browserDiagnosticsTransport.test.ts
+  s_b412fd4cd3f576::t_64cf056ad964cd 1-103
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_796c54bc271909 371-426
+tests/unit/architecture/sentryMainLoggerMigration.test.ts
+  s_b412fd4cd3f576::t_4d19a043853fb9 1-186
+tests/unit/architecture/sentryPrivacyEnvelopePolicy.test.ts
+  s_b412fd4cd3f576::t_f24f13b8e090cc 1-521
+tests/unit/contracts/serverDiagnosticsObjection.test.ts
+  s_b412fd4cd3f576::t_76b0efa17bbe1c 1-41
+tests/unit/electron/agentMcpIntegration.test.ts
+  s_b412fd4cd3f576::t_049be79f8ec695 155-175,231,253
+tests/unit/electron/childLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_4767b093e79101 55-59,63
+tests/unit/electron/electronTranslations.test.ts
+  s_b412fd4cd3f576::t_64c267ccced5d1 11-14,65
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_e0e04f48a791ad 95-128
+tests/unit/electron/mainLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_9fbb577267164c 103-141
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_b8bda6eb85a874 1-157
+tests/unit/electron/startupCrashMarker.test.ts
+  s_b412fd4cd3f576::t_ff636bb09a21fa 399,403-404,410,413
+tests/unit/electron/updates.test.ts
+  s_b412fd4cd3f576::t_9e312e18216cdd 276-306,327-337,830
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_b412fd4cd3f576::t_204dd0e08cc8ce 29,197,219,235
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_04342de4994110 73-78
+tests/unit/server/diagnosticsObjection.test.ts
+  s_b412fd4cd3f576::t_477d3aa9752498 1-93
+tests/unit/server/nitroDiagnosticsPlugin.test.ts
+  s_b412fd4cd3f576::t_7057214ba4c76b 1-70
+tests/unit/server/sentryNitroAdapter.test.ts
+  s_b412fd4cd3f576::t_7aceaff173e20b 1-259
+tests/unit/server/serverFailureReporter.test.ts
+  s_b412fd4cd3f576::t_ada0dea8296b02 1-278
+tests/unit/server/viewerAnalyticsEndpoint.test.ts
+  s_b412fd4cd3f576::t_f8c6c60bff26bd 12,56,79,88,90,96-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7f727c2f49c82a801d574aef00e7126c3aade5f5",
+  "prompts": {},
+  "sessions": {
+    "s_5e1de6d1cc8bf6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a067b4-d04f-7b31-b0be-c28b48091b4e",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
