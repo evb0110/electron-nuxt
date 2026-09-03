@@ -96,6 +96,17 @@
                 @check="handleCheckForUpdates"
             />
         </section>
+
+        <section class="settings-card settings-card--span settings-about-card">
+            <div class="settings-about-copy">
+                <h2 class="settings-about-title">{{ t('settings.aboutTitle') }}</h2>
+                <p class="settings-about-description">{{ t('settings.aboutDescription') }}</p>
+            </div>
+            <NuxtLink class="settings-about-link" to="/about">
+                <span>{{ t('settings.openAbout') }}</span>
+                <UIcon name="i-ph-arrow-right" aria-hidden="true" />
+            </NuxtLink>
+        </section>
     </div>
 
     <div
@@ -786,6 +797,52 @@ onBeforeUnmount(() => {
 
 .settings-card--span {
     grid-column: 1 / -1;
+}
+
+.settings-about-card {
+    gap: var(--app-space-3xl);
+}
+
+.settings-about-copy {
+    display: grid;
+    gap: var(--app-space-sm);
+}
+
+.settings-about-title,
+.settings-about-description {
+    margin: 0;
+}
+
+.settings-about-title {
+    font-size: var(--app-text-size-title-sm);
+}
+
+.settings-about-description {
+    color: var(--ui-text-muted);
+    line-height: 1.6;
+}
+
+.settings-about-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: var(--app-space-sm);
+    min-height: var(--app-control-height-md);
+    padding: var(--app-space-sm) var(--app-space-lg);
+    border: 1px solid var(--ui-primary);
+    border-radius: var(--app-radius-xs);
+    color: var(--ui-primary);
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.settings-about-link:hover {
+    background: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-primary) 10%);
+}
+
+.settings-about-link:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 3px;
 }
 
 @container (max-width: 720px) {
