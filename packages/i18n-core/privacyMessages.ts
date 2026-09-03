@@ -17,6 +17,7 @@ export interface IPrivacyMessages {
     };
     documents: IPrivacySectionMessages;
     assistant: IPrivacySectionMessages;
+    diagnostics: IPrivacySectionMessages;
     analytics: IPrivacySectionMessages;
     settings: IPrivacySectionMessages;
     storage: IPrivacySectionMessages;
@@ -46,6 +47,10 @@ export const PRIVACY_MESSAGES = {
         assistant: {
             heading: 'Optional assistant services',
             body: 'Assistant features are optional. When you use an assistant backed by Codex, OpenAI, or Anthropic Claude, prompts and any content or attachments you choose to include are sent to that provider under your account and are governed by that provider’s terms and privacy policy. EVB Viewer does not sell this information.',
+        },
+        diagnostics: {
+            heading: 'Optional error reports',
+            body: 'If you grant permission, EVB Viewer sends privacy-sanitized error reports only. Reports contain limited technical diagnostics needed to understand an error. They do not contain document contents, text, file paths, attachments, local logs, account information, or user identity. Turning reporting off stops future sends; it cannot recall reports already received or already in flight.',
         },
         analytics: {
             heading: 'Analytics and technical information',
@@ -87,6 +92,10 @@ export const PRIVACY_MESSAGES = {
             heading: 'Optionale Assistentendienste',
             body: 'Assistentenfunktionen sind optional. Wenn du einen auf Codex, OpenAI oder Anthropic Claude basierenden Assistenten verwendest, werden Eingaben sowie von dir ausgewählte Inhalte oder Anhänge über dein Konto an den jeweiligen Anbieter gesendet und unterliegen dessen Bedingungen und Datenschutzerklärung. EVB Viewer verkauft diese Informationen nicht.',
         },
+        diagnostics: {
+            heading: 'Optionale Fehlerberichte',
+            body: 'Wenn du die Erlaubnis erteilst, sendet EVB Viewer ausschließlich datenschutzbereinigte Fehlerberichte. Die Berichte enthalten nur die begrenzten technischen Diagnosedaten, die zum Verständnis eines Fehlers erforderlich sind. Sie enthalten keine Dokumentinhalte, Texte, Dateipfade, Anhänge, lokalen Protokolle, Kontoinformationen oder Angaben zu deiner Identität. Wenn du die Berichte deaktivierst, werden künftig keine weiteren gesendet; bereits empfangene oder bereits laufende Berichte können nicht zurückgerufen werden.',
+        },
         analytics: {
             heading: 'Analyse- und technische Informationen',
             body: 'Die EVB-Viewer-Website und Browser-App können begrenzte Nutzungs- und technische Ereignisse erfassen, etwa Seitenpfade, Funktionsereignisse, Sprache, Bildschirmkategorie, Referrer, Browser-User-Agent, ungefähre Region und eine regelmäßig wechselnde gehashte Besucherkennung. Diese Daten dienen dazu, Zuverlässigkeit und Produktnutzung zu verstehen, und nicht dazu, Dokumentinhalte zu identifizieren.',
@@ -126,6 +135,10 @@ export const PRIVACY_MESSAGES = {
         assistant: {
             heading: 'Servicios opcionales de asistente',
             body: 'Las funciones de asistente son opcionales. Cuando utilizas un asistente basado en Codex, OpenAI o Anthropic Claude, las instrucciones y el contenido o los archivos adjuntos que decidas incluir se envían a ese proveedor mediante tu cuenta y se rigen por sus condiciones y política de privacidad. EVB Viewer no vende esta información.',
+        },
+        diagnostics: {
+            heading: 'Informes de errores opcionales',
+            body: 'Si das tu permiso, EVB Viewer envía únicamente informes de errores protegidos por privacidad. Los informes contienen los datos técnicos limitados necesarios para entender un error. No contienen contenido de documentos, texto, rutas de archivos, archivos adjuntos, registros locales, información de la cuenta ni tu identidad. Desactivar los informes detiene los envíos futuros; no puede retirar los informes ya recibidos o que ya estén en curso.',
         },
         analytics: {
             heading: 'Datos analíticos e información técnica',
@@ -167,6 +180,10 @@ export const PRIVACY_MESSAGES = {
             heading: 'Services d’assistant optionnels',
             body: 'Les fonctions d’assistant sont optionnelles. Lorsque vous utilisez un assistant reposant sur Codex, OpenAI ou Anthropic Claude, les requêtes ainsi que le contenu ou les pièces jointes que vous choisissez d’inclure sont envoyés à ce fournisseur avec votre compte et relèvent de ses conditions et de sa politique de confidentialité. EVB Viewer ne vend pas ces informations.',
         },
+        diagnostics: {
+            heading: 'Rapports d’erreur facultatifs',
+            body: 'Si vous donnez votre autorisation, EVB Viewer envoie uniquement des rapports d’erreur nettoyés pour protéger la vie privée. Ces rapports contiennent les données techniques limitées nécessaires à la compréhension d’une erreur. Ils ne contiennent ni contenu de document, ni texte, ni chemins de fichiers, ni pièces jointes, ni journaux locaux, ni informations de compte, ni identité utilisateur. Désactiver les rapports arrête les envois futurs ; cela ne peut pas rappeler les rapports déjà reçus ou déjà en cours d’envoi.',
+        },
         analytics: {
             heading: 'Données analytiques et techniques',
             body: 'Le site et l’application web EVB Viewer peuvent recueillir des événements d’utilisation et des données techniques limités, notamment les chemins de pages, les événements de fonctionnalités, la langue, la catégorie d’écran, le site référent, l’agent utilisateur du navigateur, la région approximative et un identifiant de visiteur haché et renouvelé. Ces données servent à comprendre la fiabilité et l’utilisation du produit, pas à identifier le contenu des documents.',
@@ -206,6 +223,10 @@ export const PRIVACY_MESSAGES = {
         assistant: {
             heading: 'Servizi opzionali dell’assistente',
             body: 'Le funzionalità dell’assistente sono opzionali. Quando utilizzi un assistente basato su Codex, OpenAI o Anthropic Claude, le richieste e gli eventuali contenuti o allegati che scegli di includere vengono inviati a quel fornitore tramite il tuo account e sono regolati dai suoi termini e dalla sua informativa sulla privacy. EVB Viewer non vende queste informazioni.',
+        },
+        diagnostics: {
+            heading: 'Report di errore opzionali',
+            body: 'Se concedi il permesso, EVB Viewer invia solo report di errore protetti per la privacy. I report contengono i dati tecnici limitati necessari per comprendere un errore. Non contengono contenuti dei documenti, testo, percorsi dei file, allegati, registri locali, informazioni sull’account o la tua identità. Disattivare i report interrompe gli invii futuri; non può richiamare i report già ricevuti o già in corso di invio.',
         },
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
@@ -247,6 +268,10 @@ export const PRIVACY_MESSAGES = {
             heading: 'Optionele assistentdiensten',
             body: 'Assistentfuncties zijn optioneel. Wanneer je een assistent gebruikt die is gebaseerd op Codex, OpenAI of Anthropic Claude, worden prompts en alle inhoud of bijlagen die je kiest via je account naar die aanbieder gestuurd en vallen ze onder de voorwaarden en het privacybeleid van die aanbieder. EVB Viewer verkoopt deze informatie niet.',
         },
+        diagnostics: {
+            heading: 'Optionele foutrapporten',
+            body: 'Als je toestemming geeft, verzendt EVB Viewer alleen privacyvriendelijke foutrapporten. De rapporten bevatten de beperkte technische diagnostiek die nodig is om een fout te begrijpen. Ze bevatten geen documentinhoud, tekst, bestandspaden, bijlagen, lokale logboeken, accountgegevens of je identiteit. Als je rapporten uitschakelt, worden toekomstige rapporten niet meer verzonden; rapporten die al zijn ontvangen of worden verzonden, kunnen niet worden ingetrokken.',
+        },
         analytics: {
             heading: 'Analyse- en technische gegevens',
             body: 'De website en browser-app van EVB Viewer kunnen beperkte gebruiksgebeurtenissen en technische gegevens verzamelen, zoals paginapaden, functiegebeurtenissen, taal, schermcategorie, verwijzende site, browser-user-agent, geschatte regio en een wisselende gehashte bezoekerscode. Deze gegevens worden gebruikt om de betrouwbaarheid en het productgebruik te begrijpen en niet om de inhoud van documenten vast te stellen.',
@@ -286,6 +311,10 @@ export const PRIVACY_MESSAGES = {
         assistant: {
             heading: 'Serviços opcionais do assistente',
             body: 'As funcionalidades do assistente são opcionais. Quando utiliza um assistente baseado no Codex, OpenAI ou Anthropic Claude, os pedidos e qualquer conteúdo ou anexo que decida incluir são enviados a esse fornecedor através da sua conta e regem-se pelos respetivos termos e política de privacidade. O EVB Viewer não vende estas informações.',
+        },
+        diagnostics: {
+            heading: 'Relatórios de erros opcionais',
+            body: 'Se der autorização, o EVB Viewer envia apenas relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para compreender um erro. Não contêm conteúdo de documentos, texto, caminhos de ficheiros, anexos, registos locais, informações da conta nem a sua identidade. Desativar os relatórios interrompe os envios futuros; não é possível recolher relatórios já recebidos ou já em envio.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -327,6 +356,10 @@ export const PRIVACY_MESSAGES = {
             heading: 'Serviços opcionais do assistente',
             body: 'Os recursos do assistente são opcionais. Quando você usa um assistente baseado no Codex, OpenAI ou Anthropic Claude, as solicitações e qualquer conteúdo ou anexo que você decidir incluir são enviados a esse provedor por meio da sua conta e seguem os termos e a política de privacidade dele. O EVB Viewer não vende essas informações.',
         },
+        diagnostics: {
+            heading: 'Relatórios de erros opcionais',
+            body: 'Se você der permissão, o EVB Viewer enviará somente relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para entender um erro. Eles não contêm conteúdo de documentos, texto, caminhos de arquivos, anexos, registros locais, informações da conta nem sua identidade. Desativar os relatórios interrompe os próximos envios; não é possível recolher relatórios já recebidos ou já em trânsito.',
+        },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
             body: 'O site e o aplicativo web do EVB Viewer podem coletar eventos limitados de uso e dados técnicos, como caminhos de páginas, eventos de recursos, idioma, categoria de tela, referenciador, agente do usuário do navegador, região aproximada e um identificador de visitante com hash que muda periodicamente. Essas informações ajudam a entender a confiabilidade e o uso do produto e não são usadas para identificar o conteúdo dos documentos.',
@@ -366,6 +399,10 @@ export const PRIVACY_MESSAGES = {
         assistant: {
             heading: 'Опциональные сервисы ассистента',
             body: 'Функции ассистента необязательны. При использовании ассистента на базе Codex, OpenAI или Anthropic Claude запросы, а также выбранные вами материалы и вложения отправляются соответствующему провайдеру через вашу учётную запись и регулируются его условиями и политикой конфиденциальности. EVB Viewer не продаёт эту информацию.',
+        },
+        diagnostics: {
+            heading: 'Необязательные отчёты об ошибках',
+            body: 'Если вы дадите разрешение, EVB Viewer будет отправлять только защищённые от раскрытия личных данных отчёты об ошибках. Отчёты содержат ограниченные технические диагностические данные, необходимые для понимания ошибки. В них нет содержимого документов, текста, путей к файлам, вложений, локальных журналов, сведений об учётной записи или данных о вашей личности. Отключение отчётов прекращает будущие отправки; уже полученные или уже отправляемые отчёты отозвать нельзя.',
         },
         analytics: {
             heading: 'Аналитика и техническая информация',

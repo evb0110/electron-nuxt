@@ -68,6 +68,7 @@ export interface IMainFailureReporter {
     captureRecord(value: unknown, inheritedSuppressedCount?: unknown): FailureReceipt;
     getHealthSnapshot(): IMainDiagnosticsHealthSnapshot;
     getPreference(): TMainDiagnosticsPreference;
+    getGeneration(): number;
     isTransportReady(): boolean;
     setPreference(preference: unknown): void;
 }
@@ -99,6 +100,10 @@ const MAIN_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES = [
 const NOOP_MAIN_DIAGNOSTICS_TRANSPORT: IMainDiagnosticsTransport = Object.freeze({
     isReady: true,
     send: () => undefined,
+});
+const DROPPED_MAIN_DIAGNOSTICS_TRANSPORT: IMainDiagnosticsTransport = Object.freeze({
+    isReady: false,
+    send: () => false,
 });
 
 interface IBurstState {
@@ -370,6 +375,10 @@ export function createMainFailureReporter(
     const transport = options.transport ?? options.adapter ?? NOOP_MAIN_DIAGNOSTICS_TRANSPORT;
     let preference = normalizePreference(options.preference);
     const health = createHealthState(preference);
+    let generation = 0;
+    let liveTransport = preference === 'granted'
+        ? transport
+        : DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
     const recentIds = new Map<DiagnosticEventId, number>();
     const burstStates = new Map<string, IBurstState>();
 
@@ -407,13 +416,13 @@ export function createMainFailureReporter(
 
     function readTransportReady() {
         try {
-            if (typeof transport.isReady === 'function') {
-                return transport.isReady() === true;
+            if (typeof liveTransport.isReady === 'function') {
+                return liveTransport.isReady() === true;
             }
-            if (typeof transport.isReady === 'boolean') {
-                return transport.isReady;
+            if (typeof liveTransport.isReady === 'boolean') {
+                return liveTransport.isReady;
             }
-            return typeof transport.send === 'function' || typeof transport.capture === 'function';
+            return typeof liveTransport.send === 'function' || typeof liveTransport.capture === 'function';
         } catch {
             return false;
         }
@@ -421,7 +430,7 @@ export function createMainFailureReporter(
 
     function sendToTransport(record: DiagnosticRecord, suppressedCount: number): unknown {
         try {
-            const sender = transport.send ?? transport.capture;
+            const sender = liveTransport.send ?? liveTransport.capture;
             if (!sender) {
                 return false;
             }
@@ -439,13 +448,22 @@ export function createMainFailureReporter(
         setDropReason('transport-failed');
     }
 
-    function reportTransportResult(result: unknown) {
+    function reportTransportResult(
+        result: unknown,
+        generationAtAdmission: number,
+    ) {
+        const isCurrent = () => generationAtAdmission === generation
+            && preference === 'granted'
+            && liveTransport !== DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
         try {
             if (
                 result === null
                 || (typeof result !== 'object' && typeof result !== 'function')
                 || typeof (result as {then?: unknown}).then !== 'function'
             ) {
+                if (!isCurrent()) {
+                    return;
+                }
                 if (result === false) {
                     reportTransportFailure();
                 } else {
@@ -455,16 +473,25 @@ export function createMainFailureReporter(
             }
             void Promise.resolve<unknown>(result).then(
                 (resolved: unknown) => {
+                    if (!isCurrent()) {
+                        return;
+                    }
                     if (resolved === false) {
                         reportTransportFailure();
                     } else {
                         health.accepted = increment(health.accepted);
                     }
                 },
-                () => reportTransportFailure(),
+                () => {
+                    if (isCurrent()) {
+                        reportTransportFailure();
+                    }
+                },
             );
         } catch {
-            reportTransportFailure();
+            if (isCurrent()) {
+                reportTransportFailure();
+            }
         }
     }
 
@@ -561,9 +588,29 @@ export function createMainFailureReporter(
             decision.suppressedCount,
             inheritedSuppressedCount,
         );
+        const generationAtAdmission = generation;
         reserveAdmission(record, currentTime, decision);
-        reportTransportResult(sendToTransport(record, suppressedCount));
+        reportTransportResult(
+            sendToTransport(record, suppressedCount),
+            generationAtAdmission,
+        );
         return receipt;
+    }
+
+    function applyPreference(value: unknown) {
+        const nextPreference = normalizePreference(value);
+        if (nextPreference !== 'granted') {
+            // The drop transport is installed before the generation changes so
+            // no later asynchronous work can use the old live path.
+            liveTransport = DROPPED_MAIN_DIAGNOSTICS_TRANSPORT;
+            if (preference !== nextPreference) {
+                generation = increment(generation);
+            }
+        } else {
+            liveTransport = transport;
+        }
+        preference = nextPreference;
+        health.mode = nextPreference;
     }
 
     const reporter: IMainFailureReporter = {
@@ -613,10 +660,10 @@ export function createMainFailureReporter(
         },
         getHealthSnapshot: () => serializeHealthState(health),
         getPreference: () => preference,
+        getGeneration: () => generation,
         isTransportReady: readTransportReady,
         setPreference: (value) => {
-            preference = normalizePreference(value);
-            health.mode = preference;
+            applyPreference(value);
         },
     };
 

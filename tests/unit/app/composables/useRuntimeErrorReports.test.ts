@@ -27,6 +27,48 @@ async function createReports() {
     return useRuntimeErrorReports();
 }
 
+function createFailure(eventId: string): FailureReceipt {
+    return {
+        eventId: eventId as FailureReceipt['eventId'],
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        occurredAt: Date.now(),
+        severity: 'error',
+    };
+}
+
+function createLease(eventId: string) {
+    let live = true;
+    let resendCount = 0;
+    let discardCount = 0;
+    const lease = {
+        failure: createFailure(eventId),
+        get isLive() {
+            return live;
+        },
+        resendOnceAfterGrant() {
+            if (!live) {
+                return false;
+            }
+            live = false;
+            resendCount += 1;
+            return true;
+        },
+        discard() {
+            live = false;
+            discardCount += 1;
+        },
+    };
+    return {
+        lease,
+        get discardCount() {
+            return discardCount;
+        },
+        get resendCount() {
+            return resendCount;
+        },
+    };
+}
+
 describe('useRuntimeErrorReports', () => {
     beforeEach(() => {
         vi.useFakeTimers();
@@ -61,12 +103,7 @@ describe('useRuntimeErrorReports', () => {
 
     it('deduplicates receipt-aware presentations by their event ID', async () => {
         const reports = await createReports();
-        const failure: FailureReceipt = {
-            eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
-            occurredAt: Date.now(),
-            severity: 'error',
-        };
+        const failure = createFailure('0123456789abcdef0123456789abcdef');
 
         reports.reportRuntimeError({
             failure,
@@ -87,6 +124,114 @@ describe('useRuntimeErrorReports', () => {
             failure,
             source: failure.code,
         });
+    });
+
+    it('retains one live lease across receipt deduplication and resends it once', async () => {
+        const reports = await createReports();
+        const firstLease = createLease('11111111111111111111111111111111');
+        const replacementLease = createLease('11111111111111111111111111111111');
+        const failure = firstLease.lease.failure;
+
+        reports.reportRuntimeError({
+            failure,
+            pendingDiagnostic: firstLease.lease,
+            title: 'Renderer failure',
+            description: 'First detail',
+        });
+        reports.reportRuntimeError({
+            failure,
+            pendingDiagnostic: replacementLease.lease,
+            title: 'Renderer failure',
+            description: 'Latest detail',
+        });
+
+        expect(firstLease.discardCount).toBe(0);
+        expect(replacementLease.discardCount).toBe(1);
+        expect(reports.reports.value[0]?.pendingDiagnostic).toBeDefined();
+        expect(reports.resendPendingDiagnosticOnce()).toBe(true);
+        expect(firstLease.resendCount).toBe(1);
+        expect(firstLease.discardCount).toBe(1);
+        expect(reports.reports.value[0]?.pendingDiagnostic).toBeUndefined();
+        expect(reports.resendPendingDiagnosticOnce()).toBe(false);
+    });
+
+    it('disposes a live lease on dismissal, clear, and capacity eviction', async () => {
+        const reports = await createReports();
+        const dismissedLease = createLease('22222222222222222222222222222222');
+        reports.reportRuntimeError({
+            failure: dismissedLease.lease.failure,
+            pendingDiagnostic: dismissedLease.lease,
+            title: 'Dismissed',
+            description: 'dismiss me',
+        });
+        reports.dismissRuntimeErrorReport(dismissedLease.lease.failure.eventId);
+        expect(dismissedLease.discardCount).toBe(1);
+
+        const clearedLease = createLease('33333333333333333333333333333333');
+        reports.reportRuntimeError({
+            failure: clearedLease.lease.failure,
+            pendingDiagnostic: clearedLease.lease,
+            title: 'Cleared',
+            description: 'clear me',
+        });
+        reports.clearRuntimeErrorReports();
+        expect(clearedLease.discardCount).toBe(1);
+
+        const evictedLease = createLease('44444444444444444444444444444444');
+        reports.reportRuntimeError({
+            failure: evictedLease.lease.failure,
+            pendingDiagnostic: evictedLease.lease,
+            title: 'Evicted',
+            description: 'evict me',
+        });
+        for (let index = 0; index < 6; index += 1) {
+            reports.reportRuntimeError({
+                title: `Report ${index}`,
+                source: 'test',
+                error: `detail ${index}`,
+            });
+        }
+        expect(evictedLease.discardCount).toBe(1);
+    });
+
+    it('keeps main-owned receipt projections lease-free', async () => {
+        const reports = await createReports();
+        const failure = createFailure('55555555555555555555555555555555');
+
+        reports.reportRuntimeError({
+            failure,
+            title: 'Main failure',
+            description: 'Already captured by the main process',
+        });
+
+        expect(reports.reports.value[0]?.pendingDiagnostic).toBeUndefined();
+    });
+
+    it('does not resend after dismissal while grant persistence is pending', async () => {
+        const reports = await createReports();
+        const pending = createLease('66666666666666666666666666666666');
+        let resolveSave!: (saved: boolean) => void;
+        const savePromise = new Promise<boolean>(resolve => {
+            resolveSave = resolve;
+        });
+
+        reports.reportRuntimeError({
+            failure: pending.lease.failure,
+            pendingDiagnostic: pending.lease,
+            title: 'Renderer failure',
+            description: 'Dismiss before save settles',
+        });
+        const grant = (async () => {
+            if (await savePromise) {
+                reports.resendPendingDiagnosticOnce();
+            }
+        })();
+        reports.dismissRuntimeErrorReport(pending.lease.failure.eventId);
+        resolveSave(true);
+        await grant;
+
+        expect(pending.resendCount).toBe(0);
+        expect(pending.discardCount).toBe(1);
     });
 
     it('dismisses one report without clearing the rest', async () => {

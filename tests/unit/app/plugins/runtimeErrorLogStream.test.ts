@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
     reportRuntimeError: vi.fn(),
     onDebugLog: vi.fn(),
     capture: vi.fn(),
+    captureForPresentation: vi.fn(),
     initializeRendererFailureReporter: vi.fn(),
     getValidatedElectronPlatformApi: vi.fn((): unknown => undefined),
     waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
@@ -84,8 +85,12 @@ describe('runtime error log stream', () => {
             value: {diagnostics: {onDebugLog: mocks.onDebugLog}},
         });
         mocks.getValidatedElectronPlatformApi.mockReturnValue({diagnostics: {onDebugLog: mocks.onDebugLog}} as never);
-        mocks.initializeRendererFailureReporter.mockReturnValue({capture: mocks.capture});
+        mocks.initializeRendererFailureReporter.mockReturnValue({
+            capture: mocks.capture,
+            captureForPresentation: mocks.captureForPresentation,
+        });
         mocks.capture.mockReturnValue(failure);
+        mocks.captureForPresentation.mockReturnValue({failure});
     });
 
     it('presents a main-owned failure receipt without recapturing it', async () => {
@@ -138,8 +143,8 @@ describe('runtime error log stream', () => {
         await flushPluginTasks();
 
         expect(mocks.initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
-        expect(mocks.capture).toHaveBeenCalledOnce();
-        const [captureInput] = mocks.capture.mock.calls[0] as [{local: {message: string}}];
+        expect(mocks.captureForPresentation).toHaveBeenCalledOnce();
+        const [captureInput] = mocks.captureForPresentation.mock.calls[0] as [{local: {message: string}}];
         expect(captureInput.local.message).toBe('Electron diagnostics log stream initialization failed');
         expect(JSON.stringify(captureInput)).not.toContain('private bridge failure details');
         expect(mocks.reportRuntimeError).toHaveBeenCalledWith({
