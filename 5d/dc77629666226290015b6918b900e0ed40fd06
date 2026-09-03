@@ -1,0 +1,23 @@
+tests/unit/architecture/sentryPrivacyEnvelopePolicy.test.ts
+  s_b412fd4cd3f576::t_19edc0f79047d2 469,477,479-480,482
+  s_b412fd4cd3f576::t_dfcf68c09f1ae1 1-8,11-33,35-216,226-308,310-359,364,370-380,385,391-397,402-465,467-468,470-476,483,485-497,499-518,520-521
+  s_b412fd4cd3f576::t_47a0e93087deac 34
+  s_b412fd4cd3f576::t_59b2b77bfd4f1f 9-10,217-225,365-369,386-390,398-401,498
+  s_b412fd4cd3f576::t_233b320c187759 309,360-363,381-384,466,478,481,484,519
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5ddc77629666226290015b6918b900e0ed40fd06",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
