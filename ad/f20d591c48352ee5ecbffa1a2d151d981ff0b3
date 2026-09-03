@@ -1,0 +1,41 @@
+app/modules/pdf-viewer/components/PdfShapeAnnotation.vue
+  s_119bb52352139e::t_9e5a1b7b165553 24,29
+app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.ts
+  s_119bb52352139e::t_122646c0cfc49d 15,68
+  s_119bb52352139e::t_d74cc1f3bad9c9 72-75
+  s_119bb52352139e::t_2e717817143194 82
+tests/e2e/electron/annotationStrokeParity.e2e.test.ts
+  s_119bb52352139e::t_647512e4f023a8 50,53-55,153
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_119bb52352139e::t_cdddf22c9f28a1 166
+  s_119bb52352139e::t_cbd49e65c70fe9 164-165
+tests/e2e/electron/drawShapeLifecycle.e2e.test.ts
+  s_119bb52352139e::t_b77ee90d68fe78 918,2169
+  s_119bb52352139e::t_427eefeb6cf513 115
+  s_119bb52352139e::t_e2ae002e165895 340-361,366
+  s_119bb52352139e::t_40685c871a53ad 362-365
+  s_119bb52352139e::t_fbddac6a40c5f3 2011
+  s_119bb52352139e::t_815456c5cdd5e9 377-378
+  s_119bb52352139e::t_882d8d429c8084 367
+  s_119bb52352139e::t_6881ccdb224ff0 276,278
+  s_119bb52352139e::t_14b770b00d7100 155,292,317,399,423,552,571,680,682,715,718,725,777,862,967
+  s_119bb52352139e::t_c16a2fb667c7a1 2239
+  s_119bb52352139e::t_532447c0dae556 246
+  s_119bb52352139e::t_bd830cfa0576aa 263-266
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "adf20d591c48352ee5ecbffa1a2d151d981ff0b3",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
