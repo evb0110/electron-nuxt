@@ -1,0 +1,28 @@
+tests/unit/app/components/pdfImagePlacementOverlay.test.ts
+  s_83314e12e884ea::t_d097db39c79615 101-103
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_83314e12e884ea::t_d097db39c79615 30,536
+  s_83314e12e884ea::t_ea6efc958326e2 535
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement.ts
+  s_83314e12e884ea::t_d097db39c79615 339,368,377
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_83314e12e884ea::t_eaa1872f9dbb2c 93-94,118-124,126-130,132-134,143-150,1309-1310,1312,1325-1326,1328,1335-1336,1343-1344,1394
+  s_83314e12e884ea::t_641caf1d34c384 125,131
+  s_83314e12e884ea::t_50c465624ec85c 1311,1327,1337-1342
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "748838a1dcae8345abe70e80a406522bd8da6ffd",
+  "prompts": {},
+  "sessions": {
+    "s_83314e12e884ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-0f2d-7f62-91bc-dbea8514f244",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
