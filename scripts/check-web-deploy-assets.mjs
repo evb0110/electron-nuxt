@@ -14,6 +14,7 @@ import {
     REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
 } from './web-deploy-asset-manifest.mjs';
+import {scanPublicArtifactDirectory} from './check-build-artifacts-hygiene.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
@@ -243,12 +244,25 @@ export async function validateWebDeployAssets({
     const outputResults = [];
     for (const outputRoot of outputRoots) {
         const outputRootPath = path.join(projectRoot, outputRoot);
+        const assets = await validateAssetRoot(
+            outputRootPath,
+            `web build output ${outputRoot}`,
+            {requireOutputContracts: true},
+        );
+        const artifactViolations = await scanPublicArtifactDirectory({
+            rootPath: outputRootPath,
+            target: outputRoot === '.vercel/output/static'
+                ? 'web-static'
+                : 'desktop-renderer',
+        });
+        if (artifactViolations.length > 0) {
+            throw new Error(
+                `Web build output ${outputRoot} contains forbidden public artifacts:\n`
+                + artifactViolations.slice(0, 20).join('\n'),
+            );
+        }
         outputResults.push({
-            assets: await validateAssetRoot(
-                outputRootPath,
-                `web build output ${outputRoot}`,
-                {requireOutputContracts: true},
-            ),
+            assets,
             root: outputRoot,
         });
     }

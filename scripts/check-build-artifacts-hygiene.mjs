@@ -1,10 +1,12 @@
 import {
+    readFile,
     readdir,
     stat,
 } from 'node:fs/promises';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 
-const projectRoot = path.resolve(import.meta.dirname, '..');
+const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const artifactRoots = [
     'dist-electron',
     'nuxt-output',
@@ -14,25 +16,58 @@ const artifactRoots = [
 
 const ignoredMissingRoots = new Set(artifactRoots);
 const allowedLicensePattern = /(?:^|[/\\])(?:LICENSE|LICENSE_[^/\\]+|LICENSE-[^/\\]+)(?:\.[^/\\]+)?$/iu;
+const contentFilePattern = /\.(?:c?js|mjs|json|html?|css|txt|xml|svg)$/iu;
 
-const forbiddenPathPatterns = [
+export const forbiddenPublicArtifactPathPatterns = [
     /(?:^|[/\\])(?:__tests__|tests?|coverage|\.vitest|\.playwright)(?:[/\\]|$)/u,
     /\.(?:test|spec)\.[cm]?[jt]sx?$/u,
-    /\.map$/u,
+    /\.map$/iu,
+    /(?:^|[/\\])(?:\.tmp|private-sourcemaps|sentry-sources|sources)(?:[/\\]|$)/iu,
     /(?:^|[/\\])(?:README|CHANGELOG)(?:\.[^/\\]+)?$/iu,
     /(?:^|[/\\])favicon-dev[.-][^/\\]*$/u,
 ];
 
-function isForbiddenArtifact(relativePath) {
+const remoteCredentialPattern = /\bsntry[su]_[A-Za-z0-9_-]{16,}\b/u;
+const sentryEndpointPattern = /https:\/\/[A-Za-z0-9]+@[A-Za-z0-9.-]*sentry\.io\/\d+/giu;
+const sentryIngestHostPattern = /\b(?:o\d+\.)?ingest(?:\.[a-z0-9-]+)*\.sentry\.io\b/iu;
+
+export function isForbiddenPublicArtifactPath(relativePath) {
     if (allowedLicensePattern.test(relativePath)) {
         return false;
     }
+    return forbiddenPublicArtifactPathPatterns.some(pattern => pattern.test(relativePath));
+}
 
-    return forbiddenPathPatterns.some(pattern => pattern.test(relativePath));
+export function shouldScanPublicArtifactContent(relativePath) {
+    return contentFilePattern.test(relativePath);
+}
+
+export function collectPublicArtifactContentViolations(
+    content,
+    {target},
+) {
+    const text = Buffer.isBuffer(content) ? content.toString('utf8') : String(content);
+    const violations = [];
+
+    if (remoteCredentialPattern.test(text)) {
+        violations.push('remote auth credential');
+    }
+    const endpoints = new Set(text.match(sentryEndpointPattern) ?? []);
+    if (
+        target === 'desktop-renderer'
+        && (endpoints.size > 0 || sentryIngestHostPattern.test(text))
+    ) {
+        violations.push('web Sentry ingest endpoint in desktop renderer');
+    }
+    if (endpoints.size > 1) {
+        violations.push('multiple runtime Sentry endpoints');
+    }
+
+    return [...new Set(violations)];
 }
 
 async function collectFiles(dirPath, relativeRoot) {
-    const entries = await readdir(dirPath, { withFileTypes: true });
+    const entries = await readdir(dirPath, {withFileTypes: true});
     const files = [];
 
     for (const entry of entries) {
@@ -46,17 +81,41 @@ async function collectFiles(dirPath, relativeRoot) {
             files.push(...await collectFiles(absolutePath, relativePath));
             continue;
         }
-
         if (entry.isFile()) {
-            files.push(relativePath);
+            files.push({
+                absolutePath,
+                relativePath,
+            });
         }
     }
-
     return files;
 }
 
-async function collectArtifactFiles(relativeRoot) {
-    const rootPath = path.join(projectRoot, relativeRoot);
+export async function scanPublicArtifactDirectory({
+    rootPath,
+    target,
+}) {
+    const files = await collectFiles(rootPath, '');
+    const violations = [];
+
+    for (const file of files) {
+        if (isForbiddenPublicArtifactPath(file.relativePath)) {
+            violations.push(`${file.relativePath}: forbidden path`);
+            continue;
+        }
+        if (!shouldScanPublicArtifactContent(file.relativePath)) {
+            continue;
+        }
+        const content = await readFile(file.absolutePath);
+        for (const problem of collectPublicArtifactContentViolations(content, {target})) {
+            violations.push(`${file.relativePath}: ${problem}`);
+        }
+    }
+    return violations;
+}
+
+async function collectArtifactFiles(relativeRoot, root) {
+    const rootPath = path.join(root, relativeRoot);
     try {
         const rootStat = await stat(rootPath);
         if (!rootStat.isDirectory()) {
@@ -74,25 +133,58 @@ async function collectArtifactFiles(relativeRoot) {
         }
         throw error;
     }
-
     return collectFiles(rootPath, relativeRoot);
 }
 
-const forbiddenArtifacts = [];
-for (const artifactRoot of artifactRoots) {
-    const files = await collectArtifactFiles(artifactRoot);
-    forbiddenArtifacts.push(...files.filter(isForbiddenArtifact));
+function targetForArtifact(relativeRoot, relativePath) {
+    if (relativeRoot === 'dist-electron') {
+        return 'desktop';
+    }
+    if (relativeRoot === 'nuxt-output' && relativePath.includes(`${path.sep}public${path.sep}`)) {
+        return 'desktop-renderer';
+    }
+    if (relativeRoot === '.vercel/output' && relativePath.includes(`${path.sep}static${path.sep}`)) {
+        return 'web-static';
+    }
+    return 'web-server';
 }
 
-if (forbiddenArtifacts.length > 0) {
-    console.error('Build artifacts contain files that should not ship:');
-    for (const artifact of forbiddenArtifacts.slice(0, 100)) {
-        console.error(`  - ${artifact}`);
+export async function runBuildArtifactHygiene({root = projectRoot} = {}) {
+    const violations = [];
+    for (const artifactRoot of artifactRoots) {
+        const files = await collectArtifactFiles(artifactRoot, root);
+        for (const file of files) {
+            if (isForbiddenPublicArtifactPath(file.relativePath)) {
+                violations.push(`${file.relativePath}: forbidden path`);
+                continue;
+            }
+            if (!shouldScanPublicArtifactContent(file.relativePath)) {
+                continue;
+            }
+            const content = await readFile(file.absolutePath);
+            const target = targetForArtifact(artifactRoot, file.relativePath);
+            for (const problem of collectPublicArtifactContentViolations(content, {target})) {
+                violations.push(`${file.relativePath}: ${problem}`);
+            }
+        }
     }
-    if (forbiddenArtifacts.length > 100) {
-        console.error(`  ... and ${forbiddenArtifacts.length - 100} more`);
-    }
-    process.exit(1);
+    return violations;
 }
 
-console.log('Build artifact hygiene check passed.');
+const isDirectCliRun = process.argv[1]
+    && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
+
+if (isDirectCliRun) {
+    const violations = await runBuildArtifactHygiene();
+    if (violations.length > 0) {
+        console.error('Build artifacts contain files that should not ship:');
+        for (const violation of violations.slice(0, 100)) {
+            console.error(`  - ${violation}`);
+        }
+        if (violations.length > 100) {
+            console.error(`  ... and ${violations.length - 100} more`);
+        }
+        process.exit(1);
+    }
+    console.log('Build artifact hygiene check passed.');
+}
