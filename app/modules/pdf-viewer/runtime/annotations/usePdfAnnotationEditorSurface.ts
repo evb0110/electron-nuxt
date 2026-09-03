@@ -23,7 +23,6 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
-import type {IPdfAppAnnotationHistoryCommand} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 export interface IAnnotationGesture {
     readonly annotationId: AnnotationId;
@@ -103,6 +102,11 @@ export interface IAnnotationEditorSurface {
     ): ITextMarkupEntity;
     createShape(entity: IShapeEntity): IShapeEntity;
     openNote(annotationId: AnnotationId): void;
+    openShapeContextMenu(payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }): void;
 }
 
 export const annotationEditorSurfaceKey: InjectionKey<IAnnotationEditorSurface> = Symbol(
@@ -135,7 +139,11 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
     emitAnnotationModified?: () => void;
     runHistoryTransaction?: <T>(action: () => T) => T;
-    registerHistoryCommand?: (command: IPdfAppAnnotationHistoryCommand) => void;
+    emitShapeContextMenu?: (payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }) => void;
     getPageGeometry?: (pageIndex: number) => {
         pageView: number[];
         rotation: 0 | 90 | 180 | 270
@@ -552,15 +560,7 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function createShape(entity: IShapeEntity) {
-        return (options.runHistoryTransaction ?? ((action: () => IShapeEntity) => action()))(() => {
-            const created = store().createShape(entity);
-            options.registerHistoryCommand?.({
-                cmd: () => store().redo(),
-                undo: () => store().undo(),
-                annotationIds: [created.identity.id],
-            });
-            return created;
-        });
+        return store().createShape(entity);
     }
 
     function openNote(annotationId: AnnotationId) {
@@ -568,6 +568,14 @@ export const usePdfAnnotationEditorSurface = (
         if (entity?.kind === 'note') {
             options.emitOpenNote?.(entity);
         }
+    }
+
+    function openShapeContextMenu(payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }) {
+        options.emitShapeContextMenu?.(payload);
     }
 
     return {
@@ -600,5 +608,6 @@ export const usePdfAnnotationEditorSurface = (
         createHighlightFromSelection,
         createShape,
         openNote,
+        openShapeContextMenu,
     };
 };

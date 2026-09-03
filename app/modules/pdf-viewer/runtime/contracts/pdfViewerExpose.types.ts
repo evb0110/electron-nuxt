@@ -233,6 +233,7 @@ export interface IPdfViewerShapeExpose {
     clearShapes: () => void;
     clearSelectedShape: () => void;
     deleteSelectedShape: () => void;
+    deleteShapeById: (id: string) => boolean;
     hasShapes: boolean;
     selectedShapeId: string | null;
     updateShape: (id: string, updates: TShapeAnnotationPatch) => void;

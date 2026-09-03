@@ -179,12 +179,19 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         y: 0,
     });
     const dismissedShapePropertiesId = ref<string | null>(null);
-    const selectedShapeId = computed(() => pdfViewerRef.value?.selectedShapeId ?? null);
+    const contextShapeId = ref<string | null>(null);
+    const selectedShapeId = computed(() => (
+        pdfViewerRef.value?.selectedShapeId
+        ?? contextShapeId.value
+    ));
     const selectedShape = computed(() => {
         if (!selectedShapeId.value) {
             return null;
         }
-        return pdfViewerRef.value?.getSelectedShape() ?? null;
+        return pdfViewerRef.value?.getSelectedShape()
+            ?? (contextShapeId.value
+                ? pdfViewerRef.value?.getAllShapes?.().find(shape => shape.id === contextShapeId.value) ?? null
+                : null);
     });
 
     const selectedShapeForProperties = computed(() =>
@@ -397,6 +404,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function closeShapeProperties() {
         dismissedShapePropertiesId.value = selectedShape.value?.id ?? null;
+        contextShapeId.value = null;
         shapePropertiesPopover.value = {
             visible: false,
             x: 0,
@@ -649,6 +657,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         clientX: number;
         clientY: number;
     }) {
+        contextShapeId.value = payload.shapeId;
         closeAnnotationContextMenu();
         dismissedShapePropertiesId.value = null;
         const clampedPosition = clampToViewport(
@@ -667,7 +676,12 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function handleDeleteSelectedShape() {
-        pdfViewerRef.value?.deleteSelectedShape();
+        const id = contextShapeId.value;
+        if (id && pdfViewerRef.value?.deleteShapeById) {
+            pdfViewerRef.value.deleteShapeById(id);
+        } else {
+            pdfViewerRef.value?.deleteSelectedShape();
+        }
         closeShapeProperties();
     }
 

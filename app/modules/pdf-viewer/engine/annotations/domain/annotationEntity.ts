@@ -84,6 +84,8 @@ export interface IPlacedImageEntity extends IAnnotationEntityBase {
 
 export interface IShapeEntity extends IAnnotationEntityBase {
     readonly kind: 'shape';
+    /** The authored stable key has been observed in a committed PDF parse. */
+    readonly materialized?: boolean;
     readonly tool: TDrawableShapeType;
     readonly rect: IAnnotationMarkerRect;
     readonly points?: readonly IShapePoint[];
@@ -156,6 +158,9 @@ export function toLegacyShapeAnnotation(entity: IShapeEntity): IShapeAnnotation 
         lineEndStyle: entity.tool === 'arrow' ? 'closedArrow' : 'none',
         createdAt: entity.createdAt,
         modifiedAt: entity.modifiedAt,
+        stableKey: entity.identity.id.startsWith('evb-shape:')
+            ? entity.identity.id
+            : `evb-shape:${entity.identity.id}`,
     };
 }
 

@@ -324,6 +324,14 @@ function collectReplayableEmbeddedAnnotationIds(input: {
             addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
         });
     input.changedComments
+        .filter(comment => comment.source === 'shape')
+        .forEach((comment) => {
+            // Canonical shapes are projected by the native shape mutation
+            // payload. Their canonical aliases must not make that payload look
+            // like unrelated PDF.js work.
+            addCommentIdentityAliases(ids, comment);
+        });
+    input.changedComments
         .filter(comment => (
             isReplayableCanonicalStickyNote(comment)
             && input.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
@@ -362,7 +370,7 @@ function deriveCanonicalSaveInputs(
     const pendingDeletes: IAnnotationCommentSummary[] = [];
     plan.expected.filter(isActuallyChangedEntity).forEach((entity) => {
         const summary = entitySummary(entity);
-        if (entity.deleted) {
+        if (entity.deleted && entity.kind !== 'shape') {
             pendingDeletes.push(summary);
             return;
         }
