@@ -1518,6 +1518,7 @@ export default {
         'browser': {
             'filePickerSetupDenied': 'Browser file access was denied. Choose Open again to use the compatible file picker.',
             'largeSaveHandleHint': 'Use a browser with local file system access enabled to save large documents.',
+            'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {
             'browserTooLarge': 'Search is unavailable in the browser for very large documents.',

@@ -743,6 +743,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: longNativeIpcTimeoutMs,
             },
             ...electronImplementedOptional,
+            browser: {method: 'applyPdfNativeMutationsToWorkingCopy'},
         },
         commitStagedPdfNativeMutations: {
             ...defineIpcMethod(
@@ -750,6 +751,7 @@ export const DOCUMENT_FILES_PLATFORM_FEATURE = definePlatformFeature({
                 commitNativeMutationsArgs, nativeSaveResult, 'commitStagedPdfNativeMutations', 'sender',
             ),
             ...electronImplementedOptional,
+            browser: {method: 'commitStagedPdfNativeMutations'},
         },
         cloneStagedPdfNativeMutationToWorkingCopy: {
             ...defineIpcMethod(

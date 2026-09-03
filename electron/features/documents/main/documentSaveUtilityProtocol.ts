@@ -9,6 +9,7 @@ import {
     isBrowserStoreFileIdentity,
     type ITypedStagedArtifact,
 } from '@contracts/stagedArtifacts';
+import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 export interface IDocumentSaveUtilityCommitRequest {
     type: 'commit';
@@ -128,9 +129,7 @@ export function createChangedObjectRefsSha256(changedObjectRefs: readonly string
 }
 
 export function createNativeIncrementalMutationSemanticScopeSha256() {
-    return createHash('sha256')
-        .update('evb-pdf-page-ops:incremental-native-mutations:v1')
-        .digest('hex');
+    return nativePdfSemanticScope;
 }
 
 export function getDocumentSaveUtilityReusePlan(

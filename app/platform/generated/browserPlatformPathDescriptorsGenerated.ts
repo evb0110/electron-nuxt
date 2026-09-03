@@ -75,6 +75,8 @@ export const browserPlatformPathDescriptorsGenerated = {
         resyncWorkingCopy: {kind: 'async', path: ["documentFiles","resyncWorkingCopy"]},
         savePdfData: {kind: 'async', path: ["documentFiles","savePdfData"]},
         savePdfDataChunks: {kind: 'async', path: ["documentFiles","savePdfDataChunks"]},
+        applyPdfNativeMutationsToWorkingCopy: {kind: 'async', path: ["documentFiles","applyPdfNativeMutationsToWorkingCopy"]},
+        commitStagedPdfNativeMutations: {kind: 'async', path: ["documentFiles","commitStagedPdfNativeMutations"]},
         onDocumentRevisionChanged: {kind: 'event', path: ["documentFiles","onDocumentRevisionChanged"]},
     },
     documentPdf: {
