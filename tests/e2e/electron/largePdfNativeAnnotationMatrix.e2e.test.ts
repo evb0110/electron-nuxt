@@ -523,7 +523,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
             inline: 'center',
         });
     }, input);
-    await page.evaluate(async (selection: {
+    const scrollAdjustment = await page.evaluate(async (selection: {
         id: string;
         pageNumber: number
     }) => {
@@ -544,10 +544,21 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         const visibleTop = Math.max(viewportRect.top, 24);
         const visibleBottom = Math.min(viewportRect.bottom, window.innerHeight - 24);
         if (visibleBottom > visibleTop) {
-            scrollViewport.scrollTop += entityRect.top + entityRect.height / 2 - ((visibleTop + visibleBottom) / 2);
-            await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            return {
+                deltaY: entityRect.top + entityRect.height / 2 - ((visibleTop + visibleBottom) / 2),
+                point: {
+                    x: (viewportRect.left + viewportRect.right) / 2,
+                    y: (visibleTop + visibleBottom) / 2,
+                },
+            };
         }
+        return null;
     }, input);
+    if (scrollAdjustment && Math.abs(scrollAdjustment.deltaY) > 1) {
+        await page.mouse.move(scrollAdjustment.point.x, scrollAdjustment.point.y);
+        await page.mouse.wheel({deltaY: scrollAdjustment.deltaY});
+        await new Promise<void>(resolve => setTimeout(resolve, 100));
+    }
     const kind = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         element => element.getAttribute('data-annotation-kind'),
