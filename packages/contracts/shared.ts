@@ -1,4 +1,5 @@
 import type { TLocale } from '@i18n-core';
+import type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 import type {
     TDocumentBackend,
     TDocumentRef,
@@ -99,6 +100,7 @@ export interface ISettingsData {
     optimizePdfOnSaveAs: boolean;
     assistantPanelEnabled: boolean;
     agentMcpEnabled: boolean;
+    clientDiagnosticsPreference: TClientDiagnosticsPreference;
     suppressDefaultViewerPrompt?: boolean;
     skippedUpdateVersion?: string;
 }

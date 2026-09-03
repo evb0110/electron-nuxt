@@ -115,6 +115,14 @@ describe('settings-sanitizer', () => {
         expect(sanitizeSettings({assistantPanelEnabled: 'no'}).assistantPanelEnabled).toBe(false);
     });
 
+    it('normalizes the optional client diagnostics preference to unknown', () => {
+        expect(DEFAULT_SETTINGS.clientDiagnosticsPreference).toBe('unknown');
+        expect(sanitizeSettings({}).clientDiagnosticsPreference).toBe('unknown');
+        expect(sanitizeSettings({clientDiagnosticsPreference: 'granted'}).clientDiagnosticsPreference).toBe('granted');
+        expect(sanitizeSettings({clientDiagnosticsPreference: 'unsupported'}).clientDiagnosticsPreference).toBe('unknown');
+        expect(sanitizeSettings({clientDiagnosticsPreference: false}).clientDiagnosticsPreference).toBe('unknown');
+    });
+
     it('trims and clamps unbounded string settings', () => {
         expect(sanitizeSettings({
             authorName: `  ${'A'.repeat(300)}  `,

@@ -28,9 +28,13 @@ import {
     normalizeCanonicalApplicationFrames,
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
+import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+import { isRecord } from '@contracts/runtimeGuards';
+import { safeGetLocalStorageItem } from '@app/utils/localStorage';
+import { BROWSER_SETTINGS_STORAGE_KEY } from '@app/utils/browserRuntimePersistence';
 
 export type TRendererDiagnosticsHost = 'electron' | 'hosted-browser';
-export type TRendererDiagnosticsPreference = 'unknown' | 'granted' | 'denied';
+export type TRendererDiagnosticsPreference = ReturnType<typeof parseClientDiagnosticsPreference>;
 
 export type TRendererDiagnosticsDropReason =
     | 'owned-projection'
@@ -118,7 +122,23 @@ let fallbackEventIdCounter = 0;
 let rendererFailureReporter: IRendererFailureReporter | null = null;
 
 function normalizePreference(value: unknown): TRendererDiagnosticsPreference {
-    return value === 'granted' || value === 'denied' ? value : 'unknown';
+    return parseClientDiagnosticsPreference(value);
+}
+
+export function readHostedDiagnosticsPreferenceSync(): TRendererDiagnosticsPreference {
+    const rawSettings = safeGetLocalStorageItem(BROWSER_SETTINGS_STORAGE_KEY);
+    if (rawSettings === null) {
+        return 'unknown';
+    }
+
+    try {
+        const parsed: unknown = JSON.parse(rawSettings);
+        return isRecord(parsed)
+            ? parseClientDiagnosticsPreference(parsed.clientDiagnosticsPreference)
+            : 'unknown';
+    } catch {
+        return 'unknown';
+    }
 }
 
 function normalizePositiveInteger(value: unknown, fallback: number) {
@@ -570,7 +590,11 @@ export function createRendererFailureReporter(
         }
 
         if (host === 'hosted-browser') {
-            health.mode = normalizePreference(options.readHostedPreference?.());
+            health.mode = normalizePreference(
+                options.readHostedPreference
+                    ? options.readHostedPreference()
+                    : readHostedDiagnosticsPreferenceSync(),
+            );
             if (health.mode !== 'granted') {
                 health.policyDropped = increment(health.policyDropped);
                 setDropReason('policy-dropped');

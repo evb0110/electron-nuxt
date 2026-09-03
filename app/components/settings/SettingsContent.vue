@@ -64,6 +64,13 @@
             />
         </section>
 
+        <section class="settings-card">
+            <SettingsPrivacyPanel
+                :settings="settings"
+                @update:client-diagnostics-preference="updateSettingSafely('clientDiagnosticsPreference', $event)"
+            />
+        </section>
+
         <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
             <SettingsAgentPanel
                 :assistant-panel-enabled="settings.assistantPanelEnabled"
@@ -156,6 +163,7 @@ import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/r
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
+import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';

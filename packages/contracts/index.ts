@@ -511,6 +511,9 @@ export type {
 } from '@contracts/shared';
 export { isOcrWord } from '@contracts/shared';
 
+export { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+export type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+
 export {
     AGENT_OCR_RUN_INPUT_SCHEMA,
     parseAgentOcrRunOptions,
