@@ -1,0 +1,42 @@
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_347cca8473fe86 314-320
+  s_b412fd4cd3f576::t_9a093f5df5f51f 77-80
+  s_b412fd4cd3f576::t_99ccdeae50ddd4 321,323-340,344-366,371-400,423-426,431-432,437-455
+  s_b412fd4cd3f576::t_285a09ddd40edd 405-422
+  s_b412fd4cd3f576::t_ed68f7248b70a7 615-620,628
+  s_b412fd4cd3f576::t_8df4ce89f5a363 29-34,39,44,52,64-65,86
+  s_b412fd4cd3f576::t_82688afa5f965a 341-343,367-370,401-404,427-430,433-436,624-627
+  s_91eeab35c4598e::t_03cf1454d728ed 322
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_82688afa5f965a 29,303-304
+  s_b412fd4cd3f576::t_f4a7f7019aadda 14,25-28,30,188,194-196,216-226,251,256-261,264,266,270,279-280,285-302,305-379,483,485-495,498,501,534-545
+scripts/check-web-deploy-assets.mjs
+  s_b412fd4cd3f576::t_ed68f7248b70a7 54-74,528-530
+tests/unit/scripts/webDeployAssets.test.ts
+  s_b412fd4cd3f576::t_ed68f7248b70a7 29-32,57,257-271
+  s_91eeab35c4598e::t_34cea7c200d567 272-273
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "69c11b92bc34bf9796ab1c3ed825577cf684f62d",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

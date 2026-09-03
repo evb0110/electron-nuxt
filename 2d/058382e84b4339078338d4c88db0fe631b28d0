@@ -1,0 +1,73 @@
+electron/te.ts
+  s_b412fd4cd3f576::t_6167c3419b0023 78-85,99
+electron/utils/atomicReplace.ts
+  s_b412fd4cd3f576::t_459f736ac19b42 18,29-45,333,340-343
+  s_b412fd4cd3f576::t_ef655e517d0778 334-339,344
+electron/features/agent/codexMcpIntegration.ts
+  s_b412fd4cd3f576::t_9a713c6c8ae531 345-352,366,381
+electron/recentFiles.ts
+  s_b412fd4cd3f576::t_9fd3ad4b2bd0b7 19,97-114,353-358,366-370,377-381,383,409-413,419
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_8ee9f874a50eef 237-249,276-300
+electron/features/documents/main/documentWindowHandlers.ts
+  s_b412fd4cd3f576::t_604c8db99a2c6f 81-85
+tests/unit/electron/childLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_619f74f197cdd7 55-59,63
+tests/unit/electron/windowCloseHandshake.test.ts
+  s_b412fd4cd3f576::t_a9d3f6185f5e3c 29,197,219,235
+tests/unit/electron/mainLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_619f74f197cdd7 103-117,119-138,141
+  s_b412fd4cd3f576::t_98702f5741d8d7 118
+  s_b412fd4cd3f576::t_ea9e61538a2841 139-140
+tests/unit/electron/updates.test.ts
+  s_b412fd4cd3f576::t_47a83f66ae7391 276-306,327-337
+  s_b412fd4cd3f576::t_587662e8bbaa47 830
+tests/unit/architecture/sentryMainLoggerMigration.test.ts
+  s_b412fd4cd3f576::t_f75d1f3e6c7fb2 43-47,68,119-126,128-135,165-168
+  s_b412fd4cd3f576::t_79134b40bb72b5 1-37,59-66,70,73-75,82,86,93-95,97-98,111-118,127,136-161,170-186
+  s_b412fd4cd3f576::t_e7d93ddff98edf 162-164,169
+  s_b412fd4cd3f576::t_d33d7248594b57 57
+  s_b412fd4cd3f576::t_706e4e64e75ff1 58
+  s_b412fd4cd3f576::t_5cd737388dbc5e 38-42,48-56,67,69,71-72,76-81,83-85,87-92,96,99-110
+electron/utils/createLogger.ts
+  s_b412fd4cd3f576::t_e7d93ddff98edf 518
+  s_b412fd4cd3f576::t_4253ec007bce3c 487,490
+  s_b412fd4cd3f576::t_524d827fea7291 19-24,26-34,57-60,63-67,415-427,430-436,453-486,488-489,500-505,515-517,519-520
+  s_b412fd4cd3f576::t_18e18c74cc9ae5 524,575
+electron/utils/isExpectedUpdateNetworkError.ts
+  s_b412fd4cd3f576::t_9310db2c9805a7 1-39
+electron/bootstrap/externalOpen.ts
+  s_b412fd4cd3f576::t_5009d90327e89e 476-480
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_2320bb2db98fdb 198-209,243-246,251-258,416-532
+  s_b412fd4cd3f576::t_30fb54898c71f1 210-242,247-250,277-281
+  s_b412fd4cd3f576::t_ac42b5528fbcf9 282-283
+electron/updates.ts
+  s_b412fd4cd3f576::t_30fb54898c71f1 13,910,928
+  s_b412fd4cd3f576::t_9310db2c9805a7 23
+  s_b412fd4cd3f576::t_91aced89892b86 99-110,436,527-550,619,643-647,692,862,906-909,911-913,924-927,929-931,1035-1043,1078
+  s_b412fd4cd3f576::t_4253ec007bce3c 878
+tests/unit/electron/electronTranslations.test.ts
+  s_b412fd4cd3f576::t_587662e8bbaa47 11
+  s_b412fd4cd3f576::t_c9c4b0c02dd200 12-14,65
+tests/unit/electron/agentMcpIntegration.test.ts
+  s_b412fd4cd3f576::t_587662e8bbaa47 155-175,231,253
+electron/window/windowCloseHandshake.ts
+  s_b412fd4cd3f576::t_5cda9fda6e1424 19,62,69,80,99,112,125,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "2d058382e84b4339078338d4c88db0fe631b28d0",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

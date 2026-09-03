@@ -1,0 +1,32 @@
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_91eeab35c4598e::t_c5ee787b98a361 346-348,354-357,391-392,415,417-419,429
+  s_91eeab35c4598e::t_f55ab433d50398 326-329,335,339-342,351-352,358-359
+  s_91eeab35c4598e::t_86ffa6e077c2e6 316-325,330-334,336-338,343-345,349-350,353,360-371,384-385,387-390,393
+  s_91eeab35c4598e::t_be419bca1756eb 152,372-383,386
+app/components/document-viewer/DocumentPanelEmptyState.vue
+  s_91eeab35c4598e::t_be419bca1756eb 27-28
+docs/pdf-viewer-architecture.md
+  s_91eeab35c4598e::t_be419bca1756eb 76-83
+tests/unit/app/modules/workspace-shell/components/sidebarShellIntegration.test.ts
+  s_91eeab35c4598e::t_be419bca1756eb 67-91
+app/components/document-viewer/DocumentSearchResults.vue
+  s_91eeab35c4598e::t_be419bca1756eb 2,433-437
+app/components/document-viewer/DocumentSearchPanel.vue
+  s_91eeab35c4598e::t_be419bca1756eb 104
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1ad9c314e1098980874641db06d8b1db63e565f4",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

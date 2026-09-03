@@ -1,0 +1,51 @@
+electron/preload.ts
+  s_b412fd4cd3f576::t_93e858b13e4be8 24,77
+tests/unit/electron/rendererDiagnosticBridge.test.ts
+  s_b412fd4cd3f576::t_ecfd399b33503c 14
+  s_b412fd4cd3f576::t_f589c6c495b198 8,16
+  s_b412fd4cd3f576::t_9f817b14f4a363 1-7,9-13,15,17-113
+  s_b412fd4cd3f576::t_016e9284f387e0 114-126
+electron/preload/readDiagnosticsPolicyArgument.ts
+  s_b412fd4cd3f576::t_1cf19a11f74c09 1-37
+electron/window.ts
+  s_b412fd4cd3f576::t_93e858b13e4be8 31-32,355-358
+tests/unit/electron/window.test.ts
+  s_b412fd4cd3f576::t_ff412ee9888cc4 193,218,243-246
+electron/platform-ipc/rendererDiagnosticBridge.ts
+  s_b412fd4cd3f576::t_1cf19a11f74c09 2-32,37-68,73-119,123-127,132-134
+  s_b412fd4cd3f576::t_f5737f60337b4b 33-36,69-72,120-122
+  s_b412fd4cd3f576::t_93e858b13e4be8 1,128-131
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_b412fd4cd3f576::t_f5737f60337b4b 472-475,478,482-485,528-529
+  s_b412fd4cd3f576::t_2b1977ce21c287 9,522-527,530
+  s_b412fd4cd3f576::t_9f817b14f4a363 16,465-471,476-477,479-481,486-521
+  s_b412fd4cd3f576::t_7478f4b614f381 531
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_3dc1b11fefcc42 2-5,94
+  s_b412fd4cd3f576::t_889ff7473fc56a 99,106
+  s_b412fd4cd3f576::t_1cf19a11f74c09 6-13,30,36-60,68-93,95-98,100-105,107-108
+  s_b412fd4cd3f576::t_6fd2ab6c6a3bc3 109-115
+electron/preload/createElectronApi.ts
+  s_b412fd4cd3f576::t_93e858b13e4be8 19,63-64,158,167,600-611,651
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_b412fd4cd3f576::t_f5737f60337b4b 96-103,109
+  s_b412fd4cd3f576::t_3dc1b11fefcc42 106
+  s_b412fd4cd3f576::t_93e858b13e4be8 19-20,95,104-105,107
+  s_b412fd4cd3f576::t_74600681e1f6ec 108,110
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b2841c6d879c03d2ffff5f7ad9082f2fad3f2594",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

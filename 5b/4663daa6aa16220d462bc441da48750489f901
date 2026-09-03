@@ -1,0 +1,56 @@
+app/composables/useRuntimeErrorReports.ts
+  s_b412fd4cd3f576::t_f09210aed6c025 95-102
+  s_b412fd4cd3f576::t_6f86ebe134301b 1-6,14-21,48-49,54,58,64,69-94,104,108
+  s_b412fd4cd3f576::t_dbcfeed2945858 103,105-107
+eslint-plugin-custom.mjs
+  s_b412fd4cd3f576::t_09eabcdbe7857b 582,604-606,611-613,615-622,630-642,667-669,675-681,700-707,709-711,713-720
+  s_b412fd4cd3f576::t_9b8f645a77ef76 513-515
+  s_b412fd4cd3f576::t_f195e459e0bf81 484-512,516-581,583-603,607-610,614,623-629,643-666,670-674,682-699,708,712,721-723,725-727
+eslint.config.mjs
+  s_b412fd4cd3f576::t_8791533f48d4a7 134-138
+tests/unit/app/composables/useRuntimeErrorReports.test.ts
+  s_b412fd4cd3f576::t_c3c9114053c240 9,62-89
+  s_b412fd4cd3f576::t_5899893a1b8170 90-91
+tests/unit/app/components/appFatalRuntimeDialog.test.ts
+  s_b412fd4cd3f576::t_b9445a729e7a59 18,41,48,55,62,64,85,189-208
+  s_b412fd4cd3f576::t_67c4f07390b445 209-210
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_6f86ebe134301b 1-2,6-66,71,73-80
+  s_b412fd4cd3f576::t_b7874309010a9f 3-5,67-70,72
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_b412fd4cd3f576::t_382181517b0d9f 1-6,8-24,29,40-73,75-78,80-94,97-101,107-125,129-131,133,138-140,145,147-183,185-187,191-197
+  s_b412fd4cd3f576::t_907703041b1323 38
+  s_b412fd4cd3f576::t_3733e9f7ecc2a2 7,30-37,39,74,79,102,132,134-137,141-144,146,184,188-190
+  s_b412fd4cd3f576::t_fac0ed4d392b81 25-28,95-96,103-106,126-127
+  s_b412fd4cd3f576::t_9b8f645a77ef76 128
+tests/unit/app/composables/useFatalRuntimeError.test.ts
+  s_b412fd4cd3f576::t_fac0ed4d392b81 2,47-52
+  s_b412fd4cd3f576::t_317c2874b0d59e 1,3-46,53-103
+app/composables/useFatalRuntimeError.ts
+  s_b412fd4cd3f576::t_1b7ae90f1cadef 1-6,14-16,72,79,86-91,96-100,102-117,126-128
+  s_b412fd4cd3f576::t_f09210aed6c025 78
+app/components/AppFatalRuntimeDialog.vue
+  s_b412fd4cd3f576::t_3828714a5d5f06 41-48,70,75
+  s_b412fd4cd3f576::t_3c31fe24d0ad54 85-90,97,103-104,111-135
+  s_b412fd4cd3f576::t_634281bcd4d41e 136-138
+tests/unit/app/composables/useFailureToast.test.ts
+  s_b412fd4cd3f576::t_fc279e0b1760ad 1-8,10-51,57-83,88-109,117-118,123-128
+  s_b412fd4cd3f576::t_fac0ed4d392b81 9,52-55,84-87,110-116,119-122
+  s_b412fd4cd3f576::t_91d2396fa252b4 56
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5b4663daa6aa16220d462bc441da48750489f901",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_27af43e190c297 244-261
+tests/unit/server/viewerAnalyticsEndpoint.test.ts
+  s_b412fd4cd3f576::t_08cca92b12a2e9 113-117
+  s_b412fd4cd3f576::t_27af43e190c297 12,56,79,88,90,96-98,104-112,118-132,138
+  s_b412fd4cd3f576::t_f39a2862452894 99-103,133-137
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_56ffb6ea3468e4 229-230
+server/api/analytics/events.post.ts
+  s_b412fd4cd3f576::t_f39a2862452894 50-54,110-114
+  s_b412fd4cd3f576::t_27af43e190c297 26,47-49,55,107-109,115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "97c19e7dcd4bee99474810e75bdd304afaa34337",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

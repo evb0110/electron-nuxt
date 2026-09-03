@@ -1,0 +1,26 @@
+tests/unit/server/sentryNitroAdapter.test.ts
+  s_b412fd4cd3f576::t_a468b590054a1e 191-194
+  s_b412fd4cd3f576::t_8ff3ae9c9d51c4 115-123
+  s_b412fd4cd3f576::t_12067d2dd4f401 27,109
+server/utils/sentryNitroAdapter.ts
+  s_b412fd4cd3f576::t_ded8f5d779e2cc 77,244,252,283,289,294-312
+  s_b412fd4cd3f576::t_12067d2dd4f401 160
+  s_b412fd4cd3f576::t_e92805a59bd7b8 245-251
+  s_b412fd4cd3f576::t_14bfd6cadab7c4 319,422
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "642ed518f9d723e2f9b8b3db931c2eaaa222f1c6",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

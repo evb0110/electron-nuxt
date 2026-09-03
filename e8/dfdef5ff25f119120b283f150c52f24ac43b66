@@ -1,0 +1,32 @@
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_fcced2d7f82a0d 42,166-171
+  s_b412fd4cd3f576::t_53cee32b91139f 9-23
+app/utils/consoleErrorObserver.ts
+  s_b412fd4cd3f576::t_daf8603d221c7d 27,38,52,189-192,242
+  s_b412fd4cd3f576::t_5204e5d2121396 1-26,28-37,39-49,51,53-188,193-241,243-250,252-258,260-265,269-330
+  s_b412fd4cd3f576::t_4877b4b82a69d4 251,259
+  s_b412fd4cd3f576::t_4f087d7981e605 266-267
+  s_b412fd4cd3f576::t_86aa7dd19b602d 268
+  s_b412fd4cd3f576::t_4774ae977ea5ea 50
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_93844284b73d4d 5,139,141,150-153,263
+tests/unit/app/utils/consoleErrorObserver.test.ts
+  s_b412fd4cd3f576::t_b017d54303ce41 84-89,112-123
+  s_b412fd4cd3f576::t_fcced2d7f82a0d 1-83,90-111,124-209
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e8dfdef5ff25f119120b283f150c52f24ac43b66",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

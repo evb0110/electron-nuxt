@@ -1,0 +1,151 @@
+tests/unit/electron/settingsMainBindingsDiagnostics.test.ts
+  s_b412fd4cd3f576::t_192ab59fa0aee5 23,29-34,63-66
+  s_b412fd4cd3f576::t_dfd5354f484051 12,14-16,40,43
+  s_b412fd4cd3f576::t_6d4c0e40098156 1,3-11,13,17-22,24-28,35-39,41-42,44-49,54-62,67-83
+  s_b412fd4cd3f576::t_2244ca904e7644 2,50-53
+packages/i18n-app/messages/ru.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1634-1637
+tests/unit/app/platform/settingsCapability.test.ts
+  s_b412fd4cd3f576::t_a15b6cb1c73706 253-291
+  s_b412fd4cd3f576::t_bd4e86b0c6b4a1 320-339
+  s_b412fd4cd3f576::t_2a5ca7cb6eaa2b 292-319
+packages/i18n-app/messages/es.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1599-1602
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_d906c49752b1ce 156,167
+app/composables/useSettings.ts
+  s_b412fd4cd3f576::t_389caf84a8a1e1 131
+  s_b412fd4cd3f576::t_f91da5b2d38a15 16,100,177-179
+app/app.vue
+  s_b412fd4cd3f576::t_b5e06d562e05bb 42-73
+  s_b412fd4cd3f576::t_effcfd3fb1a3ee 414-416
+  s_b412fd4cd3f576::t_02a949af7089ac 343,357,434
+  s_b412fd4cd3f576::t_4dfb6a7b610020 267-268
+  s_b412fd4cd3f576::t_8be931e4939fc8 165
+  s_b412fd4cd3f576::t_42bc3faf30ce8c 166,212-213,247-248,251,269-270,332-342,344-352,358-361,365-381,417,431-433,571
+  s_b412fd4cd3f576::t_1461716c2536ee 353-356,362-364
+  s_b412fd4cd3f576::t_5080352a5abdf1 210
+  s_b412fd4cd3f576::t_c9677e8caf6a27 41
+  s_b412fd4cd3f576::t_10b6f6d4a61506 435
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_bbf3111920ec77 70,171,283-286,305,458-501
+  s_b412fd4cd3f576::t_88b0722d265069 502
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_6c87280e1aeb72 293-322,366-405
+  s_b412fd4cd3f576::t_192ab59fa0aee5 410-412
+  s_b412fd4cd3f576::t_c535de465d4d89 460
+  s_b412fd4cd3f576::t_01fdf2f11665ac 507,530
+  s_b412fd4cd3f576::t_91851ff52ad748 46,126,158,204,208-211,215,217-219
+  s_b412fd4cd3f576::t_d6aa6ce77720c0 406,408-409,413-435
+  s_b412fd4cd3f576::t_e94df256af8867 407
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_b412fd4cd3f576::t_373221c4e38104 5
+  s_b412fd4cd3f576::t_1014a46259cb8e 87-90
+  s_b412fd4cd3f576::t_7a291a54b26f7d 75-78
+  s_b412fd4cd3f576::t_9528beb29370d2 91-94
+  s_b412fd4cd3f576::t_192ab59fa0aee5 33,41-44,60-63,83-86
+  s_b412fd4cd3f576::t_19f1282108d773 1-4,6-32,34-40,45-59,64-74,79-82,95-96
+packages/i18n-app/messages/pt.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1610-1613
+packages/i18n-core/privacyMessages.ts
+  s_b412fd4cd3f576::t_0d2aded799959f 53,97,141,185,229,273,317,361,405
+  s_b412fd4cd3f576::t_3dae88756479c2 20,51-52,54,95-96,98,139-140,142,183-184,186,227-228,230,271-272,274,315-316,318,359-360,362,403-404,406
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_797e66c162c022 131,140
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_f6fe4eba515353 686,693,698,704-710,731-733,735-775,779-781
+  s_b412fd4cd3f576::t_f49ae5a4faaa72 835-843,848-856,861-924,926-934
+  s_b412fd4cd3f576::t_7a7644c9d178e6 455,995-1002
+  s_b412fd4cd3f576::t_8cddb997ffbd54 71,84-95,101-104,107-109,149
+  s_b412fd4cd3f576::t_dae28e2de7a31e 621-625,632-634,645-647,654-658,661-663,715-721,723-725
+  s_b412fd4cd3f576::t_2d67d58e400308 776-778
+  s_b412fd4cd3f576::t_4a7c6836f6e809 961-965,976-978
+  s_b412fd4cd3f576::t_73cae1546d36bf 438-441,443,454,456-503
+  s_b412fd4cd3f576::t_4ffe27a97552de 1010-1015
+  s_b412fd4cd3f576::t_1acaab991651c4 801-807,831
+  s_b412fd4cd3f576::t_abfac3bd175d7e 396-419
+packages/i18n-app/messages/ptBr.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1610-1613
+packages/i18n-app/messages/fr.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1610-1613
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_15d78286bdaec9 1-2,5-6,10,13,71
+tests/unit/app/utils/consoleErrorObserver.test.ts
+  s_b412fd4cd3f576::t_1b4c033d3e63c0 45
+packages/i18n-app/messages/it.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1599-1602
+packages/i18n-app/messages/en.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1599-1602
+app/pages/privacy.vue
+  s_b412fd4cd3f576::t_a4f48c2a81acad 24-27
+  s_b412fd4cd3f576::t_8f5ce002b660b9 23
+landing/app/pages/privacy.vue
+  s_b412fd4cd3f576::t_a4f48c2a81acad 30-33
+  s_b412fd4cd3f576::t_9b533979f433ab 29
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_42a745e3994707 15,88-91,93,146-147
+tests/unit/app/composables/useFailureToast.test.ts
+  s_b412fd4cd3f576::t_80e25324096516 104-120
+tests/unit/app/composables/useSettings.test.ts
+  s_b412fd4cd3f576::t_aa408289581887 218-231,233-235
+  s_b412fd4cd3f576::t_b528c1c2891953 232
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_9b7500e034beb3 451-457,464-466,476-478,485-489,492-494,591,593-596
+  s_b412fd4cd3f576::t_b1e8e0b5aea1bc 71,104-107,378-381,419-420,422-423,425,433,600-615,663,666
+electron/features/settings/createSettingsMainBindings.ts
+  s_b412fd4cd3f576::t_561489ebce9aa5 56-69
+  s_b412fd4cd3f576::t_1eafadee2ffaed 16,130-137
+app/composables/useRuntimeErrorReports.ts
+  s_b412fd4cd3f576::t_61029fa560600a 16
+  s_b412fd4cd3f576::t_e11def7de4aa49 5,50-80,82-84,88-89,92,98-100,102-109,113-115,118-120,122-174,192,219-220,225-227,236-237
+  s_b412fd4cd3f576::t_149b17b68c998c 101,121
+  s_b412fd4cd3f576::t_affcd190c67aad 81
+tests/unit/app/composables/useRuntimeErrorReports.test.ts
+  s_b412fd4cd3f576::t_539626a523365c 150
+  s_b412fd4cd3f576::t_fad8a9dd3c1e9c 208,210-236
+  s_b412fd4cd3f576::t_12aa72ea6fe327 30-71
+  s_b412fd4cd3f576::t_8f273326a65325 106,129-149,151-207
+  s_91eeab35c4598e::t_9446ee36510b37 209
+packages/i18n-app/messages/nl.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1599-1602
+app/platform/browser-api/browserSettingsCapability.ts
+  s_b412fd4cd3f576::t_98a3b4d1089e5b 16-19,43,111,115,118-130,222,231-232,246-248,271-272
+  s_b412fd4cd3f576::t_74e268f1609644 44,236-241,265-270,274-277
+  s_b412fd4cd3f576::t_fbdfedc3beee81 261-264
+  s_b412fd4cd3f576::t_df09ea634fadcc 39,230,233-235,242-245,249-250,273,278-281
+packages/i18n-app/messages/de.ts
+  s_b412fd4cd3f576::t_8fddd7bdad1cc4 1599-1602
+electron/settings.ts
+  s_b412fd4cd3f576::t_1014a46259cb8e 168-173
+  s_b412fd4cd3f576::t_e6c4c9d6fa41bb 163-167,174
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_1b4c033d3e63c0 316
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_3bde11210d6d0d 221,223-245
+  s_b412fd4cd3f576::t_6f22a51560aa16 187,202-220
+  s_b412fd4cd3f576::t_70e7fef7d226ec 222
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b0969857116cdb9c91770425ddcc304980e8aa1e",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,84 @@
+packages/contracts/diagnostics/startupCrashMarker.ts
+  s_b412fd4cd3f576::t_6b88b8f205eb4d 12-18,87
+.github/workflows/release.yml
+  s_b412fd4cd3f576::t_f356d5215bdd1a 232
+.github/workflows/build-target.yml
+  s_b412fd4cd3f576::t_f356d5215bdd1a 31-35,79-80,108-110
+  s_7aa6a61bedd5ad::t_f6371a9f251282 111
+.github/workflows/release-artifacts.yml
+  s_b412fd4cd3f576::t_f356d5215bdd1a 217,228,243,254,265
+.github/workflows/build.yml
+  s_b412fd4cd3f576::t_f356d5215bdd1a 15-19,68
+.github/workflows/release-supplemental.yml
+  s_b412fd4cd3f576::t_f356d5215bdd1a 196,214,230
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_6526b8652595a3 137,139
+  s_b412fd4cd3f576::t_53f3e618d1201e 109,123-130,154-199
+  s_b412fd4cd3f576::t_4b169e7205d774 138
+  s_b412fd4cd3f576::t_471546bce003fd 131-132,136
+  s_b412fd4cd3f576::t_7a2035fa1dc2ca 200
+.github/workflows/build-mac-intel.yml
+  s_b412fd4cd3f576::t_99feedeef0bb19 15-19,45-50,66-68
+.github/workflows/build-win7-legacy.yml
+  s_b412fd4cd3f576::t_1a7077e64e73a9 10-14,33-38,56-59
+.github/workflows/store-appx.yml
+  s_b412fd4cd3f576::t_81e437ac5b4921 10-14,28-33,58-61
+nuxt.config.ts
+  s_b412fd4cd3f576::t_684e17e4b813e4 8-12,78-95,155-167,295,309-314,326-331,397-398,564,576,637
+packages/contracts/diagnostics/desktopDiagnosticDists.d.ts
+  s_b412fd4cd3f576::t_877196c777a351 1-17
+packages/contracts/diagnostics/desktopDiagnosticDists.js
+  s_b412fd4cd3f576::t_3f5e748c0c5351 1-37
+packages/contracts/diagnostics/releaseIdentity.d.ts
+  s_b412fd4cd3f576::t_e5bea3b4807648 1-56
+packages/contracts/diagnostics/releaseIdentity.js
+  s_b412fd4cd3f576::t_6ecc3f3e28d5fe 1-607
+scripts/architecture/boundary-check.mjs
+  s_b412fd4cd3f576::t_8eb4780907edbd 333-337,1162,1203,1208,1222-1225,1230
+scripts/architecture/dep-graph.mjs
+  s_b412fd4cd3f576::t_bcb13899df639e 180-186,188
+scripts/build-electron.mjs
+  s_b412fd4cd3f576::t_654480f1b735d9 7,10-14,18-30,36-56,62-68,126,134,141,172-178
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_3c0bb052b3f148 14-18,55-63,69,148,152-177,211
+scripts/release/resolve-sentry-build-identity.mjs
+  s_b412fd4cd3f576::t_d910d33686a0f1 1-90
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_9d6d3671eea23b 1-619
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_b412fd4cd3f576::t_0d9de52e360040 14,164-182
+tests/unit/contracts/sentryReleaseIdentity.test.ts
+  s_b412fd4cd3f576::t_a47acdd1f1defc 1-278
+tests/unit/scripts/buildElectron.test.ts
+  s_b412fd4cd3f576::t_c9b22998dedf02 8,17,32-33,41-44,77-95,105-113
+tests/unit/scripts/depGraph.test.ts
+  s_b412fd4cd3f576::t_fce5c1c5435f51 167-183
+tests/unit/scripts/releaseBuildReceipt.test.ts
+  s_b412fd4cd3f576::t_ce0a6028e25270 93-148
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_4f45342b233191 1-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "8827f2a4004e7f51feabbc666bc256dcb2f43ae8",
+  "prompts": {},
+  "sessions": {
+    "s_7aa6a61bedd5ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a68-97aa-7471-a833-028dfb487475",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

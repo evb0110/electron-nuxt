@@ -1,0 +1,65 @@
+tests/unit/scripts/uploadSentrySourcemaps.test.ts
+  s_b412fd4cd3f576::t_5340fb79d530e4 155
+  s_b412fd4cd3f576::t_43ac3fb0f58450 1-154,156-177
+  s_b412fd4cd3f576::t_9f5269cf0ea3ee 178-183
+scripts/release/upload-sentry-sourcemaps.mjs
+  s_b412fd4cd3f576::t_268f0ade710c1c 146-160,162-167,214-216,222-233,271-272,276,279,286-290
+  s_b412fd4cd3f576::t_14faf6a46da994 3-6,32-39,80-85,161,217-221,283
+  s_b412fd4cd3f576::t_5340fb79d530e4 126-130,242-262
+  s_b412fd4cd3f576::t_b125557238fb84 16
+  s_b412fd4cd3f576::t_34a0dae55d89c5 1-2,7-15,17-31,40-79,86-125,131-145,168-213,234-241,263-270,273-275,277-278,280-282,284-285,291
+.github/workflows/build-win7-legacy.yml
+  s_b412fd4cd3f576::t_3174068fb39d0e 26-27,48
+  s_b412fd4cd3f576::t_ab2793715a1a2b 152-153,155-178
+  s_b412fd4cd3f576::t_db2e6930dda173 19-25,154,179-184
+  s_b412fd4cd3f576::t_29f2ca617d7eae 185
+.github/workflows/store-appx.yml
+  s_b412fd4cd3f576::t_db2e6930dda173 15-21,228,230-235
+  s_b412fd4cd3f576::t_3174068fb39d0e 22-23,43
+  s_b412fd4cd3f576::t_f46c4897ca808b 204-227,229
+  s_b412fd4cd3f576::t_0d7397a1f1b17d 236
+.github/workflows/build-target.yml
+  s_b412fd4cd3f576::t_dec41d9cf5af13 544-545,547-570
+  s_b412fd4cd3f576::t_3174068fb39d0e 65-66,89
+  s_b412fd4cd3f576::t_db2e6930dda173 59-64,546,571-576
+  s_b412fd4cd3f576::t_bf343d7ad0753c 577
+.github/workflows/build-mac-intel.yml
+  s_b412fd4cd3f576::t_db2e6930dda173 31-36,174,176-181
+  s_b412fd4cd3f576::t_3174068fb39d0e 37-38,59
+  s_b412fd4cd3f576::t_394d9d069800a4 150-173,175
+  s_b412fd4cd3f576::t_8fc4aff2adfab8 182
+.github/workflows/release-supplemental.yml
+  s_b412fd4cd3f576::t_81da08e1eac054 204-206,226-228,239-242
+  s_b412fd4cd3f576::t_3174068fb39d0e 207,229,243
+tests/unit/scripts/sentrySourcemapWorkflowPolicy.test.ts
+  s_b412fd4cd3f576::t_f4ad20f14ab4f2 1-98
+.github/workflows/release.yml
+  s_b412fd4cd3f576::t_3174068fb39d0e 244
+  s_b412fd4cd3f576::t_81da08e1eac054 241-243
+.github/workflows/build.yml
+  s_b412fd4cd3f576::t_96c5acfccf1e25 35-40,89-91
+  s_b412fd4cd3f576::t_3174068fb39d0e 41-42,92
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_c95c55d7ee7ae9 31,480,498-504
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_349ac92450f999 371,401-404,411,414,445-449
+.github/workflows/release-artifacts.yml
+  s_b412fd4cd3f576::t_3174068fb39d0e 222,242,258,274,290
+  s_b412fd4cd3f576::t_81da08e1eac054 218-221,238-241,254-257,270-273,286-289
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "7de321ca60fb4c4da055b89bfbee425b38f98b6a",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

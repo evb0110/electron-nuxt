@@ -1,0 +1,53 @@
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_c2a84ebc1bc50c 18,32,125-129
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_3542098a37e8df 2,5,15-16,55-67,117-120,122-124,126-137,140
+app/utils/runtimeErrorFilter.ts
+  s_b412fd4cd3f576::t_3bbf099b47a223 2,130-164
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_c06bc1922c938a 2-5,7-11,35-39,41-43,45,70
+electron/preload.ts
+  s_b412fd4cd3f576::t_f028e82b845146 55,57,60
+electron/preload/createElectronApi.ts
+  s_b412fd4cd3f576::t_2ab4aae8b733ee 17-20,608
+electron/preload/debugLogBuffer.ts
+  s_b412fd4cd3f576::t_abd15d619dc54b 1,4,6
+electron/preload/installDebugLogListener.ts
+  s_b412fd4cd3f576::t_da17aff702f0ef 2,7,26-28
+electron/preload/installViteOutdatedOptimizeDepRecovery.ts
+  s_b412fd4cd3f576::t_9011383b265f6c 95,97
+packages/contracts/diagnostics/diagnosticsCapability.ts
+  s_b412fd4cd3f576::t_6c0c43710a4ab9 2-5,9-18,33,36-40
+packages/contracts/electronApiCommon.ts
+  s_b412fd4cd3f576::t_679686e54a2287 1-14,22-35,39-166
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_e75b6abbb741ba 1-150
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_b412fd4cd3f576::t_7ece8f2c6b98f3 9,93-121
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_3efeecd5358d26 44-47,148-211
+tests/unit/electron/debugLogBuffer.test.ts
+  s_b412fd4cd3f576::t_f658b7531f9cd2 1-58
+tests/unit/electron/installDebugLogListener.test.ts
+  s_b412fd4cd3f576::t_58846c2cd3d18e 2,22-25,47-70
+tests/unit/electron/installViteOutdatedOptimizeDepRecovery.test.ts
+  s_b412fd4cd3f576::t_3a31da6c328616 1-83
+tests/unit/electron/mainLoggerDiagnostics.test.ts
+  s_b412fd4cd3f576::t_cb51a583f6696a 16-19,22,55-58,121-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "034ced95c4986a4e2da14d7a2b31429bbeee59ef",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+tests/unit/app/platform/browserSearchWorkerClient.test.ts
+  s_b412fd4cd3f576::t_3f673bc1577793 9-14,16,18,123,128-130,144,341-353,363-368,370-373,411,488
+  s_b412fd4cd3f576::t_4b2bc62d719b4f 369
+  s_b412fd4cd3f576::t_5a943c9fde608c 354-362
+  s_b412fd4cd3f576::t_628f4aa08f8d4e 15,17,124-127
+tests/unit/app/modules/pdf-viewer/engine/importEmbeddedShapeAnnotationsInWorker.test.ts
+  s_b412fd4cd3f576::t_628f4aa08f8d4e 24-26
+  s_b412fd4cd3f576::t_5a943c9fde608c 399-407
+  s_b412fd4cd3f576::t_4b2bc62d719b4f 410-413
+  s_b412fd4cd3f576::t_3f673bc1577793 18-23,27,43,377-381,383-386,388-397,408-409,414-415
+  s_b412fd4cd3f576::t_85aed12a1723c7 382,387,398
+tests/unit/app/composables/pdfSerializationWorkerClient.test.ts
+  s_b412fd4cd3f576::t_4b2bc62d719b4f 492-495
+  s_b412fd4cd3f576::t_3f673bc1577793 12-17,19,21,56,68,82-84,95-97,108,113-115,122-126,162-163,463-474,480,490-491,496-497
+  s_b412fd4cd3f576::t_5a943c9fde608c 481-489
+  s_b412fd4cd3f576::t_628f4aa08f8d4e 18,20,109-112,475-479
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts
+  s_b412fd4cd3f576::t_62ba566b495789 24-27,110-111,119
+  s_b412fd4cd3f576::t_43fa2928aebdb6 123-134,581,611,624,631
+  s_b412fd4cd3f576::t_99da305f01a772 23,84-109,112-118,120-122,496-504,542,545
+  s_b412fd4cd3f576::t_70100778c28ab2 516
+app/platform/browser-api/browserPdfCombineWorkerClient.ts
+  s_b412fd4cd3f576::t_3a1281fd172170 19,35-56,59-65,67-75,151,153,156,158,208,210,212,223
+  s_b412fd4cd3f576::t_62ba566b495789 20-23,57-58,66
+app/platform/browser-api/browserPageOpsWorkerClient.ts
+  s_b412fd4cd3f576::t_3a1281fd172170 197,199,232,234
+  s_b412fd4cd3f576::t_62ba566b495789 26-29,56-57,65
+  s_b412fd4cd3f576::t_084e627ea3eee2 25,41-55,58-64,66-74,202,204,231,242
+app/platform/browser-api/browserSearchWorkerClient.ts
+  s_b412fd4cd3f576::t_3a1281fd172170 17,54-75,78-84,86-94,294,296,299,301,333,335,337,344,492-496,514,517,519,526
+  s_b412fd4cd3f576::t_62ba566b495789 18-21,76-77,85
+tests/unit/app/platform/browserPdfCombineWorkerClient.test.ts
+  s_b412fd4cd3f576::t_628f4aa08f8d4e 15,17,110-113,301-304,307
+  s_b412fd4cd3f576::t_3f673bc1577793 9-14,16,18,32,46-48,59-61,109,114-116,131,296-300,305-306,308-313,323-324,329-330,347
+  s_b412fd4cd3f576::t_5a943c9fde608c 314-322
+  s_b412fd4cd3f576::t_4b2bc62d719b4f 325-328
+app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts
+  s_b412fd4cd3f576::t_363d2087b709fb 21,70-95,98-104,106-108,365-367,483,485,492,496-498,503,505,507,514,521
+  s_b412fd4cd3f576::t_21621f32d7cd73 500,523
+  s_b412fd4cd3f576::t_85aed12a1723c7 517-519
+  s_b412fd4cd3f576::t_62ba566b495789 22-25,96-97,105
+tests/unit/app/platform/browserPageOpsWorkerClient.test.ts
+  s_b412fd4cd3f576::t_4b2bc62d719b4f 125-128
+  s_b412fd4cd3f576::t_270829612deae1 60-74,143-146
+  s_b412fd4cd3f576::t_43fa2928aebdb6 15-17,20-21,56-59,77-80,93-94,149-170
+  s_b412fd4cd3f576::t_3f673bc1577793 1-14,18-19,22-55,75-76,81-92,95-113,123-124,129-142,147-148,171-172
+  s_b412fd4cd3f576::t_5a943c9fde608c 114-122
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c9ec540df8aaf943bfb98fa71bc500ece4cc6acd",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

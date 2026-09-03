@@ -1,0 +1,271 @@
+packages/contracts/diagnostics/failureReceipt.ts
+  s_b412fd4cd3f576::t_319f1e80d5d073 3-7,9-16,40-76,81
+eslint-plugin-custom.mjs
+  s_b412fd4cd3f576::t_319f1e80d5d073 544-545
+.github/workflows/build-mac-intel.yml
+  s_b412fd4cd3f576::t_299c060562c97e 15-19,31-38,53-59,75-77,150-182
+.github/workflows/build-target.yml
+  s_b412fd4cd3f576::t_cf7780c4a0acd1 31-35,59-66,87-89,117-120,544-577
+.github/workflows/build-win7-legacy.yml
+  s_b412fd4cd3f576::t_268f06d242525a 10-14,19-27,42-48,66-69,152-185
+.github/workflows/build.yml
+  s_b412fd4cd3f576::t_dd7c0d1d3f19c2 15-19,35-42,76,89-92
+.github/workflows/release-artifacts.yml
+  s_b412fd4cd3f576::t_5bd8fffc8b430e 217-222,233,238-242,253-258,269-274,285-290
+.github/workflows/release-supplemental.yml
+  s_b412fd4cd3f576::t_06b7161d6d3a3d 196,204-207,218,226-229,238-243
+.github/workflows/release.yml
+  s_b412fd4cd3f576::t_f4e2075f5f3ffd 232,241-244
+.github/workflows/store-appx.yml
+  s_b412fd4cd3f576::t_da5b193e08945a 10-23,37-43,68-71,204-236
+app/app.vue
+  s_b412fd4cd3f576::t_ff5c8684ddef20 8,42-74,166-167,169,212,214-215,249-250,253,269-272,334-383,416-419,433-437,573,595-603,623-627,630
+app/components/AppFailureAlert.vue
+  s_b412fd4cd3f576::t_318736debd319d 1-38
+app/components/combine/CombinePdfPage.vue
+  s_b412fd4cd3f576::t_a5221a2d589178 61-68,70-71,73,120-127,129-130,132,243,320-321
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_e82cbba2db9a15 70,171,283-286,305,458-502
+app/composables/useDjvu.ts
+  s_b412fd4cd3f576::t_fc45190e8f98c7 2-7,46,92-128,194,286-297,299,305-321,697-700,709-713,767-778
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_6e062f64755591 1,4-10,14,17,20-26,74-75,80,87-92
+app/composables/useRuntimeErrorReports.ts
+  s_b412fd4cd3f576::t_609129b52c2b4d 5,16,50-84,88-89,92,98-109,113-115,118-174,192,219-220,225-227,236-237
+app/composables/useSettings.ts
+  s_b412fd4cd3f576::t_e154fd7dfb35af 16,100,131,177-179
+app/modules/combine/useCombinePdfOperation.ts
+  s_b412fd4cd3f576::t_5f2af4ae850fd7 12-13,28-29,50-51,76-87,114-119,121-126,134-135
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/reportAnnotationCreationFailure.ts
+  s_b412fd4cd3f576::t_a2e61f3c27a6d3 1-42
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight.ts
+  s_b412fd4cd3f576::t_b328d30492f2da 27,224
+app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types.ts
+  s_b412fd4cd3f576::t_a73e26d591ed20 1-5,71,76-118
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_b412fd4cd3f576::t_70d8b6784e3f44 30,46,148-166
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_b412fd4cd3f576::t_a93aa99eeab195 8,10-11,81,133-142,159,167,177,179-191,196-197,449-460,462-467,472,492-493,496-502
+app/pages/electron.vue
+  s_b412fd4cd3f576::t_792141ace62673 12,29-36,47-54
+app/pages/privacy.vue
+  s_b412fd4cd3f576::t_eb46fc54b0ceba 23-27
+app/platform/browser-api/browserDjvuConversionPipeline.ts
+  s_b412fd4cd3f576::t_b1ff6f26356eb9 36-41,45,63,88-140,769-777,886-895,899-906,920-925,932-937,945-957,1049-1062,1070
+app/platform/browser-api/browserDurableDjvuJobs.ts
+  s_b412fd4cd3f576::t_77a53d76e110c8 6-9,24-45,97-106,209-210,214-218,226-227
+app/platform/browser-api/browserSettingsCapability.ts
+  s_b412fd4cd3f576::t_2dd6560794b30c 16-19,39,43-44,111,115,118-130,222,230-250,261-281
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_fdb2947ada2df2 156,167
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_445f436e55157f 131,140
+app/services/pdf/combinePdfFiles.ts
+  s_b412fd4cd3f576::t_43801178cd7971 13-16,21-29,32-38,40,250-263
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_21318bacf234d0 71,84-95,101-104,107-109,149,396-419,438-441,443,454-503,621-625,632-634,645-647,654-658,661-663,686,693,698,704-710,715-721,723-725,731-733,735-781,801-807,831,835-843,848-856,861-924,926-934,961-965,976-978,995-1002,1010-1015
+app/utils/getOrCaptureRendererBootstrapFailure.ts
+  s_b412fd4cd3f576::t_07e45b8b327c73 1-36
+docs/operations/sentry-account-controls.md
+  s_b412fd4cd3f576::t_a175870560eff6 89-92
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_fc57d0647762df 1-224
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_d6eda733b762d0 71,104-107,378-381,419-420,422-423,425,433,451-457,464-466,476-478,485-489,492-494,591,593-596,600-615,663,666
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_b412fd4cd3f576::t_ade4aa4725d353 203-206,344-347
+electron/features/djvu/main/pdfExport.ts
+  s_b412fd4cd3f576::t_8d9111b7a1c6b8 1-2,37-43,65,81-82,379-382,392-434,483-498,506-518,554-567,572-573,577-590,595-596,678,684-692,1032,1034-1037,1058,1085,1104-1105,1111-1114,1175-1188,1195-1213,1215-1218,1223-1224,1229-1237,1273,1282,1318-1325
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_b412fd4cd3f576::t_ddf31442ec0c58 22,35-36,95,98,313,323-340
+electron/features/scan-cleanup/runScanCleanupWorkerTask.ts
+  s_b412fd4cd3f576::t_d800759477e994 17-18,105,112-115
+electron/features/settings/createSettingsMainBindings.ts
+  s_b412fd4cd3f576::t_c65f1cffcfc4a3 16,56-69,130-137
+electron/main.ts
+  s_b412fd4cd3f576::t_7167a22175c3b0 66,146-149,188-212,254,294,296-304,581,584-590,592,595-603,605-610,613-620
+electron/processDeathRecovery.ts
+  s_b412fd4cd3f576::t_a8fb9549d8c3c2 2-16,32-42,84-90,99,104-153,161-166,171,179,183-187,191,200-204
+electron/settings.ts
+  s_b412fd4cd3f576::t_d72048f5a7998c 163-174
+electron/utils/workerTask.ts
+  s_b412fd4cd3f576::t_ca47ab02b2d78a 8,219,221-223,228-236,584-589,602-603,611,615-618,648,652,660,663,677,681,689-692,696,699
+electron/window.ts
+  s_b412fd4cd3f576::t_02837e94cacd1a 18-21,34-37,39-48,67-117,146-213,278,311-324,329-332,339-343,364-411,419-422,433,435,442-460,465-476,493-501,504-509,526-530,532,564,606-611,613-619,627-670,689-694,697-704
+electron/window/attachShowLifecycle.ts
+  s_b412fd4cd3f576::t_99194f61674c23 4,59,238-239,255,271-272
+electron/window/rendererReady.ts
+  s_b412fd4cd3f576::t_71cda7174fc9bb 8,15-19,24,26-29,40,76-80,82,92-96,107,114,127,133-136
+landing/app/pages/privacy.vue
+  s_b412fd4cd3f576::t_9d2446c22a001f 29-33
+nuxt.config.ts
+  s_b412fd4cd3f576::t_28ff5232d4a097 8-12,78-95,155-167,295,309-314,326-331,397-398,564,576,637
+packages/contracts/diagnostics/desktopDiagnosticDists.d.ts
+  s_b412fd4cd3f576::t_2c242bf92d66bc 1-17
+packages/contracts/diagnostics/desktopDiagnosticDists.js
+  s_b412fd4cd3f576::t_d5766ea4997e16 1-37
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_391a8b6bd1aad8 71-215,253-347
+packages/contracts/diagnostics/releaseIdentity.d.ts
+  s_b412fd4cd3f576::t_8712c9e0efd7b4 1-56
+packages/contracts/diagnostics/releaseIdentity.js
+  s_b412fd4cd3f576::t_73b20ba5990c95 1-607
+packages/contracts/diagnostics/startupCrashMarker.ts
+  s_b412fd4cd3f576::t_5b7480c2a1098f 12-18,87
+packages/contracts/djvuPlatformFeature.ts
+  s_b412fd4cd3f576::t_4a7457c081aed4 30-33,483-512,557-560,568,670-673,679
+packages/contracts/electronApiDjvu.ts
+  s_b412fd4cd3f576::t_07e9ce131cb2d4 2-5,85-86,323-324
+packages/contracts/scan-cleanup/ipc.ts
+  s_b412fd4cd3f576::t_aed72062c1afc1 6,669-670
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_b412fd4cd3f576::t_c937e73be5b61a 2,961-968,974
+packages/i18n-app/messages/de.ts
+  s_b412fd4cd3f576::t_61002595225149 1599-1602
+packages/i18n-app/messages/en.ts
+  s_b412fd4cd3f576::t_21334b757068df 1599-1602
+packages/i18n-app/messages/es.ts
+  s_b412fd4cd3f576::t_365168009c7b24 1599-1602
+packages/i18n-app/messages/fr.ts
+  s_b412fd4cd3f576::t_09d3f52cfa4e97 1610-1613
+packages/i18n-app/messages/it.ts
+  s_b412fd4cd3f576::t_97ec856d49c123 1599-1602
+packages/i18n-app/messages/nl.ts
+  s_b412fd4cd3f576::t_e3a2fbc6fd1d7c 1599-1602
+packages/i18n-app/messages/pt.ts
+  s_b412fd4cd3f576::t_ca39d22465dade 1610-1613
+packages/i18n-app/messages/ptBr.ts
+  s_b412fd4cd3f576::t_8b92b5036d98ed 1610-1613
+packages/i18n-app/messages/ru.ts
+  s_b412fd4cd3f576::t_91e7fdea91ddf0 1634-1637
+packages/i18n-core/privacyMessages.ts
+  s_b412fd4cd3f576::t_b10eb8f25521af 20,51-54,95-98,139-142,183-186,227-230,271-274,315-318,359-362,403-406
+scripts/architecture/boundary-check.mjs
+  s_b412fd4cd3f576::t_72c0fcfc76f6e4 333-337,1162,1192-1195,1200,1206,1211,1225-1228,1233
+scripts/architecture/dep-graph.mjs
+  s_b412fd4cd3f576::t_b805ad2b6f3467 180-186,188
+scripts/build-electron.mjs
+  s_b412fd4cd3f576::t_ca2d12f5bf3ffa 7,10-14,18-30,36-56,62-68,126,134,141,172-178
+scripts/check-build-artifacts-hygiene.mjs
+  s_b412fd4cd3f576::t_7329f7518323b7 2,7,9,19,21,24-25,30-34,38-64,66,70,85-88,94-118,139-149,152-169,171,174-190
+scripts/check-web-deploy-assets.mjs
+  s_b412fd4cd3f576::t_9d537d80dae4ff 17,55-75,247-263,265,542-544
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_2cba22429e2e06 14,25-31,189,195-197,217-227,252,257-262,265,267,271,280-281,286-380,480,485,487-504,507,510,543-554
+scripts/release/assert-packaged-app-contents.mjs
+  s_b412fd4cd3f576::t_3c284a18426399 10-14,120-123,158-168,196-213,217
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_868fe3761385d4 14-20,57-65,71,150,154-251,281-287,292
+scripts/release/resolve-sentry-build-identity.mjs
+  s_b412fd4cd3f576::t_2b9994a44d0d86 1-90
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_4082f4a255e5ef 1-655
+scripts/release/upload-sentry-sourcemaps.mjs
+  s_b412fd4cd3f576::t_0d99d0e9115c75 1-291
+tests/unit/app/components/appFailureAlert.test.ts
+  s_b412fd4cd3f576::t_1256105445b6bc 1-56
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_b412fd4cd3f576::t_12631e07964312 18,25-31,36-38,40,46,152,185,203
+tests/unit/app/composables/useDjvu.test.ts
+  s_b412fd4cd3f576::t_bacbd877a7fd47 20,59-70,85,159,481-482,484-488,493-617,716
+tests/unit/app/composables/useFailureToast.test.ts
+  s_b412fd4cd3f576::t_3be2383914eb54 104-120
+tests/unit/app/composables/useRuntimeErrorReports.test.ts
+  s_b412fd4cd3f576::t_779a700661c4e9 30-71,106,129-236
+tests/unit/app/composables/useSettings.test.ts
+  s_b412fd4cd3f576::t_7de071b66fb0b7 218-235
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_b412fd4cd3f576::t_d30e0ac6e02eac 48-53,140,501-502,588-591
+tests/unit/app/modules/pdf-viewer/engine/annotations/projectAnnotationCreationOutcome.test.ts
+  s_b412fd4cd3f576::t_8ec5edd8564767 6-9,20-32
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationHighlightFailures.test.ts
+  s_b412fd4cd3f576::t_70b23016747b08 24-37,275,310-314,348-355
+tests/unit/app/modules/pdf-viewer/runtime/createPdfViewerEventAdapter.test.ts
+  s_b412fd4cd3f576::t_0bae2780594786 10,17-23,41-45
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_b412fd4cd3f576::t_5bfe9dbfcacde8 12,15-25,104-105,416,418,460,463-464,576,585,587-591
+tests/unit/app/platform/browserDjvuConversionPipeline.test.ts
+  s_b412fd4cd3f576::t_11b9c29095a8ec 10,17-18,23-25,32-43,250-316
+tests/unit/app/platform/browserDurableDjvuJobs.test.ts
+  s_b412fd4cd3f576::t_7856a234fb85e4 9,13-18,50-98
+tests/unit/app/platform/settingsCapability.test.ts
+  s_b412fd4cd3f576::t_42ed184a17b39d 253-339
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_809952c4c94849 15,88-91,93,146-147
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_b412fd4cd3f576::t_663230459a464d 12,46-52,62,90,339-372
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_2c38e2fb15c0d4 316
+tests/unit/app/utils/consoleErrorObserver.test.ts
+  s_b412fd4cd3f576::t_959064c820f33f 45
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_171288ce2acbb1 46,126,158,204,208-211,215,217-219,293-322,366-435,460,507,530
+tests/unit/app/utils/rendererBootstrapFailure.test.ts
+  s_b412fd4cd3f576::t_b94ad8fcae0327 1-68
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_b412fd4cd3f576::t_23c4deb9079ce9 14,164-182,184-185,197
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_a5eb6555723ed6 228-236,263-340
+tests/unit/contracts/djvuPlatformFeature.test.ts
+  s_b412fd4cd3f576::t_6728c436bad14d 11,15-20,210-302
+tests/unit/contracts/scanCleanupIpcResultCodecs.test.ts
+  s_b412fd4cd3f576::t_73143edbc9774c 1-47
+tests/unit/contracts/sentryReleaseIdentity.test.ts
+  s_b412fd4cd3f576::t_f4040d07eddd7a 1-278
+tests/unit/electron/djvuPdfExport.test.ts
+  s_b412fd4cd3f576::t_4f207e5a3eaf9f 11,68,140,158-169,195-196,311-317,601,603-604,620-708,723,747-750,752,1373-1405
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_5ee99ee0a3a169 187,202-245
+tests/unit/electron/mainShutdownOrder.test.ts
+  s_b412fd4cd3f576::t_df2c7e22e295ff 59,61-64,66
+tests/unit/electron/processDeathRecovery.test.ts
+  s_b412fd4cd3f576::t_aae0126c4ac4a9 19-30,45,51-63,65-146,180,193-201,351,362-363
+tests/unit/electron/runScanCleanupWorkerTask.test.ts
+  s_b412fd4cd3f576::t_f3af4378cd2e09 16-22,29-30,32-37,47,104,147
+tests/unit/electron/scanCleanupService.test.ts
+  s_b412fd4cd3f576::t_a9762e74bd9266 20,68-73,84-86,93-101,223,534-552
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_b412fd4cd3f576::t_7d18b81fc35d9b 1-96
+tests/unit/electron/settingsMainBindingsDiagnostics.test.ts
+  s_b412fd4cd3f576::t_b2bd71acb11e0c 1-83
+tests/unit/electron/window.test.ts
+  s_b412fd4cd3f576::t_d166b0eeeb4b3a 193-197,222-232,242-246,483-656,717-953,1025
+tests/unit/electron/workerTask.test.ts
+  s_b412fd4cd3f576::t_10c6f63f3eb40e 24-29,40-45,62-68,616,627,649,660
+tests/unit/scripts/assertPackagedAppContents.test.ts
+  s_b412fd4cd3f576::t_1794a43e1b9344 29-33,38-41,122-170
+tests/unit/scripts/buildElectron.test.ts
+  s_b412fd4cd3f576::t_a6a3e2c1968a15 8,17,32-33,41-44,77-95,105-113
+tests/unit/scripts/depGraph.test.ts
+  s_b412fd4cd3f576::t_33928cd2470d4e 167-183
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_df068c85035ea8 29-34,39,44,52,64-65,77-80,86,314-467,627-632,636-640
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_c273a180c04c69 109,123-132,136-139,154-200
+tests/unit/scripts/releaseBuildReceipt.test.ts
+  s_b412fd4cd3f576::t_9120ce0e948f99 4,8,17,22-23,98-187
+tests/unit/scripts/sentrySourcemapWorkflowPolicy.test.ts
+  s_b412fd4cd3f576::t_172f4dbfd8ee3a 1-98
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_5d95496e3e57f5 1-256
+tests/unit/scripts/uploadSentrySourcemaps.test.ts
+  s_b412fd4cd3f576::t_0936d0bcd91cbb 1-183
+tests/unit/scripts/webDeployAssets.test.ts
+  s_b412fd4cd3f576::t_fe8b4fb4223834 29-32,57,251-303,310-326
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "914ffbda233a177b46da109640b7065f3811570b",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

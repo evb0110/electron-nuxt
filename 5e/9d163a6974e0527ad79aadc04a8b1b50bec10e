@@ -1,0 +1,40 @@
+tests/unit/app/components/combine/combinePdfPageMountedStateMachine.test.ts
+  s_b412fd4cd3f576::t_e6e5b71ac7e1f1 18,25-31,36-38,40,46,152,185,203
+tests/unit/app/components/appFailureAlert.test.ts
+  s_b412fd4cd3f576::t_42c0d011f5acc9 1-25,27-38,44-56
+  s_b412fd4cd3f576::t_7060b5b83fc953 26,39-43
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_b412fd4cd3f576::t_0f48ab6bce0059 153-156
+app/services/pdf/combinePdfFiles.ts
+  s_b412fd4cd3f576::t_247a387fb4b215 13-16,21-29,32-38,40,250-260,262-263
+  s_b412fd4cd3f576::t_d396c4f0cd7f94 261
+app/components/combine/CombinePdfPage.vue
+  s_b412fd4cd3f576::t_0f48ab6bce0059 61-64,66-68,70-71,73,120-123,125-127,129-130,132,243,320-321
+  s_b412fd4cd3f576::t_aa5fd7ce97fe79 65,124
+tests/unit/app/services/pdf/combinePdfFiles.test.ts
+  s_b412fd4cd3f576::t_f3c36884e4cc24 12,46-52,62,90,339-372
+app/components/AppFailureAlert.vue
+  s_b412fd4cd3f576::t_0f48ab6bce0059 1-28,35,38
+  s_b412fd4cd3f576::t_7060b5b83fc953 29-34,36-37
+app/modules/combine/useCombinePdfOperation.ts
+  s_b412fd4cd3f576::t_247a387fb4b215 12-13,28,50,76-86,114-116,118-119,122-126,134
+  s_b412fd4cd3f576::t_ecb669c1c87b9e 29,51,87,117,121,135
+eslint-plugin-custom.mjs
+  s_b412fd4cd3f576::t_0f48ab6bce0059 544
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5e9d163a6974e0527ad79aadc04a8b1b50bec10e",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

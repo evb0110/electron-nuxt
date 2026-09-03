@@ -1,0 +1,33 @@
+tests/unit/landing/landingFailureReporter.test.ts
+  s_b412fd4cd3f576::t_a563b9240dbaff 47-52,67
+  s_b412fd4cd3f576::t_d04b8f341c891e 1-5,11-46,53-66,68-71,76-140,144-150,155-174
+  s_b412fd4cd3f576::t_3abbb56a6e4749 141-143
+  s_b412fd4cd3f576::t_27704d02d721fa 6-10,72-75,151-154
+tests/unit/server/latestReleaseEndpointPolicy.test.ts
+  s_b412fd4cd3f576::t_d04b8f341c891e 111-114,116,121-146,148-150,155-167
+  s_b412fd4cd3f576::t_3abbb56a6e4749 115,117-120
+  s_b412fd4cd3f576::t_1d8582d80957ab 147,151-154
+landing/server/api/releases/latest.get.ts
+  s_b412fd4cd3f576::t_d04b8f341c891e 190,192
+landing/server/utils/landingFailureReporter.ts
+  s_b412fd4cd3f576::t_4d37dc08c58808 16,18,20,25-40,42-44,46,55-56
+  s_b412fd4cd3f576::t_d04b8f341c891e 1-15,17,19,21-24,41,54,57-59
+  s_b412fd4cd3f576::t_082a2253b6274b 47-53
+  s_b412fd4cd3f576::t_a563b9240dbaff 45
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "4aacc4e6cc712495ec5e5a7ddf16713777df99e4",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,153 @@
+electron/utils/createLogger.ts
+  s_b412fd4cd3f576::t_5383bd2afb01f7 31,477
+app/composables/useRecentFiles.ts
+  s_b412fd4cd3f576::t_408af2a50cc04b 13-14,129-132,134
+app/modules/pdf-viewer/components/PdfOptimizeDialog.vue
+  s_b412fd4cd3f576::t_f5b324925d5418 48,50,87-88,104
+app/modules/pdf-viewer/components/PdfPrintDialog.vue
+  s_b412fd4cd3f576::t_683336e3ef6aae 104,106,142-143,172
+app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop.ts
+  s_b412fd4cd3f576::t_b4103a04af3b28 9-12,34-35,88,591-598,623-626
+app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash.ts
+  s_b412fd4cd3f576::t_aa4c1dc47bd6a8 2,32,42
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_b412fd4cd3f576::t_f8437fc0b66250 69,181,343-352,601,616-619,678
+app/modules/workspace-shell/components/DocumentPageSourceFeaturePack.vue
+  s_b412fd4cd3f576::t_2dc16dac90a4c8 87
+app/modules/workspace-shell/components/DocumentPageSourcePageVisual.vue
+  s_b412fd4cd3f576::t_0004869d2cb1ed 23,50-53,64,77
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b412fd4cd3f576::t_21a37b64fe088e 88,612,633,1148
+app/modules/workspace-shell/components/DocumentWorkspaceFailurePanel.vue
+  s_b412fd4cd3f576::t_86f67f417cdd6a 7-9,19-27
+app/modules/workspace-shell/components/WorkspaceDocumentAlerts.vue
+  s_b412fd4cd3f576::t_85f94414f8549b 3-9,11-12,21-27,29-30,49-50,56,59
+app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.ts
+  s_b412fd4cd3f576::t_5aeb0ac5a44e2b 8-11,205-230,269,313-316,390,429-432,513,515,546,624,655
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_b412fd4cd3f576::t_4673fa5356be77 1,18,1012,1015-1021,1033,1153,1156-1159
+app/modules/workspace-shell/composables/useDeferredWorkspaceChunkLoader.ts
+  s_b412fd4cd3f576::t_890b2d0ed72744 3-7,18-31,34,37-53,64-68,78,86,105,109
+app/modules/workspace-shell/composables/useDocumentWorkspaceOptimizeDialog.ts
+  s_b412fd4cd3f576::t_debfe6d132695e 6,11,17,23,79
+app/modules/workspace-shell/composables/useExternalFileDrop.ts
+  s_b412fd4cd3f576::t_6807810b67dd90 11-15,77-80,96,102-109,167-177
+app/modules/workspace-shell/composables/usePdfFile.ts
+  s_b412fd4cd3f576::t_e3bed7eca45d58 38,210
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts
+  s_b412fd4cd3f576::t_03ed10111609d7 16-17,101,320-327,332,338-339
+app/modules/workspace-shell/composables/useWorkspaceExport.ts
+  s_b412fd4cd3f576::t_edb22bd7032d96 5-8,11,54,80,207-217,221-225,227-228,247,299-302,409,469,519-524,529,552,576
+app/modules/workspace-shell/composables/useWorkspaceFailureSurface.ts
+  s_b412fd4cd3f576::t_147195e760d14d 1-5,7-10,38,40,45,54,56,62,85,87-109,115-116,146,152,155-169,171,173,178-179
+app/modules/workspace-shell/composables/useWorkspaceFileLifecycleController.ts
+  s_b412fd4cd3f576::t_142f00a0c9bfc1 117,343
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b412fd4cd3f576::t_21bf9cfc0aacaf 2-6,32-36,93-96,137,163,169,178,766,861,873-881,988-992,994,998-1012,1015,1024
+app/modules/workspace-shell/host/createDeferredWorkspaceLoadGateway.ts
+  s_b412fd4cd3f576::t_bf529af600242d 67-70
+app/modules/workspace-shell/useWorkspaceOrchestration.ts
+  s_b412fd4cd3f576::t_3caec8785617e5 1,56,58,63,138,876,1021,1026-1031,1147
+app/modules/workspace-shell/viewers/documentPageSourceFeaturePackState.ts
+  s_b412fd4cd3f576::t_51b842ad170012 212-213,441-445
+app/modules/workspace-shell/viewers/documentPageSourcePresentation.ts
+  s_b412fd4cd3f576::t_58b97651b859ff 15-20,35,44-59,137,147,221-232,245-256,343,398,400,562,564-568,644,646,743-744
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_b412fd4cd3f576::t_244e35e26f3cbb 1,920,922-924,1027,1180
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_b412fd4cd3f576::t_ac233dabbcd6f8 8,113,151,176,187
+app/plugins/diagnosticsTransport.client.ts
+  s_b412fd4cd3f576::t_f4af441d87990c 1-16
+app/utils/browserDiagnosticsTransport.ts
+  s_b412fd4cd3f576::t_116308b64f9feb 1-174
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_ae062fdf5ce1c2 73,86,377,667-673,675,677-683
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_9d39abab2922d9 1-245
+electron/main.ts
+  s_b412fd4cd3f576::t_913df58f786463 73,171-172,178-179,181-233
+nuxt.config.ts
+  s_b412fd4cd3f576::t_aaacfb261f1889 93-107,142
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_452d3a12218299 312-329
+packages/contracts/diagnostics/failureReceipt.ts
+  s_b412fd4cd3f576::t_6840932843a4e3 77-83
+packages/contracts/diagnostics/serverDiagnosticsObjection.ts
+  s_b412fd4cd3f576::t_228231dc28a4e1 1-52
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_0f8f4524f1424b 232-242,266-268,274
+server/api/analytics/events.post.ts
+  s_b412fd4cd3f576::t_47f8da479c77af 26,47-55,107-115
+server/plugins/diagnostics.ts
+  s_b412fd4cd3f576::t_4fb155337cc575 1-35
+server/utils/diagnosticsObjection.ts
+  s_b412fd4cd3f576::t_60b6682d31e251 1-63
+server/utils/sentryNitroAdapter.ts
+  s_b412fd4cd3f576::t_a26544b3f56cc0 1-528
+server/utils/serverFailureReporter.ts
+  s_b412fd4cd3f576::t_e3198e2e520607 1-778
+tests/unit/app/composables/useRecentFiles.test.ts
+  s_b412fd4cd3f576::t_e76d2241a3316a 243
+tests/unit/app/modules/pdf-viewer/composables/pdf/usePageDragDrop.test.ts
+  s_b412fd4cd3f576::t_4b8e9e0454f780 164,167-168
+tests/unit/app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash.test.ts
+  s_b412fd4cd3f576::t_8be07f433bbab0 20,32
+tests/unit/app/modules/workspace-shell/composables/document-session/createDocumentOpenFlow.test.ts
+  s_b412fd4cd3f576::t_8daacf13ebc7a7 2,12,33,163-166,754-760,774-775
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_b412fd4cd3f576::t_83b276bfbee4b5 2,11,39-42,57,76,148-149,155-157,174,255,401,427,451,471,492
+tests/unit/app/modules/workspace-shell/composables/useExternalFileDrop.test.ts
+  s_b412fd4cd3f576::t_d81d918a067c66 213,216-217
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.test.ts
+  s_b412fd4cd3f576::t_602ba7858cb383 192,195-196,231,234-235
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceExport.test.ts
+  s_b412fd4cd3f576::t_f5f8e80a063054 118,139,482,485-486,705,711,727
+tests/unit/app/modules/workspace-shell/composables/useWorkspaceFailureSurface.test.ts
+  s_b412fd4cd3f576::t_536984e3fcda9b 3,10-12,22-41,53-74,85,104,133,140-143,146,157,165-176,181-188,192,194,196,199-200,203-204
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b412fd4cd3f576::t_2906f795329bf3 2,18-20,251,305-307,386-389,411-415,820,828-877,1029,1415,2026,2338
+tests/unit/app/modules/workspace-shell/viewers/documentPageSourcePresentationLifecycle.test.ts
+  s_b412fd4cd3f576::t_5124b78233ee06 20-21,139,302-308,319-320,324
+tests/unit/app/utils/browserDiagnosticsTransport.test.ts
+  s_b412fd4cd3f576::t_524e63cbe24261 1-103
+tests/unit/architecture/sentryPrivacyEnvelopePolicy.test.ts
+  s_b412fd4cd3f576::t_24cee98556e6c6 1-521
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_e80a743d3eaed8 39,42,229-230,584-602
+tests/unit/contracts/serverDiagnosticsObjection.test.ts
+  s_b412fd4cd3f576::t_34d6e5bd8a0981 1-41
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_f827da61070fad 95-128
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_44598e42bd75dd 1-129
+tests/unit/electron/startupCrashMarker.test.ts
+  s_b412fd4cd3f576::t_6e4fbc2501b597 399,403-404,410,413
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_d353b25c7ea7bb 73-78
+tests/unit/server/diagnosticsObjection.test.ts
+  s_b412fd4cd3f576::t_857fb5314eb90e 1-93
+tests/unit/server/nitroDiagnosticsPlugin.test.ts
+  s_b412fd4cd3f576::t_460608ba63db51 1-70
+tests/unit/server/sentryNitroAdapter.test.ts
+  s_b412fd4cd3f576::t_57ef8875a4f821 1-259
+tests/unit/server/serverFailureReporter.test.ts
+  s_b412fd4cd3f576::t_1747bee935a51d 1-278
+tests/unit/server/viewerAnalyticsEndpoint.test.ts
+  s_b412fd4cd3f576::t_180b81becbab94 12,56,79,88,90,96-138
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "a98900d239064c86f85be53da939888d539d6728",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

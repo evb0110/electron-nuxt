@@ -1,0 +1,76 @@
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationSync.test.ts
+  s_b412fd4cd3f576::t_dd44f2efa53244 1918-1920
+electron/platform-ipc/rendererDiagnosticBridge.ts
+  s_b412fd4cd3f576::t_8af6cf38035f00 30
+  s_b412fd4cd3f576::t_268c3b991a75a8 4,19,55-80,95,113-114,117,119-126,128-133,136,138-177
+electron/preload/createElectronApi.ts
+  s_b412fd4cd3f576::t_1630adbb060d32 602-603
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_268c3b991a75a8 68,86
+  s_b412fd4cd3f576::t_f91e403e4e1784 456-457
+  s_b412fd4cd3f576::t_8af6cf38035f00 30-33,139-153,471-475,496-503,530,555,560-563,587,590-593,595-598
+  s_b412fd4cd3f576::t_6d3b6869d65aa6 422,437-455,458-470,520,551,564-565
+  s_b412fd4cd3f576::t_602cfe7dd33eb4 431
+tests/unit/app/modules/workspace-shell/composables/usePageFileOperations.test.ts
+  s_b412fd4cd3f576::t_dd44f2efa53244 173-175,497-499
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_3baa188d587b49 10
+  s_b412fd4cd3f576::t_1630adbb060d32 11,53
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_b412fd4cd3f576::t_dd44f2efa53244 621-623
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_b412fd4cd3f576::t_8af6cf38035f00 96,101,106-107
+packages/contracts/index.ts
+  s_b412fd4cd3f576::t_1630adbb060d32 77
+  s_b412fd4cd3f576::t_268c3b991a75a8 79-81
+  s_91eeab35c4598e::t_c4deee90c45439 78
+tests/unit/electron/rendererDiagnosticBridge.test.ts
+  s_b412fd4cd3f576::t_3baa188d587b49 11,60,127-182
+  s_b412fd4cd3f576::t_8656e79844f281 183-188
+packages/contracts/diagnostics/diagnosticsCapability.ts
+  s_b412fd4cd3f576::t_268c3b991a75a8 3-17
+  s_b412fd4cd3f576::t_1630adbb060d32 1-2,18-22
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_8acd1b20ce0adf 353-365
+  s_b412fd4cd3f576::t_564a391d223d51 91-92,351-352,366-374,396,398-401,438,444,454,553-554,558-559,573,629-637,724-731,739
+  s_b412fd4cd3f576::t_268c3b991a75a8 32,100
+tests/unit/electron/preloadCreateElectronApi.test.ts
+  s_b412fd4cd3f576::t_3baa188d587b49 502-503
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_c17034d46c8279 147-161,168-170
+  s_b412fd4cd3f576::t_3baa188d587b49 229-264
+  s_b412fd4cd3f576::t_d99b51af6fc13b 162-167
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_3baa188d587b49 411-447
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_56348bd522c78b 29-31,144-153
+  s_91eeab35c4598e::t_da7206be805a4e 28
+tests/unit/app/composables/useSettings.test.ts
+  s_b412fd4cd3f576::t_dd44f2efa53244 96,126
+packages/contracts/electronApi.ts
+  s_b412fd4cd3f576::t_1630adbb060d32 3,27-30
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "91ec6df09ced37a55cf0fba17cf03899a8ca7fb4",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

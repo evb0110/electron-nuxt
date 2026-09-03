@@ -1,0 +1,29 @@
+docs/operations/sentry-account-controls.md
+  s_610bc64cdb92fe::t_9cbd76657d0cf6 1-88
+docs/operations/sentry-nitro-legitimate-interests-assessment.md
+  s_b412fd4cd3f576::t_c2d53af46dd206 1-124
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "d7e079a2e9c16e685ed2d116f09346328a908886",
+  "prompts": {},
+  "sessions": {
+    "s_610bc64cdb92fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0662a-f21b-7e70-b277-27d2173119ea",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
