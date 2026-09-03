@@ -2,6 +2,7 @@ import type { ComponentPublicInstance } from 'vue';
 import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {installConsoleErrorObserver} from '@app/utils/consoleErrorObserver';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
 import {hasElectronAPI} from '@app/utils/platform';
@@ -135,8 +136,9 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
+    const electronRuntime = hasElectronAPI();
     const reporter = initializeRendererFailureReporter({
-        host: hasElectronAPI() ? 'electron' : 'hosted-browser',
+        host: electronRuntime ? 'electron' : 'hosted-browser',
         localSink: (detail, receipt) => {
             BrowserLogger.error('renderer-guard', detail.message, {
                 failure: receipt,
@@ -144,6 +146,10 @@ export default defineNuxtPlugin((nuxtApp) => {
                 details: detail.data,
             }, receipt);
         },
+    });
+    const consoleErrorObserver = installConsoleErrorObserver({
+        reporter,
+        runtime: electronRuntime ? 'electron-renderer' : 'hosted-browser',
     });
 
     const report = (logMessage: string, cause: unknown, details: Record<string, unknown>) => {
@@ -254,6 +260,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         }
 
         cleanedUp = true;
+        consoleErrorObserver.cleanup();
         window.removeEventListener('error', onWindowError);
         window.removeEventListener('unhandledrejection', onUnhandledRejection);
         if (nuxtApp.vueApp.config.errorHandler === errorHandler) {
