@@ -85,7 +85,7 @@ function isSafeRelease(value: unknown): value is string {
     return typeof value === 'string'
         && value.length > 0
         && value.length <= STARTUP_CRASH_MARKER_MAX_RELEASE_LENGTH
-        && /^evb-viewer-desktop@[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/u.test(value);
+        && /^evb-viewer-desktop@[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?(?:\+[A-Za-z0-9]+(?:[.-][A-Za-z0-9]+)*)?$/u.test(value);
 }
 
 function isSafeDist(value: unknown): value is DesktopDiagnosticDist {

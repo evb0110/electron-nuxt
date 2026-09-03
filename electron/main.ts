@@ -62,8 +62,17 @@ import {
     shutdownOcrJobManager,
 } from '@electron/ocr/jobManager';
 import {searchWorkerService} from '@electron/features/search/public';
-import {initializeMainFailureReporter} from '@electron/features/diagnostics/public';
+import {
+    getMainFailureReporter,
+    initializeMainFailureReporter,
+} from '@electron/features/diagnostics/public';
 import { readDiagnosticsPreferenceSync } from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
+import {
+    installStartupCrashMarker,
+    resolveDesktopDiagnosticDist,
+    STARTUP_CRASH_MARKER_FILE_NAME,
+} from '@electron/features/diagnostics/startupCrashMarker';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     createWindow,
     configureNativeWindowCloseHandshake,
@@ -152,11 +161,38 @@ if (automationUserDataDir) {
 }
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
-initializeMainFailureReporter({preference: readDiagnosticsPreferenceSync()});
+const diagnosticsPreference = readDiagnosticsPreferenceSync();
+const startupCrashMarker = installStartupCrashMarker({
+    markerPath: join(app.getPath('userData'), STARTUP_CRASH_MARKER_FILE_NAME),
+    preference: () => getMainFailureReporter()?.getPreference() ?? diagnosticsPreference,
+    // The bootstrap reporter owns no live transport. The real adapter must
+    // call notifyStartupCrashMarkerAdapterReady after it is installed.
+    release: `evb-viewer-desktop@${resolveApplicationVersion(app)}`,
+    dist: resolveDesktopDiagnosticDist(),
+});
+initializeMainFailureReporter({preference: diagnosticsPreference});
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
 let pendingSafeModeRelaunchArgs: string[] | null = null;
+let pendingFatalFailure: {
+    reason: string;
+    receipt: FailureReceipt
+} | null = null;
+
+const shutdownLogger = {
+    debug: logger.debug,
+    info: logger.info,
+    warn: logger.warn,
+    error: (message: string, existingReceipt?: FailureReceipt) => {
+        const pending = pendingFatalFailure;
+        if (pending !== null && pending.reason === message) {
+            pendingFatalFailure = null;
+            return logger.error(message, existingReceipt ?? pending.receipt);
+        }
+        return logger.error(message, existingReceipt);
+    },
+};
 
 function requestSafeModeRelaunch(args: string[]) {
     if (!shutdownCoordinator) {
@@ -192,13 +228,29 @@ app.on('child-process-gone', (_event, details) => {
 const macOpenFileRouter = createMacOpenFileRouter({ logger });
 const startupTrace = createStartupTrace(logger);
 
-function requestFatalShutdown(reason: string) {
+function requestFatalShutdown(reason: string, receipt?: FailureReceipt) {
     if (!shutdownCoordinator) {
-        logger.error(reason);
+        logger.error(reason, receipt);
         app.exit(1);
         return;
     }
-    shutdownCoordinator.requestFatalShutdown(reason);
+    if (receipt === undefined) {
+        shutdownCoordinator.requestFatalShutdown(reason);
+        return;
+    }
+
+    const pending = {
+        reason,
+        receipt,
+    };
+    pendingFatalFailure = pending;
+    try {
+        shutdownCoordinator.requestFatalShutdown(reason);
+    } finally {
+        if (pendingFatalFailure === pending) {
+            pendingFatalFailure = null;
+        }
+    }
 }
 
 // macOS can deliver open-file during very early cold-start launch, before the
@@ -468,7 +520,7 @@ function prepareShutdown() {
 
 shutdownCoordinator = createShutdownCoordinator({
     app,
-    logger,
+    logger: shutdownLogger,
     runPreservationSteps: async (context) => {
         prepareShutdown();
         await shutdownPhaseRunners.runPreservationSteps(context);
@@ -505,7 +557,11 @@ process.on('unhandledRejection', (reason) => {
     );
 });
 process.on('uncaughtException', (error) => {
-    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+    const receipt = startupCrashMarker.captureLiveException(error);
+    requestFatalShutdown(
+        `Uncaught exception in main process: ${error.stack ?? error.message}`,
+        receipt,
+    );
 });
 function requestSystemShutdown(event?: {preventDefault(): void}) {
     if (shutdownCoordinator?.isQuittingAfterCleanup()) {
