@@ -29,6 +29,12 @@ vi.mock('@electron/utils/workerTask', () => ({
     getWorkerTaskFailureReceipt: (error: unknown) => (
         typeof error === 'object' && error !== null ? mocks.reportedErrors.get(error) : undefined
     ),
+    rememberWorkerTaskFailureReceipt: (error: unknown, receipt: object | undefined) => {
+        if (typeof error === 'object' && error !== null && receipt !== undefined) {
+            mocks.reportedErrors.set(error, receipt);
+        }
+        return receipt;
+    },
     resolveUnpackedWorkerPath: (_baseDir: string, workerFileName: string) => workerFileName,
     startStreamingWorkerTask: mocks.startStreamingWorkerTask,
 }));
@@ -38,6 +44,7 @@ vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUND
 describe('runScanCleanupWorkerTask', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.logger.error.mockReturnValue(mocks.failureReceipt);
         mocks.startStreamingWorkerTask.mockReturnValue({
             worker: {},
             promise: Promise.resolve({}),
@@ -137,5 +144,6 @@ describe('runScanCleanupWorkerTask', () => {
 
         expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('native pipeline failed'));
         expect(mocks.logger.info).not.toHaveBeenCalled();
+        expect(mocks.reportedErrors.get(failure)).toBe(mocks.failureReceipt);
     });
 });

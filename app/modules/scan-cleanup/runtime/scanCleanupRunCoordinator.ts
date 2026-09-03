@@ -5,7 +5,10 @@ import type {
     TScanCleanupErrorCode,
 } from '@contracts/electronApiScanCleanup';
 import type {TTranslateFn} from '@i18n-app';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
+import {BrowserLogger} from '@app/utils/browserLogger';
+import {createFailureToastPresenter} from '@app/composables/useFailureToast';
 import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/formatScanCleanupErrorMessage';
 import {toBridgeSafeScanCleanupPayload} from '@app/modules/scan-cleanup/runtime/toBridgeSafeScanCleanupPayload';
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
@@ -75,6 +78,7 @@ interface IScanCleanupRunError {
     errorCode: TScanCleanupErrorCode;
     ownerId: string;
     sourceDocumentRef: string | null;
+    failure?: FailureReceipt;
 }
 
 export const scanCleanupRun = reactive({
@@ -126,6 +130,16 @@ export function getScanCleanupRunError(
         : '';
 }
 
+export function getScanCleanupRunFailure(
+    ownerId: string,
+    sourceDocumentRef?: string | null,
+    documentRevision?: string | null,
+) {
+    return scanCleanupRunErrorMatches(ownerId, sourceDocumentRef, documentRevision)
+        ? scanCleanupRun.lastError?.failure
+        : undefined;
+}
+
 export function getScanCleanupRunErrorCode(
     ownerId: string,
     sourceDocumentRef?: string | null,
@@ -142,6 +156,7 @@ export function setScanCleanupRunError(
     errorCode: TScanCleanupErrorCode = 'internal',
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
     documentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
+    failure?: FailureReceipt,
 ) {
     scanCleanupRun.lastError = error ? {
         documentRevision,
@@ -149,6 +164,7 @@ export function setScanCleanupRunError(
         errorCode,
         ownerId,
         sourceDocumentRef,
+        ...(failure === undefined ? {} : {failure}),
     } : null;
 }
 
@@ -158,14 +174,27 @@ export function reportScanCleanupRunError(
     sourceDocumentRef: string | null = scanCleanupRun.ownerDocumentRef,
     errorCode: TScanCleanupErrorCode = 'internal',
     sourceDocumentRevision: string | null = scanCleanupRun.ownerDocumentRevision,
+    existingFailure?: FailureReceipt,
 ) {
-    setScanCleanupRunError(ownerId, error, errorCode, sourceDocumentRef, sourceDocumentRevision);
+    const failure = existingFailure ?? BrowserLogger.error(
+        'scan-cleanup',
+        'Scan cleanup run failed',
+        error,
+    );
+    setScanCleanupRunError(
+        ownerId,
+        error,
+        errorCode,
+        sourceDocumentRef,
+        sourceDocumentRevision,
+        failure,
+    );
     if (!dependencies) {
         return;
     }
     const workspaceIsOpen = scanCleanupRun.workspaceOwnerIds.has(ownerId);
-    dependencies.toast.add({
-        color: 'error',
+    createFailureToastPresenter(dependencies.toast)({
+        failure,
         title: dependencies.t('scanCleanup.failed'),
         description: error,
         ...(!workspaceIsOpen && sourceDocumentRef ? {actions: [{
@@ -417,20 +446,30 @@ async function handleTerminalState(state: TScanCleanupJobState) {
         scanCleanupRun.activeJobId = null;
         clearRunGuard();
         persistActiveJob(null);
+        if (!opened) {
+            const failure = BrowserLogger.error(
+                'scan-cleanup',
+                'Opening the generated scan cleanup PDF failed',
+            );
+            createFailureToastPresenter(terminalDependencies.toast)({
+                failure,
+                title: terminalDependencies.t('scanCleanup.openResultFailed'),
+                description: state.outputPdfPath,
+            });
+            return;
+        }
         terminalDependencies.toast.add({
-            color: opened ? 'success' : 'error',
-            title: opened
-                ? terminalDependencies.t(state.partial
-                    ? 'scanCleanup.completedPartialTitle'
-                    : 'scanCleanup.completedTitle')
-                : terminalDependencies.t('scanCleanup.openResultFailed'),
-            description: opened ? summaryText(state) : state.outputPdfPath,
-            ...(opened ? {actions: [{
+            color: 'success',
+            title: terminalDependencies.t(state.partial
+                ? 'scanCleanup.completedPartialTitle'
+                : 'scanCleanup.completedTitle'),
+            description: summaryText(state),
+            actions: [{
                 label: terminalDependencies.t('scanCleanup.saveAs'),
                 color: 'neutral' as const,
                 variant: 'outline' as const,
                 onClick: () => { void dependencies?.saveActiveDocumentAs(); },
-            }]} : {}),
+            }],
         });
         return;
     }
@@ -450,10 +489,17 @@ async function handleTerminalState(state: TScanCleanupJobState) {
                 error,
                 scanCleanupRun.ownerDocumentRef,
                 state.errorCode,
+                scanCleanupRun.ownerDocumentRevision,
+                state.failure,
             );
         } else {
-            terminalDependencies.toast.add({
-                color: 'error',
+            const failure = state.failure ?? BrowserLogger.error(
+                'scan-cleanup',
+                'Scan cleanup job failed without a workspace owner',
+                state.error,
+            );
+            createFailureToastPresenter(terminalDependencies.toast)({
+                failure,
                 title: terminalDependencies.t('scanCleanup.failed'),
                 description: error,
                 actions: [{

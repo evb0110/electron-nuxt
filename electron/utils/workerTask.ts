@@ -231,6 +231,11 @@ export function getWorkerTaskFailureReceipt(error: unknown) {
         : undefined;
 }
 
+export function rememberWorkerTaskFailureReceipt(error: unknown, receipt: FailureReceipt | undefined) {
+    markWorkerTaskErrorReported(error, receipt);
+    return receipt;
+}
+
 // A cancelled worker still reports what it managed to stop. The frame is the
 // only channel that survives the structured clone, so the mark is lifted off it
 // and onto the rejection the caller actually sees.

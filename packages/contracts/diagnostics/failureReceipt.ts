@@ -1,12 +1,19 @@
 /* eslint-disable @typescript-eslint/naming-convention */
 
-import type {
-    DiagnosticCode,
-    DiagnosticContext,
-    DiagnosticOperation,
+import {
+    isDiagnosticCode,
+    type DiagnosticCode,
+    type DiagnosticContext,
+    type DiagnosticOperation,
 } from '@contracts/diagnostics/diagnosticCodes';
-import type {DiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
-import type {FailureSeverity} from '@contracts/diagnostics/diagnosticRecord';
+import {
+    isDiagnosticEventId,
+    type DiagnosticEventId,
+} from '@contracts/diagnostics/diagnosticEventId';
+import {
+    FAILURE_SEVERITIES,
+    type FailureSeverity,
+} from '@contracts/diagnostics/diagnosticRecord';
 
 export interface LocalFailureDetail {
     source: string;
@@ -28,6 +35,43 @@ export interface FailureReceipt {
     code: DiagnosticCode;
     occurredAt: number;
     severity: FailureSeverity;
+}
+
+const FAILURE_RECEIPT_KEYS = [
+    'eventId',
+    'code',
+    'occurredAt',
+    'severity',
+] as const;
+
+export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
+    if (!isPlainRecord(value)) {
+        return null;
+    }
+    try {
+        const keys = Reflect.ownKeys(value);
+        if (
+            keys.length !== FAILURE_RECEIPT_KEYS.length
+            || !keys.every(key => typeof key === 'string' && FAILURE_RECEIPT_KEYS.includes(
+                key as typeof FAILURE_RECEIPT_KEYS[number],
+            ))
+            || !isDiagnosticEventId(value.eventId)
+            || !isDiagnosticCode(value.code)
+            || !Number.isSafeInteger(value.occurredAt)
+            || (value.occurredAt as number) < 0
+            || !FAILURE_SEVERITIES.includes(value.severity as FailureSeverity)
+        ) {
+            return null;
+        }
+        return {
+            eventId: value.eventId,
+            code: value.code,
+            occurredAt: value.occurredAt as number,
+            severity: value.severity as FailureSeverity,
+        };
+    } catch {
+        return null;
+    }
 }
 
 export const EXPECTED_OUTCOME_CODES = [

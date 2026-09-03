@@ -15,6 +15,7 @@ import type {
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {
     getWorkerTaskFailureReceipt,
+    rememberWorkerTaskFailureReceipt,
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
@@ -108,7 +109,10 @@ export async function runScanCleanupWorkerTask(
             // context below the reporting threshold.
             logger.warn(`Scan cleanup worker task rejected (already reported): ${detail}`);
         } else {
-            logger.error(`Scan cleanup worker task rejected: ${detail}`);
+            rememberWorkerTaskFailureReceipt(
+                error,
+                logger.error(`Scan cleanup worker task rejected: ${detail}`),
+            );
         }
         throw error;
     }

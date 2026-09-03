@@ -9,8 +9,20 @@ import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
+const diagnosticMocks = vi.hoisted(() => ({
+    failure: {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    } as FailureReceipt,
+    error: vi.fn(),
+}));
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: diagnosticMocks.error}}));
 
 vi.mock('@app/utils/getScanCleanupCapability', () => ({getScanCleanupCapability: () => capability.value}));
 
@@ -89,6 +101,8 @@ function stubCapability(
 describe('scan cleanup run coordinator', () => {
     beforeEach(() => {
         vi.resetModules();
+        diagnosticMocks.error.mockReset();
+        diagnosticMocks.error.mockReturnValue(diagnosticMocks.failure);
     });
 
     it('keeps a pending start single-flight across rapid callers', async () => {
@@ -399,8 +413,9 @@ describe('scan cleanup run coordinator', () => {
             expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: 'scan-cleanup IPC codec failed',
+                description: expect.stringContaining('scan-cleanup IPC codec failed\nError ID: 01234567'),
             }));
+            expect(coordinator.scanCleanupRun.lastError?.failure).toEqual(diagnosticMocks.failure);
         } finally {
             cleanup();
         }
@@ -442,11 +457,11 @@ describe('scan cleanup run coordinator', () => {
                 '/source/book.pdf',
             );
 
-            expect(toastAdd).toHaveBeenCalledWith({
+            expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'scanCleanup.failed',
-                description: 'page 17 has invalid geometry',
-            });
+                description: expect.stringContaining('page 17 has invalid geometry\nError ID: 01234567'),
+            }));
         } finally {
             cleanup();
         }
@@ -558,6 +573,7 @@ describe('scan cleanup run coordinator', () => {
                 status: 'failed',
                 error: 'sidecar failed',
                 errorCode: 'native-failure',
+                failure: diagnosticMocks.failure,
                 progress: progress(1),
                 updatedAtMs: Date.now(),
             });
@@ -566,8 +582,13 @@ describe('scan cleanup run coordinator', () => {
             expect(coordinator.getScanCleanupRunError('another-owner')).toBe('');
             await vi.waitFor(() => expect(toastAdd).toHaveBeenCalledWith(expect.objectContaining({color: 'error'})));
             const failureToast = toastAdd.mock.calls.at(-1)?.[0];
-            failureToast.actions[0].onClick();
+            failureToast.actions.find((action: {label: string}) => action.label === 'scanCleanup.details').onClick();
             expect(openScanCleanupForDocument).toHaveBeenCalledWith('/source/book.pdf');
+            expect(diagnosticMocks.error).not.toHaveBeenCalledWith(
+                'scan-cleanup',
+                'Scan cleanup run failed',
+                expect.anything(),
+            );
 
             await coordinator.startScanCleanup({
                 ...ownerContext,
