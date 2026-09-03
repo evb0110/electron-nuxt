@@ -26,6 +26,10 @@ interface IWebDeployAssetsModule {
         listeningDeadlineMs: number;
         shutdownTimeoutMs: number;
     };
+    parseWebDeployAssetOptions: (rawArgs?: string[], env?: NodeJS.ProcessEnv) => {
+        outputRoots: string[];
+        vercelOutput: boolean;
+    };
     assertInitialRendererDependencyGraph: (rootPath: string) => Promise<{
         modulePreloads: string[];
         staticAssets: string[];
@@ -50,6 +54,7 @@ const {
     assertInitialRendererDependencyGraph,
     getExpectedWebDeployOutputRoots,
     getNodeServerBootTiming,
+    parseWebDeployAssetOptions,
     validateWebDeployAssets,
     validateNodeServerBoot,
     validateVercelFunctionBoot,
@@ -247,6 +252,23 @@ describe('web deploy assets check', () => {
         expect(getExpectedWebDeployOutputRoots({})).toEqual(['nuxt-output/public']);
         expect(getExpectedWebDeployOutputRoots({VERCEL: '1'})).toEqual(['.vercel/output/static']);
         expect(getExpectedWebDeployOutputRoots({NOW_BUILDER: '1'})).toEqual(['.vercel/output/static']);
+    });
+
+    it('supports an explicit Vercel output validation mode', () => {
+        expect(parseWebDeployAssetOptions(['--vercel-output'], {})).toEqual({
+            outputRoots: ['.vercel/output/static'],
+            vercelOutput: true,
+        });
+        expect(parseWebDeployAssetOptions([], {})).toEqual({
+            outputRoots: ['nuxt-output/public'],
+            vercelOutput: false,
+        });
+        expect(() => parseWebDeployAssetOptions(['--unknown'], {}))
+            .toThrow('Unsupported web deploy asset option: --unknown');
+        expect(() => parseWebDeployAssetOptions([
+            '--vercel-output',
+            '--vercel-output',
+        ], {})).toThrow('Expected at most one --vercel-output option.');
     });
 
     it('rejects forbidden dependencies reached through static initial imports', async () => {

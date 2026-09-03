@@ -51,6 +51,27 @@ export function getExpectedWebDeployOutputRoots(env = process.env) {
         : ['nuxt-output/public'];
 }
 
+export function parseWebDeployAssetOptions(rawArgs = [], env = process.env) {
+    const supportedArgs = new Set(['--vercel-output']);
+    const unknownArgs = rawArgs.filter(arg => !supportedArgs.has(arg));
+
+    if (unknownArgs.length > 0) {
+        throw new Error(`Unsupported web deploy asset option: ${unknownArgs.join(', ')}`);
+    }
+    const vercelOutputArgs = rawArgs.filter(arg => arg === '--vercel-output');
+    if (vercelOutputArgs.length > 1) {
+        throw new Error('Expected at most one --vercel-output option.');
+    }
+    const vercelOutput = vercelOutputArgs.length === 1 || isVercelBuildOutputEnv(env);
+
+    return {
+        outputRoots: vercelOutput
+            ? ['.vercel/output/static']
+            : ['nuxt-output/public'],
+        vercelOutput,
+    };
+}
+
 export function getNodeServerBootTiming(platform = process.platform) {
     return platform === 'win32'
         ? NODE_SERVER_BOOT_TIMINGS.win32
@@ -504,8 +525,9 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     try {
-        const result = await validateWebDeployAssets();
-        if (isVercelBuildOutputEnv()) {
+        const options = parseWebDeployAssetOptions(process.argv.slice(2));
+        const result = await validateWebDeployAssets({outputRoots: options.outputRoots});
+        if (options.vercelOutput) {
             await validateVercelFunctionBoot();
         } else {
             await validateNodeServerBoot();

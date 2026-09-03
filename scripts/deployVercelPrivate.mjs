@@ -11,6 +11,7 @@ import {
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -21,6 +22,12 @@ import {
     isExcludedWebDeploySourceDirectoryName,
     isExcludedWebDeploySourceFileName,
 } from './check-web-deploy-source.mjs';
+import {
+    isSentryDiagnosticsBuild,
+    resolveSentryBuildIdentity,
+} from '../packages/contracts/diagnostics/releaseIdentity.js';
+import {assertSentryPrivateManifestParity} from './release/build-receipt.mjs';
+import {getPrivateSourcemapManifestPath} from './release/stage-private-sourcemaps.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const supportedDeployTargets = new Set([
@@ -178,10 +185,14 @@ export function promoteLandingVercelOutput(projectRoot = defaultProjectRoot) {
 
 export function preparePrivateDeploySource({
     deployTarget = 'viewer',
+    prebuilt = false,
     projectRoot = defaultProjectRoot,
 } = {}) {
     if (!supportedDeployTargets.has(deployTarget)) {
         throw new Error(`Unsupported deploy target: ${deployTarget}`);
+    }
+    if (prebuilt && deployTarget !== 'viewer') {
+        throw new Error('Prebuilt deployment is supported only for the viewer target.');
     }
 
     const projectLinkRoot = deployTarget === 'landing'
@@ -202,6 +213,17 @@ export function preparePrivateDeploySource({
     copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget);
     mkdirSync(path.join(sourceRoot, '.vercel'), {recursive: true});
     cpSync(projectJson, path.join(sourceRoot, '.vercel', 'project.json'));
+    if (prebuilt) {
+        const outputRoot = path.join(projectRoot, '.vercel', 'output');
+        if (!existsSync(path.join(outputRoot, 'config.json'))) {
+            throw new Error('Viewer prebuilt deployment requires .vercel/output/config.json.');
+        }
+        cpSync(outputRoot, path.join(sourceRoot, '.vercel', 'output'), {
+            force: true,
+            recursive: true,
+            verbatimSymlinks: true,
+        });
+    }
     sanitizePnpmWorkspace(sourceRoot);
     sanitizeVercelIgnore(sourceRoot, deployTarget);
     if (deployTarget === 'landing') {
@@ -226,18 +248,26 @@ export function parsePrivateDeployOptions(rawArgs = []) {
     }
 
     const deployTarget = targetArgs[0]?.slice('--target='.length) || 'viewer';
+    const prebuiltArgs = rawArgs.filter(arg => arg === '--prebuilt');
 
     if (!supportedDeployTargets.has(deployTarget)) {
         throw new Error(`Unsupported deploy target: ${deployTarget}`);
     }
+    if (prebuiltArgs.length > 1) {
+        throw new Error('Expected at most one --prebuilt deploy option.');
+    }
+    if (prebuiltArgs.length === 1 && deployTarget !== 'viewer') {
+        throw new Error('Prebuilt deployment is supported only for the viewer target.');
+    }
 
     return {
-        deployArgs: rawArgs.filter(arg => !arg.startsWith('--target=')),
+        deployArgs: rawArgs.filter(arg => !arg.startsWith('--target=') && arg !== '--prebuilt'),
         deployTarget,
+        prebuilt: prebuiltArgs.length === 1,
     };
 }
 
-export function buildPrivateDeployArgs(sourceRoot, rawArgs = []) {
+export function buildPrivateDeployArgs(sourceRoot, rawArgs = [], {prebuilt = false} = {}) {
     const deployArgs = [...rawArgs];
     const hasArchive = deployArgs.some(arg => arg === '--archive' || arg.startsWith('--archive='));
     const hasYes = deployArgs.includes('--yes') || deployArgs.includes('-y');
@@ -246,9 +276,105 @@ export function buildPrivateDeployArgs(sourceRoot, rawArgs = []) {
         'deploy',
         sourceRoot,
         ...(hasYes ? [] : ['--yes']),
-        ...(hasArchive ? [] : ['--archive=tgz']),
+        ...(prebuilt || hasArchive ? [] : ['--archive=tgz']),
+        ...(prebuilt ? ['--prebuilt'] : []),
         ...deployArgs,
     ];
+}
+
+function getViewerBuildEnvironment(env, isProduction) {
+    return {
+        ...env,
+        EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
+        EVB_SENTRY_ENVIRONMENT: isProduction ? 'production' : 'preview',
+        EVB_SENTRY_TARGET: 'web',
+        VERCEL: '1',
+        VERCEL_ENV: isProduction ? 'production' : 'preview',
+    };
+}
+
+function runViewerPrebuiltBuild({
+    env,
+    isProduction,
+    projectRoot,
+    spawnSyncImpl,
+}) {
+    const buildEnvironment = getViewerBuildEnvironment(env, isProduction);
+    const packageManagerCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+    const result = spawnSyncImpl(packageManagerCommand, [
+        'run',
+        'build',
+    ], {
+        cwd: projectRoot,
+        env: buildEnvironment,
+        shell: false,
+        stdio: 'inherit',
+    });
+    if (result.error) {
+        throw result.error;
+    }
+    if ((result.status ?? 1) !== 0) {
+        throw new Error(`Local prebuilt viewer build exited with ${result.status ?? 1}.`);
+    }
+    const packageJson = JSON.parse(readFileSync(path.join(projectRoot, 'package.json'), 'utf8'));
+    const identity = resolveSentryBuildIdentity({
+        target: 'web',
+        version: packageJson.version,
+        environment: buildEnvironment,
+    });
+    assertSentryPrivateManifestParity({
+        identity,
+        projectRoot,
+    });
+    return identity;
+}
+
+function getServedBundlePath(bundlePath) {
+    const staticPrefix = '.vercel/output/static/';
+    return bundlePath.startsWith(staticPrefix)
+        ? `/${bundlePath.slice(staticPrefix.length)}`
+        : null;
+}
+
+export async function assertServedSentryBundleParity({
+    deploymentUrl,
+    fetchImpl = globalThis.fetch,
+    identity,
+    projectRoot = defaultProjectRoot,
+} = {}) {
+    if (typeof fetchImpl !== 'function') {
+        throw new Error('Served bundle parity requires a fetch implementation.');
+    }
+    const manifestPath = getPrivateSourcemapManifestPath({
+        identity,
+        projectRoot,
+    });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const servedBundles = manifest.bundles
+        .map(bundle => ({
+            ...bundle,
+            servedPath: getServedBundlePath(bundle.bundle),
+        }))
+        .filter(bundle => bundle.servedPath !== null);
+    if (servedBundles.length === 0) {
+        throw new Error('Private manifest has no served viewer bundles.');
+    }
+    for (const bundle of servedBundles) {
+        const url = new URL(bundle.servedPath, deploymentUrl);
+        const response = await fetchImpl(url, {
+            redirect: 'follow',
+            signal: AbortSignal.timeout(30_000),
+        });
+        if (!response.ok) {
+            throw new Error(`Served bundle ${bundle.servedPath} responded with HTTP ${response.status}.`);
+        }
+        const bytes = Buffer.from(await response.arrayBuffer());
+        const hash = createHash('sha256').update(bytes).digest('hex');
+        if (hash !== bundle.bundleSha256) {
+            throw new Error(`Served bundle does not match private manifest: ${bundle.servedPath}`);
+        }
+    }
+    return true;
 }
 
 export function extractVercelDeploymentUrl(output) {
@@ -354,13 +480,25 @@ export async function runPrivateVercelDeploy({
     const {
         deployArgs,
         deployTarget,
+        prebuilt: explicitPrebuilt,
     } = parsePrivateDeployOptions(rawArgs);
+    const diagnosticsEnabled = deployTarget === 'viewer' && isSentryDiagnosticsBuild(env);
+    const prebuilt = explicitPrebuilt || diagnosticsEnabled;
+    const isProduction = deployArgs.includes('--prod');
+    const identity = diagnosticsEnabled
+        ? runViewerPrebuiltBuild({
+            env,
+            isProduction,
+            projectRoot,
+            spawnSyncImpl,
+        })
+        : null;
     const prepared = preparePrivateDeploySource({
         deployTarget,
+        prebuilt,
         projectRoot,
     });
-    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs);
-    const isProduction = deployArgs.includes('--prod');
+    const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs, {prebuilt});
 
     try {
         const useShell = process.platform === 'win32';
@@ -393,11 +531,22 @@ export async function runPrivateVercelDeploy({
         if ((result.status ?? 1) !== 0) {
             return result.status ?? 1;
         }
+        const deploymentUrl = extractVercelDeploymentUrl(output);
+        if (identity) {
+            if (!deploymentUrl) {
+                throw new Error('Diagnostics-enabled Vercel deploy did not report a deployment URL.');
+            }
+            await assertServedSentryBundleParity({
+                deploymentUrl,
+                fetchImpl,
+                identity,
+                projectRoot,
+            });
+        }
         if (!isProduction) {
             return 0;
         }
 
-        const deploymentUrl = extractVercelDeploymentUrl(output);
         if (!deploymentUrl) {
             throw new Error('Production Vercel deploy did not report a deployment URL; refusing an unverified alias.');
         }
