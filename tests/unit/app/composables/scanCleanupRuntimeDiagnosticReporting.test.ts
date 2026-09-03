@@ -9,7 +9,7 @@ import {
 import type { ref } from 'vue';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import {
-    createDebugLogRuntimeErrorReport,
+    createDebugLogRuntimeErrorPresentation,
     isUiReportableDebugLog,
 } from '@app/utils/runtimeErrorFilter';
 import { installNuxtStateTestStubs } from '@tests/unit/app/composables/installNuxtStateTestStubs';
@@ -31,7 +31,10 @@ async function streamMainProcessLogs(entries: IDebugLogEntry[]) {
         if (!isUiReportableDebugLog(entry)) {
             continue;
         }
-        reports.reportRuntimeError(createDebugLogRuntimeErrorReport(entry, 'Application error'));
+        const presentation = createDebugLogRuntimeErrorPresentation(entry, 'Application error');
+        if (presentation) {
+            reports.reportRuntimeError(presentation);
+        }
     }
     return reports;
 }
@@ -41,11 +44,19 @@ function logEntry(
     level: NonNullable<IDebugLogEntry['level']>,
     message: string,
 ): IDebugLogEntry {
+    const failureRef = level === 'ERROR'
+        ? {
+            eventId: (source === 'working-copy' ? 'b' : 'a').repeat(32) as never,
+            code: 'UNCLASSIFIED_MAIN_ERROR' as const,
+            severity: 'error' as const,
+        }
+        : undefined;
     return {
         source,
         message: `[${level}] ${message}`,
         timestamp: '2026-08-23T08:57:36.046Z',
         level,
+        ...(failureRef ? {failureRef} : {}),
     };
 }
 
@@ -94,8 +105,10 @@ describe('scan cleanup runtime diagnostic reporting', () => {
         expect(reports.reports.value).toHaveLength(1);
         expect(reports.reports.value[0]).toMatchObject({
             count: 1,
-            source: 'worker-task',
+            id: 'a'.repeat(32),
+            source: 'UNCLASSIFIED_MAIN_ERROR',
         });
+        expect(reports.reports.value[0]?.detail).toContain('path=scan-cleanup-worker.js');
     });
 
     it('still surfaces an unrelated failure alongside a reported one', async () => {
@@ -105,9 +118,13 @@ describe('scan cleanup runtime diagnostic reporting', () => {
             logEntry('working-copy', 'ERROR', 'Refused to delete a working directory containing its original backing: /tmp/pdf-work-1'),
         ]);
 
-        expect(reports.reports.value.map(report => report.source)).toEqual([
-            'working-copy',
-            'worker-task',
+        expect(reports.reports.value.map(report => report.id)).toEqual([
+            'b'.repeat(32),
+            'a'.repeat(32),
+        ]);
+        expect(reports.reports.value.map(report => report.detail)).toEqual([
+            expect.stringContaining('Refused to delete a working directory'),
+            expect.stringContaining('Worker reported failure'),
         ]);
     });
 });

@@ -117,6 +117,14 @@ describe('platform API contract parity', () => {
         const api = await createMockedElectronApi();
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
-        expectCallablePathParity(api, descriptorPaths);
+        const {
+            diagnostics,
+            ...platformApi
+        } = api;
+        expectCallablePathParity(platformApi, descriptorPaths);
+        expectCallablePathParity(diagnostics, [
+            ['sendRecord'],
+            ['onDebugLog'],
+        ]);
     });
 });
