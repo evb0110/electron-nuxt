@@ -36,8 +36,10 @@ import {
 } from '@contracts/diagnostics/startupCrashMarker';
 import {
     type CaptureFailureInput,
+    decodeFailureReceipt,
     type ExpectedOutcome,
     type FailureReceipt,
+    getFailureReceipt,
     type LocalFailureDetail,
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
@@ -222,8 +224,25 @@ describe('diagnostic contracts', () => {
     it('derives the closed code union from one registry', () => {
         expect(DIAGNOSTIC_CODES).toEqual([
             'UNCLASSIFIED_RENDERER_ERROR',
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
             'UNCLASSIFIED_MAIN_ERROR',
             'UNCLASSIFIED_CONSOLE_ERROR',
+            'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',
+            'NITRO_ANALYTICS_INSERT_FAILED',
+            'RENDERER_OCR_BACKEND_FAILED',
+            'RENDERER_OCR_RUN_FAILED',
+            'RENDERER_NATIVE_PDF_VIEWER_FAILED',
+            'RENDERER_PDF_OUTLINE_LOAD_FAILED',
+            'RENDERER_PDF_RANGE_READ_FAILED',
+            'RENDERER_PDF_IMAGE_RASTERIZATION_FAILED',
+            'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED',
+            'RENDERER_PDF_PAGE_RENDER_FAILED',
+            'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+            'RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED',
+            'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+            'RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED',
+            'RENDERER_ASYNC_GUARD_FAILED',
             'MAIN_STARTUP_CRASH',
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_RENDERER_PROCESS_GONE',
@@ -235,10 +254,23 @@ describe('diagnostic contracts', () => {
             'MAIN_UNHANDLED_REJECTION',
             'MAIN_UNHANDLED_REJECTION_RECOVERY',
             'SETTINGS_LOAD_FAILED',
+            'MAIN_EXTERNAL_OPEN_FAILED',
+            'MAIN_ATOMIC_REPLACE_RESTORE_FAILED',
             'SETTINGS_SAVE_FAILED',
+            'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            'MAIN_DOCUMENT_REVEAL_FAILED',
             'ASSISTANT_ACTION_FAILED',
             'UPDATE_OPERATION_FAILED',
             'RENDERER_STARTUP_WARMUP_FAILED',
+            'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
+            'MAIN_RECENT_FILES_LOAD_FAILED',
+            'MAIN_RECENT_FILES_RECOVERY_FAILED',
+            'MAIN_RECENT_FILES_SAVE_FAILED',
+            'MAIN_UPDATE_CHECK_FAILED',
+            'MAIN_UPDATE_DOWNLOAD_FAILED',
+            'MAIN_UPDATE_INSTALL_FAILED',
+            'MAIN_UPDATE_INSTALL_PREPARATION_FAILED',
+            'MAIN_UPDATE_STARTUP_FAILED',
         ]);
         expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
         expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (
@@ -263,6 +295,46 @@ describe('diagnostic contracts', () => {
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: Number.POSITIVE_INFINITY})).toBeNull();
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {unexpected: true})).toBeNull();
         expect(decodeDiagnosticContext('MAIN_STARTUP_CRASH', {attempt: 1})).toBeNull();
+    });
+
+    it('decodes the bounded context for remaining Electron main failure owners', () => {
+        expect(decodeDiagnosticContext('MAIN_EXTERNAL_OPEN_FAILED', {phase: 'prepare-window'})).toEqual({phase: 'prepare-window'});
+        expect(decodeDiagnosticContext('MAIN_CODEX_MCP_INTEGRATION_FAILED', {action: 'disable'})).toEqual({action: 'disable'});
+        expect(decodeDiagnosticContext('MAIN_CODEX_MCP_INTEGRATION_FAILED', {action: 'start'})).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_ELECTRON_LOCALE_LOAD_FAILED', {locale: 'pt-BR'})).toEqual({locale: 'pt-BR'});
+        expect(decodeDiagnosticContext('MAIN_ELECTRON_LOCALE_LOAD_FAILED', {locale: 'ja'})).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_RECENT_FILES_LOAD_FAILED', {phase: 'parse'})).toEqual({phase: 'parse'});
+        expect(decodeDiagnosticContext('MAIN_UPDATE_CHECK_FAILED', {origin: 'manual'})).toEqual({origin: 'manual'});
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 3,
+        })).toEqual({
+            phase: 'renderer-readiness',
+            attempt: 3,
+        });
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 0,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_UPDATE_STARTUP_FAILED', {
+            phase: 'renderer-readiness',
+            attempt: 101,
+        })).toBeNull();
+    });
+
+    it('keeps renderer failure contexts bounded to their owning operation', () => {
+        expect(decodeDiagnosticContext('RENDERER_NATIVE_PDF_VIEWER_FAILED', {phase: 'resume'})).toEqual({phase: 'resume'});
+        expect(decodeDiagnosticContext('RENDERER_NATIVE_PDF_VIEWER_FAILED', {phase: 'load'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_ERROR_GUARD_FAILED', {source: 'window'})).toEqual({source: 'window'});
+        expect(decodeDiagnosticContext('RENDERER_ERROR_GUARD_FAILED', {source: 'console'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED', {phase: 'legacy-error-projection'})).toEqual({phase: 'legacy-error-projection'});
+        expect(decodeDiagnosticContext('RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED', {phase: 'subscription-initialization'})).toEqual({phase: 'subscription-initialization'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED', {phase: 'coordinate'})).toEqual({phase: 'coordinate'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_SEARCH_OPERATION_FAILED', {operation: 'scroll-current-match'})).toEqual({operation: 'scroll-current-match'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_SEARCH_OPERATION_FAILED', {operation: 'search-all'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_ASYNC_GUARD_FAILED', {category: 'user-visible-operation'})).toEqual({category: 'user-visible-operation'});
+        expect(decodeDiagnosticContext('RENDERER_ASYNC_GUARD_FAILED', {category: 'background-diagnostic'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_OCR_RUN_FAILED', {requestId: 'private'})).toBeNull();
     });
 
     it('keeps process-death and recovery context closed and bounded', () => {
@@ -542,6 +614,25 @@ describe('diagnostic contracts', () => {
             code: 'canceled',
             extra: true,
         })).toBe(false);
+    });
+
+    it('strictly decodes direct and embedded failure receipts', () => {
+        const receipt: FailureReceipt = {
+            eventId: VALID_EVENT_ID,
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: 1_757_000_000_000,
+            severity: 'error',
+        };
+
+        expect(decodeFailureReceipt(receipt)).toEqual(receipt);
+        expect(decodeFailureReceipt(receipt)).not.toBe(receipt);
+        expect(getFailureReceipt({failure: receipt})).toEqual(receipt);
+        expect(getFailureReceipt({failure: {
+            ...receipt,
+            raw: 'forbidden',
+        }})).toBeUndefined();
+        expect(getFailureReceipt({failure: {eventId: VALID_EVENT_ID}})).toBeUndefined();
+        expect(getFailureReceipt(receipt)).toBeUndefined();
     });
 
     it('rejects forbidden sentinel values before the capture transport records them', () => {

@@ -70,6 +70,7 @@ export interface IMainFailureReporter {
     getPreference(): TMainDiagnosticsPreference;
     getGeneration(): number;
     isTransportReady(): boolean;
+    setTransport(transport: IMainDiagnosticsTransport): void;
     setPreference(preference: unknown): void;
 }
 
@@ -82,6 +83,7 @@ export interface IMainFailureReporterOptions {
     preference?: unknown;
     recentIdWindowMs?: number;
     transport?: IMainDiagnosticsTransport;
+    onPreferenceGranted?: () => void;
 }
 
 export const MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = DIAGNOSTICS_MAX_SUPPRESSED_COUNT;
@@ -372,7 +374,7 @@ export function createMainFailureReporter(
         options.recentIdWindowMs,
         MAIN_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS,
     );
-    const transport = options.transport ?? options.adapter ?? NOOP_MAIN_DIAGNOSTICS_TRANSPORT;
+    let transport = options.transport ?? options.adapter ?? NOOP_MAIN_DIAGNOSTICS_TRANSPORT;
     let preference = normalizePreference(options.preference);
     const health = createHealthState(preference);
     let generation = 0;
@@ -662,8 +664,23 @@ export function createMainFailureReporter(
         getPreference: () => preference,
         getGeneration: () => generation,
         isTransportReady: readTransportReady,
+        setTransport: (nextTransport) => {
+            transport = nextTransport;
+            if (preference === 'granted') {
+                generation = increment(generation);
+                liveTransport = nextTransport;
+            }
+        },
         setPreference: (value) => {
+            const wasGranted = preference === 'granted';
             applyPreference(value);
+            if (!wasGranted && preference === 'granted') {
+                try {
+                    options.onPreferenceGranted?.();
+                } catch {
+                    // Adapter loading is best effort and must not affect app state.
+                }
+            }
         },
     };
 

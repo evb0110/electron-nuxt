@@ -100,6 +100,45 @@ describe('main logger diagnostic receipt ownership', () => {
         expect(JSON.stringify(mocks.broadcasts)).not.toContain('token=secret');
     });
 
+    it('captures a caller-provided closed code and bounded context', async () => {
+        const {createLogger} = await import('@electron/utils/createLogger');
+        const logger = createLogger('main-typed-failure-test');
+        const cause = new Error('Codex registration failed');
+
+        expect(logger.error('typed failure', {
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            context: {action: 'enable'},
+            cause,
+        })).toEqual(receipt);
+        expect(mocks.reporter.capture).toHaveBeenCalledWith({
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            context: {action: 'enable'},
+            operation: 'main-error',
+            local: {
+                source: 'main-typed-failure-test',
+                message: 'typed failure',
+                cause,
+            },
+        });
+    });
+
+    it('reuses a receipt attached to a wrapped cause', async () => {
+        const {createLogger} = await import('@electron/utils/createLogger');
+        const logger = createLogger('main-wrapped-receipt-test');
+        const cause = new Error('already reported');
+        Object.defineProperty(cause, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+
+        expect(logger.error('wrapped failure', {
+            code: 'MAIN_DOCUMENT_REVEAL_FAILED',
+            context: {},
+            cause,
+        })).toEqual(receipt);
+        expect(mocks.reporter.capture).not.toHaveBeenCalled();
+    });
+
     it('reuses a provided receipt without creating a second occurrence', async () => {
         const {
             createLogger,

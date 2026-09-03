@@ -9,10 +9,23 @@ import {
 
 export type TDiagnosticsServerOptOut = TServerDiagnosticsObjection['diagnosticsServerOptOut'];
 
+interface IRuntimeMetaEnvironment {readonly PROD?: boolean;}
+interface IRuntimeMeta {readonly env?: IRuntimeMetaEnvironment;}
+
+function isRuntimeMeta(value: unknown): value is IRuntimeMeta {
+    if (typeof value !== 'object' || value === null || !('env' in value)) {
+        return false;
+    }
+    const environment = Reflect.get(value, 'env');
+    return environment === undefined
+        || typeof environment === 'object' && environment !== null
+            && (!('PROD' in environment) || typeof Reflect.get(environment, 'PROD') === 'boolean');
+}
+
 function getSecureCookieAttribute() {
     try {
-        const runtimeMeta = import.meta as ImportMeta & {env?: {PROD?: boolean}};
-        return runtimeMeta.env?.PROD === true
+        const runtimeMeta: unknown = import.meta;
+        return isRuntimeMeta(runtimeMeta) && runtimeMeta.env?.PROD === true
             || (typeof location !== 'undefined' && location.protocol === 'https:')
             ? '; Secure'
             : '';

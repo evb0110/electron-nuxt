@@ -1117,7 +1117,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 await applyReadyDocumentTransition(transition);
             } catch (error) {
                 if (transition.isCurrent()) {
-                    BrowserLogger.error('pdf-viewer', 'Failed to place PDF viewport after source load', error);
+                    BrowserLogger.error('pdf-viewer', 'Failed to place PDF viewport after source load', error, Object.assign({code: 'RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED' as const}, {context: {}}));
                 }
             }
         }

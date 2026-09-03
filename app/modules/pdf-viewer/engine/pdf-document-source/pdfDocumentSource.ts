@@ -345,7 +345,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
     function destroyLoadingTask(
         rejectedMessage: string,
         thrownMessage: string,
-        thrownLogLevel: 'debug' | 'error' = 'debug',
+        thrownLogLevel: 'debug' | 'warn' = 'debug',
     ) {
         if (!loadingTask) {
             return;

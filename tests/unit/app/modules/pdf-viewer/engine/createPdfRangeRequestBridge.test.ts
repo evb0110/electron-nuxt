@@ -15,7 +15,6 @@ import {
 const documentMocks = vi.hoisted(() => ({readFileRange: vi.fn()}));
 
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => documentMocks}));
-vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: vi.fn()}}));
 vi.mock('@app/utils/pdfRenderTrace', () => ({logPdfRenderTrace: vi.fn()}));
 
 const DELIVERY_BYTES = 1024 * 1024;

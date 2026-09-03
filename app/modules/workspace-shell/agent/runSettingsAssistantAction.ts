@@ -4,7 +4,7 @@ import { getErrorMessage } from '@app/utils/error';
 import {
     captureAssistantFailure,
     getAssistantExpectedOutcome,
-} from '@app/modules/agent-panel/utils/assistantFailure';
+} from '@app/modules/agent-panel/public/assistantFailure';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { TTranslateFn } from '@i18n-app';
 

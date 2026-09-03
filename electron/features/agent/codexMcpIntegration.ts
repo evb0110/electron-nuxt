@@ -342,7 +342,14 @@ export async function setAgentMcpIntegrationEnabled(
             status: await getAgentMcpIntegrationStatus(),
         };
     } catch (error) {
-        logger.error(`Failed to ${enabled ? 'enable' : 'disable'} Codex MCP integration: ${getErrorMessage(error)}`);
+        logger.error(
+            `Failed to ${enabled ? 'enable' : 'disable'} Codex MCP integration: ${getErrorMessage(error)}`,
+            {
+                code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                context: {action: enabled ? 'enable' : 'disable'},
+                cause: error,
+            },
+        );
         if (enabled && !previousSettings.agentMcpEnabled) {
             await shutdownLocalMcpServer();
         }
@@ -356,7 +363,7 @@ export async function setAgentMcpIntegrationEnabled(
 
 export async function syncAgentMcpServerWithSettings() {
     const settings = await loadSettings().catch((error: unknown) => {
-        logger.error(`Failed to load external MCP setting; continuing without startup sync: ${getErrorMessage(error)}`);
+        logger.warn(`Failed to load external MCP setting; continuing without startup sync: ${getErrorMessage(error)}`);
         return null;
     });
     if (!settings) {
@@ -371,7 +378,7 @@ export async function syncAgentMcpServerWithSettings() {
         }
     } catch (error) {
         lastExternalMcpStartupError ??= normalizeExternalMcpStartupError(error);
-        logger.error(`External MCP startup is unavailable; continuing without it: ${getErrorMessage(error)}`);
+        logger.warn(`External MCP startup is unavailable; continuing without it: ${getErrorMessage(error)}`);
         await shutdownLocalMcpServer().catch((shutdownError: unknown) => {
             logger.warn(`Failed to clean up external MCP startup: ${getErrorMessage(shutdownError)}`);
         });

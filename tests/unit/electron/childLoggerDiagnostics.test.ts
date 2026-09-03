@@ -52,8 +52,14 @@ describe('child logger diagnostic ownership', () => {
         const logger = createLogger('worker-local-only-test', {broadcastToRenderers: false});
 
         expect(logger.error('worker failure')).toBeUndefined();
+        expect(logger.error('worker typed failure', {
+            code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+            context: {action: 'enable'},
+            cause: new Error('worker cause'),
+        })).toBeUndefined();
         expect(mocks.reporter.capture).not.toHaveBeenCalled();
         await flushPendingLogWrites();
         expect(mocks.appended.join('')).toContain('worker failure');
+        expect(mocks.appended.join('')).toContain('worker typed failure');
     });
 });

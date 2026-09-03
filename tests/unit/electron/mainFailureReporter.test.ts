@@ -92,6 +92,40 @@ describe('Electron main failure reporter', () => {
         });
     });
 
+    it('installs a late adapter only while granted and invokes the grant loader once per transition', () => {
+        const onPreferenceGranted = vi.fn();
+        const send = vi.fn();
+        const reporter = createMainFailureReporter({
+            createEventId: createIdFactory(),
+            preference: 'unknown',
+            transport: {
+                isReady: false,
+                send: () => false,
+            },
+            onPreferenceGranted,
+        });
+
+        reporter.setPreference('granted');
+        expect(onPreferenceGranted).toHaveBeenCalledOnce();
+        expect(reporter.isTransportReady()).toBe(false);
+
+        reporter.setTransport({
+            isReady: true,
+            send,
+        });
+        reporter.capture(createInput());
+        expect(send).toHaveBeenCalledOnce();
+
+        reporter.setPreference('denied');
+        reporter.capture(createInput());
+        expect(send).toHaveBeenCalledOnce();
+
+        reporter.setPreference('granted');
+        expect(onPreferenceGranted).toHaveBeenCalledTimes(2);
+        reporter.capture(createInput());
+        expect(send).toHaveBeenCalledTimes(2);
+    });
+
     it('uses the source stack only for source-policy diagnostic codes', () => {
         const send = vi.fn();
         const reporter = createMainFailureReporter({

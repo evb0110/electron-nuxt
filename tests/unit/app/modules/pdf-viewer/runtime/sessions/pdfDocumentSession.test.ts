@@ -16,6 +16,12 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 
 const loggerError = vi.fn();
 const loggerDebug = vi.fn();
+const rangeReadFailureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'RENDERER_PDF_RANGE_READ_FAILED',
+    occurredAt: 1,
+    severity: 'error',
+};
 const createObjectURLMock = vi.fn(() => 'blob:pdf-load');
 const revokeObjectURLMock = vi.fn();
 
@@ -79,6 +85,7 @@ const rangePreloadTestTimeoutMs = 30_000;
 describe('PdfDocumentSession range loading', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        loggerError.mockReturnValue(rangeReadFailureReceipt);
         electronApi.documentFiles.readFileRange.mockReset();
         vi.stubGlobal('URL', {
             ...URL,
@@ -632,6 +639,10 @@ describe('PdfDocumentSession range loading', () => {
             'pdf-document',
             'Failed to load PDF',
             expect.any(Error),
+            {
+                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+                context: {},
+            },
         );
     });
 
@@ -654,6 +665,10 @@ describe('PdfDocumentSession range loading', () => {
             'pdf-document',
             'Failed to load PDF',
             expect.any(Error),
+            {
+                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+                context: {},
+            },
         );
     });
 
@@ -703,15 +718,22 @@ describe('PdfDocumentSession range loading', () => {
         expect(documentState.pdfDocument.value).toBeNull();
         expect(destroy).toHaveBeenCalledTimes(1);
         expect(getDocumentArg?.range?.abort).toHaveBeenCalledTimes(1);
-        expect(loggerError).toHaveBeenCalledWith(
+        expect(loggerError).toHaveBeenNthCalledWith(
+            1,
             'pdf-document',
             'Failed to read PDF range chunk',
             expect.any(Error),
+            {
+                code: 'RENDERER_PDF_RANGE_READ_FAILED',
+                context: {},
+            },
         );
-        expect(loggerError).toHaveBeenCalledWith(
+        expect(loggerError).toHaveBeenNthCalledWith(
+            2,
             'pdf-document',
             'Failed to load PDF',
             expect.any(Error),
+            rangeReadFailureReceipt,
         );
     });
 

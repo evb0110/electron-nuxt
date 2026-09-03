@@ -1,7 +1,6 @@
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import {
-    createDebugLogRuntimeErrorReport,
     createDebugLogRuntimeErrorPresentation,
     isUiReportableDebugLog,
 } from '@app/utils/runtimeErrorFilter';
@@ -14,6 +13,7 @@ import {
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
 import {getValidatedElectronPlatformApi} from '@app/utils/electronPlatformBridge';
 import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
 
 interface IRuntimeErrorLogStreamState { cleanup: () => void; }
 
@@ -52,6 +52,42 @@ export default defineNuxtPlugin((nuxtApp) => {
         },
         () => localeCookie.value,
     );
+    const reporter = initializeRendererFailureReporter({host: isElectronUserAgent() ? 'electron' : 'hosted-browser'});
+    const reportReceiptAware = (presentation: FailurePresentation) => {
+        reportRuntimeError({
+            failure: presentation.failure,
+            title: presentation.title,
+            ...(presentation.pendingDiagnostic === undefined
+                ? {}
+                : {pendingDiagnostic: presentation.pendingDiagnostic}),
+            ...(presentation.description === undefined
+                ? {}
+                : {description: presentation.description}),
+            ...(presentation.actions === undefined
+                ? {}
+                : {actions: presentation.actions}),
+        });
+    };
+    const captureReceiptFreeProjection = (entry: IDebugLogEntry, title: string) => {
+        const presentation = reporter.captureForPresentation({
+            code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
+            context: {phase: 'legacy-error-projection'},
+            local: {
+                source: 'runtime-error-log-stream',
+                message: 'Main runtime error log entry has no failure receipt',
+                data: {
+                    source: entry.source,
+                    timestamp: entry.timestamp,
+                    message: entry.message,
+                },
+            },
+        }, {localAlreadyRecorded: true});
+        return {
+            ...presentation,
+            title,
+            description: `${entry.timestamp}\n${entry.message}`,
+        };
+    };
     const handleDebugLog = (entry: IDebugLogEntry) => {
         if (!isUiReportableDebugLog(entry)) {
             return;
@@ -60,10 +96,10 @@ export default defineNuxtPlugin((nuxtApp) => {
         const title = t('errors.runtime.streamError');
         const presentation = createDebugLogRuntimeErrorPresentation(entry, title);
         if (presentation) {
-            reportRuntimeError(presentation);
+            reportReceiptAware(presentation);
             return;
         }
-        reportRuntimeError(createDebugLogRuntimeErrorReport(entry, title));
+        reportReceiptAware(captureReceiptFreeProjection(entry, title));
     };
     let unsubscribeDebugLog: (() => void) | null = null;
     let cleanedUp = false;
@@ -128,16 +164,17 @@ export default defineNuxtPlugin((nuxtApp) => {
                 // The bridge readiness probe can finish before the diagnostics
                 // capability is available. This is a separate renderer fault,
                 // so it owns one occurrence and then presents that receipt.
-                const presentation = initializeRendererFailureReporter({host: isElectronUserAgent() ? 'electron' : 'hosted-browser'}).captureForPresentation({
-                    code: 'UNCLASSIFIED_RENDERER_ERROR',
-                    context: {},
+                const presentation = reporter.captureForPresentation({
+                    code: 'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
+                    context: {phase: 'subscription-initialization'},
                     local: {
                         source: 'runtime-error-log-stream',
                         message: 'Electron diagnostics log stream initialization failed',
                     },
                 });
-                reportRuntimeError({
+                reportReceiptAware({
                     ...presentation,
+                    failure: presentation.failure,
                     title: t('errors.runtime.streamError'),
                 });
             }

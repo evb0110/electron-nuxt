@@ -396,19 +396,21 @@ describe('startup crash marker', () => {
         expect(decodeStartupCrashMarkerRecord(createMarker({release: `${RELEASE}+0123456789abcdef0123456789abcdef01234567`}))).not.toBeNull();
     });
 
-    it('installs the monitor after the synchronous preference read and does not replay at no-op reporter construction', () => {
+    it('installs the monitor after the synchronous preference read and loads the adapter only after reporter construction', () => {
         const source = readFileSync(resolve(process.cwd(), 'electron/main.ts'), 'utf8');
         const preferenceIndex = source.indexOf('const diagnosticsPreference = readDiagnosticsPreferenceSync();');
         const markerIndex = source.indexOf('installStartupCrashMarker({', preferenceIndex);
-        const reporterIndex = source.indexOf('initializeMainFailureReporter({preference: diagnosticsPreference});');
+        const reporterIndex = source.indexOf('mainFailureReporterForAdapter = initializeMainFailureReporter({');
+        const grantedLoadIndex = source.indexOf('if (diagnosticsPreference === \'granted\')', reporterIndex);
         const bootstrapIndex = source.indexOf('void runInitSequence({');
 
         expect(preferenceIndex).toBeGreaterThan(-1);
         expect(markerIndex).toBeGreaterThan(preferenceIndex);
         expect(reporterIndex).toBeGreaterThan(markerIndex);
+        expect(grantedLoadIndex).toBeGreaterThan(reporterIndex);
         expect(reporterIndex).toBeLessThan(bootstrapIndex);
         expect(source.slice(markerIndex, reporterIndex)).not.toContain('isTransportReady');
-        expect(source.slice(reporterIndex, bootstrapIndex)).not.toContain('replayAfterAdapterInitialization');
+        expect(source.slice(reporterIndex, grantedLoadIndex)).not.toContain('import(\'@electron/features/diagnostics/sentryNodeAdapter\')');
     });
 
     it('captures the live exception before the existing coordinated fatal shutdown call', () => {

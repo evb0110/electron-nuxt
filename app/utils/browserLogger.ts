@@ -1,6 +1,14 @@
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
-import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import type {
+    CaptureFailureInput,
+    FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {
+    DiagnosticCode,
+    DiagnosticContext,
+} from '@contracts/diagnostics/diagnosticCodes';
 import {
     captureRendererFailure,
     initializeRendererFailureReporter,
@@ -9,6 +17,11 @@ import {
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
+
+interface IBrowserLoggerErrorOptions<C extends DiagnosticCode> {
+    code: C;
+    context: DiagnosticContext<C>;
+}
 
 const ORIGINAL_CONSOLE_SINKS = {
     debug: console.log.bind(console),
@@ -156,6 +169,10 @@ function resolveLazyValue(value: TLazyValue | undefined) {
     return typeof value === 'function'
         ? (value as () => unknown)()
         : value;
+}
+
+function isFailureReceipt(value: unknown): value is FailureReceipt {
+    return decodeFailureReceipt(value) !== null;
 }
 
 function takeThrottledLogSuppressionCount(
@@ -352,26 +369,47 @@ export const BrowserLogger = {
         );
     },
 
-    error: (
+    error: <C extends DiagnosticCode = 'UNCLASSIFIED_RENDERER_ERROR'>(
         section: string,
         message: string,
         error?: TLazyValue,
-        existingReceipt?: FailureReceipt,
+        existingReceiptOrOptions?: FailureReceipt | IBrowserLoggerErrorOptions<C>,
     ): FailureReceipt => {
+        let existingReceipt: FailureReceipt | undefined;
+        let diagnosticOptions: IBrowserLoggerErrorOptions<C> | undefined;
+        if (isFailureReceipt(existingReceiptOrOptions)) {
+            existingReceipt = existingReceiptOrOptions;
+        } else {
+            diagnosticOptions = existingReceiptOrOptions;
+        }
         const resolved = resolveLazyValue(error);
-        const input = {
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
-            context: {},
-            local: {
-                source: section,
-                message,
-                cause: resolved,
-                data: resolved,
-            },
-        } as const;
+        const local = {
+            source: section,
+            message,
+            cause: resolved,
+            data: resolved,
+        };
         const captureOptions = {localAlreadyRecorded: true};
-        const receipt = existingReceipt ?? captureRendererFailure(input, captureOptions)
-            ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+        let receipt: FailureReceipt;
+        if (existingReceipt) {
+            receipt = existingReceipt;
+        } else if (diagnosticOptions) {
+            const input: CaptureFailureInput<C> = {
+                code: diagnosticOptions.code,
+                context: diagnosticOptions.context,
+                local,
+            };
+            receipt = captureRendererFailure(input, captureOptions)
+                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+        } else {
+            const input: CaptureFailureInput<'UNCLASSIFIED_RENDERER_ERROR'> = {
+                code: 'UNCLASSIFIED_RENDERER_ERROR',
+                context: {},
+                local,
+            };
+            receipt = captureRendererFailure(input, captureOptions)
+                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+        }
 
         emitLog('error', section, message, resolved);
         return receipt;
