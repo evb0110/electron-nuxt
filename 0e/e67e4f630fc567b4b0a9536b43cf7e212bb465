@@ -1,0 +1,28 @@
+nuxt.config.ts
+  s_b412fd4cd3f576::t_876370562ba3e5 337
+.fallowrc.json
+  s_b412fd4cd3f576::t_471fb9bd8374e3 66-67,90-91
+  s_b412fd4cd3f576::t_70a9e1cda86f3d 164-166
+.fallow-dupes-baseline.json
+  s_b412fd4cd3f576::t_c58520c5bc7534 60
+  s_b412fd4cd3f576::t_dc9d1a48796fd2 5,7-9,15-17,20,24,34,37-38,40,44,47,49,55-57
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b412fd4cd3f576::t_8a0aef5a443f76 1463-1470
+  s_b412fd4cd3f576::t_6324beffdf2532 49,51-52,1478-1487
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0ee67e4f630fc567b4b0a9536b43cf7e212bb465",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
