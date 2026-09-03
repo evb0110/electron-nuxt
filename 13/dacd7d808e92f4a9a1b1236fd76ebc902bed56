@@ -1,0 +1,21 @@
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_32e0259893acba 10,145,150
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_b412fd4cd3f576::t_32e0259893acba 7,16,21,26,50,57,62,70-71,75,118,125-126,131,136,147,152,163
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "13dacd7d808e92f4a9a1b1236fd76ebc902bed56",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
