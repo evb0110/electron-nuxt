@@ -12,7 +12,10 @@ interface IWindowStartupWaiter {
 const windowStartupWaiters = new Map<number, IWindowStartupWaiter>();
 const windowRendererReadyCallbacks = new Map<number, () => void>();
 
-export interface IWaitForInitialRendererReadyOptions { onInitialLoadFailure?: (error: Error) => void }
+export interface IWaitForInitialRendererReadyOptions {
+    onInitialLoadFailure?: (error: Error) => void;
+    onRendererGone?: () => void;
+}
 
 export function setWindowRendererReadyCallback(windowId: number, callback: () => void) {
     windowRendererReadyCallbacks.set(windowId, callback);
@@ -86,6 +89,11 @@ export function waitForInitialRendererReady(
                 exitCode: number;
             },
         ) => {
+            try {
+                options.onRendererGone?.();
+            } catch {
+                // Readiness rejection must not depend on diagnostic ownership hooks.
+            }
             rejectReady(new Error(
                 `Renderer process exited before startup completed (${details.reason}, exitCode=${details.exitCode})`,
             ));

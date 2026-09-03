@@ -56,10 +56,14 @@ describe('main shutdown ordering', () => {
         const rejectionHandler = source.slice(rejectionHandlerIndex, exceptionHandlerIndex);
         expect(rejectionHandler).toMatch(/decideUnhandledRejection\s*\(\s*reason\s*\)/u);
         expect(rejectionHandler).toMatch(
-            /requestFatalShutdown\s*\(\s*['"]Unhandled promise rejection requires fatal shutdown['"]\s*\)/u,
+            /requestFatalShutdown\s*\(\s*['"]Unhandled promise rejection requires fatal shutdown['"]/u,
         );
+        expect(rejectionHandler).toMatch(/'MAIN_UNHANDLED_REJECTION'/u);
+        const recoveryFactoryIndex = source.indexOf('createUnhandledRejectionRecovery(');
+        expect(recoveryFactoryIndex).toBeGreaterThan(-1);
+        expect(source.slice(recoveryFactoryIndex, rejectionHandlerIndex)).toMatch(/'MAIN_UNHANDLED_REJECTION_RECOVERY'/u);
         expect(rejectionHandler).toMatch(
-            /onError\s*:\s*\(?error\)?\s*=>\s*requestFatalShutdown\s*\(/u,
+            /onError\s*:\s*\(?error\)?\s*=>\s*\{[\s\S]*requestFatalShutdown\s*\(/u,
         );
         expect(rejectionHandler).toMatch(
             /Unhandled rejection subsystem recovery failed[^`]*\$\{decision\.subsystem\}[^`]*\$\{getErrorMessage\(error\)\}/u,

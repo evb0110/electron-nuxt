@@ -68,6 +68,151 @@ const GENERIC_DIAGNOSTIC_CONTEXT = {
     recovered: {kind: 'boolean'},
 } as const satisfies DiagnosticContextDefinition;
 
+export const PROCESS_GONE_TYPES = [
+    'gpu',
+    'utility',
+    'renderer',
+    'zygote',
+    'sandbox-helper',
+    'pepper-plugin',
+    'pepper-plugin-broker',
+    'other',
+] as const;
+
+const PROCESS_GONE_TYPE_BY_ELECTRON_TYPE: Readonly<Record<string, typeof PROCESS_GONE_TYPES[number]>> = {
+    GPU: 'gpu',
+    Utility: 'utility',
+    Renderer: 'renderer',
+    Zygote: 'zygote',
+    'Sandbox helper': 'sandbox-helper',
+    'Pepper Plugin': 'pepper-plugin',
+    'Pepper Plugin Broker': 'pepper-plugin-broker',
+};
+
+export const PROCESS_GONE_REASONS = [
+    'clean-exit',
+    'abnormal-exit',
+    'killed',
+    'crashed',
+    'oom',
+    'launch-failed',
+    'integrity-failure',
+    'other',
+] as const;
+
+export const PROCESS_GONE_EXIT_CODE_MIN = -1;
+export const PROCESS_GONE_EXIT_CODE_MAX = 255;
+export const MAX_RENDERER_RECOVERY_ATTEMPTS = 3;
+export const GPU_SAFE_MODE_CRASH_COUNT_MIN = 2;
+export const GPU_SAFE_MODE_CRASH_COUNT_MAX = 100;
+
+const RENDERER_RECOVERY_TRIGGERS = [
+    'renderer-gone',
+    'unresponsive-automation',
+    'unresponsive-dialog-reload',
+    'unresponsive-dialog-fallback',
+] as const;
+
+const UNRESPONSIVE_RECOVERY_TRIGGERS = [
+    'unresponsive-automation',
+    'unresponsive-dialog-reload',
+    'unresponsive-dialog-fallback',
+    'unresponsive-dialog-prompt',
+] as const;
+
+const UNHANDLED_REJECTION_SUBSYSTEMS = [
+    'agent',
+    'djvu',
+    'documents',
+    'ocr',
+    'search',
+    'unknown',
+] as const;
+
+const CHILD_PROCESS_GONE_CONTEXT = {
+    processType: {
+        kind: 'enum',
+        values: PROCESS_GONE_TYPES,
+    },
+    reason: {
+        kind: 'enum',
+        values: PROCESS_GONE_REASONS,
+    },
+    exitCode: {
+        kind: 'integer',
+        min: PROCESS_GONE_EXIT_CODE_MIN,
+        max: PROCESS_GONE_EXIT_CODE_MAX,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
+const RENDERER_PROCESS_GONE_CONTEXT = {
+    reason: {
+        kind: 'enum',
+        values: PROCESS_GONE_REASONS,
+    },
+    exitCode: {
+        kind: 'integer',
+        min: PROCESS_GONE_EXIT_CODE_MIN,
+        max: PROCESS_GONE_EXIT_CODE_MAX,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
+const RENDERER_RECOVERY_CONTEXT = {
+    trigger: {
+        kind: 'enum',
+        values: RENDERER_RECOVERY_TRIGGERS,
+    },
+    recoveryAttempt: {
+        kind: 'integer',
+        min: 1,
+        max: MAX_RENDERER_RECOVERY_ATTEMPTS,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
+const UNRESPONSIVE_RENDERER_CONTEXT = {
+    automated: {kind: 'boolean'},
+    recoveryAttempt: {
+        kind: 'integer',
+        min: 0,
+        max: MAX_RENDERER_RECOVERY_ATTEMPTS,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
+const UNHANDLED_REJECTION_CONTEXT = {subsystem: {
+    kind: 'enum',
+    values: UNHANDLED_REJECTION_SUBSYSTEMS,
+}} as const satisfies DiagnosticContextDefinition;
+
+const UNRESPONSIVE_RECOVERY_CONTEXT = {
+    trigger: {
+        kind: 'enum',
+        values: UNRESPONSIVE_RECOVERY_TRIGGERS,
+    },
+    recoveryAttempt: {
+        kind: 'integer',
+        min: 1,
+        max: MAX_RENDERER_RECOVERY_ATTEMPTS,
+    },
+} as const satisfies DiagnosticContextDefinition;
+
+export function normalizeProcessGoneReason(reason: string) {
+    return PROCESS_GONE_REASONS.includes(reason as typeof PROCESS_GONE_REASONS[number])
+        ? reason as typeof PROCESS_GONE_REASONS[number]
+        : 'other';
+}
+
+export function normalizeProcessGoneType(type: string) {
+    return PROCESS_GONE_TYPE_BY_ELECTRON_TYPE[type] ?? 'other';
+}
+
+export function normalizeProcessGoneExitCode(exitCode: number) {
+    return Number.isSafeInteger(exitCode)
+        && exitCode >= PROCESS_GONE_EXIT_CODE_MIN
+        && exitCode <= PROCESS_GONE_EXIT_CODE_MAX
+        ? exitCode
+        : undefined;
+}
+
 export const DIAGNOSTIC_DEFINITIONS = {
     UNCLASSIFIED_RENDERER_ERROR: {
         exceptionType: 'RendererDiagnosticError',
@@ -104,6 +249,101 @@ export const DIAGNOSTIC_DEFINITIONS = {
         grouping: 'code-and-top-frame',
         stackPolicy: 'source',
         context: {},
+    },
+    MAIN_CHILD_PROCESS_GONE: {
+        exceptionType: 'MainChildProcessGone',
+        exceptionValue: 'Main child process gone',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: CHILD_PROCESS_GONE_CONTEXT,
+    },
+    MAIN_RENDERER_PROCESS_GONE: {
+        exceptionType: 'MainRendererProcessGone',
+        exceptionValue: 'Main renderer process gone',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: RENDERER_PROCESS_GONE_CONTEXT,
+    },
+    MAIN_PRELOAD_ERROR: {
+        exceptionType: 'MainPreloadError',
+        exceptionValue: 'Main preload error',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {hasStack: {kind: 'boolean'}},
+    },
+    MAIN_UNRESPONSIVE_RENDERER: {
+        exceptionType: 'MainUnresponsiveRenderer',
+        exceptionValue: 'Main unresponsive renderer',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UNRESPONSIVE_RENDERER_CONTEXT,
+    },
+    MAIN_RENDERER_RECOVERY_FAILED: {
+        exceptionType: 'MainRendererRecoveryFailed',
+        exceptionValue: 'Main renderer recovery failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: RENDERER_RECOVERY_CONTEXT,
+    },
+    MAIN_UNRESPONSIVE_RECOVERY_FAILED: {
+        exceptionType: 'MainUnresponsiveRecoveryFailed',
+        exceptionValue: 'Main unresponsive recovery failed',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UNRESPONSIVE_RECOVERY_CONTEXT,
+    },
+    MAIN_GPU_SAFE_MODE_RECOVERY: {
+        exceptionType: 'MainGpuSafeModeRecovery',
+        exceptionValue: 'Main GPU safe-mode recovery',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {
+            safeMode: {kind: 'boolean'},
+            action: {
+                kind: 'enum',
+                values: [
+                    'relaunch',
+                    'failed',
+                ],
+            },
+            crashCount: {
+                kind: 'integer',
+                min: GPU_SAFE_MODE_CRASH_COUNT_MIN,
+                max: GPU_SAFE_MODE_CRASH_COUNT_MAX,
+            },
+        },
+    },
+    MAIN_UNHANDLED_REJECTION: {
+        exceptionType: 'MainUnhandledRejection',
+        exceptionValue: 'Main unhandled promise rejection',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UNHANDLED_REJECTION_CONTEXT,
+    },
+    MAIN_UNHANDLED_REJECTION_RECOVERY: {
+        exceptionType: 'MainUnhandledRejectionRecovery',
+        exceptionValue: 'Main unhandled rejection subsystem recovery',
+        operation: 'main-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: UNHANDLED_REJECTION_CONTEXT,
     },
 } as const satisfies Readonly<Record<string, IDiagnosticDefinition>>;
 
