@@ -1,0 +1,29 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_c57729f2c66bed::t_e28a1144dafa01 419-425,427-429,433-434,447-455,458
+  s_c57729f2c66bed::t_4a2b9f531e547e 426
+  s_c57729f2c66bed::t_b298a40380ba71 430-432,436-439
+  s_c57729f2c66bed::t_f38f046b4d2979 440-446,456-457
+  s_c57729f2c66bed::t_f0b986ff8e0c5c 882,886,895,899,908,912,921,925,934,938,942
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_c57729f2c66bed::t_c7d1191fc324fe 1262-1291,1296-1318,1320-1325
+  s_c57729f2c66bed::t_40558027da4b23 1292-1295
+  s_c57729f2c66bed::t_433041f60fa40a 1319
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_c57729f2c66bed::t_782f938b53d1d4 802-804
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "4a43f7fae2d3142c8e490a6ec3a44f8e2c6c057e",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
