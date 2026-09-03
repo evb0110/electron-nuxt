@@ -508,61 +508,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         id,
         pageNumber,
     };
-    await page.evaluate((selection: {
-        id: string;
-        pageNumber: number
-    }) => {
-        const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-        )).find(candidate => (
-            candidate.dataset.annotationId === selection.id
-            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
-        ));
-        entity?.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-    }, input);
-    const scrollAdjustment = await page.evaluate(async (selection: {
-        id: string;
-        pageNumber: number
-    }) => {
-        const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-        )).find(candidate => (
-            candidate.dataset.annotationId === selection.id
-            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
-        ));
-        const layer = entity?.closest<HTMLElement>('.pdf-annotation-editor-layer');
-        const scrollViewport = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
-        if (!entity || !layer || !scrollViewport) {
-            return;
-        }
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        const entityRect = entity.getBoundingClientRect();
-        const viewportRect = scrollViewport.getBoundingClientRect();
-        const visibleTop = Math.max(viewportRect.top, 24);
-        const visibleBottom = Math.min(viewportRect.bottom, window.innerHeight - 24);
-        if (visibleBottom > visibleTop) {
-            return {
-                deltaY: entityRect.top + entityRect.height / 2 - ((visibleTop + visibleBottom) / 2),
-                point: {
-                    x: (viewportRect.left + viewportRect.right) / 2,
-                    y: (visibleTop + visibleBottom) / 2,
-                },
-            };
-        }
-        return null;
-    }, input);
-    if (scrollAdjustment && Math.abs(scrollAdjustment.deltaY) > 1) {
-        await page.mouse.move(scrollAdjustment.point.x, scrollAdjustment.point.y);
-        const wheelSteps = Math.ceil(Math.abs(scrollAdjustment.deltaY) / 5);
-        for (let step = 0; step < wheelSteps; step += 1) {
-            await page.mouse.wheel({deltaY: Math.sign(scrollAdjustment.deltaY) * 120});
-            await new Promise<void>(resolve => setTimeout(resolve, 20));
-        }
-        await new Promise<void>(resolve => setTimeout(resolve, 100));
-    }
+    await scrollViewerToPage(page, pageNumber);
     const kind = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         element => element.getAttribute('data-annotation-kind'),
