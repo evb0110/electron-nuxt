@@ -249,6 +249,43 @@ describe('usePdfSearchHighlight', () => {
         ]);
     });
 
+    it('requires distinct rendered occurrences for duplicate backend ranges', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 5,
+                },
+                {
+                    matchIndex: 1,
+                    start: 0,
+                    end: 5,
+                },
+            ],
+        };
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            null,
+            'alpha beta alpha',
+        )).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 11,
+                end: 16,
+                isCurrent: false,
+            },
+        ]);
+    });
+
     it('maps collapsed fake-bold text to one authoritative highlight set', () => {
         const segment = 'alpha beta gamma delta '.repeat(8);
         const pageMatches: IPdfPageMatches = {

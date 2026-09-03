@@ -83,6 +83,27 @@ function buildLayerSearchMatches(
         });
 }
 
+function backendMatchesPointAtDistinctLayerOccurrences(
+    backendMatches: IVisualSearchMatch[],
+    layerMatches: IVisualSearchMatch[],
+) {
+    const remainingLayerRanges = new Map<string, number>();
+    for (const layerMatch of layerMatches) {
+        const key = `${String(layerMatch.start)}:${String(layerMatch.end)}`;
+        remainingLayerRanges.set(key, (remainingLayerRanges.get(key) ?? 0) + 1);
+    }
+
+    return backendMatches.every((backendMatch) => {
+        const key = `${String(backendMatch.start)}:${String(backendMatch.end)}`;
+        const remaining = remainingLayerRanges.get(key) ?? 0;
+        if (remaining === 0) {
+            return false;
+        }
+        remainingLayerRanges.set(key, remaining - 1);
+        return true;
+    });
+}
+
 function isCurrentVisualMatch(
     match: IVisualSearchMatch,
     pageMatches: IPdfPageMatches,
@@ -173,10 +194,7 @@ export function buildVisualMatchesWithCurrent(
     const layerMatches = buildLayerSearchMatches(pageMatches, assembledLayerText);
     const backendMatches = buildBackendVisualMatches(pageMatches, assembledLayerText);
     const backendMatchesPointAtLayerOccurrences = !pageMatches.searchQuery
-        || backendMatches.every(backendMatch => layerMatches.some(layerMatch => (
-            layerMatch.start === backendMatch.start
-            && layerMatch.end === backendMatch.end
-        )));
+        || backendMatchesPointAtDistinctLayerOccurrences(backendMatches, layerMatches);
     const matches = backendMatches.length === pageMatches.matches.length
         && backendMatchesPointAtLayerOccurrences
         ? backendMatches
