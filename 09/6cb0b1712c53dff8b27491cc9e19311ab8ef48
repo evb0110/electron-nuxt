@@ -1,0 +1,84 @@
+app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types.ts
+  s_83314e12e884ea::t_695c182a0ba2d4 63-70
+  s_83314e12e884ea::t_6c8c32c72dd21e 71
+app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue
+  s_83314e12e884ea::t_fd80ad0c89eddc 398
+tests/unit/app/composables/pdfImagePlacementSizing.test.ts
+  s_83314e12e884ea::t_f2ed1ee8434dba 171-174
+  s_83314e12e884ea::t_55115af2c45d1e 123,142,150-151,164-170
+  s_83314e12e884ea::t_73da10a2d48e6f 152-163
+  s_83314e12e884ea::t_496eae7429d6c5 228
+app/modules/pdf-viewer/engine/pdf-image-placement-sizing/resizeImagePlacementRect.ts
+  s_83314e12e884ea::t_73da10a2d48e6f 336-339
+  s_83314e12e884ea::t_55115af2c45d1e 17,305,334-335
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_83314e12e884ea::t_6050c6004557f7 131,136
+  s_83314e12e884ea::t_00454e1fbc42c0 159-197,1301
+  s_83314e12e884ea::t_72709817ae7de5 1235-1250,1258-1300,1302-1322,1328,1330-1355
+  s_83314e12e884ea::t_86eb03ee613006 76,221,1323
+  s_83314e12e884ea::t_161793dabfd3f8 1251-1257
+  s_83314e12e884ea::t_2b56a1ff402595 1324-1325
+  s_83314e12e884ea::t_592b4e52cddb35 1329
+  s_83314e12e884ea::t_fefe939bf7bc52 12,14-17,68-75,77-130,137-158,198-218,220,222-236
+  s_83314e12e884ea::t_432deb2cb6ed05 132-135
+  s_83314e12e884ea::t_5d1bf3539f4b84 1326-1327
+  s_83314e12e884ea::t_cb4bf914b17806 219
+tests/unit/app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.test.ts
+  s_83314e12e884ea::t_ee3e2c1b555659 229-253
+tests/unit/app/components/pdfImagePlacementOverlay.test.ts
+  s_83314e12e884ea::t_2ed932c99defa8 1-30,36-100,102-103
+  s_83314e12e884ea::t_c7c69b9425ff72 31-35
+  s_83314e12e884ea::t_cf062b0deb6b05 101
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement.ts
+  s_83314e12e884ea::t_86eb03ee613006 345-347
+  s_83314e12e884ea::t_4760b04db4a230 366-367,371-376,380-381,387
+  s_83314e12e884ea::t_2db4a9c0d544d9 25-26,342,382-385
+  s_83314e12e884ea::t_1ee89eb41c402f 343,348-365,386,388
+  s_83314e12e884ea::t_73da10a2d48e6f 27
+  s_83314e12e884ea::t_f2ed1ee8434dba 339,368-370,377-379
+  s_83314e12e884ea::t_32101723b0de14 28,161,344
+  s_83314e12e884ea::t_58d7510993c619 341
+tests/unit/app/modules/pdf-viewer/composables/usePdfImagePlacement.test.ts
+  s_83314e12e884ea::t_b7ee040f1a05d4 15,526-538,541-546,548-557,563-567,571-592,594-603,609-640,642-651,657-660,662,664
+  s_83314e12e884ea::t_76069369efe108 539-540,568-570
+  s_83314e12e884ea::t_32101723b0de14 156,197,238,284,336,398,478,547,593,641,737,776
+  s_83314e12e884ea::t_86eb03ee613006 663
+  s_83314e12e884ea::t_c0931009b21ed5 524-525
+  s_83314e12e884ea::t_80a9bd55e5c2d8 685
+  s_83314e12e884ea::t_acfd6a2230af3d 661
+  s_83314e12e884ea::t_643a32e749bf9e 558-562,604-608,652-656
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_83314e12e884ea::t_6c8c32c72dd21e 119
+  s_83314e12e884ea::t_ef5061aab3f916 84
+  s_83314e12e884ea::t_695c182a0ba2d4 116-117,1119-1123,1131
+  s_83314e12e884ea::t_86eb03ee613006 51-54,1124-1130
+  s_83314e12e884ea::t_73da10a2d48e6f 118
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_83314e12e884ea::t_695c182a0ba2d4 607-610
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_83314e12e884ea::t_32101723b0de14 136
+  s_83314e12e884ea::t_695c182a0ba2d4 137,321
+  s_83314e12e884ea::t_4760b04db4a230 17-20
+  s_83314e12e884ea::t_ef5061aab3f916 96,323
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.test.ts
+  s_83314e12e884ea::t_4e3e699ef5d036 8,53-72,104-117
+app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools.ts
+  s_83314e12e884ea::t_55115af2c45d1e 2,18,23,36-37
+  s_83314e12e884ea::t_744134d0e28ef4 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "096cb0b1712c53dff8b27491cc9e19311ab8ef48",
+  "prompts": {},
+  "sessions": {
+    "s_83314e12e884ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-0f2d-7f62-91bc-dbea8514f244",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
