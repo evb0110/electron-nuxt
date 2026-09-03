@@ -1,0 +1,50 @@
+nuxt.config.ts
+  s_b412fd4cd3f576::t_acc04be30082f2 93-107,142
+tests/unit/electron/startupCrashMarker.test.ts
+  s_b412fd4cd3f576::t_865c69d78b07e5 399,403-404,410,413
+tests/unit/app/utils/browserDiagnosticsTransport.test.ts
+  s_b412fd4cd3f576::t_97fe989248895f 8,11,26
+  s_b412fd4cd3f576::t_83b16102d59f4d 1-7,9-10,12-25,27-91
+  s_b412fd4cd3f576::t_8d5c8c509626c7 92-103
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_97fe989248895f 1-2
+  s_b412fd4cd3f576::t_96c0942dd1487e 3-46,64-151,162-197
+  s_b412fd4cd3f576::t_e3c6c9bb68739a 152-161
+  s_b412fd4cd3f576::t_03c8580341fbcb 47-63
+  s_b412fd4cd3f576::t_6ff13f662e3791 198-204
+electron/main.ts
+  s_b412fd4cd3f576::t_4148eac38ace72 73,171-172,178-179,181-225,227-233
+  s_b412fd4cd3f576::t_97fe989248895f 226
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_4148eac38ace72 73,86,377,667-673,675,677-683
+app/plugins/diagnosticsTransport.client.ts
+  s_b412fd4cd3f576::t_4148eac38ace72 1-11,14-16
+  s_b412fd4cd3f576::t_03c8580341fbcb 12-13
+app/utils/browserDiagnosticsTransport.ts
+  s_b412fd4cd3f576::t_03c8580341fbcb 33-49,151-153,165,167-168,172-173
+  s_b412fd4cd3f576::t_96c0942dd1487e 1-32,50-150,174
+  s_b412fd4cd3f576::t_a54801bec49ba6 161-164
+  s_b412fd4cd3f576::t_f9f1f211835c26 154-160,166,169-171
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_ae377372782ecd 95-128
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_97fe989248895f 8,11,26
+  s_b412fd4cd3f576::t_83b16102d59f4d 1-7,9-10,12-25,27-120
+  s_b412fd4cd3f576::t_2a58f591b8ec25 121-129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "503e908a1fea6a1727d4b32320987b2e93cb97de",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
