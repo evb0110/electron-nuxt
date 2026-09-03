@@ -23,6 +23,7 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
+import type {IPdfAppAnnotationHistoryCommand} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 export interface IAnnotationGesture {
     readonly annotationId: AnnotationId;
@@ -134,6 +135,7 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
     emitAnnotationModified?: () => void;
     runHistoryTransaction?: <T>(action: () => T) => T;
+    registerHistoryCommand?: (command: IPdfAppAnnotationHistoryCommand) => void;
     getPageGeometry?: (pageIndex: number) => {
         pageView: number[];
         rotation: 0 | 90 | 180 | 270
@@ -550,7 +552,15 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function createShape(entity: IShapeEntity) {
-        return store().createShape(entity);
+        return (options.runHistoryTransaction ?? ((action: () => IShapeEntity) => action()))(() => {
+            const created = store().createShape(entity);
+            options.registerHistoryCommand?.({
+                cmd: () => store().redo(),
+                undo: () => store().undo(),
+                annotationIds: [created.identity.id],
+            });
+            return created;
+        });
     }
 
     function openNote(annotationId: AnnotationId) {
