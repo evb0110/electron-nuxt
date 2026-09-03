@@ -436,7 +436,7 @@ describe('classifyPdfSaveRoute annotation routes', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.nativeMutationProjection.mutations.freeTextNotes).toEqual([expect.objectContaining({
-            stableKey: 'ann:0:editor:anno_point_note',
+            stableKey: 'anno_point_note',
             text: 'text-anno_point_note',
         })]);
     });

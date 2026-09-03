@@ -139,6 +139,19 @@ describe('native FreeText note builders', () => {
         expect(notes.value).toEqual([expect.objectContaining({stableKey: comment.stableKey})]);
         expect(notes.skipEvents).toEqual([]);
     });
+
+    it('uses the canonical app identity for a new sticky note', () => {
+        const comment = createComment({
+            appAnnotationId: 'anno_sticky_note',
+            id: 'anno_sticky_note',
+            stableKey: 'ann:0:editor:anno_sticky_note',
+            annotationId: null,
+            source: 'editor',
+            subtype: 'Text',
+        });
+
+        expect(toNativeFreeTextNote(comment)).toEqual(expect.objectContaining({stableKey: 'anno_sticky_note'}));
+    });
 });
 
 describe('native note text and delete builders', () => {
