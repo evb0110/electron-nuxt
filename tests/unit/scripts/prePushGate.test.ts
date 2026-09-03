@@ -5,6 +5,8 @@ import {
 } from 'vitest';
 import {
     classifyChangedFiles,
+    createPrePushChildEnvironment,
+    defaultCommandRunner,
     isReleaseCommit,
     parseLatestCiRun,
     parsePushUpdates,
@@ -90,6 +92,38 @@ function pushInput({
 }
 
 describe('pre-push gate', () => {
+    it('does not leak the outer repository identity into child tests', () => {
+        const environment = createPrePushChildEnvironment({
+            GIT_DIR: '/outer/.git',
+            GIT_WORK_TREE: '/outer',
+            GIT_INDEX_FILE: '/outer/.git/index',
+            GIT_PREFIX: 'nested/',
+            PATH: '/usr/bin',
+        });
+
+        expect(environment).toEqual({PATH: '/usr/bin'});
+    });
+
+    it('runs hook children without inherited Git repository controls', () => {
+        const previousGitDirectory = process.env.GIT_DIR;
+        process.env.GIT_DIR = '/outer/.git';
+        try {
+            const result = defaultCommandRunner(process.execPath, [
+                '-e',
+                'process.stdout.write(process.env.GIT_DIR ?? "unset")',
+            ], {capture: true});
+
+            expect(result.status).toBe(0);
+            expect(result.stdout).toBe('unset');
+        } finally {
+            if (previousGitDirectory === undefined) {
+                delete process.env.GIT_DIR;
+            } else {
+                process.env.GIT_DIR = previousGitDirectory;
+            }
+        }
+    });
+
     it('parses one or more Husky push-update lines and rejects malformed ranges', () => {
         expect(parsePushUpdates([
             `refs/heads/main ${LOCAL_SHA} refs/heads/main ${REMOTE_SHA}`,
