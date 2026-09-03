@@ -1,4 +1,5 @@
 import {
+    afterEach,
     describe,
     expect,
     it,
@@ -6,7 +7,10 @@ import {
 } from 'vitest';
 import type {Transport} from '@sentry/core';
 import {requireDiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
-import {createSentryNodeDiagnosticsTransport} from '@electron/features/diagnostics/sentryNodeAdapter';
+import {
+    createSentryNodeDiagnosticsTransport,
+    createSentryNodeDiagnosticsTransportFromEnvironment,
+} from '@electron/features/diagnostics/sentryNodeAdapter';
 
 const RECORD = requireDiagnosticRecord({
     schemaVersion: 1,
@@ -64,6 +68,10 @@ function setup() {
 }
 
 describe('Sentry Node diagnostics adapter', () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
     it('creates no process hooks, queue, or initialization envelope', () => {
         const beforeListeners = process.listeners('beforeExit');
         const uncaughtListeners = process.listeners('uncaughtException');
@@ -113,6 +121,26 @@ describe('Sentry Node diagnostics adapter', () => {
                 appVersion: '0.1.449',
             })).toThrow();
         }
+    });
+
+    it('keeps desktop DSN and release environment reads inside the adapter root', async () => {
+        vi.stubEnv('SENTRY_DESKTOP_DSN', 'https://publickey@o123.ingest.de.sentry.io/456');
+        vi.stubEnv('EVB_SENTRY_RELEASE', 'evb-viewer-desktop@0.1.449');
+        vi.stubEnv('EVB_SENTRY_DIST', 'macos-arm64');
+        vi.stubEnv('EVB_SENTRY_ENVIRONMENT', 'test');
+        const send = vi.fn(() => Promise.resolve({statusCode: 200}));
+        const adapter = createSentryNodeDiagnosticsTransportFromEnvironment({
+            appVersion: '0.1.449',
+            platform: 'darwin',
+            architecture: 'arm64',
+            makeTransport: () => ({
+                send,
+                flush: () => Promise.resolve(true),
+            } as Transport),
+        });
+
+        await expect(adapter.send?.(RECORD)).resolves.toBe(true);
+        expect(send).toHaveBeenCalledOnce();
     });
 
     it('rejects malformed records before transport', () => {
