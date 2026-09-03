@@ -89,7 +89,10 @@ export interface IRendererFailureReporter {
     withSuppressedCapture<T>(callback: () => T): T;
 }
 
-export interface IRendererFailureCaptureOptions {localAlreadyRecorded?: boolean;}
+export interface IRendererFailureCaptureOptions {
+    localAlreadyRecorded?: boolean;
+    runtime?: 'browser-worker-parent';
+}
 
 export const RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = 10_000;
 export const RENDERER_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
@@ -624,12 +627,13 @@ export function createRendererFailureReporter(
     return {
         capture: <C extends DiagnosticCode>(
             input: CaptureFailureInput<C>,
-            captureOptions?: IRendererFailureCaptureOptions,
+            captureOptions: IRendererFailureCaptureOptions = {},
         ) => {
+            const runtime = captureOptions.runtime ?? resolveRuntime(host);
             try {
                 const record = buildClosedRecord(
                     input,
-                    resolveRuntime(host),
+                    runtime,
                     createSafeEventId(createEventId),
                     safeNow(now),
                 );
@@ -637,14 +641,14 @@ export function createRendererFailureReporter(
             } catch {
                 const record = buildClosedRecord(
                     {} as CaptureFailureInput,
-                    resolveRuntime(host),
+                    runtime,
                     createFallbackEventId(),
                     safeNow(now),
                 );
                 return processRecord(record, {
                     source: 'failure-reporter',
                     message: 'Renderer failure reporter fallback',
-                });
+                }, captureOptions);
             }
         },
         captureRecord: (value) => {

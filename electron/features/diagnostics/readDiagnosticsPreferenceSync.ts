@@ -6,15 +6,16 @@ import {
     DEFAULT_SETTINGS,
     sanitizeSettings,
 } from '@contracts/settings';
+import type { ISettingsData } from '@contracts/shared';
 import { isRecord } from '@contracts/runtimeGuards';
 
-function isCompleteSettingsSchemaV2(value: unknown) {
+function isCompleteSettingsSchemaV2(value: unknown): value is ISettingsData {
     if (!isRecord(value) || value.version !== DEFAULT_SETTINGS.version) {
         return false;
     }
 
     const normalized = sanitizeSettings(value);
-    return Object.keys(DEFAULT_SETTINGS).every(key => (
+    return (Object.keys(DEFAULT_SETTINGS) as Array<keyof ISettingsData>).every(key => (
         Object.hasOwn(value, key) && value[key] === normalized[key]
     ));
 }

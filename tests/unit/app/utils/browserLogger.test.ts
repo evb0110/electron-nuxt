@@ -8,14 +8,22 @@ import {
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import type * as FailureReporterModule from '@app/utils/failureReporter';
+import { parseDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
-const EXISTING_RECEIPT = {
-    eventId: '0123456789abcdef0123456789abcdef',
-    code: 'UNCLASSIFIED_RENDERER_ERROR',
-    occurredAt: 1,
-    severity: 'error',
-} as const;
+function createTestReceipt(
+    eventId = '0123456789abcdef0123456789abcdef',
+): FailureReceipt {
+    return {
+        eventId: parseDiagnosticEventId(eventId)!,
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    };
+}
+
+const EXISTING_RECEIPT = createTestReceipt();
 interface IWindowStubOptions {
     logLevel?: string;
     diagnosticWarnAsWarn?: boolean;
@@ -367,12 +375,7 @@ describe('BrowserLogger', () => {
         vi.stubGlobal('window', windowStub);
         spyOnConsole();
         const logger = await importBrowserLogger();
-        const receipt = {
-            eventId: '0123456789abcdef0123456789abcdef',
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
-            occurredAt: 1,
-            severity: 'error',
-        } as const;
+        const receipt = createTestReceipt();
 
         expect(logger.error('section-a', 'existing receipt', {detail: 'kept locally'}, receipt)).toBe(receipt);
         expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
@@ -395,12 +398,7 @@ describe('BrowserLogger', () => {
             initializeRendererFailureReporter,
         }));
         const logger = await importBrowserLogger();
-        const receipt = {
-            eventId: 'fedcba9876543210fedcba9876543210',
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
-            occurredAt: 1,
-            severity: 'error',
-        } as const;
+        const receipt = createTestReceipt('fedcba9876543210fedcba9876543210');
         capture.mockReturnValue(receipt);
 
         expect(logger.error('early-startup', 'Reporter is not ready')).toBe(receipt);

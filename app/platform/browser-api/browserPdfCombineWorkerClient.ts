@@ -16,6 +16,11 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/browserWorkerClient';
 import { getErrorMessage } from '@app/utils/error';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    createRendererFailureReporter,
+    getRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 const BROWSER_PDF_COMBINE_WORKER_IDLE_TTL_MS = 15_000;
 const BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS = 120_000;
@@ -25,6 +30,47 @@ export class BrowserPdfCombineWorkerUnavailableError extends Error {
         super(message);
         this.name = 'BrowserPdfCombineWorkerUnavailableError';
     }
+}
+
+interface IBrowserPdfCombineWorkerFailure extends Error {failure?: FailureReceipt;}
+
+function getWorkerFailureReceipt(error: unknown) {
+    if (!(error instanceof Error)) {
+        return undefined;
+    }
+    return (error as IBrowserPdfCombineWorkerFailure).failure;
+}
+
+function isExpectedWorkerTermination(error: Error) {
+    return error.name === 'AbortError';
+}
+
+function reportWorkerFailure(error: Error) {
+    if (isExpectedWorkerTermination(error)) {
+        return error;
+    }
+    const existingReceipt = getWorkerFailureReceipt(error);
+    if (existingReceipt) {
+        return error;
+    }
+
+    const reporter = getRendererFailureReporter() ?? createRendererFailureReporter();
+    const receipt = reporter.capture({
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        context: {},
+        local: {
+            source: 'browser-pdf-combine-worker-parent',
+            message: error.message,
+            cause: error,
+        },
+    }, {runtime: 'browser-worker-parent'});
+    if (receipt) {
+        Object.defineProperty(error, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+    }
+    return error;
 }
 
 function buildWorkerRequestWithTransfers(
@@ -102,14 +148,14 @@ const browserPdfCombineWorkerClient = new BrowserWorkerClient<IPendingBrowserWor
                 { type: 'module' },
             );
         } catch (error) {
-            throw new BrowserPdfCombineWorkerUnavailableError(
+            throw reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
                 getErrorMessage(error),
-            );
+            ));
         }
     },
-    createError: event => new BrowserPdfCombineWorkerUnavailableError(
+    createError: event => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
         event.error instanceof Error ? event.error.message : event.message,
-    ),
+    )),
     handleMessage: (pendingRequests, response, onSettled) => settleBrowserWorkerResult(
         pendingRequests,
         response,
@@ -159,11 +205,11 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
             },
             reject: (error) => {
                 signal?.removeEventListener('abort', abort);
-                reject(error);
+                reject(reportWorkerFailure(error));
             },
-        }, () => new BrowserPdfCombineWorkerUnavailableError(
+        }, () => reportWorkerFailure(new BrowserPdfCombineWorkerUnavailableError(
             `Browser PDF combine worker request timed out after ${BROWSER_PDF_COMBINE_WORKER_REQUEST_TIMEOUT_MS}ms`,
-        ));
+        )));
         signal?.addEventListener('abort', abort, {once: true});
 
         try {
@@ -174,7 +220,7 @@ export async function runBrowserPdfCombineWorkerRequest<K extends TBrowserPdfCom
         } catch (error) {
             browserPdfCombineWorkerClient.cancelPendingRequest(
                 request.id,
-                error instanceof Error ? error : new Error(String(error)),
+                reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
             );
         }
     });

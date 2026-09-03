@@ -6,6 +6,16 @@ import {
     vi,
 } from 'vitest';
 
+const failureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
+const failureReporter = {capture: vi.fn(() => failureReceipt)};
+
+vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
     public static responder: ((worker: FakeWorker, request: {
@@ -19,6 +29,7 @@ class FakeWorker {
     }> = [];
 
     private readonly messageHandlers = new Set<(event: MessageEvent) => void>();
+    private readonly errorHandlers = new Set<(event: ErrorEvent) => void>();
 
     public constructor(
         _scriptUrl: string | URL,
@@ -32,6 +43,9 @@ class FakeWorker {
         handler: EventListenerOrEventListenerObject | null,
     ) {
         if (type !== 'message' || typeof handler !== 'function') {
+            if (type === 'error' && typeof handler === 'function') {
+                this.errorHandlers.add(handler as (event: ErrorEvent) => void);
+            }
             return;
         }
         this.messageHandlers.add(handler as (event: MessageEvent) => void);
@@ -42,6 +56,9 @@ class FakeWorker {
         handler: EventListenerOrEventListenerObject | null,
     ) {
         if (type !== 'message' || typeof handler !== 'function') {
+            if (type === 'error' && typeof handler === 'function') {
+                this.errorHandlers.delete(handler as (event: ErrorEvent) => void);
+            }
             return;
         }
         this.messageHandlers.delete(handler as (event: MessageEvent) => void);
@@ -89,6 +106,14 @@ class FakeWorker {
         this.messageHandlers.forEach((handler) => handler(event));
     }
 
+    public dispatchError(error: Error) {
+        const event = {
+            error,
+            message: error.message,
+        } as ErrorEvent;
+        this.errorHandlers.forEach((handler) => handler(event));
+    }
+
     public dispatchEvent(_event: Event) {
         return false;
     }
@@ -103,6 +128,7 @@ describe('browserPdfCombineWorkerClient', () => {
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
         FakeWorker.responder = null;
+        failureReporter.capture.mockClear();
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
     });
@@ -267,6 +293,41 @@ describe('browserPdfCombineWorkerClient', () => {
 
         await vi.advanceTimersByTimeAsync(15_000);
         expect(terminateSpy).toHaveBeenCalledTimes(1);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
+    });
+
+    it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
+        FakeWorker.responder = () => undefined;
+        const {
+            cloneCombineWorkerInput,
+            runBrowserPdfCombineWorkerRequest,
+        } = await import(
+            '@app/platform/browser-api/browserPdfCombineWorkerClient'
+        );
+        const request = runBrowserPdfCombineWorkerRequest('combinePdfs', {inputs: [cloneCombineWorkerInput('first.pdf', new Uint8Array([1]))]});
+        const worker = FakeWorker.lastInstance;
+        if (!worker) {
+            throw new Error('Expected a browser PDF combine worker');
+        }
+
+        worker.dispatchError(new Error('combine worker crashed'));
+        const error = await request.then(
+            () => { throw new Error('Expected a worker failure'); },
+            value => {
+                if (!(value instanceof Error)) {
+                    throw new Error('Expected a worker failure');
+                }
+                return value as Error & {failure?: unknown};
+            },
+        );
+
+        expect(failureReporter.capture).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).toHaveBeenCalledWith(
+            expect.objectContaining({local: expect.objectContaining({source: 'browser-pdf-combine-worker-parent'})}),
+            {runtime: 'browser-worker-parent'},
+        );
+        expect(error.failure).toBe(failureReceipt);
+        expect({failure: error.failure}.failure).toBe(failureReceipt);
     });
 
     it('terminates active work when the request is aborted', async () => {
@@ -283,5 +344,6 @@ describe('browserPdfCombineWorkerClient', () => {
 
         await expect(pending).rejects.toMatchObject({name: 'AbortError'});
         expect(terminateSpy).toHaveBeenCalled();
+        expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 });

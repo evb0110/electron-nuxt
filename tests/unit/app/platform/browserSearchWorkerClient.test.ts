@@ -6,6 +6,16 @@ import {
     vi,
 } from 'vitest';
 
+const failureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
+const failureReporter = {capture: vi.fn(() => failureReceipt)};
+
+vi.mock('@app/utils/failureReporter', () => ({getRendererFailureReporter: () => failureReporter}));
+
 class FakeWorker {
     public static lastInstance: FakeWorker | null = null;
     public static responder: ((worker: FakeWorker, request: {
@@ -110,6 +120,14 @@ class FakeWorker {
         this.messageHandlers.forEach((handler) => handler(event));
     }
 
+    public dispatchError(error: Error) {
+        const event = {
+            error,
+            message: error.message,
+        } as ErrorEvent;
+        this.errorHandlers.forEach((handler) => handler(event));
+    }
+
     public dispatchEvent(_event: Event) {
         return false;
     }
@@ -123,6 +141,7 @@ describe('browserSearchWorkerClient', () => {
         vi.useRealTimers();
         FakeWorker.lastInstance = null;
         FakeWorker.responder = null;
+        failureReporter.capture.mockClear();
         vi.unstubAllGlobals();
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
@@ -319,6 +338,39 @@ describe('browserSearchWorkerClient', () => {
             .rejects.toThrow('Browser search worker returned an invalid result');
     });
 
+    it('owns an unexpected worker failure and carries one receipt through rejection', async () => {
+        FakeWorker.responder = () => {};
+        const {createBrowserSearchWorkerRequest} = await import('@app/platform/browser-api/browserSearchWorkerClient');
+        const request = createBrowserSearchWorkerRequest(
+            'extractDocumentText',
+            {pdfPath: '/tmp/failing.pdf'},
+        );
+        const worker = FakeWorker.lastInstance;
+        if (!worker) {
+            throw new Error('Expected a browser search worker');
+        }
+
+        worker.dispatchError(new Error('search worker crashed'));
+        const error = await request.promise.then(
+            () => { throw new Error('Expected a worker failure'); },
+            value => {
+                if (!(value instanceof Error)) {
+                    throw new Error('Expected a worker failure');
+                }
+                return value as Error & {failure?: unknown};
+            },
+        );
+
+        expect(failureReporter.capture).toHaveBeenCalledOnce();
+        expect(failureReporter.capture).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {},
+            local: expect.objectContaining({source: 'browser-search-worker-parent'}),
+        }), {runtime: 'browser-worker-parent'});
+        expect(error.failure).toBe(failureReceipt);
+        expect({failure: error.failure}.failure).toBe(failureReceipt);
+    });
+
     it('rejects a million-page legacy array response before copying it', async () => {
         FakeWorker.responder = (worker, request) => {
             queueMicrotask(() => {
@@ -356,6 +408,7 @@ describe('browserSearchWorkerClient', () => {
 
         cancelBrowserSearchWorkerRequest(workerRequest.requestId);
         await rejection;
+        expect(failureReporter.capture).not.toHaveBeenCalled();
 
         const postMessages = FakeWorker.lastInstance?.postMessageCalls ?? [];
         expect(postMessages).toHaveLength(2);
@@ -432,5 +485,6 @@ describe('browserSearchWorkerClient', () => {
 
         await vi.advanceTimersByTimeAsync(15_000);
         expect(terminateSpy).toHaveBeenCalledTimes(terminateCallsBeforeIdleTtl + 1);
+        expect(failureReporter.capture).not.toHaveBeenCalled();
     });
 });
