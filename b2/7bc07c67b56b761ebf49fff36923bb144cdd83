@@ -1,0 +1,23 @@
+tests/unit/app/modules/workspace-shell/composables/useWorkspacePrint.test.ts
+  s_b412fd4cd3f576::t_ef53a2866eda2b 1029
+  s_b412fd4cd3f576::t_3fefd8b1e63e7f 820,2026
+app/modules/workspace-shell/composables/useWorkspacePrint.ts
+  s_b412fd4cd3f576::t_3fefd8b1e63e7f 93-96,989-999
+  s_b412fd4cd3f576::t_ef53a2866eda2b 988
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b27bc07c67b56b761ebf49fff36923bb144cdd83",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
