@@ -1,0 +1,92 @@
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_37a0a64d768509 71-98,287-316,352-369,406-522
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_854813a47915a2 227-228,233-245,320-332
+  s_5e1de6d1cc8bf6::t_0bd0834c9701a1 333-334
+app/composables/useOcr.ts
+  s_b412fd4cd3f576::t_08a3d6b683a42a 475,480-496,563,565-572,574-577
+app/modules/native-pdf-viewer/components/NativePdfViewer.vue
+  s_b412fd4cd3f576::t_380b70203d5f7b 1204-1206,1249-1251
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_b412fd4cd3f576::t_39f9316d1c188f 536
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_b412fd4cd3f576::t_07faa52d65820e 774-777
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformWordBox.ts
+  s_b412fd4cd3f576::t_8fa05f3cfe92a3 14,56
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_b412fd4cd3f576::t_dd1260923a096b 348
+app/modules/pdf-viewer/engine/pdf-document-source/pdfjsDocumentTeardownCoordinator.ts
+  s_b412fd4cd3f576::t_00027eacd934da 37
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts
+  s_b412fd4cd3f576::t_a94d1a288fda6f 233-235
+app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery.ts
+  s_b412fd4cd3f576::t_7ba63273aa7d6d 228-231,255-258
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_b412fd4cd3f576::t_8fed25403b2685 291-294
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController.ts
+  s_b412fd4cd3f576::t_0520dd14c88c0b 54-57,76-79
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_d6f5bc01934a47 1120
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_b412fd4cd3f576::t_71e50ba271839c 10,197-200,221-238,618,656-667,788,806
+app/platform/lazyBrowserPlatformApi.ts
+  s_b412fd4cd3f576::t_f4a0d60f1e989e 149-152
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_5424d2c7b86ced 155-160,162-163,207,235,257
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_4280bb20b4459b 54-74,86,151-153
+app/utils/asyncGuard.ts
+  s_b412fd4cd3f576::t_dd5fe098d18c29 70-77,81-83
+app/utils/browserLogger.ts
+  s_b412fd4cd3f576::t_bc80e915ebe722 3-11,21-25,174-177,372,376,378-384,386-391,393-412
+docs/architecture/unclassified-renderer-error-migration-report-2026-09-03.md
+  s_b412fd4cd3f576::t_f4d1a2b9e5f68b 3,6-8,10-26,30-34,36-37,39-42,44-49,71-79
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_bb6195caf133cb 46-50,249-263
+electron/main.ts
+  s_b412fd4cd3f576::t_0c11a8bc065ee8 191-192
+tests/unit/app/composables/useOcr.test.ts
+  s_b412fd4cd3f576::t_942c91bd768b1e 28-31,63-68,710-743,799-804
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_b412fd4cd3f576::t_3c62ce08820d24 30,53,427
+tests/unit/app/modules/pdf-viewer/engine/pdfDocumentSource.test.ts
+  s_b412fd4cd3f576::t_20157531a1f45d 36
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_b412fd4cd3f576::t_0baa02d478e379 19-24,88,642-645,668-671,721-722,726-729,731-732,736
+tests/unit/app/platform/lazyBrowserPlatformApi.test.ts
+  s_b412fd4cd3f576::t_10734e173fc7a9 104-107
+tests/unit/app/plugins/rendererHygienePlugins.test.ts
+  s_b412fd4cd3f576::t_ffd2881a90b306 222-230
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_b412fd4cd3f576::t_68c068d510da4b 134-171,185-191
+tests/unit/app/utils/asyncGuard.test.ts
+  s_b412fd4cd3f576::t_5ad433c502e5dc 38-40,62-64,86-87,115-123
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_156bcc554ca0c5 371-426
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_14285b0e65d703 2,10-13,71-74,126-145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "db91baef5d8fe5d074f16be047f5dadb6761e124",
+  "prompts": {},
+  "sessions": {
+    "s_5e1de6d1cc8bf6": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a067b4-d04f-7b31-b0be-c28b48091b4e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
