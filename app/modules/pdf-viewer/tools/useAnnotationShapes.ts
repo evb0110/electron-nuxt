@@ -114,7 +114,10 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
                 ...shape,
                 source: 'embedded' as const,
             }
-            : shape;
+            : {
+                ...shape,
+                source: 'local' as const,
+            };
     }
 
     const liveShapes = computed(() => shapeEntities.value
@@ -122,7 +125,7 @@ export const useAnnotationShapes = ({annotationApplication}: IUseAnnotationShape
         .map(projectShape));
     const tombstones = computed(() => shapeEntities.value
         .filter(entity => entity.deleted)
-        .filter(entity => entity.identity.pdfRef !== undefined)
+        .filter(entity => entity.identity.pdfRef !== undefined || entity.materialized === true)
         .map(projectShape));
 
     const shapesByPage = computed(() => {

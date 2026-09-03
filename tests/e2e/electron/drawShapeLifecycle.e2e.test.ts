@@ -48,6 +48,7 @@ interface IManagedShapeDebugShape {
     annotationId?: string | null;
     height?: number;
     id: string;
+    pageIndex?: number;
     points?: Array<{
         x: number;
         y: number;
@@ -63,20 +64,6 @@ interface IManagedShapeDebugShape {
     width?: number;
     x?: number;
     y?: number;
-}
-
-async function enableDebugBrowserLogging(page: Page) {
-    await page.evaluate(() => {
-        window.localStorage.setItem('evb-viewer:log-level', 'debug');
-    });
-    await page.reload({ waitUntil: 'domcontentloaded' });
-    await waitForFunctionInPage(page, () => {
-        const nuxtRoot = document.querySelector('#__nuxt');
-        const hasNuxt = Boolean(nuxtRoot && nuxtRoot.children.length > 0);
-        const hasOpenFile = typeof (window as IE2EWindow & { __openFileDirect?: unknown }).__openFileDirect === 'function';
-        const hasElectronApi = typeof (window as IE2EWindow & { electronAPI?: unknown }).electronAPI === 'object';
-        return hasNuxt && hasOpenFile && hasElectronApi;
-    }, { timeout: 30_000 });
 }
 
 async function enableBufferedPdfRenderTrace(page: Page) {
@@ -293,7 +280,7 @@ async function dragInkStrokeWithMouse(
         return Boolean(overlay);
     }, { timeout: 10_000 }, pageNumber);
 
-    const clientPoints = await evaluateInPage(page, ({
+    const clientPoints = await evaluateInPage(page, async ({
         targetPageNumber,
         ratios,
     }: {
@@ -319,6 +306,26 @@ async function dragInkStrokeWithMouse(
             return null;
         }
 
+        const pageContainer = overlay.closest<HTMLElement>('.page_container');
+        pageContainer?.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+        const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+        if (pageContainer && scrollViewport && host) {
+            const pageRect = overlay.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const visibleTop = Math.max(hostRect.top, 24);
+            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+            if (visibleBottom > visibleTop) {
+                const targetY = pageRect.top + pageRect.height * (ratios[0]?.y ?? 0.5);
+                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
+                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            }
+        }
+
         const rect = overlay.getBoundingClientRect();
         if (rect.width <= 0 || rect.height <= 0) {
             return null;
@@ -337,34 +344,6 @@ async function dragInkStrokeWithMouse(
         throw new Error('Unable to resolve client points for mouse ink stroke');
     }
 
-    const targetDiagnostics = await evaluateInPage(page, ({
-        targetPageNumber,
-        point,
-    }) => {
-        const layer = document.querySelector<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`,
-        );
-        if (!layer) {
-            return null;
-        }
-        const rect = layer.getBoundingClientRect();
-        const clientX = rect.left + rect.width * point.x;
-        const clientY = rect.top + rect.height * point.y;
-        return {
-            className: layer.className,
-            pointerEvents: window.getComputedStyle(layer).pointerEvents,
-            activeTool: document.querySelector<HTMLElement>('.notes-panel .tool-button.is-active')?.dataset.tool ?? null,
-            elementStack: document.elementsFromPoint(clientX, clientY).slice(0, 8).map(element => ({
-                tag: element.tagName,
-                className: typeof element.className === 'string' ? element.className : '',
-            })),
-        };
-    }, {
-        targetPageNumber: pageNumber,
-        point: points[0]!,
-    });
-    console.info(`DRAW_TARGET_DIAGNOSTICS ${JSON.stringify(targetDiagnostics)}`);
-
     const start = clientPoints[0]!;
     await page.mouse.move(start.clientX, start.clientY);
     await page.mouse.down();
@@ -374,14 +353,12 @@ async function dragInkStrokeWithMouse(
     const end = clientPoints[clientPoints.length - 1]!;
     await page.mouse.move(end.clientX, end.clientY);
     await page.mouse.up();
-    const postGestureState = await getManagedShapeDebugState(page);
-    console.info(`DRAW_POST_GESTURE_STATE ${JSON.stringify(postGestureState)}`);
 }
 
 async function clickPagePoint(page: Page, point: {
     x: number;
     y: number;
-}, pageNumber = 1) {
+}, pageNumber = 1, button: 'left' | 'right' = 'left') {
     await clickAnnotationTool(page, 'Select');
     await waitForViewerInteractive(page);
     await waitForFunctionInPage(page, (targetPageNumber: number) => {
@@ -400,7 +377,7 @@ async function clickPagePoint(page: Page, point: {
         return Boolean(overlay);
     }, { timeout: 10_000 }, pageNumber);
 
-    const targetPoint = await evaluateInPage(page, ({
+    const targetPoint = await evaluateInPage(page, async ({
         targetPageNumber,
         ratioX,
         ratioY,
@@ -423,6 +400,26 @@ async function clickPagePoint(page: Page, point: {
         const overlay = host?.querySelector<SVGElement>(`.page_container[data-page="${targetPageNumber}"] .pdf-annotation-editor-layer`) ?? null;
         if (!overlay) {
             return null;
+        }
+
+        const pageContainer = overlay.closest<HTMLElement>('.page_container');
+        pageContainer?.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+
+        const scrollViewport = overlay.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+        if (pageContainer && scrollViewport && host) {
+            const pageRect = overlay.getBoundingClientRect();
+            const hostRect = host.getBoundingClientRect();
+            const visibleTop = Math.max(hostRect.top, 24);
+            const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+            if (visibleBottom > visibleTop) {
+                const targetY = pageRect.top + pageRect.height * ratioY;
+                scrollViewport.scrollTop += targetY - ((visibleTop + visibleBottom) / 2);
+                await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+            }
         }
 
         const rect = overlay.getBoundingClientRect();
@@ -448,8 +445,7 @@ async function clickPagePoint(page: Page, point: {
     }
 
     await page.mouse.move(targetPoint.clientX, targetPoint.clientY);
-    await page.mouse.down();
-    await page.mouse.up();
+    await page.mouse.click(targetPoint.clientX, targetPoint.clientY, {button});
 }
 
 async function waitForNoVisibleInkAtPoints(page: Page, points: ReadonlyArray<{
@@ -860,6 +856,8 @@ async function getManagedShapeDebugState(page: Page) {
             return {
                 hasWorkspace: Boolean(host),
                 domShapeCount: host?.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]').length ?? 0,
+                domShapeIds: Array.from(host?.querySelectorAll<SVGGElement>('.pdf-annotation-editor-layer g[data-annotation-kind="shape"][data-annotation-id]') ?? [])
+                    .map(shape => shape.getAttribute('data-annotation-id')),
             };
         }),
         callWorkspaceCommand<IManagedShapeDebugShape[]>(page, 'getAllShapes'),
@@ -886,6 +884,7 @@ async function getManagedShapeDebugState(page: Page) {
         selectedShapeId: viewerState.selectedShapeId ?? null,
         shapes: shapes.map(shape => ({
             id: shape.id,
+            pageIndex: shape.pageIndex ?? null,
             type: shape.type ?? null,
             x: shape.x ?? null,
             y: shape.y ?? null,
@@ -2075,7 +2074,7 @@ async function deleteScenarioShape(
         throw new Error(`Scenario references missing shape ${step.shapeIndex}: ${scenario.name}`);
     }
 
-    await clickPagePoint(page, shape.hit);
+    await clickPagePoint(page, shape.hit, 1, step.via === 'popup' ? 'right' : 'left');
     await waitForShapeSelectionUi(page);
     const stateAfterClick = await getManagedShapeDebugState(page);
     if (step.via === 'popup') {
@@ -2182,7 +2181,6 @@ describe('Electron E2E - Draw Shape Lifecycle', () => {
         const session = await sessionFixture.start({sessionName: () => `e2e-draw-shapes-${Date.now()}`});
         if (session?.page) {
             rendererErrorTracker = createRendererErrorTracker(session.page);
-            await enableDebugBrowserLogging(session.page);
         }
         return session;
     };

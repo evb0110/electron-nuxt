@@ -74,7 +74,12 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
+        const shouldTransferPendingCommands = sink !== null && workspaceCommandSink === null;
         workspaceCommandSink = sink;
+        if (shouldTransferPendingCommands) {
+            const pendingCommands = [...undoStack];
+            pendingCommands.forEach(pushCommand);
+        }
         undoStack.length = 0;
         redoStack.length = 0;
         syncDepths();

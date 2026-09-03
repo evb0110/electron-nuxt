@@ -259,7 +259,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             );
             if (viewerTargetChanged) {
                 previous?.setCommandSink?.(null);
-                workspaceCommandSink.reset('annotation');
             }
             current.setCommandSink?.(workspaceCommandSink);
         },

@@ -171,7 +171,9 @@ export function resolveAnnotationSnapshotDocumentIdentity(
 ) {
     return input.originalPath
         ? `source:${input.originalPath}`
-        : resolveAnnotationStoreDocumentIdentity(input);
+        : input.workingCopyPath
+            ? `path:${input.workingCopyPath}`
+            : annotationDocumentKey(input.source);
 }
 
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
@@ -335,7 +337,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         const replacesLoadedDocument = lastLoadedPdfDocument !== null;
         lastLoadedPdfDocument = document;
-        if (!replacesLoadedDocument) {
+        if (!replacesLoadedDocument || options.isAnySaving.value) {
             return;
         }
         appAnnotationHistory.clear();
@@ -412,7 +414,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
         runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
-        registerHistoryCommand: command => appAnnotationHistory.registerExecutorCommand(command),
+        emitShapeContextMenu: options.emitShapeContextMenu,
         getPageGeometry: pageIndex => {
             const metric = documentSession.pageMetrics.value[pageIndex];
             if (!metric) {
@@ -1065,21 +1067,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     watch(() => [
         options.src.value,
         options.workingCopyPath.value,
-    ] as const, ([
-        next,
-        nextDocumentKey,
-    ], [
-        previous,
-        previousDocumentKey,
-    ]) => {
+    ] as const, ([next], [previous]) => {
         if (next === previous) {
             return;
-        }
-        if (
-            !options.isAnySaving.value
-            && nextDocumentKey !== previousDocumentKey
-        ) {
-            appAnnotationHistory.clear();
         }
         options.clearPendingImagePlacement();
         handleSourceChanged(next, previous);

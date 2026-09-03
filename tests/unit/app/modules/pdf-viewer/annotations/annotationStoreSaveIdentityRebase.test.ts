@@ -14,7 +14,10 @@ import type {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IPdfAppAnnotationHistoryCommand} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 import {LocalAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
-import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {
+    asAnnotationId,
+    toLegacyShapeAnnotation,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {estimateRetainedAnnotationBytes} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/estimateAnnotationSnapshotBytes';
 
 function stickyNote(id: string, _legacyEditorId: string): INoteEntity {
@@ -92,6 +95,44 @@ function persistedShape(id: string, pdfRef: string, x: number): IShapeEntity {
     };
 }
 
+function authoredShape(id: string, x: number): IShapeEntity {
+    const shape = persistedShape(id, '', x);
+    const {
+        pdfRef: _pdfRef,
+        ...identity
+    } = shape.identity;
+    return {
+        ...shape,
+        identity,
+        persistedRevision: -1,
+    };
+}
+
+function authoredLine(id: string): IShapeEntity {
+    const line = persistedShape(id, '', 0.18);
+    return {
+        ...line,
+        tool: 'line',
+        rect: {
+            left: 0.18,
+            top: 0.22,
+            width: 0.48,
+            height: 0.26,
+        },
+        points: [
+            {
+                x: 0.18,
+                y: 0.22,
+            },
+            {
+                x: 0.66,
+                y: 0.48,
+            },
+        ],
+        persistedRevision: -1,
+    };
+}
+
 /** Records the commands the store registers so retained-size claims stay checkable. */
 function createRecordingHistoryAuthority() {
     const local = new LocalAnnotationHistoryAuthority();
@@ -125,6 +166,106 @@ function importEntity(store: AnnotationStore, entity: ITextMarkupEntity | IShape
 }
 
 describe('AnnotationStore save identity rebase', () => {
+    it('rebases a unique persisted semantic match onto the existing command identity', () => {
+        const store = new AnnotationStore();
+        const authored = authoredShape('authored-shape', 0.1);
+        store.createShape(authored);
+        store.markPersisted(store.beginSave());
+
+        store.replaceFromDocument([persistedShape('parser-shape', '19R', 0.1)], []);
+
+        expect(store.get(authored.identity.id)).toMatchObject({
+            identity: {
+                id: authored.identity.id,
+                pdfRef: '19R',
+            },
+            persistedRevision: 0,
+        });
+        expect(store.get(asAnnotationId('parser-shape'))).toBeNull();
+        expect(store.undo()).toBe(true);
+        expect(store.get(authored.identity.id)).toMatchObject({deleted: true});
+    });
+
+    it('refuses an ambiguous semantic match and retires neither identity by guess', () => {
+        const store = new AnnotationStore();
+        const first = authoredShape('first-identical-shape', 0.1);
+        const second = authoredShape('second-identical-shape', 0.1);
+        store.createShape(first);
+        store.createShape(second);
+        store.markPersisted(store.beginSave());
+
+        store.replaceFromDocument([persistedShape('parser-identical-shape', '20R', 0.1)], []);
+
+        expect(store.get(first.identity.id)).toBeNull();
+        expect(store.get(second.identity.id)).toBeNull();
+        expect(store.get(asAnnotationId('parser-identical-shape'))).toMatchObject({identity: {pdfRef: '20R'}});
+    });
+
+    it('matches a saved line when the parser omits rect-derived endpoints', () => {
+        const store = new AnnotationStore();
+        const authored = authoredLine('authored-line');
+        store.createShape(authored);
+        store.markPersisted(store.beginSave());
+
+        const {
+            points: _parsedPoints,
+            ...parsedLine
+        } = authored;
+        store.replaceFromDocument([{
+            ...parsedLine,
+            identity: {
+                id: asAnnotationId('parser-line'),
+                pdfRef: '21R',
+            },
+        }], []);
+
+        expect(store.get(authored.identity.id)).toMatchObject({
+            identity: {
+                id: authored.identity.id,
+                pdfRef: '21R',
+            },
+            persistedRevision: 0,
+        });
+        expect(store.get(asAnnotationId('parser-line'))).toBeNull();
+        expect(store.undo()).toBe(true);
+        expect(store.get(authored.identity.id)).toMatchObject({deleted: true});
+    });
+
+    it('matches a saved line when the parser reverses its endpoint direction', () => {
+        const store = new AnnotationStore();
+        const authored = authoredLine('authored-reversed-line');
+        store.createShape(authored);
+        store.markPersisted(store.beginSave());
+
+        store.replaceFromDocument([{
+            ...authored,
+            identity: {
+                id: asAnnotationId('parser-reversed-line'),
+                pdfRef: '22R',
+            },
+            points: [
+                authored.points![1]!,
+                authored.points![0]!,
+            ],
+        }], []);
+
+        expect(store.get(authored.identity.id)).toMatchObject({identity: {
+            id: authored.identity.id,
+            pdfRef: '22R',
+        }});
+        expect(store.get(asAnnotationId('parser-reversed-line'))).toBeNull();
+    });
+
+    it('projects a canonical shape with a native-parser-compatible stable key', () => {
+        const shape = authoredShape('draw-shape', 0.2);
+
+        expect(toLegacyShapeAnnotation(shape).stableKey).toBe('evb-shape:draw-shape');
+        expect(toLegacyShapeAnnotation({
+            ...shape,
+            identity: {id: asAnnotationId('evb-shape:existing')},
+        }).stableKey).toBe('evb-shape:existing');
+    });
+
     it('keeps the acknowledged persistence identity through undo and redo of an edit', () => {
         const store = new AnnotationStore();
         const note = stickyNote('edited-note', 'edited-editor');
