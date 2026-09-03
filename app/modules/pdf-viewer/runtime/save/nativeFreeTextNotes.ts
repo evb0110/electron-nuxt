@@ -27,7 +27,12 @@ export function isReplayableCanonicalStickyNote(comment: IAnnotationCommentSumma
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
-    const stableKey = comment.stableKey?.trim();
+    const canonicalIdentity = comment.appAnnotationId?.trim();
+    const stableKey = (
+        isReplayableCanonicalStickyNote(comment) && canonicalIdentity
+            ? canonicalIdentity
+            : comment.stableKey
+    )?.trim();
     const pageIndex = parsePageIndex(comment.pageIndex);
     if (!markerRect || !stableKey || pageIndex === null) {
         return null;
