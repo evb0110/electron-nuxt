@@ -1,0 +1,52 @@
+app/pages/electron.vue
+  s_b412fd4cd3f576::t_e1cfaf74145d16 29-36,47-54
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 12
+electron/window/rendererReady.ts
+  s_b412fd4cd3f576::t_c577e6212ff7c2 8,16,21,23-26,37,73-77,79,99,106,119,125-127
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 15
+  s_b412fd4cd3f576::t_79d6294dfc7b2d 128
+electron/window/attachShowLifecycle.ts
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 272
+  s_b412fd4cd3f576::t_156ef9fbb66da5 4
+  s_b412fd4cd3f576::t_73b9ac7051dc08 59,238-239,255,271
+electron/window.ts
+  s_b412fd4cd3f576::t_d665948aa66732 84-92,94-104,107-129
+  s_b412fd4cd3f576::t_9c3c2bbff82014 410-411,414,422-424,426-427,429-459,478-481
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 93,105-106,425,428,484-486
+  s_b412fd4cd3f576::t_befe78bf263ee8 18-21,36
+app/app.vue
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 134
+  s_b412fd4cd3f576::t_9d5ed56d96bb37 8
+  s_b412fd4cd3f576::t_ec4cfd369648a1 490-498,518-522,525
+tests/unit/electron/window.test.ts
+  s_b412fd4cd3f576::t_d123602c583698 631
+  s_b412fd4cd3f576::t_cb10318171b782 499,503-528,530,532-534
+  s_b412fd4cd3f576::t_7f5ff62941265c 464,468-492,494-498,535-564,588-593,595-606,608-617,619-630,632-637
+  s_b412fd4cd3f576::t_d035b542d12168 594
+  s_b412fd4cd3f576::t_0241312a6746cf 465-467,493,500-502,529
+  s_b412fd4cd3f576::t_0d259a9892503c 531,607
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 565-587
+  s_b412fd4cd3f576::t_5e9526a1bb06a0 618
+tests/unit/app/utils/rendererBootstrapFailure.test.ts
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 10,41
+  s_b412fd4cd3f576::t_7f5ff62941265c 1-9,11-40,42-55,57-68
+  s_b412fd4cd3f576::t_da9b82f6418df5 56
+app/utils/getOrCaptureRendererBootstrapFailure.ts
+  s_b412fd4cd3f576::t_d3c1e6f7d582fd 1-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b2fc7c801c65019f25a50f2f6a92bf611c8a56a3",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
