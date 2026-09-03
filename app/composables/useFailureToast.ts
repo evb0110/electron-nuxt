@@ -1,8 +1,12 @@
-import type {ToastProps} from '@nuxt/ui';
 import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
-export type TFailurePresentationAction = NonNullable<ToastProps['actions']>[number];
+export interface IFailureToastAction {
+    label: string;
+    color?: 'neutral' | 'primary';
+    variant?: 'outline' | 'soft';
+    onClick: () => void;
+}
 
 // The public name is pinned by SEN-CORE-06 and intentionally differs from the
 // repository's usual interface naming convention during this migration.
@@ -10,14 +14,14 @@ export type TFailurePresentationAction = NonNullable<ToastProps['actions']>[numb
 export interface FailurePresentation extends IPresentedFailureCapture {
     title: string;
     description?: string;
-    actions?: TFailurePresentationAction[];
+    actions?: IFailureToastAction[];
 }
 
 export interface IFailureToastTarget {add: (options: {
     color: 'error';
     title: string;
     description: string;
-    actions: TFailurePresentationAction[];
+    actions: IFailureToastAction[];
 }) => unknown}
 
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
