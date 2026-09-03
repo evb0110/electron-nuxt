@@ -624,6 +624,112 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+/**
+ * Creates the deterministic text used by the EVB text-markup acceptance
+ * tests. Each page has three separate renderer text runs so a selection can
+ * prove line geometry and page splitting without depending on a bundled PDF.
+ */
+export async function createTextMarkupAcceptanceFixturePdf(filename: string, pageCount = 2) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const document = await PDFDocument.create();
+    const font = await document.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = document.addPage([
+            612,
+            792,
+        ]);
+        [
+            {
+                label: 'Markup page',
+                y: 700,
+            },
+            {
+                label: 'second line',
+                y: 660,
+            },
+            {
+                label: 'third line',
+                y: 620,
+            },
+        ].forEach(({
+            label,
+            y,
+        }) => {
+            page.drawText(`${label} ${pageNumber}`, {
+                x: 72,
+                y,
+                size: 20,
+                font,
+                color: rgb(0.13, 0.13, 0.13),
+            });
+        });
+    }
+
+    writeFileSync(filePath, await document.save());
+    return filePath;
+}
+
+/**
+ * Creates an externally authored Highlight whose quad is on blank page
+ * space. The parser should retain it as a normal store-owned text markup,
+ * while derived selected text remains absent.
+ */
+export async function createForeignHighlightNoTextFixturePdf(filename: string) {
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const document = await PDFDocument.create();
+    const page = document.addPage([
+        612,
+        792,
+    ]);
+    const font = await document.embedFont(StandardFonts.Helvetica);
+    page.drawText('Foreign highlight fixture text is elsewhere', {
+        x: 72,
+        y: 700,
+        size: 20,
+        font,
+        color: rgb(0.13, 0.13, 0.13),
+    });
+
+    const annotation = document.context.register(document.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Highlight'),
+        P: page.ref,
+        F: PDFNumber.of(4),
+        M: PDFString.of('D:20260902000000Z'),
+        NM: PDFHexString.fromText('foreign-highlight-without-text'),
+        Rect: [
+            420,
+            100,
+            500,
+            116,
+        ],
+        QuadPoints: [
+            420,
+            116,
+            500,
+            116,
+            420,
+            100,
+            500,
+            100,
+        ],
+        C: [
+            1,
+            0.8,
+            0,
+        ],
+        CA: PDFNumber.of(0.45),
+        Contents: PDFString.of(''),
+    }));
+    page.node.set(PDFName.of('Annots'), document.context.obj([annotation]));
+
+    writeFileSync(filePath, await document.save());
+    return filePath;
+}
+
 export async function createForeignNoteReplyFixturePdf(filename: string): Promise<IForeignNoteReplyFixture & {filePath: string}> {
     ensureFixtureDir();
     const filePath = join(getFixtureDir(), filename);

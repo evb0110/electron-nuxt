@@ -370,7 +370,7 @@ export const usePdfViewerSaveTransaction = (
             },
             commit: () => application.acknowledgeSave(session, input.documentRevisionToken),
             replaceFromDocument: (result: IPdfAnnotationParseResult) => application.store.replaceFromDocument(
-                result.entities.map(mapPdfAnnotationParseEntity),
+                result.entities.map(entry => mapPdfAnnotationParseEntity(entry)),
                 result.foreign.map(mapPdfAnnotationParseForeign),
             ),
         };

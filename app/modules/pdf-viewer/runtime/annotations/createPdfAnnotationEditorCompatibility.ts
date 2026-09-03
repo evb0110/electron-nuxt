@@ -10,6 +10,7 @@ import type {
 import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {isSelectionMarkupTool} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
+import {markupSubtypeByAnnotationTool} from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
 
 interface ICreatePdfAnnotationEditorCompatibilityOptions {
     annotationApplication: ShallowRef<AnnotationApplication>;
@@ -17,14 +18,20 @@ interface ICreatePdfAnnotationEditorCompatibilityOptions {
     canonicalMarkupSubtypeHints: Map<string, TMarkupSubtype>;
 }
 
-function selectedTextMarkupProperties(
+function selectedTextMarkupEntity(
     annotationApplication: ShallowRef<AnnotationApplication>,
-): ITextMarkupAnnotationProperties | null {
-    const entity = [...annotationApplication.value.store.selectedIds]
+): ITextMarkupEntity | null {
+    return [...annotationApplication.value.store.selectedIds]
         .map(id => annotationApplication.value.store.get(id))
         .find((candidate): candidate is ITextMarkupEntity => (
             candidate?.kind === 'text-markup' && !candidate.deleted
-        ));
+        )) ?? null;
+}
+
+function selectedTextMarkupProperties(
+    annotationApplication: ShallowRef<AnnotationApplication>,
+): ITextMarkupAnnotationProperties | null {
+    const entity = selectedTextMarkupEntity(annotationApplication);
     if (!entity) {
         return null;
     }
@@ -34,6 +41,8 @@ function selectedTextMarkupProperties(
         subtype: entity.subtype,
         color: entity.color ?? '',
         markerRect: entity.quadPoints[0] ?? null,
+        opacity: entity.opacity,
+        contents: entity.contents,
     };
 }
 
@@ -41,29 +50,46 @@ export function createPdfAnnotationEditorCompatibility(
     options: ICreatePdfAnnotationEditorCompatibilityOptions,
 ) {
     const markupSubtype = {
-        toolToMarkupSubtype: {
-            highlight: 'Highlight' as const,
-            underline: 'Underline' as const,
-            strikethrough: 'StrikeOut' as const,
-            squiggly: 'Squiggly' as const,
-        },
+        toolToMarkupSubtype: markupSubtypeByAnnotationTool,
         isSelectionMarkupTool,
         getSelectedTextMarkupAnnotationProperties: () => selectedTextMarkupProperties(
             options.annotationApplication,
         ),
         rememberMarkupSubtypeColorOverride: () => {},
         updateSelectedTextMarkupAnnotationColor: (color: string) => {
-            const selectedEntity = [...options.annotationApplication.value.store.selectedIds]
-                .map(id => options.annotationApplication.value.store.get(id))
-                .find((candidate): candidate is ITextMarkupEntity => (
-                    candidate?.kind === 'text-markup' && !candidate.deleted
-                ));
+            const selectedEntity = selectedTextMarkupEntity(options.annotationApplication);
             if (!selectedEntity) {
                 return false;
             }
             return Boolean(options.annotationApplication.value.store.updateTextMarkup(
                 selectedEntity.identity.id,
                 {color},
+            ));
+        },
+        updateSelectedTextMarkupAnnotationProperties: (
+            updates: Partial<Pick<ITextMarkupAnnotationProperties, 'color' | 'opacity' | 'contents'>>,
+            selected: ITextMarkupAnnotationProperties,
+        ) => {
+            const selectedEntity = selectedTextMarkupEntity(options.annotationApplication);
+            if (!selectedEntity || selectedEntity.identity.id !== selected.id) {
+                return false;
+            }
+            const opacity = updates.opacity;
+            if (
+                opacity !== undefined
+                && opacity !== null
+                && (typeof opacity !== 'number' || !Number.isFinite(opacity))
+            ) {
+                return false;
+            }
+            return Boolean(options.annotationApplication.value.store.updateTextMarkup(
+                selectedEntity.identity.id,
+                {
+                    ...updates,
+                    ...(typeof opacity === 'number'
+                        ? {opacity: Math.min(1, Math.max(0, opacity))}
+                        : {}),
+                },
             ));
         },
         updateTextMarkupAnnotationColor: (

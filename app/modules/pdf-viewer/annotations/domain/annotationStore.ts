@@ -250,6 +250,23 @@ export class AnnotationStore {
         }));
     }
 
+    /** Updates parser-derived preview text without creating an authored revision. */
+    updateTextMarkupSelectedText(id: AnnotationId, selectedText: string | null) {
+        const entity = this.#entities.get(id);
+        if (!entity || entity.deleted || entity.kind !== 'text-markup') {
+            return false;
+        }
+        if ((entity.selectedText ?? null) === selectedText) {
+            return false;
+        }
+        this.#entities.set(id, {
+            ...entity,
+            selectedText,
+        });
+        this.#emit();
+        return true;
+    }
+
     updatePlacedImage(
         id: AnnotationId,
         patch: Partial<Pick<IPlacedImageEntity, 'rect' | 'rotation' | 'image'>>,

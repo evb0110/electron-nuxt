@@ -34,6 +34,10 @@ import { resolveShapeAnnotationDefaultSettings } from '@app/modules/workspace-sh
 import { createPageAnnotationDeleteActions } from '@app/modules/workspace-shell/composables/createPageAnnotationDeleteActions';
 import { NativePdfSaveRequiredError } from '@app/modules/workspace-shell/composables/nativePdfMutationArtifact';
 import { createRafCoalescedCallback } from '@app/utils/createRafCoalescedCallback';
+import {
+    createTextMarkupPropertyActions,
+    settingsKeysForTextMarkup,
+} from '@app/modules/workspace-shell/composables/createTextMarkupPropertyActions';
 
 interface IShapePopoverBounds {
     id: string;
@@ -460,6 +464,13 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         updateTextMarkupPropertiesPopoverPosition(markup);
     }
 
+    const { handleTextMarkupOpacityUpdate } = createTextMarkupPropertyActions({
+        pdfViewerRef,
+        annotationSettings,
+        selectedTextMarkupForProperties,
+        closeTextMarkupProperties,
+    });
+
     function normalizeTextMarkupColorValue(color: string | null | undefined) {
         return color?.trim().toLowerCase() ?? '';
     }
@@ -475,61 +486,31 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         }
         if (selectedMarkup) {
             const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-            if (selectedMarkup.subtype === 'Underline') {
-                nextSettings.underlineColor = color;
-            } else if (selectedMarkup.subtype === 'StrikeOut') {
-                nextSettings.strikethroughColor = color;
-            } else if (selectedMarkup.subtype === 'Squiggly') {
-                nextSettings.squigglyColor = color;
-            } else if (selectedMarkup.subtype === 'Highlight') {
-                nextSettings.highlightColor = color;
+            const settingsKeys = settingsKeysForTextMarkup(selectedMarkup.subtype);
+            if (settingsKeys) {
+                nextSettings[settingsKeys.color] = color;
+                annotationSettings.value = nextSettings;
             }
-            annotationSettings.value = nextSettings;
         }
         selectedTextMarkupForProperties.value = pdfViewerRef.value?.getSelectedTextMarkupAnnotationProperties?.() ?? selectedTextMarkupForProperties.value;
         return true;
     }
 
     function handleTextMarkupColorUpdate(color: string) {
-        const selectedMarkup = selectedTextMarkupForProperties.value;
-        const previousColor = selectedMarkup?.color ?? null;
         const didUpdate = applySelectedTextMarkupColorUpdate(color);
         if (!didUpdate) {
             return;
-        }
-        if (
-            selectedMarkup
-            && previousColor
-            && normalizeTextMarkupColorValue(previousColor) !== normalizeTextMarkupColorValue(color)
-        ) {
-            pdfViewerRef.value?.registerAnnotationHistoryCommand?.({
-                cmd: () => {
-                    selectedTextMarkupForProperties.value = selectedMarkup;
-                    applySelectedTextMarkupColorUpdate(color);
-                },
-                undo: () => {
-                    selectedTextMarkupForProperties.value = selectedMarkup;
-                    applySelectedTextMarkupColorUpdate(previousColor);
-                },
-            });
         }
         closeTextMarkupProperties();
     }
 
     function updateTextMarkupDefaultSettings(comment: IAnnotationCommentSummary, color: string) {
-        const subtype = (comment.subtype ?? '').trim().toLowerCase();
         const nextSettings: IAnnotationSettings = { ...annotationSettings.value };
-        if (subtype === 'underline') {
-            nextSettings.underlineColor = color;
-        } else if (subtype === 'strikeout' || subtype === 'strikethrough') {
-            nextSettings.strikethroughColor = color;
-        } else if (subtype === 'squiggly') {
-            nextSettings.squigglyColor = color;
-        } else if (subtype === 'highlight') {
-            nextSettings.highlightColor = color;
-        } else {
+        const settingsKeys = settingsKeysForTextMarkup(comment.subtype);
+        if (!settingsKeys) {
             return;
         }
+        nextSettings[settingsKeys.color] = color;
         annotationSettings.value = nextSettings;
     }
 
@@ -759,12 +740,35 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     const viewportChange = createRafCoalescedCallback(handleViewportChange);
+    let refreshMarkupPropertiesTimer: ReturnType<typeof setTimeout> | null = null;
 
     VueUse.useEventListener(viewerContainer, 'scroll', viewportChange.schedule, { passive: true });
     VueUse.useEventListener(windowTarget, 'resize', viewportChange.schedule);
-    VueUse.useEventListener(viewerContainer, 'pointerup', () => setTimeout(refreshSelectedTextMarkupProperties, 0));
+    VueUse.useEventListener(
+        viewerContainer,
+        'pointerup',
+        () => {
+            if (refreshMarkupPropertiesTimer !== null) {
+                clearTimeout(refreshMarkupPropertiesTimer);
+            }
+            refreshMarkupPropertiesTimer = setTimeout(() => {
+                refreshMarkupPropertiesTimer = null;
+                refreshSelectedTextMarkupProperties();
+            }, 0);
+        },
+        {
+            capture: true,
+            passive: true,
+        },
+    );
     VueUse.useEventListener(viewerContainer, 'keyup', refreshSelectedTextMarkupProperties);
     onScopeDispose(viewportChange.cancel, true);
+    onScopeDispose(() => {
+        if (refreshMarkupPropertiesTimer !== null) {
+            clearTimeout(refreshMarkupPropertiesTimer);
+            refreshMarkupPropertiesTimer = null;
+        }
+    }, true);
 
     function handleViewerAnnotationContextMenu(payload: {
         comment: IAnnotationCommentSummary | null;
@@ -1150,6 +1154,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         handleDeleteSelectedShape,
         handleShapePropertyUpdate,
         handleTextMarkupColorUpdate,
+        handleTextMarkupOpacityUpdate,
         handleContextTextMarkupColorUpdate,
         updateTextMarkupColorWithHistory,
         handleShapeContextMenu,

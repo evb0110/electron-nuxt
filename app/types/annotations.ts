@@ -176,6 +176,8 @@ export interface ITextMarkupAnnotationProperties {
     subtype: TMarkupSubtype;
     color: string;
     markerRect: IAnnotationMarkerRect | null;
+    opacity?: number | null;
+    contents?: string;
 }
 
 export interface ILinkAnnotation {

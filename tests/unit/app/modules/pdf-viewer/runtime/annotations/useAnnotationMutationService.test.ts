@@ -34,6 +34,7 @@ function createOptions(
         updateAnnotationComment: vi.fn(() => true),
         deleteAnnotationComment: vi.fn(async () => true),
         updateSelectedTextMarkupAnnotationColor: vi.fn(),
+        updateSelectedTextMarkupAnnotationProperties: vi.fn(() => true),
         updateTextMarkupAnnotationColor: vi.fn(),
         markAnnotationLocallyDeleted: vi.fn(),
         restoreAnnotationLocally: vi.fn(),
@@ -343,5 +344,37 @@ describe('useAnnotationMutationService canonical command ordering', () => {
             {source: 'user'},
         )).toBe(true);
         expect(service.visualEffects.effects.value).toEqual([]);
+    });
+
+    it('routes selected text-markup properties through a user mutation transaction', () => {
+        const selected = {
+            id: 'selected',
+            pageIndex: 0,
+            subtype: 'Highlight' as const,
+            color: '#ffff00',
+            markerRect: null,
+            opacity: 1,
+            contents: '',
+        };
+        let transactionCount = 0;
+        const options = createOptions({runHistoryTransaction: action => {
+            transactionCount += 1;
+            return action();
+        }});
+        const service = useAnnotationMutationService(options);
+
+        expect(service.updateSelectedTextMarkupAnnotationProperties(
+            {
+                updates: {opacity: 0.65},
+                selected,
+            },
+            {source: 'user'},
+        )).toBe(true);
+        expect(options.updateSelectedTextMarkupAnnotationProperties).toHaveBeenCalledWith(
+            {opacity: 0.65},
+            selected,
+        );
+        expect(options.markModified).toHaveBeenCalledOnce();
+        expect(transactionCount).toBe(1);
     });
 });

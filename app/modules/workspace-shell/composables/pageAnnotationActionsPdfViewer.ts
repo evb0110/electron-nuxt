@@ -18,6 +18,7 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'startImagePlacement'
     | 'updateAnnotationComment'
     | 'updateSelectedTextMarkupAnnotationColor'
+    | 'updateSelectedTextMarkupAnnotationProperties'
     | 'updateTextMarkupAnnotationColor'
     | 'updateShape'
 > & Partial<Pick<WorkspaceOrchestration.IPdfViewerExpose,

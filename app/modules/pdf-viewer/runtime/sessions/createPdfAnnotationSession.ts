@@ -22,7 +22,6 @@ import type {
     IAnnotationModifiedPayload,
     IAnnotationSettings,
     IShapeAnnotation,
-    IAnnotationMarkerRect,
     TAnnotationTool,
     TMarkupSubtype,
     ILinkAnnotation,
@@ -58,7 +57,6 @@ import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { createPdfPagePointResolver } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/createPdfPagePointResolver';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
@@ -74,6 +72,10 @@ import {
 import { createPdfAnnotationStampImageResolver } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationStampImageResolver';
 import { createPdfAnnotationOwnershipRefreshWatch } from '@app/modules/pdf-viewer/runtime/annotations/createPdfAnnotationOwnershipRefreshWatch';
 import { buildRangeFromPageText } from '@app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText';
+import { resolvePdfAnnotationSelectionGeometry } from '@app/modules/pdf-viewer/runtime/sessions/resolvePdfAnnotationSelectionGeometry';
+import { deriveSelectedTextForParsedHighlights } from '@app/modules/pdf-viewer/runtime/sessions/deriveSelectedTextForParsedHighlights';
+import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
+import { subtypeForAnnotationTool } from '@app/modules/pdf-viewer/runtime/sessions/subtypeForAnnotationTool';
 import type {
     ICreateTextMarkupFromTextOptions,
     ICreateTextMarkupFromTextResult,
@@ -393,6 +395,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const textSelectionCache = useAnnotationTextSelectionCache({
         viewerContainer: options.viewerContainer,
         currentPage: viewport.currentPage,
+        allowCrossPage: true,
     });
     const annotationEditorSurface = usePdfAnnotationEditorSurface({
         annotationApplication,
@@ -413,95 +416,58 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         },
     });
     provide(annotationEditorSurfaceKey, annotationEditorSurface);
-    function pageContainerForNumber(pageNumber: number) {
-        return options.viewerContainer.value?.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
-        ) ?? null;
-    }
-    function markerRectFromClientRect(pageContainer: HTMLElement, clientRect: DOMRect) {
-        const pageRect = pageContainer.getBoundingClientRect();
-        if (pageRect.width <= 0 || pageRect.height <= 0 || clientRect.width <= 0 || clientRect.height <= 0) {
-            return null;
-        }
-        return {
-            left: clamp01((clientRect.left - pageRect.left) / pageRect.width),
-            top: clamp01((clientRect.top - pageRect.top) / pageRect.height),
-            width: clamp01(clientRect.width / pageRect.width),
-            height: clamp01(clientRect.height / pageRect.height),
-        } satisfies IAnnotationMarkerRect;
-    }
-    function resolveSelectionGeometry(range: Range) {
-        const clientRects = Array.from(range.getClientRects?.() ?? []);
-        const rects = clientRects.length > 0 ? clientRects : [range.getBoundingClientRect()];
-        const byPage = new Map<number, IAnnotationMarkerRect[]>();
-        rects.forEach((clientRect) => {
-            const centerX = clientRect.left + clientRect.width / 2;
-            const centerY = clientRect.top + clientRect.height / 2;
-            const pageContainer = pagePointResolver.findPageContainerFromClientPoint(centerX, centerY);
-            const pageNumber = pageContainer?.dataset.page ? Number(pageContainer.dataset.page) : null;
-            const markerRect = pageContainer ? markerRectFromClientRect(pageContainer, clientRect) : null;
-            if (!pageNumber || !markerRect) {
-                return;
-            }
-            const pageRects = byPage.get(pageNumber);
-            if (pageRects) {
-                pageRects.push(markerRect);
-            } else {
-                byPage.set(pageNumber, [markerRect]);
-            }
+    async function createSelectionMarkup(
+        range: Range,
+        withNote: boolean,
+        requestedSubtype?: TMarkupSubtype,
+    ): Promise<TAnnotationCreationOutcome> {
+        const geometry = await resolvePdfAnnotationSelectionGeometry({
+            documentSession,
+            viewerContainer: options.viewerContainer.value,
+            range,
         });
-        if (byPage.size !== 1) {
-            return null;
+        if (geometry.status === 'stale') {
+            return {status: 'cancelled'};
         }
-        const entry = [...byPage.entries()][0];
-        return entry ? {
-            pageNumber: entry[0],
-            geometry: entry[1],
-        } : null;
-    }
-    function subtypeForTool(tool: TAnnotationTool): TMarkupSubtype {
-        switch (tool) {
-            case 'underline':
-                return 'Underline';
-            case 'strikethrough':
-                return 'StrikeOut';
-            case 'squiggly':
-                return 'Squiggly';
-            case 'highlight':
-            default:
-                return 'Highlight';
-        }
-    }
-    function createSelectionMarkup(range: Range, withNote: boolean, requestedSubtype?: TMarkupSubtype): TAnnotationCreationOutcome {
-        const geometry = resolveSelectionGeometry(range);
-        if (!geometry) {
+        if (geometry.status === 'failed') {
             return {
                 status: 'failed',
-                reason: 'selection-spans-pages',
+                reason: geometry.reason,
             };
         }
-        const subtype = requestedSubtype ?? subtypeForTool(options.annotationTool.value);
+        const subtype = requestedSubtype ?? subtypeForAnnotationTool(options.annotationTool.value);
         const style = selectionMarkupStyle(subtype);
-        const created = annotationEditorSurface.createHighlightFromSelection(
-            geometry.pageNumber - 1,
-            geometry.geometry,
-            {
-                subtype,
-                color: style.color,
-                opacity: style.opacity,
-                selectedText: range.toString(),
-            },
-        );
-        annotationEditorSurface.select([created.identity.id]);
+        const created = appAnnotationHistory.runTransaction(() => geometry.pages.map(page => (
+            annotationEditorSurface.createHighlightFromSelection(
+                page.pageNumber - 1,
+                page.quadPoints,
+                {
+                    subtype,
+                    color: style.color,
+                    opacity: style.opacity,
+                    selectedText: page.selectedText,
+                },
+            )
+        )));
+        const createdIds = created.map(entity => entity.identity.id);
+        annotationEditorSurface.select(createdIds);
         options.emitAnnotationModified();
+        const firstCreated = created[0];
         if (withNote) {
-            const comment = findCanonicalAnnotationComment(annotationApplication.value, created.identity.id);
-            emitAnnotationOpenNoteWithReconciliation(comment);
+            if (firstCreated) {
+                const comment = findCanonicalAnnotationComment(annotationApplication.value, firstCreated.identity.id);
+                emitAnnotationOpenNoteWithReconciliation(comment);
+            }
         }
-        return {
-            status: 'created',
-            annotationId: created.identity.id,
-        };
+        return firstCreated
+            ? {
+                status: 'created',
+                annotationId: firstCreated.identity.id,
+            }
+            : {
+                status: 'failed',
+                reason: 'selection-not-in-text-layer',
+            };
     }
     const failCommentAtPoint = createAnnotationCreationFailureReporter(options.reportAnnotationFailure);
     async function commentAtPoint(
@@ -514,7 +480,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!options.viewerContainer.value) {
             return failCommentAtPoint('viewer-not-ready', pageNumber);
         }
-        if (!pageContainerForNumber(pageNumber)) {
+        if (!findPdfPageContainer(options.viewerContainer.value, pageNumber)) {
             return failCommentAtPoint('page-not-rendered', pageNumber);
         }
         const position = markerRectFromPoint(pageX, pageY);
@@ -597,7 +563,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return result(false, null, `Page ${pageNumber} is outside the document.`);
         }
-        const pageContainer = pageContainerForNumber(pageNumber);
+        const pageContainer = findPdfPageContainer(options.viewerContainer.value, pageNumber);
         if (!pageContainer) {
             return result(false, null, `Page ${pageNumber} is not rendered.`);
         }
@@ -614,12 +580,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         if (!match) {
             return result(false, null, `Text was not found on page ${pageNumber}.`);
         }
-        const outcome = createSelectionMarkup(match.range, target.withNote === true, subtype);
+        const outcome = await createSelectionMarkup(match.range, target.withNote === true, subtype);
+        if (outcome.status === 'cancelled') {
+            return result(false, match.matchedText, 'The document changed before the text markup was created.');
+        }
         if (outcome.status === 'failed') {
             return result(
                 false,
                 match.matchedText,
-                'The selection spans more than one page.',
+                'The selected text could not be resolved.',
                 outcome.reason,
             );
         }
@@ -655,6 +624,43 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         clearSelectionCache: textSelectionCache.clearSelectionCache,
         highlightSelectionInternal,
     };
+    function handleDocumentPointerUp(event: PointerEvent) {
+        if (event.button !== 0 || !options.isActive.value || !isSelectionMarkupTool(options.annotationTool.value)) {
+            return;
+        }
+        const viewerContainer = options.viewerContainer.value;
+        if (!viewerContainer || !(event.target instanceof Node) || !viewerContainer.contains(event.target)) {
+            return;
+        }
+        const selection = document.getSelection();
+        const range = selection && selection.rangeCount > 0
+            ? selection.getRangeAt(0).cloneRange()
+            : null;
+        if (!range || range.collapsed) {
+            return;
+        }
+        runGuardedTask(
+            () => maybeApplySelectionMarkup(range),
+            {
+                category: 'user-visible-operation',
+                scope: 'annotations',
+                message: 'Failed to apply selection markup on pointer up',
+            },
+        );
+    }
+    if (typeof document !== 'undefined') {
+        const handleSelectionChange = () => {
+            if (options.isActive.value) {
+                textSelectionCache.cacheCurrentTextSelection();
+            }
+        };
+        document.addEventListener('selectionchange', handleSelectionChange, {passive: true});
+        document.addEventListener('pointerup', handleDocumentPointerUp, {passive: true});
+        documentSession.registerDisposable(() => {
+            document.removeEventListener('selectionchange', handleSelectionChange);
+            document.removeEventListener('pointerup', handleDocumentPointerUp);
+        });
+    }
     function summaryFromTarget(target: EventTarget | null) {
         if (!(target instanceof Element)) {
             return null;
@@ -807,6 +813,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         updateAnnotationComment: commentCrud.updateAnnotationComment,
         deleteAnnotationComment,
         updateSelectedTextMarkupAnnotationColor: annotationColorCommands.updateSelectedTextMarkupAnnotationColor,
+        updateSelectedTextMarkupAnnotationProperties: editor.markupSubtype.updateSelectedTextMarkupAnnotationProperties,
         updateTextMarkupAnnotationColor: annotationColorCommands.updateTextMarkupAnnotationColor,
         markAnnotationLocallyDeleted: annotationCommentModel.markLocallyDeleted,
         restoreAnnotationLocally: annotationCommentModel.restoreLocally,
@@ -932,7 +939,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                     signal: abortController.signal,
                 },
             );
-            commitPdfAnnotationParseToStore({
+            const committed = commitPdfAnnotationParseToStore({
                 result,
                 request,
                 currentRequest: writerParseRequest,
@@ -944,6 +951,35 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 currentWorkingCopyPath: options.workingCopyPath.value,
                 expectedRevisionToken,
                 currentRevisionToken: options.documentRevisionToken.value,
+            });
+            if (!committed) {
+                return;
+            }
+            void deriveSelectedTextForParsedHighlights({
+                documentSession,
+                result,
+                transition,
+                signal: abortController.signal,
+            }).then((selectedTextByPdfRef) => {
+                if (
+                    !selectedTextByPdfRef
+                    || abortController.signal.aborted
+                    || request !== writerParseRequest
+                    || !transition.isCurrent()
+                    || annotationApplication.value.store !== targetStore
+                ) {
+                    return;
+                }
+                selectedTextByPdfRef.forEach((selectedText, pdfRef) => {
+                    const id = targetStore.resolveExternal({pdfRef});
+                    if (id) {
+                        targetStore.updateTextMarkupSelectedText(id, selectedText);
+                    }
+                });
+            }).catch((error) => {
+                if (!abortController.signal.aborted) {
+                    BrowserLogger.debug('annotations', 'Failed to enrich imported writer highlights', error);
+                }
             });
         } catch (error) {
             if (!abortController.signal.aborted) {
