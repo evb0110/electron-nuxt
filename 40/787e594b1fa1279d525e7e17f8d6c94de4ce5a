@@ -1,0 +1,48 @@
+tests/unit/scripts/releaseBuildReceipt.test.ts
+  s_b412fd4cd3f576::t_b7d1f4d81fc55b 8,22-23,99,108-115,117-119,144-155,157-159,175-180
+  s_b412fd4cd3f576::t_e0cf2b1cd8ece6 4,17,138
+  s_b412fd4cd3f576::t_0c98cefd4fd22d 103,105,116,156
+scripts/architecture/boundary-check.mjs
+  s_b412fd4cd3f576::t_6835cdc47ee19e 1200
+  s_b412fd4cd3f576::t_a25a2dbb8f9d22 1192-1195
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_b412fd4cd3f576::t_a25a2dbb8f9d22 184-185,197
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_f89ee098e99880 162-163
+  s_b412fd4cd3f576::t_28ce87eb7c4393 49-52,147-156,161,164-165
+  s_b412fd4cd3f576::t_8af9030eadbae4 157-160
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_28ce87eb7c4393 12,17,19,53,284-298,537-551
+  s_b412fd4cd3f576::t_df166acf237973 552
+  s_7aa6a61bedd5ad::t_28d28b18033bc9 553
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_b7d1f4d81fc55b 15,20,180-199,216-251,281-287,292
+  s_b412fd4cd3f576::t_8af9030eadbae4 206-209,211
+  s_b412fd4cd3f576::t_1688ea2013ba4f 202
+  s_b412fd4cd3f576::t_db3f54b2bba366 200-201,203-205,210
+  s_b412fd4cd3f576::t_35940dff7ab70e 212-215
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "40787e594b1fa1279d525e7e17f8d6c94de4ce5a",
+  "prompts": {},
+  "sessions": {
+    "s_7aa6a61bedd5ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a68-97aa-7471-a833-028dfb487475",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
