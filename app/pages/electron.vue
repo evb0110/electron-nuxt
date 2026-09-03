@@ -9,6 +9,7 @@ import {
     isElectronUserAgent,
     waitForDesktopPlatformBridge,
 } from '@app/utils/platform';
+import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 
 const { t } = useTypedI18n();
 const { setFatalRuntimeError } = useFatalRuntimeError();
@@ -25,11 +26,14 @@ onMounted(async () => {
 
     if (!bridgeAvailable) {
         if (isElectronUserAgent()) {
-            setFatalRuntimeError(
-                'startup',
-                new Error('Electron preload bridge is unavailable on the Electron renderer route.'),
-                'electron-preload-bridge',
-            );
+            const presentation = getOrCaptureRendererBootstrapFailure({
+                error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
+                key: 'electron-preload-bridge',
+                message: 'App bootstrap failed',
+                section: 'loader',
+                title: t('errors.runtime.title'),
+            });
+            setFatalRuntimeError('startup', presentation);
             return;
         }
 
@@ -40,11 +44,14 @@ onMounted(async () => {
 
     const validation = validateElectronPlatformApi((window as Window & {electronAPI?: unknown}).electronAPI);
     if (!validation.ok) {
-        setFatalRuntimeError(
-            'startup',
-            new Error(t('errors.runtime.electronPlatformContract')),
-            'electron-platform-contract',
-        );
+        const presentation = getOrCaptureRendererBootstrapFailure({
+            error: new Error(t('errors.runtime.electronPlatformContract')),
+            key: 'electron-platform-contract',
+            message: 'Electron platform bridge contract validation failed',
+            section: 'loader',
+            title: t('errors.runtime.title'),
+        });
+        setFatalRuntimeError('startup', presentation);
         return;
     }
 

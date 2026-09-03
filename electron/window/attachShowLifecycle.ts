@@ -1,6 +1,7 @@
 import type { ILogger } from '@electron/utils/createLogger';
 import type { BrowserWindow } from 'electron';
 import {
+    deleteWindowRendererReadyCallback,
     deleteWindowRendererReadyState,
     setWindowRendererReadyCallback,
 } from '@electron/window/rendererReady';
@@ -52,11 +53,10 @@ export function attachShowLifecycle(
         try {
             windowWebContents.removeListener('did-start-navigation', onStartNavigation);
             windowWebContents.removeListener('did-finish-load', onFinishLoad);
-            windowWebContents.removeListener('did-fail-load', onFailLoad);
         } catch (error) {
             options.logger.warn(`Failed to cleanup startup show listeners for window ${windowId}: ${error instanceof Error ? error.message : String(error)}`);
         }
-        deleteWindowRendererReadyState(windowId);
+        deleteWindowRendererReadyCallback(windowId);
     };
 
     const showWindowNow = async () => {
@@ -235,17 +235,10 @@ export function attachShowLifecycle(
         scheduleShow();
     };
 
-    const onFailLoad = (
-        _event: unknown,
-        errorCode: number,
-        errorDescription: string,
-        validatedURL: string,
-        isMainFrame?: boolean,
-    ) => {
-        if (isMainFrame === false) {
+    const handleMainFrameLoadFailure = (isMainFrame = true) => {
+        if (!isMainFrame) {
             return;
         }
-        options.logger.error(`Failed to load URL: ${validatedURL} (code=${errorCode}, desc=${errorDescription})`);
         mainFrameLoadFinished = false;
 
         void showWindowNow();
@@ -254,12 +247,12 @@ export function attachShowLifecycle(
     setWindowRendererReadyCallback(windowId, onRendererReadyForShow);
     windowWebContents.on('did-start-navigation', onStartNavigation);
     windowWebContents.on('did-finish-load', onFinishLoad);
-    windowWebContents.on('did-fail-load', onFailLoad);
 
     scheduleForceShowTimeout();
 
     window.on('closed', () => {
         cleanupShowHandlers();
+        deleteWindowRendererReadyState(windowId);
         if (pendingShowTimeout) {
             clearTimeout(pendingShowTimeout);
             pendingShowTimeout = null;
@@ -275,4 +268,6 @@ export function attachShowLifecycle(
 
         unregisterAppWindow(windowId);
     });
+
+    return {handleMainFrameLoadFailure};
 }

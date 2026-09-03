@@ -461,6 +461,180 @@ describe('window runtime readiness', () => {
         await expect(createPromise).resolves.toBe(window);
     });
 
+    it('reports did-fail-load and loadURL rejection once for one initial load attempt', async () => {
+        let rejectLoad: (error: Error) => void = () => {
+            throw new Error('loadURL was not called');
+        };
+        const loadError = new Error('renderer bootstrap failed');
+        mocks.loadURL.mockImplementation(async (url?: string) => {
+            if (url === mocks.config.renderer.url) {
+                await new Promise<void>((_resolve, reject) => {
+                    rejectLoad = reject;
+                });
+            }
+        });
+        const { createAppWindow } = await import('@electron/window');
+
+        const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+        await vi.waitFor(() => {
+            expect(mocks.loadURL).toHaveBeenCalledWith(mocks.config.renderer.url);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            mocks.config.renderer.url,
+            true,
+        );
+        rejectLoad(loadError);
+
+        await expect(createPromise).rejects.toThrow('Initial renderer load failed');
+        expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('keeps a late initial loadURL rejection attached to its original attempt', async () => {
+        let rejectLoad: (error: Error) => void = () => {
+            throw new Error('loadURL was not called');
+        };
+        const loadError = new Error('late renderer bootstrap failure');
+        mocks.loadURL.mockImplementation(async (url?: string) => {
+            if (url === mocks.config.renderer.url) {
+                await new Promise<void>((_resolve, reject) => {
+                    rejectLoad = reject;
+                });
+            }
+        });
+        const { createAppWindow } = await import('@electron/window');
+
+        const createPromise = createAppWindow({ showStartupPlaceholder: false });
+        await vi.waitFor(() => {
+            expect(mocks.loadURL).toHaveBeenCalledWith(mocks.config.renderer.url);
+        });
+
+        const window = mocks.BrowserWindow.windows[0];
+        window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, false, true);
+        window?.emitWebContents('did-start-navigation', {}, `${mocks.config.renderer.url}?later`, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -2,
+            'FAILED',
+            `${mocks.config.renderer.url}?later`,
+            true,
+        );
+        rejectLoad(loadError);
+
+        await expect(createPromise).rejects.toThrow('late renderer bootstrap failure');
+        expect(mocks.logger.error).toHaveBeenCalledTimes(2);
+    });
+
+    it('starts a second occurrence for a distinct later top-level navigation failure', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            mocks.config.renderer.url,
+            true,
+        );
+        window?.emitWebContents('did-start-navigation', {}, `${mocks.config.renderer.url}?retry=1`, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -2,
+            'FAILED',
+            `${mocks.config.renderer.url}?retry=1`,
+            true,
+        );
+
+        expect(mocks.logger.error).toHaveBeenCalledTimes(2);
+    });
+
+    it('keeps in-place navigation and redirects on the current occurrence', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        vi.clearAllMocks();
+
+        window?.emitWebContents('did-start-navigation', {}, mocks.config.renderer.url, false, true);
+        window?.emitWebContents('did-start-navigation', {}, `${mocks.config.renderer.url}#section`, true, true);
+        window?.emitWebContents('will-redirect', {}, `${mocks.config.renderer.url}/redirected`, false, true);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            `${mocks.config.renderer.url}/redirected`,
+            true,
+        );
+
+        expect(mocks.logger.error).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not create a load occurrence for a subframe failure', async () => {
+        const { createAppWindow } = await import('@electron/window');
+
+        await createAppWindow({ showStartupPlaceholder: false });
+        const window = mocks.BrowserWindow.windows[0];
+        expect(window).toBeDefined();
+        const didFailLoadRegistrations = window?.webContents.on.mock.calls.filter(([event]) => event === 'did-fail-load');
+        vi.clearAllMocks();
+
+        window?.emitWebContents('did-start-navigation', {}, 'https://example.invalid/frame', false, false);
+        window?.emitWebContents(
+            'did-fail-load',
+            {},
+            -105,
+            'NAME_NOT_RESOLVED',
+            'https://example.invalid/frame',
+            false,
+        );
+
+        expect(didFailLoadRegistrations).toHaveLength(1);
+        expect(mocks.logger.error).not.toHaveBeenCalled();
+    });
+
+    it('keeps the renderer-ready timeout alive after force-show', async () => {
+        vi.useFakeTimers();
+        try {
+            mocks.config.automation.hideWindow = false;
+            const { createAppWindow } = await import('@electron/window');
+
+            const createPromise = createAppWindow({ waitForInitialRendererReady: true });
+            const createRejection = expect(createPromise).rejects.toThrow('Renderer startup timed out after 30000ms');
+            await vi.waitFor(() => {
+                expect(mocks.BrowserWindow.windows).toHaveLength(1);
+            });
+
+            const window = mocks.BrowserWindow.windows[0];
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            expect(window?.isVisible()).toBe(true);
+            expect(window?.maximize).toHaveBeenCalledTimes(1);
+
+            await vi.advanceTimersByTimeAsync(15_000);
+
+            await createRejection;
+            expect(window?.destroy).toHaveBeenCalledTimes(1);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it('can show the real shell on first load without an about:blank placeholder', async () => {
         vi.useFakeTimers();
         try {
