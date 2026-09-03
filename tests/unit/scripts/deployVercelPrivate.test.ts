@@ -380,24 +380,20 @@ describe('private Vercel deployment source', () => {
                 names: [],
                 mappings: '',
             }));
-            await stagePrivateSourcemaps({
-                identity,
-                outputRoots: ['.vercel/output'],
-                projectRoot,
-                reset: true,
-            });
-            const injectedBytes = readFileSync(bundlePath);
-
             await expect(runPrivateVercelDeploy({
                 command: 'vercel-test',
                 env: {EVB_SENTRY_DIAGNOSTICS_BUILD: '1'},
                 fetchImpl: async () => ({
-                    arrayBuffer: async () => injectedBytes,
+                    arrayBuffer: async () => readFileSync(bundlePath),
                     ok: true,
                     status: 200,
                 }),
                 projectRoot,
                 rawArgs: [],
+                stageSourcemaps: async (options: Parameters<typeof stagePrivateSourcemaps>[0]) => {
+                    lifecycle.push('stage');
+                    return stagePrivateSourcemaps(options);
+                },
                 uploadSourcemaps: async () => {
                     lifecycle.push('upload');
                     return {
@@ -414,7 +410,11 @@ describe('private Vercel deployment source', () => {
                         command,
                     });
                     if (command === 'pnpm') {
-                        lifecycle.push('build');
+                        lifecycle.push(args[0] === 'run' ? 'generate' : 'build');
+                        return {status: 0};
+                    }
+                    if (command === process.execPath) {
+                        lifecycle.push(args[0]?.includes('prune-') ? 'prune' : 'check');
                         return {status: 0};
                     }
                     lifecycle.push('deploy');
@@ -439,29 +439,67 @@ describe('private Vercel deployment source', () => {
             expect(calls[0]).toMatchObject({
                 args: [
                     'run',
+                    'generate:build-artifacts',
+                ],
+                command: 'pnpm',
+            });
+            expect(calls[1]).toMatchObject({
+                args: [
+                    'exec',
+                    'nuxi',
                     'build',
                 ],
                 command: 'pnpm',
             });
-            expect(calls[1]?.args).toEqual(expect.arrayContaining([
+            expect(calls[2]).toMatchObject({
+                args: ['scripts/prune-build-artifacts.mjs'],
+                command: process.execPath,
+            });
+            expect(calls[3]).toMatchObject({
+                args: ['scripts/check-web-deploy-assets.mjs'],
+                command: process.execPath,
+            });
+            expect(calls[4]?.args).toEqual(expect.arrayContaining([
                 'deploy',
                 '--prebuilt',
             ]));
-            expect(calls[1]?.args).not.toContain('--archive=tgz');
+            expect(calls[4]?.args).not.toContain('--archive=tgz');
             expect(lifecycle).toEqual([
+                'generate',
                 'build',
+                'stage',
+                'prune',
+                'check',
                 'upload',
                 'deploy',
             ]);
+            expect(existsSync(`${bundlePath}.map`)).toBe(false);
             await expect(assertServedSentryBundleParity({
                 deploymentUrl: 'https://evb-viewer-test.vercel.app',
                 fetchImpl: async () => ({
-                    arrayBuffer: async () => injectedBytes,
+                    arrayBuffer: async () => readFileSync(bundlePath),
                     ok: true,
                     status: 200,
                 }),
                 identity,
                 projectRoot,
+            })).resolves.toBe(true);
+
+            await expect(assertServedSentryBundleParity({
+                deploymentUrl: 'https://evb-viewer-test.vercel.app',
+                fetchImpl: async () => ({
+                    ok: true,
+                    status: 200,
+                    url: 'https://vercel.com/sso-api',
+                }),
+                identity,
+                projectRoot,
+                protectedBundleReader: async (
+                    {bundles}: {bundles: Array<{servedPath: string}>},
+                ) => new Map(bundles.map(bundle => [
+                    bundle.servedPath,
+                    readFileSync(bundlePath),
+                ])),
             })).resolves.toBe(true);
         } finally {
             rmSync(projectRoot, {

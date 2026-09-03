@@ -116,32 +116,36 @@ public notice before default-on Nitro reporting ships.
 
 ## Live Sentry account facts
 
-The read-only inspection on 2026-09-01 found:
+The organization started with permissive defaults on 2026-09-01. The owner
+hardened and provisioned it on 2026-09-04:
 
 | Area | Current state |
 | --- | --- |
 | Plan | Sponsored Business |
 | Data region | European Union |
-| Projects | None |
+| Projects | Exactly `evb-viewer-desktop` and `evb-viewer-web` |
 | Events | Zero |
 | Included errors | 5 million per usage period |
 | Pay-as-you-go | $0 limit, no payment method |
-| Generative AI features | Enabled |
-| Required organization 2FA | Disabled |
-| Shared issues | Enabled |
-| Open membership and join requests | Enabled |
-| Member invite, project, event-delete, and alert permissions | Enabled |
-| Enhanced Privacy | Disabled |
-| JavaScript source fetching | Enabled |
-| Required Data Scrubber and default scrubbers | Disabled |
-| IP address storage prevention | Disabled |
+| Generative AI features | Disabled; Seer unconfigured |
+| Authentication | Google connected login for the sole owner; personal Gmail cannot configure organization SSO; Sentry exposes no password-removal control |
+| Sentry-native and organization 2FA | Disabled by explicit owner decision for the Google-login route |
+| Shared issues | Disabled |
+| Open membership and join requests | Disabled |
+| Member invite, project, event-delete, and alert permissions | Disabled |
+| Enhanced Privacy | Enabled |
+| JavaScript source fetching | Disabled in both projects |
+| Required Data Scrubber and default scrubbers | Enabled |
+| IP address storage prevention | Enabled |
 | Minidump attachment storage | Disabled |
-| Advanced scrub rules | None |
+| Advanced scrub rules | Targeted forbidden-field list; canonical frame and Debug ID fields preserved |
+| Credentials | Three purpose-specific client keys and one `org:ci` upload token |
 
 The sponsored plan removes quota pressure, but it does not change the privacy
-boundary. Organization defaults are currently too permissive for production
-events. Account hardening is a release gate before project creation or a test
-event.
+boundary. The account controls now permit private artifact upload and
+credential provisioning. They do not authorize production events. Client
+consent, Nitro legal gates, canaries, retention operations, and final release
+evidence remain separate gates.
 
 ## Current error topology
 
@@ -938,9 +942,9 @@ freeze commit, version, release, dist, and policy
         -> copy maps and sources to a private stage before pruning
         -> prune maps from public output
         -> compute strict build receipts from injected public bytes
+        -> upload private artifacts
         -> package or deploy the exact injected bytes
         -> verify package or served-byte parity
-        -> upload private artifacts
         -> verify release files and symbolicated canary events
         -> scan public artifacts for maps, source, and secrets
 ```
@@ -965,6 +969,16 @@ flow to landing only if its deferred project is later created. Source-archive
 deployment would allow Vercel to rebuild different JavaScript after maps were
 uploaded.
 
+The 2026-09-04 Preview proof uploaded release `evb-viewer-web@0.1.450` with
+dist `preview-local` in strict validation mode. The private inventory contained
+473 mapped bundles, 16 small generated facades whose exact paths were proved by
+the Nuxt client manifest, and 1,373 project sources. Vercel reported the
+prebuilt deployment Ready. A single authenticated Vercel batch then fetched
+every served browser bundle, and every hash matched the private manifest. No
+public source map shipped. This proves upload acceptance and exact-byte web
+deployment. It does not replace the still-pending Debug ID symbolication
+canary or any desktop distribution canary.
+
 Every supported bundle gets a canary. The event must show the original EVB file,
 function, line, release, and dist. Sentry's source-map debug endpoint must
 confirm Debug ID matching. Upload maps before any canary event because Sentry
@@ -980,8 +994,11 @@ symbolication may not ship.
 Perform these actions in order, with screenshots or API exports that contain no
 credentials:
 
-1. Confirm two independent owner recovery methods. Then require organization
-   2FA.
+1. Use the sole owner's connected Google account for routine sign-in. Record
+   that personal Gmail cannot configure organization SSO and that Sentry offers
+   no password-removal control. Sentry-native and organization 2FA remain off
+   by explicit owner decision for this route; Google account recovery is the
+   operative recovery boundary.
 2. Disable Generative AI Features and leave Seer unconfigured.
 3. Disable Shared Issues, join requests, open team membership, and member
    invitations.
@@ -1198,7 +1215,7 @@ Exit gate: four weeks of operation meet every success measure below.
 | Source maps | Debug endpoint and canaries show original app file, function, line, release, and dist for every reportable bundle. |
 | Build identity | Desktop receipt inputs match injected package bytes. The viewer's private manifest matches local and served prebuilt bytes. |
 | Public artifacts | Packages and deployments contain no maps, sources, staging directory, auth token, or wrong-runtime DSN. |
-| Account | Evidence proves AI off, required 2FA, restricted membership and roles, enhanced privacy, scrubbing, IP prevention, source fetching off, retention, and no pay-as-you-go. |
+| Account | Evidence proves AI off, the recorded Google-login decision and Sentry limitations, restricted membership and roles, enhanced privacy, scrubbing, IP prevention, source fetching off, retention, and no pay-as-you-go. |
 | Shutdown | Local preservation and log flush keep their current deadlines. Sentry is best effort and never delays recovery relaunch or system shutdown beyond its small assigned bound. |
 | Acknowledgement | Both landing footers and app page show localized local assets, work offline, and create no Sentry request before a click. |
 | Deletion | Removing Sentry packages and transport adapters leaves local logs, error UI, recovery, save, print, update, and product behavior intact. |

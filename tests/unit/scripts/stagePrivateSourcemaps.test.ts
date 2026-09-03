@@ -66,6 +66,22 @@ async function writeSource(projectRoot: string, relativePath: string, content = 
     await writeFile(sourcePath, content);
 }
 
+async function writeNuxtClientManifest(projectRoot: string, bundleNames: string[]) {
+    const manifestPath = path.join(
+        projectRoot,
+        'node_modules/.cache/nuxt/.nuxt/dist/server/client.manifest.mjs',
+    );
+    await mkdir(path.dirname(manifestPath), {recursive: true});
+    const entries = Object.fromEntries(bundleNames.map((file, index) => [
+        `generated-${index}`,
+        {
+            file,
+            resourceType: 'script',
+        },
+    ]));
+    await writeFile(manifestPath, `export default (${JSON.stringify(entries)})\n`);
+}
+
 async function writeFixture(projectRoot: string) {
     await writeSource(projectRoot, 'electron/main.ts', 'const source = "private-source";\n');
     await writeSource(projectRoot, 'electron/preload.ts');
@@ -73,6 +89,7 @@ async function writeFixture(projectRoot: string) {
     const mainMapPath = path.join(projectRoot, 'dist-electron/main.js.map');
     const mainMap = JSON.parse(await readFile(mainMapPath, 'utf8')) as {sources: string[]};
     mainMap.sources.push('<define:__EVB_SENTRY_BUILD_IDENTITY__>');
+    mainMap.sources.push('../../virtual:nuxt:generated%2Fskeleton.ts');
     mainMap.sources.push('../node_modules/.pnpm/dependency/src/missing.ts');
     mainMap.sources.push('webpack://pdf.js/node_modules/core-js/internals/a-callable.js');
     await writeFile(mainMapPath, `${JSON.stringify(mainMap)}\n`);
@@ -111,6 +128,15 @@ function desktopIdentity(dist: 'macos-arm64' | 'windows-x64') {
     });
 }
 
+function webIdentity() {
+    return createSentryBuildIdentity({
+        target: 'web',
+        version: '1.2.3',
+        dist: 'preview-local',
+        environment: 'preview',
+    });
+}
+
 async function fileExists(filePath: string) {
     try {
         await stat(filePath);
@@ -121,6 +147,133 @@ async function fileExists(filePath: string) {
 }
 
 describe('private Sentry source-map staging', () => {
+    it('records manifest-proven generated browser bundles but rejects unlisted map gaps', async () => {
+        const projectRoot = await createTemporaryRoot();
+        const outputRoot = '.vercel/output';
+        const mappedBundle = `${outputRoot}/static/_nuxt/app.js`;
+        const generatedBundle = `${outputRoot}/static/_nuxt/facade.js`;
+
+        await writeSource(projectRoot, 'app/app.vue');
+        await writeBundle(projectRoot, mappedBundle, '../../app/app.vue');
+        await writeSource(
+            projectRoot,
+            generatedBundle,
+            'import {value} from "./app.js"; export {value};\n',
+        );
+        await writeNuxtClientManifest(projectRoot, [
+            'app.js',
+            'facade.js',
+        ]);
+        const manifest = await stagePrivateSourcemaps({
+            projectRoot,
+            identity: webIdentity(),
+            outputRoots: [outputRoot],
+            reset: true,
+            removePublicOutputMaps: false,
+        });
+
+        expect(manifest.bundles).toHaveLength(1);
+        expect(manifest.unmappedGeneratedBundles).toEqual([expect.objectContaining({
+            bundle: generatedBundle,
+            producer: 'nuxt-client-manifest',
+            role: 'browser-generated-mapless',
+        })]);
+        expect(await readFile(path.join(projectRoot, generatedBundle), 'utf8'))
+            .not.toContain('_sentryDebugIds');
+
+        await writeSource(
+            projectRoot,
+            `${outputRoot}/static/_nuxt/unmapped-app.js`,
+            'export const data = "small but not producer-listed";\n',
+        );
+        await expect(stagePrivateSourcemaps({
+            projectRoot,
+            identity: webIdentity(),
+            outputRoots: [outputRoot],
+            reset: true,
+            removePublicOutputMaps: false,
+        })).rejects.toThrow('Reportable bundle has no external source map');
+
+        await rm(path.join(projectRoot, `${outputRoot}/static/_nuxt/unmapped-app.js`));
+        await writeSource(
+            projectRoot,
+            `${outputRoot}/static/_nuxt/nested/facade.js`,
+            'export const nested = true;\n',
+        );
+        await writeNuxtClientManifest(projectRoot, [
+            'app.js',
+            'facade.js',
+            'other/facade.js',
+        ]);
+        await expect(stagePrivateSourcemaps({
+            projectRoot,
+            identity: webIdentity(),
+            outputRoots: [outputRoot],
+            reset: true,
+            removePublicOutputMaps: false,
+        })).rejects.toThrow('Reportable bundle has no external source map');
+
+        await rm(path.join(projectRoot, `${outputRoot}/static/_nuxt/nested/facade.js`));
+        await writeSource(
+            projectRoot,
+            `${outputRoot}/static/_nuxt/dangling.js`,
+            'export const dangling = true;\n//# sourceMappingURL=missing.js.map\n',
+        );
+        await writeNuxtClientManifest(projectRoot, [
+            'app.js',
+            'facade.js',
+            'dangling.js',
+        ]);
+        await expect(stagePrivateSourcemaps({
+            projectRoot,
+            identity: webIdentity(),
+            outputRoots: [outputRoot],
+            reset: true,
+            removePublicOutputMaps: false,
+        })).rejects.toThrow('Reportable bundle has no external source map');
+    });
+
+    it('keeps one current manifest state when a bundle gains or loses its map', async () => {
+        const projectRoot = await createTemporaryRoot();
+        const outputRoot = '.vercel/output';
+        const relativeBundle = `${outputRoot}/static/_nuxt/facade.js`;
+        const identity = webIdentity();
+
+        await writeNuxtClientManifest(projectRoot, ['facade.js']);
+        await writeSource(projectRoot, relativeBundle, 'export const value = 1;\n');
+        const maplessManifest = await stagePrivateSourcemaps({
+            projectRoot,
+            identity,
+            outputRoots: [outputRoot],
+            reset: true,
+            removePublicOutputMaps: false,
+        });
+        expect(maplessManifest.bundles).toHaveLength(0);
+        expect(maplessManifest.unmappedGeneratedBundles).toHaveLength(1);
+
+        await writeSource(projectRoot, 'app/app.vue');
+        await writeBundle(projectRoot, relativeBundle, '../../../../app/app.vue');
+        const mappedManifest = await stagePrivateSourcemaps({
+            projectRoot,
+            identity,
+            outputRoots: [outputRoot],
+            removePublicOutputMaps: false,
+        });
+        expect(mappedManifest.bundles).toHaveLength(1);
+        expect(mappedManifest.unmappedGeneratedBundles).toHaveLength(0);
+
+        await writeSource(projectRoot, relativeBundle, 'export const value = 2;\n');
+        await rm(path.join(projectRoot, `${relativeBundle}.map`));
+        const maplessAgainManifest = await stagePrivateSourcemaps({
+            projectRoot,
+            identity,
+            outputRoots: [outputRoot],
+            removePublicOutputMaps: false,
+        });
+        expect(maplessAgainManifest.bundles).toHaveLength(0);
+        expect(maplessAgainManifest.unmappedGeneratedBundles).toHaveLength(1);
+    });
+
     it('stages every reportable bundle deterministically and leaves public outputs map-free', async () => {
         const projectRoot = await createTemporaryRoot();
         const identity = desktopIdentity('macos-arm64');
@@ -179,6 +332,7 @@ describe('private Sentry source-map staging', () => {
         expect(firstManifest.bundles.some(bundle => bundle.bundle.includes('landing'))).toBe(false);
         expect(firstManifest.removedPublicMaps).toContain('dist-electron/preload.cjs.map');
         expect(firstManifestText).not.toContain('private-source');
+        expect(firstManifestText).not.toContain('virtual:nuxt');
 
         for (const bundle of firstManifest.bundles) {
             expect(await fileExists(path.join(

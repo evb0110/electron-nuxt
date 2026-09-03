@@ -172,7 +172,7 @@ close-time, or client-report envelope.
 
 | Deployment | Served-byte parity | Unknown requests | Denied requests | Granted event count | Revocation requests | CSP origin count | Error ID matched | Symbolicated | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Preview | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
+| Preview | Pass, protected exact-byte deployment | Pending | Pending | Pending | Pending | Pending | Pending | Pending | 2026-09-04 |
 | Production | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
 
 The CSP origin count must be one for the exact EU ingest origin. Electron CSP
