@@ -76,11 +76,16 @@ export interface IRendererFailureReporterOptions {
 }
 
 export interface IRendererFailureReporter {
-    capture<C extends DiagnosticCode>(input: CaptureFailureInput<C>): FailureReceipt;
+    capture<C extends DiagnosticCode>(
+        input: CaptureFailureInput<C>,
+        options?: IRendererFailureCaptureOptions,
+    ): FailureReceipt;
     captureRecord(value: unknown): FailureReceipt;
     getHealthSnapshot(): IRendererDiagnosticsHealthSnapshot;
     withSuppressedCapture<T>(callback: () => T): T;
 }
+
+export interface IRendererFailureCaptureOptions {localAlreadyRecorded?: boolean;}
 
 export const RENDERER_DIAGNOSTICS_MAX_SUPPRESSED_COUNT = 10_000;
 export const RENDERER_DIAGNOSTICS_DEFAULT_BURST_LIMIT = 20;
@@ -89,7 +94,10 @@ export const RENDERER_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS = 10 * 60_000;
 
 const RENDERER_DIAGNOSTICS_MAX_RECENT_IDS = 4_096;
 const RENDERER_DIAGNOSTICS_MAX_BURST_KEYS = 1_024;
-const RENDERER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES = ['app/utils/failureReporter.ts'] as const;
+const RENDERER_DIAGNOSTICS_INTERNAL_FRAME_SUFFIXES = [
+    'app/utils/failureReporter.ts',
+    'app/utils/browserLogger.ts',
+] as const;
 const MAX_TRANSPORT_WARNING_LENGTH = 512;
 
 interface IBurstState {
@@ -536,7 +544,11 @@ export function createRendererFailureReporter(
         });
     }
 
-    function processRecord(record: DiagnosticRecord, detail: LocalFailureDetail): FailureReceipt {
+    function processRecord(
+        record: DiagnosticRecord,
+        detail: LocalFailureDetail,
+        captureOptions: IRendererFailureCaptureOptions = {},
+    ): FailureReceipt {
         const receipt = createReceipt(record);
         if (suppressionDepth > 0) {
             health.ownedProjection = increment(health.ownedProjection);
@@ -545,7 +557,9 @@ export function createRendererFailureReporter(
         }
 
         health.attempted = increment(health.attempted);
-        recordLocalDetail(detail, receipt);
+        if (!captureOptions.localAlreadyRecorded) {
+            recordLocalDetail(detail, receipt);
+        }
 
         const currentTime = safeNow(now);
         pruneRecentIds(currentTime);
@@ -584,7 +598,10 @@ export function createRendererFailureReporter(
     }
 
     return {
-        capture: <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => {
+        capture: <C extends DiagnosticCode>(
+            input: CaptureFailureInput<C>,
+            captureOptions?: IRendererFailureCaptureOptions,
+        ) => {
             try {
                 const record = buildClosedRecord(
                     input,
@@ -592,7 +609,7 @@ export function createRendererFailureReporter(
                     createSafeEventId(createEventId),
                     safeNow(now),
                 );
-                return processRecord(record, input.local);
+                return processRecord(record, input.local, captureOptions);
             } catch {
                 const record = buildClosedRecord(
                     {} as CaptureFailureInput,
@@ -658,6 +675,7 @@ export function getRendererFailureReporter() {
 
 export function captureRendererFailure<C extends DiagnosticCode>(
     input: CaptureFailureInput<C>,
+    options?: IRendererFailureCaptureOptions,
 ): FailureReceipt | undefined {
-    return rendererFailureReporter?.capture(input);
+    return rendererFailureReporter?.capture(input, options);
 }

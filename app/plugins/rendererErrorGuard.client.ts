@@ -142,7 +142,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                 failure: receipt,
                 cause: detail.cause,
                 details: detail.data,
-            });
+            }, receipt);
         },
     });
 

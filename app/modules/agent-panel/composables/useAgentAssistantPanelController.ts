@@ -87,7 +87,6 @@ export interface IAgentAssistantPanelControllerProps {
     width?: number | undefined;
     isResizing?: boolean;
 }
-
 export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistantPanelControllerProps>) => {
     const activeDocumentName = computed(() => props.activeDocumentName ?? null);
     const chatScope = computed(() => props.chatScope ?? null);
@@ -95,7 +94,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
     const hasAnyDocument = computed(() => props.hasAnyDocument ?? false);
     const isResizing = computed(() => props.isResizing ?? false);
     const widthVar = computed(() => (props.width != null ? `${props.width}px` : undefined));
-
     const { t }: { t: TTranslateFn } = useTypedI18n();
     const { reportRuntimeError } = useRuntimeErrorReports();
     const assistantSelectionStorage = defaultWindow?.localStorage;
@@ -141,7 +139,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         target?: TAssistantActionErrorTarget;
         log?: boolean;
     }
-
     const queuedSteer = ref<IAssistantSubmitPayload | null>(null);
     const queuedSteerSendInFlight = ref(false);
     const interruptInFlight = ref(false);
@@ -315,7 +312,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         turnActivityAtMs.value = now;
         turnClockNowMs.value = now;
     }
-
     function syncTurnActivityWithPhase(phase: IAgentAssistantState['status']['turn']['phase']) {
         if (isActiveAssistantTurnPhase(phase)) {
             turnStartedAtMs.value ??= Date.now();
@@ -331,7 +327,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         turnActivityAtMs.value = null;
         turnActivityText.value = '';
     }
-
     function addLocalAssistantStatusMessage(text: string) {
         const baseState = state.value ?? emptyState.value;
         state.value = {
@@ -349,7 +344,6 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         hasLoadedState.value = true;
         void nextTick(scrollAssistantMessagesToBottom);
     }
-
     function buildAssistantBtwMessage() {
         if (!isTurnActive.value && !queuedSteer.value) {
             return t('assistant.btwIdle');
@@ -405,8 +399,14 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
 
     function reportAssistantActionError(error: unknown, options: IAssistantActionErrorOptions) {
         if (options.log !== false) {
-            BrowserLogger.error('assistant', options.title, error);
+            const failure = BrowserLogger.error('assistant', options.title, error);
+            reportRuntimeError({
+                failure,
+                title: options.title,
+            });
+            return;
         }
+
         reportRuntimeError({
             title: options.title,
             source: 'assistant',
