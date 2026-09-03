@@ -188,15 +188,8 @@ function ensureMainDiagnosticsAdapter() {
         return mainDiagnosticsAdapterLoad;
     }
     mainDiagnosticsAdapterLoad = import('@electron/features/diagnostics/sentryNodeAdapter')
-        .then(({createSentryNodeDiagnosticsTransport}) => {
-            const transport = createSentryNodeDiagnosticsTransport({
-                dsn: process.env.SENTRY_DESKTOP_DSN ?? '',
-                identity: {
-                    target: 'desktop',
-                    release: process.env.EVB_SENTRY_RELEASE ?? '',
-                    dist: process.env.EVB_SENTRY_DIST ?? '',
-                    environment: process.env.EVB_SENTRY_ENVIRONMENT as 'production' | 'preview' | 'development' | 'test',
-                },
+        .then(({createSentryNodeDiagnosticsTransportFromEnvironment}) => {
+            const transport = createSentryNodeDiagnosticsTransportFromEnvironment({
                 appVersion: resolveApplicationVersion(app),
                 platform: process.platform,
                 architecture: process.arch,
