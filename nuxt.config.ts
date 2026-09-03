@@ -5,6 +5,11 @@ import {
     DEFAULT_LOCALE,
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
+import {
+    isSentryDiagnosticsBuild,
+    resolveSentryBuildIdentity,
+    resolveSentryBuildTarget,
+} from './packages/contracts/diagnostics/releaseIdentity.js';
 
 const requireFromConfig = createRequire(import.meta.url);
 
@@ -70,6 +75,24 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
 
 const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
 const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
+const packageJson = requireFromConfig('./package.json') as {version?: unknown};
+const sentryDiagnosticsEligible = isSentryDiagnosticsBuild(process.env);
+const sentryBuildIdentity = sentryDiagnosticsEligible
+    ? resolveSentryBuildIdentity({
+        target: resolveSentryBuildTarget(process.env),
+        version: typeof packageJson.version === 'string' ? packageJson.version : undefined,
+        environment: process.env,
+    })
+    : null;
+const sentryBrowserDsn = sentryDiagnosticsEligible
+    ? process.env.SENTRY_BROWSER_DSN?.trim() ?? ''
+    : '';
+const sentryNitroDsn = sentryDiagnosticsEligible
+    ? process.env.SENTRY_NITRO_DSN?.trim() ?? ''
+    : '';
+const sentryNuxtOutputRoot = isVercelBuildOutput
+    ? '.vercel/output'
+    : isolatedNuxtOutputDir || 'nuxt-output';
 const nitroOutput = isVercelBuildOutput
     // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
     ? {dir: '.vercel/output'}
@@ -128,6 +151,19 @@ const knownSourcemapWarningPlugins = new Set([
     'nuxt:module-preload-polyfill',
     'nuxt:server-devonly:transform',
 ]);
+
+async function stageNuxtPrivateSourcemaps() {
+    if (!sentryBuildIdentity) {
+        return;
+    }
+
+    const {stagePrivateSourcemaps} = await import('./scripts/release/stage-private-sourcemaps.mjs');
+    await stagePrivateSourcemaps({
+        identity: sentryBuildIdentity,
+        outputRoots: [sentryNuxtOutputRoot],
+        reset: true,
+    });
+}
 
 interface IRollupLog {
     code?: string | undefined;
@@ -256,6 +292,7 @@ export default defineNuxtConfig({
                 }
             }
         },
+        'build:done': stageNuxtPrivateSourcemaps,
     },
 
     alias: {
@@ -269,6 +306,12 @@ export default defineNuxtConfig({
     },
 
     runtimeConfig: {
+        sentry: {
+            nitroDsn: sentryNitroDsn,
+            release: sentryBuildIdentity?.release ?? '',
+            dist: sentryBuildIdentity?.dist ?? '',
+            environment: sentryBuildIdentity?.environment ?? '',
+        },
         analytics: {
             // Keep writes explicitly opt-in so local dev and preview traffic
             // never hits the production analytics dataset by accident.
@@ -280,6 +323,12 @@ export default defineNuxtConfig({
                 .filter(Boolean),
         },
         public: {
+            sentry: {
+                dsn: sentryBrowserDsn,
+                release: sentryBuildIdentity?.release ?? '',
+                dist: sentryBuildIdentity?.dist ?? '',
+                environment: sentryBuildIdentity?.environment ?? '',
+            },
             analyticsEnabled: process.env.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',
             landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.com',
             siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
@@ -345,8 +394,8 @@ export default defineNuxtConfig({
     },
 
     sourcemap: {
-        server: false,
-        client: false,
+        server: sentryDiagnosticsEligible,
+        client: sentryDiagnosticsEligible,
     },
 
     // TypeScript 6 enables noUncheckedSideEffectImports by default. The SFC lane
@@ -512,7 +561,7 @@ export default defineNuxtConfig({
             },
         },
         build: {
-            sourcemap: false,
+            sourcemap: sentryDiagnosticsEligible,
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,
             rollupOptions: {
@@ -524,6 +573,7 @@ export default defineNuxtConfig({
                     handler(level, log);
                 },
                 output: {
+                    sourcemapExcludeSources: sentryDiagnosticsEligible,
                     codeSplitting: {groups: [
                         {
                             name: 'vendor-pdfjs',
@@ -584,7 +634,7 @@ export default defineNuxtConfig({
     },
 
     nitro: {
-        sourceMap: false,
+        sourceMap: sentryDiagnosticsEligible,
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.
         output: nitroOutput,

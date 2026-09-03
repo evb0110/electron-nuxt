@@ -7,6 +7,11 @@ on:
         description: Git ref or commit SHA to package.
         required: false
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
 permissions:
   contents: read
 
@@ -20,6 +25,12 @@ jobs:
   build:
     name: appx (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    env:
+      EVB_RELEASE_TARGET_ARCH: ${{ matrix.arch }}
+      EVB_RELEASE_TARGET_PLATFORM: win
+      EVB_RELEASE_TARGET_DIST: store-appx-${{ matrix.arch }}
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
     strategy:
       fail-fast: false
       matrix:
@@ -43,6 +54,10 @@ jobs:
           windows-bundle-cache-key: store-win-native-tools-${{ matrix.arch }}
           needs-msys2: ${{ matrix.arch == 'arm64' }}
           rust-targets: ${{ matrix.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
+
+      - name: Resolve Sentry build identity
+        shell: bash
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Bundle native tools
         shell: bash

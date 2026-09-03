@@ -149,6 +149,53 @@ describe('Nuxt config policy', () => {
         expect(format && isStringLiteral(format) ? format.text : null).toBe('es');
     });
 
+    it('keeps Sentry identity private to diagnostics builds and exposes only the browser DSN publicly', async () => {
+        const source = await readProjectFile('nuxt.config.ts');
+        const sourceFile = createSourceFile('nuxt.config.ts', source, ScriptTarget.Latest, true);
+        const configObject = findNuxtConfigObject(sourceFile);
+        const runtimeConfig = getRequiredObjectProperty(configObject, 'runtimeConfig');
+        const privateSentry = getRequiredObjectProperty(runtimeConfig, 'sentry');
+        const publicConfig = getRequiredObjectProperty(runtimeConfig, 'public');
+        const publicSentry = getRequiredObjectProperty(publicConfig, 'sentry');
+
+        expect(getPropertyInitializer(privateSentry, 'nitroDsn')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'release')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'dist')).not.toBeNull();
+        expect(getPropertyInitializer(privateSentry, 'environment')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'dsn')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'release')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'dist')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'environment')).not.toBeNull();
+        expect(getPropertyInitializer(publicSentry, 'nitroDsn')).toBeNull();
+        expect(source).toContain('const sentryDiagnosticsEligible = isSentryDiagnosticsBuild(process.env);');
+        expect(source).toContain('\'build:done\': stageNuxtPrivateSourcemaps');
+    });
+
+    it('enables every Nuxt map control only for the closed diagnostics build', async () => {
+        const source = await readProjectFile('nuxt.config.ts');
+        const sourceFile = createSourceFile('nuxt.config.ts', source, ScriptTarget.Latest, true);
+        const configObject = findNuxtConfigObject(sourceFile);
+        const sourcemap = getRequiredObjectProperty(configObject, 'sourcemap');
+        const vite = getRequiredObjectProperty(configObject, 'vite');
+        const viteBuild = getRequiredObjectProperty(vite, 'build');
+        const nitro = getRequiredObjectProperty(configObject, 'nitro');
+
+        for (const propertyName of [
+            'server',
+            'client',
+        ]) {
+            expect(getPropertyInitializer(sourcemap, propertyName)).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        }
+        expect(getPropertyInitializer(viteBuild, 'sourcemap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        expect(getPropertyInitializer(nitro, 'sourceMap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        expect(source).toContain('sourcemapExcludeSources: sentryDiagnosticsEligible');
+    });
+
+    it('keeps the landing build free of Sentry identity configuration', async () => {
+        const landingSource = await readProjectFile('landing/nuxt.config.ts');
+        expect(landingSource).not.toMatch(/SENTRY|sentryBuildIdentity|diagnosticsEligible/iu);
+    });
+
     it('composes the complete app security policy into every explicit route header rule', async () => {
         const source = await readProjectFile('nuxt.config.ts');
         const routeRulesStart = source.indexOf('    routeRules: {');

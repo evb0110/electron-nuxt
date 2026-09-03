@@ -90,4 +90,60 @@ describe('release strict-build receipts', () => {
             });
         }
     });
+
+    it('records the shared identity without persisting credential values', () => {
+        const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-sentry-'));
+        const packagePath = path.join(projectRoot, 'package.json');
+        const inputPath = path.join(projectRoot, 'source.ts');
+        const outputPath = path.join(projectRoot, 'dist', 'main.js');
+        mkdirSync(path.dirname(outputPath), {recursive: true});
+        writeFileSync(packagePath, JSON.stringify({version: '1.2.3'}));
+        writeFileSync(inputPath, 'export const value = 1;\n');
+        writeFileSync(outputPath, 'built-output\n');
+
+        const desktopDsn = 'desktop-dsn-secret';
+        const browserDsn = 'browser-dsn-secret';
+        const nitroDsn = 'nitro-dsn-secret';
+        const databaseUrl = 'database-url-secret';
+        const options = {
+            env: {
+                NODE_ENV: 'production',
+                EVB_RELEASE_TARGET_ARCH: 'arm64',
+                EVB_RELEASE_TARGET_PLATFORM: 'mac',
+                EVB_SENTRY_ENVIRONMENT: 'test',
+                EVB_ELECTRON_SOURCEMAP: '1',
+                SENTRY_DESKTOP_DSN: desktopDsn,
+                NUXT_PUBLIC_SENTRY_DSN: browserDsn,
+                NUXT_SENTRY_NITRO_DSN: nitroDsn,
+                NUXT_ANALYTICS_DATABASE_URL: databaseUrl,
+            },
+            inputFiles: ['source.ts'],
+            outputPaths: ['dist'],
+            projectRoot,
+            runCommand: fakeToolchain,
+        };
+
+        try {
+            const state = computeReleaseBuildState(options);
+            expect(state.contract.sentryIdentity).toEqual({
+                target: 'desktop',
+                release: 'evb-viewer-desktop@1.2.3',
+                dist: 'macos-arm64',
+                environment: 'test',
+            });
+            expect(state.contract.environment).not.toHaveProperty('SENTRY_DESKTOP_DSN');
+            expect(state.contract.environment).not.toHaveProperty('NUXT_PUBLIC_SENTRY_DSN');
+            expect(state.contract.environment).not.toHaveProperty('NUXT_SENTRY_NITRO_DSN');
+            expect(state.contract.environment).not.toHaveProperty('NUXT_ANALYTICS_DATABASE_URL');
+            expect(JSON.stringify(state.contract)).not.toContain(desktopDsn);
+            expect(JSON.stringify(state.contract)).not.toContain(browserDsn);
+            expect(JSON.stringify(state.contract)).not.toContain(nitroDsn);
+            expect(JSON.stringify(state.contract)).not.toContain(databaseUrl);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
 });

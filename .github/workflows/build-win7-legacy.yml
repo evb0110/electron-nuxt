@@ -7,6 +7,11 @@ on:
         description: Git ref or commit SHA to build.
         required: false
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
     outputs:
       artifact_ready:
         description: Whether the legacy Windows 7 artifact was produced.
@@ -25,6 +30,12 @@ jobs:
   build_win7_legacy:
     name: build (windows-2022, win7 legacy, x64)
     runs-on: windows-2022
+    env:
+      EVB_RELEASE_TARGET_ARCH: x64
+      EVB_RELEASE_TARGET_PLATFORM: win
+      EVB_RELEASE_TARGET_DIST: win7-legacy-x64
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.ready }}
 
@@ -41,6 +52,10 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           windows-bundle-cache-key: win7-legacy-native-tools-x64
           rust-targets: wasm32-unknown-unknown
+
+      - name: Resolve Sentry build identity
+        shell: bash
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Bundle native tools (Windows)
         shell: bash

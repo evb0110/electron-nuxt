@@ -9,25 +9,18 @@ import {
     isDiagnosticEventId,
     type DiagnosticEventId,
 } from '@contracts/diagnostics/diagnosticEventId';
+import {
+    isDesktopDiagnosticDist,
+    type DesktopDiagnosticDist,
+} from '@contracts/diagnostics/desktopDiagnosticDists.js';
+
+export {DESKTOP_DIAGNOSTIC_DIST_IDENTITIES} from '@contracts/diagnostics/desktopDiagnosticDists.js';
+export type {DesktopDiagnosticDist} from '@contracts/diagnostics/desktopDiagnosticDists.js';
 
 export const STARTUP_CRASH_MARKER_SCHEMA_VERSION = 1;
 export const STARTUP_CRASH_MARKER_MAX_RELEASE_LENGTH = 256;
 export const STARTUP_CRASH_MARKER_MAX_DIST_LENGTH = 64;
 export const STARTUP_CRASH_MARKER_MAX_FRAMES = MAX_CANONICAL_APP_FRAMES;
-
-export const DESKTOP_DIAGNOSTIC_DIST_IDENTITIES = [
-    'macos-arm64',
-    'macos-x64',
-    'windows-x64',
-    'windows-arm64',
-    'linux-x64',
-    'linux-arm64',
-    'store-appx-x64',
-    'store-appx-arm64',
-    'win7-legacy-x64',
-] as const;
-
-export type DesktopDiagnosticDist = typeof DESKTOP_DIAGNOSTIC_DIST_IDENTITIES[number];
 
 export interface StartupCrashMarkerRecord {
     schemaVersion: typeof STARTUP_CRASH_MARKER_SCHEMA_VERSION;
@@ -85,15 +78,13 @@ function isSafeRelease(value: unknown): value is string {
     return typeof value === 'string'
         && value.length > 0
         && value.length <= STARTUP_CRASH_MARKER_MAX_RELEASE_LENGTH
-        && /^evb-viewer-desktop@[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?$/u.test(value);
+        && /^evb-viewer-desktop@[0-9]+\.[0-9]+\.[0-9]+(?:-[A-Za-z0-9.-]+)?(?:\+[A-Za-z0-9.-]+)?$/u.test(value);
 }
 
 function isSafeDist(value: unknown): value is DesktopDiagnosticDist {
     return typeof value === 'string'
         && value.length <= STARTUP_CRASH_MARKER_MAX_DIST_LENGTH
-        && DESKTOP_DIAGNOSTIC_DIST_IDENTITIES.includes(
-            value as DesktopDiagnosticDist,
-        );
+        && isDesktopDiagnosticDist(value);
 }
 
 function isSafeTimestamp(value: unknown): value is number {

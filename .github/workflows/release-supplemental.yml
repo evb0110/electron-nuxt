@@ -210,6 +210,7 @@ jobs:
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.resolve.outputs.target_sha }}
+      sentry_environment: production
       release_environment: release
     secrets:
       CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -225,6 +226,7 @@ jobs:
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.resolve.outputs.target_sha }}
+      sentry_environment: production
 
   attach_mac_intel:
     name: Attach Supplemental macOS Intel Asset

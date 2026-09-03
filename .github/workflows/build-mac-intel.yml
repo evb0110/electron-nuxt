@@ -12,6 +12,11 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
     secrets:
       CSC_LINK:
         required: false
@@ -37,6 +42,12 @@ jobs:
     name: build (macos-15-intel, mac, x64)
     runs-on: macos-15-intel
     environment: ${{ inputs.release_environment }}
+    env:
+      EVB_RELEASE_TARGET_ARCH: x64
+      EVB_RELEASE_TARGET_PLATFORM: mac
+      EVB_RELEASE_TARGET_DIST: macos-x64
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
 
     steps:
       - name: Checkout
@@ -51,6 +62,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           rust-targets: wasm32-unknown-unknown
           brew-formulae: tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
+
+      - name: Resolve Sentry build identity
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Bundle native tools (macOS Intel)
         timeout-minutes: 30
