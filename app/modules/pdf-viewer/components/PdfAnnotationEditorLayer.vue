@@ -161,7 +161,9 @@ const keyboardCommands = useAnnotationKeyboardCommands({
     pageRotation: () => surface.getPageGeometry(props.pageIndex)?.rotation ?? 0,
 });
 const isInteractive = computed(() => (
-    surface.activeTool.value === 'text'
+    surface.activeTool.value === 'select'
+    || surface.activeTool.value === 'none'
+    || surface.activeTool.value === 'text'
     || surface.activeTool.value === 'note'
     || isShapeTool(surface.activeTool.value)
     || pointerGesture.isActive.value
@@ -591,7 +593,6 @@ function handlePointerUp(event: PointerEvent) {
             const created = completedDraft ? creationTools.finishShape(completedDraft) : null;
             if (created) {
                 surface.createShape(created);
-                surface.select([created.identity.id]);
             }
             return;
         }
