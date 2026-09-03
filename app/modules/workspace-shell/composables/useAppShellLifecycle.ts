@@ -43,6 +43,9 @@ export const useAppShellLifecycle = (options: IUseAppShellLifecycleOptions) => {
                 BrowserLogger.error('tabs', 'Incoming tab transfer handler rejected', {
                     transferId: transfer.transferId,
                     error: error instanceof Error ? error : String(error),
+                }, {
+                    code: 'RENDERER_TAB_TRANSFER_OPERATION_FAILED',
+                    context: {},
                 });
             });
         });

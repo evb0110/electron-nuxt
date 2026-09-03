@@ -73,6 +73,16 @@ describe('browserSettingsPersistence performanceMode', () => {
         expect(parseBrowserSettingsPayload(serialized).performanceMode).toBe('high');
     });
 
+    it('keeps client diagnostics out of the legacy settings cookie', () => {
+        const serialized = serializeBrowserSettingsPayload({
+            ...DEFAULT_SETTINGS,
+            clientDiagnosticsPreference: 'granted',
+        });
+
+        expect(serialized).not.toContain('clientDiagnosticsPreference');
+        expect(parseBrowserSettingsPayload(serialized).clientDiagnosticsPreference).toBe('unknown');
+    });
+
     it('sanitizes an invalid persisted performanceMode back to auto', () => {
         expect(parseBrowserSettingsPayload(JSON.stringify({ performanceMode: 'turbo' })).performanceMode)
             .toBe('auto');

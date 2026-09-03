@@ -5,6 +5,7 @@ import {
     type ResourceLimits,
 } from 'worker_threads';
 import { isRecord } from '@contracts/runtimeGuards';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import { createLogger } from '@electron/utils/createLogger';
@@ -215,17 +216,24 @@ function parseResultWorkerPayload(payload: unknown): TResultWorkerPayload | null
 // runtime-report stream two entries, keyed by different sources and messages so
 // they dedupe apart, for a single fault. Wrappers ask this before deciding their
 // own severity.
-const reportedWorkerTaskErrors = new WeakSet<object>();
+const reportedWorkerTaskErrors = new WeakMap<object, FailureReceipt>();
 
-function markWorkerTaskErrorReported<T>(error: T): T {
-    if (typeof error === 'object' && error !== null) {
-        reportedWorkerTaskErrors.add(error);
+function markWorkerTaskErrorReported<T>(error: T, receipt: FailureReceipt | undefined): T {
+    if (typeof error === 'object' && error !== null && receipt !== undefined) {
+        reportedWorkerTaskErrors.set(error, receipt);
     }
     return error;
 }
 
-export function hasWorkerTaskErrorBeenReported(error: unknown) {
-    return typeof error === 'object' && error !== null && reportedWorkerTaskErrors.has(error);
+export function getWorkerTaskFailureReceipt(error: unknown) {
+    return typeof error === 'object' && error !== null
+        ? reportedWorkerTaskErrors.get(error)
+        : undefined;
+}
+
+export function rememberWorkerTaskFailureReceipt(error: unknown, receipt: FailureReceipt | undefined) {
+    markWorkerTaskErrorReported(error, receipt);
+    return receipt;
 }
 
 // A cancelled worker still reports what it managed to stop. The frame is the
@@ -573,7 +581,17 @@ function attachWorkerHandlers<T>({
             }
             const resultPayload = parseResultWorkerPayload(payload);
             if (!resultPayload) {
-                reject(new Error(invalidPayloadMessage));
+                const error = new Error(invalidPayloadMessage);
+                const receipt = workerTaskLog.error(
+                    `Worker returned an invalid payload: path=${options.workerPath} `
+                    + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                    {
+                        code: 'MAIN_WORKER_TASK_FAILED',
+                        context: {},
+                        cause: error,
+                    },
+                );
+                reject(markWorkerTaskErrorReported(error, receipt));
                 return;
             }
             if (!resultPayload.ok) {
@@ -586,8 +604,12 @@ function attachWorkerHandlers<T>({
                 if (workerError.canceled) {
                     workerTaskLog.info(`Worker reported cancellation: ${summary}`);
                 } else {
-                    workerTaskLog.error(`Worker reported failure: ${summary}`);
-                    markWorkerTaskErrorReported(workerError);
+                    const receipt = workerTaskLog.error(`Worker reported failure: ${summary}`, {
+                        code: 'MAIN_WORKER_TASK_FAILED',
+                        context: {},
+                        cause: workerError,
+                    });
+                    markWorkerTaskErrorReported(workerError, receipt);
                 }
                 reject(workerError);
                 return;
@@ -595,11 +617,18 @@ function attachWorkerHandlers<T>({
             if (decodeResult) {
                 const decoded = decodeResult(resultPayload.data);
                 if (decoded === null) {
-                    workerTaskLog.error(
+                    const receipt = workerTaskLog.error(
                         `Worker returned an invalid result: path=${options.workerPath} `
                         + `elapsedMs=${Math.round(performance.now() - startedAt)}`,
+                        {
+                            code: 'MAIN_WORKER_TASK_FAILED',
+                            context: {},
+                        },
                     );
-                    reject(markWorkerTaskErrorReported(new Error(invalidResultMessage ?? invalidPayloadMessage)));
+                    reject(markWorkerTaskErrorReported(
+                        new Error(invalidResultMessage ?? invalidPayloadMessage),
+                        receipt,
+                    ));
                     return;
                 }
                 workerTaskLog.debug(
@@ -629,10 +658,15 @@ function attachWorkerHandlers<T>({
             + `message=${getErrorMessage(error)}`;
         // A worker torn down by a cancellation already in flight is expected to
         // die noisily; the cancellation is the outcome, so it is not an app error.
+        let receipt: FailureReceipt | undefined;
         if (hasPendingCancelError) {
             workerTaskLog.info(`Worker emitted an error while cancelling: ${summary}`);
         } else {
-            workerTaskLog.error(`Worker emitted an error: ${summary}`);
+            receipt = workerTaskLog.error(`Worker emitted an error: ${summary}`, {
+                code: 'MAIN_WORKER_TASK_FAILED',
+                context: {},
+                cause: error,
+            });
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -640,10 +674,10 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (!online && createStartupError) {
-                reject(markWorkerTaskErrorReported(createStartupError(getErrorMessage(error))));
+                reject(markWorkerTaskErrorReported(createStartupError(getErrorMessage(error)), receipt));
                 return;
             }
-            reject(markWorkerTaskErrorReported(toError(error)));
+            reject(markWorkerTaskErrorReported(toError(error), receipt));
         });
     });
 
@@ -657,10 +691,14 @@ function attachWorkerHandlers<T>({
         const summary = `path=${options.workerPath} `
             + `code=${code} online=${online} `
             + `elapsedMs=${Math.round(performance.now() - startedAt)}`;
+        let receipt: FailureReceipt | undefined;
         if (hasPendingCancelError) {
             workerTaskLog.info(`Worker exited while cancelling: ${summary}`);
         } else {
-            workerTaskLog.error(`Worker exited before returning a result: ${summary}`);
+            receipt = workerTaskLog.error(`Worker exited before returning a result: ${summary}`, {
+                code: 'MAIN_WORKER_TASK_FAILED',
+                context: {},
+            });
         }
         finalize(() => {
             if (hasPendingCancelError) {
@@ -668,14 +706,17 @@ function attachWorkerHandlers<T>({
                 return;
             }
             if (code === 0) {
-                reject(markWorkerTaskErrorReported(new Error(invalidResultMessage ?? invalidPayloadMessage)));
+                reject(markWorkerTaskErrorReported(
+                    new Error(invalidResultMessage ?? invalidPayloadMessage),
+                    receipt,
+                ));
                 return;
             }
             if (!online && createStartupExitError) {
-                reject(markWorkerTaskErrorReported(createStartupExitError(code)));
+                reject(markWorkerTaskErrorReported(createStartupExitError(code), receipt));
                 return;
             }
-            reject(markWorkerTaskErrorReported(createWorkerExitError(code)));
+            reject(markWorkerTaskErrorReported(createWorkerExitError(code), receipt));
         });
     });
 

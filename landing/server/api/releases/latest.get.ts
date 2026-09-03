@@ -187,8 +187,9 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
             isUsableCatalog: catalog => catalog.length > 0,
         });
     } catch (error) {
-        console.error('Unable to fetch release catalog', {
+        console.warn('Unable to fetch release catalog', {
             message: error instanceof Error ? error.message : String(error),
+            outcome: 'temporarily-unavailable',
             statusCode: getReleaseFetchStatusCode(error) ?? undefined,
             statusMessage: typeof error === 'object' && error && 'statusMessage' in error ? error.statusMessage : undefined,
         });

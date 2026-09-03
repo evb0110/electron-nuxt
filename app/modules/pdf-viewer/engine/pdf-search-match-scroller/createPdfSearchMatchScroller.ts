@@ -1,3 +1,9 @@
+import type {
+    IPdfSearchExcerpt,
+    ISearchMatchOptions,
+} from '@contracts/search';
+import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
+
 interface ICurrentSearchMatchWord {
     x: number;
     y: number;
@@ -7,9 +13,19 @@ interface ICurrentSearchMatchWord {
 
 interface ICurrentSearchMatch {
     pageIndex: number;
+    pageMatchIndex?: number | undefined;
+    matchIndex?: number | undefined;
+    startOffset?: number | undefined;
+    endOffset?: number | undefined;
+    excerpt?: IPdfSearchExcerpt | undefined;
     pageWidth?: number | undefined;
     pageHeight?: number | undefined;
     words?: ICurrentSearchMatchWord[] | undefined;
+}
+
+interface ICurrentSearchPageMatches {
+    searchQuery: string;
+    searchOptions?: ISearchMatchOptions;
 }
 
 interface ICurrentSearchMatchMarkerRect {
@@ -19,11 +35,12 @@ interface ICurrentSearchMatchMarkerRect {
     height: number;
 }
 
-interface ISearchNavigationTargetOptions {markerRect?: ICurrentSearchMatchMarkerRect | null | undefined}
+type ISearchNavigationTargetOptions = Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>;
 
 interface IPdfSearchMatchScrollerDeps {
     getContainer: () => HTMLElement | null;
     getCurrentSearchMatch: () => ICurrentSearchMatch | null;
+    getCurrentSearchPageMatches?: (pageIndex: number) => ICurrentSearchPageMatches | null;
     scrollToCurrentMatch: () => boolean;
     scheduleRenderForSinglePage: (pageNumber: number) => void;
     scrollToPage?: (
@@ -92,6 +109,43 @@ function resolveCurrentMatchMarkerRect(
     };
 }
 
+function resolveCurrentMatchTextAnchor(
+    currentMatch: ICurrentSearchMatch | null,
+    targetPageIndex: number,
+    pageMatches: ICurrentSearchPageMatches | null,
+): IScrollToPageOptions['textAnchor'] {
+    const excerpt = currentMatch?.excerpt;
+    const startOffset = currentMatch?.startOffset;
+    const endOffset = currentMatch?.endOffset;
+    if (
+        !currentMatch
+        || currentMatch.pageIndex !== targetPageIndex
+        || !excerpt?.match
+        || typeof startOffset !== 'number'
+        || typeof endOffset !== 'number'
+        || !Number.isSafeInteger(startOffset)
+        || !Number.isSafeInteger(endOffset)
+        || startOffset < 0
+        || endOffset <= startOffset
+    ) {
+        return null;
+    }
+
+    return {
+        text: excerpt.match,
+        ...(excerpt.before ? {prefix: excerpt.before} : {}),
+        ...(excerpt.after ? {suffix: excerpt.after} : {}),
+        ...(currentMatch.pageMatchIndex === undefined ? {} : {pageMatchIndex: currentMatch.pageMatchIndex}),
+        ...(currentMatch.matchIndex === undefined ? {} : {matchIndex: currentMatch.matchIndex}),
+        ...(pageMatches?.searchQuery ? {searchQuery: pageMatches.searchQuery} : {}),
+        ...(pageMatches?.searchOptions ? {searchOptions: pageMatches.searchOptions} : {}),
+        searchRange: {
+            startOffset,
+            endOffset,
+        },
+    };
+}
+
 /**
  * Search is now a semantic request producer. ViewportAuthority owns target
  * mounting, text-layer readiness, supersession, placement and highlighting.
@@ -111,20 +165,30 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
         }
         const requestGeneration = generation;
         const pageNumber = matchPageIndex + 1;
+        const currentMatch = deps.getCurrentSearchMatch();
+        const pageMatches = deps.getCurrentSearchPageMatches?.(matchPageIndex) ?? null;
         const markerRect = resolveCurrentMatchMarkerRect(
-            deps.getCurrentSearchMatch(),
+            currentMatch,
             matchPageIndex,
         );
+        const textAnchor = markerRect
+            ? null
+            : resolveCurrentMatchTextAnchor(currentMatch, matchPageIndex, pageMatches);
+        const navigationOptions = markerRect
+            ? {markerRect}
+            : textAnchor
+                ? {textAnchor}
+                : undefined;
         if (requestGeneration !== generation) {
             return;
         }
         if (deps.revealSearchNavigationTarget) {
-            deps.revealSearchNavigationTarget(pageNumber, markerRect ? {markerRect} : undefined);
+            deps.revealSearchNavigationTarget(pageNumber, navigationOptions);
             return;
         }
         deps.scrollToPage?.(pageNumber, {
             navigationSource: 'search',
-            ...(markerRect ? {markerRect} : {}),
+            ...(navigationOptions ?? {}),
         });
     }
 

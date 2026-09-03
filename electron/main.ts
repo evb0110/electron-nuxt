@@ -63,6 +63,20 @@ import {
 } from '@electron/ocr/jobManager';
 import {searchWorkerService} from '@electron/features/search/public';
 import {
+    captureMainFailure,
+    getMainFailureReporter,
+    initializeMainFailureReporter,
+    setMainDiagnosticsPreference,
+} from '@electron/features/diagnostics/public';
+import { readDiagnosticsPreferenceSync } from '@electron/features/diagnostics/readDiagnosticsPreferenceSync';
+import {
+    installStartupCrashMarker,
+    notifyStartupCrashMarkerAdapterReady,
+    resolveDesktopDiagnosticDist,
+    STARTUP_CRASH_MARKER_FILE_NAME,
+} from '@electron/features/diagnostics/startupCrashMarker';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
     createWindow,
     configureNativeWindowCloseHandshake,
     hasWindows,
@@ -82,6 +96,7 @@ import { promptSetDefaultViewer } from '@electron/promptSetDefaultViewer';
 import {
     createLogger,
     flushPendingLogWrites,
+    type ILogger,
 } from '@electron/utils/createLogger';
 import {
     closeCachedRangeReadHandles,
@@ -132,6 +147,10 @@ import {
 import { initializeHostResourceProfile } from '@electron/resources/hostResourceProfile';
 import { configureMainJobBroker } from '@electron/resources/jobBroker';
 import { initializeElectronTranslations } from '@electron/te';
+import type {
+    DiagnosticCode,
+    DiagnosticContext,
+} from '@contracts/diagnostics/diagnosticCodes';
 
 app.setName(app.isPackaged ? 'EVB Viewer' : 'EVB Viewer Dev');
 configureProcessSafeMode(app, process.argv);
@@ -151,10 +170,104 @@ if (automationUserDataDir) {
 }
 initializeAppTempNamespace(app.getPath('userData'));
 resetSettingsCacheAfterUserDataPathChange();
+const diagnosticsPreference = readDiagnosticsPreferenceSync();
+const desktopDiagnosticRelease = `evb-viewer-desktop@${resolveApplicationVersion(app)}`;
+const desktopDiagnosticDist = resolveDesktopDiagnosticDist();
+const startupCrashMarker = installStartupCrashMarker({
+    markerPath: join(app.getPath('userData'), STARTUP_CRASH_MARKER_FILE_NAME),
+    preference: () => getMainFailureReporter()?.getPreference() ?? diagnosticsPreference,
+    // The bootstrap reporter owns no live transport. The real adapter must
+    // call notifyStartupCrashMarkerAdapterReady after it is installed.
+    release: desktopDiagnosticRelease,
+    dist: desktopDiagnosticDist,
+});
+let mainDiagnosticsAdapterLoad: Promise<void> | null = null;
+const unavailableMainDiagnosticsTransport = Object.freeze({
+    isReady: false,
+    send: () => false,
+});
+function ensureMainDiagnosticsAdapter() {
+    if (mainDiagnosticsAdapterLoad !== null) {
+        return mainDiagnosticsAdapterLoad;
+    }
+    mainDiagnosticsAdapterLoad = import('@electron/features/diagnostics/sentryNodeAdapter')
+        .then(({createSentryNodeDiagnosticsTransportFromEnvironment}) => {
+            const transport = createSentryNodeDiagnosticsTransportFromEnvironment({
+                appVersion: resolveApplicationVersion(app),
+                platform: process.platform,
+                architecture: process.arch,
+                runtimeVersions: process.versions,
+            });
+            mainFailureReporterForAdapter.setTransport(transport);
+            notifyStartupCrashMarkerAdapterReady({
+                preference: () => mainFailureReporterForAdapter.getPreference(),
+                send: marker => transport.send?.({
+                    schemaVersion: 1,
+                    eventId: marker.eventId,
+                    code: 'MAIN_STARTUP_CRASH',
+                    severity: 'fatal',
+                    runtime: 'electron-main',
+                    operation: 'startup-crash',
+                    occurredAt: marker.timestamp,
+                    frames: marker.frames,
+                    context: {},
+                }),
+            });
+        })
+        .catch(() => {
+            mainDiagnosticsAdapterLoad = null;
+        });
+    return mainDiagnosticsAdapterLoad;
+}
+const mainFailureReporterForAdapter = initializeMainFailureReporter({
+    preference: diagnosticsPreference,
+    transport: unavailableMainDiagnosticsTransport,
+    onPreferenceGranted: () => { void ensureMainDiagnosticsAdapter(); },
+});
+if (diagnosticsPreference === 'granted') {
+    void ensureMainDiagnosticsAdapter();
+}
 
 const logger = createLogger('main');
 let shutdownCoordinator: ReturnType<typeof createShutdownCoordinator> | null = null;
 let pendingSafeModeRelaunchArgs: string[] | null = null;
+let pendingFatalFailure: {
+    reason: string;
+    receipt: FailureReceipt
+} | null = null;
+
+function logMainFailure<C extends DiagnosticCode>(
+    code: C,
+    context: DiagnosticContext<C>,
+    message: string,
+    cause?: unknown,
+) {
+    try {
+        return logger.error(message, {
+            code,
+            operation: 'main-error',
+            context,
+            cause,
+        });
+    } catch {
+        // Diagnostics must not change process-death or shutdown behavior.
+        return undefined;
+    }
+}
+
+const shutdownLogger: ILogger = {
+    debug: logger.debug,
+    info: logger.info,
+    warn: logger.warn,
+    error: (message, failure) => {
+        const pending = pendingFatalFailure;
+        if (pending !== null && pending.reason === message) {
+            pendingFatalFailure = null;
+            return logger.error(message, pending.receipt);
+        }
+        return logger.error(message, failure);
+    },
+};
 
 function requestSafeModeRelaunch(args: string[]) {
     if (!shutdownCoordinator) {
@@ -183,6 +296,7 @@ const processDeathRecovery = createProcessDeathRecovery({
     argv: process.argv,
     logger,
     requestSafeModeRelaunch,
+    captureFailure: captureMainFailure,
 });
 app.on('child-process-gone', (_event, details) => {
     processDeathRecovery.handleChildProcessGone(details);
@@ -190,13 +304,32 @@ app.on('child-process-gone', (_event, details) => {
 const macOpenFileRouter = createMacOpenFileRouter({ logger });
 const startupTrace = createStartupTrace(logger);
 
-function requestFatalShutdown(reason: string) {
+function requestFatalShutdown(reason: string, receipt?: FailureReceipt) {
     if (!shutdownCoordinator) {
-        logger.error(reason);
+        logger.error(reason, receipt ?? {
+            code: 'MAIN_SHUTDOWN_FAILED',
+            context: {},
+        });
         app.exit(1);
         return;
     }
-    shutdownCoordinator.requestFatalShutdown(reason);
+    if (receipt === undefined) {
+        shutdownCoordinator.requestFatalShutdown(reason);
+        return;
+    }
+
+    const pending = {
+        reason,
+        receipt,
+    };
+    pendingFatalFailure = pending;
+    try {
+        shutdownCoordinator.requestFatalShutdown(reason);
+    } finally {
+        if (pendingFatalFailure === pending) {
+            pendingFatalFailure = null;
+        }
+    }
 }
 
 // macOS can deliver open-file during very early cold-start launch, before the
@@ -206,8 +339,17 @@ app.on('open-file', (event, filePath) => {
     macOpenFileRouter.handleOpenFile(filePath);
 });
 
+const unhandledRecoveryReceipts = new Map<string, FailureReceipt>();
 const recoverUnhandledRejectionSubsystem = createUnhandledRejectionRecovery({async recover(subsystem) {
-    logger.error(`Restarting ${subsystem} subsystem after repeated unhandled promise rejections`);
+    const message = `Restarting ${subsystem} subsystem after repeated unhandled promise rejections`;
+    const receipt = logMainFailure(
+        'MAIN_UNHANDLED_REJECTION_RECOVERY',
+        {subsystem},
+        message,
+    );
+    if (receipt) {
+        unhandledRecoveryReceipts.set(subsystem, receipt);
+    }
     if (subsystem === 'ocr') {
         await recoverOcrJobManager();
     } else if (subsystem === 'search') {
@@ -339,11 +481,14 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                     });
                     if (shutdownSaveFlushRequiresRecoveryPreservation(result)) {
                         context.preserveRecoveryState = true;
-                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state');
+                        logger.error('Renderer shutdown save flush was incomplete; retaining workspace recovery state', {
+                            code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                            context: {},
+                        });
                     }
                     for (const workingCopyPath of result.dirtyWorkingCopyPaths) {
                         workingCopyCleanupSkipPaths.add(workingCopyPath);
-                        logger.error(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
+                        logger.warn(`Renderer reported dirty working copy during shutdown; skipping deletion: ${workingCopyPath}`);
                     }
                     if (result.flushedWorkingCopyPaths.length > 0) {
                         logger.info(`Renderer flushed ${result.flushedWorkingCopyPaths.length} working copy path(s) before shutdown`);
@@ -375,15 +520,25 @@ const shutdownPhaseRunners = createShutdownPhaseRunners(logger, {
                 run: async () => {
                     const result = await drainCriticalMainOperations({timeoutMs: MAIN_OPERATION_CRITICAL_DRAIN_TIMEOUT_MS});
                     if (!result.completed) {
-                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`);
+                        logger.error(`Timed out waiting for ${result.pending.length} critical main operation(s) during shutdown`, {
+                            code: 'MAIN_SHUTDOWN_FAILED',
+                            context: {},
+                        });
                         for (const operation of result.pending) {
                             if (operation.workingCopyPath) {
                                 workingCopyCleanupSkipPaths.add(operation.workingCopyPath);
                                 logger.error(
                                     `Skipping working-copy deletion for pending critical write path: ${operation.workingCopyPath}`,
+                                    {
+                                        code: 'MAIN_SHUTDOWN_FAILED',
+                                        context: {},
+                                    },
                                 );
                             } else {
-                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`);
+                                logger.error(`Pending critical write has no working-copy path; operation=${operation.id}`, {
+                                    code: 'MAIN_SHUTDOWN_FAILED',
+                                    context: {},
+                                });
                             }
                         }
                     }
@@ -466,7 +621,7 @@ function prepareShutdown() {
 
 shutdownCoordinator = createShutdownCoordinator({
     app,
-    logger,
+    logger: shutdownLogger,
     runPreservationSteps: async (context) => {
         prepareShutdown();
         await shutdownPhaseRunners.runPreservationSteps(context);
@@ -482,28 +637,60 @@ configureNativeWindowCloseHandshake({shouldBypass: shouldBypassWindowClose});
 // Install fatal process handlers only after the coordinator exists. A synchronous
 // startup exception before this point keeps Node's default fail-fast behavior.
 process.on('unhandledRejection', (reason) => {
-    logger.error(`Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`);
     const decision = decideUnhandledRejection(reason);
     if (decision.action === 'ignore') {
+        logger.info(`Ignoring expected unhandled rejection in main process: ${getErrorMessage(reason)}`);
         return;
     }
+    const rejectionMessage = `Unhandled promise rejection in main process: ${reason instanceof Error ? reason.stack ?? reason.message : String(reason)}`;
+    const receipt = logMainFailure(
+        'MAIN_UNHANDLED_REJECTION',
+        {subsystem: decision.action === 'fatal' ? 'unknown' : decision.subsystem},
+        rejectionMessage,
+        reason,
+    );
     if (decision.action === 'fatal') {
-        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown');
+        requestFatalShutdown('Unhandled promise rejection requires fatal shutdown', receipt);
         return;
     }
+    const recoveryLoggerError = (message: string) => {
+        const recoveryReceipt = unhandledRecoveryReceipts.get(decision.subsystem);
+        if (!recoveryReceipt) {
+            return logger.error(message, {
+                code: 'MAIN_UNHANDLED_REJECTION_RECOVERY',
+                context: {subsystem: decision.subsystem},
+            });
+        }
+        const projectedReceipt = logger.error(message, recoveryReceipt);
+        unhandledRecoveryReceipts.delete(decision.subsystem);
+        return projectedReceipt;
+    };
     runDetached(
-        () => recoverUnhandledRejectionSubsystem(decision.subsystem, reason),
+        () => recoverUnhandledRejectionSubsystem(decision.subsystem, reason).then(result => {
+            if (result.recovered) {
+                unhandledRecoveryReceipts.delete(decision.subsystem);
+            }
+            return result;
+        }),
         {
             label: 'recover subsystem after unhandled rejection threshold',
-            logger,
-            onError: error => requestFatalShutdown(
-                `Unhandled rejection subsystem recovery failed (${decision.subsystem}): ${getErrorMessage(error)}`,
-            ),
+            logger: {error: recoveryLoggerError},
+            onError: error => {
+                const recoveryReceipt = unhandledRecoveryReceipts.get(decision.subsystem);
+                requestFatalShutdown(
+                    `Unhandled rejection subsystem recovery failed (${decision.subsystem}): ${getErrorMessage(error)}`,
+                    recoveryReceipt,
+                );
+            },
         },
     );
 });
 process.on('uncaughtException', (error) => {
-    requestFatalShutdown(`Uncaught exception in main process: ${error.stack ?? error.message}`);
+    const receipt = startupCrashMarker.captureLiveException(error);
+    requestFatalShutdown(
+        `Uncaught exception in main process: ${error.stack ?? error.message}`,
+        receipt,
+    );
 });
 function requestSystemShutdown(event?: {preventDefault(): void}) {
     if (shutdownCoordinator?.isQuittingAfterCleanup()) {
@@ -576,6 +763,7 @@ void runInitSequence({
     initializeElectronTranslations,
     initializeResourceRuntime: async () => {
         const settings = await loadSettings();
+        setMainDiagnosticsPreference(settings.clientDiagnosticsPreference);
         const resourceProfile = initializeHostResourceProfile({
             app,
             performanceMode: readLaunchPerformanceMode(settings),

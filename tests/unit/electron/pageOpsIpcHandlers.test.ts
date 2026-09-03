@@ -1215,4 +1215,26 @@ describe('page ops main bindings', () => {
             },
         }));
     });
+
+    it('does not publish page identities when metadata remapping fails', async () => {
+        mocks.applyPageMetadataRemap.mockRejectedValueOnce(new Error('metadata append failed'));
+        const handler = getHandler('page-ops:rotate');
+
+        await expect(handler({sender: {id: 1}}, '/tmp/a.pdf', [1], 3, 90, {
+            ...REVISION_OPTIONS,
+            metadataSnapshot: {
+                pageLabels: [
+                    'i',
+                    '1',
+                    '2',
+                ],
+                bookmarks: [],
+                untitledBookmarkLabel: 'Untitled',
+            },
+        })).rejects.toThrow('metadata append failed');
+
+        expect(mocks.rotatePages).toHaveBeenCalledOnce();
+        expect(mocks.commitPageIdentityDelta).not.toHaveBeenCalled();
+        expect(mocks.verifyPdfStructureStrict).not.toHaveBeenCalled();
+    });
 });

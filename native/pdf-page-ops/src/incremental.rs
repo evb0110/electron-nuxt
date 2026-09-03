@@ -565,12 +565,13 @@ pub(crate) fn append_native_mutations_with_qpdf(
     )
 }
 
-/// Appends one revision directly to a caller-owned private staging file.
+/// Appends one revision directly to a caller-owned file.
 ///
-/// The caller must provide an unpublished copy and retain the outer atomic
-/// publication boundary. Native still validates the admitted file and rolls
-/// back a partial revision on every write or postcondition failure, but it
-/// does not create another sibling clone of the already staged PDF.
+/// The caller must provide either an unpublished copy with an outer atomic
+/// publication boundary or an exclusively owned working-copy inode covered by
+/// a durable copy-on-write backup and recovery journal. Native still validates
+/// the admitted file and rolls back a partial revision on every write or
+/// postcondition failure, but it does not create another sibling clone.
 pub(crate) fn append_native_mutations_in_place_with_qpdf(
     input_path: &Path,
     output_path: &Path,

@@ -40,6 +40,174 @@ function createDeferred() {
 }
 
 describe('usePdfSinglePageNavigationController', () => {
+    it('requests text-first target hydration only for text-layer navigation readiness', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = pageNumber === 1
+                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                : '<div class="document-page-skeleton"></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 3}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 3,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const freshPages = new Set([1]);
+        const waitForPageTextLayerReady = vi.fn(async () => true);
+        const viewportWrites = createTestPdfViewportWritePort();
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number
+        }) => {
+            const target = viewer.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(range.start)}"]`,
+            );
+            if (target) {
+                target.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div><div class="text-layer" data-pdf-text-layer-ready="true"></div>';
+            }
+            freshPages.add(range.start);
+        });
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(3),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages,
+                waitForPageTextLayerReady,
+                isPageFreshlyRenderedForNavigation: pageNumber => freshPages.has(pageNumber),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'rect',
+                    page: 2,
+                    rect: {
+                        left: 0.25,
+                        top: 0.75,
+                        width: 0.1,
+                        height: 0.05,
+                    },
+                },
+                alignment: 'rect-center',
+                readiness: 'page-canvas',
+                source: 'search',
+                supersession: 'latest-wins',
+            })).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(2);
+            });
+            expect(renderVisiblePages).toHaveBeenNthCalledWith(
+                1,
+                {
+                    start: 2,
+                    end: 2,
+                },
+                {
+                    authoritativeRaster: true,
+                    preserveRenderedPages: true,
+                    retainOnlyCurrentResidentRaster: true,
+                    suppressResidentRasterDemand: false,
+                },
+            );
+            expect(waitForPageTextLayerReady).not.toHaveBeenCalled();
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'rect',
+                    page: 3,
+                    rect: {
+                        left: 0.25,
+                        top: 0.75,
+                        width: 0.1,
+                        height: 0.05,
+                    },
+                },
+                alignment: 'rect-center',
+                readiness: 'text-layer',
+                postArrival: 'search-highlight',
+                source: 'search',
+                supersession: 'latest-wins',
+            })).toBe(true);
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.currentPage.value).toBe(3);
+            });
+            expect(renderVisiblePages).toHaveBeenNthCalledWith(
+                2,
+                {
+                    start: 3,
+                    end: 3,
+                },
+                {
+                    authoritativeRaster: true,
+                    preserveRenderedPages: true,
+                    prioritizeTextLayer: true,
+                    retainOnlyCurrentResidentRaster: true,
+                    suppressResidentRasterDemand: false,
+                },
+            );
+            expect(waitForPageTextLayerReady).toHaveBeenCalledOnce();
+            expect(waitForPageTextLayerReady).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('refines a continuous page jump from the mounted page position', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');

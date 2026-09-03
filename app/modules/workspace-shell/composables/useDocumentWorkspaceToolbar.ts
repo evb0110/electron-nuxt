@@ -58,6 +58,9 @@ export const useDocumentWorkspaceToolbar = (options: IUseDocumentWorkspaceToolba
                 BrowserLogger.error('workspace', 'Toolbar action failed', {
                     tabId: options.tabId,
                     error,
+                }, {
+                    code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                    context: {},
                 });
             });
         }

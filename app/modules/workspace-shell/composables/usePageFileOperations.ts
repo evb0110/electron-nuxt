@@ -172,7 +172,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
         try {
             await handleSave();
         } catch (saveError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)});
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: save before switch threw', {error: stringifyError(saveError)}, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            });
             return false;
         }
 
@@ -204,7 +207,10 @@ export const usePageFileOperations = (deps: IPageFileOperationsDeps) => {
 
             return await savePendingChangesBeforeSwitch();
         } catch (persistError) {
-            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: stringifyError(persistError)});
+            BrowserLogger.error(RECENT_OPEN_LOG_SECTION, 'Switch blocked: persistence gate threw unexpectedly', {error: stringifyError(persistError)}, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            });
             return false;
         }
     }

@@ -32,6 +32,21 @@ const MIRROR_PREFIX_PATTERN = /^evb-viewer\/[a-z0-9./-]+\/$/u;
 const MIRROR_CHANNEL_KEY_PATTERN = /^evb-viewer\/[a-z0-9./-]+$/u;
 const RETAINED_RELEASE_COUNT = 4;
 
+export const MIRROR_TRANSFER_TIMEOUTS = Object.freeze({
+    connectionTimeout: 10_000,
+    socketTimeout: 60_000,
+    requestTimeout: 10 * 60_000,
+});
+const UPLOAD_ATTEMPTS = 3;
+const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'EPIPE',
+    'ECONNREFUSED',
+    'EAI_AGAIN',
+    'EHOSTUNREACH',
+]);
+
 export async function publishReleaseMirror({
     artifactDirectory,
     drill = false,
@@ -39,6 +54,7 @@ export async function publishReleaseMirror({
     publishChannel = true,
     environment = process.env,
     client: providedClient,
+    uploadRetryDelayMs = 5_000,
 }) {
     if (!artifactDirectory || !releaseTag) {
         throw new Error('Usage: publish-release-mirror.mjs <artifact-directory> <release-tag>');
@@ -84,16 +100,12 @@ export async function publishReleaseMirror({
             throw new Error(`Immutable mirror object mismatch for ${key}`);
         } else {
             console.log(`Uploading ${name} (${fileStat.size} bytes)`);
-            await putImmutableObject(client, bucket, key, new PutObjectCommand({
-                Bucket: bucket,
-                Key: key,
-                Body: createReadStream(filePath),
-                ContentLength: fileStat.size,
-                ContentType: contentTypeFor(name),
-                CacheControl: 'public, max-age=31536000, immutable',
-                Metadata: { sha256 },
-                IfNoneMatch: '*',
-            }), fileStat.size, sha256);
+            await putImmutableFile(client, bucket, key, {
+                filePath,
+                name,
+                sha256,
+                size: fileStat.size,
+            }, uploadRetryDelayMs);
         }
         assets.push({
             name,
@@ -245,7 +257,7 @@ export async function cleanupMirrorPrefix({
 
 export {hashFile};
 
-function createMirrorClient(environment, providedClient) {
+export function createMirrorClient(environment, providedClient) {
     const endpoint = requireEnvironment(environment, 'MIRROR_S3_ENDPOINT');
     const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
     return {
@@ -256,6 +268,14 @@ function createMirrorClient(environment, providedClient) {
             // Yandex implements the S3 API but not every optional AWS checksum mode.
             requestChecksumCalculation: 'WHEN_REQUIRED',
             responseChecksumValidation: 'WHEN_REQUIRED',
+            // A single installer upload from a GitHub runner has stalled
+            // silently for the whole job. Without these limits nothing aborts
+            // it before GitHub's six-hour job cap, and the global release
+            // concurrency group stays blocked for that long.
+            requestHandler: {
+                ...MIRROR_TRANSFER_TIMEOUTS,
+                throwOnRequestTimeout: true,
+            },
             credentials: {
                 accessKeyId: requireEnvironment(environment, 'MIRROR_S3_ACCESS_KEY_ID'),
                 secretAccessKey: requireEnvironment(environment, 'MIRROR_S3_SECRET_KEY'),
@@ -348,6 +368,54 @@ async function putImmutableObject(client, bucket, key, command, expectedSize, ex
         throw new Error(`Immutable mirror object mismatch for ${key}`, {cause: error});
     }
     await verifyUpload(client, bucket, key, expectedSize, expectedSha256);
+}
+
+async function putImmutableFile(client, bucket, key, {
+    filePath,
+    name,
+    sha256,
+    size,
+}, retryDelayMs) {
+    for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+        const startedAt = Date.now();
+        try {
+            // The SDK cannot rewind a partially consumed body, so every
+            // attempt opens its own stream.
+            await putImmutableObject(client, bucket, key, new PutObjectCommand({
+                Bucket: bucket,
+                Key: key,
+                Body: createReadStream(filePath),
+                ContentLength: size,
+                ContentType: contentTypeFor(name),
+                CacheControl: 'public, max-age=31536000, immutable',
+                Metadata: { sha256 },
+                IfNoneMatch: '*',
+            }), size, sha256);
+            console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s`);
+            return;
+        } catch (error) {
+            if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
+                throw error;
+            }
+            const reason = error instanceof Error ? error.message : String(error);
+            console.warn(
+                `Upload of ${name} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
+                + `retrying (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
+            );
+            await delay(retryDelayMs * attempt);
+        }
+    }
+}
+
+function elapsedSeconds(startedAt) {
+    return ((Date.now() - startedAt) / 1000).toFixed(1);
+}
+
+function isTransientTransferError(error) {
+    const status = error?.$metadata?.httpStatusCode;
+    return error?.name === 'TimeoutError'
+        || TRANSIENT_TRANSFER_ERROR_CODES.has(error?.code)
+        || (typeof status === 'number' && status >= 500);
 }
 
 function isConditionalWriteConflict(error) {

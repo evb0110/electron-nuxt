@@ -168,6 +168,8 @@ describe('zero-execution coverage tripwire', () => {
             'app/modules/workspace-shell/components/UnencryptedSaveDialog.vue',
         );
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('scripts/generate-freetext-lifecycle-fixture.mjs');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/pages/electron.vue');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('electron/preload.ts');
     });
 
     it('discovers and checks targets across the widened production roots', async () => {

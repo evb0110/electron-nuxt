@@ -359,7 +359,10 @@ async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
     // A corrupt checkpoint must not silently masquerade as "no checkpoint" on
     // every startup: log it and move it aside so recovery stops repeating while
     // the bad file is preserved for diagnosis.
-    log.error(`Discarding workspace checkpoint: ${reason}`);
+    log.error(`Discarding workspace checkpoint: ${reason}`, {
+        code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
+        context: {},
+    });
     const storagePath = getStoragePath();
     try {
         const quarantinePath = await quarantineCorruptFile(storagePath);
@@ -373,7 +376,11 @@ async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
         // error and the checkpoint path so the bad file can still be found. The
         // corrupt checkpoint is treated as discarded either way, so recovery
         // continues rather than propagating this failure.
-        log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${error instanceof Error ? error.message : String(error)}`);
+        log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${error instanceof Error ? error.message : String(error)}`, {
+            code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
+            context: {},
+            cause: error,
+        });
     }
 }
 
@@ -615,7 +622,11 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             blockStaleWorkingCopyDirectoryCleanup(
                 `workspace checkpoint read failed at ${checkpointPath}`,
             );
-            log.error(`Failed to read workspace checkpoint: ${error instanceof Error ? error.message : String(error)}`);
+            log.error(`Failed to read workspace checkpoint: ${error instanceof Error ? error.message : String(error)}`, {
+                code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
+                context: {},
+                cause: error,
+            });
             throw new WorkspaceCheckpointReadError(checkpointPath, error);
         }
 

@@ -45,6 +45,12 @@ const progressListeners = new Set<TBatchProgressListener>();
 const loggerError = vi.fn();
 const loggerWarn = vi.fn();
 const reportRuntimeError = vi.fn();
+const pageOperationFailure = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
 
 vi.mock('@app/utils/platformDocuments', () => ({
     getPageOpsCapability: () => pageOpsApi,
@@ -131,6 +137,7 @@ function createHarness(path: string | null = '/tmp/work.pdf', options: {
 
 beforeEach(() => {
     vi.clearAllMocks();
+    loggerError.mockReturnValue(pageOperationFailure);
     pageOpsApi.move.mockResolvedValue({
         success: true,
         pageCount: 1_000_000,
@@ -491,6 +498,8 @@ describe('usePageOperations', () => {
 
         expect(pageOpsApi.delete).not.toHaveBeenCalled();
         expect(pageOps.error.value).toBe('msg:errors.pageOps.deleteAll');
+        expect(loggerError).not.toHaveBeenCalled();
+        expect(reportRuntimeError).not.toHaveBeenCalled();
     });
 
     it('sends a compact delete range for a million-page selection', async () => {
@@ -575,7 +584,19 @@ describe('usePageOperations', () => {
 
         await expect(pageOps.insertPages(5, 0)).resolves.toBe(false);
 
-        expect(loggerError).toHaveBeenCalledWith('page-ops', 'insertPages failed', 'ipc failed');
+        expect(loggerError).toHaveBeenCalledWith(
+            'page-ops',
+            'insertPages failed',
+            'ipc failed',
+            {
+                code: 'RENDERER_PDF_PAGE_OPERATION_FAILED',
+                context: {},
+            },
+        );
+        expect(reportRuntimeError).toHaveBeenCalledExactlyOnceWith({
+            failure: pageOperationFailure,
+            title: 'msg:errors.pageOps.insert',
+        });
         expect(pageOps.error.value).toBe('msg:errors.pageOps.insert');
         expect(pageOps.isOperationInProgress.value).toBe(false);
     });

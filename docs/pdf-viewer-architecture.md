@@ -56,6 +56,31 @@ lookups:
 `PdfViewerPage.vue` intentionally emits both PDF.js camelCase layer classes and
 app kebab-case classes.
 
+Layer hydration has one request owner. Layer promotion may start only from a
+settled canvas whose layer readiness is `none` or `canvas-only`, never while
+another owner is hydrating it. A priority request that arrives during hydration
+is queued and reconsidered when that owner settles.
+
+Viewport intents that require `text-layer` readiness send text-first priority
+through the authority raster request. The authority still resolves the exact
+target, waits for its text layer, and applies the final viewport position once.
+Request-scoped text readiness is published as soon as text rendering succeeds;
+annotation readiness remains a separate, later layer-hydration state.
+
+The search sidebar reveals virtual rows from their logical row heights. Group
+expansion exposes the inserted match span with the nearest list scroll. Result
+selection uses the same calculation and leaves an already visible row in place.
+The virtualizer reads the same fixed-height CSS tokens that size the rendered
+group and match rows, whose labels are truncated instead of wrapping.
+
+Sidebar panels keep controls and summaries in normal flow as fixed-size flex
+children. One remaining flex child owns vertical scrolling and must use a
+flex-derived block size with `min-height: 0`. A results or empty-state child below
+panel controls must not claim `min-height: 100%`, since that percentage excludes
+its siblings and pushes the scroll rail beyond the sidebar's clip edge. The
+global status row owns no sidebar compensation; the app shell already reserves
+its height outside the workspace row.
+
 ## Current-page resolution per renderer stack
 
 Each renderer stack answers "which page is the user looking at?" with its own

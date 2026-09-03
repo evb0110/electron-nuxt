@@ -58,11 +58,19 @@
                         icon="i-ph-warning-circle"
                         :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
                     />
+                    <AppFailureAlert
+                        v-if="combineError && combineFailure"
+                        :presentation="{
+                            failure: combineFailure,
+                            title: t('combinePdf.title'),
+                            description: combineError,
+                        }"
+                    />
                     <UAlert
-                        v-if="combineError"
-                        color="error"
+                        v-else-if="combineError && combineErrorIsExpected"
+                        color="warning"
                         variant="soft"
-                        icon="i-ph-warning"
+                        icon="i-ph-warning-circle"
                         :description="combineError"
                     />
                 </div>
@@ -109,11 +117,19 @@
                     :description="t('combinePdf.unsupportedFiles', { count: lastRejectedCount })"
                 />
 
+                <AppFailureAlert
+                    v-if="combineError && combineFailure"
+                    :presentation="{
+                        failure: combineFailure,
+                        title: t('combinePdf.title'),
+                        description: combineError,
+                    }"
+                />
                 <UAlert
-                    v-if="combineError"
-                    color="error"
+                    v-else-if="combineError && combineErrorIsExpected"
+                    color="warning"
                     variant="soft"
-                    icon="i-ph-warning"
+                    icon="i-ph-warning-circle"
                     :description="combineError"
                 />
 
@@ -224,6 +240,7 @@
 import { useEventListener } from '@vueuse/core';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import AppProgressBar from '@app/components/AppProgressBar.vue';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AppToolPageShell from '@app/components/AppToolPageShell.vue';
 import FileTypeIcon from '@app/components/icons/FileTypeIcon.vue';
 import {useCombinePdfQueue} from '@app/modules/combine/useCombinePdfQueue';
@@ -300,6 +317,8 @@ const {
     isCombining,
     progress,
     combineError,
+    combineFailure,
+    combineErrorIsExpected,
     pendingCombinedResult,
     queueMutationLocked,
     combine: combineFiles,

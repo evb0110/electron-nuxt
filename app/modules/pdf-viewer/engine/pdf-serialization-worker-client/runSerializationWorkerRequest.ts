@@ -18,6 +18,12 @@ import {
     canUseBrowserWorker,
 } from '@app/platform/browser-api/public';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    detectRendererDiagnosticsHost,
+    getRendererFailureReporter,
+    initializeRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 const SERIALIZATION_WORKER_IDLE_TTL_MS = 15_000;
 
@@ -60,6 +66,45 @@ class PdfSerializationWorkerTimeoutError extends Error {
         super(message);
         this.name = 'PdfSerializationWorkerTimeoutError';
     }
+}
+
+interface IPdfSerializationWorkerFailure extends Error {failure?: FailureReceipt;}
+
+function getWorkerFailureReceipt(error: unknown) {
+    if (!(error instanceof Error)) {
+        return undefined;
+    }
+    return (error as IPdfSerializationWorkerFailure).failure;
+}
+
+function attachWorkerFailureReceipt<T>(error: T, receipt: FailureReceipt | undefined) {
+    if (!(error instanceof Error) || !receipt || getWorkerFailureReceipt(error)) {
+        return error;
+    }
+    Object.defineProperty(error, 'failure', {
+        configurable: true,
+        value: receipt,
+    });
+    return error;
+}
+
+function reportWorkerFailure(error: Error) {
+    const existingReceipt = getWorkerFailureReceipt(error);
+    if (existingReceipt) {
+        return error;
+    }
+
+    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
+    const receipt = reporter.capture({
+        code: 'RENDERER_PDF_SERIALIZATION_WORKER_FAILED',
+        context: {},
+        local: {
+            source: 'pdf-serialization-worker-parent',
+            message: error.message,
+            cause: error,
+        },
+    }, {runtime: 'browser-worker-parent'});
+    return attachWorkerFailureReceipt(error, receipt);
 }
 
 function isPdfSerializationWorkerOperationError(error: unknown) {
@@ -318,7 +363,9 @@ const serializationWorkerClient = new BrowserWorkerClient<IPendingBrowserWorkerR
         new URL('../pdfSerialization.worker.ts', import.meta.url),
         { type: 'module' },
     ),
-    createError: event => (event.error instanceof Error ? event.error : new Error(event.message)),
+    createError: event => reportWorkerFailure(
+        event.error instanceof Error ? event.error : new Error(event.message),
+    ),
     handleMessage: settleSerializationWorkerResult,
 });
 
@@ -434,41 +481,47 @@ async function runSerializationWorkerRequestInternal<K extends TSerializationWor
                 return true;
             },
             reject,
-        }, () => new PdfSerializationWorkerTimeoutError(
+        }, () => reportWorkerFailure(new PdfSerializationWorkerTimeoutError(
             `PDF serialization worker did not reply within ${requestTimeoutMs}ms (type=${request.type})`,
-        ), requestTimeoutMs);
+        )), requestTimeoutMs);
 
         try {
             worker.postMessage(workerRequest.request, workerRequest.transfer);
         } catch (error) {
             serializationWorkerClient.cancelPendingRequest(
                 request.id,
-                error instanceof Error ? error : new Error(String(error)),
+                reportWorkerFailure(error instanceof Error ? error : new Error(String(error))),
             );
         }
     }).catch(async (error: unknown) => {
+        const workerError = reportWorkerFailure(
+            error instanceof Error ? error : new Error(String(error)),
+        );
         if (isPdfSerializationWorkerOperationError(error)) {
-            throw error;
+            throw workerError;
         }
 
-        if (isPdfSerializationWorkerTimeoutError(error)) {
+        if (isPdfSerializationWorkerTimeoutError(workerError)) {
             if (serializationWorkerClient.isActiveWorker(worker)) {
-                serializationWorkerClient.resetWorker(error);
+                serializationWorkerClient.resetWorker(workerError);
             }
-            throw error;
+            throw workerError;
         }
 
         if (serializationWorkerClient.isActiveWorker(worker)) {
             serializationWorkerClient.resetWorker();
         }
-        const fallbackRequest = await prepareDirectFallbackRequest(typedRequest, binaryInput);
         try {
+            const fallbackRequest = await prepareDirectFallbackRequest(typedRequest, binaryInput);
             return await runDirectWithYield(fallbackRequest) as ISerializationWorkerResultMap[K];
         } catch (fallbackError) {
+            const fallbackFailure = fallbackError instanceof Error
+                ? attachWorkerFailureReceipt(fallbackError, getWorkerFailureReceipt(workerError))
+                : workerError;
             if (binaryInput?.ownership === 'disposable' && binaryInput.bytes.byteLength === 0) {
-                throw fallbackError;
+                throw fallbackFailure;
             }
-            throw error;
+            throw fallbackFailure;
         }
     });
 }

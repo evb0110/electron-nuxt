@@ -14,7 +14,8 @@ import type {
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {
-    hasWorkerTaskErrorBeenReported,
+    getWorkerTaskFailureReceipt,
+    rememberWorkerTaskFailureReceipt,
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
@@ -39,6 +40,11 @@ function decodeProgress(value: unknown): TScanCleanupProgress | null {
         logger.error(
             `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
             + `(${error instanceof Error ? error.message : String(error)})`,
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: error,
+            },
         );
         return null;
     }
@@ -101,14 +107,21 @@ export async function runScanCleanupWorkerTask(
         const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         if (signal.aborted || isAbortError(error)) {
             logger.info('Scan cleanup worker task canceled');
-        } else if (hasWorkerTaskErrorBeenReported(error)) {
+        } else if (getWorkerTaskFailureReceipt(error) !== undefined) {
             // The generic worker-task layer already reported this exact
             // rejection at error level. Repeating it at error level would make
             // the renderer count one fault twice, so keep the scan-cleanup
             // context below the reporting threshold.
             logger.warn(`Scan cleanup worker task rejected (already reported): ${detail}`);
         } else {
-            logger.error(`Scan cleanup worker task rejected: ${detail}`);
+            rememberWorkerTaskFailureReceipt(
+                error,
+                logger.error(`Scan cleanup worker task rejected: ${detail}`, {
+                    code: 'MAIN_SCAN_CLEANUP_FAILED',
+                    context: {},
+                    cause: error,
+                }),
+            );
         }
         throw error;
     }

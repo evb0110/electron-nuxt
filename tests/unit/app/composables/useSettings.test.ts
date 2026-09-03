@@ -93,6 +93,7 @@ describe('useSettings', () => {
             optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
+            clientDiagnosticsPreference: 'unknown',
         });
 
         const { useSettings } = await import('@app/composables/useSettings');
@@ -122,6 +123,7 @@ describe('useSettings', () => {
             optimizePdfOnSaveAs: false,
             agentMcpEnabled: false,
             assistantPanelEnabled: false,
+            clientDiagnosticsPreference: 'unknown',
             suppressDefaultViewerPrompt: false,
         });
 
@@ -150,12 +152,18 @@ describe('useSettings', () => {
             .mockRejectedValueOnce(new Error('temporary failure'))
             .mockResolvedValue(undefined);
 
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'denied',
+        });
         const { useSettings } = await import('@app/composables/useSettings');
         const {
             isSettingsSavePendingRetry,
             settings,
             save,
             settingsSaveError,
+            settingsSaveFailure,
             settingsSaveStatus,
         } = useSettings();
 
@@ -164,6 +172,9 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenCalledTimes(1);
         expect(settingsSaveStatus.value).toBe('retry-pending');
         expect(settingsSaveError.value).toBe('temporary failure');
+        const firstFailure = settingsSaveFailure.value;
+        expect(firstFailure?.failure.code).toBe('SETTINGS_SAVE_FAILED');
+        expect(reporter.getHealthSnapshot().attempted).toBe(1);
         expect(isSettingsSavePendingRetry.value).toBe(true);
 
         settings.value.locale = 'de';
@@ -173,6 +184,9 @@ describe('useSettings', () => {
         expect(mockSave).toHaveBeenLastCalledWith(expect.objectContaining({ locale: 'de' }));
         expect(settingsSaveStatus.value).toBe('idle');
         expect(settingsSaveError.value).toBeNull();
+        expect(settingsSaveFailure.value).toBeNull();
+        expect(reporter.getHealthSnapshot().attempted).toBe(1);
+        expect(firstFailure?.failure.eventId).toBeDefined();
         expect(isSettingsSavePendingRetry.value).toBe(false);
         vi.useRealTimers();
     });
@@ -211,6 +225,24 @@ describe('useSettings', () => {
             vi.useRealTimers();
             vi.unstubAllGlobals();
         }
+    });
+
+    it('changes the live diagnostics gate before the debounced settings save', async () => {
+        vi.useFakeTimers();
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+        });
+        const { useSettings } = await import('@app/composables/useSettings');
+        const { updateSetting } = useSettings();
+
+        updateSetting('clientDiagnosticsPreference', 'denied');
+
+        expect(reporter.getPreference()).toBe('denied');
+        expect(mockSave).not.toHaveBeenCalled();
+        vi.clearAllTimers();
+        vi.useRealTimers();
     });
 
     it('shares one in-flight save queue across settings composable callers', async () => {

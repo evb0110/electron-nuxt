@@ -12,6 +12,11 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
     secrets:
       CSC_LINK:
         required: false
@@ -26,6 +31,14 @@ on:
       WIN_CSC_LINK:
         required: false
       WIN_CSC_KEY_PASSWORD:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DESKTOP_PROJECT:
+        required: false
+      SENTRY_DESKTOP_DSN:
         required: false
 
 permissions:
@@ -60,6 +73,7 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       release_environment: ${{ inputs.release_environment }}
+      sentry_environment: ${{ inputs.sentry_environment }}
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
       arch: ${{ matrix.arch }}
@@ -72,3 +86,7 @@ jobs:
       APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
       WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
       WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}

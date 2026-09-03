@@ -52,8 +52,12 @@
                 </AppTooltip>
             </div>
         </header>
-
         <div class="agent-assistant-body">
+            <AppFailureAlert
+                v-if="assistantFailurePresentation"
+                :presentation="assistantFailurePresentation"
+                icon="i-ph-warning-circle"
+            />
             <section
                 v-if="panelView === 'checking'"
                 class="agent-assistant-placeholder"
@@ -73,7 +77,6 @@
                     {{ installProgress }}
                 </p>
             </section>
-
             <section
                 v-else-if="panelView === 'unsupported' || panelView === 'error'"
                 class="agent-assistant-placeholder"
@@ -85,7 +88,6 @@
                 <p>{{ t(panelView === 'error' ? 'assistant.runtimeErrorDescription' : 'assistant.unsupportedDescription') }}</p>
                 <UButton v-if="panelView === 'error'" :label="t('assistant.refresh')" icon="i-ph-arrows-clockwise" color="primary" @click="handleRefreshState" />
             </section>
-
             <section
                 v-else-if="panelView === 'install'"
                 class="agent-assistant-placeholder"
@@ -118,14 +120,13 @@
                     {{ installProgress }}
                 </p>
                 <p
-                    v-if="status.error"
+                    v-if="status.error && !assistantFailurePresentation"
                     class="agent-assistant-setup-error"
                     role="alert"
                 >
                     {{ status.error }}
                 </p>
             </section>
-
             <section
                 v-else-if="panelView === 'update'"
                 class="agent-assistant-placeholder"
@@ -150,14 +151,13 @@
                     {{ installProgress }}
                 </p>
                 <p
-                    v-if="status.error"
+                    v-if="status.error && !assistantFailurePresentation"
                     class="agent-assistant-setup-error"
                     role="alert"
                 >
                     {{ status.error }}
                 </p>
             </section>
-
             <section
                 v-else-if="panelView === 'sign-in'"
                 class="agent-assistant-placeholder"
@@ -214,7 +214,6 @@
                     {{ t('assistant.loginPending') }}
                 </p>
             </section>
-
             <template v-else-if="panelView === 'ready'">
                 <section
                     v-if="!chatScope"
@@ -226,7 +225,6 @@
                     <h2>{{ t('assistant.noDocumentTitle') }}</h2>
                     <p>{{ t('assistant.noDocumentDescription') }}</p>
                 </section>
-
                 <template v-else>
                     <section
                         v-if="!hasMessages"
@@ -467,7 +465,7 @@
                                 </div>
                             </div>
                             <p
-                                v-if="composerError"
+                                v-if="composerError && !assistantFailurePresentation"
                                 class="agent-assistant-composer-error"
                             >
                                 {{ composerError }}
@@ -595,7 +593,7 @@
             </div>
 
             <p
-                v-if="status.error && !hasMessages && panelView !== 'install' && panelView !== 'update'"
+                v-if="status.error && !assistantFailurePresentation && !hasMessages && panelView !== 'install' && panelView !== 'update'"
                 class="agent-assistant-error"
             >
                 {{ status.error }}
@@ -673,6 +671,7 @@
 
 <script setup lang="ts">
 import type { IAgentAssistantPanelControllerProps } from '@app/modules/agent-panel/composables/useAgentAssistantPanelController';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import AssistantEffortSwitcher from '@app/modules/agent-panel/components/AssistantEffortSwitcher.vue';
 import AssistantModelSwitcher from '@app/modules/agent-panel/components/AssistantModelSwitcher.vue';
 import AssistantSpeedSwitcher from '@app/modules/agent-panel/components/AssistantSpeedSwitcher.vue';
@@ -706,6 +705,7 @@ const props = {
 
 const {
     ASSISTANT_PRESETS,
+    assistantFailurePresentation,
     assistantSelectionLocked,
     availableEfforts,
     availableSpeedModes,

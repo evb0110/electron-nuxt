@@ -210,11 +210,11 @@ describe('useExternalFileDrop', () => {
 
         await flushDropQueue();
 
-        expect(toastAddMock).toHaveBeenCalledWith({
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.file.open',
-            description: 'ingestion failed',
-        });
+            description: expect.stringContaining('ingestion failed'),
+        }));
         expect(openPathsInAppropriateTab).toHaveBeenCalledWith(['/docs/b.pdf']);
     });
 });

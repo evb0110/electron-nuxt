@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@app/modules/agent-panel/composables/useAgentAssistantPanelController', () => ({useAgentAssistantPanelController: () => ({
+    assistantFailurePresentation: null,
     canResetChat: false,
     expandedImage: null,
     handleRefreshState: mocks.handleRefreshState,

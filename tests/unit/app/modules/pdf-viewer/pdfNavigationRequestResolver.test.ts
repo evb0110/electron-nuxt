@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
     describe,
     expect,
@@ -164,6 +166,133 @@ describe('PDF navigation request resolver', () => {
         });
     });
 
+    it('resolves the requested duplicate occurrence from its canonical search range', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'first needle ';
+        const second = document.createElement('span');
+        second.textContent = 'second needle';
+        textLayer.append(first, second);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                searchRange: {
+                    startOffset: 'first needle '.length + 'second '.length,
+                    endOffset: 'first needle '.length + 'second needle'.length,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
+    it('uses the page-local occurrence when native offsets do not fit the text layer', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'needle first';
+        const second = document.createElement('span');
+        second.textContent = 'needle second';
+        const third = document.createElement('span');
+        third.textContent = 'needle third';
+        textLayer.append(first, second, third);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                pageMatchIndex: 1,
+                searchQuery: 'needle',
+                searchOptions: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                searchRange: {
+                    startOffset: 500,
+                    endOffset: 506,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
     it.each([
         [
             'metrics',
@@ -175,7 +304,7 @@ describe('PDF navigation request resolver', () => {
         ],
         [
             'text-layer',
-            true,
+            false,
         ],
         [
             'annotation-editor',
@@ -185,5 +314,12 @@ describe('PDF navigation request resolver', () => {
         const page = cast<HTMLElement>({querySelector: (selector: string) => selector.includes('text') || selector.includes('annotation') ? {} : null});
         const container = cast<HTMLElement>({querySelector: () => page});
         expect(isPdfNavigationReady(container, 2, readiness, () => true)).toBe(expected);
+    });
+
+    it('requires the renderer readiness marker before using a text layer', () => {
+        const textLayer = {dataset: {pdfTextLayerReady: 'true'}};
+        const page = cast<HTMLElement>({querySelector: () => textLayer});
+        const container = cast<HTMLElement>({querySelector: () => page});
+        expect(isPdfNavigationReady(container, 2, 'text-layer', () => true)).toBe(true);
     });
 });

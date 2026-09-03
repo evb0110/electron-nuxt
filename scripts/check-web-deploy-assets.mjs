@@ -15,12 +15,14 @@ import {
     REQUIRED_WEB_OUTPUT_CONTRACTS,
     REQUIRED_WEB_WASM_ASSETS,
 } from './web-deploy-asset-manifest.mjs';
+import {scanPublicArtifactDirectory} from './check-build-artifacts-hygiene.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES = [
     'pdf-lib',
     'utif',
     'pako',
+    '@sentry/',
 ];
 const NODE_SERVER_BOOT_TIMINGS = Object.freeze({
     default: Object.freeze({
@@ -76,6 +78,27 @@ export function getExpectedWebDeployOutputRoots(env = process.env) {
     return isVercelBuildOutputEnv(env)
         ? ['.vercel/output/static']
         : ['nuxt-output/public'];
+}
+
+export function parseWebDeployAssetOptions(rawArgs = [], env = process.env) {
+    const supportedArgs = new Set(['--vercel-output']);
+    const unknownArgs = rawArgs.filter(arg => !supportedArgs.has(arg));
+
+    if (unknownArgs.length > 0) {
+        throw new Error(`Unsupported web deploy asset option: ${unknownArgs.join(', ')}`);
+    }
+    const vercelOutputArgs = rawArgs.filter(arg => arg === '--vercel-output');
+    if (vercelOutputArgs.length > 1) {
+        throw new Error('Expected at most one --vercel-output option.');
+    }
+    const vercelOutput = vercelOutputArgs.length === 1 || isVercelBuildOutputEnv(env);
+
+    return {
+        outputRoots: vercelOutput
+            ? ['.vercel/output/static']
+            : ['nuxt-output/public'],
+        vercelOutput,
+    };
 }
 
 export function getNodeServerBootTiming(platform = process.platform) {
@@ -194,9 +217,11 @@ export async function assertInitialRendererDependencyGraph(rootPath) {
         visited.add(assetPath);
 
         const source = await readFile(path.join(rootPath, assetPath.slice(1)), 'utf8');
-        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(
-            dependency => new RegExp(`\\b${dependency}\\b`, 'iu').test(source),
-        );
+        const forbiddenDependency = FORBIDDEN_INITIAL_RENDERER_DEPENDENCIES.find(dependency => (
+            dependency.endsWith('/')
+                ? source.includes(dependency)
+                : new RegExp(`\\b${dependency}\\b`, 'iu').test(source)
+        ));
         if (forbiddenDependency) {
             throw new Error(
                 `Initial renderer dependency graph contains ${forbiddenDependency}: ${assetPath}`,
@@ -254,12 +279,25 @@ export async function validateWebDeployAssets({
     const outputResults = [];
     for (const outputRoot of outputRoots) {
         const outputRootPath = path.join(projectRoot, outputRoot);
+        const assets = await validateAssetRoot(
+            outputRootPath,
+            `web build output ${outputRoot}`,
+            {requireOutputContracts: true},
+        );
+        const artifactViolations = await scanPublicArtifactDirectory({
+            rootPath: outputRootPath,
+            target: outputRoot === '.vercel/output/static'
+                ? 'web-static'
+                : 'desktop-renderer',
+        });
+        if (artifactViolations.length > 0) {
+            throw new Error(
+                `Web build output ${outputRoot} contains forbidden public artifacts:\n`
+                + artifactViolations.slice(0, 20).join('\n'),
+            );
+        }
         outputResults.push({
-            assets: await validateAssetRoot(
-                outputRootPath,
-                `web build output ${outputRoot}`,
-                {requireOutputContracts: true},
-            ),
+            assets,
             root: outputRoot,
         });
     }
@@ -536,8 +574,9 @@ const isDirectCliRun = process.argv[1]
 
 if (isDirectCliRun) {
     try {
-        const result = await validateWebDeployAssets();
-        if (isVercelBuildOutputEnv()) {
+        const options = parseWebDeployAssetOptions(process.argv.slice(2));
+        const result = await validateWebDeployAssets({outputRoots: options.outputRoots});
+        if (options.vercelOutput) {
             await validateVercelFunctionBoot();
         } else {
             await validateNodeServerBoot();

@@ -21,6 +21,7 @@ here is required reading for an ordinary cut.
 - The release commit changes only the `package.json` version and uses `release: <version> [skip ci]`.
 - Release CI accepts that commit through a successful `gates_ok` run on its parent only after checking the exact version-only diff.
 - Core packaging, checksums, mirror staging, and public promotion determine whether the release is complete.
+- The release cutter pushes the `vX.Y.Z` tag with developer credentials before it dispatches `release.yml`; `prepare` requires that tag at the target, and the draft is created against the tag without a `--target`. GitHub demands the `workflows` scope to point a new ref at a commit that is behind the `main` tip in `.github/workflows/`, and the built-in token cannot hold that scope, so a workflow-created tag or a `--target` on the draft fails with HTTP 403 whenever a workflow change landed on `main` after the release commit. Keep the tag in the cutter; the workflow only verifies it.
 - macOS Intel, Windows ARM64, and Store lanes are supplemental. They never gate public promotion.
 - The publish chain is exercised without a real release by the drill described in [Publish-chain drill](#publish-chain-drill).
 
@@ -42,9 +43,22 @@ here is required reading for an ordinary cut.
 - The release publish step must tolerate zero updater metadata files. Some releases are intentionally download-only across every platform.
 - Distribution decisions must remain compatible with an individual, free, non-commercial project. Treat any business identity, paid account, or account conversion requirement as an explicit owner decision rather than an assumed release prerequisite.
 
+## Pre-release proof of packaged behaviour
+
+- The packaged core-PDF journey (`scripts/release/verifyPackagedCorePdfSmoke.ts`) has no local runner and no vitest coverage. Push CI's `pr_packaged_linux` job is where it executes before a release: it calls `build-target.yml` for Linux x64 exactly as the release matrix does, with `upload_artifacts: false`, whenever the `packagedSmoke` changed-area policy matches. Extend that path list in `scripts/release/policy.mjs` when the journey gains a new dependency.
+- The proof is Linux-only by design. Both verifier regressions that failed v0.1.447 and v0.1.448 failed identically on all four platforms; the platform-specific steps (signing, notarization, NSIS install, Windows append sharing) stay release-only and are covered daily by the artifact canary.
+- Do not add release-only assertions to the journey without a CI or canary execution first. A behaviour pin that has never run is not a guardrail.
+
+## Dependency advisories
+
+- `check:production-dependency-audit` rejects any advisory at any severity and permits no waiver. It runs daily in [`dependency-audit.yml`](../.github/workflows/dependency-audit.yml) and reports through one open issue labelled `dependency-audit`; a clean run comments on that issue rather than closing it. It is absent from push CI and from every release workflow on purpose: advisories arrive on the registry's clock, and on the required lane one publication blocked two release cuts in one afternoon for a commit that changed nothing about dependencies.
+- `pnpm-workspace.yaml` holds new registry releases for seven days (`minimumReleaseAge`). A fix version younger than that needs `pnpm install --config.minimum-release-age=0` for that install only; say so in the commit message. Do not lower the workspace setting.
+- A dependency fix is ordinary work: it goes through push CI like any commit and may be released whenever the next cut happens.
+
 ## Artifact-only flow
 
 - Run `pnpm run release:artifacts` from a clean worktree to have GitHub build the release artifacts without cutting a release. It uses the same preflight, clean-worktree, upstream, and publication-policy checks as the cutter, then dispatches [`Build Release Artifacts`](../.github/workflows/release-artifacts.yml) for the exact pushed commit.
+- The same workflow runs on a daily schedule as the artifact canary. With no `target_ref` input it resolves the current `main` tip itself and skips when `main` is older than 24 hours.
 - The workflow runs the focused release checks only when the target SHA has no successful exact-SHA push-CI `gates_ok` run (for example a branch commit); a CI-vouched commit goes straight to packaging. It packages the core matrix, the supplemental macOS Intel, Windows ARM64, and Windows 7 legacy lanes, and Store AppX packages, applying the same packaged native-tool and ASAR/content verification as release lanes.
 - It never creates a tag, a GitHub Release, or release assets. Downloads live as GitHub Actions artifacts on the workflow run.
 
@@ -61,6 +75,8 @@ troubleshooting notes out of tracked docs. To ship a Store update:
 2. Upload `store-appx-win-x64/EVB-Viewer-<version>-x64-store.appx` and `store-appx-win-arm64/EVB-Viewer-<version>-arm64-store.appx` in the Packages section of a new Partner Center submission and submit it for certification. See [Create app submission for MSIX apps](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/create-app-submission) and [Upload MSIX app packages](https://learn.microsoft.com/en-us/windows/apps/publish/publish-your-app/msix/upload-app-packages).
 
 Store AppX packages must declare every shipped UI locale in `electron-builder.yml`. The Store workflow validates those manifest resources so Partner Center can offer matching localized listings.
+
+Before submitting an AppX package, confirm that `Send privacy-sanitized error diagnostics` is off until the user enables it in Privacy settings. Microsoft Store Policy 10.5.2 requires express in-product permission before publishing customer personal information to an outside service. Every AppX ships client diagnostics off by default.
 
 ## Publication policy gate
 
@@ -85,6 +101,7 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
 - The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+- Mirror transfers are bounded. The S3 client aborts a socket that carries no bytes for 60 seconds or a request older than 10 minutes, the publisher retries each artifact up to three times with a fresh stream, and every publish-chain job declares `timeout-minutes` (finalize 20, mirror 40, promote 40, which covers its own three bounded activation attempts). A stalled upload fails within the hour and is repaired by re-running the failed jobs; it no longer holds the global release concurrency group for GitHub's six-hour job limit.
 
 ## Deferred by evidence
 

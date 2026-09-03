@@ -1,4 +1,4 @@
-/* eslint-disable max-lines -- Save route planning and completion stay centralized here. */
+/* eslint-disable max-lines -- Save planning and persistence share one document ownership boundary. */
 import type {
     Ref,
     ShallowRef,
@@ -15,6 +15,7 @@ import type {
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
@@ -1061,8 +1062,16 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
             options: {
                 detail?: string | null;
                 expectedRevisionToken?: TDocumentRevisionToken | null;
+                failure?: Parameters<TWorkspaceFailureSurface['reportSaveFailure']>[3];
             } = {},
         ) {
+            if (request.kind === 'optimize-copy' && reason === 'capability-unavailable') {
+                BrowserLogger.warn('workspace', 'Optimization copy is unavailable', {
+                    kind: 'expected',
+                    code: 'temporarily-unavailable',
+                } satisfies ExpectedOutcome);
+                return false;
+            }
             if (!ownsCurrentDocument(options.expectedRevisionToken)) {
                 // The document that failed is gone. Toasting now would blame
                 // whatever the user opened next, and the durable failure flag
@@ -1074,7 +1083,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                 });
                 return false;
             }
-            return failureSurface.reportSaveFailure(operationId, reason, options.detail);
+            return failureSurface.reportSaveFailure(operationId, reason, options.detail, options.failure);
         }
 
         /**
@@ -1210,10 +1219,16 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
                             },
                             deps,
                         );
-                        BrowserLogger.error('workspace', 'Save failed', error);
+                        const failure = BrowserLogger.error('workspace', 'Save failed', error, {
+                            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                            context: {},
+                        });
                         const detail = getDocumentMutationErrorPayload(error)?.message
                             ?? getErrorMessage(error);
-                        reportSaveFailureIfCurrent('unexpected-error', {detail});
+                        reportSaveFailureIfCurrent('unexpected-error', {
+                            detail,
+                            failure,
+                        });
                         return false;
                     }
                 }

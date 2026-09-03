@@ -5,10 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import {
-    PLATFORM_API_DESCRIPTOR,
-    type IPlatformApi,
-} from '@contracts/platformApi';
+import { PLATFORM_API_DESCRIPTOR } from '@contracts/platformApi';
 import { browserPlatformApi } from '@app/platform/browserPlatformApi';
 import { lazyBrowserPlatformApi } from '@app/platform/lazyBrowserPlatformApi';
 import {
@@ -58,7 +55,7 @@ function collectCallablePaths(
 }
 
 function expectCallablePathParity(
-    api: IPlatformApi,
+    api: unknown,
     expectedPaths: ReadonlyArray<readonly string[]>,
 ) {
     const formattedExpectedPaths = expectedPaths.map(formatPath).sort();
@@ -117,6 +114,14 @@ describe('platform API contract parity', () => {
         const api = await createMockedElectronApi();
         const descriptorPaths = PLATFORM_API_DESCRIPTOR.methods.map(descriptor => descriptor.path);
 
-        expectCallablePathParity(api, descriptorPaths);
+        const {
+            diagnostics,
+            ...platformApi
+        } = api;
+        expectCallablePathParity(platformApi, descriptorPaths);
+        expectCallablePathParity(diagnostics, [
+            ['sendRecord'],
+            ['onDebugLog'],
+        ]);
     });
 });

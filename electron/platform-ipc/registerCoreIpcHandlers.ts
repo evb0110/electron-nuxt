@@ -16,6 +16,8 @@ import {
 } from '@electron/windowTabTransfer';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { registerRendererLogBridge } from '@electron/platform-ipc/rendererLogBridge';
+import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/rendererDiagnosticBridge';
+import { getMainFailureReporter } from '@electron/features/diagnostics/public';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import {
     createValidatedIpcMainEventRegistrar,
@@ -87,6 +89,22 @@ export function registerCoreIpcHandlers(
         registerListener: (channel, handler) => {
             eventRegistrar.on(channel, (event, payload) => {
                 handler(event, payload as Parameters<typeof handler>[1]);
+            });
+        },
+    });
+    registerRendererDiagnosticBridge({
+        captureRecord: (record, suppressedCount) => {
+            const reporter = getMainFailureReporter();
+            if (!reporter) {
+                return false;
+            }
+            reporter.captureRecord(record, suppressedCount);
+            return true;
+        },
+        isTrustedSender: isTrustedWebContentsSender,
+        registerListener: (channel, handler) => {
+            ipcMain.on(channel, (event, payload, suppressedCount) => {
+                handler(event, payload, suppressedCount);
             });
         },
     });

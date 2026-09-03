@@ -17,6 +17,8 @@ import type {
     IDocumentSurfaceLease,
 } from '@app/utils/document-viewer/source/documentPageSource';
 import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { BrowserLogger } from '@app/utils/browserLogger';
 import { cast } from '@tests/helpers/cast';
 
 function createPresentationHarness() {
@@ -134,6 +136,7 @@ function createPresentationHarness() {
     });
     const state: IDocumentPageSourceVisualState = reactive({
         error: null,
+        failurePresentation: null,
         generation: 1,
         lease: oldLease,
         priority: 'navigation',
@@ -296,6 +299,13 @@ describe('document page-source presentation lifecycle', () => {
     it('exhausts render failures without resetting or rescheduling terminal work', async () => {
         const harness = createPresentationHarness();
         const render = vi.mocked(harness.source.renderPage);
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: 'page-failure-123456789',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const capture = vi.spyOn(BrowserLogger, 'error').mockReturnValue(receipt);
         render.mockRejectedValue(new Error('render failed'));
         harness.presentation.beginSourceGeneration();
 
@@ -306,9 +316,12 @@ describe('document page-source presentation lifecycle', () => {
         await harness.presentation.renderPage(1);
         expect(harness.presentation.pageStates.get(1)?.error).toBe('Unable to display page 1');
         expect(render).toHaveBeenCalledTimes(3);
+        expect(capture).toHaveBeenCalledOnce();
+        expect(harness.presentation.getVisualFailurePresentation(1)?.failure).toBe(receipt);
 
         await harness.presentation.renderPage(1);
         expect(render).toHaveBeenCalledTimes(3);
+        expect(capture).toHaveBeenCalledOnce();
         expect(harness.emit).toHaveBeenCalledWith('loadError', expect.any(Error));
     });
 

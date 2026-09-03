@@ -19,6 +19,7 @@ import type {
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import {
     createStableJobBrokerOwnerId,
@@ -31,6 +32,8 @@ import { resolveNativeToolPath } from '@electron/native-tools/resolveNativeToolP
 import { resolveNativePdfImageCombinePath } from '@electron/image/tryCreatePdfWithNativeImageCombiner';
 import { getAppTempDir } from '@electron/utils/appTempDir';
 import { getErrorMessage } from '@electron/utils/error';
+import {createLogger} from '@electron/utils/createLogger';
+import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
 import {
     SCAN_CLEANUP_PAGE_SCOPE_ERROR_CODE,
     ScanCleanupPageScopeError,
@@ -89,9 +92,10 @@ interface IScanCleanupJobResult {
     summary: TScanCleanupSummary;
 }
 
-type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode>;
+type TScanCleanupJobError = IMainJobErrorEnvelope<TScanCleanupErrorCode> & {failure?: FailureReceipt};
 type TScanCleanupJobRegistry = IMainJobRegistry<TScanCleanupJobState, IScanCleanupJobResult, TScanCleanupJobError>;
 const currentDir = dirname(fileURLToPath(import.meta.url));
+const scanCleanupJobLogger = createLogger('scan-cleanup-job');
 
 export function resolveScanCleanupPath() {
     return resolveNativeToolPath({
@@ -306,6 +310,7 @@ function terminalProgress(
             status,
             error: error.message,
             errorCode: error.code,
+            ...(error.failure === undefined ? {} : {failure: error.failure}),
         };
 }
 
@@ -315,10 +320,29 @@ function createScanCleanupJobRegistry(): TScanCleanupJobRegistry {
             eventReplayTtlMs: 60_000,
             terminalRecordTtlMs: 60_000,
         },
-        toError: (cause, kind) => ({
-            code: classifyScanCleanupError(cause, kind === 'canceled'),
-            message: getErrorMessage(cause),
-        }),
+        toError: (cause, kind) => {
+            const message = getErrorMessage(cause);
+            if (kind === 'canceled') {
+                return {
+                    code: classifyScanCleanupError(cause, true),
+                    message,
+                };
+            }
+            const existingFailure = getWorkerTaskFailureReceipt(cause);
+            const failure = existingFailure ?? scanCleanupJobLogger.error(
+                `Scan cleanup job failed: ${message}`,
+                {
+                    code: 'MAIN_SCAN_CLEANUP_FAILED',
+                    context: {},
+                    cause,
+                },
+            );
+            return {
+                code: classifyScanCleanupError(cause, false),
+                message,
+                ...(failure === undefined ? {} : {failure}),
+            };
+        },
         terminalProgress: {
             completed: completedProgress,
             canceled: (latest, error) => terminalProgress(latest, 'canceled', error),

@@ -78,7 +78,11 @@ export async function handleShowItemInFolder(
         shell.showItemInFolder(revealablePath);
         return true;
     } catch (error) {
-        logger.error(`Failed to show item in folder: ${getErrorMessage(error)}`);
+        logger.error(`Failed to show item in folder: ${getErrorMessage(error)}`, {
+            code: 'MAIN_DOCUMENT_REVEAL_FAILED',
+            context: {},
+            cause: error,
+        });
         return false;
     }
 }

@@ -13,6 +13,12 @@ import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer
 import type { IDocumentViewerRenderSession } from '@app/utils/document-viewer/chassis/createDocumentViewerRenderCoordinator';
 import type { IDocumentOpenSurfaceRenderOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
+    getFailureReceipt,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { BrowserLogger } from '@app/utils/browserLogger';
+import {
     runDocumentViewerActivationPresentation,
     waitForDocumentViewerVisibleLayout,
 } from '@app/utils/document-viewer/lifecycle/documentViewerActivationPresentation';
@@ -26,6 +32,7 @@ const DOCUMENT_RENDER_PRIORITY_RANK: Record<TDocumentRenderPriority, number> = {
 export interface IDocumentPageSourceVisualState {
     generation: number;
     error: string | null;
+    failurePresentation: FailurePresentation | null;
     ready: boolean;
     lease: IDocumentSurfaceLease | null;
     priority: TDocumentRenderPriority;
@@ -34,6 +41,22 @@ export interface IDocumentPageSourceVisualState {
     unsubscribeInvalidation: (() => void) | null;
 }
 export type TDocumentPageSourceVisual = 'none' | 'skeleton' | 'fresh' | 'error';
+
+function attachFailureReceipt(error: unknown, receipt: FailureReceipt) {
+    if (!error || typeof error !== 'object' || getFailureReceipt(error)) {
+        return;
+    }
+    try {
+        Object.defineProperty(error, 'failure', {
+            configurable: true,
+            value: receipt,
+        });
+    } catch {
+        // Some browser event objects are not extensible. The presentation
+        // still owns the receipt; callers can use createFailureError below.
+    }
+}
+
 export function resolveDocumentPageSourceRenderWidthPx(
     metrics: IDocumentPageMetrics,
     effectiveZoom: number,
@@ -111,6 +134,7 @@ export function createDocumentPageSourcePresentation(options: {
     let nextViewportRenderRequestId = 0;
     const beginPending = (_pageNumber: number, state: IDocumentPageSourceVisualState) => {
         state.error = null;
+        state.failurePresentation = null;
         state.ready = false;
     };
     const createVisualState = (
@@ -120,6 +144,7 @@ export function createDocumentPageSourcePresentation(options: {
     ) => shallowReactive<IDocumentPageSourceVisualState>({
         generation,
         error: null,
+        failurePresentation: null,
         ready: false,
         lease: null,
         priority,
@@ -193,7 +218,18 @@ export function createDocumentPageSourcePresentation(options: {
                 : null)
             ?? `Unable to display page ${String(pageNumber)}`;
     };
-    function commitTerminalError(pageNumber: number) {
+    const getVisualFailurePresentation = (pageNumber: number) => (
+        pageStates.get(pageNumber)?.failurePresentation ?? null
+    );
+    const createFailureError = (pageNumber: number, message?: string) => {
+        const error = new Error(message ?? getVisualError(pageNumber));
+        const receipt = getVisualFailurePresentation(pageNumber)?.failure;
+        if (receipt) {
+            attachFailureReceipt(error, receipt);
+        }
+        return error;
+    };
+    function commitTerminalError(pageNumber: number, cause?: unknown) {
         const lifecycleFence = options.readFence();
         let state = pageStates.get(pageNumber);
         if (!state) {
@@ -206,6 +242,21 @@ export function createDocumentPageSourcePresentation(options: {
         state.lease = null;
         const message = `Unable to display page ${String(pageNumber)}`;
         state.error = message;
+        const receipt = state.failurePresentation?.failure ?? BrowserLogger.error(
+            'pdf-page-source',
+            'Failed to render document page',
+            cause ?? message,
+            getFailureReceipt(cause) ?? {
+                code: 'RENDERER_PDF_PAGE_RENDER_FAILED',
+                context: {},
+            },
+        );
+        state.failurePresentation = {
+            failure: receipt,
+            title: 'Unable to display page',
+            description: message,
+        };
+        attachFailureReceipt(cause, receipt);
         state.ready = false;
         const openSurface = options.chassisAuthority?.openSurface;
         const snapshot = openSurface?.snapshot.value;
@@ -292,6 +343,7 @@ export function createDocumentPageSourcePresentation(options: {
         const initialOpen = options.chassisAuthority?.openSurface.viewportSession.value.lifecycle === 'opening';
         state.ready = true;
         state.error = null;
+        state.failurePresentation = null;
         state.retryCount = 0;
         const committed = commitReady(pageNumber, state);
         if (committed && initialOpen) {
@@ -346,9 +398,9 @@ export function createDocumentPageSourcePresentation(options: {
             }
         } catch (error) {
             if (!(error instanceof DOMException && error.name === 'AbortError') && isCurrent()) {
-                const message = commitTerminalError(pageNumber);
+                const message = commitTerminalError(pageNumber, error);
                 if (pageNumber === options.readCurrentPage()) {
-                    options.emit('loadError', error instanceof Error ? error : new Error(message));
+                    options.emit('loadError', error instanceof Error ? error : createFailureError(pageNumber, message));
                 }
             }
             return;
@@ -510,9 +562,13 @@ export function createDocumentPageSourcePresentation(options: {
                     options.scheduleRender();
                 } else {
                     if (current) current.retryCount += 1;
-                    if (!preserveExistingVisual) commitTerminalError(pageNumber);
+                    if (!preserveExistingVisual) commitTerminalError(pageNumber, error);
                     if (pageNumber === options.readCurrentPage()) {
-                        options.emit('loadError', error);
+                        options.emit('loadError', preserveExistingVisual
+                            ? error
+                            : error instanceof Error
+                                ? error
+                                : createFailureError(pageNumber));
                     }
                 }
             }
@@ -588,9 +644,9 @@ export function createDocumentPageSourcePresentation(options: {
         ).forEach(image => image.remove());
         if (target.state.retryCount >= 2) {
             target.state.retryCount += 1;
-            const message = commitTerminalError(pageNumber);
+            const message = commitTerminalError(pageNumber, event);
             if (pageNumber === options.readCurrentPage()) {
-                options.emit('loadError', new Error(message));
+                options.emit('loadError', createFailureError(pageNumber, message));
             }
             return;
         }
@@ -687,6 +743,8 @@ export function createDocumentPageSourcePresentation(options: {
         getSurface,
         getVisual,
         getVisualError,
+        getVisualFailurePresentation,
+        createFailureError,
         handleSurfaceError,
         handleSurfaceLoad,
         pageStates,

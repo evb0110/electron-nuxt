@@ -85,15 +85,12 @@ import {
     createPdfInfoPageSizeStreamScanner,
     parsePdfInfoPageSizeLine,
 } from '@electron/features/image-export/main/parsePdfInfoPageSizes';
-
 type TImageExportFormat = 'png' | 'jpeg' | 'tiff';
 type TPageRenderFormat = TImageExportFormat | 'ppm';
-
 interface IRenderedPageFile {
     page: number;
     path: string;
 }
-
 interface IExportPdfOptions {
     cancelGroup?: string;
     pageNumbers?: number[];
@@ -101,7 +98,6 @@ interface IExportPdfOptions {
     onProgress?: (progress: IImageExportProgressUpdate) => void;
     scratch?: {using<T>(prefix: TManagedScratchPrefix, run: (scratchPath: string) => Promise<T>): Promise<T>;};
 }
-
 interface IImageExportProgressUpdate {
     phase: TImageExportProgressPhase;
     processed: number;
@@ -112,8 +108,17 @@ interface IExportPageRange {
     firstPage: number;
     lastPage: number;
 }
-
 const logger = createLogger('image-export');
+function logImageExportMessage(level: 'debug' | 'error' | 'info' | 'warn', message: string) {
+    if (level === 'error') {
+        logger.error(message, {
+            code: 'MAIN_IMAGE_EXPORT_FAILED',
+            context: {},
+        });
+        return;
+    }
+    logger[level](message);
+}
 const __dirname = dirnameFromPath(fileURLToPath(import.meta.url));
 const PDFINFO_PAGE_SIZE_TIMEOUT_MS = 30 * 1000;
 const PDFTOPPM_TIMEOUT_MS = 3 * 60 * 1000;
@@ -144,7 +149,6 @@ const TIFF_COMBINE_LOCAL_FALLBACK_MAX_TOTAL_BYTES = (() => {
     }
     return Math.min(parsed, 128) * 1024 * 1024;
 })();
-
 function resolveFormatExtension(format: TImageExportFormat) {
     if (format === 'jpeg') {
         return '.jpg';
@@ -593,7 +597,7 @@ async function detectExportRenderDpi(
         detectSourceDpiDetails(
             pdfPath,
             popplerRuntimePaths.pdfimages,
-            (level, message) => logger[level](message),
+            logImageExportMessage,
             buildPopplerEnv(popplerRuntimePaths),
             signal,
             selectDpiProbePages(pageCount),

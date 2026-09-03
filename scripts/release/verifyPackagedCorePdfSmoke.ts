@@ -1,7 +1,9 @@
 import {spawn} from 'node:child_process';
+import {createHash} from 'node:crypto';
 import {
     mkdtemp,
     readFile,
+    readdir,
     realpath,
     rm,
     writeFile,
@@ -13,6 +15,13 @@ import {fileURLToPath} from 'node:url';
 import {PDFDocument} from 'pdf-lib';
 import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
+import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
+import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {
+    applyCombinedPdfPageLabels,
+    inspectPdfCombineCatalog,
+} from '@pdf-core/pdfCombineCatalog';
+import {writePdfBookmarkOutlines} from '@pdf-core/writePdfBookmarkOutlines';
 import {assertNoPackagedRendererFailures} from '@scripts/release/assertNoPackagedRendererFailures';
 import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
 import {
@@ -42,6 +51,67 @@ const OPERATION_TIMEOUT_MS = 45_000;
 const SHUTDOWN_TIMEOUT_MS = 8_000;
 type TConnectedBrowser = Awaited<ReturnType<typeof puppeteer.connect>>;
 
+const PACKAGED_SMOKE_BOOKMARKS: IPdfBookmarkEntry[] = [
+    {
+        title: 'First page',
+        pageIndex: 0,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    },
+    {
+        title: 'Second page',
+        pageIndex: 1,
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+    },
+];
+
+const PACKAGED_SMOKE_METADATA: IPageOpsMetadataSnapshot = {
+    pageLabels: null,
+    pageLabelRanges: [
+        {
+            startPage: 1,
+            style: 'r',
+            prefix: 'front-',
+            startNumber: 1,
+        },
+        {
+            startPage: 2,
+            style: 'D',
+            prefix: 'body-',
+            startNumber: 1,
+        },
+    ],
+    bookmarks: PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({...bookmark})),
+    untitledBookmarkLabel: 'Untitled',
+};
+
+function sha256(bytes: Uint8Array) {
+    return createHash('sha256').update(bytes).digest('hex');
+}
+
+async function assertNoPageOperationResidue(workingCopyPath: string) {
+    const directoryPath = path.dirname(workingCopyPath);
+    const fileName = path.basename(workingCopyPath);
+    const residue = (await readdir(directoryPath)).filter(name => (
+        name.startsWith(`.${fileName}.evb-tmp-`)
+        || name.startsWith(`.${fileName}.bak-`)
+        || name.startsWith(`.${fileName}.`) && name.endsWith('.tmp')
+        || name.startsWith(`${fileName}.evb-content-`) && name.endsWith('.bak')
+        || name.startsWith(`${fileName}.evb-sidecar-`) && name.endsWith('.bak')
+        || name === `${fileName}.evb-content-transition.json`
+    ));
+    if (residue.length > 0) {
+        throw new Error(`Packaged smoke page operation left transaction residue: ${residue.join(', ')}`);
+    }
+}
+
 function parseExecutablePath(args: string[]) {
     const index = args.indexOf('--executable');
     const executablePath = index >= 0 ? args[index + 1] : undefined;
@@ -64,6 +134,21 @@ async function createFixturePdf(filePath: string) {
             size: 18,
         });
     }
+    applyCombinedPdfPageLabels(document, [
+        {
+            pageIndex: 0,
+            style: 'r',
+            prefix: 'front-',
+            start: 1,
+        },
+        {
+            pageIndex: 1,
+            style: 'D',
+            prefix: 'body-',
+            start: 1,
+        },
+    ]);
+    writePdfBookmarkOutlines(document, PACKAGED_SMOKE_BOOKMARKS.map(bookmark => ({...bookmark})));
     await writeFile(filePath, await document.save());
 }
 
@@ -198,9 +283,17 @@ async function run() {
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
         await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
+        const originalHashBeforeRotation = sha256(await readFile(fixturePath));
 
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
-        const rotateResult = await rotatePages(page, workingCopyPath, [1], 2, 90);
+        const rotateResult = await rotatePages(
+            page,
+            workingCopyPath,
+            [1],
+            2,
+            90,
+            PACKAGED_SMOKE_METADATA,
+        );
         if (!rotateResult.success) {
             throw new Error('Packaged smoke page rotation failed');
         }
@@ -208,6 +301,29 @@ async function run() {
         if (rotatedDocument.getPage(0).getRotation().angle !== 90) {
             throw new Error('Packaged smoke page rotation was not persisted to PDF bytes');
         }
+        const rotatedCatalog = inspectPdfCombineCatalog(rotatedDocument);
+        const expectedPageLabels = [
+            {
+                pageIndex: 0,
+                style: 'r',
+                prefix: 'front-',
+            },
+            {
+                pageIndex: 1,
+                style: 'D',
+                prefix: 'body-',
+            },
+        ];
+        if (JSON.stringify(rotatedCatalog.pageLabels) !== JSON.stringify(expectedPageLabels)) {
+            throw new Error(`Packaged smoke page labels changed during rotation: ${JSON.stringify(rotatedCatalog.pageLabels)}`);
+        }
+        if (JSON.stringify(rotatedCatalog.bookmarks) !== JSON.stringify(PACKAGED_SMOKE_BOOKMARKS)) {
+            throw new Error(`Packaged smoke bookmarks changed during rotation: ${JSON.stringify(rotatedCatalog.bookmarks)}`);
+        }
+        if (sha256(await readFile(fixturePath)) !== originalHashBeforeRotation) {
+            throw new Error('Packaged smoke rotation changed the original PDF before Save');
+        }
+        await assertNoPageOperationResidue(workingCopyPath);
 
         const searchResult = await page.evaluate(async ({pdfPath}) => {
             const api = (window as Window & {electronAPI?: {search?: {run?: (
@@ -228,7 +344,7 @@ async function run() {
         await delay(250);
         assertNoPackagedRendererFailures(rendererFailures);
 
-        console.log('Packaged core-PDF smoke passed: open, annotation save, rotate persistence, and search.');
+        console.log('Packaged core-PDF smoke passed: open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {
         await capturePackagedCorePdfFailureArtifacts(browser, error);
         throw error;

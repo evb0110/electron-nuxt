@@ -9,6 +9,7 @@ import {
 } from 'es-toolkit/predicate';
 import { trim } from 'es-toolkit/string';
 import type { ISettingsData } from '@contracts/shared';
+import { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
 
@@ -63,6 +64,7 @@ export const SETTINGS_SAVE_KEYS = [
     'performanceMode',
     'optimizePdfOnSaveAs',
     'assistantPanelEnabled',
+    'clientDiagnosticsPreference',
     'suppressDefaultViewerPrompt',
     'suppressUnencryptedSaveNotice',
 ] as const satisfies readonly TSettingsSaveKey[];
@@ -98,6 +100,7 @@ export const DEFAULT_SETTINGS: ISettingsData = {
     optimizePdfOnSaveAs: false,
     assistantPanelEnabled: false,
     agentMcpEnabled: false,
+    clientDiagnosticsPreference: 'unknown',
 };
 
 export class UnsupportedSettingsSchemaError extends Error {
@@ -250,6 +253,7 @@ export function sanitizeSettings(raw: unknown): ISettingsData {
         agentMcpEnabled: isBoolean(value?.agentMcpEnabled)
             ? value.agentMcpEnabled
             : DEFAULT_SETTINGS.agentMcpEnabled,
+        clientDiagnosticsPreference: parseClientDiagnosticsPreference(value?.clientDiagnosticsPreference),
     };
     if (isBoolean(value?.suppressDefaultViewerPrompt)) {
         settings.suppressDefaultViewerPrompt = value.suppressDefaultViewerPrompt;

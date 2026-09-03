@@ -51,6 +51,10 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
                 'pdf-renderer',
                 'Failed to apply search highlights',
                 error,
+                {
+                    code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+                    context: {operation: 'apply-highlights'},
+                },
             );
         }
     }
@@ -69,6 +73,10 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
                 'pdf-renderer',
                 'Failed to scroll to current match',
                 error,
+                {
+                    code: 'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+                    context: {operation: 'scroll-current-match'},
+                },
             );
             return false;
         }
@@ -82,6 +90,7 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
     const searchMatchScroller = createPdfSearchMatchScroller({
         getContainer: () => container.value,
         getCurrentSearchMatch: () => toValue(currentSearchMatch),
+        getCurrentSearchPageMatches: pageIndex => toValue(searchPageMatches).get(pageIndex) ?? null,
         scrollToCurrentMatch,
         scheduleRenderForSinglePage,
         ...(options.scrollToPage ? { scrollToPage: options.scrollToPage } : {}),

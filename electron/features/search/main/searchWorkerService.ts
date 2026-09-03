@@ -936,7 +936,11 @@ export class SearchWorkerService {
             this.handleWorkerMessage(state, parsedMessage);
         });
         worker.on('error', (error: Error) => {
-            log.error(`Search worker error for sender ${state.senderId}: ${error.message}`);
+            log.error(`Search worker error for sender ${state.senderId}: ${error.message}`, {
+                code: 'MAIN_SEARCH_WORKER_FAILED',
+                context: {},
+                cause: error,
+            });
             this.cleanupSenderState(state.senderId, {
                 terminateWorker: true,
                 reason: `Search worker error: ${error.message}`,

@@ -152,7 +152,14 @@ describe('scan cleanup worker entrypoint', () => {
             ok: false,
             error: 'Scan cleanup worker received an invalid runtime policy',
         });
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('Run failed after'));
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('Run failed after'),
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: expect.objectContaining({message: 'Scan cleanup worker received an invalid runtime policy'}),
+            },
+        );
     });
 
     it('reports a cancellation requested by the parent port as the end of the run', async () => {
@@ -214,13 +221,21 @@ describe('scan cleanup worker entrypoint', () => {
     });
 
     it('fails the run when the pipeline throws an unexpected error', async () => {
+        const failure = new Error('sidecar exited with code 3');
         mocks.runScanCleanupPipeline.mockImplementation(async () => {
-            throw new Error('sidecar exited with code 3');
+            throw failure;
         });
 
         await bootWorker();
 
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('sidecar exited with code 3'));
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('sidecar exited with code 3'),
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
         expect(lastResultMessage()).toMatchObject({
             ok: false,
             error: 'sidecar exited with code 3',

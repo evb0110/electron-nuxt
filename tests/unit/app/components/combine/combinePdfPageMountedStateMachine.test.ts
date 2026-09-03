@@ -15,23 +15,36 @@ import {
     vi,
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
 
 const mocks = vi.hoisted(() => ({
     combinePdfFiles: vi.fn(),
     savePdfAs: vi.fn(),
+    logError: vi.fn(),
+    failure: {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    } as FailureReceipt,
 }));
 
 vi.mock('@app/services/pdf/combinePdfFiles', () => ({
     CombinePdfError: class CombinePdfError extends Error {
-        public constructor(public readonly code: string) {
+        public readonly failure: FailureReceipt | undefined;
+
+        public constructor(public readonly code: string, options?: {failure?: FailureReceipt}) {
             super(`PDF combine failed (${code})`);
+            this.failure = options?.failure;
         }
     },
     combinePdfFiles: mocks.combinePdfFiles,
 }));
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({ savePdfAs: mocks.savePdfAs })}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
 interface IQueueFile {
     id: string;
@@ -137,9 +150,11 @@ describe('mounted Combine PDF page state machine', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         mocks.savePdfAs.mockResolvedValue('/tmp/saved.pdf');
+        mocks.logError.mockReturnValue(mocks.failure);
     });
 
     it('locks queue mutations, retains a failed-open result, then saves or retries without recombining', async () => {
+        expect(CombinePdfPage).toBeDefined();
         const combined = deferred<TOpenFileResult>();
         const result: TOpenFileResult = {
             kind: 'pdf',
@@ -169,6 +184,7 @@ describe('mounted Combine PDF page state machine', () => {
         expect(page.host.querySelectorAll('.queue-row')).toHaveLength(2);
         expect(page.host.querySelector('.combine')?.textContent).toBe('Retry');
         expect(page.host.querySelector('.save-as')).not.toBeNull();
+        expect(mocks.logError).toHaveBeenCalledOnce();
         expect((page.host.querySelector('.clear') as HTMLButtonElement).disabled).toBe(true);
         expect((page.host.querySelector('.remove') as HTMLButtonElement).disabled).toBe(true);
 
@@ -186,6 +202,7 @@ describe('mounted Combine PDF page state machine', () => {
         expect(mocks.combinePdfFiles).toHaveBeenCalledTimes(1);
         expect(page.host.querySelectorAll('.queue-row')).toHaveLength(0);
         expect(page.host.querySelector('.save-as')).toBeNull();
+        expect(mocks.logError).toHaveBeenCalledOnce();
 
         page.unmount();
     });

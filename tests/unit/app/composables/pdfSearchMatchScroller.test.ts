@@ -53,6 +53,82 @@ describe('createPdfSearchMatchScroller', () => {
         expect(revealSearchNavigationTarget).toHaveBeenCalledWith(1, undefined);
     });
 
+    it('carries the exact search range when word geometry is unavailable', () => {
+        const revealSearchNavigationTarget = vi.fn();
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => null,
+            getCurrentSearchMatch: () => ({
+                pageIndex: 4,
+                startOffset: 42,
+                endOffset: 48,
+                excerpt: {
+                    prefix: true,
+                    suffix: true,
+                    before: 'before ',
+                    match: 'needle',
+                    after: ' after',
+                },
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            revealSearchNavigationTarget,
+        });
+
+        scroller.requestScrollToMatch(4);
+
+        expect(revealSearchNavigationTarget).toHaveBeenCalledWith(5, {textAnchor: {
+            text: 'needle',
+            prefix: 'before ',
+            suffix: ' after',
+            searchRange: {
+                startOffset: 42,
+                endOffset: 48,
+            },
+        }});
+    });
+
+    it('carries page-local identity and search semantics for an index fallback', () => {
+        const revealSearchNavigationTarget = vi.fn();
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => null,
+            getCurrentSearchMatch: () => ({
+                pageIndex: 4,
+                pageMatchIndex: 2,
+                matchIndex: 12,
+                startOffset: 420,
+                endOffset: 426,
+                excerpt: {
+                    prefix: true,
+                    suffix: true,
+                    before: 'before ',
+                    match: 'needle',
+                    after: ' after',
+                },
+            }),
+            getCurrentSearchPageMatches: () => ({
+                searchQuery: 'needle',
+                searchOptions: {
+                    matchCase: false,
+                    wholeWord: true,
+                    useRegex: false,
+                },
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            revealSearchNavigationTarget,
+        });
+
+        scroller.requestScrollToMatch(4);
+
+        expect(revealSearchNavigationTarget).toHaveBeenCalledTimes(1);
+        expect(revealSearchNavigationTarget.mock.calls[0]?.[1]).toMatchObject({textAnchor: {
+            pageMatchIndex: 2,
+            matchIndex: 12,
+            searchQuery: 'needle',
+            searchOptions: {wholeWord: true},
+        }});
+    });
+
     it('uses the authority-compatible page fallback', () => {
         const scrollToPage = vi.fn();
         const scroller = createPdfSearchMatchScroller({

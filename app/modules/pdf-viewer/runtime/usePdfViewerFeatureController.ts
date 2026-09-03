@@ -177,6 +177,10 @@ export const usePdfViewerFeatureController = (
         isPageFreshlyRenderedForNavigation: pageNumber => (
             renderingSessionRef.value?.isPageVisualReady(pageNumber) ?? false
         ),
+        waitForPageTextLayerReady: (pageNumber, signal) => (
+            renderingSessionRef.value?.waitForPageTextLayerReady(pageNumber, signal)
+                ?? Promise.resolve(false)
+        ),
         getCommittedPageScale: pageNumber => (
             renderingSessionRef.value?.getCommittedPageScale?.(pageNumber) ?? null
         ),

@@ -170,7 +170,9 @@ describe('usePageFileOperations', () => {
     });
 
     it('handles save rejection deterministically before opening another file', async () => {
-        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
+            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+        );
         const deps = createDeps({
             isDirty: ref(true),
             handleSave: vi.fn(async () => {
@@ -187,6 +189,10 @@ describe('usePageFileOperations', () => {
             'recent-open',
             'Switch blocked: save before switch threw',
             { error: 'disk full' },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
     });
 
@@ -492,7 +498,9 @@ describe('usePageFileOperations', () => {
     });
 
     it('blocks close when save throws instead of bubbling an uncaught rejection', async () => {
-        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
+            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+        );
         const onCloseCommit = vi.fn();
         const deps = createDeps({
             isDirty: ref(true),
@@ -511,6 +519,10 @@ describe('usePageFileOperations', () => {
             'recent-open',
             'Switch blocked: save before switch threw',
             { error: 'cannot save' },
+            {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
+            },
         );
     });
 

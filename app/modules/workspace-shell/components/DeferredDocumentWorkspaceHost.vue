@@ -66,6 +66,7 @@
         <DocumentWorkspaceFailurePanel
             v-if="isHostErrorVisible"
             :description="workspaceLoadErrorDescription"
+            :presentation="workspaceLoadFailurePresentation"
             @close="handleRequestCloseTab"
             @retry="handleRetryWorkspaceMount"
         />
@@ -177,6 +178,7 @@ const {
     resetWorkspaceChunkLoadError,
     retryWorkspaceChunkRender,
     workspaceChunkLoadError,
+    workspaceChunkFailurePresentation,
     workspaceRenderNonce,
 } = useDeferredWorkspaceChunkLoader({
     logSection: DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION,
@@ -337,6 +339,16 @@ const workspaceLoadErrorDescription = computed(() => {
         return t('errors.workspace.loadDescription');
     }
     return t('errors.workspace.loadDescriptionWithMessage', { message });
+});
+const workspaceLoadFailurePresentation = computed(() => {
+    const presentation = workspaceChunkFailurePresentation.value;
+    if (!presentation) {
+        return null;
+    }
+    return {
+        ...presentation,
+        description: workspaceLoadErrorDescription.value,
+    };
 });
 const hasPdf = computed(() => {
     const value = mountedWorkspace.value?.hasPdf;
@@ -586,7 +598,7 @@ function handleRetryWorkspaceMount() {
 }
 
 onErrorCaptured((error, instance, info) => {
-    handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {
+    const failure = handleDocumentWorkspaceCrash(error, instance?.$options.name ?? null, info, {
         tabId,
         failActiveTransaction: () => {
             const transaction = activeDocumentSession.value.snapshot.value.activeTransaction;
@@ -601,6 +613,10 @@ onErrorCaptured((error, instance, info) => {
         resetWorkspaceLoad: workspaceLoadGateway.resetWorkspaceLoad,
         setError: value => { workspaceChunkLoadError.value = value; },
     });
+    workspaceChunkFailurePresentation.value = {
+        failure,
+        title: 'Workspace failed to load',
+    };
     return false;
 });
 
@@ -659,7 +675,7 @@ async function handleOpenRecentFromPlaceholder(file: IRecentFile) {
             return false;
         }
         if (!preloadedWorkspace) {
-            BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
+            BrowserLogger.debug(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload workspace for recent open', {
                 tabId: tabId,
                 path: file.originalPath,
             });
@@ -766,6 +782,9 @@ const workspaceExpose: IWorkspaceExpose = createDeferredWorkspaceExposeProxy({
         BrowserLogger.error('workspace-host', `Action failed (${action})`, {
             tabId: tabId,
             error,
+        }, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            context: {},
         });
     },
     overrides: {

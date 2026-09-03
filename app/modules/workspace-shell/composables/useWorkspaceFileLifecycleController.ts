@@ -116,6 +116,7 @@ export const useWorkspaceFileLifecycleController = (
         pdfRasterDisplayProfile,
         lastSaveMode,
         error: pdfError,
+        failurePresentation: pdfFailurePresentation,
         isElectron,
         pendingDjvu,
         openBatchProgress,
@@ -243,6 +244,9 @@ export const useWorkspaceFileLifecycleController = (
                 reason: 'open-djvu-threw',
                 djvuPath,
                 error: message,
+            }, {
+                code: 'RENDERER_DJVU_OPERATION_FAILED',
+                context: {},
             });
             return {
                 status: 'failed',
@@ -344,6 +348,7 @@ export const useWorkspaceFileLifecycleController = (
         pdfRasterDisplayProfile,
         lastSaveMode,
         pdfError,
+        pdfFailurePresentation,
         isElectron,
         pendingDjvu,
         openBatchProgress,

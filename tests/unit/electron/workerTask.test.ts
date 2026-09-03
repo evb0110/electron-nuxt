@@ -21,6 +21,12 @@ const mocks = vi.hoisted<{
     }>;
     throwConstructorError: boolean;
     nextMessage: unknown | null;
+    failureReceipt: {
+        eventId: string;
+        code: 'UNCLASSIFIED_MAIN_ERROR';
+        occurredAt: number;
+        severity: 'error';
+    };
     // A worker wedged in native code never acknowledges terminate(); tests that
     // need that shape hand back a promise they control.
     terminateResult: (() => Promise<number>) | null;
@@ -31,6 +37,12 @@ const mocks = vi.hoisted<{
     workerRecords: [],
     throwConstructorError: true,
     nextMessage: null,
+    failureReceipt: {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_MAIN_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    },
     terminateResult: null,
 }));
 
@@ -47,10 +59,13 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
         level: 'warn',
         message,
     }),
-    error: (message: string) => mocks.logged.push({
-        level: 'error',
-        message,
-    }),
+    error: (message: string) => {
+        mocks.logged.push({
+            level: 'error',
+            message,
+        });
+        return mocks.failureReceipt;
+    },
 })}));
 
 vi.mock('fs', () => ({existsSync: mocks.existsSync}));
@@ -598,7 +613,7 @@ describe('workerTask', () => {
             },
         };
         const {
-            hasWorkerTaskErrorBeenReported,
+            getWorkerTaskFailureReceipt,
             runResultWorkerTask,
         } = await import('@electron/utils/workerTask');
 
@@ -609,7 +624,7 @@ describe('workerTask', () => {
             createWorkerExitError: code => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
-        expect(hasWorkerTaskErrorBeenReported(error)).toBe(true);
+        expect(getWorkerTaskFailureReceipt(error)).toEqual(mocks.failureReceipt);
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([{
             level: 'error',
             message: expect.stringContaining('Worker reported failure'),
@@ -631,7 +646,7 @@ describe('workerTask', () => {
             },
         };
         const {
-            hasWorkerTaskErrorBeenReported,
+            getWorkerTaskFailureReceipt,
             runResultWorkerTask,
         } = await import('@electron/utils/workerTask');
 
@@ -642,7 +657,7 @@ describe('workerTask', () => {
             createWorkerExitError: code => new Error(`exit: ${code}`),
         }).catch((cause: unknown) => cause);
 
-        expect(hasWorkerTaskErrorBeenReported(error)).toBe(false);
+        expect(getWorkerTaskFailureReceipt(error)).toBeUndefined();
         expect(mocks.logged.filter(entry => entry.level === 'error')).toEqual([]);
     });
 

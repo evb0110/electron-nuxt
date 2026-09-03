@@ -13,16 +13,28 @@ const mocks = vi.hoisted(() => ({
         info: vi.fn(),
         warn: vi.fn(),
     },
-    reportedErrors: new WeakSet<object>(),
+    reportedErrors: new WeakMap<object, object>(),
+    failureReceipt: {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_MAIN_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    },
     startStreamingWorkerTask: vi.fn(),
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 vi.mock('@electron/utils/workerTask', () => ({
-    hasWorkerTaskErrorBeenReported: (error: unknown) => (
-        typeof error === 'object' && error !== null && mocks.reportedErrors.has(error)
+    getWorkerTaskFailureReceipt: (error: unknown) => (
+        typeof error === 'object' && error !== null ? mocks.reportedErrors.get(error) : undefined
     ),
+    rememberWorkerTaskFailureReceipt: (error: unknown, receipt: object | undefined) => {
+        if (typeof error === 'object' && error !== null && receipt !== undefined) {
+            mocks.reportedErrors.set(error, receipt);
+        }
+        return receipt;
+    },
     resolveUnpackedWorkerPath: (_baseDir: string, workerFileName: string) => workerFileName,
     startStreamingWorkerTask: mocks.startStreamingWorkerTask,
 }));
@@ -32,6 +44,7 @@ vi.mock('@electron-worker-bundles/electronWorkerBundles.js', () => ({WORKER_BUND
 describe('runScanCleanupWorkerTask', () => {
     beforeEach(() => {
         vi.clearAllMocks();
+        mocks.logger.error.mockReturnValue(mocks.failureReceipt);
         mocks.startStreamingWorkerTask.mockReturnValue({
             worker: {},
             promise: Promise.resolve({}),
@@ -88,7 +101,7 @@ describe('runScanCleanupWorkerTask', () => {
         // report stream keys diagnostics by source and message, so a second
         // error-level line would count one underlying failure twice.
         const failure = new Error('pdftoppm: No such file or directory');
-        mocks.reportedErrors.add(failure);
+        mocks.reportedErrors.set(failure, mocks.failureReceipt);
         mocks.startStreamingWorkerTask.mockReturnValue({
             worker: {},
             promise: Promise.reject(failure),
@@ -129,7 +142,15 @@ describe('runScanCleanupWorkerTask', () => {
             vi.fn(),
         )).rejects.toBe(failure);
 
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('native pipeline failed'));
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('native pipeline failed'),
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
         expect(mocks.logger.info).not.toHaveBeenCalled();
+        expect(mocks.reportedErrors.get(failure)).toBe(mocks.failureReceipt);
     });
 });

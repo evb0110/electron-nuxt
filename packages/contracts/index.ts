@@ -74,6 +74,11 @@ export {
     PLATFORM_API_DESCRIPTOR,
 } from '@contracts/platformApi';
 export type { IElectronAPI } from '@contracts/electronApi';
+export type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
+export {
+    decodeDiagnosticsSuppressedCount,
+    DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
+} from '@contracts/diagnostics/diagnosticsCapability';
 export {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     PDF_ANNOTATION_PARSE_MAX_CHUNK_BYTES,
@@ -550,6 +555,9 @@ export type {
     TPdfViewMode,
 } from '@contracts/shared';
 export { isOcrWord } from '@contracts/shared';
+
+export { parseClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
+export type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 
 export {
     AGENT_OCR_RUN_INPUT_SCHEMA,

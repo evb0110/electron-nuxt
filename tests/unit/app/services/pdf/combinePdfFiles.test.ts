@@ -9,6 +9,7 @@ import {
 import type {IDocumentsBatchProgress} from '@contracts/electronApiDocuments';
 import type {CombinePdfError} from '@app/services/pdf/combinePdfFiles';
 import {combinePdfFiles} from '@app/services/pdf/combinePdfFiles';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 interface IMenuProgress {
     operation: 'document-open';
@@ -42,6 +43,13 @@ const mocks = vi.hoisted(() => {
             onOpenDocumentDirectBatchProgress,
         },
         documentWorkingCopy: { createWorkingCopyFromData: vi.fn() },
+        failure: {
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt,
+        logError: vi.fn(),
     };
 });
 
@@ -51,6 +59,7 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentPickerCapability: () => mocks.documentPicker,
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopy,
 }));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {error: mocks.logError}}));
 
 function createFile(name: string, size = 1) {
     return {
@@ -78,6 +87,7 @@ describe('combinePdfFiles', () => {
             3,
         ]));
         mocks.documentWorkingCopy.createWorkingCopyFromData.mockResolvedValue('browser://documents/working/combined.pdf');
+        mocks.logError.mockReturnValue(mocks.failure);
     });
 
     afterEach(() => {
@@ -326,5 +336,39 @@ describe('combinePdfFiles', () => {
             openErrorMessage: 'open failed',
         })).rejects.toEqual(expect.objectContaining<Partial<CombinePdfError>>({code: 'limit'}));
         expect(mocks.documentPicker.createCombinedPdfFromFiles).not.toHaveBeenCalled();
+        expect(mocks.logError).not.toHaveBeenCalled();
+    });
+
+    it('owns a genuine combine fault once and carries its receipt to the controller', async () => {
+        mocks.documentPicker.getPathsForFiles.mockReturnValue(['/tmp/first.pdf']);
+        mocks.documentOpen.openDocumentDirectBatch.mockRejectedValue(new Error('native combine crashed'));
+
+        const error = await combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({
+            code: 'open-failed',
+            failure: mocks.failure,
+        });
+        expect(mocks.logError).toHaveBeenCalledOnce();
+    });
+
+    it('reuses a browser-worker receipt without capturing the wrapper rejection', async () => {
+        mocks.hasElectronAPI.mockReturnValue(false);
+        const workerFailure = new Error('worker failed');
+        Object.defineProperty(workerFailure, 'failure', {value: mocks.failure});
+        mocks.documentPicker.createCombinedPdfFromFiles.mockRejectedValue(workerFailure);
+
+        const error = await combinePdfFiles({
+            files: [{file: createFile('first.pdf')}],
+            outputName: 'combined.pdf',
+            openErrorMessage: 'open failed',
+        }).catch((cause: unknown) => cause);
+
+        expect(error).toMatchObject({failure: mocks.failure});
+        expect(mocks.logError).not.toHaveBeenCalled();
     });
 });

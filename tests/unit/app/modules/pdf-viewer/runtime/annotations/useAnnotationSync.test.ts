@@ -1915,7 +1915,9 @@ describe('useAnnotationSync automation barrier', () => {
         const rendererWindow = installAutomationGrantWindow();
         loadPdfPageAnnotations.mockRejectedValue(new Error('snapshot read failed'));
         const { BrowserLogger } = await import('@app/utils/browserLogger');
-        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
+            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+        );
 
         await withAnnotationSyncScope(async () => {
             const { sync } = await createSyncHarness();

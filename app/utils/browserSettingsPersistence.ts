@@ -25,7 +25,7 @@ export const BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS = 60 * 60 * 24 * 180;
 export const BROWSER_THEME_COOKIE_KEY = 'nuxt-color-mode';
 export const BROWSER_LOCALE_COOKIE_KEY = 'i18n_redirected';
 
-type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'agentMcpEnabled' | 'theme' | 'locale'>;
+type TBrowserSettingsCookiePayload = Omit<ISettingsData, 'agentMcpEnabled' | 'clientDiagnosticsPreference' | 'theme' | 'locale'>;
 const SUPPORTED_LOCALES: ReadonlySet<string> = new Set<TAppLocale>(LOCALE_CODES);
 
 function parseRawBrowserSettingsPayload(raw: unknown): Record<PropertyKey, unknown> | null {
@@ -126,7 +126,7 @@ function isAppTheme(value: unknown): value is TAppTheme {
 
 function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> | null>(
     settings: T,
-) : Omit<NonNullable<T>, 'theme' | 'locale'> | null {
+) : Omit<NonNullable<T>, 'clientDiagnosticsPreference' | 'theme' | 'locale'> | null {
     if (!settings) {
         return null;
     }
@@ -134,6 +134,7 @@ function omitCookieBackedSettingsFields<T extends Record<PropertyKey, unknown> |
     return omit(settings, [
         'theme',
         'locale',
+        'clientDiagnosticsPreference',
     ]);
 }
 

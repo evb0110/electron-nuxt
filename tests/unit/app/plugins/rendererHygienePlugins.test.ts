@@ -6,21 +6,30 @@ import {
     vi,
 } from 'vitest';
 
-const mocks = vi.hoisted(() => ({
-    reportRuntimeError: vi.fn(),
-    onDebugLog: vi.fn(),
-    isElectronUserAgent: vi.fn(() => false),
-    waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
-        bridgeReady: false,
-        shouldWait: false,
-    })),
-}));
+const mocks = vi.hoisted(() => {
+    const consoleObserverCleanup = vi.fn();
+    return {
+        reportRuntimeError: vi.fn(),
+        onDebugLog: vi.fn(),
+        consoleObserverCleanup,
+        installConsoleErrorObserver: vi.fn(() => ({cleanup: consoleObserverCleanup})),
+        hasElectronAPI: vi.fn(() => false),
+        isElectronUserAgent: vi.fn(() => false),
+        getValidatedElectronPlatformApi: vi.fn((): unknown => undefined),
+        waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
+            bridgeReady: false,
+            shouldWait: false,
+        })),
+    };
+});
 
 vi.mock('@app/utils/getSettingsCapability', () => ({getSettingsCapability: () => ({onDebugLog: mocks.onDebugLog})}));
 vi.mock('@app/utils/platform', () => ({
+    hasElectronAPI: mocks.hasElectronAPI,
     isElectronUserAgent: mocks.isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge: mocks.waitForPreferredDesktopPlatformBridge,
 }));
+vi.mock('@app/utils/electronPlatformBridge', () => ({getValidatedElectronPlatformApi: mocks.getValidatedElectronPlatformApi}));
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => (
     {useRuntimeErrorReports: () => ({reportRuntimeError: mocks.reportRuntimeError})}
@@ -32,6 +41,7 @@ const browserLoggerMock = {
 };
 
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
+vi.mock('@app/utils/consoleErrorObserver', () => ({installConsoleErrorObserver: mocks.installConsoleErrorObserver}));
 
 function installAutoImportStubs() {
     vi.stubGlobal('defineNuxtPlugin', (plugin: unknown) => plugin);
@@ -112,6 +122,11 @@ describe('renderer hygiene plugins', () => {
             configurable: true,
             value: { pathname: '/electron' },
         });
+        Object.defineProperty(window, 'electronAPI', {
+            configurable: true,
+            value: { diagnostics: { onDebugLog: mocks.onDebugLog } },
+        });
+        mocks.getValidatedElectronPlatformApi.mockReturnValue({diagnostics: {onDebugLog: mocks.onDebugLog}} as never);
         const plugin = (await import('@app/plugins/runtimeErrorLogStream.client')).default as (app: unknown) => void;
         const harness = createNuxtApp();
 
@@ -155,5 +170,97 @@ describe('renderer hygiene plugins', () => {
         expect(harness.nuxtApp.vueApp.config.errorHandler).toBe(harness.previousErrorHandler);
         expect(installedErrorHandler).not.toBe(harness.previousErrorHandler);
         expect(harness.originalUnmount).toHaveBeenCalledTimes(1);
+        expect(mocks.installConsoleErrorObserver).toHaveBeenCalledOnce();
+        expect(mocks.installConsoleErrorObserver).toHaveBeenCalledWith(expect.objectContaining({
+            reporter: expect.any(Object),
+            runtime: 'hosted-browser',
+        }));
+        expect(mocks.consoleObserverCleanup).toHaveBeenCalledOnce();
+    });
+
+    it('creates one receipt per Vue, window, and rejection failure, then passes that receipt to the logger and runtime card', async () => {
+        const windowTarget = new EventTarget();
+        const addEventListenerSpy = vi.spyOn(windowTarget, 'addEventListener');
+        vi.stubGlobal('window', windowTarget);
+        const plugin = (await import('@app/plugins/rendererErrorGuard.client')).default as (app: unknown) => void;
+        const harness = createNuxtApp();
+
+        plugin(harness.nuxtApp);
+        const vueHandler = harness.nuxtApp.vueApp.config.errorHandler as (
+            error: unknown,
+            instance: null,
+            info: string,
+        ) => void;
+        const windowHandler = addEventListenerSpy.mock.calls.find(([eventName]) => eventName === 'error')?.[1] as (
+            event: ErrorEvent,
+        ) => void;
+        const rejectionHandler = addEventListenerSpy.mock.calls.find(([eventName]) => eventName === 'unhandledrejection')?.[1] as (
+            event: PromiseRejectionEvent,
+        ) => void;
+
+        vueHandler(new Error('Vue failed'), null, 'render');
+        windowHandler({
+            message: 'Window failed',
+            error: new Error('Window failed'),
+            filename: 'app.vue',
+            lineno: 1,
+            colno: 1,
+        } as ErrorEvent);
+        rejectionHandler({reason: new Error('Promise failed')} as PromiseRejectionEvent);
+
+        expect(browserLoggerMock.error).toHaveBeenCalledTimes(3);
+        expect(mocks.reportRuntimeError).toHaveBeenCalledTimes(3);
+        expect(harness.previousErrorHandler).toHaveBeenCalledOnce();
+        for (const [presentation] of mocks.reportRuntimeError.mock.calls) {
+            expect(presentation).toEqual(expect.objectContaining({failure: expect.objectContaining({eventId: expect.stringMatching(/^[0-9a-f]{32}$/u)})}));
+        }
+        for (const [
+            , , data,
+        ] of browserLoggerMock.error.mock.calls) {
+            expect(data).toEqual(expect.objectContaining({failure: expect.objectContaining({eventId: expect.stringMatching(/^[0-9a-f]{32}$/u)})}));
+        }
+        expect(browserLoggerMock.error.mock.calls.map(([
+            , , data,
+        ]) => (
+            (data as {failure?: {code?: string}}).failure?.code
+        ))).toEqual([
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_ERROR_GUARD_FAILED',
+        ]);
+    });
+
+    it('short circuits ignorable Vue, window, and rejection messages before an occurrence', async () => {
+        const windowTarget = new EventTarget();
+        const addEventListenerSpy = vi.spyOn(windowTarget, 'addEventListener');
+        vi.stubGlobal('window', windowTarget);
+        const plugin = (await import('@app/plugins/rendererErrorGuard.client')).default as (app: unknown) => void;
+        const harness = createNuxtApp();
+        const ignored = 'ResizeObserver loop limit exceeded';
+
+        plugin(harness.nuxtApp);
+        const vueHandler = harness.nuxtApp.vueApp.config.errorHandler as (
+            error: unknown,
+            instance: null,
+            info: string,
+        ) => void;
+        const windowHandler = addEventListenerSpy.mock.calls.find(([eventName]) => eventName === 'error')?.[1] as (
+            event: ErrorEvent,
+        ) => void;
+        const rejectionHandler = addEventListenerSpy.mock.calls.find(([eventName]) => eventName === 'unhandledrejection')?.[1] as (
+            event: PromiseRejectionEvent,
+        ) => void;
+
+        vueHandler(new Error(ignored), null, 'render');
+        windowHandler({
+            message: ignored,
+            error: new Error(ignored),
+        } as ErrorEvent);
+        rejectionHandler({reason: new Error(ignored)} as PromiseRejectionEvent);
+
+        expect(browserLoggerMock.error).not.toHaveBeenCalled();
+        expect(mocks.reportRuntimeError).not.toHaveBeenCalled();
+        expect(browserLoggerMock.warnThrottled).toHaveBeenCalledTimes(3);
+        expect(harness.previousErrorHandler).toHaveBeenCalledOnce();
     });
 });

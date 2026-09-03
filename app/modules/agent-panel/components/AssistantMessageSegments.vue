@@ -51,12 +51,12 @@ defineProps<{segments: TAssistantMessageSegment[]}>();
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-link {
-    color: var(--ui-error);
+    color: var(--ui-warning);
 }
 
 .agent-assistant-message.is-system .agent-assistant-message-inline-code {
-    border-color: color-mix(in oklab, var(--ui-error) 28%, transparent);
-    background: color-mix(in oklab, var(--ui-error) 8%, var(--ui-bg) 92%);
-    color: var(--ui-error);
+    border-color: color-mix(in oklab, var(--ui-warning) 28%, transparent);
+    background: color-mix(in oklab, var(--ui-warning) 8%, var(--ui-bg) 92%);
+    color: var(--ui-warning);
 }
 </style>

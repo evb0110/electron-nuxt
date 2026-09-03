@@ -523,7 +523,11 @@ function bootWindowLifecycle(
         if (!hasWindows()) {
             readyWindowIds.clear();
             void createWindow().catch((error) => {
-                logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`);
+                logger.error(`Failed to create window on activate: ${getErrorMessage(error)}`, {
+                    code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+                    context: {},
+                    cause: error,
+                });
             });
             return;
         }
@@ -568,7 +572,11 @@ function bootUpdates(options: IRunInitSequenceOptions) {
         options.initializeUpdates(options.broadcastUpdateStatus);
         options.logStartupPhase('Update service initialized');
     } catch (error) {
-        options.logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`);
+        options.logger.error(`Failed to initialize updates: ${getErrorMessage(error)}`, {
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+            context: {},
+            cause: error,
+        });
     }
 }
 
@@ -577,7 +585,11 @@ function bootMenu(options: IRunInitSequenceOptions) {
         options.setupMenu();
         options.logStartupPhase('Application menu initialized from cached data');
     } catch (error) {
-        options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
+        options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`, {
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+            context: {},
+            cause: error,
+        });
     }
 }
 
@@ -588,7 +600,11 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
     // te() serves English until the locale bundle resolves, and nothing before the menu
     // renders localized text, so the non-English chunk load must not delay the window.
     const electronTranslationsReady = options.initializeElectronTranslations().catch((error: unknown) => {
-        options.logger.error(`Failed to initialize Electron translations: ${getErrorMessage(error)}`);
+        options.logger.error(`Failed to initialize Electron translations: ${getErrorMessage(error)}`, {
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+            context: {},
+            cause: error,
+        });
     });
     await options.initializeResourceRuntime();
     await bootDevDockIcon(options);
@@ -610,9 +626,17 @@ export async function runInitSequence(options: IRunInitSequenceOptions) {
             options.updateRecentFilesMenu();
             options.logStartupPhase('Application menu patched after recent files refresh');
         } catch (error) {
-            options.logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`);
+            options.logger.error(`Failed to initialize recent files cache: ${getErrorMessage(error)}`, {
+                code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+                context: {},
+                cause: error,
+            });
         }
     })().catch((error) => {
-        options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`);
+        options.logger.error(`Failed to initialize application menu: ${getErrorMessage(error)}`, {
+            code: 'MAIN_STARTUP_INITIALIZATION_FAILED',
+            context: {},
+            cause: error,
+        });
     });
 }

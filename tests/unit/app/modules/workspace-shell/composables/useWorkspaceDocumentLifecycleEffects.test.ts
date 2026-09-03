@@ -188,10 +188,11 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
         ).resolves.toBeUndefined();
 
         expect(mocks.acknowledgeResultFile).not.toHaveBeenCalled();
-        expect(mocks.toastAdd).toHaveBeenCalledWith({
+        expect(mocks.toastAdd).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.ocr.createSearchablePdf',
-        });
+            description: expect.stringContaining('Error ID:'),
+        }));
         lifecycle.scope.stop();
     });
 
@@ -226,10 +227,11 @@ describe('useWorkspaceDocumentLifecycleEffects OCR application', () => {
             '/tmp/ocr-1-merged.pdf',
         );
         expect(mocks.warmIndex).not.toHaveBeenCalled();
-        expect(mocks.toastAdd).toHaveBeenCalledWith({
+        expect(mocks.toastAdd).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.ocr.changedReload',
-        });
+            description: expect.stringContaining('Error ID:'),
+        }));
         lifecycle.scope.stop();
     });
 

@@ -481,7 +481,374 @@ function hasCommentsInside(sourceCode, node) {
     ));
 }
 
+function getStaticMemberPath(node) {
+    if (node?.type === 'Identifier') {
+        return node.name;
+    }
+    if (
+        node?.type === 'MemberExpression'
+        && !node.computed
+        && node.property?.type === 'Identifier'
+    ) {
+        const objectPath = getStaticMemberPath(node.object);
+        return objectPath ? `${objectPath}.${node.property.name}` : null;
+    }
+    return null;
+}
+
+function isToastObject(node) {
+    if (node?.type === 'CallExpression' && node.callee?.type === 'Identifier' && node.callee.name === 'useToast') {
+        return true;
+    }
+    return getStaticMemberPath(node)?.split('.').some(part => part.toLowerCase().includes('toast')) ?? false;
+}
+
+function getStaticPropertyName(property) {
+    if (!property || property.computed) {
+        return null;
+    }
+    if (property.key?.type === 'Identifier') {
+        return property.key.name;
+    }
+    if (property.key?.type === 'VIdentifier') {
+        return property.key.name;
+    }
+    return getLiteralValue(property.key);
+}
+
+function getErrorColorProperty(argument) {
+    if (argument?.type !== 'ObjectExpression') {
+        return null;
+    }
+    return argument.properties.find(property => (
+        property?.type === 'Property'
+        && getStaticPropertyName(property) === 'color'
+        && getLiteralValue(property.value) === 'error'
+    )) ?? null;
+}
+
+function getSentryRepoPath(context) {
+    const filePath = context.physicalFilename ?? context.filename;
+    if (!filePath || filePath.startsWith('<')) {
+        return '';
+    }
+    return toRepoPath(path.resolve(filePath));
+}
+
+function isApplicationSource(repoPath) {
+    return /^(app|electron|landing|server)\//u.test(repoPath);
+}
+
+function isSharedFailurePresenter(repoPath) {
+    return repoPath === 'app/composables/useFailureToast.ts'
+        || repoPath === 'app/components/AppFailureAlert.vue'
+        || repoPath === 'app/components/AppFatalRuntimeDialog.vue';
+}
+
+function isRawRedPresentationAttribute(attribute) {
+    if (!attribute) {
+        return false;
+    }
+    if (!attribute.directive) {
+        return getStaticPropertyName(attribute) === 'color'
+            && getLiteralValue(attribute.value) === 'error';
+    }
+    return attribute.key?.name?.name === 'bind'
+        && attribute.key.argument?.type === 'VIdentifier'
+        && attribute.key.argument.name === 'color'
+        && getLiteralValue(attribute.value?.expression) === 'error';
+}
+
+function unwrapPresentationExpression(node) {
+    if (
+        node?.type === 'TSAsExpression'
+        || node?.type === 'TSTypeAssertion'
+        || node?.type === 'TSNonNullExpression'
+        || node?.type === 'ChainExpression'
+    ) {
+        return unwrapPresentationExpression(node.expression);
+    }
+    return node;
+}
+
+function hasFailureProperty(node) {
+    const expression = unwrapPresentationExpression(node);
+    return expression?.type === 'ObjectExpression'
+        && expression.properties.some(property => getStaticPropertyName(property) === 'failure');
+}
+
+function isNamedPresentationExpression(node) {
+    const expression = unwrapPresentationExpression(node);
+    return expression?.type === 'Identifier'
+        && /presentation/iu.test(expression.name);
+}
+
+function isReceiptBearingPresentation(node) {
+    return hasFailureProperty(node) || isNamedPresentationExpression(node);
+}
+
+const noRawRedPresentationRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Warn when application code creates a red toast or alert outside the shared failure presenters',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        if (!isApplicationSource(repoPath) || isSharedFailurePresenter(repoPath)) {
+            return {};
+        }
+
+        const visitors = {CallExpression(node) {
+            if (
+                node.callee?.type !== 'MemberExpression'
+                    || node.callee.computed
+                    || node.callee.property?.type !== 'Identifier'
+                    || node.callee.property.name !== 'add'
+                    || !isToastObject(node.callee.object)
+            ) {
+                return;
+            }
+
+            const colorProperty = getErrorColorProperty(node.arguments[0]);
+            if (colorProperty) {
+                context.report({
+                    node: colorProperty,
+                    message: 'Route red failure presentation through the shared receipt-aware presenter.',
+                });
+            }
+        }};
+        const templateServices = getTemplateBodyServices(context);
+        if (!templateServices) {
+            return visitors;
+        }
+
+        return {
+            ...visitors,
+            ...templateServices.parserServices.defineTemplateBodyVisitor({VElement(node) {
+                const componentName = node.rawName ?? node.name;
+                if (componentName !== 'UAlert' && componentName !== 'UToast') {
+                    return;
+                }
+                const attribute = node.startTag.attributes.find(isRawRedPresentationAttribute);
+                if (attribute) {
+                    context.report({
+                        node: attribute,
+                        message: 'Route red failure presentation through the shared receipt-aware presenter.',
+                    });
+                }
+            }}),
+        };
+    },
+};
+
+const noDirectConsoleErrorRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Warn on direct application console.error calls outside the approved raw sinks',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        const exempt = new Set([
+            'app/utils/browserLogger.ts',
+            'app/utils/consoleErrorObserver.ts',
+            'electron/preload/installDebugLogListener.ts',
+        ]);
+        if (!isApplicationSource(repoPath) || exempt.has(repoPath)) {
+            return {};
+        }
+
+        return {CallExpression(node) {
+            if (
+                node.callee?.type === 'MemberExpression'
+                    && !node.callee.computed
+                    && node.callee.object?.type === 'Identifier'
+                    && node.callee.object.name === 'console'
+                    && node.callee.property?.type === 'Identifier'
+                    && node.callee.property.name === 'error'
+            ) {
+                context.report({
+                    node,
+                    message: 'Use the approved diagnostic logger or observer instead of direct console.error.',
+                });
+            }
+        }};
+    },
+};
+
+const requireFailureReceiptRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Warn when runtime or fatal failure presentation is not backed by a FailureReceipt',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        if (!isApplicationSource(repoPath)) {
+            return {};
+        }
+
+        return {CallExpression(node) {
+            if (node.callee?.type !== 'Identifier') {
+                return;
+            }
+            const name = node.callee.name;
+            if (name !== 'reportRuntimeError' && name !== 'setFatalRuntimeError') {
+                return;
+            }
+
+            const presentation = name === 'reportRuntimeError'
+                ? node.arguments[0]
+                : node.arguments.length === 1
+                    ? node.arguments[0]
+                    : node.arguments[1];
+            if (!isReceiptBearingPresentation(presentation)) {
+                context.report({
+                    node,
+                    message: 'Runtime and fatal failure presentation requires a FailureReceipt.',
+                });
+            }
+        }};
+    },
+};
+
+function isUndefinedExpression(node) {
+    const expression = unwrapPresentationExpression(node);
+    return expression === undefined
+        || expression?.type === 'Identifier' && expression.name === 'undefined'
+        || expression?.type === 'Literal' && expression.value == null;
+}
+
+function hasClosedDiagnosticInput(node) {
+    const expression = unwrapPresentationExpression(node);
+    if (isUndefinedExpression(expression)) {
+        return false;
+    }
+    if (expression?.type !== 'ObjectExpression') {
+        return true;
+    }
+    return expression.properties.some(property => getStaticPropertyName(property) === 'code')
+        && expression.properties.some(property => getStaticPropertyName(property) === 'context');
+}
+
+function isBrowserLoggerErrorCall(node) {
+    return node.callee?.type === 'MemberExpression'
+        && !node.callee.computed
+        && node.callee.object?.type === 'Identifier'
+        && node.callee.object.name === 'BrowserLogger'
+        && node.callee.property?.type === 'Identifier'
+        && node.callee.property.name === 'error';
+}
+
+function isMainLoggerErrorCall(node) {
+    if (
+        node.callee?.type !== 'MemberExpression'
+        || node.callee.computed
+        || node.callee.property?.type !== 'Identifier'
+        || node.callee.property.name !== 'error'
+    ) {
+        return false;
+    }
+    const object = node.callee.object;
+    if (
+        object?.type === 'Identifier'
+        && (
+            object.name === 'log'
+            || object.name === 'logger'
+            || object.name.endsWith('Log')
+            || object.name.endsWith('Logger')
+        )
+    ) {
+        return true;
+    }
+    return object?.type === 'MemberExpression'
+        && !object.computed
+        && object.object?.type === 'Identifier'
+        && object.object.name === 'options'
+        && object.property?.type === 'Identifier'
+        && object.property.name === 'logger';
+}
+
+const requireClassifiedErrorLogRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Require application error log owners to supply a closed diagnostic code or existing receipt',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        if (!isApplicationSource(repoPath)) {
+            return {};
+        }
+        return {CallExpression(node) {
+            const diagnosticInput = isBrowserLoggerErrorCall(node)
+                ? node.arguments[3]
+                : isMainLoggerErrorCall(node)
+                    ? node.arguments[1]
+                    : null;
+            if (diagnosticInput !== null && !hasClosedDiagnosticInput(diagnosticInput)) {
+                context.report({
+                    node,
+                    message: 'Error logging requires a closed diagnostic code and context or an existing FailureReceipt.',
+                });
+            }
+        }};
+    },
+};
+
+const noUnclassifiedDiagnosticCodeRule = {
+    meta: {
+        type: 'problem',
+        docs: {
+            description: 'Disallow generic renderer or main diagnostic codes at application-owned capture sites',
+            recommended: false,
+        },
+        schema: [],
+    },
+    create(context) {
+        const repoPath = getSentryRepoPath(context);
+        const defensiveDecoderRoots = new Set([
+            'app/utils/browserLogger.ts',
+            'app/utils/failureReporter.ts',
+            'electron/features/diagnostics/mainFailureReporter.ts',
+            'server/utils/serverFailureReporter.ts',
+        ]);
+        if (!isApplicationSource(repoPath) || defensiveDecoderRoots.has(repoPath)) {
+            return {};
+        }
+        return {Literal(node) {
+            if (
+                node.value === 'UNCLASSIFIED_RENDERER_ERROR'
+                || node.value === 'UNCLASSIFIED_MAIN_ERROR'
+            ) {
+                context.report({
+                    node,
+                    message: 'Application-owned failures require a subsystem-specific diagnostic code.',
+                });
+            }
+        }};
+    },
+};
+
 export default {rules: {
+    'no-raw-red-presentation': noRawRedPresentationRule,
+    'no-direct-console-error': noDirectConsoleErrorRule,
+    'require-failure-receipt': requireFailureReceiptRule,
+    'require-classified-error-log': requireClassifiedErrorLogRule,
+    'no-unclassified-diagnostic-code': noUnclassifiedDiagnosticCodeRule,
     'commonjs-named-imports': {
         meta: {
             type: 'problem',

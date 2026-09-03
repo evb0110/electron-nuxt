@@ -10,13 +10,16 @@ import type {
     IPdfSearchMatch,
 } from '@app/types/pdfUi';
 import { buildVisualMatchesWithCurrent } from '@app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent';
+import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
 import {
     clearTextLayerTextMapping,
+    createTextLayerRangeForSearchMatch,
     getCachedTextLayerIndex,
     highlightTextRunInPdfjsStyle,
     registerTextLayerTextMapping,
 } from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { assembleSearchablePageText } from '@pdf-core';
 
 describe('usePdfSearchHighlight', () => {
     it('keeps backend identity instead of re-finding matches in the rendered layer', () => {
@@ -32,8 +35,8 @@ describe('usePdfSearchHighlight', () => {
             matches: [
                 {
                     matchIndex: 0,
-                    start: 6,
-                    end: 11,
+                    start: 11,
+                    end: 16,
                 },
                 {
                     matchIndex: 1,
@@ -54,8 +57,8 @@ describe('usePdfSearchHighlight', () => {
 
         expect(result).toEqual([
             {
-                start: 6,
-                end: 11,
+                start: 11,
+                end: 16,
                 isCurrent: false,
             },
             {
@@ -87,7 +90,7 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
-    it('drops unmappable backend ranges without inventing layer-local matches', () => {
+    it('reconciles backend ranges with the rendered layer before selecting the current occurrence', () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),
             pageText: '',
@@ -120,11 +123,167 @@ describe('usePdfSearchHighlight', () => {
 
         const result = buildVisualMatchesWithCurrent(pageMatches, currentMatch, 'alpha alpha alpha');
 
-        expect(result).toEqual([{
-            start: 12,
-            end: 17,
+        expect(result).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 6,
+                end: 11,
+                isCurrent: false,
+            },
+            {
+                start: 12,
+                end: 17,
+                isCurrent: true,
+            },
+        ]);
+    });
+
+    it('maps rendered-layer fallback matches back to raw text-run offsets', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'Lezgian',
+            matches: [{
+                matchIndex: 0,
+                start: 100,
+                end: 107,
+            }],
+        };
+        const currentMatch: IPdfSearchMatch = {
+            pageIndex: requirePageIndex(0),
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 100,
+            endOffset: 107,
+        };
+        const assembledLayerText = assembleSearchablePageText([
+            {text: 'prefix'},
+            {text: 'Lezgian'},
+        ]);
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            currentMatch,
+            'prefixLezgian',
+            assembledLayerText,
+        )).toEqual([{
+            start: 6,
+            end: 13,
             isCurrent: true,
         }]);
+    });
+
+    it('rejects in-bounds backend offsets that point at different rendered text', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'Lezgian',
+            matches: [{
+                matchIndex: 0,
+                start: 0,
+                end: 7,
+            }],
+        };
+        const assembledLayerText = assembleSearchablePageText([
+            {text: 'prefix'},
+            {text: 'Lezgian'},
+        ]);
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            null,
+            'prefixLezgian',
+            assembledLayerText,
+        )).toEqual([{
+            start: 6,
+            end: 13,
+            isCurrent: false,
+        }]);
+    });
+
+    it('does not preserve backend identity after falling back from shifted reversed ranges', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            matches: [
+                {
+                    matchIndex: 10,
+                    start: 12,
+                    end: 17,
+                },
+                {
+                    matchIndex: 11,
+                    start: 1,
+                    end: 6,
+                },
+            ],
+        };
+        const currentMatch: IPdfSearchMatch = {
+            pageIndex: requirePageIndex(0),
+            pageMatchIndex: 0,
+            matchIndex: 10,
+            startOffset: 12,
+            endOffset: 17,
+        };
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            currentMatch,
+            'alpha beta alpha',
+        )).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 11,
+                end: 16,
+                isCurrent: true,
+            },
+        ]);
+    });
+
+    it('requires distinct rendered occurrences for duplicate backend ranges', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'alpha',
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 0,
+                    end: 5,
+                },
+                {
+                    matchIndex: 1,
+                    start: 0,
+                    end: 5,
+                },
+            ],
+        };
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            null,
+            'alpha beta alpha',
+        )).toEqual([
+            {
+                start: 0,
+                end: 5,
+                isCurrent: false,
+            },
+            {
+                start: 11,
+                end: 16,
+                isCurrent: false,
+            },
+        ]);
     });
 
     it('maps collapsed fake-bold text to one authoritative highlight set', () => {
@@ -149,6 +308,48 @@ describe('usePdfSearchHighlight', () => {
 });
 
 describe('pdfSearchHighlightDom text-layer mapping', () => {
+    it('preserves positioned text spans inside PDF.js marked-content wrappers', () => {
+        const textLayer = document.createElement('div');
+        const markedContent = document.createElement('span');
+        markedContent.className = 'markedContent';
+        const prefixSpan = document.createElement('span');
+        prefixSpan.textContent = 'prefix';
+        const matchSpan = document.createElement('span');
+        matchSpan.textContent = 'Lezgian';
+        markedContent.append(prefixSpan, matchSpan);
+        textLayer.append(markedContent);
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: [
+                prefixSpan,
+                matchSpan,
+            ],
+            textContentItemsStr: [
+                'prefix',
+                'Lezgian',
+            ],
+        });
+        const index = getCachedTextLayerIndex(textLayer);
+        expect(index.runs).toHaveLength(2);
+        expect(index.runs.every(run => run.kind === 'span' && run.textNode !== null)).toBe(true);
+
+        const highlight = usePdfSearchHighlight();
+        highlight.highlightPage(textLayer, {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'Lezgian',
+            matches: [{
+                matchIndex: 0,
+                start: 6,
+                end: 13,
+            }],
+        }, null);
+
+        expect(markedContent.children).toHaveLength(2);
+        expect(markedContent.firstElementChild).toBe(prefixSpan);
+        expect(markedContent.lastElementChild).toBe(matchSpan);
+        expect(matchSpan.querySelector('.pdf-search-highlight')?.textContent).toBe('Lezgian');
+    });
+
     it('uses pdf.js text mapping instead of reconstructed span text', () => {
         const textLayer = document.createElement('div');
         const span = document.createElement('span');
@@ -248,6 +449,43 @@ describe('pdfSearchHighlightDom text-layer mapping', () => {
         expect(elements[0]?.className).toBe('pdf-search-highlight appended pdf-search-highlight--current');
         expect(span.querySelector('mark')).toBeNull();
         expect(span.textContent).toBe('canonical');
+    });
+
+    it('rebuilds a root text span after nested highlight spans were inserted', () => {
+        const textLayer = document.createElement('div');
+        const span = document.createElement('span');
+        span.textContent = 'prefix needle suffix';
+        textLayer.append(span);
+        registerTextLayerTextMapping(textLayer, {
+            textDivs: [span],
+            textContentItemsStr: ['prefix needle suffix'],
+        });
+
+        const initialIndex = getCachedTextLayerIndex(textLayer);
+        const initialRun = initialIndex.runs[0];
+        if (!initialRun || initialRun.kind !== 'span') {
+            throw new Error('Expected the fixture text span to produce a span run');
+        }
+        highlightTextRunInPdfjsStyle(
+            initialRun,
+            [{
+                start: 7,
+                end: 13,
+                isCurrent: true,
+            }],
+            'pdf-search-highlight',
+            'pdf-search-highlight--current',
+        );
+
+        const rebuiltIndex = getCachedTextLayerIndex(textLayer);
+        expect(rebuiltIndex.text).toBe('prefix needle suffix');
+        const range = createTextLayerRangeForSearchMatch(textLayer, {
+            startOffset: 7,
+            endOffset: 13,
+        });
+        expect(range?.toString()).toBe('needle');
+
+        clearTextLayerTextMapping(textLayer);
     });
 
     it('marks multi-div highlights with pdf.js begin and end segment classes', () => {

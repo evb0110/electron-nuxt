@@ -24,7 +24,8 @@ defineProps<{
 <style scoped>
 .document-panel-empty-state {
     display: flex;
-    min-height: 100%;
+    flex: 1 1 auto;
+    min-height: 0;
     flex-direction: column;
     align-items: center;
     justify-content: center;

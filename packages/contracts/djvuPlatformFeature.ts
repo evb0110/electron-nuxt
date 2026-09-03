@@ -28,6 +28,10 @@ import {
 import type { TDocumentRef } from '@contracts/documentRef';
 import { SEARCH_WIRE_CODEC } from '@contracts/search';
 import {
+    decodeFailureReceipt,
+    isExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
+import {
     definePlatformFeature,
     runtimeSchema as s,
     type IRuntimeSchema,
@@ -476,6 +480,36 @@ function decodeOptionalResultString(value: unknown, fieldName: string) {
     return decodeOptionalString(value, fieldName);
 }
 
+function decodeFailureOutcomeFields(
+    value: Record<string, unknown>,
+    fieldPrefix: string,
+) {
+    let failure;
+    if (value.failure !== undefined) {
+        failure = decodeFailureReceipt(value.failure);
+        if (failure === null) {
+            throw new Error(`${fieldPrefix} has an invalid failure receipt`);
+        }
+    }
+
+    let expected;
+    if (value.expected !== undefined) {
+        if (!isExpectedOutcome(value.expected)) {
+            throw new Error(`${fieldPrefix} has an invalid expected outcome`);
+        }
+        expected = value.expected;
+    }
+
+    if (failure !== undefined && expected !== undefined) {
+        throw new Error(`${fieldPrefix} cannot contain both failure and expected outcome`);
+    }
+
+    return {
+        ...(failure === undefined ? {} : {failure}),
+        ...(expected === undefined ? {} : {expected}),
+    };
+}
+
 function decodeSuccessResult(value: unknown): Record<PropertyKey, unknown> & {success: boolean} {
     if (!isRecord(value) || typeof value.success !== 'boolean') {
         throw new Error('result must include success');
@@ -520,6 +554,10 @@ function decodeConvertResult(value: unknown) {
     const requestId = decodeOptionalResultString(result.requestId, 'requestId');
     const documentRef = decodeOptionalResultString(result.documentRef, 'documentRef');
     const error = decodeOptionalResultString(result.error, 'error');
+    const failureOutcome = decodeFailureOutcomeFields(result, 'DjVu conversion result');
+    if (result.success && Object.keys(failureOutcome).length > 0) {
+        throw new Error('successful DjVu conversion result cannot contain a failure outcome');
+    }
     return {
         success: result.success,
         ...(pdfPath === undefined ? {} : {pdfPath}),
@@ -527,6 +565,7 @@ function decodeConvertResult(value: unknown) {
         ...(requestId === undefined ? {} : {requestId}),
         ...(documentRef === undefined ? {} : {documentRef}),
         ...(error === undefined ? {} : {error}),
+        ...failureOutcome,
     };
 }
 
@@ -628,11 +667,16 @@ function decodeJobState(value: unknown): TDocumentOutputJobState | null {
         };
     }
     if (value.status === 'failed' || value.status === 'canceled') {
+        const failureOutcome = decodeFailureOutcomeFields(value, 'DjVu job state');
+        if (value.status === 'canceled' && 'failure' in failureOutcome) {
+            throw new Error('canceled DjVu job state cannot contain a failure receipt');
+        }
         return {
             jobId: value.jobId,
             operation,
             status: value.status,
             ...(typeof value.error === 'string' ? {error: value.error} : {}),
+            ...failureOutcome,
             progress,
             updatedAtMs: value.updatedAtMs,
         };

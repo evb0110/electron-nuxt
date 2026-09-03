@@ -10,14 +10,34 @@ import {
 } from '@app/utils/platformDocuments';
 import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import {
+    decodeFailureReceipt,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 
 export type TCombinePdfErrorCode = 'canceled' | 'invalid-input' | 'limit' | 'unsupported' | 'open-failed';
 
 export class CombinePdfError extends Error {
-    public constructor(public readonly code: TCombinePdfErrorCode, options?: {cause?: unknown}) {
+    public readonly failure: FailureReceipt | undefined;
+
+    public constructor(
+        public readonly code: TCombinePdfErrorCode,
+        options?: {
+            cause?: unknown;
+            failure?: FailureReceipt
+        },
+    ) {
         super(`PDF combine failed (${code})`, options);
         this.name = 'CombinePdfError';
+        this.failure = options?.failure;
     }
+}
+
+function getOwnedFailure(error: unknown) {
+    if (typeof error !== 'object' || error === null || !('failure' in error)) {
+        return undefined;
+    }
+    return decodeFailureReceipt(error.failure) ?? undefined;
 }
 
 function classifyCombineError(error: unknown): TCombinePdfErrorCode {
@@ -227,10 +247,24 @@ export async function combinePdfFiles(options: ICombinePdfFilesOptions): Promise
     } catch (error) {
         if (error instanceof CombinePdfError) throw error;
         const code = classifyCombineError(error);
-        BrowserLogger.error('pdf-combine', 'PDF combine operation failed', {
-            code,
-            detail: getErrorMessage(error),
+        if (code === 'canceled' || code === 'invalid-input' || code === 'limit' || code === 'unsupported') {
+            throw new CombinePdfError(code, {cause: error});
+        }
+        const failure = getOwnedFailure(error) ?? BrowserLogger.error(
+            'pdf-combine',
+            'PDF combine operation failed',
+            {
+                code,
+                detail: getErrorMessage(error),
+            },
+            {
+                code: 'RENDERER_PDF_COMBINE_OPERATION_FAILED',
+                context: {},
+            },
+        );
+        throw new CombinePdfError(code, {
+            cause: error,
+            failure,
         });
-        throw new CombinePdfError(code, {cause: error});
     }
 }

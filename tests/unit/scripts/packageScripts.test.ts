@@ -165,6 +165,7 @@ describe('package scripts', () => {
             'test:e2e:electron:headless',
             'test:e2e:electron:blocking-smoke:headless',
             'test:e2e:electron:quarantine:headless',
+            'test:e2e:electron:search-match-scroll',
             'test:scan-cleanup:affected-oracles',
             'diag:scan-cleanup-preview-harness',
             'diag:scan-cleanup-representative-audit',
@@ -174,9 +175,6 @@ describe('package scripts', () => {
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
         // OCR-quality, and xlarge-PDF gates.
-        // The integration branch retains the PDF.js fork provenance command
-        // while main carries the release worktree command, so the merged
-        // package has one more public script than either side alone.
         expect(Object.keys(scripts).length).toBeLessThanOrEqual(111);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
@@ -378,6 +376,7 @@ describe('package scripts', () => {
             'test:e2e:electron:regression',
             'test:e2e:electron:save-pipeline',
             'test:e2e:electron:xlarge',
+            'test:e2e:electron:search-match-scroll',
         ]) {
             const commands = scriptCommands(scripts, scriptName);
             if (scriptName === 'test:e2e:electron:quarantine') {
@@ -436,6 +435,11 @@ describe('package scripts', () => {
         expect(scripts['test:e2e:electron:xlarge']).toContain(
             'bash scripts/test-electron-e2e-headless.sh --no-build e2e-xlarge-pdf',
         );
+        expect(scriptCommands(scripts, 'test:e2e:electron:search-match-scroll')).toEqual([
+            'pnpm run build:pdf-search',
+            'pnpm run build:electron',
+            'EVB_PDF_SEARCH_ENABLE=1 EVB_SEARCH_REQUEST_TIMEOUT_MS=180000 EVB_PDF_SEARCH_TIMEOUT_MS=180000 bash scripts/test-electron-e2e-headless.sh --no-build e2e-search-match-scroll --reporter verbose',
+        ]);
         expect((scripts['test:e2e:electron:save-pipeline'] ?? '')
             .match(/e2e-native-save-reopen/gu) ?? []).toHaveLength(1);
         expect(scripts['test:e2e:electron:blocking-smoke:headless']).toContain(

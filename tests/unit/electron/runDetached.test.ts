@@ -9,9 +9,10 @@ import { runDetached } from '@electron/utils/runDetached';
 describe('runDetached', () => {
     it('contains rejected detached work and reports its label', async () => {
         const logger = {error: vi.fn()};
+        const failure = new Error('cleanup failed');
 
         runDetached(
-            () => Promise.reject(new Error('cleanup failed')),
+            () => Promise.reject(failure),
             {
                 label: 'cleanup',
                 logger,
@@ -19,15 +20,23 @@ describe('runDetached', () => {
         );
         await Promise.resolve();
 
-        expect(logger.error).toHaveBeenCalledWith('Detached task "cleanup" failed: cleanup failed');
+        expect(logger.error).toHaveBeenCalledWith(
+            'Detached task "cleanup" failed: cleanup failed',
+            {
+                code: 'MAIN_DETACHED_PROCESS_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
     });
 
     it('contains synchronous task failures', () => {
         const logger = {error: vi.fn()};
+        const failure = new Error('sync failure');
 
         runDetached(
             () => {
-                throw new Error('sync failure');
+                throw failure;
             },
             {
                 label: 'sync cleanup',
@@ -35,6 +44,13 @@ describe('runDetached', () => {
             },
         );
 
-        expect(logger.error).toHaveBeenCalledWith('Detached task "sync cleanup" failed: sync failure');
+        expect(logger.error).toHaveBeenCalledWith(
+            'Detached task "sync cleanup" failed: sync failure',
+            {
+                code: 'MAIN_DETACHED_PROCESS_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
     });
 });

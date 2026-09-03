@@ -11,7 +11,7 @@ export function transformWordBox(
     rotation: TOcrIndexRotation = 0,
 ) {
     if (rotation !== 0) {
-        BrowserLogger.error('word-box', 'Unsupported rotated OCR word-box transform', {
+        BrowserLogger.warn('word-box', 'Unsupported rotated OCR word-box transform', {
             rotation,
             word: word.text,
         });
@@ -53,7 +53,7 @@ export function transformWordBox(
     const height = word.height * scaleY;
 
     if (y > renderedPageHeight || width > renderedPageWidth || height > renderedPageHeight) {
-        BrowserLogger.error('word-box', 'Box out of bounds', {
+        BrowserLogger.warn('word-box', 'Box out of bounds', {
             word: word.text,
             wordCoords: {
                 x: word.x,

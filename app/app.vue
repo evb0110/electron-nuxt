@@ -5,6 +5,7 @@
             :title="fatalRuntimeTitle"
             :description="fatalRuntimeDescription"
             :detail="fatalRuntimeError?.detail ?? null"
+            :failure="fatalRuntimeError?.failure ?? null"
             :detail-label="t('errors.runtime.details')"
             :reload-label="t('errors.runtime.reload')"
             :copy-label="t('errors.runtime.copy')"
@@ -21,14 +22,14 @@
                     class="runtime-error-reports-card overflow-hidden rounded-lg border border-default bg-default p-4 shadow-[var(--shadow-popup)]"
                 >
                     <div class="flex items-start gap-3">
-                        <UIcon name="i-ph-x-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-error)]" />
+                        <UIcon name="i-ph-warning-circle" class="mt-0.5 size-5 shrink-0 text-[color:var(--ui-warning)]" />
                         <div class="min-w-0 flex-1">
                             <div class="flex items-center gap-2">
                                 <p class="truncate text-sm font-medium text-default">
                                     {{ t('errors.runtime.reportReady') }}
                                 </p>
                                 <UBadge
-                                    color="error"
+                                    color="neutral"
                                     variant="soft"
                                     size="sm"
                                 >
@@ -38,6 +39,39 @@
                             <p class="mt-1 text-xs text-dimmed">
                                 {{ t('errors.runtime.reportDescription') }}
                             </p>
+                            <div
+                                v-if="pendingDiagnosticConsentReport"
+                                class="mt-3 rounded-md border border-default bg-elevated p-3"
+                                role="group"
+                                :aria-label="t('errors.runtime.diagnosticsConsentTitle')"
+                            >
+                                <p class="text-xs font-medium text-default">
+                                    {{ t('errors.runtime.diagnosticsConsentTitle') }}
+                                </p>
+                                <p class="mt-1 text-xs text-dimmed">
+                                    {{ t('errors.runtime.diagnosticsConsentDescription') }}
+                                </p>
+                                <div class="mt-3 flex flex-wrap gap-2">
+                                    <UButton
+                                        color="primary"
+                                        size="xs"
+                                        :loading="diagnosticsConsentBusy === pendingDiagnosticConsentReport.id"
+                                        :disabled="diagnosticsConsentBusy !== null"
+                                        @click="grantDiagnosticsConsent(pendingDiagnosticConsentReport)"
+                                    >
+                                        {{ t('errors.runtime.diagnosticsConsentGrant') }}
+                                    </UButton>
+                                    <UButton
+                                        color="neutral"
+                                        variant="soft"
+                                        size="xs"
+                                        :disabled="diagnosticsConsentBusy !== null"
+                                        @click="denyDiagnosticsConsent(pendingDiagnosticConsentReport)"
+                                    >
+                                        {{ t('errors.runtime.diagnosticsConsentDeny') }}
+                                    </UButton>
+                                </div>
+                            </div>
                             <div
                                 v-if="showRuntimeErrorDetails"
                                 class="runtime-error-report-details app-scrollbar app-scroll-region--balanced mt-3 space-y-3 overflow-y-auto"
@@ -53,7 +87,7 @@
                                         </p>
                                         <UBadge
                                             v-if="report.count > 1"
-                                            color="error"
+                                            color="neutral"
                                             variant="soft"
                                             size="sm"
                                         >
@@ -129,7 +163,14 @@
 import { useClipboard } from '@vueuse/core';
 import { sumBy } from 'es-toolkit/math';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
+import {
+    initializeRendererFailureReporter,
+    setRendererDiagnosticsPreference,
+} from '@app/utils/failureReporter';
+import type {IRuntimeErrorReport} from '@app/composables/useRuntimeErrorReports';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
+import { getOrCaptureRendererBootstrapFailure } from '@app/utils/getOrCaptureRendererBootstrapFailure';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import { markStartupMetricOnce } from '@app/utils/startupMetrics';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
@@ -172,7 +213,10 @@ const AgentationWidget = import.meta.dev
 
 const {
     load: loadSettings,
+    isLoaded,
     settings,
+    save: saveSettings,
+    updateSetting,
 } = useSettings();
 const {
     effectiveScale: uiEffectiveScale,
@@ -206,8 +250,11 @@ const {
     reportRuntimeError,
     dismissRuntimeErrorReport,
     clearRuntimeErrorReports,
+    discardPendingDiagnostics,
+    resendPendingDiagnosticOnce,
 } = useRuntimeErrorReports();
 const showRuntimeErrorDetails = ref(false);
+const diagnosticsConsentBusy = ref<string | null>(null);
 const route = useRoute();
 const colorMode = useColorMode();
 const localeHead = useLocaleHead({
@@ -223,6 +270,10 @@ const fatalRuntimeDescription = computed(() => fatalRuntimeError.value?.kind ===
     ? t('errors.runtime.startupDescription')
     : t('errors.runtime.description'));
 const runtimeErrorReportCount = computed(() => sumBy(runtimeErrorReports.value, report => report.count));
+const pendingDiagnosticConsentReport = computed(() => isLoaded.value
+    && settings.value.clientDiagnosticsPreference === 'unknown'
+    ? runtimeErrorReports.value.find(report => report.pendingDiagnostic?.isLive) ?? null
+    : null);
 const {
     copied: recentlyCopiedFatalDetail,
     copy: copyFatalDetailToClipboard,
@@ -284,12 +335,72 @@ async function handleCopyReports() {
     await copyText(formatRuntimeErrorReports(), copyReportsToClipboard, isReportsClipboardSupported.value);
 }
 
+async function grantDiagnosticsConsent(report: IRuntimeErrorReport) {
+    const lease = report.pendingDiagnostic;
+    if (
+        diagnosticsConsentBusy.value !== null
+        || !lease?.isLive
+        || settings.value.clientDiagnosticsPreference !== 'unknown'
+    ) {
+        return;
+    }
+
+    diagnosticsConsentBusy.value = report.id;
+    const presentationRoute = route.fullPath;
+    const previousPreference = settings.value.clientDiagnosticsPreference;
+    updateSetting('clientDiagnosticsPreference', 'granted');
+    const saved = await saveSettings();
+    if (!saved) {
+        settings.value = {
+            ...settings.value,
+            clientDiagnosticsPreference: previousPreference,
+        };
+        setRendererDiagnosticsPreference(previousPreference);
+    } else {
+        const preferenceAfterSave: string = settings.value.clientDiagnosticsPreference;
+        if (
+            preferenceAfterSave === 'granted'
+        && route.fullPath === presentationRoute
+        && runtimeErrorReports.value.some(candidate => (
+            candidate.id === report.id
+            && candidate.pendingDiagnostic?.isLive
+        ))
+        ) {
+            resendPendingDiagnosticOnce();
+        }
+    }
+    diagnosticsConsentBusy.value = null;
+}
+
+function denyDiagnosticsConsent(report: IRuntimeErrorReport) {
+    if (diagnosticsConsentBusy.value !== null) {
+        return;
+    }
+
+    diagnosticsConsentBusy.value = report.id;
+    updateSetting('clientDiagnosticsPreference', 'denied');
+    discardPendingDiagnostics();
+    void saveSettings().finally(() => {
+        diagnosticsConsentBusy.value = null;
+    });
+}
+
 function reportStartupWarmupFailure(title: string, error: unknown) {
-    BrowserLogger.warn('loader', title, error);
+    const presentation = initializeRendererFailureReporter().captureForPresentation({
+        code: 'RENDERER_STARTUP_WARMUP_FAILED',
+        context: {},
+        local: {
+            source: 'loader',
+            message: title,
+            cause: error,
+        },
+    }, {localAlreadyRecorded: true});
+    BrowserLogger.error('loader', title, error, presentation.failure);
     reportRuntimeError({
+        ...presentation,
+        failure: presentation.failure,
         title,
-        source: 'loader',
-        error,
+        description: getErrorMessage(error),
     });
 }
 
@@ -316,6 +427,10 @@ watch(() => colorMode.value, async () => {
 });
 
 onBeforeUnmount(() => {
+    if (typeof window !== 'undefined') {
+        window.removeEventListener('pagehide', clearRuntimeErrorReports);
+    }
+    clearRuntimeErrorReports();
     themeRepaintRevision += 1;
     cancelPostReadyRecentGeometryWarmup?.();
     cancelPostReadyRecentGeometryWarmup = null;
@@ -328,6 +443,11 @@ onBeforeUnmount(() => {
         }
     }
 });
+
+watch(() => route.fullPath, () => {
+    clearRuntimeErrorReports();
+    showRuntimeErrorDetails.value = false;
+}, {flush: 'sync'});
 
 colorMode.preference = settings.value.theme;
 
@@ -444,7 +564,10 @@ function installViteReloadDiagnostics() {
     });
 
     hot.on('vite:error', (payload: unknown) => {
-        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload);
+        BrowserLogger.error('dev-reload', 'Vite HMR error event received', payload, {
+            code: 'RENDERER_DEVELOPMENT_HMR_FAILED',
+            context: {},
+        });
     });
 }
 
@@ -464,6 +587,7 @@ function prefetchPersistedLocaleMessages() {
 }
 
 onMounted(async () => {
+    window.addEventListener('pagehide', clearRuntimeErrorReports);
     prefetchPersistedLocaleMessages();
     try {
         hostEnvironmentUnsubscribers.push(onBrowserDocumentPersistenceWarning(({
@@ -485,7 +609,15 @@ onMounted(async () => {
             desktopRuntime: isDesktopRuntime.value,
         });
         if (bridgeResolution.shouldWait && !bridgeResolution.bridgeReady && isElectronUserAgent()) {
-            throw new Error('Electron preload bridge is unavailable during app bootstrap.');
+            const presentation = getOrCaptureRendererBootstrapFailure({
+                error: new Error('Electron preload bridge is unavailable during app bootstrap.'),
+                key: 'electron-preload-bridge',
+                message: 'App bootstrap failed',
+                section: 'loader',
+                title: t('errors.runtime.title'),
+            });
+            setFatalRuntimeError('startup', presentation);
+            return;
         }
 
         applyUiScaleToDocument(uiEffectiveScale.value, uiHostSnapshot.value);
@@ -505,8 +637,14 @@ onMounted(async () => {
         dispatchAppReady();
         schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
     } catch (error) {
-        BrowserLogger.error('loader', 'App bootstrap failed', error);
-        setFatalRuntimeError('startup', error, 'app-bootstrap');
+        const presentation = getOrCaptureRendererBootstrapFailure({
+            error,
+            key: 'app-bootstrap',
+            message: 'App bootstrap failed',
+            section: 'loader',
+            title: t('errors.runtime.title'),
+        });
+        setFatalRuntimeError('startup', presentation);
     }
 });
 </script>

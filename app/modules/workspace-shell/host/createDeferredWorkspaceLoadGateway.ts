@@ -64,7 +64,10 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 return true;
             })
             .catch((error) => {
-                BrowserLogger.error(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
+                // The async component loader owns the terminal failure. A
+                // preload is only a best-effort warm-up and can be retried by
+                // the real mount path, so it must not create an occurrence.
+                BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
                     tabId: options.tabId,
                     reason,
                     error: error instanceof Error ? error.message : String(error),
@@ -137,6 +140,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 tabId: options.tabId,
                 reason,
                 ...(options.workspaceChunkLoadError.value ? {error: options.workspaceChunkLoadError.value} : {}),
+            }, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
             });
         }
         return workspace;
@@ -165,6 +171,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             action,
             hasWorkspaceChunkLoadError: Boolean(options.workspaceChunkLoadError.value),
             error: options.workspaceChunkLoadError.value,
+        }, {
+            code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+            context: {},
         });
     }
 
@@ -183,6 +192,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error: error instanceof Error ? error.message : String(error),
+            }, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
             });
             return undefined;
         }
@@ -203,6 +215,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error,
+            }, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
             });
             throw error;
         }
@@ -227,6 +242,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 tabId: options.tabId,
                 action,
                 error: options.workspaceChunkLoadError.value,
+            }, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
             });
             return false;
         }
@@ -249,6 +267,9 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
                 error,
+            }, {
+                code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
+                context: {},
             });
             return false;
         }

@@ -274,6 +274,7 @@ interface IUpstream {
 interface IPublishDependencies {
     dispatchWorkflow?: (options: unknown) => void;
     printHandoff?: (options: unknown) => Promise<void>;
+    pushReleaseTag?: (options: unknown, dependencies?: unknown) => void;
     runCommand?: (command: string, args: string[], options?: unknown) => string;
 }
 
@@ -1010,6 +1011,8 @@ describe('release policy', () => {
             };
         }
 
+        // Only the release cutter pushes a tag between the branch push and the
+        // dispatch; the artifact-only flow publishes no tag.
         const publishers = [
             [
                 'release:cut / release:resume',
@@ -1017,6 +1020,10 @@ describe('release policy', () => {
                     tag: 'v1.2.3',
                     upstream,
                 }, dependencies),
+                [
+                    ['tag'],
+                    ['dispatch'],
+                ],
             ],
             [
                 'release:artifacts',
@@ -1024,6 +1031,7 @@ describe('release policy', () => {
                     {upstream},
                     dependencies,
                 ),
+                [['dispatch']],
             ],
         ] as const;
 
@@ -1044,6 +1052,10 @@ describe('release policy', () => {
                         command: 'dispatch',
                     }),
                     printHandoff: async () => undefined,
+                    pushReleaseTag: () => recorder.calls.push({
+                        args: [],
+                        command: 'tag',
+                    }),
                     runCommand: recorder.runCommand,
                 }),
             };
@@ -1052,6 +1064,7 @@ describe('release policy', () => {
         it.each(publishers)('%s scans the upstream-before SHA through HEAD before pushing', async (
             _label,
             publisher,
+            afterPush,
         ) => {
             const {
                 calls,
@@ -1091,7 +1104,7 @@ describe('release policy', () => {
                     'push',
                     'origin',
                 ],
-                ['dispatch'],
+                ...afterPush,
             ]);
             expect(calls[2]?.args.at(-1)).toBe('beforesha^{commit}');
             expect(calls[3]?.args).toEqual(getPublicationPolicyCheckArgs('beforesha', 'headsha'));
@@ -1211,7 +1224,9 @@ describe('release policy', () => {
         // scripts/release/, which would publish without a scan. Every `git push`
         // in these scripts spells the subcommand as a string literal in the
         // argument array whatever the surrounding formatting, so count those:
-        // exactly one, in the module that owns the scanned publisher.
+        // exactly two, both in the module that owns the scanned publisher. The
+        // second is the release tag push, which publishes only a ref to the
+        // commit the scanned branch push already made public.
         it('routes every release push through the scanned publisher', () => {
             const releaseDirectory = resolve(process.cwd(), 'scripts/release');
             const sources = new Map(readdirSync(releaseDirectory)
@@ -1233,7 +1248,7 @@ describe('release policy', () => {
                 .filter(({pushes}) => pushes > 0)).toEqual([
                 {
                     fileName: 'shared.mjs',
-                    pushes: 1,
+                    pushes: 2,
                 },
                 {
                     fileName: 'wait-for-exact-sha-ci.mjs',

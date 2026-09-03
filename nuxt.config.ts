@@ -6,6 +6,11 @@ import {
     LOCALE_DEFINITIONS,
 } from './packages/i18n-core';
 import {isPdfjsPackageId} from './scripts/lib/pdfjs-package-path.mjs';
+import {
+    isSentryDiagnosticsBuild,
+    resolveSentryBuildIdentity,
+    resolveSentryBuildTarget,
+} from './packages/contracts/diagnostics/releaseIdentity.js';
 
 const requireFromConfig = createRequire(import.meta.url);
 
@@ -71,6 +76,56 @@ function isInvalidNuxtUiResizableImport(entry: unknown) {
 
 const isVercelBuildOutput = process.env.VERCEL === '1' || process.env.NOW_BUILDER === '1';
 const isolatedNuxtOutputDir = process.env.EVB_NUXT_OUTPUT_DIR?.trim();
+const packageJson = requireFromConfig('./package.json') as {version?: unknown};
+const sentryDiagnosticsEligible = isSentryDiagnosticsBuild(process.env);
+const sentryBuildIdentity = sentryDiagnosticsEligible
+    ? resolveSentryBuildIdentity({
+        target: resolveSentryBuildTarget(process.env),
+        version: typeof packageJson.version === 'string' ? packageJson.version : undefined,
+        environment: process.env,
+    })
+    : null;
+const sentryBrowserDsn = sentryDiagnosticsEligible
+    ? process.env.SENTRY_BROWSER_DSN?.trim() ?? ''
+    : '';
+const sentryNitroDsn = sentryDiagnosticsEligible
+    ? process.env.SENTRY_NITRO_DSN?.trim() ?? ''
+    : '';
+const sentryNitroIdentity = sentryBuildIdentity?.target === 'web'
+    ? sentryBuildIdentity
+    : null;
+const sentryNitroPolicy = Object.freeze({
+    enabled: process.env.EVB_SENTRY_NITRO_ENABLED === '1',
+    legitimateInterestsApproved: process.env.EVB_SENTRY_NITRO_LIA_APPROVED === '1',
+    legalNoticePublished: process.env.EVB_SENTRY_NITRO_NOTICE_PUBLISHED === '1',
+    dpaExecuted: process.env.EVB_SENTRY_NITRO_DPA_EXECUTED === '1',
+    accountHardened: process.env.EVB_SENTRY_NITRO_ACCOUNT_HARDENED === '1',
+    retentionReady: process.env.EVB_SENTRY_NITRO_RETENTION_READY === '1',
+    objectionReady: process.env.EVB_SENTRY_NITRO_OBJECTION_READY === '1',
+});
+const sentryNitroBuildConfiguration = Object.freeze({
+    dsn: sentryNitroDsn,
+    identity: sentryNitroIdentity,
+    policy: sentryNitroPolicy,
+});
+function resolveSentryEuIngestOrigin(dsn: string) {
+    try {
+        const url = new URL(dsn);
+        return url.protocol === 'https:'
+            && /(?:^|\.)ingest\.de\.sentry\.io$/u.test(url.hostname)
+            && url.username.length > 0
+            && url.password.length === 0
+            && /^\/\d+\/?$/u.test(url.pathname)
+            ? url.origin
+            : '';
+    } catch {
+        return '';
+    }
+}
+const sentryBrowserIngestOrigin = resolveSentryEuIngestOrigin(sentryBrowserDsn);
+const sentryNuxtOutputRoot = isVercelBuildOutput
+    ? '.vercel/output'
+    : isolatedNuxtOutputDir || 'nuxt-output';
 const nitroOutput = isVercelBuildOutput
     // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
     ? {dir: '.vercel/output'}
@@ -102,7 +157,7 @@ const appContentSecurityPolicy = [
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self' data:",
-    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}`,
+    `connect-src 'self' blob:${isDev ? ' ws: wss:' : ''}${sentryBrowserIngestOrigin ? ` ${sentryBrowserIngestOrigin}` : ''}`,
     "worker-src 'self' blob:",
     "frame-src 'self' blob:",
     "object-src 'none'",
@@ -129,6 +184,19 @@ const knownSourcemapWarningPlugins = new Set([
     'nuxt:module-preload-polyfill',
     'nuxt:server-devonly:transform',
 ]);
+
+async function stageNuxtPrivateSourcemaps() {
+    if (!sentryBuildIdentity) {
+        return;
+    }
+
+    const {stagePrivateSourcemaps} = await import('./scripts/release/stage-private-sourcemaps.mjs');
+    await stagePrivateSourcemaps({
+        identity: sentryBuildIdentity,
+        outputRoots: [sentryNuxtOutputRoot],
+        reset: true,
+    });
+}
 
 interface IRollupLog {
     code?: string | undefined;
@@ -257,6 +325,7 @@ export default defineNuxtConfig({
                 }
             }
         },
+        'build:done': stageNuxtPrivateSourcemaps,
     },
 
     alias: {
@@ -266,10 +335,18 @@ export default defineNuxtConfig({
         '@i18n-core': fileURLToPath(new URL('./packages/i18n-core', import.meta.url)),
         '@i18n-app': fileURLToPath(new URL('./packages/i18n-app', import.meta.url)),
         '@releaseSelection': fileURLToPath(new URL('./packages/release-selection', import.meta.url)),
+        '@root-package': fileURLToPath(new URL('./package.json', import.meta.url)),
         '@server': fileURLToPath(new URL('./server', import.meta.url)),
     },
 
     runtimeConfig: {
+        sentry: {
+            nitroDsn: sentryNitroDsn,
+            release: sentryNitroIdentity?.release ?? '',
+            dist: sentryNitroIdentity?.dist ?? '',
+            environment: sentryNitroIdentity?.environment ?? '',
+            policy: sentryNitroPolicy,
+        },
         analytics: {
             // Keep writes explicitly opt-in so local dev and preview traffic
             // never hits the production analytics dataset by accident.
@@ -281,6 +358,12 @@ export default defineNuxtConfig({
                 .filter(Boolean),
         },
         public: {
+            sentry: {
+                dsn: sentryBrowserDsn,
+                release: sentryBuildIdentity?.release ?? '',
+                dist: sentryBuildIdentity?.dist ?? '',
+                environment: sentryBuildIdentity?.environment ?? '',
+            },
             analyticsEnabled: process.env.NUXT_PUBLIC_ANALYTICS_ENABLED === '1',
             landingUrl: process.env.NUXT_PUBLIC_LANDING_URL || 'https://evb-viewer.com',
             siteUrl: process.env.NUXT_PUBLIC_SITE_URL || 'https://web.evb-viewer.com',
@@ -346,8 +429,8 @@ export default defineNuxtConfig({
     },
 
     sourcemap: {
-        server: false,
-        client: false,
+        server: sentryDiagnosticsEligible,
+        client: sentryDiagnosticsEligible,
     },
 
     // TypeScript 6 enables noUncheckedSideEffectImports by default. The SFC lane
@@ -514,7 +597,7 @@ export default defineNuxtConfig({
             },
         },
         build: {
-            sourcemap: false,
+            sourcemap: sentryDiagnosticsEligible,
             // Electron desktop bundle tolerates larger chunks, but still split heavy vendors to keep rebuilds snappier.
             chunkSizeWarningLimit: 1400,
             rollupOptions: {
@@ -526,6 +609,7 @@ export default defineNuxtConfig({
                     handler(level, log);
                 },
                 output: {
+                    sourcemapExcludeSources: sentryDiagnosticsEligible,
                     codeSplitting: {groups: [
                         {
                             name: 'vendor-pdfjs',
@@ -586,7 +670,7 @@ export default defineNuxtConfig({
     },
 
     nitro: {
-        sourceMap: false,
+        sourceMap: sentryDiagnosticsEligible,
         // The server-only PDF.js runtime uses a top-level dynamic import. The
         // desktop build runs on Node 24, so keep Nitro's final server transform
         // in an ESM target that preserves that syntax for prerendering.
@@ -594,6 +678,9 @@ export default defineNuxtConfig({
             options: {
                 target: 'esnext',
             },
+        },
+        replace: {
+            __EVB_SENTRY_NITRO_BUILD_CONFIGURATION__: JSON.stringify(sentryNitroBuildConfiguration),
         },
         // Vercel's Nuxt builder only recognizes Build Output API artifacts from
         // `.vercel/output`; local desktop flows still consume `nuxt-output`.

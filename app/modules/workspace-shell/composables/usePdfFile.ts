@@ -37,6 +37,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
     const sessionState = createDocumentSessionState({isDesktopRuntime});
     const {
         error,
+        failurePresentation,
         fileName,
         isDirty,
         isElectron,
@@ -213,6 +214,7 @@ export const usePdfFile = (options: IUsePdfFileOptions = {}) => {
         wasEncrypted,
         fileName,
         error,
+        failurePresentation,
         isDirty,
         pdfConformanceAnalysisState,
         pdfConformanceProfile,

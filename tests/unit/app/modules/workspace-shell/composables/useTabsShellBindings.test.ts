@@ -618,7 +618,9 @@ describe('useTabsShellBindings', () => {
         });
         const unmount = await mountBindings(options);
         const { BrowserLogger } = await import('@app/utils/browserLogger');
-        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(() => {});
+        const errorSpy = vi.spyOn(BrowserLogger, 'error').mockImplementation(
+            () => ({}) as ReturnType<typeof BrowserLogger.error>,
+        );
 
         capturedKeydown?.(cast<KeyboardEvent>({
             key: 'o',
@@ -640,6 +642,10 @@ describe('useTabsShellBindings', () => {
             {
                 category: 'user-visible-operation',
                 error: expect.any(Error),
+            },
+            {
+                code: 'RENDERER_ASYNC_GUARD_FAILED',
+                context: {category: 'user-visible-operation'},
             },
         );
 

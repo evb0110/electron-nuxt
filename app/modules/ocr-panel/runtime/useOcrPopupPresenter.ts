@@ -533,7 +533,7 @@ export const useOcrPopupPresenter = ({
             copyLogsState.value = 'copied';
         } catch (copyErr) {
             copyLogsState.value = 'failed';
-            BrowserLogger.error('ocr', 'Failed to copy OCR debug logs', copyErr);
+            BrowserLogger.warn('ocr', 'Failed to copy OCR debug logs', copyErr);
         } finally {
             isCopyingLogs.value = false;
             scheduleCopyLogsStateReset();

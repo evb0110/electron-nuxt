@@ -230,6 +230,40 @@ const GATE_POLICY_MANIFEST = Object.freeze({
             owner: 'pr_electron_native_save_reopen',
             paths: [...NATIVE_PDF_SAVE_DEPENDENCY_PATHS],
         },
+        // The packaged core-PDF journey used to run only inside release
+        // builds, so a change to the verifier or to packaging was first
+        // executed during a release cut (v0.1.447 and v0.1.448 both failed
+        // on all four platforms from verifier-only mistakes). This lane
+        // runs the same build-target.yml Linux job on push CI whenever the
+        // proof itself or the packaging pipeline changes.
+        packagedSmoke: {
+            output: 'packaged_smoke',
+            owner: 'pr_packaged_linux',
+            paths: [
+                '.github/actions/setup-release-env/**',
+                '.github/workflows/build.yml',
+                '.github/workflows/build-target.yml',
+                '.github/workflows/ci.yml',
+                'electron-builder.yml',
+                'native/pdf-page-ops/**',
+                'package.json',
+                'pnpm-lock.yaml',
+                'scripts/afterPack.cjs',
+                'scripts/afterSign.cjs',
+                'scripts/bundle-tools-linux.sh',
+                'scripts/ci/classify-changed-areas.mjs',
+                'scripts/electron-run/electronRunProcessTree.ts',
+                'scripts/release/policy.mjs',
+                'scripts/release/assert-build-artifacts.mjs',
+                'scripts/release/assert-linux-glibc-baseline.mjs',
+                'scripts/release/assert-packaged-app-contents.mjs',
+                'scripts/release/assertNoPackagedRendererFailures.ts',
+                'scripts/release/verifyPackagedCorePdfSmoke.ts',
+                'scripts/release/waitForPackagedCdpEndpoint.ts',
+                'scripts/verify-packaged-native-tools.sh',
+                'tests/e2e/electron/helpers/**',
+            ],
+        },
         landing: {
             output: 'landing',
             owner: 'pr_landing_quality',

@@ -1,9 +1,34 @@
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
+import type {
+    CaptureFailureInput,
+    FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {
+    DiagnosticCode,
+    DiagnosticContext,
+} from '@contracts/diagnostics/diagnosticCodes';
+import {
+    captureRendererFailure,
+    initializeRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
+
+interface IBrowserLoggerErrorOptions<C extends DiagnosticCode> {
+    code: C;
+    context: DiagnosticContext<C>;
+}
+
+const ORIGINAL_CONSOLE_SINKS = {
+    debug: console.log.bind(console),
+    error: console.error.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+};
 
 const LOG_LEVELS: Record<TBrowserLogLevel, number> = {
     debug: 10,
@@ -82,6 +107,19 @@ function isPdfNavConsoleDiagnosticEnabled() {
     return (window as Window & {__pdfNavLogConsole?: boolean;}).__pdfNavLogConsole === true;
 }
 
+function hasElectronRendererBridge() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    try {
+        const electronAPI = (window as Window & {electronAPI?: unknown;}).electronAPI;
+        return typeof electronAPI === 'object' && electronAPI !== null;
+    } catch {
+        return false;
+    }
+}
+
 function serializeForRendererLog(value: unknown) {
     if (value === undefined) {
         return undefined;
@@ -131,6 +169,10 @@ function resolveLazyValue(value: TLazyValue | undefined) {
     return typeof value === 'function'
         ? (value as () => unknown)()
         : value;
+}
+
+function isFailureReceipt(value: unknown): value is FailureReceipt {
+    return decodeFailureReceipt(value) !== null;
 }
 
 function takeThrottledLogSuppressionCount(
@@ -216,37 +258,11 @@ function enrichThrottledPayload(
 }
 
 function writeToConsole(level: TEmitLogLevel, line: string, resolved: unknown) {
-    if (level === 'error') {
-        if (resolved !== undefined) {
-            console.error(line, resolved);
-        } else {
-            console.error(line);
-        }
-        return;
-    }
-
-    if (level === 'warn') {
-        if (resolved !== undefined) {
-            console.warn(line, resolved);
-        } else {
-            console.warn(line);
-        }
-        return;
-    }
-
-    if (level === 'info') {
-        if (resolved !== undefined) {
-            console.info(line, resolved);
-        } else {
-            console.info(line);
-        }
-        return;
-    }
-
+    const sink = ORIGINAL_CONSOLE_SINKS[level];
     if (resolved !== undefined) {
-        console.log(line, resolved);
+        sink(line, resolved);
     } else {
-        console.log(line);
+        sink(line);
     }
 }
 
@@ -353,7 +369,56 @@ export const BrowserLogger = {
         );
     },
 
-    error: (section: string, message: string, error?: TLazyValue) => {
-        emitLog('error', section, message, error);
+    error: <C extends DiagnosticCode>(
+        section: string,
+        message: string,
+        error: TLazyValue | undefined,
+        existingReceiptOrOptions: FailureReceipt | IBrowserLoggerErrorOptions<C>,
+    ): FailureReceipt => {
+        let existingReceipt: FailureReceipt | undefined;
+        let diagnosticOptions: IBrowserLoggerErrorOptions<C> | undefined;
+        if (isFailureReceipt(existingReceiptOrOptions)) {
+            existingReceipt = existingReceiptOrOptions;
+        } else {
+            diagnosticOptions = existingReceiptOrOptions;
+        }
+        const resolved = resolveLazyValue(error);
+        const local = {
+            source: section,
+            message,
+            cause: resolved,
+            data: resolved,
+        };
+        const captureOptions = {localAlreadyRecorded: true};
+        let receipt: FailureReceipt;
+        if (existingReceipt) {
+            receipt = existingReceipt;
+        } else if (diagnosticOptions) {
+            const input: CaptureFailureInput<C> = {
+                code: diagnosticOptions.code,
+                context: diagnosticOptions.context,
+                local,
+            };
+            receipt = captureRendererFailure(input, captureOptions)
+                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+        } else {
+            const input: CaptureFailureInput<'UNCLASSIFIED_RENDERER_ERROR'> = {
+                code: 'UNCLASSIFIED_RENDERER_ERROR',
+                context: {phase: 'operation'},
+                local,
+            };
+            receipt = captureRendererFailure(input, captureOptions)
+                ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+            try {
+                ORIGINAL_CONSOLE_SINKS.warn(
+                    '[BrowserLogger] ERROR call used the closed unclassified fallback because its diagnostic input was invalid.',
+                );
+            } catch {
+                // Local warning failure cannot interrupt the original error path.
+            }
+        }
+
+        emitLog('error', section, message, resolved);
+        return receipt;
     },
 };

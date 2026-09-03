@@ -9,6 +9,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     admitViewerAnalyticsEvents: vi.fn(),
+    captureServerFailure: vi.fn(),
     createAnalyticsDedupeKey: vi.fn(),
     decodeViewerAnalyticsEventsBody: vi.fn(),
     extractGeo: vi.fn(),
@@ -52,6 +53,7 @@ vi.mock('@server/utils/analyticsAdmission', () => ({
 vi.mock('@server/utils/analyticsRequestBody', () => ({readBoundedAnalyticsJsonBody: mocks.readBoundedAnalyticsJsonBody}));
 vi.mock('@server/utils/decodeViewerAnalyticsEventsBody', () => ({decodeViewerAnalyticsEventsBody: mocks.decodeViewerAnalyticsEventsBody}));
 vi.mock('@server/utils/getRuntimeEnv', () => ({getRuntimeEnv: mocks.getRuntimeEnv}));
+vi.mock('@server/utils/serverFailureReporter', () => ({captureServerFailure: mocks.captureServerFailure}));
 
 describe('viewer analytics endpoint', () => {
     beforeEach(() => {
@@ -66,7 +68,6 @@ describe('viewer analytics endpoint', () => {
 
     it('skips request processing when analytics storage is not configured', async () => {
         mocks.getOptionalAnalyticsDb.mockReturnValue(null);
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const {default: handler} = await import('@server/api/analytics/events.post');
 
         await expect(handler({} as never)).resolves.toEqual({
@@ -75,7 +76,7 @@ describe('viewer analytics endpoint', () => {
         });
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
         expect(mocks.hashVisitorIdentity).not.toHaveBeenCalled();
-        expect(consoleError).not.toHaveBeenCalled();
+        expect(mocks.captureServerFailure).not.toHaveBeenCalled();
     });
 
     it('returns a controlled failure when database initialization fails', async () => {
@@ -83,18 +84,57 @@ describe('viewer analytics endpoint', () => {
         mocks.getOptionalAnalyticsDb.mockImplementation(() => {
             throw initializationError;
         });
-        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const {default: handler} = await import('@server/api/analytics/events.post');
+        const event = {} as never;
 
-        await expect(handler({} as never)).resolves.toEqual({
+        await expect(handler(event)).resolves.toEqual({
             ok: false,
             persisted: false,
         });
         expect(mocks.readBoundedAnalyticsJsonBody).not.toHaveBeenCalled();
         expect(mocks.admitViewerAnalyticsEvents).not.toHaveBeenCalled();
-        expect(consoleError).toHaveBeenCalledWith(
-            'viewer analytics database initialization failed',
-            initializationError,
-        );
+        expect(mocks.captureServerFailure).toHaveBeenCalledWith({
+            code: 'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',
+            context: {},
+            local: {
+                source: 'viewer-analytics',
+                message: 'Viewer analytics database initialization failed',
+                cause: initializationError,
+            },
+        }, event);
+    });
+
+    it('reports storage failures without copying request data into diagnostics', async () => {
+        const insertError = new Error('insert failed');
+        const event = {requestSecret: 'must-not-cross'} as never;
+        mocks.getOptionalAnalyticsDb.mockReturnValue({});
+        mocks.readBoundedAnalyticsJsonBody.mockResolvedValue({});
+        mocks.decodeViewerAnalyticsEventsBody.mockReturnValue([{name: 'open'}]);
+        mocks.extractGeo.mockReturnValue({
+            country: null,
+            city: null,
+            region: null,
+        });
+        mocks.hashVisitorIdentity.mockResolvedValue('visitor-hash');
+        mocks.getAnalyticsRequestHost.mockReturnValue('evb-viewer.com');
+        mocks.getRuntimeEnv.mockReturnValue({});
+        mocks.resolveRootAnalyticsAdmissionPolicy.mockReturnValue({});
+        mocks.createAnalyticsDedupeKey.mockResolvedValue('dedupe-key');
+        mocks.admitViewerAnalyticsEvents.mockRejectedValue(insertError);
+        const {default: handler} = await import('@server/api/analytics/events.post');
+
+        await expect(handler(event)).resolves.toEqual({
+            ok: false,
+            persisted: false,
+        });
+        expect(mocks.captureServerFailure).toHaveBeenCalledWith({
+            code: 'NITRO_ANALYTICS_INSERT_FAILED',
+            context: {},
+            local: {
+                source: 'viewer-analytics',
+                message: 'Viewer analytics insert failed',
+                cause: insertError,
+            },
+        }, event);
     });
 });

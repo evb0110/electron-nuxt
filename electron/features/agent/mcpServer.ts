@@ -568,7 +568,11 @@ export function startLocalMcpServer() {
                 }
                 settled = true;
                 if (logFailure) {
-                    logger.error(`Local MCP server failed: ${getErrorMessage(error)}`);
+                    logger.error(`Local MCP server failed: ${getErrorMessage(error)}`, {
+                        code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                        context: {action: 'enable'},
+                        cause: error,
+                    });
                 }
                 if (localMcpServer === server) {
                     localMcpServer = null;
@@ -579,7 +583,11 @@ export function startLocalMcpServer() {
             server.on('error', (error) => {
                 const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error));
                 if (settled) {
-                    logger.error(`Local MCP server failed: ${getErrorMessage(normalizedError)}`);
+                    logger.error(`Local MCP server failed: ${getErrorMessage(normalizedError)}`, {
+                        code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                        context: {action: 'enable'},
+                        cause: normalizedError,
+                    });
                     return;
                 }
                 const isCurrentStartup = localMcpDesiredRunning
@@ -734,7 +742,11 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
                 }
                 settled = true;
                 if (logFailure) {
-                    logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`);
+                    logger.error(`Embedded MCP server failed: ${getErrorMessage(error)}`, {
+                        code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                        context: {action: 'enable'},
+                        cause: error,
+                    });
                 }
                 if (embeddedMcpServer === server) {
                     embeddedMcpServer = null;
@@ -746,7 +758,11 @@ export function startEmbeddedMcpServer(): Promise<IEmbeddedMcpServerHandle> {
             server.on('error', (error) => {
                 const normalizedError = error instanceof Error ? error : new Error(getErrorMessage(error));
                 if (settled) {
-                    logger.error(`Embedded MCP server failed: ${getErrorMessage(normalizedError)}`);
+                    logger.error(`Embedded MCP server failed: ${getErrorMessage(normalizedError)}`, {
+                        code: 'MAIN_CODEX_MCP_INTEGRATION_FAILED',
+                        context: {action: 'enable'},
+                        cause: normalizedError,
+                    });
                     return;
                 }
                 const isCurrentStartup = embeddedMcpDesiredRunning

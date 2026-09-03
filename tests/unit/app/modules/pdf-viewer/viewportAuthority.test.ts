@@ -371,6 +371,50 @@ describe('ViewportAuthority', () => {
         expect(authority.currentPage.value).toBe(2);
     });
 
+    it('refines a staged navigation after visual readiness before its only viewport write', async () => {
+        const writes: number[] = [];
+        const events: string[] = [];
+        const authority = createViewportAuthority({
+            getDocumentRevision: () => 1,
+            getGeometryRevision: () => 1,
+            resolve: async () => ({
+                anchor: {
+                    ...anchor,
+                    page: 2,
+                },
+                left: 0,
+                top: 100,
+            }),
+            awaitMetrics: async () => {},
+            awaitSlots: async () => {},
+            awaitVisual: async () => {
+                events.push('visual');
+            },
+            refineAfterVisual: async (_request, commit) => {
+                events.push('refine-after-visual');
+                return {
+                    ...commit,
+                    top: 920,
+                };
+            },
+            apply: (_request, commit) => {
+                events.push('apply');
+                writes.push(commit.top);
+            },
+        });
+
+        await expect(authority.submit(intent('after-visual-refine', 2)))
+            .resolves
+            .toMatchObject({outcome: 'settled'});
+
+        expect(events).toEqual([
+            'visual',
+            'refine-after-visual',
+            'apply',
+        ]);
+        expect(writes).toEqual([920]);
+    });
+
     it('serializes intents, executes aborts, and permits only latest commit', async () => {
         const writes: string[] = [];
         const authority = createViewportAuthority({

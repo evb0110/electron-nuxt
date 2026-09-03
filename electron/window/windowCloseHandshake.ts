@@ -16,7 +16,7 @@ export const NATIVE_WINDOW_CLOSE_HANDSHAKE_TIMEOUT_MS = 10_000;
 interface IWindowCloseHandshakeOptions {
     createRequestId?: () => string;
     ipcMain: Pick<IpcMain, 'on' | 'removeListener'>;
-    logger: Pick<ILogger, 'error'>;
+    logger: Pick<ILogger, 'warn'>;
     shouldBypass?: () => boolean;
     timeoutMs?: number;
 }
@@ -59,14 +59,14 @@ export function attachNativeWindowCloseHandshake(
                 return;
             }
         } else {
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Renderer could not provide a close decision (${response.reason}); keeping the window open (windowId=${window.id})`,
             );
             return;
         }
 
         if (window.isDestroyed() || window.webContents.isDestroyed()) {
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Renderer approved close after the window was destroyed (windowId=${window.id})`,
             );
             return;
@@ -77,7 +77,7 @@ export function attachNativeWindowCloseHandshake(
             window.close();
         } catch (error) {
             approvedClose = false;
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Approved close failed (windowId=${window.id}): ${String(error)}`,
             );
         }
@@ -96,7 +96,7 @@ export function attachNativeWindowCloseHandshake(
         try {
             shouldBypass = options.shouldBypass?.() === true;
         } catch (error) {
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Shutdown bypass check failed; keeping the close handshake active (windowId=${window.id}): ${String(error)}`,
             );
         }
@@ -109,7 +109,7 @@ export function attachNativeWindowCloseHandshake(
             return;
         }
         if (window.isDestroyed() || window.webContents.isDestroyed()) {
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Renderer cannot answer a close request; keeping the window open (windowId=${window.id})`,
             );
             return;
@@ -122,7 +122,7 @@ export function attachNativeWindowCloseHandshake(
                 return;
             }
             clearPendingRequest();
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Renderer close handshake timed out after ${timeoutMs}ms; keeping the window open (windowId=${window.id})`,
             );
         }, timeoutMs);
@@ -132,7 +132,7 @@ export function attachNativeWindowCloseHandshake(
             window.webContents.send(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId});
         } catch (error) {
             clearPendingRequest();
-            options.logger.error(
+            options.logger.warn(
                 `[window-close] Failed to send close request; keeping the window open (windowId=${window.id}): ${String(error)}`,
             );
         }

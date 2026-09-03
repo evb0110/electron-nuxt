@@ -85,9 +85,19 @@ jobs:
         shell: bash
         env:
           DISPATCH_TARGET_REF: ${{ inputs.target_ref }}
+          EVENT_NAME: ${{ github.event_name }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
+          # The scheduled canary carries no inputs; it packages the current
+          # main tip so packaging drift surfaces daily instead of at the next
+          # release cut.
+          if [ -z "$DISPATCH_TARGET_REF" ] && [ "$EVENT_NAME" = 'schedule' ]; then
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            DISPATCH_TARGET_REF="$(git rev-parse refs/remotes/origin/main)"
+            echo "::notice::Scheduled artifact canary targets main tip $DISPATCH_TARGET_REF."
+          fi
 
           if [ -z "$DISPATCH_TARGET_REF" ]; then
             echo "::error::A target commit SHA or ref is required."
@@ -204,6 +214,12 @@ jobs:
     uses: ./.github/workflows/build.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_win_arm64:
     name: Package Supplemental Windows ARM64 Assets
@@ -214,10 +230,16 @@ jobs:
     uses: ./.github/workflows/build-target.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
       os: windows-11-arm
       platform: win
       arch: arm64
       artifact_group: supplemental-win-arm64
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_mac_intel:
     name: Package Release Artifacts / build (macos-15-intel, mac, x64)
@@ -228,6 +250,12 @@ jobs:
     uses: ./.github/workflows/build-mac-intel.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_win7_legacy:
     name: Package Release Artifacts / build (windows-2022, win7 legacy, x64)
@@ -238,6 +266,12 @@ jobs:
     uses: ./.github/workflows/build-win7-legacy.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   build_store:
     name: Package Microsoft Store AppX
@@ -248,6 +282,12 @@ jobs:
     uses: ./.github/workflows/store-appx.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}
+      sentry_environment: test
+    secrets:
+      SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+      SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
   summarize:
     name: Summarize Artifact Downloads

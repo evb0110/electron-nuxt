@@ -75,7 +75,14 @@ export async function setElectronLocale(locale: TLocale) {
         activeLocale = resolvedLocale;
         activeMessages = messages;
     } catch (error) {
-        logger.error(`Failed to load Electron locale ${resolvedLocale}: ${getErrorMessage(error)}`);
+        logger.error(
+            `Failed to load Electron locale ${resolvedLocale}: ${getErrorMessage(error)}`,
+            {
+                code: 'MAIN_ELECTRON_LOCALE_LOAD_FAILED',
+                context: {locale: resolvedLocale},
+                cause: error,
+            },
+        );
         if (requestGeneration !== localeRequestGeneration) {
             return;
         }
@@ -89,7 +96,7 @@ export async function initializeElectronTranslations() {
         const settings = await loadSettings();
         await setElectronLocale(settings.locale);
     } catch (error) {
-        logger.error(`Failed to initialize Electron translations: ${getErrorMessage(error)}`);
+        logger.warn(`Failed to initialize Electron translations: ${getErrorMessage(error)}`);
         activeLocale = DEFAULT_LOCALE;
         activeMessages = en;
     }

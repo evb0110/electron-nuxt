@@ -69,7 +69,7 @@
 .agent-assistant-composer-error {
     margin: 0;
     padding: var(--app-space-xl) var(--app-space-8xl) 0;
-    color: var(--ui-error);
+    color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }

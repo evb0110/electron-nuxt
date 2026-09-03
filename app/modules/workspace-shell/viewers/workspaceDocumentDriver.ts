@@ -5,6 +5,7 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type {
     IDocumentRevisionInfo,
     TDocumentRevisionToken,
@@ -110,6 +111,7 @@ export type TPdfConformanceAnalysisState =
 
 export interface IDocumentSessionState {
     error: Ref<string | null>;
+    failurePresentation: Ref<FailurePresentation | null>;
     fileName: ComputedRef<string | null>;
     isDirty: Ref<boolean>;
     isElectron: ComputedRef<boolean>;
@@ -149,6 +151,7 @@ export function createDocumentSessionState(
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const originalPath = ref<TDocumentRef | null>(null);
     const error = ref<string | null>(null);
+    const failurePresentation = shallowRef<FailurePresentation | null>(null);
     const isDirty = ref(false);
     const pdfConformanceAnalysisState = ref<TPdfConformanceAnalysisState>('none');
     const pdfConformanceProfile = ref<IPdfConformanceProfile | null>(null);
@@ -174,6 +177,7 @@ export function createDocumentSessionState(
         documentRevisionToken.value = null;
         originalPath.value = null;
         error.value = null;
+        failurePresentation.value = null;
         isDirty.value = false;
         pdfConformanceAnalysisState.value = 'none';
         pendingDjvu.value = null;
@@ -185,6 +189,7 @@ export function createDocumentSessionState(
 
     return {
         error,
+        failurePresentation,
         fileName,
         isDirty,
         isElectron: computed(() => deps.isDesktopRuntime.value),

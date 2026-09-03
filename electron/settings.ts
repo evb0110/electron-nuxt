@@ -24,6 +24,7 @@ import {
     makeSiblingTempPath,
 } from '@electron/utils/atomicReplace';
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
+import { setMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
 
 const logger = createLogger('settings');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -94,7 +95,11 @@ async function readSettingsFromStorage(storagePath: string) {
         if (isErrnoException(err) && err.code === 'ENOENT') {
             return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
         }
-        logger.error(`Failed to read settings: ${getErrorMessage(err)}`);
+        logger.error(`Failed to read settings: ${getErrorMessage(err)}`, {
+            code: 'MAIN_SETTINGS_OPERATION_FAILED',
+            context: {},
+            cause: err,
+        });
         throw err;
     }
 
@@ -104,16 +109,28 @@ async function readSettingsFromStorage(storagePath: string) {
         return applyElectronDefaults(sanitizeSettings(parsed));
     } catch (err) {
         if (err instanceof UnsupportedSettingsSchemaError) {
-            logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
+            logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
+                code: 'MAIN_SETTINGS_OPERATION_FAILED',
+                context: {},
+                cause: err,
+            });
             throw err;
         }
-        logger.error(`Failed to load settings: ${getErrorMessage(err)}`);
+        logger.error(`Failed to load settings: ${getErrorMessage(err)}`, {
+            code: 'MAIN_SETTINGS_OPERATION_FAILED',
+            context: {},
+            cause: err,
+        });
         try {
             const quarantinePath = await quarantineCorruptFile(storagePath);
             await writeSettingsAtomically(storagePath, applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS)));
             logger.warn(`Quarantined corrupt settings at ${quarantinePath ?? storagePath}`);
         } catch (recoveryError) {
-            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`);
+            logger.error(`Failed to recover corrupt settings: ${getErrorMessage(recoveryError)}`, {
+                code: 'MAIN_SETTINGS_OPERATION_FAILED',
+                context: {},
+                cause: recoveryError,
+            });
         }
         return applyElectronDefaults(sanitizeSettings(DEFAULT_SETTINGS));
     }
@@ -177,7 +194,20 @@ export async function updateSettings(
                 }
                 : workingCopy,
         );
+        if (
+            next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
+            && next.clientDiagnosticsPreference !== 'granted'
+        ) {
+            setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+            // Keep later settings writes from reopening a failed revocation
+            // from the stale durable snapshot.
+            settingsCache = {
+                ...current,
+                clientDiagnosticsPreference: next.clientDiagnosticsPreference,
+            };
+        }
         await writeSettingsAtomically(storagePath, next);
+        setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
         settingsCache = next;
         return cloneSettings(next);
     });

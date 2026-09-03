@@ -4,6 +4,7 @@ type TPdfPageRenderVisualState = 'none' | 'ready';
 type TPdfPageRenderJobState = 'idle' | 'rendering' | 'failed';
 type TPdfPageCanvasReadiness = 'none' | 'ready';
 type TPdfPageLayerReadiness = 'none' | 'canvas-only' | 'hydrating' | 'ready';
+type TPdfPageTextLayerReadiness = 'none' | 'ready';
 
 export interface IPdfCommittedRasterQuality {
     readonly requestedPixels: number;
@@ -41,10 +42,12 @@ interface IPdfPageRenderSlot {
     readonly visual: TPdfPageRenderVisualState;
     readonly canvasReadiness: TPdfPageCanvasReadiness;
     readonly layerReadiness: TPdfPageLayerReadiness;
+    readonly textLayerReadiness: TPdfPageTextLayerReadiness;
     readonly job: TPdfPageRenderJobState;
     readonly version: number | null;
     readonly contentVersion: number | null;
     readonly requestId: number | null;
+    readonly hydrationRequestId: number | null;
     readonly documentToken: string | null;
     readonly targetScale: number | null;
     readonly targetOutputScale: number | null;
@@ -85,10 +88,12 @@ const EMPTY_RENDER_SLOT: IPdfPageRenderSlot = {
     visual: 'none',
     canvasReadiness: 'none',
     layerReadiness: 'none',
+    textLayerReadiness: 'none',
     job: 'idle',
     version: null,
     contentVersion: null,
     requestId: null,
+    hydrationRequestId: null,
     documentToken: null,
     targetScale: null,
     targetOutputScale: null,
@@ -246,6 +251,8 @@ export function createPdfPageRenderState() {
             visual: 'none',
             canvasReadiness: 'none',
             layerReadiness: 'none',
+            textLayerReadiness: 'none',
+            hydrationRequestId: null,
         }),
     });
     const renderingPages = createMapView({
@@ -258,6 +265,7 @@ export function createPdfPageRenderState() {
             job: 'idle',
             version: null,
             requestId: null,
+            hydrationRequestId: null,
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
@@ -274,6 +282,7 @@ export function createPdfPageRenderState() {
             job: 'idle',
             version: null,
             requestId: null,
+            hydrationRequestId: null,
             pendingDocumentToken: null,
             pendingTargetScale: null,
             pendingTargetOutputScale: null,
@@ -321,10 +330,12 @@ export function createPdfPageRenderState() {
                 visual: preserveCommittedVisual ? 'ready' : 'none',
                 canvasReadiness: preserveCommittedVisual ? 'ready' : 'none',
                 layerReadiness: preserveCommittedVisual ? current.layerReadiness : 'none',
+                textLayerReadiness: preserveCommittedVisual ? current.textLayerReadiness : 'none',
                 job: 'rendering',
                 version,
                 contentVersion: preserveCommittedVisual ? current.contentVersion : version,
                 requestId,
+                hydrationRequestId: preserveCommittedVisual ? current.hydrationRequestId : null,
                 documentToken: preserveCommittedVisual ? current.documentToken : documentToken,
                 targetScale: preserveCommittedVisual ? current.targetScale : targetScale,
                 targetOutputScale: preserveCommittedVisual
@@ -412,7 +423,11 @@ export function createPdfPageRenderState() {
             ) {
                 return false;
             }
-            updateSlot(pageNumber, {layerReadiness: 'canvas-only'});
+            updateSlot(pageNumber, {
+                layerReadiness: 'canvas-only',
+                textLayerReadiness: 'none',
+                hydrationRequestId: null,
+            });
             return true;
         },
         beginLayerHydration(
@@ -432,6 +447,11 @@ export function createPdfPageRenderState() {
                 || current.targetScale !== targetScale
                 || current.targetOutputScale !== targetOutputScale
                 || current.container !== container
+                || current.job !== 'idle'
+                || (
+                    current.layerReadiness !== 'none'
+                    && current.layerReadiness !== 'canvas-only'
+                )
             ) {
                 return false;
             }
@@ -440,36 +460,24 @@ export function createPdfPageRenderState() {
                 job: 'rendering',
                 version,
                 requestId,
+                hydrationRequestId: requestId,
+            });
+            logPdfRenderTrace('renderer-layer-hydration-begin', {
+                pageNumber,
+                version,
+                requestId,
+                source: 'promotion',
             });
             return true;
         },
         markLayersHydrating(pageNumber: number, version: number, requestId: number) {
             const current = getSlot(pageNumber);
-            if (
-                current.job !== 'rendering'
-                || current.version !== version
-                || current.requestId !== requestId
-                || current.canvasReadiness !== 'ready'
-            ) {
-                return false;
+            if (current.layerReadiness === 'hydrating') {
+                return current.job === 'rendering'
+                    && current.version === version
+                    && current.requestId === requestId
+                    && current.hydrationRequestId === requestId;
             }
-            updateSlot(pageNumber, {layerReadiness: 'hydrating'});
-            return true;
-        },
-        markLayersReady(pageNumber: number, contentVersion: number, container: HTMLElement) {
-            const current = getSlot(pageNumber);
-            if (
-                current.canvasReadiness !== 'ready'
-                || current.contentVersion !== contentVersion
-                || current.container !== container
-            ) {
-                return false;
-            }
-            updateSlot(pageNumber, {layerReadiness: 'ready'});
-            return true;
-        },
-        failLayerHydration(pageNumber: number, version: number, requestId: number) {
-            const current = getSlot(pageNumber);
             if (
                 current.job !== 'rendering'
                 || current.version !== version
@@ -479,14 +487,131 @@ export function createPdfPageRenderState() {
                 return false;
             }
             updateSlot(pageNumber, {
+                layerReadiness: 'hydrating',
+                hydrationRequestId: requestId,
+            });
+            logPdfRenderTrace('renderer-layer-hydration-begin', {
+                pageNumber,
+                version,
+                requestId,
+                source: 'canvas-commit',
+            });
+            return true;
+        },
+        markTextLayerReady(
+            pageNumber: number,
+            contentVersion: number,
+            hydrationRequestId: number,
+            container: HTMLElement,
+        ) {
+            const current = getSlot(pageNumber);
+            if (
+                current.canvasReadiness !== 'ready'
+                || current.contentVersion !== contentVersion
+                || current.layerReadiness !== 'hydrating'
+                || current.hydrationRequestId !== hydrationRequestId
+                || current.container !== container
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {textLayerReadiness: 'ready'});
+            logPdfRenderTrace('renderer-text-layer-ready', {
+                pageNumber,
+                contentVersion,
+                hydrationRequestId,
+            });
+            return true;
+        },
+        markLayersReady(
+            pageNumber: number,
+            contentVersion: number,
+            hydrationRequestId: number,
+            container: HTMLElement,
+        ) {
+            const current = getSlot(pageNumber);
+            if (
+                current.canvasReadiness !== 'ready'
+                || current.contentVersion !== contentVersion
+                || current.layerReadiness !== 'hydrating'
+                || current.textLayerReadiness !== 'ready'
+                || current.hydrationRequestId !== hydrationRequestId
+                || current.container !== container
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {
+                layerReadiness: 'ready',
+                hydrationRequestId: null,
+            });
+            logPdfRenderTrace('renderer-layer-hydration-settled', {
+                pageNumber,
+                contentVersion,
+                hydrationRequestId,
+                outcome: 'ready',
+            });
+            return true;
+        },
+        markLayersCanvasOnly(
+            pageNumber: number,
+            contentVersion: number,
+            hydrationRequestId: number,
+            container: HTMLElement,
+        ) {
+            const current = getSlot(pageNumber);
+            if (
+                current.canvasReadiness !== 'ready'
+                || current.contentVersion !== contentVersion
+                || current.layerReadiness !== 'hydrating'
+                || current.hydrationRequestId !== hydrationRequestId
+                || current.container !== container
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {
                 layerReadiness: 'canvas-only',
-                job: 'idle',
-                version: null,
-                requestId: null,
-                pendingDocumentToken: null,
-                pendingTargetScale: null,
-                pendingTargetOutputScale: null,
-                pendingContainer: null,
+                hydrationRequestId: null,
+            });
+            logPdfRenderTrace('renderer-layer-hydration-settled', {
+                pageNumber,
+                contentVersion,
+                hydrationRequestId,
+                outcome: 'canvas-only',
+            });
+            return true;
+        },
+        isLayerPromotionEligible(pageNumber: number) {
+            const current = getSlot(pageNumber);
+            return current.canvasReadiness === 'ready'
+                && current.job === 'idle'
+                && (current.layerReadiness === 'none' || current.layerReadiness === 'canvas-only');
+        },
+        failLayerHydration(pageNumber: number, version: number, requestId: number) {
+            const current = getSlot(pageNumber);
+            if (
+                current.contentVersion !== version
+                || current.hydrationRequestId !== requestId
+                || current.layerReadiness !== 'hydrating'
+            ) {
+                return false;
+            }
+            updateSlot(pageNumber, {
+                layerReadiness: 'canvas-only',
+                hydrationRequestId: null,
+                ...(current.job === 'rendering' && current.requestId === requestId ? {
+                    job: 'idle' as const,
+                    version: null,
+                    requestId: null,
+                    pendingDocumentToken: null,
+                    pendingTargetScale: null,
+                    pendingTargetOutputScale: null,
+                    pendingContainer: null,
+                } : {}),
+            });
+            logPdfRenderTrace('renderer-layer-hydration-settled', {
+                pageNumber,
+                contentVersion: version,
+                hydrationRequestId: requestId,
+                outcome: 'failed',
             });
             return true;
         },
@@ -521,6 +646,7 @@ export function createPdfPageRenderState() {
                 layerReadiness: current.layerReadiness === 'hydrating'
                     ? 'canvas-only'
                     : current.layerReadiness,
+                hydrationRequestId: null,
                 job: 'idle',
                 version: null,
                 requestId: null,

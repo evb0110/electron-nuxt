@@ -295,6 +295,11 @@ Opt-in Electron E2E subsets are selected by named Vitest projects through
 package scripts: `pnpm run test:e2e:electron:draw-shapes`,
 `pnpm run test:e2e:electron:large`, and
 `pnpm run test:e2e:electron:rapid-navigation`.
+The high-zoom PDF search-match regression runs with
+`pnpm run test:e2e:electron:search-match-scroll`.
+To replay a captured PDF, set `EVB_SEARCH_SCROLL_PDF` and override its query,
+result count, target group, target viewer page, or target match with the
+corresponding `EVB_SEARCH_SCROLL_*` variables before running the named project.
 The manually dispatched macOS `pnpm run test:e2e:electron:visible-window` lane deliberately
 uses the real show/maximize/focus lifecycle. Unlike the default hidden lanes,
 running it locally can bring the development app to the foreground.

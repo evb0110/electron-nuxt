@@ -9,6 +9,7 @@ import {
 import { ref } from 'vue';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TTranslateFn } from '@i18n-app';
 import {
     clearRegisteredPdfRasterDisplayProfilesForTests,
@@ -30,6 +31,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/lifecycle/pdfTrustedOpenGeometryCache';
 import {clearPdfValidationRevisionCacheForTests} from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import {useDocumentPasswordPrompt} from '@app/modules/workspace-shell/composables/useDocumentPasswordPrompt';
+import { BrowserLogger } from '@app/utils/browserLogger';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -178,6 +180,10 @@ describe('createDocumentOpenFlow', () => {
         }));
         mocks.performanceProfile.lowCpu = false;
         mocks.performanceProfile.lowMemory = false;
+    });
+
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
     it('recovers navigation that arrives during the initial native preview render', async () => {
@@ -767,6 +773,13 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('localizes browser picker setup denial without exposing its transport code', async () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: 'open-failure-123456789',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const capture = vi.spyOn(BrowserLogger, 'error').mockReturnValue(receipt);
         mocks.documentPicker.openDocumentDialog.mockRejectedValueOnce(
             new BrowserFilePickerSetupDeniedError(),
         );
@@ -780,6 +793,8 @@ describe('createDocumentOpenFlow', () => {
             error: 'errors.browser.filePickerSetupDenied',
         });
         expect(state.error.value).toBe('errors.browser.filePickerSetupDenied');
+        expect(capture).toHaveBeenCalledOnce();
+        expect(state.failurePresentation.value?.failure).toBe(receipt);
     });
 
     it('retries typed password failures until the writer-backed open succeeds', async () => {

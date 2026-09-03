@@ -35,8 +35,9 @@ describe('asyncGuard', () => {
 
         await Promise.resolve();
 
-        expect(loggerSpies.error).toHaveBeenCalledTimes(1);
-        expect(loggerSpies.error).toHaveBeenCalledWith(
+        expect(loggerSpies.error).not.toHaveBeenCalled();
+        expect(loggerSpies.warn).toHaveBeenCalledTimes(1);
+        expect(loggerSpies.warn).toHaveBeenCalledWith(
             'test-scope',
             'Failed to run task',
             expect.objectContaining({
@@ -58,8 +59,9 @@ describe('asyncGuard', () => {
             },
         );
 
-        expect(loggerSpies.error).toHaveBeenCalledTimes(1);
-        expect(loggerSpies.error).toHaveBeenCalledWith(
+        expect(loggerSpies.error).not.toHaveBeenCalled();
+        expect(loggerSpies.warn).toHaveBeenCalledTimes(1);
+        expect(loggerSpies.warn).toHaveBeenCalledWith(
             'test-scope',
             'Failed to run task',
             expect.objectContaining({
@@ -81,7 +83,8 @@ describe('asyncGuard', () => {
 
         await Promise.resolve();
 
-        expect(loggerSpies.error).toHaveBeenCalledWith(
+        expect(loggerSpies.error).not.toHaveBeenCalled();
+        expect(loggerSpies.warn).toHaveBeenCalledWith(
             'detached-test',
             'Detached task failed',
             expect.objectContaining({error: expect.objectContaining({message: 'detached boom'})}),
@@ -109,6 +112,15 @@ describe('asyncGuard', () => {
 
         expect(onError).toHaveBeenCalledTimes(1);
         expect(loggerSpies.error).toHaveBeenCalledTimes(1);
+        expect(loggerSpies.error).toHaveBeenCalledWith(
+            'test-scope',
+            'Failed to run task',
+            expect.objectContaining({category: 'user-visible-operation'}),
+            {
+                code: 'RENDERER_ASYNC_GUARD_FAILED',
+                context: {category: 'user-visible-operation'},
+            },
+        );
         expect(onError.mock.invocationCallOrder[0]).toBeLessThan(loggerSpies.error.mock.invocationCallOrder[0]!);
         expect(observed).toEqual([
             'onError',

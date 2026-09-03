@@ -73,55 +73,56 @@
 .assistant-switcher-menu {
     display: flex;
     flex-direction: column;
-    gap: var(--app-space-sm);
-    width: min(12rem, var(--app-overlay-viewport-width));
+    width: max-content;
+    min-width: var(--app-assistant-switcher-menu-min-width);
     max-width: var(--app-overlay-viewport-width);
-    padding: var(--app-space-md);
+    padding: var(--app-space-sm);
     border-radius: inherit;
     background: var(--app-toolbar-menu-popover-bg);
     user-select: none;
 }
 
+/* Tall menus reserve a classic scrollbar gutter on both edges; that gutter is
+   already the horizontal inset, so adding panel padding on top of it would
+   double the side margins. */
+.assistant-switcher-menu.app-scroll-region--balanced {
+    padding-inline: 0;
+}
+
 .assistant-switcher-heading {
-    padding: var(--app-space-xs) var(--app-space-md) var(--app-space-3xs);
+    padding: var(--app-space-sm) var(--app-space-3xl);
     color: var(--ui-text-muted);
-    font-size: var(--app-text-size-micro);
-    font-weight: var(--app-font-weight-semibold);
-    letter-spacing: 0.05em;
-    line-height: var(--app-line-height-tight);
-    text-transform: uppercase;
+    font-size: var(--app-text-size-caption);
+    font-weight: var(--app-font-weight-medium);
+    line-height: var(--app-line-height-control);
 }
 
 .assistant-switcher-list {
     display: flex;
     flex-direction: column;
-    gap: var(--app-space-3xs);
 }
 
 .assistant-switcher-option {
     display: flex;
     align-items: center;
-    gap: var(--app-space-md);
-    min-height: var(--app-assistant-control-height);
+    gap: var(--app-space-3xl);
     min-width: 0;
-    padding: var(--app-space-xs) var(--app-space-md);
-    border: 1px solid transparent;
-    border-radius: var(--app-radius-md);
+    padding: var(--app-space-sm) var(--app-space-3xl);
+    border: 0;
+    border-radius: var(--app-radius-sm);
     background: transparent;
     color: var(--ui-text);
     font-size: var(--app-text-size-body-sm);
-    line-height: var(--app-line-height-snug);
+    line-height: var(--app-line-height-control);
     text-align: left;
     cursor: pointer;
     transition:
         background-color var(--app-transition-fast),
-        border-color var(--app-transition-fast),
         color var(--app-transition-fast);
 }
 
 .assistant-switcher-option:hover:not(:disabled) {
-    background: var(--app-toolbar-control-hover-bg);
-    border-color: var(--app-toolbar-control-hover-border);
+    background: var(--app-toolbar-menu-item-hover-bg);
 }
 
 .assistant-switcher-option:focus {
@@ -136,15 +137,10 @@
     cursor: default;
 }
 
+/* The check mark carries selection; a tint alone keeps the row from reading
+   as a second card inside the popover. */
 .assistant-switcher-option.is-active {
-    border-color: var(--app-toolbar-control-active-border);
-    background: var(--app-toolbar-control-active-bg);
-    font-weight: var(--app-font-weight-semibold);
-}
-
-.assistant-switcher-option.is-active:hover:not(:disabled) {
-    border-color: var(--app-toolbar-control-active-hover-border);
-    background: var(--app-toolbar-control-active-hover-bg);
+    font-weight: var(--app-font-weight-medium);
 }
 
 .assistant-switcher-option-label {
@@ -155,6 +151,15 @@
     white-space: nowrap;
 }
 
+.assistant-switcher-check-slot {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    width: var(--app-icon-size-xs);
+    height: var(--app-icon-size-xs);
+}
+
 .assistant-switcher-check {
     flex: 0 0 auto;
     width: var(--app-icon-size-xs);
@@ -162,13 +167,6 @@
     color: var(--ui-primary);
 }
 
-.assistant-switcher-hint {
-    padding: var(--app-space-2xs) var(--app-space-md) var(--app-space-3xs);
-    color: var(--ui-text-muted);
-    font-size: var(--app-text-size-caption);
-    line-height: var(--app-line-height-snug);
-    text-wrap: pretty;
-}
 
 @keyframes assistant-switcher-spin {
     to {

@@ -21,6 +21,7 @@ import {
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
+import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -51,12 +52,12 @@ const logDevRecovery = (level: TPreloadLogLevel, message: string, data?: Record<
             console.warn(message);
         }
     } else if (data) {
-        console.error(message, data);
+        console.warn(message, data);
     } else {
-        console.error(message);
+        console.warn(message);
     }
 
-    forwardPreloadLogToMain(level, 'devRecovery', message, data);
+    forwardPreloadLogToMain(level === 'error' ? 'warn' : level, 'devRecovery', message, data);
 };
 
 installViteOutdatedOptimizeDepRecovery({ log: logDevRecovery });
@@ -73,6 +74,7 @@ const deferredAutomationDocumentOpens = new Map<string, {
     release: () => void;
 }>();
 const electronApi = createElectronApi(ipcRenderer, webUtils, {
+    diagnosticsPolicy: readDiagnosticsPolicyArgument(),
     resourceProfile: readHostResourceProfileArgument(),
     waitForDocumentOpenDirect: path =>
         deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),

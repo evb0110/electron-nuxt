@@ -7,6 +7,7 @@ import {
     assertReleaseCutPreconditions,
     cutRelease,
     parseCutReleaseArgs,
+    publishReleaseCommit,
     resumeRelease,
 } from '@scripts/release/cut-release.mjs';
 import {runReleasePreflight} from '@scripts/release/release-cut-preflight.mjs';
@@ -227,6 +228,121 @@ describe('cut-release', () => {
         };
 
         await expect(resumeRelease(options)).rejects.toThrow(/already public.*release:status/u);
+    });
+});
+
+describe('publishReleaseCommit tag ownership', () => {
+    const TAG = 'v0.1.450';
+    const OTHER_SHA = 'c'.repeat(40);
+
+    interface ITagState {
+        local?: string;
+        remote?: string;
+    }
+
+    function createPublisher(tagState: ITagState) {
+        const commands: string[] = [];
+        const runCommand = (command: string, args: string[]) => {
+            commands.push(`${command} ${args.join(' ')}`);
+            if (command === 'git' && args[0] === 'rev-parse' && args[1] === '--verify') {
+                if (tagState.local === undefined) {
+                    throw Object.assign(new Error('missing tag'), {status: 1});
+                }
+                return tagState.local;
+            }
+            if (command === 'git' && args[0] === 'ls-remote') {
+                return tagState.remote === undefined
+                    ? ''
+                    : `${tagState.remote}\trefs/tags/${TAG}`;
+            }
+            return '';
+        };
+
+        return {
+            commands,
+            publish: () => publishReleaseCommit({
+                tag: TAG,
+                targetSha: HEAD_SHA,
+                upstream: UPSTREAM,
+            }, {
+                dispatchWorkflow: () => commands.push('dispatch'),
+                printHandoff: async () => undefined,
+                push: false,
+                runCommand,
+            }),
+        };
+    }
+
+    it('creates and pushes the tag at the release commit before dispatching', async () => {
+        const {
+            commands,
+            publish,
+        } = createPublisher({});
+
+        await expect(publish()).resolves.toBe(HEAD_SHA);
+
+        expect(commands).toEqual([
+            `git rev-parse --verify --quiet refs/tags/${TAG}^{commit}`,
+            `git ls-remote --tags origin refs/tags/${TAG}`,
+            `git tag ${TAG} ${HEAD_SHA}`,
+            `git push origin refs/tags/${TAG}`,
+            'dispatch',
+        ]);
+    });
+
+    it('reuses a remote tag that already points at the release commit on resume', async () => {
+        const {
+            commands,
+            publish,
+        } = createPublisher({
+            local: HEAD_SHA,
+            remote: HEAD_SHA,
+        });
+
+        await expect(publish()).resolves.toBe(HEAD_SHA);
+
+        expect(commands.filter(command => command.startsWith('git tag') || command.startsWith('git push'))).toEqual([]);
+        expect(commands.at(-1)).toBe('dispatch');
+    });
+
+    it('pushes an existing local tag when the remote lacks it', async () => {
+        const {
+            commands,
+            publish,
+        } = createPublisher({local: HEAD_SHA});
+
+        await expect(publish()).resolves.toBe(HEAD_SHA);
+
+        expect(commands.filter(command => command.startsWith('git tag'))).toEqual([]);
+        expect(commands.slice(-2)).toEqual([
+            `git push origin refs/tags/${TAG}`,
+            'dispatch',
+        ]);
+    });
+
+    it('refuses a remote tag that points elsewhere and never dispatches', async () => {
+        const {
+            commands,
+            publish,
+        } = createPublisher({remote: OTHER_SHA});
+
+        await expect(publish()).rejects.toThrow(
+            `Tag ${TAG} on origin points at ${OTHER_SHA}, not release target ${HEAD_SHA}.`,
+        );
+
+        expect(commands).not.toContain('dispatch');
+        expect(commands.some(command => command.startsWith('git tag') || command.startsWith('git push'))).toBe(false);
+    });
+
+    it('refuses a stale local tag before touching the remote', async () => {
+        const {
+            commands,
+            publish,
+        } = createPublisher({local: OTHER_SHA});
+
+        await expect(publish()).rejects.toThrow(`Local tag ${TAG} points at ${OTHER_SHA}`);
+
+        expect(commands).toEqual([`git rev-parse --verify --quiet refs/tags/${TAG}^{commit}`]);
     });
 });
 

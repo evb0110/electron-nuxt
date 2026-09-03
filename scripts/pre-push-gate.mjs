@@ -44,9 +44,34 @@ const UNIT_PROJECT_ARGS = [
     '--project',
     'unit-*',
 ];
+const GIT_LOCAL_ENVIRONMENT_VARIABLES = [
+    'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+    'GIT_COMMON_DIR',
+    'GIT_CONFIG',
+    'GIT_CONFIG_COUNT',
+    'GIT_CONFIG_PARAMETERS',
+    'GIT_DIR',
+    'GIT_GRAFT_FILE',
+    'GIT_IMPLICIT_WORK_TREE',
+    'GIT_INDEX_FILE',
+    'GIT_NO_REPLACE_OBJECTS',
+    'GIT_OBJECT_DIRECTORY',
+    'GIT_PREFIX',
+    'GIT_REPLACE_REF_BASE',
+    'GIT_SHALLOW_FILE',
+    'GIT_WORK_TREE',
+];
 
 export const PRE_PUSH_GATE_BUDGET_MS = 180_000;
 export const PRE_PUSH_GH_TIMEOUT_MS = 5_000;
+
+export function createPrePushChildEnvironment(environment = process.env) {
+    const childEnvironment = {...environment};
+    for (const variable of GIT_LOCAL_ENVIRONMENT_VARIABLES) {
+        delete childEnvironment[variable];
+    }
+    return childEnvironment;
+}
 
 function normalizePath(filePath) {
     return filePath.replaceAll('\\', '/').replace(/^\.\//u, '');
@@ -162,6 +187,7 @@ export function defaultCommandRunner(command, args, {
     const result = spawnSync(command, args, {
         cwd,
         encoding: 'utf8',
+        env: createPrePushChildEnvironment(),
         stdio: capture ? [
             'ignore',
             'pipe',

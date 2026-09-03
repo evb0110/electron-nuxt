@@ -239,6 +239,127 @@ describe('browserSettingsCapability', () => {
         });
     });
 
+    it('round-trips a granted diagnostics preference through browser local storage only', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+
+        expect(await browserSettingsCapability.get()).toMatchObject({clientDiagnosticsPreference: 'granted'});
+        expect(localStorage.getItem(SETTINGS_STORAGE_KEY)).toContain('clientDiagnosticsPreference');
+    });
+
+    it('changes the live diagnostics gate before browser persistence resolves', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage});
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+        });
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
+
+        expect(reporter.getPreference()).toBe('denied');
+        await savePromise;
+        expect(JSON.parse(localStorage.getItem(SETTINGS_STORAGE_KEY) ?? 'null'))
+            .toMatchObject({clientDiagnosticsPreference: 'denied'});
+    });
+
+    it('closes a failed browser grant without resending', async () => {
+        const localStorage = new MemoryStorage();
+        vi.stubGlobal('window', {localStorage: {
+            getItem: localStorage.getItem.bind(localStorage),
+            setItem: () => {
+                throw new Error('quota exceeded');
+            },
+        }});
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'unknown',
+        });
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+        expect(reporter.getPreference()).toBe('granted');
+        await expect(savePromise).rejects.toThrow('localStorage');
+        expect(reporter.getPreference()).toBe('unknown');
+    });
+
+    it('does not let an older failed grant reopen after a newer denial', async () => {
+        const durableStorage = new MemoryStorage();
+        let failNextWrite = true;
+        vi.stubGlobal('window', {localStorage: {
+            getItem: durableStorage.getItem.bind(durableStorage),
+            setItem: (key: string, value: string) => {
+                if (failNextWrite) {
+                    failNextWrite = false;
+                    throw new Error('quota exceeded');
+                }
+                durableStorage.setItem(key, value);
+            },
+        }});
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'unknown',
+        });
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        const grantPromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'granted'});
+        const denialPromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
+
+        await expect(grantPromise).rejects.toThrow('localStorage');
+        await denialPromise;
+        expect(reporter.getPreference()).toBe('denied');
+    });
+
+    it('keeps a failed browser revoke closed', async () => {
+        vi.stubGlobal('window', {localStorage: {
+            getItem: () => null,
+            setItem: () => {
+                throw new Error('quota exceeded');
+            },
+        }});
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+        });
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        const savePromise = browserSettingsCapability.save({clientDiagnosticsPreference: 'denied'});
+        expect(reporter.getPreference()).toBe('denied');
+        await expect(savePromise).rejects.toThrow('localStorage');
+        expect(reporter.getPreference()).toBe('denied');
+    });
+
+    it('keeps an otherwise valid browser settings snapshot when diagnostics preference is invalid', async () => {
+        const localStorage = new MemoryStorage();
+        localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify({
+            version: 2,
+            authorName: 'Stored user',
+            theme: 'dark',
+            locale: 'en',
+            defaultZoomPreset: 'fit-width',
+            defaultViewMode: 'single',
+            defaultContinuousScroll: true,
+            defaultAnnotationColor: '#ffd400',
+            clientDiagnosticsPreference: false,
+        }));
+        vi.stubGlobal('window', {localStorage});
+        const { browserSettingsCapability } = await import('@app/platform/browser-api/browserSettingsCapability');
+
+        await expect(browserSettingsCapability.get()).resolves.toMatchObject({
+            authorName: 'Stored user',
+            theme: 'dark',
+            clientDiagnosticsPreference: 'unknown',
+        });
+    });
+
     it('rejects a browser settings write when localStorage refuses it', async () => {
         vi.stubGlobal('window', {localStorage: {
             getItem: () => null,

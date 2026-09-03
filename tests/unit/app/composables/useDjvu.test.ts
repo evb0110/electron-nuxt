@@ -17,6 +17,7 @@ import type {
     IDjvuOpenResult,
     IDjvuProgress,
 } from '@contracts/electronApiDjvu';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async (importOriginal) => {
@@ -55,6 +56,18 @@ const mockElectronAPI = createElectronPlatformApiFixture({
 const pendingOpenJobs = new Map<string, Promise<unknown>>();
 const pendingConvertJobs = new Map<string, Promise<unknown>>();
 const toastAddMock = vi.hoisted(() => vi.fn());
+const browserLoggerMock = vi.hoisted(() => ({
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+}));
+const conversionFailureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+} as FailureReceipt;
 
 const mockDjvuModeState = {
     activationGeneration: 0,
@@ -69,6 +82,7 @@ const mockDjvuModeState = {
 };
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
@@ -142,6 +156,7 @@ describe('useDjvu', () => {
         mockElectronAPI.djvu.onProgress.mockReturnValue(vi.fn());
         pendingOpenJobs.clear();
         pendingConvertJobs.clear();
+        browserLoggerMock.error.mockReturnValue(conversionFailureReceipt);
         mockElectronAPI.djvu.startOpenForViewing.mockImplementation(async (path: string, requestId: string) => {
             const jobId = `djvu-open-${requestId}`;
             pendingOpenJobs.set(jobId, mockOpenJobResult(path));
@@ -463,10 +478,149 @@ describe('useDjvu', () => {
             expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Windows converter failed',
+                description: 'Windows converter failed\nError ID: 01234567',
+                actions: expect.arrayContaining([expect.objectContaining({label: 'Copy details'})]),
             }));
+            expect(browserLoggerMock.error).toHaveBeenCalledWith(
+                'djvu',
+                'Conversion failed',
+                'Windows converter failed',
+                {
+                    code: 'RENDERER_DJVU_OPERATION_FAILED',
+                    context: {},
+                },
+            );
             expect(djvu.conversionState.value.isConverting).toBe(false);
             expect(mockDocumentWorkingCopyCapability.cleanupFile).not.toHaveBeenCalled();
+        });
+
+        it('reuses a main conversion receipt in the red toast without recapturing', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: false,
+                error: 'Native conversion failed',
+                failure: conversionFailureReceipt,
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: 'Native conversion failed\nError ID: 01234567',
+            }));
+        });
+
+        it('keeps expected conversion refusals warning-only and receipt-free', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: false,
+                error: 'Selected DjVu quality is blocked',
+                expected: {
+                    kind: 'expected',
+                    code: 'validation-rejected',
+                },
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'warning',
+                description: 'Selected DjVu quality is blocked',
+            }));
+        });
+
+        it('does not present or capture canceled conversion results', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockResolvedValue({
+                success: false,
+                error: 'DjVu conversion canceled',
+                expected: {
+                    kind: 'expected',
+                    code: 'canceled',
+                },
+            });
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+            expect(toastAddMock).not.toHaveBeenCalled();
+        });
+
+        it('reuses a receipt attached to a conversion rejection', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockRejectedValue(Object.assign(
+                new Error('Browser worker conversion failed'),
+                {failure: conversionFailureReceipt},
+            ));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+
+            expect(browserLoggerMock.error).not.toHaveBeenCalled();
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: 'Browser worker conversion failed\nError ID: 01234567',
+            }));
+        });
+
+        it('does not misclassify an abort-related conversion fault as cancellation', async () => {
+            mockOpenJobResult.mockResolvedValue({
+                success: true,
+                pageCount: 1,
+                jobId: 'view-1',
+            });
+            mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
+            mockConvertJobResult.mockRejectedValue(new Error('Failed to abort PDF output cleanup'));
+
+            const djvu = useDjvu();
+            await djvu.openDjvuFile('/tmp/input.djvu');
+            await djvu.convertToPdf(1, true, 'direct', createUnusedConvertedPdfOpen());
+
+            expect(browserLoggerMock.error).toHaveBeenCalledWith(
+                'djvu',
+                'Conversion crashed',
+                expect.objectContaining({
+                    path: '/tmp/input.djvu',
+                    error: expect.any(Error),
+                }),
+                {
+                    code: 'RENDERER_DJVU_OPERATION_FAILED',
+                    context: {},
+                },
+            );
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
+                color: 'error',
+                description: 'Failed to abort PDF output cleanup\nError ID: 01234567',
+            }));
         });
 
         it('cancels a conversion whose native handle arrives after cancellation', async () => {
@@ -567,7 +721,7 @@ describe('useDjvu', () => {
             expect(djvu.sourceError.value).toBeNull();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
-                description: 'Browser converter failed',
+                description: 'Browser converter failed\nError ID: 01234567',
             }));
             expect(mockDocumentWorkingCopyCapability.cleanupFile)
                 .toHaveBeenCalledWith('browser://documents/output/out.pdf');

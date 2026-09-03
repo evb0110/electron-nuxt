@@ -28,6 +28,19 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
+      upload_artifacts:
+        description: >-
+          Upload the verified release files as a workflow artifact. Push CI's
+          packaged Linux proof runs this job for its checks only and sets
+          this to false, so artifact_ready is false for that caller.
+        required: false
+        default: true
+        type: boolean
     secrets:
       CSC_LINK:
         required: false
@@ -42,6 +55,14 @@ on:
       WIN_CSC_LINK:
         required: false
       WIN_CSC_KEY_PASSWORD:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DESKTOP_PROJECT:
+        required: false
+      SENTRY_DESKTOP_DSN:
         required: false
     outputs:
       artifact_ready:
@@ -63,9 +84,15 @@ jobs:
     env:
       EVB_RELEASE_TARGET_ARCH: ${{ inputs.arch }}
       EVB_RELEASE_TARGET_PLATFORM: ${{ inputs.platform }}
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}
     runs-on: ${{ inputs.os }}
+    # Shared by every release target; the slowest (Windows ARM64 with MSYS2
+    # bundling) measures about 30 minutes, the Linux x64 lane about 15.
+    timeout-minutes: 45
 
     steps:
       - name: Checkout
@@ -86,6 +113,17 @@ jobs:
           rust-targets: ${{ inputs.platform == 'win' && inputs.arch == 'arm64' && 'wasm32-unknown-unknown aarch64-pc-windows-msvc' || 'wasm32-unknown-unknown' }}
           brew-formulae: ${{ inputs.platform == 'mac' && 'tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc' || '' }}
           needs-system-fpm: ${{ inputs.platform == 'linux' }}
+
+      - name: Resolve Sentry build identity
+        shell: bash
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
+
+      - name: Test Windows PDF append sharing
+        if: runner.os == 'Windows' && inputs.arch == 'x64'
+        shell: bash
+        run: >-
+          cargo test --manifest-path native/Cargo.toml --package evb-pdf-page-ops
+          --locked windows_in_place_append_succeeds_when_delete_sharing_is_denied
 
       - name: Bundle native tools (macOS)
         if: runner.os == 'macOS'
@@ -503,8 +541,43 @@ jobs:
           EVB_RELEASE_HAS_WINDOWS_SIGNING: ${{ env.WIN_EXPECT_SIGNATURE }}
         run: node scripts/release/assert-build-artifacts.mjs release "$EVB_RELEASE_TARGET_PLATFORM" "$EVB_RELEASE_TARGET_ARCH"
 
+      - name: Check private Sentry upload readiness
+        id: sentry_upload
+        if: ${{ inputs.upload_artifacts }}
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: |
+          set -euo pipefail
+          configured=0
+          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
+            if [ -n "$value" ]; then configured=$((configured + 1)); fi
+          done
+          if [ "$configured" -eq 4 ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [ "$configured" -eq 0 ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Private Sentry upload is not configured; diagnostics remain disabled.'
+          else
+            echo '::error::Sentry diagnostics credentials are partially configured.'
+            exit 1
+          fi
+
+      - name: Upload private Sentry source maps
+        if: steps.sentry_upload.outputs.enabled == 'true'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs
+
       - name: Upload artifacts
         id: upload_artifacts
+        if: ${{ inputs.upload_artifacts }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: ${{ inputs.artifact_group }}

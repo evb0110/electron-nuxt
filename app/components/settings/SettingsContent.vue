@@ -5,8 +5,14 @@
         :role="settingsLoadFailed ? 'alert' : 'status'"
         aria-live="polite"
     >
+        <AppFailureAlert
+            v-if="settingsLoadFailed && settingsLoadFailurePresentation"
+            :presentation="settingsLoadFailurePresentation"
+            icon="i-ph-warning-circle"
+        />
         <UAlert
-            :color="settingsLoadFailed ? 'error' : 'neutral'"
+            v-else
+            color="neutral"
             variant="soft"
             icon="i-ph-warning-circle"
             :description="settingsLoadFailed
@@ -65,6 +71,13 @@
             />
         </section>
 
+        <section class="settings-card">
+            <SettingsPrivacyPanel
+                :settings="settings"
+                @update:client-diagnostics-preference="applyClientDiagnosticsPreference"
+            />
+        </section>
+
         <section v-if="isDesktopRuntime" class="settings-card settings-card--span">
             <SettingsAgentPanel
                 :assistant-panel-enabled="settings.assistantPanelEnabled"
@@ -97,6 +110,17 @@
                 @check="handleCheckForUpdates"
             />
         </section>
+
+        <section class="settings-card settings-card--span settings-about-card">
+            <div class="settings-about-copy">
+                <h2 class="settings-about-title">{{ t('settings.aboutTitle') }}</h2>
+                <p class="settings-about-description">{{ t('settings.aboutDescription') }}</p>
+            </div>
+            <NuxtLink class="settings-about-link" to="/about">
+                <span>{{ t('settings.openAbout') }}</span>
+                <UIcon name="i-ph-arrow-right" aria-hidden="true" />
+            </NuxtLink>
+        </section>
     </div>
 
     <div
@@ -105,8 +129,14 @@
         role="alert"
         aria-live="assertive"
     >
+        <AppFailureAlert
+            v-if="settingsSaveFailurePresentation"
+            :presentation="settingsSaveFailurePresentation"
+            icon="i-ph-warning"
+        />
         <UAlert
-            color="error"
+            v-else
+            color="warning"
             variant="soft"
             icon="i-ph-warning"
             :description="settingsSaveError ? `${t('status.saveFailed')}: ${settingsSaveError}` : t('status.saveFailed')"
@@ -136,20 +166,31 @@ import type {
     IAgentAssistantState,
     IAgentMcpIntegrationStatus,
 } from '@contracts/agent';
+import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import { ANNOTATION_COLOR_SWATCHES } from '@app/constants/pdfColors';
+import type { FailurePresentation } from '@app/composables/useFailureToast';
+import { useFailureToast } from '@app/composables/useFailureToast';
 import { LOCALE_DEFINITIONS } from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { getAgentCapability } from '@app/utils/getAgentCapability';
 import { getShellCapability } from '@app/utils/getShellCapability';
+import {
+    captureAssistantFailure,
+    getAssistantExpectedOutcome,
+} from '@app/modules/agent-panel/utils/assistantFailure';
+import type { TAssistantFailureAction } from '@app/modules/agent-panel/utils/assistantFailure';
 import { runSettingsAssistantAction } from '@app/modules/workspace-shell/agent/runSettingsAssistantAction';
+import AppFailureAlert from '@app/components/AppFailureAlert.vue';
 import SettingsAgentPanel from '@app/components/settings/SettingsAgentPanel.vue';
 import SettingsGeneralPanel from '@app/components/settings/SettingsGeneralPanel.vue';
 import SettingsPerformancePanel from '@app/components/settings/SettingsPerformancePanel.vue';
+import SettingsPrivacyPanel from '@app/components/settings/SettingsPrivacyPanel.vue';
 import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPanel.vue';
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
+import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const LOCALE_FLAGS = {
@@ -250,17 +291,24 @@ const {
 } = useTypedI18n();
 const colorMode = useColorMode();
 const toast = useToast();
+const { presentFailureToast } = useFailureToast();
 const {
     settings,
     isLoaded,
     load,
     loadOrThrow,
     settingsLoadError,
+    settingsLoadFailure,
     save,
     settingsSaveError,
+    settingsSaveFailure,
     settingsSaveStatus,
     updateSetting,
 } = useSettings();
+const {
+    discardPendingDiagnostics,
+    resendPendingDiagnosticOnce,
+} = useRuntimeErrorReports();
 const {
     checkForUpdates,
     ensureInitialized: ensureUpdatesInitialized,
@@ -279,6 +327,31 @@ const isAssistantBusy = computed(() => assistantAction.value !== null);
 const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
+let diagnosticsPreferenceSave: Promise<boolean> | null = null;
+
+const settingsLoadFailurePresentation = computed<FailurePresentation | null>(() => {
+    const capture = settingsLoadFailure.value;
+    if (!settingsLoadFailed.value || !capture) {
+        return null;
+    }
+    return {
+        ...capture,
+        title: t('errors.settings.load'),
+        description: settingsLoadError.value ?? t('errors.runtime.description'),
+    };
+});
+
+const settingsSaveFailurePresentation = computed<FailurePresentation | null>(() => {
+    const capture = settingsSaveFailure.value;
+    if (!capture) {
+        return null;
+    }
+    return {
+        ...capture,
+        title: t('status.saveFailed'),
+        description: settingsSaveError.value ?? t('status.saveFailed'),
+    };
+});
 
 watch(isLoaded, (loaded) => {
     if (loaded) {
@@ -429,6 +502,51 @@ function updateSettingSafely<K extends keyof ISettingsData>(key: K, value: ISett
         return;
     }
     updateSetting(key, value);
+}
+
+function restoreDiagnosticsPreference(preference: ISettingsData['clientDiagnosticsPreference']) {
+    settings.value = {
+        ...settings.value,
+        clientDiagnosticsPreference: preference,
+    };
+    setRendererDiagnosticsPreference(preference);
+}
+
+async function applyClientDiagnosticsPreference(
+    preference: ISettingsData['clientDiagnosticsPreference'],
+) {
+    if (!isLoaded.value || diagnosticsPreferenceSave) {
+        return;
+    }
+
+    const previousPreference = settings.value.clientDiagnosticsPreference;
+    if (preference !== 'granted') {
+        // updateSetting changes the live gate synchronously. Dispose the old
+        // presentation before the persistence request is started.
+        updateSetting('clientDiagnosticsPreference', preference);
+        discardPendingDiagnostics();
+        diagnosticsPreferenceSave = save().finally(() => {
+            diagnosticsPreferenceSave = null;
+        });
+        await diagnosticsPreferenceSave;
+        return;
+    }
+
+    updateSetting('clientDiagnosticsPreference', preference);
+    diagnosticsPreferenceSave = save().finally(() => {
+        diagnosticsPreferenceSave = null;
+    });
+    const saved = await diagnosticsPreferenceSave;
+    if (disposed) {
+        return;
+    }
+    if (!saved) {
+        restoreDiagnosticsPreference(previousPreference);
+        return;
+    }
+    if (settings.value.clientDiagnosticsPreference === 'granted') {
+        resendPendingDiagnosticOnce();
+    }
 }
 
 function applyTheme(theme: TAppTheme) {
@@ -609,16 +727,51 @@ async function updateAssistantPanelEnabled(enabled: boolean) {
     }
 
     if (!saved) {
-        toast.add({
-            color: 'error',
-            title: t('errors.file.save'),
-        });
         return;
     }
 
     if (enabled) {
         await refreshAssistantState();
     }
+}
+
+function showExpectedAssistantOutcome(
+    action: TAssistantFailureAction,
+    expected: ExpectedOutcome,
+    description: string,
+) {
+    BrowserLogger.warn('settings', 'Assistant settings operation was not completed', {
+        action,
+        expected,
+    });
+    toast.add({
+        color: 'warning',
+        title: t('settings.agentMcpStatusError'),
+        description,
+    });
+}
+
+function presentAssistantFailure(
+    error: unknown,
+    action: TAssistantFailureAction,
+    logMessage: string,
+) {
+    const expected = getAssistantExpectedOutcome(error);
+    if (expected) {
+        showExpectedAssistantOutcome(
+            action,
+            expected,
+            getErrorMessage(error) || t('settings.agentMcpUnavailable'),
+        );
+        return;
+    }
+
+    presentFailureToast(captureAssistantFailure(error, {
+        action,
+        section: 'settings',
+        logMessage,
+        title: t('settings.agentMcpStatusError'),
+    }));
 }
 
 async function refreshAgentMcpStatus() {
@@ -637,12 +790,11 @@ async function refreshAgentMcpStatus() {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to refresh agent MCP integration status', { error });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+        presentAssistantFailure(
+            error,
+            'mcp-refresh',
+            'Failed to refresh agent MCP integration status',
+        );
     } finally {
         if (!disposed) {
             isAgentMcpBusy.value = false;
@@ -666,26 +818,25 @@ async function setAgentMcpEnabled(enabled: boolean) {
         if (disposed) {
             return;
         }
-        if (!result.ok && result.error) {
-            toast.add({
-                color: 'error',
-                title: t('settings.agentMcpStatusError'),
-                description: result.error,
-            });
+        if (!result.ok) {
+            showExpectedAssistantOutcome(
+                'mcp-update',
+                {
+                    kind: 'expected',
+                    code: result.cancelled ? 'canceled' : 'temporarily-unavailable',
+                },
+                result.error ?? t('settings.agentMcpUnavailable'),
+            );
         }
     } catch (error) {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to update agent MCP integration status', {
-            enabled,
+        presentAssistantFailure(
             error,
-        });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+            'mcp-update',
+            'Failed to update agent MCP integration status',
+        );
         try {
             const status = await getAgentCapability().getMcpIntegrationStatus();
             if (!disposed) {
@@ -707,15 +858,7 @@ function openAgentMcpInstall() {
         if (disposed) {
             return;
         }
-        BrowserLogger.warn('settings', 'Failed to open agent MCP install URL', {
-            installUrl,
-            error,
-        });
-        toast.add({
-            color: 'error',
-            title: t('settings.agentMcpStatusError'),
-            description: getErrorMessage(error),
-        });
+        presentAssistantFailure(error, 'mcp-install', 'Failed to open agent MCP install URL');
     });
 }
 
@@ -787,6 +930,52 @@ onBeforeUnmount(() => {
 
 .settings-card--span {
     grid-column: 1 / -1;
+}
+
+.settings-about-card {
+    gap: var(--app-space-3xl);
+}
+
+.settings-about-copy {
+    display: grid;
+    gap: var(--app-space-sm);
+}
+
+.settings-about-title,
+.settings-about-description {
+    margin: 0;
+}
+
+.settings-about-title {
+    font-size: var(--app-text-size-title-sm);
+}
+
+.settings-about-description {
+    color: var(--ui-text-muted);
+    line-height: 1.6;
+}
+
+.settings-about-link {
+    display: inline-flex;
+    align-items: center;
+    align-self: flex-start;
+    gap: var(--app-space-sm);
+    min-height: var(--app-control-height-md);
+    padding: var(--app-space-sm) var(--app-space-lg);
+    border: 1px solid var(--ui-primary);
+    border-radius: var(--app-radius-xs);
+    color: var(--ui-primary);
+    font-weight: 650;
+    text-decoration: none;
+}
+
+.settings-about-link:hover {
+    background: color-mix(in oklab, var(--ui-bg) 90%, var(--ui-primary) 10%);
+}
+
+.settings-about-link:focus-visible {
+    outline: 2px solid var(--ui-primary);
+    outline-offset: 3px;
 }
 
 @container (max-width: 720px) {

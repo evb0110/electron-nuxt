@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
@@ -216,12 +217,20 @@ export async function consumeOcrResultIntoActiveWorkspace(
     };
 }
 
-export async function rotatePages(page: Page, workingCopyPath: string, pages: number[], totalPages: number, angle: 90 | 180 | 270) {
+export async function rotatePages(
+    page: Page,
+    workingCopyPath: string,
+    pages: number[],
+    totalPages: number,
+    angle: 90 | 180 | 270,
+    metadataSnapshot?: IPageOpsMetadataSnapshot,
+) {
     return evaluateInPage(page, async ({
         workingPath,
         targetPages,
         expectedTotalPages,
         targetAngle,
+        snapshotJson,
     }) => {
         const api = (window as IE2EWindow).electronAPI;
 
@@ -231,11 +240,18 @@ export async function rotatePages(page: Page, workingCopyPath: string, pages: nu
             throw new Error('electronAPI page rotation capability is unavailable');
         }
         const revision = await getDocumentRevision(workingPath);
-        return rotate(workingPath, targetPages, expectedTotalPages, targetAngle, {expectedDocumentRevisionToken: revision.token});
+        const snapshot = snapshotJson === null
+            ? undefined
+            : JSON.parse(snapshotJson) as IPageOpsMetadataSnapshot;
+        return rotate(workingPath, targetPages, expectedTotalPages, targetAngle, {
+            expectedDocumentRevisionToken: revision.token,
+            ...(snapshot ? {metadataSnapshot: snapshot} : {}),
+        });
     }, {
         workingPath: workingCopyPath,
         targetPages: pages,
         expectedTotalPages: totalPages,
         targetAngle: angle,
+        snapshotJson: metadataSnapshot ? JSON.stringify(metadataSnapshot) : null,
     });
 }

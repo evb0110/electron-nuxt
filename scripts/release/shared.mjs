@@ -585,6 +585,92 @@ export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
     return targetSha;
 }
 
+function readLocalTagCommitSha(tag, runCommand) {
+    try {
+        return runCommand('git', [
+            'rev-parse',
+            '--verify',
+            '--quiet',
+            `refs/tags/${tag}^{commit}`,
+        ]);
+    } catch (error) {
+        if (getExitStatus(error) === 1) {
+            return null;
+        }
+        throw error;
+    }
+}
+
+function readRemoteTagCommitSha(tag, remote, runCommand) {
+    const tagRef = `refs/tags/${tag}`;
+    const entries = runCommand('git', [
+        'ls-remote',
+        '--tags',
+        remote,
+        tagRef,
+    ])
+        .split('\n')
+        .filter(Boolean)
+        .map(line => line.split('\t'));
+    const peeled = entries.find(([
+        ,
+        ref,
+    ]) => ref === `${tagRef}^{}`);
+    const plain = entries.find(([
+        ,
+        ref,
+    ]) => ref === tagRef);
+
+    return (peeled ?? plain)?.[0] ?? null;
+}
+
+/**
+ * Makes `refs/tags/<tag>` exist on the release remote at `targetSha` with the
+ * developer's credentials. The release workflow cannot create that tag: the
+ * built-in token needs the `workflows` scope to point a new ref at a commit
+ * that is behind the main tip in `.github/workflows/`, and GitHub never grants
+ * that scope to GITHUB_TOKEN. A tag that already points at the target is the
+ * resume case and is reused; a tag that points elsewhere is a conflict and
+ * stops the release before anything is dispatched.
+ */
+export function pushReleaseTag({
+    tag,
+    targetSha,
+    upstream,
+}, {runCommand = run} = {}) {
+    const localSha = readLocalTagCommitSha(tag, runCommand);
+    if (localSha !== null && localSha !== targetSha) {
+        throw new Error(
+            `Local tag ${tag} points at ${localSha}, not release target ${targetSha}; `
+            + 'delete it before retrying.',
+        );
+    }
+
+    const remoteSha = readRemoteTagCommitSha(tag, upstream.remote, runCommand);
+    if (remoteSha === targetSha) {
+        return;
+    }
+    if (remoteSha !== null) {
+        throw new Error(
+            `Tag ${tag} on ${upstream.remote} points at ${remoteSha}, not release target ${targetSha}.`,
+        );
+    }
+
+    if (localSha === null) {
+        runCommand('git', [
+            'tag',
+            tag,
+            targetSha,
+        ]);
+    }
+
+    runCommand('git', [
+        'push',
+        upstream.remote,
+        `refs/tags/${tag}`,
+    ], {stdio: 'inherit'});
+}
+
 function normalizeGitPath(filePath) {
     return filePath.replaceAll('\\', '/');
 }

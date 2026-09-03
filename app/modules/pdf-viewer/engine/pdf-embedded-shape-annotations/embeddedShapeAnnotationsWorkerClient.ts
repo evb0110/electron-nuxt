@@ -20,6 +20,12 @@ import {
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
     PDF_ANNOTATION_SHAPE_TYPES,
 } from '@contracts/annotations';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    detectRendererDiagnosticsHost,
+    getRendererFailureReporter,
+    initializeRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 const EMBEDDED_SHAPE_IMPORT_TIMEOUT_MS = 90_000;
 const EMBEDDED_SHAPE_IMPORT_PATH_CHUNK_BYTES = 4 * 1024 * 1024;
@@ -74,6 +80,57 @@ interface IEmbeddedShapeImportWorkerResponse {
     ok: boolean;
     shapes?: IShapeAnnotation[];
     error?: string;
+}
+
+interface IEmbeddedShapeImportWorkerFailure extends Error {failure?: FailureReceipt;}
+
+function getWorkerFailureReceipt(error: unknown) {
+    if (!(error instanceof Error)) {
+        return undefined;
+    }
+    return (error as IEmbeddedShapeImportWorkerFailure).failure;
+}
+
+function attachWorkerFailureReceipt<T>(error: T, receipt: FailureReceipt | undefined) {
+    if (!(error instanceof Error) || !receipt || getWorkerFailureReceipt(error)) {
+        return error;
+    }
+    Object.defineProperty(error, 'failure', {
+        configurable: true,
+        value: receipt,
+    });
+    return error;
+}
+
+function reportWorkerFailure(error: Error) {
+    const existingReceipt = getWorkerFailureReceipt(error);
+    if (existingReceipt) {
+        return error;
+    }
+
+    const reporter = getRendererFailureReporter() ?? initializeRendererFailureReporter({host: detectRendererDiagnosticsHost()});
+    const receipt = reporter.capture({
+        code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
+        context: {},
+        local: {
+            source: 'embedded-shape-annotations-worker-parent',
+            message: error.message,
+            cause: error,
+        },
+    }, {runtime: 'browser-worker-parent'});
+    return attachWorkerFailureReceipt(error, receipt);
+}
+
+function postWorkerMessage(worker: Worker, message: unknown, transfer?: Transferable[]) {
+    try {
+        if (transfer) {
+            worker.postMessage(message, transfer);
+        } else {
+            worker.postMessage(message);
+        }
+    } catch (error) {
+        throw reportWorkerFailure(error instanceof Error ? error : new Error(String(error)));
+    }
 }
 
 function canUseEmbeddedShapeImportWorker() {
@@ -437,10 +494,15 @@ function createEmbeddedShapeImportWorker(
     signal: AbortSignal | undefined,
     dispatch: (worker: Worker, operationSignal: AbortSignal) => void | Promise<void>,
 ) {
-    const worker = new Worker(
-        new URL('./importEmbeddedShapeAnnotations.worker.ts', import.meta.url),
-        { type: 'module' },
-    );
+    let worker: Worker;
+    try {
+        worker = new Worker(
+            new URL('./importEmbeddedShapeAnnotations.worker.ts', import.meta.url),
+            { type: 'module' },
+        );
+    } catch (error) {
+        throw reportWorkerFailure(error instanceof Error ? error : new Error(String(error)));
+    }
 
     return new Promise<IShapeAnnotation[]>((resolve, reject) => {
         const timeoutError = new Error('Embedded PDF shape import worker timed out');
@@ -452,6 +514,7 @@ function createEmbeddedShapeImportWorker(
                 : new DOMException('Embedded PDF shape import aborted', 'AbortError'));
         };
         const timeout = setTimeout(() => {
+            reportWorkerFailure(timeoutError);
             operationController.abort(timeoutError);
         }, EMBEDDED_SHAPE_IMPORT_TIMEOUT_MS);
         const settle = (callback: () => void) => {
@@ -477,10 +540,10 @@ function createEmbeddedShapeImportWorker(
                 settle(() => resolve(response.shapes!));
                 return;
             }
-            settle(() => reject(new Error(response.error ?? 'Embedded PDF shape import worker failed')));
+            settle(() => reject(reportWorkerFailure(new Error(response.error ?? 'Embedded PDF shape import worker failed'))));
         };
         worker.onerror = event => {
-            settle(() => reject(new Error(event.message || 'Embedded PDF shape import worker failed')));
+            settle(() => reject(reportWorkerFailure(new Error(event.message || 'Embedded PDF shape import worker failed'))));
         };
         operationController.signal.addEventListener('abort', abort, { once: true });
         signal?.addEventListener('abort', abortFromCaller, { once: true });
@@ -516,7 +579,7 @@ export async function importEmbeddedShapeAnnotationsUsingWorker(
     const transferableData = createTransferableView(data, options.transferOwnership === true);
 
     return createEmbeddedShapeImportWorker(options.signal, worker => {
-        worker.postMessage({
+        postWorkerMessage(worker, {
             type: 'bytes',
             data: transferableData,
         }, [transferableData.buffer]);
@@ -546,7 +609,7 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
     assertEmbeddedShapeImportSize(size);
     options.signal?.throwIfAborted();
     return createEmbeddedShapeImportWorker(options.signal, async (worker, operationSignal) => {
-        worker.postMessage({
+        postWorkerMessage(worker, {
             type: 'path-start',
             size,
         });
@@ -559,13 +622,13 @@ export async function importEmbeddedShapeAnnotationsFromPathInWorker(
                 throw new Error(`Document changed while importing embedded shapes: expected ${length} bytes, read ${chunk.byteLength} bytes`);
             }
             const transferableChunk = createTransferableView(chunk, true);
-            worker.postMessage({
+            postWorkerMessage(worker, {
                 type: 'path-chunk',
                 offset,
                 data: transferableChunk,
             }, [transferableChunk.buffer]);
         }
         operationSignal.throwIfAborted();
-        worker.postMessage({type: 'path-finish'});
+        postWorkerMessage(worker, {type: 'path-finish'});
     });
 }

@@ -1,4 +1,19 @@
 import type {IAnnotationMarkerRect} from '@app/types/annotations';
+import type {
+    IPdfSearchUtf16Range,
+    ISearchMatchOptions,
+} from '@contracts/search';
+
+export interface IPdfTextAnchorNavigationOptions {
+    text: string;
+    prefix?: string;
+    suffix?: string;
+    searchRange?: IPdfSearchUtf16Range;
+    pageMatchIndex?: number;
+    matchIndex?: number;
+    searchQuery?: string;
+    searchOptions?: ISearchMatchOptions;
+}
 
 export type TPdfNavigationTarget =
     | {
@@ -10,13 +25,10 @@ export type TPdfNavigationTarget =
         page: number;
         rect: IAnnotationMarkerRect
     }
-    | {
+    | ({
         kind: 'text-anchor';
         page: number;
-        text: string;
-        prefix?: string;
-        suffix?: string
-    }
+    } & IPdfTextAnchorNavigationOptions)
     | {
         kind: 'named-dest';
         destination: string | unknown[]

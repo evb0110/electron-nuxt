@@ -119,7 +119,7 @@ function toolPhaseLabel(phase: IAgentAssistantToolActivity['phase']) {
 
 .agent-assistant-turn-error {
     margin: 0.4rem 0;
-    color: var(--ui-error);
+    color: var(--ui-text-muted);
     font-size: var(--app-text-size-body-sm);
     line-height: 1.45;
 }

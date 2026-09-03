@@ -115,7 +115,7 @@ describe('useWorkspaceExport', () => {
             expect(state.exportScopeDialogOpen.value).toBe(false);
             expect(exportImagesMock).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
+                color: 'warning',
                 title: 'export.selectionTooLarge',
             }));
         } finally {
@@ -136,7 +136,7 @@ describe('useWorkspaceExport', () => {
             expect(state.exportScopeDialogOpen.value).toBe(false);
             expect(exportTiffMock).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
+                color: 'warning',
                 title: 'export.selectionTooLarge',
             }));
         } finally {
@@ -479,11 +479,11 @@ describe('useWorkspaceExport', () => {
             await exportPromise;
 
             expect(state.exportOverlay.value).toBeNull();
-            expect(toastAddMock).toHaveBeenCalledWith({
+            expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
                 color: 'error',
                 title: 'errors.export.multiPageTiff',
-                description: 'Multi-page TIFF export exceeds the Classic TIFF 4GB limit',
-            });
+                description: expect.stringContaining('Multi-page TIFF export exceeds the Classic TIFF 4GB limit'),
+            }));
         } finally {
             scope.stop();
         }
@@ -702,17 +702,13 @@ describe('useWorkspaceExport', () => {
             expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
             expect(exportImagesMock).not.toHaveBeenCalled();
             expect(state.exportOverlay.value).toBeNull();
-            expect(toastAddMock).toHaveBeenCalledWith({
-                color: 'error',
-                title: 'errors.export.images',
-                description: 'errors.file.save',
-            });
+            expect(toastAddMock).not.toHaveBeenCalledWith(expect.objectContaining({color: 'error'}));
         } finally {
             scope.stop();
         }
     });
 
-    it('shows a TIFF export error when pending changes cannot be persisted', async () => {
+    it('does not add a second red export error when pending changes cannot be persisted', async () => {
         const ensureWorkingCopyFreshForRead = vi.fn(async () => false);
 
         const {
@@ -728,11 +724,7 @@ describe('useWorkspaceExport', () => {
             expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
             expect(exportTiffMock).not.toHaveBeenCalled();
             expect(state.exportOverlay.value).toBeNull();
-            expect(toastAddMock).toHaveBeenCalledWith({
-                color: 'error',
-                title: 'errors.export.multiPageTiff',
-                description: 'errors.file.save',
-            });
+            expect(toastAddMock).not.toHaveBeenCalledWith(expect.objectContaining({color: 'error'}));
         } finally {
             scope.stop();
         }

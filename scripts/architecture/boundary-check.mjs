@@ -319,6 +319,51 @@ const FEATURE_BOUNDARY_RULES = [
     },
 ];
 
+export const SENTRY_RUNTIME_ADAPTER_ROOTS = new Set([
+    'electron/features/diagnostics/sentryNodeAdapter.ts',
+    'app/utils/browserDiagnosticsTransport.ts',
+    'server/utils/sentryNitroAdapter.ts',
+]);
+
+export const SENTRY_RELEASE_TOOL_ROOTS = new Set([
+    'scripts/release/stage-private-sourcemaps.mjs',
+    'scripts/release/upload-sentry-sourcemaps.mjs',
+]);
+
+export const SENTRY_BUILD_CONFIG_ROOTS = new Set([
+    'scripts/build-electron.mjs',
+    'nuxt.config.ts',
+]);
+
+const APPROVED_SENTRY_RUNTIME_PACKAGES = new Set([
+    '@sentry/browser',
+    '@sentry/core',
+    '@sentry/node',
+]);
+const SENTRY_CAPTURE_API_NAMES = new Set([
+    'captureEvent',
+    'captureException',
+    'captureMessage',
+]);
+const SENTRY_CLI_EXECUTOR_NAMES = new Set([
+    'exec',
+    'execFile',
+    'execFileSync',
+    'execSync',
+    'execa',
+    'execaCommand',
+    'execaCommandSync',
+    'execaSync',
+    'spawn',
+    'spawnSync',
+]);
+const SENTRY_EVENT_FACTORY_NAMES = new Set([
+    'buildSentryEvent',
+    'createSentryEvent',
+    'makeSentryEvent',
+]);
+const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
+
 function checkElectronFeatureMainPrivacy(edge) {
     const targetOwner = getFeatureOwner(edge.target, 'electron/features');
     if (!targetOwner) {
@@ -945,6 +990,334 @@ function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
     })];
 }
 
+function isSentryBoundaryExemptSource(filePath) {
+    return filePath === SENTRY_BOUNDARY_IMPLEMENTATION_FILE
+        || matchesRoot(filePath, 'tests');
+}
+
+function getStaticString(node) {
+    if (!node) {
+        return null;
+    }
+    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+        return node.text;
+    }
+    return null;
+}
+
+function getImportTypeSpecifier(node) {
+    if (!ts.isImportTypeNode(node) || !ts.isLiteralTypeNode(node.argument)) {
+        return null;
+    }
+    return getStaticString(node.argument.literal);
+}
+
+function getImportLikeSpecifier(node) {
+    if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+        return getStaticString(node.moduleSpecifier);
+    }
+    if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+        return getStaticString(node.moduleReference.expression);
+    }
+    const importTypeSpecifier = getImportTypeSpecifier(node);
+    if (importTypeSpecifier) {
+        return importTypeSpecifier;
+    }
+    if (!ts.isCallExpression(node)) {
+        return null;
+    }
+    if (node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        return getStaticString(node.arguments[0]);
+    }
+    if (ts.isIdentifier(node.expression) && node.expression.text === 'require') {
+        return getStaticString(node.arguments[0]);
+    }
+    return null;
+}
+
+function getMemberName(node) {
+    if (ts.isIdentifier(node)) {
+        return node.text;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+        return node.name.text;
+    }
+    if (ts.isElementAccessExpression(node)) {
+        return getStaticString(node.argumentExpression);
+    }
+    return null;
+}
+
+function getQualifiedName(node) {
+    if (ts.isIdentifier(node)) {
+        return node.text;
+    }
+    if (ts.isPropertyAccessExpression(node)) {
+        const parent = getQualifiedName(node.expression);
+        return parent ? `${parent}.${node.name.text}` : node.name.text;
+    }
+    if (ts.isElementAccessExpression(node)) {
+        const parent = getQualifiedName(node.expression);
+        const member = getStaticString(node.argumentExpression);
+        return parent && member ? `${parent}.${member}` : parent;
+    }
+    return null;
+}
+
+function getSentryPackageName(specifier) {
+    const [
+        scope,
+        packageName,
+    ] = specifier.split('/');
+    return scope && packageName ? `${scope}/${packageName}` : specifier;
+}
+
+function isSentryPackageSpecifier(specifier) {
+    return specifier === '@sentry' || specifier.startsWith('@sentry/');
+}
+
+function isDsnName(value) {
+    const normalized = value.replaceAll('-', '_').toLowerCase();
+    return normalized === 'dsn'
+        || normalized.endsWith('_dsn')
+        || normalized.endsWith('dsn');
+}
+
+function isDsnLiteral(value) {
+    return /^https?:\/\/[^/\s"'`]+@[^/\s"'`]+\/\d+(?:[/?#][^\s"'`]*)?$/u.test(value.trim());
+}
+
+function isSentryUploadTokenName(value) {
+    const normalized = value.replaceAll('-', '_').toLowerCase();
+    return normalized === 'sentry_token'
+        || normalized === 'sentry_auth_token'
+        || normalized === 'sentry_upload_token'
+        || normalized === 'sentry_cli_token'
+        || (normalized.includes('sentry') && normalized.includes('token'));
+}
+
+function isSentryCliName(value) {
+    return /^sentry[_-]?cli(?:[_-]|$)/iu.test(value);
+}
+
+function walkSourceFile(sourceFile, visitor) {
+    function visit(node) {
+        visitor(node);
+        ts.forEachChild(node, visit);
+    }
+    visit(sourceFile);
+}
+
+function containsSentryCliReference(node, knownBindings = new Set()) {
+    let found = false;
+    walkSourceFile(node, (child) => {
+        if (found) {
+            return;
+        }
+        const value = getStaticString(child);
+        if (value?.toLowerCase().includes('sentry-cli')) {
+            found = true;
+            return;
+        }
+        if (ts.isIdentifier(child) && (knownBindings.has(child.text) || isSentryCliName(child.text))) {
+            found = true;
+        }
+    });
+    return found;
+}
+
+function collectSentryCliBindings(sourceFile) {
+    const bindings = new Set();
+    walkSourceFile(sourceFile, (node) => {
+        if (!ts.isVariableDeclaration(node) || !ts.isIdentifier(node.name) || !node.initializer) {
+            return;
+        }
+        if (containsSentryCliReference(node.initializer)) {
+            bindings.add(node.name.text);
+        }
+    });
+    return bindings;
+}
+
+function isSentryEventConstructor(name) {
+    return name === 'Sentry.Event'
+        || name === 'Sentry.EventEnvelope'
+        || name === 'SentryEvent'
+        || name === 'SentryEventEnvelope';
+}
+
+function hasEventConstructionInitializer(node) {
+    return ts.isObjectLiteralExpression(node)
+        || ts.isNewExpression(node)
+        || ts.isCallExpression(node);
+}
+
+function checkSentryBoundarySource(filePath, sourceFiles) {
+    if (isSentryBoundaryExemptSource(filePath)) {
+        return [];
+    }
+
+    const isRuntimeAdapter = SENTRY_RUNTIME_ADAPTER_ROOTS.has(filePath);
+    const isReleaseTool = SENTRY_RELEASE_TOOL_ROOTS.has(filePath);
+    const isBuildConfig = SENTRY_BUILD_CONFIG_ROOTS.has(filePath);
+    const violations = [];
+    const seen = new Set();
+
+    function addViolation({
+        rule,
+        target,
+        specifier,
+        message,
+    }) {
+        const key = `${rule}\0${specifier}`;
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        violations.push(createViolation({
+            rule,
+            source: filePath,
+            target,
+            specifier,
+            message,
+        }));
+    }
+
+    for (const sourceFile of sourceFiles) {
+        const cliBindings = collectSentryCliBindings(sourceFile);
+        walkSourceFile(sourceFile, (node) => {
+            const importSpecifier = getImportLikeSpecifier(node);
+            if (importSpecifier && isSentryPackageSpecifier(importSpecifier)) {
+                const packageName = getSentryPackageName(importSpecifier);
+                const allowedRuntimeImport = isRuntimeAdapter
+                    && APPROVED_SENTRY_RUNTIME_PACKAGES.has(packageName);
+                const allowedCliImport = isReleaseTool && packageName === '@sentry/cli';
+                if (!allowedRuntimeImport && !allowedCliImport) {
+                    addViolation({
+                        rule: 'sentry-import-boundary',
+                        target: importSpecifier,
+                        specifier: importSpecifier,
+                        message: 'Only approved runtime SDKs in exact adapters and the pinned CLI in exact release tools may import Sentry packages.',
+                    });
+                }
+            }
+
+            if (ts.isIdentifier(node)) {
+                if (isDsnName(node.text) && !isRuntimeAdapter && !isBuildConfig) {
+                    addViolation({
+                        rule: 'sentry-dsn-boundary',
+                        target: filePath,
+                        specifier: 'dsn-read',
+                        message: 'Sentry DSNs may be read only by the three exact runtime adapters or two exact build configuration roots.',
+                    });
+                }
+                if (isSentryUploadTokenName(node.text) && !isReleaseTool) {
+                    addViolation({
+                        rule: 'sentry-upload-token-boundary',
+                        target: filePath,
+                        specifier: 'upload-token-read',
+                        message: 'Sentry upload tokens may be read only by the two exact release tools.',
+                    });
+                }
+            }
+
+            const staticString = getStaticString(node);
+            if (staticString
+                && !isRuntimeAdapter
+                && !isBuildConfig
+                && (isDsnName(staticString) || isDsnLiteral(staticString))) {
+                addViolation({
+                    rule: 'sentry-dsn-boundary',
+                    target: filePath,
+                    specifier: 'dsn-literal',
+                    message: 'Sentry DSNs may be read only by the three exact runtime adapters or two exact build configuration roots.',
+                });
+            }
+            if (staticString && !isReleaseTool && isSentryUploadTokenName(staticString)) {
+                addViolation({
+                    rule: 'sentry-upload-token-boundary',
+                    target: filePath,
+                    specifier: 'upload-token-read',
+                    message: 'Sentry upload tokens may be read only by the two exact release tools.',
+                });
+            }
+
+            if (ts.isCallExpression(node)) {
+                const callName = getMemberName(node.expression);
+                const qualifiedCallName = getQualifiedName(node.expression);
+                if (
+                    callName
+                    && (
+                        SENTRY_CAPTURE_API_NAMES.has(callName)
+                        || qualifiedCallName === 'Sentry.capture'
+                    )
+                    && !isRuntimeAdapter
+                ) {
+                    addViolation({
+                        rule: 'sentry-capture-boundary',
+                        target: filePath,
+                        specifier: callName,
+                        message: 'Sentry capture APIs may be called only by the three exact runtime adapters.',
+                    });
+                }
+                if (
+                    callName
+                    && (
+                        SENTRY_CLI_EXECUTOR_NAMES.has(callName)
+                        || callName === 'spawnSentryCli'
+                    )
+                    && (node.arguments.some(argument => containsSentryCliReference(argument, cliBindings))
+                        || callName === 'spawnSentryCli')
+                    && !isReleaseTool
+                ) {
+                    addViolation({
+                        rule: 'sentry-cli-boundary',
+                        target: filePath,
+                        specifier: 'sentry-cli',
+                        message: 'The pinned Sentry CLI may be spawned only by the two exact release tools.',
+                    });
+                }
+                if (callName && SENTRY_EVENT_FACTORY_NAMES.has(callName) && !isRuntimeAdapter) {
+                    addViolation({
+                        rule: 'sentry-event-boundary',
+                        target: filePath,
+                        specifier: callName,
+                        message: 'Sentry events may be constructed only by the three exact runtime adapters.',
+                    });
+                }
+            }
+
+            if (ts.isNewExpression(node) && isSentryEventConstructor(getQualifiedName(node.expression)) && !isRuntimeAdapter) {
+                addViolation({
+                    rule: 'sentry-event-boundary',
+                    target: filePath,
+                    specifier: 'event-construction',
+                    message: 'Sentry events may be constructed only by the three exact runtime adapters.',
+                });
+            }
+
+            if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+                const isNamedSentryEvent = /sentry[_-]?event(?:[_-]?envelope)?/iu.test(node.name.text);
+                const isReleaseEvent = isReleaseTool && node.name.text.toLowerCase() === 'event';
+                if (
+                    (isNamedSentryEvent || isReleaseEvent)
+                    && hasEventConstructionInitializer(node.initializer)
+                    && !isRuntimeAdapter
+                ) {
+                    addViolation({
+                        rule: 'sentry-event-boundary',
+                        target: filePath,
+                        specifier: 'event-construction',
+                        message: 'Sentry events may be constructed only by the three exact runtime adapters.',
+                    });
+                }
+            }
+        });
+    }
+
+    return violations;
+}
+
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
@@ -1112,6 +1485,7 @@ function checkNode(filePath) {
 function checkSource(filePath, sourceText) {
     const sourceFiles = parseSourceFiles(filePath, sourceText);
     return [
+        ...checkSentryBoundarySource(filePath, sourceFiles),
         ...checkAnnotationStoragePrivateAccess(filePath, sourceText),
         ...checkPlatformApiRuntimeGetterCall(filePath, sourceFiles),
         ...checkContractCompatibilityPolicyImports(filePath, sourceFiles),

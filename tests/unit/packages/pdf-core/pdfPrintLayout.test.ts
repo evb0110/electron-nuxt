@@ -7,7 +7,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import { buildPrintablePdfData } from '@pdf-core';
+import {
+    buildPrintablePdfData,
+    buildPrintSpreadGroups,
+} from '@pdf-core';
 
 async function createRotatedSourcePdf(rotations: readonly number[]) {
     const sourcePdf = await PDFDocument.create();
@@ -103,5 +106,50 @@ describe('pdf print layout', () => {
                 height: 595.28,
             },
         ]);
+    });
+
+    it('composes all 486 reported pages into ordered facing sheets without changing the source', async () => {
+        const pageNumbers = Array.from({length: 486}, (_, index) => index + 1);
+        const groups = buildPrintSpreadGroups(pageNumbers, 'facing');
+        expect(groups).toHaveLength(243);
+        expect(groups[0]).toEqual([
+            1,
+            2,
+        ]);
+        expect(groups[121]).toEqual([
+            243,
+            244,
+        ]);
+        expect(groups.at(-1)).toEqual([
+            485,
+            486,
+        ]);
+
+        const firstSingleGroups = buildPrintSpreadGroups(pageNumbers, 'facing-first-single');
+        expect(firstSingleGroups).toHaveLength(244);
+        expect(firstSingleGroups.slice(0, 2)).toEqual([
+            [1],
+            [
+                2,
+                3,
+            ],
+        ]);
+        expect(firstSingleGroups.at(-1)).toEqual([486]);
+
+        const sourcePdfData = await createRotatedSourcePdf(Array<number>(486).fill(0));
+        const originalSourcePdfData = sourcePdfData.slice();
+        const printablePdfData = await buildPrintablePdfData(sourcePdfData, {
+            pageNumbers,
+            viewMode: 'facing',
+            orientation: 'auto',
+        });
+
+        expect(sourcePdfData).toEqual(originalSourcePdfData);
+        const printablePdf = await PDFDocument.load(printablePdfData!);
+        expect(printablePdf.getPageCount()).toBe(243);
+        expect(printablePdf.getPages().every(page => {
+            const size = page.getSize();
+            return size.width === 841.89 && size.height === 595.28;
+        })).toBe(true);
     });
 });

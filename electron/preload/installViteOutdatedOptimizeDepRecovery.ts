@@ -92,9 +92,9 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             return;
         }
         if (data) {
-            console.error(message, data);
+            console.warn(message, data);
         } else {
-            console.error(message);
+            console.warn(message);
         }
     });
 

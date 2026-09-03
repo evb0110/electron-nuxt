@@ -1,3 +1,5 @@
+/* eslint-disable max-lines -- DjVu conversion and durable job state share one error owner. */
+
 import {
     app,
     BrowserWindow,
@@ -32,6 +34,13 @@ import type {
     TDocumentOutputOperation,
 } from '@contracts/electronApiDjvu';
 import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    decodeFailureReceipt,
+    isExpectedOutcome,
+    type ExpectedOutcome,
+    type ExpectedOutcomeCode,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {
@@ -53,6 +62,7 @@ import {
     type IDjvuPdfConversionPolicyDecision,
     type TDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
+import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
 import { safeSendToWindow } from '@electron/djvu/safeSendToWindow';
@@ -68,6 +78,8 @@ import {
     createDjvuPdfBookmarkTask,
     DjvuPdfWorkerStartupError,
 } from '@electron/features/djvu/main/pdfWorkerClient';
+import {getWorkerTaskFailureReceipt} from '@electron/utils/workerTask';
+import {PdfCombineCapabilityError} from '@electron/image/pdfCombineErrors';
 import { getErrorMessage } from '@electron/utils/error';
 import {
     abortErrorFromSignal,
@@ -364,7 +376,10 @@ async function replaceFileAtomically(sourcePath: string, targetPath: string, sig
 
 type TDjvuProgressScope = Pick<IDjvuProgress, 'documentRef' | 'requestId'>;
 type TDjvuPublicJobResult = IDjvuConvertResult | IDjvuOpenResult | IDjvuPrintResult;
-type TDjvuJobError = IMainJobErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'>;
+type TDjvuJobError = IMainJobErrorEnvelope<'canceled' | 'failed' | 'duplicate-job-id' | 'not-found-or-unauthorized'> & {
+    failure?: FailureReceipt;
+    expected?: ExpectedOutcome;
+};
 type TDjvuJobSnapshot = TMainJobSnapshot<IDjvuProgress, TDjvuPublicJobResult, TDjvuJobError>;
 type TDjvuRegistryContext = IMainJobRunContext<IDjvuProgress, TDjvuPublicJobResult, TDjvuJobError>;
 interface IDjvuJobRunContext {
@@ -374,7 +389,49 @@ interface IDjvuJobRunContext {
 }
 
 function isDjvuCancellationError(error: unknown) {
-    return getErrorMessage(error).toLowerCase().includes('djvu conversion canceled');
+    return getErrorMessage(error).trim().toLowerCase() === 'djvu conversion canceled';
+}
+
+function createDjvuExpectedOutcome(code: ExpectedOutcomeCode): ExpectedOutcome {
+    return {
+        kind: 'expected',
+        code,
+    };
+}
+
+function getDjvuFailureReceipt(value: unknown) {
+    if (value instanceof Error) {
+        const workerFailure = getWorkerTaskFailureReceipt(value);
+        if (workerFailure !== undefined) {
+            return workerFailure;
+        }
+    }
+    if (typeof value !== 'object' || value === null || !('failure' in value)) {
+        return undefined;
+    }
+    return decodeFailureReceipt(value.failure) ?? undefined;
+}
+
+function getDjvuExpectedOutcome(value: unknown) {
+    if (typeof value !== 'object' || value === null || !('expected' in value)) {
+        return undefined;
+    }
+    return isExpectedOutcome(value.expected) ? value.expected : undefined;
+}
+
+function classifyDjvuConversionExpectedOutcome(error: unknown): ExpectedOutcome | undefined {
+    if (isDjvuCancellationError(error)) {
+        return createDjvuExpectedOutcome('canceled');
+    }
+
+    if (error instanceof PdfCombineCapabilityError && error.code === 'native-unavailable') {
+        return createDjvuExpectedOutcome('temporarily-unavailable');
+    }
+
+    if (isPdfCombineOutputTooLargeError(error)) {
+        return createDjvuExpectedOutcome('validation-rejected');
+    }
+    return undefined;
 }
 
 function getOptionalResultError(value: unknown) {
@@ -423,12 +480,22 @@ const djvuJobs = createMainJobRegistry<IDjvuProgress, TDjvuPublicJobResult, TDjv
             );
         },
     },
-    toError: (cause, kind) => ({
-        code: kind === 'canceled' ? 'canceled' : kind,
-        message: cause instanceof Error
-            ? cause.message
-            : getOptionalResultError(cause) ?? 'DjVu operation failed',
-    }),
+    toError: (cause, kind) => {
+        const expected = kind === 'canceled'
+            ? createDjvuExpectedOutcome('canceled')
+            : getDjvuExpectedOutcome(cause);
+        const failure = kind === 'canceled' || expected !== undefined
+            ? undefined
+            : getDjvuFailureReceipt(cause);
+        return {
+            code: kind === 'canceled' ? 'canceled' : kind,
+            message: cause instanceof Error
+                ? cause.message
+                : getOptionalResultError(cause) ?? 'DjVu operation failed',
+            ...(failure === undefined ? {} : {failure}),
+            ...(expected === undefined ? {} : {expected}),
+        };
+    },
     terminalProgress: {
         completed: (latest, result) => result.success
             ? {
@@ -436,12 +503,19 @@ const djvuJobs = createMainJobRegistry<IDjvuProgress, TDjvuPublicJobResult, TDjv
                 percent: 100,
                 status: 'success',
             }
-            : {
-                ...latest,
-                percent: 100,
-                status: 'failed',
-                error: result.error ?? 'DjVu operation failed',
-            },
+            : getDjvuExpectedOutcome(result)?.code === 'canceled'
+                ? {
+                    ...latest,
+                    percent: 100,
+                    status: 'canceled',
+                    error: result.error ?? 'DjVu operation canceled',
+                }
+                : {
+                    ...latest,
+                    percent: 100,
+                    status: 'failed',
+                    error: result.error ?? 'DjVu operation failed',
+                },
         canceled: (latest, error) => ({
             ...latest,
             percent: 100,
@@ -477,17 +551,49 @@ function projectDjvuJob(snapshot: TDjvuJobSnapshot): TDocumentOutputJobState {
         };
     }
     if (snapshot.progress.status === 'canceled' || snapshot.status === 'canceled') {
+        const resultFailure = snapshot.status === 'completed'
+            ? getDjvuFailureReceipt(snapshot.result)
+            : undefined;
+        const resultExpected = snapshot.status === 'completed'
+            ? getDjvuExpectedOutcome(snapshot.result)
+            : undefined;
+        const expected = snapshot.status === 'canceled'
+            ? snapshot.error.expected
+            : resultExpected;
+        const failure = expected !== undefined
+            ? undefined
+            : snapshot.status === 'canceled'
+                ? snapshot.error.failure
+                : resultFailure;
         return {
             ...base,
             status: 'canceled',
             ...(snapshot.progress.error ? {error: snapshot.progress.error} : {}),
+            ...(failure === undefined ? {} : {failure}),
+            ...(expected === undefined ? {} : {expected}),
         };
     }
     if (snapshot.progress.status === 'failed' || snapshot.status === 'failed') {
+        const resultFailure = snapshot.status === 'completed'
+            ? getDjvuFailureReceipt(snapshot.result)
+            : undefined;
+        const resultExpected = snapshot.status === 'completed'
+            ? getDjvuExpectedOutcome(snapshot.result)
+            : undefined;
+        const expected = snapshot.status === 'failed'
+            ? snapshot.error.expected
+            : resultExpected;
+        const failure = expected !== undefined
+            ? undefined
+            : snapshot.status === 'failed'
+                ? snapshot.error.failure
+                : resultFailure;
         return {
             ...base,
             status: 'failed',
             ...(snapshot.progress.error ? {error: snapshot.progress.error} : {}),
+            ...(failure === undefined ? {} : {failure}),
+            ...(expected === undefined ? {} : {expected}),
         };
     }
     if (snapshot.progress.status === 'success' || snapshot.status === 'completed') {
@@ -569,13 +675,21 @@ async function awaitDjvuJob(
     if (terminal.status === 'completed') {
         return terminal.result;
     }
-    return {
+    const baseResult = {
         success: false,
         jobId: normalizedJobId,
         ...(terminal.progress.requestId ? {requestId: terminal.progress.requestId} : {}),
         ...(terminal.progress.documentRef ? {documentRef: terminal.progress.documentRef} : {}),
         error: terminal.error.message,
-    } satisfies TDjvuPublicJobResult;
+    };
+    if (kind === 'convert') {
+        return {
+            ...baseResult,
+            ...(terminal.error.failure === undefined ? {} : {failure: terminal.error.failure}),
+            ...(terminal.error.expected === undefined ? {} : {expected: terminal.error.expected}),
+        } satisfies IDjvuConvertResult;
+    }
+    return baseResult satisfies IDjvuOpenResult;
 }
 
 export function subscribeDjvuProgress(context: IDjvuOperationContext) {
@@ -837,7 +951,10 @@ async function runDjvuPrintPath(
         if (canceled) {
             logger.info(`[${jobId}] DjVu print preparation canceled`);
         } else {
-            logger.error(`[${jobId}] DjVu print preparation failed: ${errorMessage}`);
+            logger.error(`[${jobId}] DjVu print preparation failed: ${errorMessage}`, {
+                code: 'MAIN_DJVU_EXPORT_FAILED',
+                context: {},
+            });
         }
         const result = {
             success: false,
@@ -901,9 +1018,6 @@ async function runDjvuConvertToPdf(
     progressScope: TDjvuProgressScope,
     job: IDjvuJobRunContext,
 ): Promise<IDjvuConvertResult> {
-    const tempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-export-'));
-    const tempPdfPath = join(tempDir, `${conversionId}.convert.pdf`);
-    const tempBookmarkedPdfPath = join(tempDir, `${conversionId}.bookmarks.pdf`);
     logger.info(`[${jobId}] Converting DjVu to PDF: ${djvuPath} -> ${normalizedOutputPath}`);
     const sendProgress = (progress: IDjvuProgress) => {
         const scopedProgress = {
@@ -918,7 +1032,12 @@ async function runDjvuConvertToPdf(
         percent: 0,
     });
 
+    let tempDir: string | null = null;
     try {
+        const exportTempDir = await mkdtemp(join(app.getPath('temp'), 'djvu-export-'));
+        tempDir = exportTempDir;
+        const tempPdfPath = join(exportTempDir, `${conversionId}.convert.pdf`);
+        const tempBookmarkedPdfPath = join(exportTempDir, `${conversionId}.bookmarks.pdf`);
         await assertDjvuExportDiskSpace(djvuPath, normalizedOutputPath);
         const result = await runDjvuConversionJobWithSlot(jobId, job.signal, async () => {
             const strategy = resolveDjvuPdfExportStrategy(options.pdfStrategy);
@@ -939,7 +1058,7 @@ async function runDjvuConvertToPdf(
                     jobId,
                     djvuPath,
                     outputPath: tempPdfPath,
-                    tempDir,
+                    tempDir: exportTempDir,
                     pageCount,
                     sourceDpi,
                     pageSizes,
@@ -966,6 +1085,7 @@ async function runDjvuConvertToPdf(
                             outputPath: tempPdfPath,
                             fileSize: 0,
                             error: createDjvuConversionPolicyError(policy),
+                            expected: createDjvuExpectedOutcome('validation-rejected'),
                         };
                     }
 
@@ -984,11 +1104,17 @@ async function runDjvuConvertToPdf(
                 })();
 
             if (!convertResult.success) {
+                const conversionFailure = getDjvuFailureReceipt(convertResult);
+                const conversionExpected = getDjvuExpectedOutcome(convertResult);
                 return {
                     success: false,
                     jobId,
                     ...progressScope,
                     error: convertResult.error ?? 'DjVu conversion failed',
+                    ...(conversionFailure !== undefined && conversionExpected === undefined
+                        ? {failure: conversionFailure}
+                        : {}),
+                    ...(conversionExpected === undefined ? {} : {expected: conversionExpected}),
                 };
             }
             throwIfCanceled(job.signal);
@@ -1049,31 +1175,76 @@ async function runDjvuConvertToPdf(
             if (canceled) {
                 throw job.signal.reason ?? createAbortError('DjVu conversion canceled');
             }
+
+            const expected = getDjvuExpectedOutcome(result);
+            if (expected !== undefined) {
+                return {
+                    ...result,
+                    expected,
+                };
+            }
+            const failure = getDjvuFailureReceipt(result)
+                ?? logger.error(`[${jobId}] Conversion failed: ${error ?? 'DjVu conversion failed'}`, {
+                    code: 'MAIN_DJVU_EXPORT_FAILED',
+                    context: {},
+                });
+            return failure === undefined ? result : {
+                ...result,
+                failure,
+            };
         }
         return result;
     } catch (error) {
         const canceled = job.signal.aborted || isDjvuCancellationError(error);
         if (canceled) {
             logger.info(`[${jobId}] Conversion canceled`);
-        } else {
-            logger.error(`[${jobId}] Conversion failed: ${getErrorMessage(error)}`);
+            return {
+                success: false,
+                jobId,
+                ...progressScope,
+                error: 'DjVu conversion canceled',
+                expected: createDjvuExpectedOutcome('canceled'),
+            };
         }
+
+        const expected = classifyDjvuConversionExpectedOutcome(error);
+        if (expected !== undefined) {
+            logger.warn(`[${jobId}] DjVu conversion ended with an expected outcome: ${getErrorMessage(error)}`);
+            return {
+                success: false,
+                jobId,
+                ...progressScope,
+                error: getErrorMessage(error),
+                expected,
+            };
+        }
+
+        const errorMessage = getErrorMessage(error);
+        const failure = getDjvuFailureReceipt(error)
+            ?? logger.error(`[${jobId}] Conversion failed: ${errorMessage}`, {
+                code: 'MAIN_DJVU_EXPORT_FAILED',
+                context: {},
+                cause: error,
+            });
         const result = {
             success: false,
             jobId,
             ...progressScope,
-            error: canceled ? 'DjVu conversion canceled' : getErrorMessage(error),
+            error: errorMessage,
+            ...(failure === undefined ? {} : {failure}),
         };
         return result;
     } finally {
         activePdfWorkerByJobId.delete(jobId);
-        try {
-            await rm(tempDir, {
-                force: true,
-                recursive: true,
-            });
-        } catch {
-            // Ignore cleanup errors
+        if (tempDir !== null) {
+            try {
+                await rm(tempDir, {
+                    force: true,
+                    recursive: true,
+                });
+            } catch {
+                // Ignore cleanup errors
+            }
         }
     }
 }
@@ -1109,6 +1280,7 @@ function startDjvuConvertJob(
                     jobId,
                     ...progressScope,
                     error: 'Invalid output path',
+                    expected: createDjvuExpectedOutcome('validation-rejected'),
                 };
             }
             if (!normalizedOutputPath) {
@@ -1117,6 +1289,7 @@ function startDjvuConvertJob(
                     jobId,
                     ...progressScope,
                     error: 'Invalid output path: please use Save dialog before converting DjVu to PDF',
+                    expected: createDjvuExpectedOutcome('validation-rejected'),
                 };
             }
             return runDjvuConvertToPdf(
@@ -1152,6 +1325,14 @@ export async function handleDjvuConvertToPdf(
             error: terminal.status === 'canceled'
                 ? 'DjVu conversion canceled'
                 : terminal.error.message,
+            ...(terminal.error.failure === undefined
+                ? {}
+                : {failure: terminal.error.failure}),
+            ...(terminal.error.expected === undefined
+                ? terminal.status === 'canceled'
+                    ? {expected: createDjvuExpectedOutcome('canceled')}
+                    : {}
+                : {expected: terminal.error.expected}),
         };
 }
 

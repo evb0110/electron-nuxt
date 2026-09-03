@@ -1,3 +1,5 @@
+import { PRIVACY_MESSAGES } from '@i18n-core';
+
 export default {
     app: {
         title: 'EVB Viewer',
@@ -17,47 +19,12 @@ export default {
         docs: 'Documentatie',
         features: 'Functies',
         viewSource: 'Broncode bekijken',
-    },
-    privacy: {
-        seo: {
-            title: 'Privacybeleid',
-            description: 'Privacybeleid voor de desktop-app, browser-app, website en optionele assistentfuncties van EVB Viewer.',
-        },
-        hero: {
-            title: 'Privacybeleid',
-            subtitle: 'Hoe EVB Viewer omgaat met documenten, instellingen, analysegegevens en optionele assistentfuncties.',
-            effectiveDate: 'Van kracht vanaf 19 augustus 2026',
-        },
-        documents: {
-            heading: 'Documenten en lokale verwerking',
-            body: 'EVB Viewer opent documenten die je zelf selecteert. In de desktop-app worden documentweergave, OCR, annotaties, paginabewerkingen en export op je apparaat uitgevoerd. De browser-app verwerkt geselecteerde documenten in je browser, tenzij je een functie kiest die uitdrukkelijk een externe dienst gebruikt. EVB Viewer uploadt je documenten standaard niet naar de ontwikkelaar.',
-        },
-        assistant: {
-            heading: 'Optionele assistentdiensten',
-            body: 'Assistentfuncties zijn optioneel. Wanneer je een assistent gebruikt die is gebaseerd op Codex, OpenAI of Anthropic Claude, worden prompts en alle inhoud of bijlagen die je kiest via je account naar die aanbieder gestuurd en vallen ze onder de voorwaarden en het privacybeleid van die aanbieder. EVB Viewer verkoopt deze informatie niet.',
-        },
-        analytics: {
-            heading: 'Analyse- en technische gegevens',
-            body: 'De website en browser-app van EVB Viewer kunnen beperkte gebruiksgebeurtenissen en technische gegevens verzamelen, zoals paginapaden, functiegebeurtenissen, taal, schermcategorie, verwijzende site, browser-user-agent, geschatte regio en een wisselende gehashte bezoekerscode. Deze gegevens worden gebruikt om de betrouwbaarheid en het productgebruik te begrijpen en niet om de inhoud van documenten vast te stellen.',
-        },
-        settings: {
-            heading: 'Instellingen, recente bestanden en updates',
-            body: 'Appvoorkeuren, de status van de werkruimte en verwijzingen naar recente bestanden kunnen lokaal op je apparaat worden opgeslagen. De desktop-app kan GitHub benaderen om software-updates te controleren en te downloaden. Het besturingssysteem en appstorediensten kunnen aanvullende technische gegevens verwerken volgens hun eigen beleid.',
-        },
-        storage: {
-            heading: 'Cookies en browseropslag',
-            body: 'EVB Viewer gebruikt eigen voorkeurscookies om de taal en, in de browser-app, het thema te onthouden. Taalcookies kunnen maximaal één jaar worden bewaard en de themacookie maximaal 180 dagen. De downloadsite gebruikt maximaal 90 dagen een ondoorzichtige HttpOnly-cohortcookie om aanbevelingen tijdens gefaseerde releases consistent te houden; deze wordt niet gebruikt voor advertenties of tracking tussen websites. De browser-app gebruikt daarnaast lokale opslag, sessieopslag en IndexedDB voor voorkeuren, verwijzingen naar recente bestanden, de status van de werkruimte, documentgegevens die je wilt bewaren en een willekeurige analyse-ID per sessie. EVB Viewer plaatst geen advertentiecookies of cookies van derden. Je kunt cookies en door de browser opgeslagen gegevens verwijderen via de instellingen voor websitegegevens van je browser; hierdoor worden voorkeuren en lokaal opgeslagen appgegevens gewist.',
-        },
-        retention: {
-            heading: 'Bewaartermijnen en keuzes',
-            body: 'Lokale appgegevens blijven op je apparaat totdat je ze verwijdert of de app deïnstalleert. Je bepaalt zelf welke documenten en bijlagen worden geopend of naar optionele assistentdiensten worden gestuurd. Analysegegevens van de website worden alleen bewaard zolang dat nodig is voor de werking en beveiliging van het product en voor trendanalyse en worden na 90 dagen automatisch voor verwijdering ingepland.',
-        },
-        contact: {
-            heading: 'Contact',
-            intro: 'Vragen of privacyverzoeken kun je indienen via de',
-            linkLabel: 'issue-tracker van EVB Viewer',
+        sentryAcknowledgement: {
+            message: 'Dank aan Sentry voor de ondersteuning van EVB Viewer via het open-sourceprogramma.',
+            linkLabel: 'Meer over Sentry voor open source',
         },
     },
+    privacy: PRIVACY_MESSAGES['nl'],
     home: {
         seo: {
             title: 'EVB Viewer web-app en desktopdownloads',

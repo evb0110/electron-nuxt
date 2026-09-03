@@ -6,12 +6,14 @@ import {
     it,
     vi,
 } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
 import {
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
+    DIAGNOSTICS_POLICY_ARGUMENT_PREFIX,
 } from '@electron/platform-ipc/coreContract';
 import {
     HOST_RESOURCE_PROFILE_ARGUMENT_PREFIX,
@@ -458,6 +460,73 @@ describe('createElectronApi', () => {
                 tier: 'low',
             }), 'utf8')
             .toString('base64url')}`])).toBeNull();
+    });
+
+    it('decodes diagnostics startup policy arguments fail-closed', async () => {
+        const { readDiagnosticsPolicyArgument } = await import('@electron/preload/readDiagnosticsPolicyArgument');
+        const validArgument = `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${Buffer
+            .from(JSON.stringify({mode: 'granted'}), 'utf8')
+            .toString('base64url')}`;
+
+        expect(readDiagnosticsPolicyArgument(['electron'])).toEqual({mode: 'unknown'});
+        expect(readDiagnosticsPolicyArgument([
+            validArgument,
+            validArgument,
+        ])).toEqual({mode: 'unknown'});
+        expect(readDiagnosticsPolicyArgument([`${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}%%%`])).toEqual({mode: 'unknown'});
+        expect(readDiagnosticsPolicyArgument([validArgument])).toEqual({mode: 'granted'});
+        expect(Object.isFrozen(readDiagnosticsPolicyArgument([validArgument]))).toBe(true);
+    });
+
+    it('exposes only the closed diagnostics namespace members', async () => {
+        const {
+            ipcRenderer,
+            listeners,
+        } = await createApiHarness();
+        const policy = Object.freeze({mode: 'granted' as const});
+        const { createElectronApi } = await import('@electron/preload/createElectronApi');
+        const diagnosticsApi = createElectronApi(
+            ipcRenderer as never,
+            {getPathForFile: () => ''},
+            {diagnosticsPolicy: policy},
+        );
+        const callback = vi.fn();
+
+        expect(Object.keys(diagnosticsApi.diagnostics)).toEqual([
+            'startupPolicy',
+            'sendRecord',
+            'onDebugLog',
+        ]);
+        expect(diagnosticsApi.diagnostics.startupPolicy).toBe(policy);
+        expect(Object.isFrozen(diagnosticsApi.diagnostics.startupPolicy)).toBe(true);
+        diagnosticsApi.diagnostics.sendRecord({} as never, 7);
+        expect(ipcRenderer.send).toHaveBeenCalledWith(CORE_IPC_SEND_CHANNELS.rendererDiagnostic, {}, 7);
+
+        diagnosticsApi.diagnostics.onDebugLog(callback);
+        listeners.get(CORE_IPC_EVENT_CHANNELS.debugLog)?.({}, {
+            source: 'main',
+            message: 'closed',
+            timestamp: '2026-09-03T00:00:00.000Z',
+            level: 'ERROR',
+            failureRef: {
+                eventId: 'a'.repeat(32),
+                code: 'UNCLASSIFIED_MAIN_ERROR',
+                severity: 'error',
+            },
+        });
+        expect(callback).toHaveBeenCalledWith(expect.objectContaining({failureRef: {
+            eventId: 'a'.repeat(32),
+            code: 'UNCLASSIFIED_MAIN_ERROR',
+            severity: 'error',
+        }}));
+    });
+
+    it('keeps diagnostics inside electronAPI without a Sentry preload import or global bridge', () => {
+        const preloadSource = readFileSync('electron/preload.ts', 'utf8');
+
+        expect(preloadSource).not.toMatch(/from\s+['"]@sentry\//u);
+        expect(preloadSource).not.toContain('contextBridge.exposeInMainWorld(\'diagnostics\'');
+        expect(preloadSource).toContain('contextBridge.exposeInMainWorld(\'electronAPI\', electronApi)');
     });
 
     it('returns the preload resource profile synchronously with stable identity', async () => {

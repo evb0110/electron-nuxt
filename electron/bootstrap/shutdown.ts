@@ -61,6 +61,11 @@ async function runStep(logger: ILogger, step: IShutdownStep): Promise<IShutdownS
             timeout
                 ? `Shutdown step timed out (${step.label}, ${timeoutMs}ms)`
                 : `Shutdown step failed (${step.label}): ${getErrorMessage(error)}`,
+            {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+                cause: error,
+            },
         );
         return {failed: true};
     }
@@ -97,7 +102,10 @@ export function createShutdownPhaseRunners(
                 // it is safe to delete the remainder.
                 if (result.failed) {
                     context.preserveRecoveryState = true;
-                    logger.error('Shutdown preservation was incomplete; retaining workspace recovery state');
+                    logger.error('Shutdown preservation was incomplete; retaining workspace recovery state', {
+                        code: 'MAIN_SHUTDOWN_FAILED',
+                        context: {},
+                    });
                 }
             } finally {
                 logger.info(
@@ -147,7 +155,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             return;
         }
         gracefulQuitForceTimer = setTimeout(() => {
-            options.logger.error(`Best-effort shutdown cleanup exceeded deadline (${SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`);
+            options.logger.error(`Best-effort shutdown cleanup exceeded deadline (${SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS}ms); forcing exit`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            });
             isQuittingAfterCleanup = true;
             options.app.exit(1);
         }, SHUTDOWN_CLEANUP_TIMEOUT_MS + GRACEFUL_QUIT_FORCE_EXIT_DELAY_MS);
@@ -159,7 +170,11 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             await options.runPreservationSteps(context);
         } catch (error) {
             context.preserveRecoveryState = true;
-            options.logger.error(`Shutdown preservation failed; retaining workspace recovery state: ${getErrorMessage(error)}`);
+            options.logger.error(`Shutdown preservation failed; retaining workspace recovery state: ${getErrorMessage(error)}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+                cause: error,
+            });
         }
 
         if (armForceExit) {
@@ -169,10 +184,18 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             await options.runBestEffortCleanupSteps(context);
         } catch (error) {
             if (isTimeoutError(error)) {
-                options.logger.error(`Best-effort shutdown cleanup timed out after ${SHUTDOWN_CLEANUP_TIMEOUT_MS}ms`);
+                options.logger.error(`Best-effort shutdown cleanup timed out after ${SHUTDOWN_CLEANUP_TIMEOUT_MS}ms`, {
+                    code: 'MAIN_SHUTDOWN_FAILED',
+                    context: {},
+                    cause: error,
+                });
                 return;
             }
-            options.logger.error(`Best-effort shutdown cleanup failed: ${getErrorMessage(error)}`);
+            options.logger.error(`Best-effort shutdown cleanup failed: ${getErrorMessage(error)}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+                cause: error,
+            });
         }
     }
 
@@ -196,7 +219,11 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
         }, true);
 
         void shutdownPromise.catch((error: unknown) => {
-            options.logger.error(`Shutdown cleanup rejected unexpectedly: ${getErrorMessage(error)}`);
+            options.logger.error(`Shutdown cleanup rejected unexpectedly: ${getErrorMessage(error)}`, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+                cause: error,
+            });
         }).then(() => {
             clearGracefulQuitForceTimer();
             clearSystemShutdownForceTimer();
@@ -210,7 +237,11 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
                 try {
                     afterCleanup();
                 } catch (error) {
-                    options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`);
+                    options.logger.error(`Graceful quit post-cleanup action failed: ${getErrorMessage(error)}`, {
+                        code: 'MAIN_SHUTDOWN_FAILED',
+                        context: {},
+                        cause: error,
+                    });
                     options.app.quit();
                 }
                 return;
@@ -237,7 +268,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             }
 
             isFatalShutdownInProgress = true;
-            options.logger.error(reason);
+            options.logger.error(reason, {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            });
             if (shutdownContext) {
                 shutdownContext.preserveRecoveryState = true;
                 shutdownContext.reason = 'fatal';
@@ -273,7 +307,10 @@ export function createShutdownCoordinator(options: ICreateShutdownCoordinatorOpt
             }
             if (!systemShutdownForceTimer) {
                 systemShutdownForceTimer = setTimeout(() => {
-                    options.logger.error(`System shutdown preservation exceeded deadline (${SYSTEM_SHUTDOWN_TIMEOUT_MS}ms); forcing exit with recovery state retained`);
+                    options.logger.error(`System shutdown preservation exceeded deadline (${SYSTEM_SHUTDOWN_TIMEOUT_MS}ms); forcing exit with recovery state retained`, {
+                        code: 'MAIN_SHUTDOWN_FAILED',
+                        context: {},
+                    });
                     clearGracefulQuitForceTimer();
                     systemShutdownForceTimer = null;
                     const exitCode = isFatalShutdownInProgress ? 1 : 0;

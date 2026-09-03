@@ -249,6 +249,7 @@
 
     <footer class="home-bottom">
       <span class="home-copyright">{{ t('footer.copyright') }}</span>
+      <SentryAcknowledgement class="home-footer-acknowledgement" />
     </footer>
   </main>
 </template>
@@ -257,6 +258,7 @@
 import { partition } from 'es-toolkit/array';
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
 import { selectInstallersForPlatform } from '~~/shared/selectInstallersForPlatform';
+import SentryAcknowledgement from '~/components/SentryAcknowledgement.vue';
 import {
     buildClientProfile,
     formatFileSize,
@@ -593,3 +595,25 @@ async function refreshReleaseData() {
     await refresh();
 }
 </script>
+
+<style scoped>
+.home-bottom {
+  flex-wrap: wrap;
+  gap: 1rem 2rem;
+}
+
+.home-footer-acknowledgement {
+  flex: 1 1 28rem;
+  min-width: min(100%, 18rem);
+}
+
+@media (width <= 40rem) {
+  .home-bottom {
+    align-items: flex-start;
+  }
+
+  .home-footer-acknowledgement {
+    flex-basis: 100%;
+  }
+}
+</style>

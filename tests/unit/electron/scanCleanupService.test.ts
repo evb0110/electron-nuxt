@@ -17,6 +17,7 @@ import {
 } from 'vitest';
 import type {WebContents} from 'electron';
 import type {IHostResourceProfileSnapshot} from '@contracts/hostResourceProfile';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type * as TPageOpsModule from '@electron/features/page-ops/public';
 import type * as TJobBrokerModule from '@electron/resources/jobBroker';
 import type * as TOpenPathCapabilitiesModule from '@electron/file-access/openPathCapabilities';
@@ -64,6 +65,12 @@ const mocks = vi.hoisted(() => {
         totalRamBytes: 32 * 1024 ** 3,
         tier: 'high' as 'low' | 'medium' | 'high',
     };
+    const failureReceipt = {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_MAIN_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    } as FailureReceipt;
     return {
         acquire,
         allowOpenPath: vi.fn(() => '/managed/cleaned.pdf'),
@@ -74,12 +81,24 @@ const mocks = vi.hoisted(() => {
         pageOpsDisabled: false,
         pruneOutputs: vi.fn(async () => 0),
         runWorker,
+        failureReceipt,
+        loggerError: vi.fn(() => failureReceipt),
+        workerFailures: new WeakMap<object, FailureReceipt>(),
     };
 });
 
 vi.mock('@electron/features/scan-cleanup/runScanCleanupWorkerTask', () => (
     {runScanCleanupWorkerTask: mocks.runWorker}
 ));
+vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
+    debug: vi.fn(),
+    error: mocks.loggerError,
+    info: vi.fn(),
+    warn: vi.fn(),
+})}));
+vi.mock('@electron/utils/workerTask', () => ({getWorkerTaskFailureReceipt: (error: unknown) => (
+    typeof error === 'object' && error !== null ? mocks.workerFailures.get(error) : undefined
+)}));
 vi.mock('@electron/resources/jobBroker', async importOriginal => {
     const actual = await importOriginal<typeof TJobBrokerModule>();
     return {
@@ -201,6 +220,7 @@ describe('scan cleanup service', () => {
         mocks.isWorkingCopyOriginalPathRegistered.mockReturnValue(false);
         mocks.pruneOutputs.mockClear();
         mocks.runWorker.mockClear();
+        mocks.loggerError.mockClear();
         mocks.pageOpsDisabled = false;
         Object.assign(mocks.host, {
             logicalCpus: 11,
@@ -511,6 +531,25 @@ describe('scan cleanup service', () => {
         const terminal = service.getState(webContents, started.jobId, owner);
         expect(terminal?.status === 'failed' ? terminal.error : '').toContain('evb-pdf-page-ops');
         expect(mocks.runWorker).not.toHaveBeenCalled();
+        expect(terminal?.status === 'failed' ? terminal.failure : undefined).toEqual(mocks.failureReceipt);
+    });
+
+    it('reuses a worker-owned receipt in the failed state without another error log', async () => {
+        const workerFailure = new Error('worker failed');
+        mocks.workerFailures.set(workerFailure, mocks.failureReceipt);
+        mocks.runWorker.mockRejectedValueOnce(workerFailure);
+        const service = createScanCleanupService();
+        const webContents = sender();
+        const started = await service.start(webContents, startRequest);
+        if (!started.started) throw new Error('Expected scan cleanup to start');
+
+        await vi.waitFor(() => expect(service.getState(webContents, started.jobId, owner))
+            .toMatchObject({
+                status: 'failed',
+                failure: mocks.failureReceipt,
+            }));
+
+        expect(mocks.loggerError).not.toHaveBeenCalled();
     });
 
     it('treats cancellation of an already-terminal owned job as a successful no-op', async () => {

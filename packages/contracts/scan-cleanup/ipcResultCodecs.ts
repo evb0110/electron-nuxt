@@ -1,4 +1,5 @@
 import {isRecord} from '@contracts/runtimeGuards';
+import {decodeFailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     decodeScanCleanupScratchShortfall,
     SCAN_CLEANUP_ERROR_CODES,
@@ -957,11 +958,20 @@ export function decodeScanCleanupJobState(value: unknown): TScanCleanupJobState 
         if (typeof value.error !== 'string' || !isScanCleanupErrorCode(value.errorCode)) {
             throw new Error('failed scan-cleanup state requires a typed error');
         }
+        let failure;
+        if (value.failure !== undefined) {
+            const decodedFailure = decodeFailureReceipt(value.failure);
+            if (decodedFailure === null) {
+                throw new Error('failed scan-cleanup state has an invalid failure receipt');
+            }
+            failure = decodedFailure;
+        }
         return {
             ...base,
             status: 'failed',
             error: value.error,
             errorCode: value.errorCode,
+            ...(failure === undefined ? {} : {failure}),
         };
     }
     throw new Error('invalid scan-cleanup job status');

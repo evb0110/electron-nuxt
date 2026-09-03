@@ -38,6 +38,14 @@
                     </p>
                 </template>
             </UAlert>
+            <p
+                v-if="shortFailureId"
+                id="fatal-runtime-error-id"
+                class="mt-4 text-sm text-dimmed"
+            >
+                <span class="font-medium text-default">Error ID</span>
+                <code class="ml-2 break-all">{{ shortFailureId }}</code>
+            </p>
             <div
                 v-if="detail"
                 class="mt-4 rounded-xl border border-default bg-elevated p-4 text-sm text-dimmed"
@@ -59,12 +67,12 @@
                     {{ reloadLabel }}
                 </UButton>
                 <UButton
-                    v-if="detail"
+                    v-if="detail || failure"
                     data-fatal-runtime-action="copy"
                     color="neutral"
                     variant="soft"
                     :icon="copied ? 'i-ph-check' : 'i-ph-copy'"
-                    @click="$emit('copy')"
+                    @click="handleCopy"
                 >
                     {{ copyLabel }}
                 </UButton>
@@ -74,28 +82,61 @@
 </template>
 
 <script setup lang="ts">
+import {
+    formatFailurePresentationCopy,
+    getFailureErrorId,
+} from '@app/composables/useFailureToast';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
 const props = defineProps<{
     copied: boolean;
     copyLabel: string;
     description: string;
     detail: string | null;
     detailLabel: string;
+    failure?: FailureReceipt | null;
     open: boolean;
     reloadLabel: string;
     title: string;
 }>();
 
-defineEmits<{
-    copy: [];
+const emit = defineEmits<{
+    copy: [text?: string];
     reload: [];
 }>();
 
 const dialogElement = ref<HTMLDialogElement | null>(null);
 const headingElement = ref<HTMLHeadingElement | null>(null);
 const alertTitleSlot = 'title';
-const dialogDescriptionIds = computed(() => props.detail
-    ? 'fatal-runtime-description fatal-runtime-detail'
-    : 'fatal-runtime-description');
+const shortFailureId = computed(() => props.failure
+    ? getFailureErrorId(props.failure)
+    : null);
+const dialogDescriptionIds = computed(() => [
+    'fatal-runtime-description',
+    shortFailureId.value ? 'fatal-runtime-error-id' : null,
+    props.detail ? 'fatal-runtime-detail' : null,
+].filter((id): id is string => Boolean(id)).join(' '));
+
+function getLocalDetails() {
+    return [
+        props.description,
+        props.detail,
+    ]
+        .filter((value): value is string => Boolean(value?.trim()))
+        .join('\n') || undefined;
+}
+
+function handleCopy() {
+    const description = getLocalDetails();
+    const text = props.failure
+        ? formatFailurePresentationCopy({
+            failure: props.failure,
+            title: props.title,
+            ...(description ? {description} : {}),
+        })
+        : props.detail ?? undefined;
+    emit('copy', text);
+}
 
 function getRecoveryControls() {
     return Array.from(

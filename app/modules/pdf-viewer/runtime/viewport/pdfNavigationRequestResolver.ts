@@ -6,6 +6,10 @@ import type {
     IPdfNavigationRequest,
     TPdfNavigationTarget,
 } from '@app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest';
+import {
+    createTextLayerRangeForSearchMatch,
+    createTextLayerRangeForSearchOccurrence,
+} from '@app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom';
 import { resolveBookmarkDestinationTarget } from '@app/utils/pdfOutlineHelpers';
 
 export interface IResolvedPdfNavigationTarget {
@@ -90,6 +94,41 @@ export function resolveTextAnchorRect(
         return null;
     }
     const spans = Array.from(textLayer.querySelectorAll<HTMLElement>('span'));
+    if (target.searchRange) {
+        const exactRange = createTextLayerRangeForSearchMatch(textLayer, target.searchRange);
+        const range = exactRange && exactRange.toString().normalize('NFC').toLocaleLowerCase()
+            === target.text.normalize('NFC').toLocaleLowerCase()
+            ? exactRange
+            : createTextLayerRangeForSearchOccurrence(textLayer, target);
+        const rects = range
+            ? Array.from(range.getClientRects?.() ?? []).filter(rect => rect.width > 0 || rect.height > 0)
+            : [];
+        const rect = rects.length > 0
+            ? {
+                left: Math.min(...rects.map(item => item.left)),
+                top: Math.min(...rects.map(item => item.top)),
+                right: Math.max(...rects.map(item => item.right)),
+                bottom: Math.max(...rects.map(item => item.bottom)),
+                width: Math.max(...rects.map(item => item.right)) - Math.min(...rects.map(item => item.left)),
+                height: Math.max(...rects.map(item => item.bottom)) - Math.min(...rects.map(item => item.top)),
+            }
+            : range?.getBoundingClientRect();
+        if (rect && (rect.width > 0 || rect.height > 0)) {
+            const pageRect = page.getBoundingClientRect();
+            if (pageRect.width > 0 && pageRect.height > 0) {
+                return {
+                    left: clamp((rect.left - pageRect.left) / pageRect.width, 0, 1),
+                    top: clamp((rect.top - pageRect.top) / pageRect.height, 0, 1),
+                    width: clamp(rect.width / pageRect.width, 0, 1),
+                    height: clamp(rect.height / pageRect.height, 0, 1),
+                };
+            }
+        }
+        // A canonical range and page-local occurrence are the only reliable
+        // identities for a search result. If neither maps, keep page-level
+        // navigation rather than jumping to the first duplicate span.
+        return null;
+    }
     const needle = `${target.prefix ?? ''}${target.text}${target.suffix ?? ''}`.normalize('NFKC');
     const matchingSpan = spans.find((span) => {
         const value = (span.textContent ?? '').normalize('NFKC');
@@ -128,7 +167,8 @@ export function isPdfNavigationReady(
     }
     const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${page}"]`);
     if (readiness === 'text-layer') {
-        return Boolean(pageElement?.querySelector('.text-layer, .textLayer'));
+        const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
+        return textLayer?.dataset?.pdfTextLayerReady === 'true';
     }
     return Boolean(pageElement?.querySelector(
         '.pdf-annotation-editor-layer, .annotation-editor-layer, .annotationEditorLayer',

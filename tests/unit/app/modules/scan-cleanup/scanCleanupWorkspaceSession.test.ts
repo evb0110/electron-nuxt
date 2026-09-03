@@ -394,7 +394,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         await mounted.session.run.run();
 
         expect(harness.value.start).not.toHaveBeenCalled();
-        expect(mounted.session.run.error.value).toBe('scanCleanup.detectAll.evidenceMissing');
+        expect(mounted.session.run.error.value).toMatch(
+            /^scanCleanup\.detectAll\.evidenceMissing\nError ID: [0-9a-f]{8}$/u,
+        );
         mounted.unmount();
     });
 
@@ -2778,7 +2780,9 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         await mounted.session.run.run();
 
-        expect(mounted.session.run.error.value).toBe('scanCleanup.runDisabled.unavailable');
+        expect(mounted.session.run.error.value).toMatch(
+            /^scanCleanup\.runDisabled\.unavailable\nError ID: [0-9a-f]{8}$/u,
+        );
         expect(mounted.session.run.errorCode.value).toBe('tools-unavailable');
         mounted.unmount();
     });

@@ -4,6 +4,7 @@ import type {
 } from '@app/types/pdfUi';
 import {
     assembleSearchablePageText,
+    buildPdfSearchRegex,
     mapAssembledSearchablePageTextRange,
 } from '@pdf-core';
 import type { IAssembledSearchablePageText } from '@contracts/search';
@@ -35,6 +36,72 @@ function buildBackendVisualMatches(
                 canUseBackendIdentity: true,
             }] : [];
         });
+}
+
+function buildLayerSearchMatches(
+    pageMatches: IPdfPageMatches,
+    assembledLayerText: IAssembledSearchablePageText,
+): IVisualSearchMatch[] {
+    if (!pageMatches.searchQuery) {
+        return [];
+    }
+
+    let pattern: RegExp;
+    try {
+        pattern = buildPdfSearchRegex(pageMatches.searchQuery, {
+            matchCase: pageMatches.searchOptions?.matchCase ?? false,
+            wholeWord: pageMatches.searchOptions?.wholeWord ?? false,
+            useRegex: pageMatches.searchOptions?.useRegex ?? false,
+        });
+    } catch {
+        return [];
+    }
+
+    const occurrences = [...assembledLayerText.text.matchAll(pattern)]
+        .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+    const canUseBackendIdentity = occurrences.length === pageMatches.matches.length;
+    return occurrences
+        .flatMap((match, index): IVisualSearchMatch[] => {
+            const backendMatch = pageMatches.matches[index];
+            if (match.index === undefined) {
+                return [];
+            }
+            const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
+                startOffset: match.index,
+                endOffset: match.index + match[0].length,
+            });
+            if (!mapped) {
+                return [];
+            }
+            return [{
+                start: mapped.startOffset,
+                end: mapped.endOffset,
+                matchIndex: backendMatch?.matchIndex ?? index,
+                pageMatchIndex: index,
+                canUseBackendIdentity: canUseBackendIdentity && backendMatch !== undefined,
+            }];
+        });
+}
+
+function backendMatchesPointAtDistinctLayerOccurrences(
+    backendMatches: IVisualSearchMatch[],
+    layerMatches: IVisualSearchMatch[],
+) {
+    const remainingLayerRanges = new Map<string, number>();
+    for (const layerMatch of layerMatches) {
+        const key = `${String(layerMatch.start)}:${String(layerMatch.end)}`;
+        remainingLayerRanges.set(key, (remainingLayerRanges.get(key) ?? 0) + 1);
+    }
+
+    return backendMatches.every((backendMatch) => {
+        const key = `${String(backendMatch.start)}:${String(backendMatch.end)}`;
+        const remaining = remainingLayerRanges.get(key) ?? 0;
+        if (remaining === 0) {
+            return false;
+        }
+        remainingLayerRanges.set(key, remaining - 1);
+        return true;
+    });
 }
 
 function isCurrentVisualMatch(
@@ -124,6 +191,16 @@ export function buildVisualMatchesWithCurrent(
     layerText: string,
     assembledLayerText = assembleSearchablePageText([{text: layerText}]),
 ): IHighlightMatchRange[] {
+    const layerMatches = buildLayerSearchMatches(pageMatches, assembledLayerText);
     const backendMatches = buildBackendVisualMatches(pageMatches, assembledLayerText);
-    return markVisualMatchesWithCurrent(backendMatches, pageMatches, currentMatch);
+    const backendMatchesPointAtLayerOccurrences = !pageMatches.searchQuery
+        || backendMatchesPointAtDistinctLayerOccurrences(backendMatches, layerMatches);
+    const matches = backendMatches.length === pageMatches.matches.length
+        && backendMatchesPointAtLayerOccurrences
+        ? backendMatches
+        : layerMatches.map(match => ({
+            ...match,
+            canUseBackendIdentity: false,
+        }));
+    return markVisualMatchesWithCurrent(matches, pageMatches, currentMatch);
 }

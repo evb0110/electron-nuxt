@@ -241,6 +241,7 @@ describe('page metadata remap', () => {
         const args = mocks.runNativeToolCommand.mock.calls[0]?.[1] as string[];
         expect(args[0]).toBe('save-mutations');
         expect(args).toContain('--append');
+        expect(args).toContain('--append-in-place');
         expect(args).toEqual(expect.arrayContaining([
             '--qpdf',
             '/mock/qpdf',
@@ -310,6 +311,10 @@ describe('page metadata remap', () => {
             chunkIndex: 2,
             chunkCount: 3,
         });
+        expect(mocks.runNativeToolCommand.mock.calls.every(call => (
+            (call[1] as string[]).includes('--append')
+            && (call[1] as string[]).includes('--append-in-place')
+        ))).toBe(true);
     });
 
     it('refuses an in-place append when the working-copy inode is shared', async () => {

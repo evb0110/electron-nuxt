@@ -44,6 +44,7 @@ import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import {applyCombinedPdfPageLabels} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import { getAnnotationAuthor } from '@app/services/pdf/annotationMetadata';
 
@@ -77,27 +78,6 @@ const NATIVE_DJVU_SEARCH_FIXTURE_PAGE_COUNT = 501;
 const NATIVE_DJVU_SEARCH_FIXTURE_LATE_PAGE = 450;
 const NATIVE_DJVU_SEARCH_FIXTURE_SENTINEL = 'EVB_LATE_DJVU_SENTINEL_450';
 
-function applyFixturePageLabels(
-    document: PDFDocument,
-    ranges: ReadonlyArray<{
-        pageIndex: number;
-        style?: string;
-        prefix?: string;
-        start?: number
-    }>,
-) {
-    const nums = ranges.flatMap((range) => {
-        const dict = document.context.obj({});
-        if (range.style) dict.set(PDFName.of('S'), PDFName.of(range.style));
-        if (range.prefix !== undefined) dict.set(PDFName.of('P'), PDFString.of(range.prefix));
-        if (range.start !== undefined) dict.set(PDFName.of('St'), PDFNumber.of(range.start));
-        return [
-            PDFNumber.of(range.pageIndex),
-            dict,
-        ];
-    });
-    document.catalog.set(PDFName.of('PageLabels'), document.context.obj({Nums: document.context.obj(nums)}));
-}
 const GENERATED_DJVU_FIXTURE_PAGE_COUNT = 100;
 const GENERATED_DJVU_FIXTURE_WIDTH = 1200;
 const GENERATED_DJVU_FIXTURE_HEIGHT = 1600;
@@ -671,6 +651,74 @@ export async function createTextMarkupAcceptanceFixturePdf(filename: string, pag
     return filePath;
 }
 
+export const SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT = 241;
+export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT;
+export const SEARCH_MATCH_SCROLL_FIXTURE_QUERY = 'EVB_SEARCH_SCROLL_SENTINEL';
+export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH = 4;
+
+/**
+ * Create the deterministic large document used by the search-result viewport
+ * test. The last page has four identical matches, with the selected fourth
+ * match close to the bottom edge so a page-only jump leaves it out of view.
+ */
+export async function createSearchMatchScrollFixturePdf(
+    filename: string,
+    pageCount = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT,
+) {
+    if (pageCount < 2) {
+        throw new Error('Search match scroll fixture requires at least two pages');
+    }
+
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`E2E search match scroll fixture page ${pageNumber}/${pageCount}`, {
+            x: 60,
+            y: 735,
+            size: 14,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+
+        if (pageNumber < pageCount) {
+            page.drawText(`${SEARCH_MATCH_SCROLL_FIXTURE_QUERY} page ${pageNumber}`, {
+                x: 60,
+                y: 690,
+                size: 16,
+                font,
+                color: rgb(0.22, 0.22, 0.22),
+            });
+            continue;
+        }
+
+        [
+            700,
+            600,
+            500,
+            100,
+        ].forEach((y, index) => {
+            page.drawText(`${SEARCH_MATCH_SCROLL_FIXTURE_QUERY} match ${index + 1}`, {
+                x: 60,
+                y,
+                size: 16,
+                font,
+                color: rgb(0.22, 0.22, 0.22),
+            });
+        });
+    }
+
+    const bytes = await doc.save();
+    writeFileSync(filePath, bytes);
+    return filePath;
+}
+
 /**
  * Creates an externally authored Highlight whose quad is on blank page
  * space. The parser should retain it as a normal store-owned text markup,
@@ -864,7 +912,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
         });
     }
 
-    applyFixturePageLabels(doc, [
+    applyCombinedPdfPageLabels(doc, [
         {
             pageIndex: 0,
             style: 'r',
