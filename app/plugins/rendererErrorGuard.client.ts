@@ -170,6 +170,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         });
         reportRuntimeError({
             ...presentation,
+            failure: presentation.failure,
             title: t('errors.runtime.title'),
         });
     };
