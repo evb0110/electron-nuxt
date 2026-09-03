@@ -28,6 +28,8 @@ import {
     encodeHostResourceProfileArgument,
     getHostResourceProfileSnapshot,
 } from '@electron/resources/hostResourceProfile';
+import { getMainFailureReporter } from '@electron/features/diagnostics/public';
+import { encodeDiagnosticsPolicyArgument } from '@electron/platform-ipc/coreContract';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -350,9 +352,10 @@ export async function createAppWindow(options: ICreateAppWindowOptions = {}) {
             contextIsolation: true,
             sandbox: true,
             preload: preloadPath,
-            additionalArguments: [encodeHostResourceProfileArgument(
-                getHostResourceProfileSnapshot(),
-            )],
+            additionalArguments: [
+                encodeHostResourceProfileArgument(getHostResourceProfileSnapshot()),
+                encodeDiagnosticsPolicyArgument(getMainFailureReporter()?.getPreference()),
+            ],
             ...(keepAutomationRendererActive ? {backgroundThrottling: false} : {}),
         },
     });

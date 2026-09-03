@@ -21,6 +21,7 @@ import {
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import { createCodecIpcInvoker } from '@electron/preload/ipcClient';
 import { readHostResourceProfileArgument } from '@electron/preload/readHostResourceProfileArgument';
+import { readDiagnosticsPolicyArgument } from '@electron/preload/readDiagnosticsPolicyArgument';
 const preloadAlreadyInstalled = markPreloadInstalled();
 if (preloadAlreadyInstalled) {
     console.debug('[Preload] Re-exposing bridge for duplicate installation (fast reload detected)');
@@ -73,6 +74,7 @@ const deferredAutomationDocumentOpens = new Map<string, {
     release: () => void;
 }>();
 const electronApi = createElectronApi(ipcRenderer, webUtils, {
+    diagnosticsPolicy: readDiagnosticsPolicyArgument(),
     resourceProfile: readHostResourceProfileArgument(),
     waitForDocumentOpenDirect: path =>
         deferredAutomationDocumentOpens.get(path)?.promise ?? Promise.resolve(),
