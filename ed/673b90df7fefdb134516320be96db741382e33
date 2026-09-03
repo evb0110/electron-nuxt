@@ -1,0 +1,87 @@
+packages/contracts/djvuPlatformFeature.ts
+  s_b412fd4cd3f576::t_a58a664e300173 31-33,483-512,557-560,568,670-673,679
+  s_b412fd4cd3f576::t_1b37bf957e90cb 30
+app/composables/useDjvu.ts
+  s_b412fd4cd3f576::t_e61f21623f4b86 2-7,46,92-108,113-119,121-127
+  s_b412fd4cd3f576::t_2b2d5aa8fa10d3 109-112
+  s_b412fd4cd3f576::t_211fdf17395d60 120
+  s_b412fd4cd3f576::t_b0af6e56c7720e 194,286-297,299,305-320
+  s_b412fd4cd3f576::t_7af9d77301619f 697-700,709-713,767-778
+  s_b412fd4cd3f576::t_d2c39d3b613e92 128,321
+tests/unit/electron/djvuPdfExport.test.ts
+  s_b412fd4cd3f576::t_d90ecc3f0f7168 11,68,158-169,195-196
+  s_b412fd4cd3f576::t_f4b1f7d8f67bf4 140
+  s_b412fd4cd3f576::t_af515ca1ecc954 670,1373-1405
+  s_b412fd4cd3f576::t_1be993912ef2bd 723,752
+  s_b412fd4cd3f576::t_0ead220ba1ccc7 311-317
+  s_b412fd4cd3f576::t_e119f7a6f7a449 747-750
+  s_b412fd4cd3f576::t_c954a60b62b367 601,603-604,620-669
+  s_b412fd4cd3f576::t_da6d7bfbcf63b8 672-708
+  s_b412fd4cd3f576::t_9d372c28c90216 671
+tests/unit/app/platform/browserDjvuConversionPipeline.test.ts
+  s_b412fd4cd3f576::t_2b2d5aa8fa10d3 292-316
+  s_b412fd4cd3f576::t_adfe4e53afe4d5 10,17-18,23-25,32-43
+  s_b412fd4cd3f576::t_a5deabd54d77b2 273
+  s_b412fd4cd3f576::t_aaa472f3771c5b 250-272,274-291
+app/platform/browser-api/browserDjvuConversionPipeline.ts
+  s_b412fd4cd3f576::t_83d93221aa53b9 886-895,1049-1062,1070
+  s_b412fd4cd3f576::t_2b2d5aa8fa10d3 122
+  s_b412fd4cd3f576::t_7c59d867ba7dae 36-41,88-89,100-114,119-121,123-130,132-133,137-139
+  s_b412fd4cd3f576::t_67cc1cbe4fa623 45,63,90-99,115-118,131,134-136,770,777,899-906,920-925,932-937,945-957
+  s_b412fd4cd3f576::t_213f99812e9275 769,771-776
+  s_b412fd4cd3f576::t_2aa225a076f80d 140
+tests/unit/contracts/djvuPlatformFeature.test.ts
+  s_b412fd4cd3f576::t_b602855e6757c1 11,15-20,210-302
+electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu.ts
+  s_b412fd4cd3f576::t_5c742466f719df 203-206,344-347
+electron/features/djvu/main/pdfExport.ts
+  s_b412fd4cd3f576::t_ded390e48d41a1 560-562,583-585
+  s_b412fd4cd3f576::t_71ed3d736f971b 566-567,589-590
+  s_b412fd4cd3f576::t_aa07dc45226dc5 678,684-692
+  s_b412fd4cd3f576::t_4a60850fe21934 1032
+  s_b412fd4cd3f576::t_e119f7a6f7a449 506-512,554-559
+  s_b412fd4cd3f576::t_6de18963048898 1085,1273,1282
+  s_b412fd4cd3f576::t_da5b18a1f777db 37-43,81
+  s_b412fd4cd3f576::t_52b5b76f6b8219 65,82,392,427,429-432,487-489,563-565,586-588
+  s_b412fd4cd3f576::t_25706f695610ad 513-518
+  s_b412fd4cd3f576::t_bd3f217dffd394 1104-1105,1111-1114
+  s_b412fd4cd3f576::t_1b3a84d71cc73c 1318-1325
+  s_b412fd4cd3f576::t_53db7c572e69a9 403-407
+  s_b412fd4cd3f576::t_f4b1f7d8f67bf4 1-2
+  s_b412fd4cd3f576::t_eae559cc06ba46 483-486,490-498,1034-1037,1058
+  s_b412fd4cd3f576::t_f3e6a849489040 379-382,393,395-402,408-426,428,433-434,572-573,577-582,595-596
+  s_b412fd4cd3f576::t_0cc5edce55dd21 1176
+  s_b412fd4cd3f576::t_619df620c97aa4 1175,1177-1188,1195-1213,1215-1218,1223-1224,1229-1237
+  s_b412fd4cd3f576::t_1b4bb32b850012 394
+packages/contracts/electronApiDjvu.ts
+  s_b412fd4cd3f576::t_aebeb4dbade144 2-5,85-86,323-324
+app/platform/browser-api/browserDurableDjvuJobs.ts
+  s_b412fd4cd3f576::t_08ef24289d8e30 99
+  s_b412fd4cd3f576::t_0e3bdd0046faa7 38-45,97-98,100-106,226-227
+  s_b412fd4cd3f576::t_60b5551faeceaa 209
+  s_b412fd4cd3f576::t_4a96c8be5c3eb7 210
+  s_b412fd4cd3f576::t_4f0a50907b4b4c 6-9,24-37,214-218
+tests/unit/app/composables/useDjvu.test.ts
+  s_b412fd4cd3f576::t_8a4958d2e9bc44 20,59-70,85,159,481-482,484-488,493-588,716
+  s_b412fd4cd3f576::t_2b2d5aa8fa10d3 589,591-617
+  s_b412fd4cd3f576::t_32e78a61fde33c 590
+tests/unit/app/platform/browserDurableDjvuJobs.test.ts
+  s_b412fd4cd3f576::t_46293e167036ce 9,13-18,50-97
+  s_b412fd4cd3f576::t_12762efbf6d7c5 98
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ed673b90df7fefdb134516320be96db741382e33",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
