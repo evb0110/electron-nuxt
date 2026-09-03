@@ -1,0 +1,40 @@
+.fallowrc.json
+  s_b412fd4cd3f576::t_c54c9e5449e2fa 33-35,41
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_91b82044ae53aa 31
+  s_b412fd4cd3f576::t_636095428750a6 1
+tests/helpers/captureTransport.ts
+  s_b412fd4cd3f576::t_636095428750a6 25
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_7224871df7d15f 661-663
+tests/e2e/electron/helpers/workspaceExpose.ts
+  s_b412fd4cd3f576::t_25344e7ec4fb07 363,366-373,378,380-381,387-388,391,396-409
+  s_b412fd4cd3f576::t_ff31c375e43473 374-377,392-395
+electron/platform-ipc/rendererDiagnosticBridge.ts
+  s_b412fd4cd3f576::t_636095428750a6 7
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_b412fd4cd3f576::t_f4b3e64e7b23ed 43,271-272
+  s_b412fd4cd3f576::t_7b893417e43d0b 265,269-270,273-276
+  s_b412fd4cd3f576::t_5f79d460aba1a9 17,65-67
+  s_b412fd4cd3f576::t_6a7a3cabdad0cc 42
+  s_b412fd4cd3f576::t_3cee3dd4215e54 277
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_b412fd4cd3f576::t_ff31c375e43473 787,798,1179-1182
+  s_b412fd4cd3f576::t_095dcb632fca72 96,796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "6ee2396cdfb63442efe6f09c6f167836f9d35541",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
