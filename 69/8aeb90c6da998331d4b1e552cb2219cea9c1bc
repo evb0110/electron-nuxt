@@ -1,0 +1,55 @@
+scripts/architecture/boundary-check.mjs
+  s_b412fd4cd3f576::t_dd90f5a5ee249a 988-993,997-1062,1067-1159,1166-1234,1244-1308
+  s_b412fd4cd3f576::t_df23c8a683efbe 994-996,1063-1066,1160-1165
+  s_b412fd4cd3f576::t_898951bd7bbf04 1235-1243
+  s_b412fd4cd3f576::t_bd8f9e90a61a72 1476
+  s_b412fd4cd3f576::t_7057ceec64615b 322-361
+eslint.config.mjs
+  s_b412fd4cd3f576::t_f380f965cb0019 191
+scripts/validation-gates.mjs
+  s_b412fd4cd3f576::t_23130f999afa6b 1464,1466
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_b412fd4cd3f576::t_f7fc48e42c6813 1-206
+  s_b412fd4cd3f576::t_0a053cc4908acb 207-210
+package.json
+  s_b412fd4cd3f576::t_23130f999afa6b 127
+  s_b412fd4cd3f576::t_438ce722e41e98 146-148,199
+scripts/check-web-deploy-assets.mjs
+  s_b412fd4cd3f576::t_88527ca6346197 23,170-174
+.fallowrc.json
+  s_b412fd4cd3f576::t_3ce6edd278fa45 88
+tests/unit/scripts/webDeployAssets.test.ts
+  s_b412fd4cd3f576::t_88527ca6346197 310
+  s_b412fd4cd3f576::t_dc8fa42340626a 293-309,311-312,315
+  s_b412fd4cd3f576::t_25d7221cc2b290 313-314
+  s_b412fd4cd3f576::t_6f54937bc3b9ad 316-318
+  s_610bc64cdb92fe::t_01bc8fcf9605f3 319-323
+pnpm-workspace.yaml
+  s_b412fd4cd3f576::t_438ce722e41e98 23
+pnpm-lock.yaml
+  s_b412fd4cd3f576::t_6241c52e800cbf 137-145,196,287,290-293,347,386,425,428,431,437,443,591-601,1940-1981,2950-3066,4252-4255,4531-4533,5998-6001,6677-6680,6766-6768,7546-7548,7665-7668,7930-7932,9281-9304,10665,10695,10730,10760,10901,10907,10917,10951,10957,10967,11222,11239,11241,11249,11308,11325,11327,11335,11421,11425-11427,11483-11484,11542,11546-11548,11604-11605,11663,11681,11726,11744,11798,11824,11866,11871-11872,11893-11935,12501-12620,13443,13898-13899,14177-14178,14407,14409,14527,14530,15422,15436,15850-15855,16459-16460,16529-16530,16565,16586,16632,16677,16698,16744,16881,16889,16906,16910,16912,16915,17048,17052,17054,17057,17190,17199,17210,17913-17914,18066-18072,18352-18353,19376,19387,19560,19583
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "698aeb90c6da998331d4b1e552cb2219cea9c1bc",
+  "prompts": {},
+  "sessions": {
+    "s_610bc64cdb92fe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0662a-f21b-7e70-b277-27d2173119ea",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
