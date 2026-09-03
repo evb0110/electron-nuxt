@@ -1,0 +1,29 @@
+app/modules/workspace-shell/viewers/workspaceDocumentDriver.ts
+  s_83314e12e884ea::t_ea6efc958326e2 535
+  s_83314e12e884ea::t_d097db39c79615 30,536
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_83314e12e884ea::t_f976a4d8a2be31 94-111,1285-1291,1293
+  s_83314e12e884ea::t_eaa1872f9dbb2c 92-93,143-150,1317-1318,1320,1333-1334,1336,1343-1344,1351-1352
+  s_83314e12e884ea::t_8f8412b8ef7d56 1401-1407
+  s_83314e12e884ea::t_50c465624ec85c 1319,1335,1345-1350
+tests/unit/app/components/pdfImagePlacementOverlay.test.ts
+  s_83314e12e884ea::t_d097db39c79615 101-103
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfImagePlacement.ts
+  s_83314e12e884ea::t_d097db39c79615 339,368,377
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "73c63702861ef82a872e3b79ace0529e567a46f7",
+  "prompts": {},
+  "sessions": {
+    "s_83314e12e884ea": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06400-0f2d-7f62-91bc-dbea8514f244",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": null
+    }
+  }
+}
