@@ -108,6 +108,63 @@ describe('latest release endpoint policy', () => {
         expect(fetch).toHaveBeenCalledTimes(1);
     });
 
+    it('logs exhausted catalog availability as a warning without creating an occurrence', async () => {
+        vi.useFakeTimers();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        const upstreamError = {response: {status: 503}};
+        const fetch = vi.fn().mockRejectedValue(upstreamError);
+        const createError = vi.fn((details: {
+            statusCode: number;
+            statusMessage: string;
+        }) => Object.assign(
+            new Error(details.statusMessage),
+            details,
+        ));
+
+        vi.stubGlobal('defineEventHandler', (handler: unknown) => handler);
+        vi.stubGlobal('useRuntimeConfig', () => ({
+            githubApiBase: 'https://api.github.com',
+            githubOwner: 'evb0110',
+            githubRepo: 'evb-viewer',
+            githubToken: '',
+            releaseMirrorBaseUrl: '',
+            releaseStableTags: '',
+            releaseWithdrawnTags: '',
+            releaseCanaryTag: '',
+            releaseCanaryPercent: '0',
+        }));
+        vi.stubGlobal('setHeader', vi.fn());
+        vi.stubGlobal('getCookie', vi.fn(() => undefined));
+        vi.stubGlobal('setCookie', vi.fn());
+        vi.stubGlobal('$fetch', fetch);
+        vi.stubGlobal('createError', createError);
+
+        try {
+            const endpointPath = resolve(process.cwd(), 'landing/server/api/releases/latest.get.ts');
+            const {default: handler} = await import(endpointPath);
+            const request = handler({} as never);
+            const rejection = expect(request).rejects.toMatchObject({
+                statusCode: 503,
+                statusMessage: 'Release catalog is temporarily unavailable',
+            });
+
+            await vi.runAllTimersAsync();
+
+            await rejection;
+            expect(consoleWarn).toHaveBeenCalledWith('Unable to fetch release catalog', expect.objectContaining({
+                outcome: 'temporarily-unavailable',
+                statusCode: 503,
+            }));
+            expect(consoleError).not.toHaveBeenCalled();
+            expect(fetch).toHaveBeenCalledTimes(3);
+        } finally {
+            consoleWarn.mockRestore();
+            consoleError.mockRestore();
+            vi.useRealTimers();
+        }
+    });
+
     it('uses the policy-neutral releases index only while selected release data is unavailable', () => {
         const source = readFileSync(resolve(process.cwd(), 'landing/app/pages/index.vue'), 'utf8');
 
