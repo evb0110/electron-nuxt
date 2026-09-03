@@ -21,6 +21,20 @@ import {
     stopTrackedScopes,
 } from '@tests/helpers/trackedEffectScope';
 
+const loggerMocks = vi.hoisted(() => ({
+    debug: vi.fn(),
+    diagnostic: vi.fn(),
+    error: vi.fn(() => ({
+        eventId: '0123456789abcdef0123456789abcdef' as const,
+        code: 'UNCLASSIFIED_RENDERER_ERROR' as const,
+        occurredAt: 1,
+        severity: 'error' as const,
+    })),
+    warn: vi.fn(),
+}));
+
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: loggerMocks}));
+
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     FREETEXT: 3,
     HIGHLIGHT: 9,
@@ -258,6 +272,7 @@ function stubSelection(range: Range | null) {
 }
 
 beforeEach(() => {
+    vi.clearAllMocks();
     document.body.innerHTML = '';
     pagePointRange.value = null;
     vi.stubGlobal('PointerEvent', class extends Event {});
@@ -292,6 +307,11 @@ describe('useAnnotationHighlight creation outcomes', () => {
             reason: 'mode-switch-failed',
         });
         expect(harness.failures).toEqual([expect.objectContaining({reason: 'mode-switch-failed'})]);
+        expect(harness.failures[0]).toMatchObject({
+            kind: 'fault',
+            failure: {eventId: '0123456789abcdef0123456789abcdef'},
+        });
+        expect(loggerMocks.error).toHaveBeenCalledOnce();
         expect(harness.layer.createAndAddNewEditor).not.toHaveBeenCalled();
     });
 
@@ -325,6 +345,14 @@ describe('useAnnotationHighlight creation outcomes', () => {
         });
         expect(harness.submitSelectionMarkupIntent).not.toHaveBeenCalled();
         expect(harness.failures).toEqual([expect.objectContaining({reason: 'selection-spans-pages'})]);
+        expect(harness.failures[0]).toMatchObject({
+            kind: 'expected',
+            outcome: {
+                kind: 'expected',
+                code: 'validation-rejected',
+            },
+        });
+        expect(loggerMocks.error).not.toHaveBeenCalled();
     });
 
     it('does not report success when no editor is bound to the created annotation', async () => {
