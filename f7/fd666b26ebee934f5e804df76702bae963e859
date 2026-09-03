@@ -1,0 +1,36 @@
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_c57729f2c66bed::t_faf502208b0433 66,3227,3237-3238,3252,3254,3259-3261,3263,3268-3269,3341-3342,3344-3359,3370-3374,3388-3395
+  s_c57729f2c66bed::t_dba5233c56098e 3343
+  s_c57729f2c66bed::t_4711cee9c2eb4d 3375-3378
+app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes.ts
+  s_c57729f2c66bed::t_dba5233c56098e 30-35
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_c57729f2c66bed::t_5a909eb08a69cd 1550-1557,1563-1630,1632-1660,1665-1672
+  s_c57729f2c66bed::t_eeddef352d180f 1558-1562,1631,1661-1664
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_c57729f2c66bed::t_4f3945e65852bf 693
+  s_c57729f2c66bed::t_baba77ee78b8aa 694-708
+tests/unit/app/services/pdf-save/nativePdfMutationProjection.test.ts
+  s_c57729f2c66bed::t_dba5233c56098e 142-143,146-149,152,154
+  s_c57729f2c66bed::t_baba77ee78b8aa 144-145,151
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_c57729f2c66bed::t_dba5233c56098e 439
+native/pdf-page-ops/src/incremental_document.rs
+  s_c57729f2c66bed::t_d02aa5883c1f65 701,703-708,790-801,924-938
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f7fd666b26ebee934f5e804df76702bae963e859",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
