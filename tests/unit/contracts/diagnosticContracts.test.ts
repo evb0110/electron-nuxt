@@ -1,0 +1,468 @@
+/* eslint-disable @typescript-eslint/naming-convention */
+
+import {
+    describe,
+    expect,
+    expectTypeOf,
+    it,
+} from 'vitest';
+import * as fc from 'fast-check';
+import {
+    DIAGNOSTIC_CODES,
+    DIAGNOSTIC_DEFINITIONS,
+    decodeDiagnosticContext,
+    type DiagnosticCode,
+    type DiagnosticContext,
+} from '@contracts/diagnostics/diagnosticCodes';
+import {
+    createDiagnosticEventId,
+    DIAGNOSTIC_EVENT_ID_HEX_LENGTH,
+    parseDiagnosticEventId,
+} from '@contracts/diagnostics/diagnosticEventId';
+import {
+    decodeDiagnosticRecord,
+    DIAGNOSTIC_RECORD_SCHEMA_VERSION,
+    MAX_DIAGNOSTIC_RECORD_FRAMES,
+    type DiagnosticRecord,
+} from '@contracts/diagnostics/diagnosticRecord';
+import {
+    decodeStartupCrashMarkerRecord,
+    STARTUP_CRASH_MARKER_SCHEMA_VERSION,
+    type StartupCrashMarkerRecord,
+} from '@contracts/diagnostics/startupCrashMarker';
+import {
+    type CaptureFailureInput,
+    type ExpectedOutcome,
+    type FailureReceipt,
+    type LocalFailureDetail,
+    isExpectedOutcome,
+} from '@contracts/diagnostics/failureReceipt';
+import {createCaptureTransport} from '@tests/helpers/captureTransport';
+
+const VALID_EVENT_ID = parseDiagnosticEventId('a'.repeat(DIAGNOSTIC_EVENT_ID_HEX_LENGTH))!;
+
+const BASE_FRAME = {
+    module: 'app/modules/viewer.ts',
+    function: 'openDocument',
+    line: 12,
+    column: 8,
+} as const;
+
+const BASE_RECORD: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {
+    schemaVersion: DIAGNOSTIC_RECORD_SCHEMA_VERSION,
+    eventId: VALID_EVENT_ID,
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    severity: 'error',
+    runtime: 'electron-renderer',
+    operation: 'renderer-error',
+    occurredAt: 1_757_000_000_000,
+    frames: [BASE_FRAME],
+    context: {
+        phase: 'operation',
+        attempt: 2,
+        recovered: false,
+    },
+};
+
+const FORBIDDEN_SENTINELS = [
+    'forbidden exception message: secret-document.pdf',
+    'forbidden console argument [object Object]',
+    'forbidden UI string',
+    '/Users/example/Documents/secret-document.pdf',
+    'C:\\Users\\example\\Documents\\secret-document.pdf',
+    'https://example.test/private?token=forbidden#fragment',
+] as const;
+
+const FORBIDDEN_OBJECTS = [
+    {
+        message: FORBIDDEN_SENTINELS[0],
+        path: FORBIDDEN_SENTINELS[3],
+        nested: {value: FORBIDDEN_SENTINELS[5]},
+    },
+    {
+        cause: {stack: FORBIDDEN_SENTINELS[1]},
+        data: [FORBIDDEN_SENTINELS[2]],
+    },
+] as const;
+
+const FORBIDDEN_VALUES = fc.oneof(
+    fc.constantFrom(...FORBIDDEN_SENTINELS),
+    fc.constantFrom(...FORBIDDEN_OBJECTS),
+);
+
+function copyBaseRecord(): Record<string, unknown> {
+    return {
+        ...BASE_RECORD,
+        frames: BASE_RECORD.frames.map(frame => ({...frame})),
+        context: {...BASE_RECORD.context},
+    };
+}
+
+function assignForbiddenValue(location: string, value: unknown) {
+    const candidate = copyBaseRecord();
+    switch (location) {
+        case 'schemaVersion':
+        case 'eventId':
+        case 'code':
+        case 'severity':
+        case 'runtime':
+        case 'operation':
+        case 'occurredAt':
+            candidate[location] = value;
+            break;
+        case 'frames':
+            candidate.frames = value;
+            break;
+        case 'frame':
+            (candidate.frames as unknown[])[0] = value;
+            break;
+        case 'frame.module':
+        case 'frame.function':
+        case 'frame.line':
+        case 'frame.column':
+            (candidate.frames as Array<Record<string, unknown>>)[0]![location.slice('frame.'.length)] = value;
+            break;
+        case 'context.phase':
+        case 'context.attempt':
+        case 'context.recovered':
+            (candidate.context as Record<string, unknown>)[location.slice('context.'.length)] = value;
+            break;
+        case 'context':
+            candidate.context = value;
+            break;
+        default:
+            throw new Error(`Unhandled diagnostic test location: ${location}`);
+    }
+    return candidate;
+}
+
+describe('diagnostic contracts', () => {
+    it('derives the closed code union from one registry', () => {
+        expect(DIAGNOSTIC_CODES).toEqual([
+            'UNCLASSIFIED_RENDERER_ERROR',
+            'UNCLASSIFIED_MAIN_ERROR',
+            'UNCLASSIFIED_CONSOLE_ERROR',
+            'MAIN_STARTUP_CRASH',
+        ]);
+        expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
+        expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (
+            definition.grouping === 'code-and-top-frame'
+            && (definition.stackPolicy === 'source' || definition.stackPolicy === 'call-site')
+            && !Object.hasOwn(definition, 'message')
+        ))).toBe(true);
+    });
+
+    it('decodes only the bounded context declared by the registry', () => {
+        expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {
+            phase: 'bootstrap',
+            attempt: 0,
+            recovered: true,
+        })).toEqual({
+            phase: 'bootstrap',
+            attempt: 0,
+            recovered: true,
+        });
+        expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {phase: 'invalid'})).toBeNull();
+        expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: 101})).toBeNull();
+        expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: Number.POSITIVE_INFINITY})).toBeNull();
+        expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {unexpected: true})).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_STARTUP_CRASH', {attempt: 1})).toBeNull();
+    });
+
+    it('creates unique lowercase 128-bit occurrence IDs', () => {
+        const ids = Array.from({length: 128}, () => createDiagnosticEventId());
+        expect(new Set(ids).size).toBe(ids.length);
+        expect(ids.every(id => /^[0-9a-f]{32}$/u.test(id))).toBe(true);
+    });
+
+    it.each([
+        '',
+        'A'.repeat(32),
+        'a'.repeat(31),
+        'a'.repeat(33),
+        `${'a'.repeat(31)}g`,
+        ' a'.repeat(16),
+        null,
+        42,
+    ])('rejects malformed event ID %s', value => {
+        expect(parseDiagnosticEventId(value)).toBeNull();
+    });
+
+    it('strictly decodes and rebuilds a diagnostic record', () => {
+        const decoded = decodeDiagnosticRecord(BASE_RECORD);
+        expect(decoded).toEqual(BASE_RECORD);
+        expect(decoded).not.toBe(BASE_RECORD);
+        expect(decoded?.frames).not.toBe(BASE_RECORD.frames);
+        expect(decoded?.context).not.toBe(BASE_RECORD.context);
+    });
+
+    it.each([
+        [
+            'schemaVersion',
+            {
+                ...BASE_RECORD,
+                schemaVersion: 2,
+            },
+        ],
+        [
+            'extra key',
+            {
+                ...BASE_RECORD,
+                extra: true,
+            },
+        ],
+        [
+            'event ID',
+            {
+                ...BASE_RECORD,
+                eventId: 'not-an-event-id',
+            },
+        ],
+        [
+            'code',
+            {
+                ...BASE_RECORD,
+                code: 'UNKNOWN_CODE',
+            },
+        ],
+        [
+            'severity',
+            {
+                ...BASE_RECORD,
+                severity: 'warning',
+            },
+        ],
+        [
+            'runtime',
+            {
+                ...BASE_RECORD,
+                runtime: 'unknown-runtime',
+            },
+        ],
+        [
+            'operation',
+            {
+                ...BASE_RECORD,
+                operation: 'unknown-operation',
+            },
+        ],
+        [
+            'timestamp',
+            {
+                ...BASE_RECORD,
+                occurredAt: Number.NaN,
+            },
+        ],
+        [
+            'context',
+            {
+                ...BASE_RECORD,
+                context: {
+                    phase: 'operation',
+                    unexpected: true,
+                },
+            },
+        ],
+        [
+            'frame',
+            {
+                ...BASE_RECORD,
+                frames: [{
+                    ...BASE_FRAME,
+                    module: '/Users/example/private.ts',
+                }],
+            },
+        ],
+        [
+            'frame extra key',
+            {
+                ...BASE_RECORD,
+                frames: [{
+                    ...BASE_FRAME,
+                    raw: 'raw stack',
+                }],
+            },
+        ],
+    ])('rejects malformed record: %s', (_label, value) => {
+        expect(decodeDiagnosticRecord(value)).toBeNull();
+    });
+
+    it('rejects oversized and sparse frame arrays', () => {
+        const oversized = {
+            ...BASE_RECORD,
+            frames: Array.from({length: MAX_DIAGNOSTIC_RECORD_FRAMES + 1}, () => BASE_FRAME),
+        };
+        expect(decodeDiagnosticRecord(oversized)).toBeNull();
+
+        const sparse = [BASE_FRAME] as Array<typeof BASE_FRAME | undefined>;
+        sparse.length = 2;
+        expect(decodeDiagnosticRecord({
+            ...BASE_RECORD,
+            frames: sparse,
+        })).toBeNull();
+
+        const augmented = [BASE_FRAME];
+        Object.assign(augmented, {unexpected: true});
+        expect(decodeDiagnosticRecord({
+            ...BASE_RECORD,
+            frames: augmented,
+        })).toBeNull();
+    });
+
+    it('rejects partial, corrupt, and extra-field startup markers', () => {
+        const marker: StartupCrashMarkerRecord = {
+            schemaVersion: STARTUP_CRASH_MARKER_SCHEMA_VERSION,
+            eventId: VALID_EVENT_ID,
+            code: 'MAIN_STARTUP_CRASH',
+            frames: [BASE_FRAME],
+            timestamp: 1_757_000_000_000,
+            release: 'evb-viewer-desktop@0.1.449',
+            dist: 'macos-arm64',
+        };
+        expect(decodeStartupCrashMarkerRecord(marker)).toEqual(marker);
+        expect(decodeStartupCrashMarkerRecord(marker)).not.toBe(marker);
+        expect(decodeStartupCrashMarkerRecord(marker)?.frames).not.toBe(marker.frames);
+        expect(decodeStartupCrashMarkerRecord({
+            ...marker,
+            message: 'forbidden',
+        })).toBeNull();
+        expect(decodeStartupCrashMarkerRecord({
+            ...marker,
+            schemaVersion: 2,
+        })).toBeNull();
+        expect(decodeStartupCrashMarkerRecord({
+            ...marker,
+            code: 'UNCLASSIFIED_MAIN_ERROR',
+        })).toBeNull();
+        expect(decodeStartupCrashMarkerRecord({
+            ...marker,
+            release: '/Users/private',
+        })).toBeNull();
+        expect(decodeStartupCrashMarkerRecord({
+            ...marker,
+            dist: 'linux/x64',
+        })).toBeNull();
+        expect(decodeStartupCrashMarkerRecord({eventId: VALID_EVENT_ID})).toBeNull();
+    });
+
+    it('keeps local failure details out of the transport record type', () => {
+        type IsAssignable<TFrom, TTo> = [TFrom] extends [TTo] ? true : false;
+        type HasLocalDetail = 'local' extends keyof DiagnosticRecord ? true : false;
+        expectTypeOf<IsAssignable<FailureReceipt, ExpectedOutcome>>().toEqualTypeOf<false>();
+        expectTypeOf<IsAssignable<ExpectedOutcome, FailureReceipt>>().toEqualTypeOf<false>();
+        expectTypeOf<HasLocalDetail>().toEqualTypeOf<false>();
+        expectTypeOf<LocalFailureDetail>().toMatchTypeOf<{
+            source: string;
+            message: string;
+        }>();
+        expect(isExpectedOutcome({
+            kind: 'expected',
+            code: 'canceled',
+        })).toBe(true);
+        expect(isExpectedOutcome({
+            kind: 'expected',
+            code: 'unknown',
+        })).toBe(false);
+        expect(isExpectedOutcome({
+            kind: 'expected',
+            code: 'canceled',
+            extra: true,
+        })).toBe(false);
+    });
+
+    it('rejects forbidden sentinel values before the capture transport records them', () => {
+        const locations = [
+            'schemaVersion',
+            'eventId',
+            'code',
+            'severity',
+            'runtime',
+            'operation',
+            'occurredAt',
+            'frames',
+            'frame',
+            'frame.module',
+            'frame.function',
+            'frame.line',
+            'frame.column',
+            'context',
+            'context.phase',
+            'context.attempt',
+            'context.recovered',
+        ] as const;
+        const transport = createCaptureTransport<DiagnosticRecord>();
+
+        fc.assert(fc.property(
+            FORBIDDEN_VALUES,
+            fc.constantFrom(...locations),
+            (sentinel, location) => {
+                const decoded = decodeDiagnosticRecord(assignForbiddenValue(location, sentinel));
+                if (decoded !== null) {
+                    transport.send(decoded);
+                }
+                expect(transport.events).toHaveLength(0);
+            },
+        ));
+    });
+
+    it('rejects forbidden marker values at every persisted string field', () => {
+        const transport = createCaptureTransport<StartupCrashMarkerRecord>();
+        fc.assert(fc.property(
+            FORBIDDEN_VALUES,
+            fc.constantFrom('schemaVersion', 'eventId', 'code', 'frames', 'frame', 'timestamp', 'release', 'dist'),
+            (sentinel, field) => {
+                const marker: Record<string, unknown> = {
+                    schemaVersion: STARTUP_CRASH_MARKER_SCHEMA_VERSION,
+                    eventId: VALID_EVENT_ID,
+                    code: 'MAIN_STARTUP_CRASH',
+                    frames: [BASE_FRAME],
+                    timestamp: 1_757_000_000_000,
+                    release: 'evb-viewer-desktop@0.1.449',
+                    dist: 'macos-arm64',
+                };
+                if (field === 'frame') {
+                    (marker.frames as unknown[])[0] = sentinel;
+                } else if (field === 'frames') {
+                    marker.frames = sentinel;
+                } else {
+                    marker[field] = sentinel;
+                }
+                const decoded = decodeStartupCrashMarkerRecord(marker);
+                if (decoded !== null) {
+                    transport.capture(decoded);
+                }
+                expect(transport.events).toHaveLength(0);
+            },
+        ));
+    });
+
+    it('type-checks only known codes and context keys', () => {
+        type RendererContext = DiagnosticContext<'UNCLASSIFIED_RENDERER_ERROR'>;
+        type UnknownCode = Extract<'UNKNOWN_CODE', DiagnosticCode>;
+        expectTypeOf<UnknownCode>().toEqualTypeOf<never>();
+        expectTypeOf<RendererContext>().toMatchTypeOf<{
+            phase?: 'bootstrap' | 'operation' | 'shutdown';
+            attempt?: number;
+            recovered?: boolean;
+        }>();
+
+        const validInput: CaptureFailureInput<'UNCLASSIFIED_RENDERER_ERROR'> = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {},
+            local: {
+                source: 'test',
+                message: 'local-only detail',
+            },
+        };
+        expect(validInput.code).toBe('UNCLASSIFIED_RENDERER_ERROR');
+    });
+});
+
+// @ts-expect-error DiagnosticContext only accepts keys from the closed registry.
+const _UNKNOWN_CONTEXT_KEY: DiagnosticContext<'UNCLASSIFIED_RENDERER_ERROR'> = {unknown: true};
+
+// @ts-expect-error DiagnosticCode is derived from DIAGNOSTIC_DEFINITIONS.
+const _UNKNOWN_CODE: DiagnosticCode = 'UNKNOWN_CODE';
+
+// @ts-expect-error Empty startup context accepts no arbitrary keys.
+const _UNKNOWN_STARTUP_CONTEXT: DiagnosticContext<'MAIN_STARTUP_CRASH'> = {attempt: 1};
