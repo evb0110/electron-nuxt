@@ -559,6 +559,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         const wheelSteps = Math.ceil(Math.abs(scrollAdjustment.deltaY) / 5);
         for (let step = 0; step < wheelSteps; step += 1) {
             await page.mouse.wheel({deltaY: Math.sign(scrollAdjustment.deltaY) * 120});
+            await new Promise<void>(resolve => setTimeout(resolve, 20));
         }
         await new Promise<void>(resolve => setTimeout(resolve, 100));
     }
