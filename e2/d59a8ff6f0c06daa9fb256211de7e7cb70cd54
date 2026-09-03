@@ -1,0 +1,21 @@
+app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.ts
+  s_1349f3b3502f3a::t_18c48a9f7ac8f3 24-29
+tests/unit/app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint.test.ts
+  s_1349f3b3502f3a::t_18c48a9f7ac8f3 117-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "e2d59a8ff6f0c06daa9fb256211de7e7cb70cd54",
+  "prompts": {},
+  "sessions": {
+    "s_1349f3b3502f3a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06913-7030-7ab0-9a9d-87fa4208642a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
