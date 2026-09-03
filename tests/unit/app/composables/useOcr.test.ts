@@ -25,6 +25,10 @@ const createDocxFromTextChunksMock = vi.hoisted(() => vi.fn(() => (async functio
     ]);
 })()));
 const toastAddMock = vi.hoisted(() => vi.fn());
+const loggerDebugMock = vi.hoisted(() => vi.fn());
+const loggerErrorMock = vi.hoisted(() => vi.fn());
+const loggerInfoMock = vi.hoisted(() => vi.fn());
+const loggerWarnMock = vi.hoisted(() => vi.fn());
 const mockOcr = {
     onProgress: vi.fn(),
     onComplete: vi.fn(),
@@ -56,6 +60,12 @@ vi.mock('@app/utils/ocr/loadOcrText', () => ({loadDocumentTextCatalogPages: load
 vi.mock('@app/utils/ocr/extractPdfText', () => ({ extractPdfText: extractPdfTextMock }));
 vi.mock('@app/utils/docx', () => ({createDocxFromTextAsync: createDocxFromTextMock}));
 vi.mock('@app/utils/docxStreaming', () => ({createDocxFromTextChunks: createDocxFromTextChunksMock}));
+vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
+    debug: loggerDebugMock,
+    error: loggerErrorMock,
+    info: loggerInfoMock,
+    warn: loggerWarnMock,
+}}));
 vi.stubGlobal('useToast', () => ({ add: toastAddMock }));
 
 vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
@@ -697,6 +707,40 @@ describe('useOcr', () => {
             await ocr.runOcr(1, 1, '/tmp/work.pdf');
 
             expect(ocr.error.value).toBe('errors.ocr.errorCode.queueBackpressure: OCR queue is full');
+            expect(loggerErrorMock).not.toHaveBeenCalled();
+            expect(loggerWarnMock).toHaveBeenCalledWith(
+                'ocr',
+                'OCR run was not started',
+                expect.objectContaining({error: expect.stringContaining('queueBackpressure')}),
+            );
+        } finally {
+            scope.stop();
+        }
+    });
+
+    it('reports an unexpected OCR run failure once with a closed diagnostic code', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        mockOcr.createSearchablePdf.mockRejectedValueOnce(new Error('native OCR failed'));
+
+        const scope = effectScope();
+        const ocr = scope.run(() => useOcr());
+        if (!ocr) {
+            throw new Error('Failed to create OCR composable scope');
+        }
+
+        try {
+            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+
+            expect(loggerErrorMock).toHaveBeenCalledTimes(1);
+            expect(loggerErrorMock).toHaveBeenCalledWith(
+                'ocr',
+                'OCR run failed',
+                expect.objectContaining({error: 'native OCR failed'}),
+                {
+                    code: 'RENDERER_OCR_RUN_FAILED',
+                    context: {},
+                },
+            );
         } finally {
             scope.stop();
         }
@@ -752,6 +796,12 @@ describe('useOcr', () => {
             await runPromise;
 
             expect(ocr.error.value).toBe('errors.ocr.errorCode.workerUnavailable: OCR worker unavailable');
+            expect(loggerErrorMock).not.toHaveBeenCalled();
+            expect(loggerWarnMock).toHaveBeenCalledWith(
+                'ocr',
+                'OCR backend reported an expected outcome',
+                expect.objectContaining({errorCode: 'OCR_WORKER_UNAVAILABLE'}),
+            );
         } finally {
             scope.stop();
         }

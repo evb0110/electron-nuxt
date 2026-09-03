@@ -101,6 +101,10 @@ describe('lazyBrowserPlatformApi', () => {
                 'platform',
                 'Failed to subscribe to browser event documentMenu.onMenuSave',
                 subscriptionError,
+                {
+                    code: 'RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED',
+                    context: {},
+                },
             );
         });
         unsubscribe();

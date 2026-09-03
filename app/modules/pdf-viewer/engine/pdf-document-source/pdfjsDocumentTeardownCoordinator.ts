@@ -34,7 +34,7 @@ export function createPdfjsDocumentTeardownCoordinator() {
         const tracked = lane.barrier
             .then(teardown.run)
             .catch((error) => {
-                BrowserLogger.error(
+                BrowserLogger.warn(
                     'pdf-document',
                     teardown.message,
                     error,

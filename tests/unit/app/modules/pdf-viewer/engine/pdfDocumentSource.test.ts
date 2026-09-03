@@ -33,7 +33,7 @@ const mocks = vi.hoisted(() => {
         revokeObjectURL: vi.fn(),
         browserLogger: {
             debug: vi.fn(),
-            error: vi.fn(),
+            warn: vi.fn(),
         },
     };
 });

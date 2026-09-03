@@ -7,6 +7,7 @@ import type {
 } from 'pdfjs-dist';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentRef } from '@contracts/documentRef';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfPageMetric,
     TPdfSource,
@@ -193,6 +194,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     let pendingPagesToInvalidate: number[] | null = null;
     let isLoadFromSourceActive = false;
     let viewerResidencyState: TViewerResidencyState = options.isActive?.value === false ? 'warm' : 'active';
+    let pendingRangeReadFailure: {
+        version: number;
+        receipt: FailureReceipt;
+    } | null = null;
 
     const disposables: Array<() => void | Promise<void>> = [];
     let disposed = false;
@@ -213,6 +218,24 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     const sourceLoader = createPdfjsDocumentSourceLoader({
         getRenderVersion,
         onRangeReadFailure: (error, version) => {
+            if (version !== getRenderVersion() || pendingRangeReadFailure?.version === version) {
+                return;
+            }
+            const receipt = BrowserLogger.error(
+                'pdf-document',
+                'Failed to read PDF range chunk',
+                error,
+                {
+                    code: 'RENDERER_PDF_RANGE_READ_FAILED',
+                    context: {},
+                },
+            );
+            if (!pdfDocument.value) {
+                pendingRangeReadFailure = {
+                    version,
+                    receipt,
+                };
+            }
             invalidateDocumentAfterRangeReadFailure(error, version);
         },
     });
@@ -592,6 +615,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         const shouldPreservePageStructure = preservePageStructure || trustedGeometrySeedPending;
         const savedState = preserveLoadState(shouldPreservePageStructure);
         trustedGeometrySeedPending = false;
+        pendingRangeReadFailure = null;
 
         // Cancel any in-progress load - latest wins
         cleanup();
@@ -629,7 +653,18 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         if (version !== getRenderVersion()) {
             return null;
         }
-        BrowserLogger.error('pdf-document', 'Failed to load PDF', error);
+        const rangeReadFailure = pendingRangeReadFailure?.version === version
+            ? pendingRangeReadFailure
+            : null;
+        pendingRangeReadFailure = null;
+        if (rangeReadFailure) {
+            BrowserLogger.error('pdf-document', 'Failed to load PDF', error, rangeReadFailure.receipt);
+        } else {
+            BrowserLogger.error('pdf-document', 'Failed to load PDF', error, {
+                code: 'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+                context: {},
+            });
+        }
         loadState.value = {
             status: 'failed',
             version,
@@ -750,6 +785,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
     function cleanup() {
         teardownWaitAbortController?.abort();
         teardownWaitAbortController = null;
+        pendingRangeReadFailure = null;
         const version = incrementRenderVersion();
         const document = pdfDocument.value;
         if (activeRasterScheduler) {
@@ -767,7 +803,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
             sourceLoader.destroyLoadingTask(
                 'PDF loading task destroy rejected',
                 'Failed to destroy PDF loading task',
-                'error',
+                'warn',
             );
         }
 

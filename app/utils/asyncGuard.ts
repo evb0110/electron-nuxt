@@ -67,9 +67,20 @@ function logGuardAsyncError(
         return;
     }
 
+    if (options.category === 'background-diagnostic') {
+        BrowserLogger.warn(options.scope, options.message, {
+            category: options.category,
+            error,
+        });
+        return;
+    }
+
     BrowserLogger.error(options.scope, options.message, {
         category: options.category,
         error,
+    }, {
+        code: 'RENDERER_ASYNC_GUARD_FAILED',
+        context: {category: options.category},
     });
 }
 

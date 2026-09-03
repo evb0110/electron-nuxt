@@ -68,6 +68,34 @@ const GENERIC_DIAGNOSTIC_CONTEXT = {
     recovered: {kind: 'boolean'},
 } as const satisfies DiagnosticContextDefinition;
 
+const NATIVE_PDF_VIEWER_PHASES = [
+    'initialize',
+    'resume',
+] as const;
+
+const PDF_RECOVERY_PHASES = [
+    'render',
+    'coordinate',
+] as const;
+
+const PDF_SEARCH_OPERATIONS = [
+    'apply-highlights',
+    'scroll-current-match',
+] as const;
+
+const ASYNC_GUARD_CATEGORIES = ['user-visible-operation'] as const;
+
+const RENDERER_ERROR_GUARD_SOURCES = [
+    'vue',
+    'window',
+    'unhandled-rejection',
+] as const;
+
+const RUNTIME_ERROR_LOG_STREAM_PHASES = [
+    'legacy-error-projection',
+    'subscription-initialization',
+] as const;
+
 export const PROCESS_GONE_TYPES = [
     'gpu',
     'utility',
@@ -195,6 +223,36 @@ const UNRESPONSIVE_RECOVERY_CONTEXT = {
     },
 } as const satisfies DiagnosticContextDefinition;
 
+const NATIVE_PDF_VIEWER_CONTEXT = {phase: {
+    kind: 'enum',
+    values: NATIVE_PDF_VIEWER_PHASES,
+}} as const satisfies DiagnosticContextDefinition;
+
+const PDF_RECOVERY_CONTEXT = {phase: {
+    kind: 'enum',
+    values: PDF_RECOVERY_PHASES,
+}} as const satisfies DiagnosticContextDefinition;
+
+const PDF_SEARCH_CONTEXT = {operation: {
+    kind: 'enum',
+    values: PDF_SEARCH_OPERATIONS,
+}} as const satisfies DiagnosticContextDefinition;
+
+const ASYNC_GUARD_CONTEXT = {category: {
+    kind: 'enum',
+    values: ASYNC_GUARD_CATEGORIES,
+}} as const satisfies DiagnosticContextDefinition;
+
+const RENDERER_ERROR_GUARD_CONTEXT = {source: {
+    kind: 'enum',
+    values: RENDERER_ERROR_GUARD_SOURCES,
+}} as const satisfies DiagnosticContextDefinition;
+
+const RUNTIME_ERROR_LOG_STREAM_CONTEXT = {phase: {
+    kind: 'enum',
+    values: RUNTIME_ERROR_LOG_STREAM_PHASES,
+}} as const satisfies DiagnosticContextDefinition;
+
 export function normalizeProcessGoneReason(reason: string) {
     return PROCESS_GONE_REASONS.includes(reason as typeof PROCESS_GONE_REASONS[number])
         ? reason as typeof PROCESS_GONE_REASONS[number]
@@ -223,6 +281,24 @@ export const DIAGNOSTIC_DEFINITIONS = {
         stackPolicy: 'call-site',
         context: GENERIC_DIAGNOSTIC_CONTEXT,
     },
+    RENDERER_ERROR_GUARD_FAILED: {
+        exceptionType: 'RendererErrorGuardFailed',
+        exceptionValue: 'Renderer error guard failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: RENDERER_ERROR_GUARD_CONTEXT,
+    },
+    RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED: {
+        exceptionType: 'RendererRuntimeErrorLogStreamFailed',
+        exceptionValue: 'Renderer runtime error log stream failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: RUNTIME_ERROR_LOG_STREAM_CONTEXT,
+    },
     UNCLASSIFIED_MAIN_ERROR: {
         exceptionType: 'MainDiagnosticError',
         exceptionValue: 'Unclassified main error',
@@ -240,6 +316,123 @@ export const DIAGNOSTIC_DEFINITIONS = {
         grouping: 'code-and-top-frame',
         stackPolicy: 'call-site',
         context: GENERIC_DIAGNOSTIC_CONTEXT,
+    },
+    RENDERER_OCR_BACKEND_FAILED: {
+        exceptionType: 'RendererOcrBackendFailed',
+        exceptionValue: 'Renderer OCR backend failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_OCR_RUN_FAILED: {
+        exceptionType: 'RendererOcrRunFailed',
+        exceptionValue: 'Renderer OCR run failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_NATIVE_PDF_VIEWER_FAILED: {
+        exceptionType: 'RendererNativePdfViewerFailed',
+        exceptionValue: 'Renderer native PDF viewer failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: NATIVE_PDF_VIEWER_CONTEXT,
+    },
+    RENDERER_PDF_OUTLINE_LOAD_FAILED: {
+        exceptionType: 'RendererPdfOutlineLoadFailed',
+        exceptionValue: 'Renderer PDF outline load failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_PDF_RANGE_READ_FAILED: {
+        exceptionType: 'RendererPdfRangeReadFailed',
+        exceptionValue: 'Renderer PDF range read failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_PDF_IMAGE_RASTERIZATION_FAILED: {
+        exceptionType: 'RendererPdfImageRasterizationFailed',
+        exceptionValue: 'Renderer PDF image rasterization failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED: {
+        exceptionType: 'RendererPdfInitialRenderRecoveryFailed',
+        exceptionValue: 'Renderer PDF initial-render recovery failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: PDF_RECOVERY_CONTEXT,
+    },
+    RENDERER_PDF_PAGE_RENDER_FAILED: {
+        exceptionType: 'RendererPdfPageRenderFailed',
+        exceptionValue: 'Renderer PDF page render failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_PDF_SEARCH_OPERATION_FAILED: {
+        exceptionType: 'RendererPdfSearchOperationFailed',
+        exceptionValue: 'Renderer PDF search operation failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: PDF_SEARCH_CONTEXT,
+    },
+    RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED: {
+        exceptionType: 'RendererPdfViewportPlacementFailed',
+        exceptionValue: 'Renderer PDF viewport placement failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_PDF_DOCUMENT_LOAD_FAILED: {
+        exceptionType: 'RendererPdfDocumentLoadFailed',
+        exceptionValue: 'Renderer PDF document load failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED: {
+        exceptionType: 'RendererBrowserEventSubscriptionFailed',
+        exceptionValue: 'Renderer browser event subscription failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: {},
+    },
+    RENDERER_ASYNC_GUARD_FAILED: {
+        exceptionType: 'RendererAsyncGuardFailed',
+        exceptionValue: 'Renderer async guard failed',
+        operation: 'renderer-error',
+        defaultSeverity: 'error',
+        grouping: 'code-and-top-frame',
+        stackPolicy: 'call-site',
+        context: ASYNC_GUARD_CONTEXT,
     },
     MAIN_STARTUP_CRASH: {
         exceptionType: 'MainStartupCrash',

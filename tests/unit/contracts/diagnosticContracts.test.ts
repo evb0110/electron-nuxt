@@ -222,8 +222,23 @@ describe('diagnostic contracts', () => {
     it('derives the closed code union from one registry', () => {
         expect(DIAGNOSTIC_CODES).toEqual([
             'UNCLASSIFIED_RENDERER_ERROR',
+            'RENDERER_ERROR_GUARD_FAILED',
+            'RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED',
             'UNCLASSIFIED_MAIN_ERROR',
             'UNCLASSIFIED_CONSOLE_ERROR',
+            'RENDERER_OCR_BACKEND_FAILED',
+            'RENDERER_OCR_RUN_FAILED',
+            'RENDERER_NATIVE_PDF_VIEWER_FAILED',
+            'RENDERER_PDF_OUTLINE_LOAD_FAILED',
+            'RENDERER_PDF_RANGE_READ_FAILED',
+            'RENDERER_PDF_IMAGE_RASTERIZATION_FAILED',
+            'RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED',
+            'RENDERER_PDF_PAGE_RENDER_FAILED',
+            'RENDERER_PDF_SEARCH_OPERATION_FAILED',
+            'RENDERER_PDF_VIEWPORT_PLACEMENT_FAILED',
+            'RENDERER_PDF_DOCUMENT_LOAD_FAILED',
+            'RENDERER_BROWSER_EVENT_SUBSCRIPTION_FAILED',
+            'RENDERER_ASYNC_GUARD_FAILED',
             'MAIN_STARTUP_CRASH',
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_RENDERER_PROCESS_GONE',
@@ -258,6 +273,21 @@ describe('diagnostic contracts', () => {
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: Number.POSITIVE_INFINITY})).toBeNull();
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {unexpected: true})).toBeNull();
         expect(decodeDiagnosticContext('MAIN_STARTUP_CRASH', {attempt: 1})).toBeNull();
+    });
+
+    it('keeps renderer failure contexts bounded to their owning operation', () => {
+        expect(decodeDiagnosticContext('RENDERER_NATIVE_PDF_VIEWER_FAILED', {phase: 'resume'})).toEqual({phase: 'resume'});
+        expect(decodeDiagnosticContext('RENDERER_NATIVE_PDF_VIEWER_FAILED', {phase: 'load'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_ERROR_GUARD_FAILED', {source: 'window'})).toEqual({source: 'window'});
+        expect(decodeDiagnosticContext('RENDERER_ERROR_GUARD_FAILED', {source: 'console'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED', {phase: 'legacy-error-projection'})).toEqual({phase: 'legacy-error-projection'});
+        expect(decodeDiagnosticContext('RENDERER_RUNTIME_ERROR_LOG_STREAM_FAILED', {phase: 'subscription-initialization'})).toEqual({phase: 'subscription-initialization'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_INITIAL_RENDER_RECOVERY_FAILED', {phase: 'coordinate'})).toEqual({phase: 'coordinate'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_SEARCH_OPERATION_FAILED', {operation: 'scroll-current-match'})).toEqual({operation: 'scroll-current-match'});
+        expect(decodeDiagnosticContext('RENDERER_PDF_SEARCH_OPERATION_FAILED', {operation: 'search-all'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_ASYNC_GUARD_FAILED', {category: 'user-visible-operation'})).toEqual({category: 'user-visible-operation'});
+        expect(decodeDiagnosticContext('RENDERER_ASYNC_GUARD_FAILED', {category: 'background-diagnostic'})).toBeNull();
+        expect(decodeDiagnosticContext('RENDERER_OCR_RUN_FAILED', {requestId: 'private'})).toBeNull();
     });
 
     it('keeps process-death and recovery context closed and bounded', () => {

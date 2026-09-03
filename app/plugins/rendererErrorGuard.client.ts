@@ -152,10 +152,15 @@ export default defineNuxtPlugin((nuxtApp) => {
         runtime: electronRuntime ? 'electron-renderer' : 'hosted-browser',
     });
 
-    const report = (logMessage: string, cause: unknown, details: Record<string, unknown>) => {
+    const report = (
+        source: 'vue' | 'window' | 'unhandled-rejection',
+        logMessage: string,
+        cause: unknown,
+        details: Record<string, unknown>,
+    ) => {
         const presentation = reporter.captureForPresentation({
-            code: 'UNCLASSIFIED_RENDERER_ERROR',
-            context: {},
+            code: 'RENDERER_ERROR_GUARD_FAILED',
+            context: {source},
             local: {
                 source: 'renderer-guard',
                 message: logMessage,
@@ -199,7 +204,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Vue renderer error', error, {
+        report('vue', 'Vue renderer error', error, {
             info,
             component: getComponentName(instance),
             error: serializeError(error),
@@ -227,7 +232,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Window error', event.error ?? event.message, {
+        report('window', 'Window error', event.error ?? event.message, {
             message: event.message,
             filename: event.filename,
             lineno: event.lineno,
@@ -249,7 +254,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             return;
         }
 
-        report('Unhandled promise rejection', event.reason, { reason: serializeError(event.reason) });
+        report('unhandled-rejection', 'Unhandled promise rejection', event.reason, { reason: serializeError(event.reason) });
     };
 
     const originalUnmount = nuxtApp.vueApp.unmount.bind(nuxtApp.vueApp);

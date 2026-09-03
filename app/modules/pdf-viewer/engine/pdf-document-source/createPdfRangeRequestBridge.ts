@@ -1,6 +1,5 @@
 import type { PDFDataRangeTransport } from 'pdfjs-dist';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { BrowserLogger } from '@app/utils/browserLogger';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
 import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
@@ -296,11 +295,6 @@ export function createPdfRangeRequestBridge({
                         version,
                         error: error instanceof Error ? error.message : String(error),
                     });
-                    BrowserLogger.error(
-                        'pdf-document',
-                        'Failed to read PDF range chunk',
-                        error,
-                    );
                     rangeFailure.failRangeRead(error);
                     onRangeReadFailure(error, version);
                 } finally {
