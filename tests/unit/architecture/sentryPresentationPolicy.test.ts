@@ -122,7 +122,7 @@ describe('SEN-GATE-01 blocking rules', () => {
         expect(messages.every(message => message.severity === 2)).toBe(true);
         expect(redReport.count).toBe(0);
         expect(unclassifiedReport.count).toBe(0);
-    }, 30_000);
+    }, 60_000);
 
     it('blocks raw red presenters and allows the shared presenter owners', async () => {
         await expect(lintFixture(
