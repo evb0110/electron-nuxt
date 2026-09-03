@@ -46,7 +46,10 @@ interface IWorkflowJob {
     'continue-on-error'?: boolean;
     if?: string;
     needs?: string | string[];
+    secrets?: Record<string, unknown>;
     steps?: IWorkflowStep[];
+    uses?: string;
+    with?: Record<string, unknown>;
 }
 
 interface IPackageJson { scripts: Record<string, string> }
@@ -1457,7 +1460,14 @@ describe('CI topology policy', () => {
 
         expect(storeWorkflow).toContain('workflow_call:');
         expect(storeWorkflow).not.toContain('workflow_dispatch:');
-        expect(storeWorkflow).not.toContain('secrets:');
+        const storeWorkflowCall = parseWorkflowTriggers(storeWorkflow).workflow_call;
+        expect(isRecord(storeWorkflowCall)).toBe(true);
+        expect(isRecord(storeWorkflowCall) ? storeWorkflowCall.secrets : undefined).toEqual({
+            SENTRY_AUTH_TOKEN: {required: false},
+            SENTRY_ORG: {required: false},
+            SENTRY_DESKTOP_PROJECT: {required: false},
+            SENTRY_DESKTOP_DSN: {required: false},
+        });
         expect(workflowJob(buildWorkflow, 'build')).toContain('environment: ${{ inputs.release_environment }}');
         expect(workflowJob(macIntelWorkflow, 'build_mac_intel'))
             .toContain('environment: ${{ inputs.release_environment }}');
@@ -1465,7 +1475,16 @@ describe('CI topology policy', () => {
         expect(macIntelWorkflow).toContain('default: artifact-build');
         expect(workflowJob(releaseWorkflow, 'build_artifacts')).toContain('release_environment: release');
         expect(workflowJob(supplementalWorkflow, 'build_mac_intel')).toContain('release_environment: release');
-        expect(workflowJob(supplementalWorkflow, 'publish_store')).not.toContain('secrets:');
+        expect(parseWorkflowJobs(supplementalWorkflow).publish_store).toMatchObject({
+            uses: './.github/workflows/store-appx.yml',
+            secrets: {
+                SENTRY_AUTH_TOKEN: '${{ secrets.SENTRY_AUTH_TOKEN }}',
+                SENTRY_ORG: '${{ secrets.SENTRY_ORG }}',
+                SENTRY_DESKTOP_PROJECT: '${{ secrets.SENTRY_DESKTOP_PROJECT }}',
+                SENTRY_DESKTOP_DSN: '${{ secrets.SENTRY_DESKTOP_DSN }}',
+            },
+        });
+        expect(workflowJob(supplementalWorkflow, 'publish_store')).not.toContain('secrets: inherit');
     });
 
     it('keeps the heavier deterministic checks available by manual dispatch', async () => {
