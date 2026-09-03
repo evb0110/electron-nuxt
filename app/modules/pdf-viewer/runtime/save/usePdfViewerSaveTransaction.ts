@@ -843,9 +843,7 @@ export const usePdfViewerSaveTransaction = (
                 && (
                     nativeMutationProjection.noteTextUpdates.length > 0
                     || (nativeMutationProjection.noteGeometryUpdates?.length ?? 0) > 0
-                    || nativeMutationProjection.freeTextNotes.length > 0
                     || nativeMutationProjection.freeTextEditors.length > 0
-                    || (nativeMutationProjection.textBoxes?.length ?? 0) > 0
                     || nativeMutationProjection.annotationDeletes.length > 0
                 )
             ) {

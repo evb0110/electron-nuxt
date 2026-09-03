@@ -773,14 +773,20 @@ function buildClassifiedNativeMutationProjection(
             canonicalComments: canonical.comments,
         })
         : null;
-    const freeTextNotesResult = replayAllowed
-        ? buildNativeFreeTextNotesForSave({
-            canonicalComments: capabilities.nativeTextBoxes === undefined
+    const canonicalStickyNotesForNativeAppend = changedComments.filter(comment => (
+        isReplayableCanonicalStickyNote(comment)
+        && canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
+    ));
+    const freeTextNotesResult = buildNativeFreeTextNotesForSave({
+        // EVB-owned sticky notes remain safe native payloads when another
+        // canonical annotation makes the PDF.js fallback plan materialize.
+        canonicalComments: replayAllowed
+            ? capabilities.nativeTextBoxes === undefined
                 ? changedComments
-                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment)),
-            replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
-        })
-        : null;
+                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment))
+            : canonicalStickyNotesForNativeAppend,
+        replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
+    });
     const annotationDeletesResult = replayAllowed
         ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})
         : null;

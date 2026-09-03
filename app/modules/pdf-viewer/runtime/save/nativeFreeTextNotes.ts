@@ -51,7 +51,7 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
     };
 }
 
-/** Reachable only through a native-append grant whose annotation route is source-replay. */
+/** Builds native payloads for replayable PDF.js notes and EVB-owned sticky notes. */
 export function buildNativeFreeTextNotesForSave(
     opts: {
         canonicalComments: IAnnotationCommentSummary[];

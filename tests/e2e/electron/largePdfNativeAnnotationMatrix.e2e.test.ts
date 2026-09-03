@@ -493,15 +493,58 @@ async function createCanonicalShape(
 }
 
 async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) {
-    const point = await page.evaluate((input: {
+    const input = {
+        id,
+        pageNumber,
+    };
+    await page.evaluate((selection: {
         id: string;
         pageNumber: number
     }) => {
         const entity = Array.from(document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
         )).find(candidate => (
-            candidate.dataset.annotationId === input.id
-            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === input.pageNumber
+            candidate.dataset.annotationId === selection.id
+            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
+        ));
+        entity?.scrollIntoView({
+            block: 'center',
+            inline: 'center',
+        });
+    }, input);
+    await page.waitForFunction((selection: {
+        id: string;
+        pageNumber: number
+    }) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+        )).find(candidate => (
+            candidate.dataset.annotationId === selection.id
+            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
+        ));
+        if (!entity) {
+            return false;
+        }
+        const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
+        const viewer = layer?.closest<HTMLElement>('.pdfViewer');
+        const rect = entity.getBoundingClientRect();
+        return rect.width > 0
+            && rect.height > 0
+            && rect.top >= 0
+            && rect.bottom <= window.innerHeight
+            && viewer?.classList.contains('pdfViewer--resize-transition') !== true
+            && layer !== null
+            && getComputedStyle(layer).pointerEvents !== 'none';
+    }, {timeout: 10_000}, input);
+    const point = await page.evaluate((selection: {
+        id: string;
+        pageNumber: number
+    }) => {
+        const entity = Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+        )).find(candidate => (
+            candidate.dataset.annotationId === selection.id
+            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
         ));
         if (!entity) {
             return null;
@@ -511,10 +554,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
             x: rect.left + rect.width / 2,
             y: rect.top + rect.height / 2,
         };
-    }, {
-        id,
-        pageNumber,
-    });
+    }, input);
     if (!point) {
         throw new Error(`Canonical entity is not mounted: ${id}`);
     }
@@ -955,7 +995,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             'issue 192 canonical annotation create save',
         );
         const firstSavedPath = await readWorkingCopyPath(session.page);
-        expect(firstSavedPath).toBe(documentPath);
+        expect(firstSavedPath).toBe(initialWorkingCopyPath);
         const firstIndex = await readAnnotationIndex(session.page, firstSavedPath);
         const firstShapes = await readShapeIndex(session.page, firstSavedPath);
         expect(firstIndex.revisionToken).toBe(firstSaveToken);
