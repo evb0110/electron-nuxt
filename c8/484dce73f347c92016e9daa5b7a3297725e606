@@ -1,0 +1,46 @@
+app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent.ts
+  s_91eeab35c4598e::t_4bed559a7848f9 173,175-179,181
+  s_91eeab35c4598e::t_6265cddad4bff8 183-186
+  s_91eeab35c4598e::t_86f464be3b9d54 69-75,77-78
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearchHighlight.test.ts
+  s_91eeab35c4598e::t_c0422f89df7358 178,274-284,293,297-315
+  s_91eeab35c4598e::t_8f141b6b9a425c 294-296
+  s_91eeab35c4598e::t_240160bd3d1458 22,145-177
+  s_91eeab35c4598e::t_6265cddad4bff8 208-251
+  s_91eeab35c4598e::t_a3a0be854a5fd7 13
+  s_91eeab35c4598e::t_ab7781204268ac 180-207
+  s_91eeab35c4598e::t_eb09cb4246fa42 285-292
+  s_91eeab35c4598e::t_e2e10846d47a2b 179
+  s_91eeab35c4598e::t_4bed559a7848f9 38-39,60-61
+app/components/document-viewer/DocumentSearchResults.vue
+  s_91eeab35c4598e::t_4f7f234b77db3c 95-97
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_91eeab35c4598e::t_caf1a84cc6e4a2 121,124
+  s_91eeab35c4598e::t_4f7f234b77db3c 31,55-59,63,70-71,98-110,128-132,139,195,199,202,209-226,229-232,252-258,273-278,281-284,303-304,353,355,363-366,385-386,393-396,436-438,443
+  s_91eeab35c4598e::t_bcbd92ac4eed50 429-430
+  s_91eeab35c4598e::t_ece888fa5a19f5 111
+  s_91eeab35c4598e::t_9e216d1d1338b9 337-338
+  s_91eeab35c4598e::t_6d281e9187f04e 419
+  s_91eeab35c4598e::t_832aae503d9db6 7-9,32,48-54,60-62,64-69,72-97,310-311,316,320,322-332,347-348,352,354,370-371,377-378,381-384,387-392,397-398,426,433-435,439-442,444
+  s_91eeab35c4598e::t_922c627d90a06d 399-418,420-425
+  s_91eeab35c4598e::t_07eb489406a5c0 339-342
+  s_91eeab35c4598e::t_a46bec44f24cd5 6
+  s_91eeab35c4598e::t_eb09cb4246fa42 248-251,269-272
+  s_91eeab35c4598e::t_02578bee3d2065 356,428
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c8484dce73f347c92016e9daa5b7a3297725e606",
+  "prompts": {},
+  "sessions": {
+    "s_91eeab35c4598e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0630e-4656-7cc3-9d44-e67250265cdb",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": null
+    }
+  }
+}
