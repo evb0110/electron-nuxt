@@ -46,13 +46,15 @@ async function writeBundle(
 ) {
     const bundlePath = path.join(projectRoot, relativeBundle);
     await mkdir(path.dirname(bundlePath), {recursive: true});
-    await writeFile(bundlePath, `export const source = ${JSON.stringify(source)};\n`);
+    await writeFile(
+        bundlePath,
+        `export const source = ${JSON.stringify(source)};\n//# sourceMappingURL=${path.basename(relativeBundle)}.map\n`,
+    );
     await writeFile(`${bundlePath}.map`, `${JSON.stringify({
         version: 3,
         file: path.basename(relativeBundle),
         sourceRoot,
         sources: [source],
-        sourcesContent: false,
         names: [],
         mappings: '',
     })}\n`);
@@ -142,6 +144,25 @@ describe('private Sentry source-map staging', () => {
             && bundle.stagedMapPath.startsWith('maps/')
             && bundle.sourceFiles.length > 0
         ))).toBe(true);
+        for (const bundle of firstManifest.bundles) {
+            const injectedBundle = await readFile(path.join(projectRoot, bundle.bundle), 'utf8');
+            const privateMap = JSON.parse(await readFile(path.join(
+                projectRoot,
+                '.tmp/private-sourcemaps',
+                'desktop',
+                encodeURIComponent(identity.release),
+                encodeURIComponent(identity.dist),
+                encodeURIComponent(identity.environment),
+                bundle.stagedMapPath,
+            ), 'utf8')) as {
+                debug_id?: unknown;
+                debugId?: unknown;
+            };
+            expect(injectedBundle).toContain('_sentryDebugIds');
+            expect(privateMap.debug_id ?? privateMap.debugId).toMatch(
+                /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/u,
+            );
+        }
         expect(firstManifest.bundles.some(bundle => bundle.role === 'electron-main')).toBe(true);
         expect(firstManifest.bundles.some(bundle => bundle.role === 'electron-utility-parent')).toBe(true);
         expect(firstManifest.bundles.some(bundle => bundle.role === 'electron-worker-parent')).toBe(true);

@@ -9,11 +9,14 @@ import {
     stat,
     writeFile,
 } from 'node:fs/promises';
+import {execFile} from 'node:child_process';
 import {
     createHash,
     randomUUID,
 } from 'node:crypto';
+import {promisify} from 'node:util';
 import path from 'node:path';
+import {SentryCli} from '@sentry/cli';
 import { WORKER_BUNDLES } from '../../packages/electron-worker-bundles/electronWorkerBundles.js';
 import {
     assertSameSentryBuildIdentity,
@@ -47,6 +50,7 @@ const WORKER_BY_FILE_NAME = new Map(
         bundle,
     ]),
 );
+const execFileAsync = promisify(execFile);
 
 function slashPath(value) {
     return value.split(path.sep).join('/');
@@ -275,6 +279,21 @@ function assertSourceMapPayload(payload, mapRelativePath) {
     ) {
         throw new Error(`Source map embeds source content: ${mapRelativePath}`);
     }
+}
+
+async function injectDebugIds(bundlePaths) {
+    if (bundlePaths.length === 0) {
+        return;
+    }
+    await execFileAsync(SentryCli.getPath(), [
+        'sourcemaps',
+        'inject',
+        '--quiet',
+        ...bundlePaths,
+    ], {
+        maxBuffer: 16 * 1024 * 1024,
+        windowsHide: true,
+    });
 }
 
 async function sha256(filePath) {
@@ -514,6 +533,23 @@ export async function stagePrivateSourcemaps({
             }))
             .filter(file => file.role !== null)
             .sort((left, right) => compareStrings(left.relativePath, right.relativePath));
+
+        for (const candidate of candidates) {
+            const publicMapPath = path.join(
+                absoluteOutputRoot,
+                mapPathForBundle(candidate.relativePath),
+            );
+            if (!(await fileExists(publicMapPath))) {
+                throw new Error(
+                    `Reportable bundle has no external source map: ${slashPath(path.join(normalizedOutputRoot, candidate.relativePath))}`,
+                );
+            }
+        }
+
+        // The CLI mutates both files. Run it only after all build transforms
+        // have completed and before hashing, staging, receipt computation, or
+        // public-map removal.
+        await injectDebugIds([absoluteOutputRoot]);
 
         for (const candidate of candidates) {
             const mapRelativePath = mapPathForBundle(candidate.relativePath);

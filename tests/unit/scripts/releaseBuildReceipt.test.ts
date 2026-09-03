@@ -1,9 +1,11 @@
 import {
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import {createHash} from 'node:crypto';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -12,10 +14,13 @@ import {
     it,
 } from 'vitest';
 import {
+    assertSentryPrivateManifestParity,
     computeReleaseBuildState,
     validateReleaseBuildReceipt,
     writeReleaseBuildReceipt,
 } from '@scripts/release/build-receipt.mjs';
+import {stagePrivateSourcemaps} from '@scripts/release/stage-private-sourcemaps.mjs';
+import {createSentryBuildIdentity} from '@contracts/diagnostics/releaseIdentity.js';
 
 function fakeToolchain(command: string, args: string[]) {
     return `${command} ${args.join(' ')} test-version`;
@@ -91,15 +96,27 @@ describe('release strict-build receipts', () => {
         }
     });
 
-    it('records the shared identity without persisting credential values', () => {
+    it('requires injected bytes to match the private manifest before recording identity', async () => {
         const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-release-receipt-sentry-'));
         const packagePath = path.join(projectRoot, 'package.json');
         const inputPath = path.join(projectRoot, 'source.ts');
-        const outputPath = path.join(projectRoot, 'dist', 'main.js');
+        const outputPath = path.join(projectRoot, 'dist-electron', 'main.js');
         mkdirSync(path.dirname(outputPath), {recursive: true});
+        mkdirSync(path.join(projectRoot, 'electron'), {recursive: true});
         writeFileSync(packagePath, JSON.stringify({version: '1.2.3'}));
         writeFileSync(inputPath, 'export const value = 1;\n');
-        writeFileSync(outputPath, 'built-output\n');
+        writeFileSync(path.join(projectRoot, 'electron', 'main.ts'), 'export const value = 1;\n');
+        writeFileSync(
+            outputPath,
+            'export const value=1;\n//# sourceMappingURL=main.js.map\n',
+        );
+        writeFileSync(`${outputPath}.map`, JSON.stringify({
+            version: 3,
+            file: 'main.js',
+            sources: ['../electron/main.ts'],
+            names: [],
+            mappings: '',
+        }));
 
         const desktopDsn = 'desktop-dsn-secret';
         const browserDsn = 'browser-dsn-secret';
@@ -118,12 +135,28 @@ describe('release strict-build receipts', () => {
                 NUXT_ANALYTICS_DATABASE_URL: databaseUrl,
             },
             inputFiles: ['source.ts'],
-            outputPaths: ['dist'],
+            outputPaths: ['dist-electron'],
             projectRoot,
             runCommand: fakeToolchain,
         };
 
         try {
+            const identity = createSentryBuildIdentity({
+                target: 'desktop',
+                version: '1.2.3',
+                dist: 'macos-arm64',
+                environment: 'test',
+            });
+            expect(() => assertSentryPrivateManifestParity({
+                identity,
+                projectRoot,
+            })).toThrow();
+            await stagePrivateSourcemaps({
+                identity,
+                outputRoots: ['dist-electron'],
+                projectRoot,
+                reset: true,
+            });
             const state = computeReleaseBuildState(options);
             expect(state.contract.sentryIdentity).toEqual({
                 target: 'desktop',
@@ -139,6 +172,12 @@ describe('release strict-build receipts', () => {
             expect(JSON.stringify(state.contract)).not.toContain(browserDsn);
             expect(JSON.stringify(state.contract)).not.toContain(nitroDsn);
             expect(JSON.stringify(state.contract)).not.toContain(databaseUrl);
+            const beforeTamperHash = createHash('sha256').update(readFileSync(outputPath)).digest('hex');
+            writeFileSync(outputPath, `${readFileSync(outputPath, 'utf8')}\n`);
+            expect(() => computeReleaseBuildState(options)).toThrow(/does not match private manifest/iu);
+            expect(beforeTamperHash).not.toBe(
+                createHash('sha256').update(readFileSync(outputPath)).digest('hex'),
+            );
         } finally {
             rmSync(projectRoot, {
                 force: true,

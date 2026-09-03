@@ -12,10 +12,12 @@ import {
 import path from 'node:path';
 import { getRequestedNativeRustTarget } from '../native-rust-targets.mjs';
 import {
+    assertSameSentryBuildIdentity,
     isSentryDiagnosticsBuild,
     resolveSentryBuildIdentity,
     resolveSentryBuildTarget,
 } from '../../packages/contracts/diagnostics/releaseIdentity.js';
+import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const RECEIPT_SCHEMA_VERSION = 1;
 export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
@@ -175,6 +177,78 @@ function buildSentryIdentity(env, projectRoot) {
     });
 }
 
+function sha256File(filePath) {
+    return createHash('sha256').update(readFileSync(filePath)).digest('hex');
+}
+
+function resolvePrivateStagePath(stageRoot, relativePath, label) {
+    if (typeof relativePath !== 'string' || relativePath.length === 0) {
+        throw new Error(`Invalid ${label} path in the private source-map manifest`);
+    }
+    const resolved = path.resolve(stageRoot, relativePath);
+    const relative = path.relative(stageRoot, resolved);
+    if (
+        relative === '..'
+        || relative.startsWith(`..${path.sep}`)
+        || path.isAbsolute(relative)
+    ) {
+        throw new Error(`Unsafe ${label} path in the private source-map manifest`);
+    }
+    return resolved;
+}
+
+/**
+ * @param {{
+ *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
+ *   projectRoot?: string,
+ * }} options
+ */
+export function assertSentryPrivateManifestParity(
+    {
+        identity,
+        projectRoot = process.cwd(),
+    },
+) {
+    const manifestPath = getPrivateSourcemapManifestPath({
+        projectRoot,
+        identity,
+    });
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    if (
+        manifest?.schemaVersion !== 1
+        || !Array.isArray(manifest.bundles)
+        || manifest.bundles.length === 0
+        || !Array.isArray(manifest.sources)
+    ) {
+        throw new Error(`Invalid private source-map manifest: ${manifestPath}`);
+    }
+    assertSameSentryBuildIdentity(identity, manifest.identity);
+    const stageRoot = path.dirname(manifestPath);
+
+    for (const bundle of manifest.bundles) {
+        const publicBundlePath = resolvePrivateStagePath(projectRoot, bundle.bundle, 'public bundle');
+        const injectedBytes = readFileSync(publicBundlePath);
+        if (!injectedBytes.includes(Buffer.from('_sentryDebugIds'))) {
+            throw new Error(`Sentry Debug ID is missing from injected bundle: ${bundle.bundle}`);
+        }
+        if (sha256File(publicBundlePath) !== bundle.bundleSha256) {
+            throw new Error(`Injected bundle does not match private manifest: ${bundle.bundle}`);
+        }
+        const privateMapPath = resolvePrivateStagePath(stageRoot, bundle.stagedMapPath, 'staged map');
+        if (sha256File(privateMapPath) !== bundle.mapSha256) {
+            throw new Error(`Private source map does not match its manifest: ${bundle.stagedMapPath}`);
+        }
+    }
+
+    for (const source of manifest.sources) {
+        const privateSourcePath = resolvePrivateStagePath(stageRoot, source.stagedPath, 'staged source');
+        if (sha256File(privateSourcePath) !== source.sha256) {
+            throw new Error(`Private source does not match its manifest: ${source.stagedPath}`);
+        }
+    }
+    return true;
+}
+
 function toolchain(runCommand) {
     return {
         cargo: runCommand('cargo', ['--version']),
@@ -204,11 +278,18 @@ export function computeReleaseBuildState({
         projectRoot,
         runCommand,
     });
+    const sentryIdentity = buildSentryIdentity(env, projectRoot);
+    if (sentryIdentity) {
+        assertSentryPrivateManifestParity({
+            identity: sentryIdentity,
+            projectRoot,
+        });
+    }
     const contract = {
         environment: buildEnvironment(env),
         platform: process.platform,
         architecture: process.arch,
-        sentryIdentity: buildSentryIdentity(env, projectRoot),
+        sentryIdentity,
         toolchain: toolchain(runCommand),
     };
     const contractHash = createHash('sha256')

@@ -1189,12 +1189,15 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
             const importSpecifier = getImportLikeSpecifier(node);
             if (importSpecifier && isSentryPackageSpecifier(importSpecifier)) {
                 const packageName = getSentryPackageName(importSpecifier);
-                if (!isRuntimeAdapter || !APPROVED_SENTRY_RUNTIME_PACKAGES.has(packageName)) {
+                const allowedRuntimeImport = isRuntimeAdapter
+                    && APPROVED_SENTRY_RUNTIME_PACKAGES.has(packageName);
+                const allowedCliImport = isReleaseTool && packageName === '@sentry/cli';
+                if (!allowedRuntimeImport && !allowedCliImport) {
                     addViolation({
                         rule: 'sentry-import-boundary',
                         target: importSpecifier,
                         specifier: importSpecifier,
-                        message: 'Only the approved Sentry runtime packages may be imported by the three exact runtime adapters.',
+                        message: 'Only approved runtime SDKs in exact adapters and the pinned CLI in exact release tools may import Sentry packages.',
                     });
                 }
             }

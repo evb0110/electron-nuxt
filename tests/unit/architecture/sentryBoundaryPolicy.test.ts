@@ -181,7 +181,8 @@ describe('Sentry SDK and CLI architecture policy', () => {
     });
 
     it('allows only the exact release tools to spawn the CLI and read its token', () => {
-        const releaseSource = 'import { spawn } from \'node:child_process\';\n'
+        const releaseSource = 'import { SentryCli } from \'@sentry/cli\';\n'
+            + 'import { spawn } from \'node:child_process\';\n'
             + 'const token = process.env.SENTRY_AUTH_TOKEN;\n'
             + 'spawn(\'sentry-cli\', [\'sourcemaps\', \'inject\']);\n';
 
@@ -193,6 +194,7 @@ describe('Sentry SDK and CLI architecture policy', () => {
             'scripts/electron-run/runner.ts',
             releaseSource,
         ).map(({rule}: {rule: string}) => rule)).toEqual([
+            'sentry-import-boundary',
             'sentry-upload-token-boundary',
             'sentry-cli-boundary',
         ]);
