@@ -85,6 +85,7 @@
         "@napi-rs/canvas",
         "@playwright/test",
         "app-builder-bin",
+        "@sentry/core",
         "node-mock-http",
         "nuxt",
         "pdfjs-dist-codex-preview",
