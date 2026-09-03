@@ -8,9 +8,16 @@ import type { IpcRenderer } from 'electron';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import { cast } from '@tests/helpers/cast';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 const channels = DJVU_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = DJVU_PLATFORM_FEATURE.eventChannels;
+const conversionFailure: FailureReceipt = {
+    eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
+    code: 'UNCLASSIFIED_MAIN_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+};
 
 describe('DjVu platform feature', () => {
     it('preserves channels, timeouts, menu shape, and registry replay policy', () => {
@@ -199,5 +206,98 @@ describe('DjVu platform feature', () => {
             requestId: 'djvu-search-2',
             pageCount: 0,
         })).toThrow('searchText.options.pageCount must be a positive safe integer');
+    });
+
+    it('preserves conversion failure identity and rejects malformed outcomes at the IPC boundary', async () => {
+        const invoke = vi.fn().mockResolvedValue({
+            success: false,
+            jobId: 'djvu-convert-1',
+            error: 'native conversion failed',
+            failure: conversionFailure,
+        });
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke,
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const client = createPlatformFeaturePreloadClient(
+            cast<IpcRenderer>(ipcRenderer),
+            DJVU_PLATFORM_FEATURE,
+        );
+
+        await expect(client.awaitConvertJob('djvu-convert-1')).resolves.toEqual({
+            success: false,
+            jobId: 'djvu-convert-1',
+            error: 'native conversion failed',
+            failure: conversionFailure,
+        });
+
+        invoke.mockResolvedValueOnce({
+            success: false,
+            jobId: 'djvu-convert-1',
+            error: 'malformed receipt',
+            failure: {
+                ...conversionFailure,
+                eventId: 'not-an-event-id',
+            },
+        });
+        await expect(client.awaitConvertJob('djvu-convert-1'))
+            .rejects.toThrow('DjVu conversion result has an invalid failure receipt');
+    });
+
+    it('preserves a conversion receipt and expected cancellation in durable job state', async () => {
+        const invoke = vi.fn().mockResolvedValue({
+            jobId: 'djvu-convert-2',
+            operation: 'djvu-convert',
+            status: 'failed',
+            error: 'native conversion failed',
+            failure: conversionFailure,
+            progress: {
+                jobId: 'djvu-convert-2',
+                phase: 'converting',
+                percent: 100,
+                status: 'failed',
+            },
+            updatedAtMs: 1,
+        });
+        const ipcRenderer: Pick<IpcRenderer, 'invoke' | 'on' | 'removeListener'> = {
+            invoke,
+            on: vi.fn(),
+            removeListener: vi.fn(),
+        };
+        const client = createPlatformFeaturePreloadClient(
+            cast<IpcRenderer>(ipcRenderer),
+            DJVU_PLATFORM_FEATURE,
+        );
+
+        await expect(client.getJobState('djvu-convert-2')).resolves.toMatchObject({
+            status: 'failed',
+            failure: conversionFailure,
+        });
+
+        invoke.mockResolvedValueOnce({
+            jobId: 'djvu-convert-3',
+            operation: 'djvu-convert',
+            status: 'canceled',
+            error: 'DjVu conversion canceled',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+            progress: {
+                jobId: 'djvu-convert-3',
+                phase: 'converting',
+                percent: 100,
+                status: 'canceled',
+            },
+            updatedAtMs: 1,
+        });
+        await expect(client.getJobState('djvu-convert-3')).resolves.toMatchObject({
+            status: 'canceled',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        });
     });
 });

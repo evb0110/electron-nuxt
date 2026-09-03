@@ -7,12 +7,20 @@ import {
 import { cast } from '@tests/helpers/cast';
 import type { IPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
+import { createDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 
 describe('createPdfViewerEventAdapter', () => {
     it('forwards an annotation creation failure to the workspace verbatim', () => {
         const emit = vi.fn();
         const adapter = createPdfViewerEventAdapter(cast<IPdfViewerEmit>(emit));
         const failure = {
+            kind: 'fault' as const,
+            failure: {
+                eventId: createDiagnosticEventId(),
+                code: 'UNCLASSIFIED_RENDERER_ERROR' as const,
+                occurredAt: 1,
+                severity: 'error' as const,
+            },
             operationId: 'annotation-create-3',
             reason: 'mode-switch-failed' as const,
             pageNumber: 4,
@@ -30,6 +38,11 @@ describe('createPdfViewerEventAdapter', () => {
         const adapter = createPdfViewerEventAdapter(cast<IPdfViewerEmit>(emit));
 
         adapter.annotationFailure({
+            kind: 'expected',
+            outcome: {
+                kind: 'expected',
+                code: 'validation-rejected',
+            },
             operationId: 'annotation-create-1',
             reason: 'selection-spans-pages',
             pageNumber: null,

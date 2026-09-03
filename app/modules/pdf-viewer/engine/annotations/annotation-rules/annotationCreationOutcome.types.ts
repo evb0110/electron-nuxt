@@ -1,3 +1,8 @@
+import type {
+    ExpectedOutcome,
+    FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
+
 /**
  * Typed result of an annotation creation attempt.
  *
@@ -63,9 +68,51 @@ export type TAnnotationCreationOutcome =
     | IAnnotationCreationCancelled
     | IAnnotationCreationFailed;
 
-/** What the viewer hands to the shared workspace failure surface. */
-export interface IAnnotationCreationFailureReport {
+interface IAnnotationCreationReportBase {
     operationId: string;
     reason: TAnnotationCreationFailureReason;
     pageNumber: number | null;
+}
+
+/** A handled selection, geometry, or readiness state. It never owns an occurrence. */
+export interface IAnnotationCreationExpectedReport extends IAnnotationCreationReportBase {
+    kind: 'expected';
+    outcome: ExpectedOutcome;
+}
+
+/** An unexpected annotation defect and the one receipt created by its bridge owner. */
+export interface IAnnotationCreationFaultReport extends IAnnotationCreationReportBase {
+    kind: 'fault';
+    failure: FailureReceipt;
+}
+
+/** What the viewer hands to the shared workspace failure surface. */
+export type IAnnotationCreationFailureReport =
+    | IAnnotationCreationExpectedReport
+    | IAnnotationCreationFaultReport;
+
+export function getAnnotationCreationExpectedOutcome(
+    reason: TAnnotationCreationFailureReason,
+): ExpectedOutcome | null {
+    switch (reason) {
+        case 'no-selection':
+        case 'selection-spans-pages':
+        case 'selection-not-in-text-layer':
+        case 'point-outside-page':
+            return {
+                kind: 'expected',
+                code: 'validation-rejected',
+            };
+        case 'viewer-not-ready':
+        case 'editor-unavailable':
+        case 'page-not-rendered':
+            return {
+                kind: 'expected',
+                code: 'temporarily-unavailable',
+            };
+        case 'mode-switch-failed':
+        case 'editor-binding-failed':
+        case 'projection-failed':
+            return null;
+    }
 }

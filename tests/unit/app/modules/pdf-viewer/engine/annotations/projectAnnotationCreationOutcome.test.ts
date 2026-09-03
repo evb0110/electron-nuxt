@@ -3,9 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import type {
-    TAnnotationCreationFailureReason,
-    TAnnotationCreationOutcome,
+import {
+    getAnnotationCreationExpectedOutcome,
+    type TAnnotationCreationFailureReason,
+    type TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { projectAnnotationCreationOutcome } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/projectAnnotationCreationOutcome';
 
@@ -16,6 +17,19 @@ function project(outcome: TAnnotationCreationOutcome) {
 }
 
 describe('projectAnnotationCreationOutcome', () => {
+    it('classifies handled selection and readiness states without an occurrence', () => {
+        expect(getAnnotationCreationExpectedOutcome('selection-spans-pages')).toEqual({
+            kind: 'expected',
+            code: 'validation-rejected',
+        });
+        expect(getAnnotationCreationExpectedOutcome('viewer-not-ready')).toEqual({
+            kind: 'expected',
+            code: 'temporarily-unavailable',
+        });
+        expect(getAnnotationCreationExpectedOutcome('mode-switch-failed')).toBeNull();
+        expect(getAnnotationCreationExpectedOutcome('editor-binding-failed')).toBeNull();
+        expect(getAnnotationCreationExpectedOutcome('projection-failed')).toBeNull();
+    });
     it('reports success only for an annotation whose editor is bound', () => {
         expect(project({
             status: 'created',

@@ -27,6 +27,7 @@ import {
     cancelScanCleanup,
     getScanCleanupRunError,
     getScanCleanupRunErrorCode,
+    getScanCleanupRunFailure,
     isScanCleanupRunning,
     reportScanCleanupRunError,
     resolveScanCleanupProcessedPages,
@@ -42,6 +43,7 @@ import {formatScanCleanupErrorMessage} from '@app/modules/scan-cleanup/runtime/f
 import {toPlainScanCleanupOptions} from '@app/modules/scan-cleanup/persistence/preferencesRepository';
 import {getScanCleanupCapability} from '@app/utils/getScanCleanupCapability';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {formatFailurePresentationDescription} from '@app/composables/useFailureToast';
 
 const ETA_PAGE_STAGES = new Set([
     'rasterizing',
@@ -143,11 +145,25 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
     const cancelRequested = computed(() => (stopRequested.value && isRunning.value)
         || (scanCleanupRun.ownerId === options.ownerId
             && scanCleanupRun.jobState?.status === 'canceling'));
-    const error = computed(() => getScanCleanupRunError(
-        options.ownerId,
-        options.sourcePath.value,
-        options.documentRevision.value,
-    ));
+    const error = computed(() => {
+        const description = getScanCleanupRunError(
+            options.ownerId,
+            options.sourcePath.value,
+            options.documentRevision.value,
+        );
+        const failure = getScanCleanupRunFailure(
+            options.ownerId,
+            options.sourcePath.value,
+            options.documentRevision.value,
+        );
+        return description && failure
+            ? formatFailurePresentationDescription({
+                failure,
+                title: '',
+                description,
+            })
+            : description;
+    });
     const errorCode = computed(() => getScanCleanupRunErrorCode(
         options.ownerId,
         options.sourcePath.value,

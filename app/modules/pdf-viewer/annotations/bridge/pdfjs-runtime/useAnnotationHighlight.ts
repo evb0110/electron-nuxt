@@ -24,6 +24,7 @@ import type {
     TAnnotationCreationOutcome,
     TAnnotationPendingEditorReason,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import { reportAnnotationCreationFailure } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/reportAnnotationCreationFailure';
 import { didCreateAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/didCreateAnnotation';
 import { getCommentText } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/getCommentText';
 import type { IAnnotationContextMenuPayload } from '@app/modules/pdf-viewer/engine/annotationContextMenuPayload';
@@ -210,7 +211,6 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     });
 
     let annotationCreationAttempts = 0;
-
     function nextAnnotationOperationId() {
         annotationCreationAttempts += 1;
         return `annotation-create-${annotationCreationAttempts}`;
@@ -221,7 +221,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         reason: TAnnotationCreationFailureReason,
         pageNumber: number | null,
     ) {
-        reportAnnotationFailure?.({
+        reportAnnotationCreationFailure(reportAnnotationFailure, {
             operationId,
             reason,
             pageNumber,

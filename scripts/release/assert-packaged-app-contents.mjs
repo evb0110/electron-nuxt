@@ -7,6 +7,11 @@ import {
 } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import {
+    collectPublicArtifactContentViolations,
+    isForbiddenPublicArtifactPath,
+    shouldScanPublicArtifactContent,
+} from '../check-build-artifacts-hygiene.mjs';
 
 const { WORKER_BUNDLES } = await import(
     new URL('../../packages/electron-worker-bundles/electronWorkerBundles.js', import.meta.url).href
@@ -112,6 +117,10 @@ export function collectEntryViolations(entries) {
             problems.push(`source map should not ship: ${entry}`);
             continue;
         }
+        if (isForbiddenPublicArtifactPath(entry.slice(1))) {
+            problems.push(`private staging path should not ship: ${entry}`);
+            continue;
+        }
         if (entry.endsWith('.meta.json')) {
             problems.push(`bundle metafile should not ship: ${entry}`);
             continue;
@@ -146,6 +155,17 @@ export function collectUnpackedViolations(asarPath) {
         if (!expectedSet.has(present)) {
             problems.push(`unexpected unpacked file: dist-electron/${present}`);
         }
+        if (shouldScanPublicArtifactContent(present)) {
+            const filePath = path.join(unpackedDistElectron, present);
+            try {
+                const content = readFileSync(filePath);
+                for (const problem of collectPublicArtifactContentViolations(content, {target: 'desktop'})) {
+                    problems.push(`forbidden unpacked content in dist-electron/${present}: ${problem}`);
+                }
+            } catch {
+                // Missing expected files have their own stable error above.
+            }
+        }
     }
 
     const unpackedPackageJsonPath = path.join(unpackedDistElectron, 'package.json');
@@ -173,9 +193,28 @@ export async function main() {
     const failures = [];
     for (const asarPath of archives) {
         const entries = normalizeAsarEntries(asar.listPackage(asarPath));
+        const contentProblems = [];
+        for (const entry of entries) {
+            if (!shouldScanPublicArtifactContent(entry)) {
+                continue;
+            }
+            let content;
+            try {
+                content = asar.extractFile(asarPath, entry.slice(1));
+            } catch {
+                continue;
+            }
+            const target = entry.startsWith('/nuxt-output/public/')
+                ? 'desktop-renderer'
+                : 'desktop';
+            for (const problem of collectPublicArtifactContentViolations(content, {target})) {
+                contentProblems.push(`forbidden ASAR content in ${entry}: ${problem}`);
+            }
+        }
         const problems = [
             ...collectEntryViolations(entries),
             ...collectUnpackedViolations(asarPath),
+            ...contentProblems,
         ];
         if (problems.length > 0) {
             failures.push({

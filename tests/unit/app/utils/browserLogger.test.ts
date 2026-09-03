@@ -313,6 +313,7 @@ describe('BrowserLogger', () => {
         );
         const reporter = actualFailureReporter.createRendererFailureReporter({
             host: 'electron',
+            preference: 'granted',
             electronSender: sender,
         });
         const initializeRendererFailureReporter = vi.fn(() => reporter);

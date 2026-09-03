@@ -13,6 +13,7 @@ import {
     parseBrowserSettingsPayload,
 } from '@app/utils/browserSettingsPersistence';
 import { getSettingsCapability } from '@app/utils/getSettingsCapability';
+import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 import { usePlatformHydratedState } from '@app/composables/usePlatformHydratedState';
 import {
     createSettingsPersistenceQueue,
@@ -96,6 +97,7 @@ export const useSettings = () => {
         onLoaded(nextSettings) {
             refreshSettingsBootstrapCookieSnapshot();
             rememberSavedSettings(nextSettings);
+            setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
         },
         onError(loadError) {
             BrowserLogger.error('settings', 'Failed to load settings', loadError);
@@ -126,6 +128,7 @@ export const useSettings = () => {
             onSaved(nextSettings) {
                 rememberSavedSettings(nextSettings);
                 refreshSettingsBootstrapCookieSnapshot();
+                setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
             },
             onSaveError(error) {
                 BrowserLogger.error('settings', 'Failed to save settings', error);
@@ -171,6 +174,9 @@ export const useSettings = () => {
             ...settings.value,
             [key]: value,
         };
+        if (key === 'clientDiagnosticsPreference') {
+            setRendererDiagnosticsPreference(value);
+        }
         scheduleDebouncedSave();
     }
 

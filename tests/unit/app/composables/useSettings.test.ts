@@ -215,6 +215,24 @@ describe('useSettings', () => {
         }
     });
 
+    it('changes the live diagnostics gate before the debounced settings save', async () => {
+        vi.useFakeTimers();
+        const failureReporter = await import('@app/utils/failureReporter');
+        const reporter = failureReporter.initializeRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+        });
+        const { useSettings } = await import('@app/composables/useSettings');
+        const { updateSetting } = useSettings();
+
+        updateSetting('clientDiagnosticsPreference', 'denied');
+
+        expect(reporter.getPreference()).toBe('denied');
+        expect(mockSave).not.toHaveBeenCalled();
+        vi.clearAllTimers();
+        vi.useRealTimers();
+    });
+
     it('shares one in-flight save queue across settings composable callers', async () => {
         const firstSave = createDeferred();
         mockSave

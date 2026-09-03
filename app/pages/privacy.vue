@@ -21,6 +21,11 @@
             </section>
 
             <section>
+                <h2>{{ privacyCopy.diagnostics.heading }}</h2>
+                <p>{{ privacyCopy.diagnostics.body }}</p>
+            </section>
+
+            <section>
                 <h2>{{ privacyCopy.analytics.heading }}</h2>
                 <p>{{ privacyCopy.analytics.body }}</p>
             </section>

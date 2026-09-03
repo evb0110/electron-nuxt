@@ -160,6 +160,18 @@ export async function updateSettings(
                 }
                 : workingCopy,
         );
+        if (
+            next.clientDiagnosticsPreference !== current.clientDiagnosticsPreference
+            && next.clientDiagnosticsPreference !== 'granted'
+        ) {
+            setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
+            // Keep later settings writes from reopening a failed revocation
+            // from the stale durable snapshot.
+            settingsCache = {
+                ...current,
+                clientDiagnosticsPreference: next.clientDiagnosticsPreference,
+            };
+        }
         await writeSettingsAtomically(storagePath, next);
         setMainDiagnosticsPreference(next.clientDiagnosticsPreference);
         settingsCache = next;

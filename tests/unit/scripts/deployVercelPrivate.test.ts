@@ -26,15 +26,22 @@ interface IPreparedPrivateDeploySource {
 
 interface IPrivateDeployModule {
     buildVercelRollbackArgs: (deploymentUrl: string) => string[];
-    buildPrivateDeployArgs: (sourceRoot: string, rawArgs?: string[]) => string[];
+    buildPrivateDeployArgs: (
+        sourceRoot: string,
+        rawArgs?: string[],
+        options?: {prebuilt?: boolean},
+    ) => string[];
+    assertServedSentryBundleParity: (options: Record<string, unknown>) => Promise<boolean>;
     extractVercelDeploymentUrl: (output: string) => string | null;
     parsePrivateDeployOptions: (rawArgs?: string[]) => {
         deployArgs: string[];
         deployTarget: string;
+        prebuilt: boolean;
     };
     promoteLandingVercelOutput: (projectRoot?: string) => void;
     preparePrivateDeploySource: (options?: {
         deployTarget?: string;
+        prebuilt?: boolean;
         projectRoot?: string;
     }) => IPreparedPrivateDeploySource;
     quoteWindowsShellArg: (arg: string) => string;
@@ -42,6 +49,7 @@ interface IPrivateDeployModule {
 }
 
 const {
+    assertServedSentryBundleParity,
     buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
@@ -53,6 +61,8 @@ const {
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
 ) as IPrivateDeployModule;
+const {createSentryBuildIdentity} = await import('@contracts/diagnostics/releaseIdentity.js');
+const {stagePrivateSourcemaps} = await import('@scripts/release/stage-private-sourcemaps.mjs');
 
 function createProjectFixture() {
     const projectRoot = mkdtempSync(path.join(tmpdir(), 'evb-private-deploy-fixture-'));
@@ -64,13 +74,16 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'native'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'packages', 'contracts'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'scripts', 'lib'), {recursive: true});
-    writeFileSync(path.join(projectRoot, '.gitignore'), '.vercel/\n.env.local\n.devkit/\nMEMORIES.md\n');
+    writeFileSync(
+        path.join(projectRoot, '.gitignore'),
+        '.vercel/\n.tmp/\n.env.local\n.devkit/\nMEMORIES.md\n',
+    );
     writeFileSync(path.join(projectRoot, '.env.local'), 'SECRET=value\n');
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
     writeFileSync(path.join(projectRoot, '.vercel', 'project.json'), '{"projectId":"project"}\n');
     writeFileSync(
         path.join(projectRoot, 'package.json'),
-        '{"name":"fixture","scripts":{"build":"viewer-build"}}\n',
+        '{"name":"fixture","version":"1.2.3","scripts":{"build":"viewer-build"}}\n',
     );
     writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = true;\n');
     writeFileSync(
@@ -298,6 +311,160 @@ describe('private Vercel deployment source', () => {
             '--yes',
             '--archive=zip',
         ]);
+        expect(buildPrivateDeployArgs('/tmp/source', ['--logs'], {prebuilt: true})).toEqual([
+            'deploy',
+            '/tmp/source',
+            '--yes',
+            '--prebuilt',
+            '--logs',
+        ]);
+    });
+
+    it('copies ignored Vercel output separately for viewer prebuilt deployment', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+        try {
+            const outputRoot = path.join(projectRoot, '.vercel', 'output');
+            mkdirSync(path.join(outputRoot, 'static'), {recursive: true});
+            writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(path.join(outputRoot, 'static', 'app.js'), 'built viewer\n');
+
+            prepared = preparePrivateDeploySource({
+                prebuilt: true,
+                projectRoot,
+            });
+
+            expect(readFileSync(
+                path.join(prepared.sourceRoot, '.vercel', 'output', 'static', 'app.js'),
+                'utf8',
+            )).toBe('built viewer\n');
+            expect(existsSync(
+                path.join(prepared.sourceRoot, '.vercel', 'output', 'static', 'app.js.map'),
+            )).toBe(false);
+            expect(existsSync(path.join(prepared.sourceRoot, '.tmp'))).toBe(false);
+        } finally {
+            prepared?.cleanup();
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('builds and deploys diagnostics-enabled viewer output through the prebuilt path', async () => {
+        const projectRoot = createProjectFixture();
+        const outputRoot = path.join(projectRoot, '.vercel', 'output');
+        const bundlePath = path.join(outputRoot, 'static', '_nuxt', 'app.js');
+        const sourcePath = path.join(projectRoot, 'app', 'index.ts');
+        const identity = createSentryBuildIdentity({
+            target: 'web',
+            deployment: '1.2.3',
+            dist: 'preview-local',
+            environment: 'preview',
+        });
+        const calls: Array<{
+            args: string[];
+            command: string
+        }> = [];
+        const lifecycle: string[] = [];
+        try {
+            mkdirSync(path.dirname(bundlePath), {recursive: true});
+            writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(bundlePath, 'export const viewer=true;\n//# sourceMappingURL=app.js.map\n');
+            writeFileSync(`${bundlePath}.map`, JSON.stringify({
+                version: 3,
+                file: 'app.js',
+                sources: [path.relative(path.dirname(bundlePath), sourcePath)],
+                names: [],
+                mappings: '',
+            }));
+            await stagePrivateSourcemaps({
+                identity,
+                outputRoots: ['.vercel/output'],
+                projectRoot,
+                reset: true,
+            });
+            const injectedBytes = readFileSync(bundlePath);
+
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {EVB_SENTRY_DIAGNOSTICS_BUILD: '1'},
+                fetchImpl: async () => ({
+                    arrayBuffer: async () => injectedBytes,
+                    ok: true,
+                    status: 200,
+                }),
+                projectRoot,
+                rawArgs: [],
+                uploadSourcemaps: async () => {
+                    lifecycle.push('upload');
+                    return {};
+                },
+                spawnSyncImpl: (command: string, args: string[]) => {
+                    calls.push({
+                        args,
+                        command,
+                    });
+                    if (command === 'pnpm') {
+                        lifecycle.push('build');
+                        return {status: 0};
+                    }
+                    lifecycle.push('deploy');
+                    const deploySourceRoot = args[1];
+                    expect(deploySourceRoot).toBeTypeOf('string');
+                    expect(existsSync(path.join(
+                        deploySourceRoot as string,
+                        '.vercel',
+                        'output',
+                        'static',
+                        '_nuxt',
+                        'app.js.map',
+                    ))).toBe(false);
+                    return {
+                        stderr: '',
+                        stdout: 'Preview: https://evb-viewer-test.vercel.app\n',
+                        status: 0,
+                    };
+                },
+            })).resolves.toBe(0);
+
+            expect(calls[0]).toMatchObject({
+                args: [
+                    'run',
+                    'build',
+                ],
+                command: 'pnpm',
+            });
+            expect(calls[1]?.args).toEqual(expect.arrayContaining([
+                'deploy',
+                '--prebuilt',
+            ]));
+            expect(calls[1]?.args).not.toContain('--archive=tgz');
+            expect(lifecycle).toEqual([
+                'build',
+                'upload',
+                'deploy',
+            ]);
+            await expect(assertServedSentryBundleParity({
+                deploymentUrl: 'https://evb-viewer-test.vercel.app',
+                fetchImpl: async () => ({
+                    arrayBuffer: async () => injectedBytes,
+                    ok: true,
+                    status: 200,
+                }),
+                identity,
+                projectRoot,
+            })).resolves.toBe(true);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
     });
 
     it('requires a reported deployment URL and rolls back a failed production acceptance', async () => {
@@ -457,9 +624,20 @@ describe('private Vercel deployment source', () => {
                 '--logs',
             ],
             deployTarget: 'landing',
+            prebuilt: false,
+        });
+        expect(parsePrivateDeployOptions(['--prebuilt'])).toEqual({
+            deployArgs: [],
+            deployTarget: 'viewer',
+            prebuilt: true,
         });
         expect(() => parsePrivateDeployOptions(['--target=unknown']))
             .toThrow('Unsupported deploy target: unknown');
+        expect(() => parsePrivateDeployOptions([
+            '--target=landing',
+            '--prebuilt',
+        ]))
+            .toThrow('Prebuilt deployment is supported only for the viewer target.');
     });
 
     describe('quoteWindowsShellArg', () => {

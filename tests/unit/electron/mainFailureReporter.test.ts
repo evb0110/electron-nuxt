@@ -184,6 +184,7 @@ describe('Electron main failure reporter', () => {
         send.mockClear();
 
         reporter.captureRecord(sentRecord);
+        expect(reporter.getGeneration()).toBe(0);
         reporter.setPreference('granted');
         reporter.captureRecord(sentRecord);
         reporter.captureRecord(sentRecord);
@@ -196,6 +197,50 @@ describe('Electron main failure reporter', () => {
             policyDropped: 1,
         });
         expect(reporter.captureRecord(sentRecord)).toEqual(record);
+    });
+
+    it('swaps to a drop transport before revocation and keeps unknown closed', () => {
+        const send = vi.fn();
+        const reporter = createMainFailureReporter({
+            preference: 'unknown',
+            transport: {send},
+        });
+
+        reporter.capture(createInput());
+        expect(send).not.toHaveBeenCalled();
+        expect(reporter.getGeneration()).toBe(0);
+
+        reporter.setPreference('granted');
+        reporter.capture(createInput('granted failure'));
+        expect(send).toHaveBeenCalledOnce();
+
+        reporter.setPreference('denied');
+        expect(reporter.getGeneration()).toBe(1);
+        reporter.capture(createInput('revoked failure'));
+        expect(send).toHaveBeenCalledOnce();
+    });
+
+    it('does not apply an async transport result after revocation', async () => {
+        let resolveSend!: (value: unknown) => void;
+        const send = vi.fn(() => new Promise(resolve => {
+            resolveSend = resolve;
+        }));
+        const reporter = createMainFailureReporter({
+            preference: 'granted',
+            transport: {send},
+        });
+
+        reporter.capture(createInput());
+        expect(send).toHaveBeenCalledOnce();
+        reporter.setPreference('denied');
+        resolveSend(undefined);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reporter.getHealthSnapshot()).toMatchObject({
+            accepted: 0,
+            transportFailed: 0,
+        });
     });
 
     it('suppresses a per-code and top-frame burst and emits one capped summary', () => {

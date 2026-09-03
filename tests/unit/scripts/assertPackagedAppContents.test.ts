@@ -26,8 +26,17 @@ interface IAssertPackagedAppContentsModule {
     normalizeAsarEntries: (entries: string[]) => string[];
 }
 
+interface IBuildArtifactHygieneModule {collectPublicArtifactContentViolations: (
+    content: string | Buffer,
+    options: {target: string},
+) => string[];}
+
 async function loadPackagedContentsModule(): Promise<IAssertPackagedAppContentsModule> {
     return import(pathToFileURL(resolve(process.cwd(), 'scripts/release/assert-packaged-app-contents.mjs')).href);
+}
+
+async function loadBuildArtifactHygieneModule(): Promise<IBuildArtifactHygieneModule> {
+    return import(pathToFileURL(resolve(process.cwd(), 'scripts/check-build-artifacts-hygiene.mjs')).href);
 }
 
 describe('assert-packaged-app-contents', () => {
@@ -109,5 +118,54 @@ describe('assert-packaged-app-contents', () => {
             'source map should not ship: /dist-electron/main.js.map',
             'bundle metafile should not ship: /dist-electron/preload.meta.json',
         ]));
+    });
+
+    it('rejects staged private source directories by bounded path matching', async () => {
+        const { collectEntryViolations } = await loadPackagedContentsModule();
+
+        expect(collectEntryViolations([
+            '/dist-electron/private-sourcemaps/release/sources/main.ts',
+            '/nuxt-output/public/.tmp/sentry-sources/app.ts',
+        ])).toEqual(expect.arrayContaining([
+            'private staging path should not ship: /dist-electron/private-sourcemaps/release/sources/main.ts',
+            'private staging path should not ship: /nuxt-output/public/.tmp/sentry-sources/app.ts',
+        ]));
+    });
+
+    it('rejects tokens without returning their values', async () => {
+        const { collectPublicArtifactContentViolations } = await loadBuildArtifactHygieneModule();
+        const token = `sntrys_${'a'.repeat(24)}`;
+        const violations = collectPublicArtifactContentViolations(
+            `const token=${token};`,
+            {target: 'desktop'},
+        );
+
+        expect(violations).toContain('remote auth credential');
+        expect(JSON.stringify(violations)).not.toContain(token);
+    });
+
+    it('rejects every Sentry ingest endpoint from the desktop renderer', async () => {
+        const { collectPublicArtifactContentViolations } = await loadBuildArtifactHygieneModule();
+
+        expect(collectPublicArtifactContentViolations(
+            'fetch("https://browserkey@o123.ingest.us.sentry.io/456")',
+            {target: 'desktop-renderer'},
+        )).toContain('web Sentry ingest endpoint in desktop renderer');
+        expect(collectPublicArtifactContentViolations(
+            'export const clean = true;',
+            {target: 'desktop-renderer'},
+        )).toEqual([]);
+    });
+
+    it('rejects mixed runtime endpoints from one public bundle', async () => {
+        const { collectPublicArtifactContentViolations } = await loadBuildArtifactHygieneModule();
+
+        expect(collectPublicArtifactContentViolations(
+            [
+                'https://browserkey@o123.ingest.de.sentry.io/456',
+                'https://serverkey@o123.ingest.de.sentry.io/456',
+            ].join('\n'),
+            {target: 'web-static'},
+        )).toContain('multiple runtime Sentry endpoints');
     });
 });

@@ -3,6 +3,7 @@ import {
     type TNativeErrorCode,
 } from '@contracts/nativeErrors';
 import type {ISerializableErrorEnvelope} from '@contracts/serializableError';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {
     IScanCleanupDocumentPrior,
     IScanCleanupOptions,
@@ -665,7 +666,8 @@ export type TScanCleanupJobState =
     | IScanCleanupJobBase & {
         status: 'failed';
         error: string;
-        errorCode: TScanCleanupErrorCode
+        errorCode: TScanCleanupErrorCode;
+        failure?: FailureReceipt
     };
 
 export type TScanCleanupStartResult =

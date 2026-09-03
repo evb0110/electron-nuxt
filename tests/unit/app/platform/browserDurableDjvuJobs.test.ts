@@ -6,9 +6,16 @@ import {
     vi,
 } from 'vitest';
 import { BrowserDurableDjvuJobs } from '@app/platform/browser-api/browserDurableDjvuJobs';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 
 describe('BrowserDurableDjvuJobs', () => {
     const jobs = new BrowserDurableDjvuJobs(100, 2);
+    const failure: FailureReceipt = {
+        eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
+        code: 'UNCLASSIFIED_RENDERER_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    };
 
     afterEach(() => {
         jobs.clearForTests();
@@ -38,6 +45,55 @@ describe('BrowserDurableDjvuJobs', () => {
 
         expect(jobs.getState('convert-expired')).toBeNull();
         expect(() => jobs.awaitConvert('convert-expired')).toThrow('Unknown browser DjVu conversion job');
+    });
+
+    it('retains conversion failure identity in the terminal result and state', async () => {
+        jobs.startConvert('convert-failed', 'request-1', async () => ({
+            success: false,
+            error: 'browser conversion failed',
+            failure,
+        }));
+
+        await expect(jobs.awaitConvert('convert-failed')).resolves.toEqual({
+            success: false,
+            jobId: 'convert-failed',
+            error: 'browser conversion failed',
+            failure,
+        });
+        expect(jobs.getState('convert-failed')).toMatchObject({
+            status: 'failed',
+            error: 'browser conversion failed',
+            failure,
+        });
+    });
+
+    it('retains cancellation as an expected terminal outcome without a receipt', async () => {
+        jobs.startConvert('convert-canceled', 'request-1', async () => ({
+            success: false,
+            error: 'DjVu conversion canceled',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        }));
+
+        await expect(jobs.awaitConvert('convert-canceled')).resolves.toEqual({
+            success: false,
+            jobId: 'convert-canceled',
+            error: 'DjVu conversion canceled',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        });
+        expect(jobs.getState('convert-canceled')).toMatchObject({
+            status: 'canceled',
+            expected: {
+                kind: 'expected',
+                code: 'canceled',
+            },
+        });
+        expect(jobs.getState('convert-canceled')).not.toHaveProperty('failure');
     });
 
     it('bounds retained terminal jobs without evicting active work', async () => {

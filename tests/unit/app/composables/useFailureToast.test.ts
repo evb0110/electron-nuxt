@@ -101,6 +101,23 @@ describe('useFailureToast', () => {
         expect(useFailureToast().copyFailurePresentation).toBe(copyFailurePresentation);
     });
 
+    it('preserves custom presentation actions for shared callers', async () => {
+        const {useFailureToast} = await loadFailureToast();
+        const {presentFailureToast} = useFailureToast();
+        const actions = [{
+            label: 'Details',
+            onClick: vi.fn(),
+        }];
+
+        presentFailureToast({
+            failure: createFailure(),
+            title: 'Renderer failure',
+            actions,
+        });
+
+        expect(toastAdd.mock.calls[0]?.[0].actions).toBe(actions);
+    });
+
     it('does not create another toast when the presenter owner rerenders', async () => {
         const {useFailureToast} = await loadFailureToast();
         const failure = createFailure();

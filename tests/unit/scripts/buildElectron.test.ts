@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {readFileSync} from 'node:fs';
 import {WORKER_BUNDLES} from '@electron-worker-bundles/electronWorkerBundles.js';
 
 const mocks = vi.hoisted(() => ({
@@ -13,6 +14,7 @@ const mocks = vi.hoisted(() => ({
     execFileSync: vi.fn(),
     mkdir: vi.fn(),
     rm: vi.fn(),
+    stagePrivateSourcemaps: vi.fn(),
     writeFile: vi.fn(),
 }));
 
@@ -27,6 +29,8 @@ vi.mock('node:child_process', () => ({execFileSync: mocks.execFileSync}));
 
 vi.mock('esbuild', () => ({default: {build: mocks.build}}));
 
+vi.mock('@scripts/release/stage-private-sourcemaps.mjs', () => ({stagePrivateSourcemaps: mocks.stagePrivateSourcemaps}));
+
 describe('Electron build script', () => {
     afterEach(() => {
         vi.unstubAllEnvs();
@@ -34,6 +38,10 @@ describe('Electron build script', () => {
 
     it('builds the main, preload, and registered utility bundles', async () => {
         vi.stubEnv('EVB_ELECTRON_SOURCEMAP', '1');
+        vi.stubEnv('EVB_RELEASE_TARGET_PLATFORM', 'mac');
+        vi.stubEnv('EVB_RELEASE_TARGET_ARCH', 'arm64');
+        vi.stubEnv('EVB_SENTRY_ENVIRONMENT', 'test');
+        vi.stubEnv('SENTRY_DESKTOP_DSN', 'https://public@example.invalid/1');
         mocks.build.mockResolvedValue({metafile: {outputs: {}}});
         mocks.copyFile.mockResolvedValue(undefined);
         mocks.mkdir.mockResolvedValue(undefined);
@@ -66,7 +74,25 @@ describe('Electron build script', () => {
             entryPoints: ['electron/preload.ts'],
             metafile: true,
             outfile: 'dist-electron/preload.cjs',
-            sourcemap: 'external',
+            sourcemap: false,
+        }));
+        expect(mocks.build).toHaveBeenCalledWith(expect.objectContaining({
+            entryPoints: {main: 'electron/main.ts'},
+            define: expect.objectContaining({
+                '__EVB_SENTRY_BUILD_IDENTITY__': JSON.stringify({
+                    target: 'desktop',
+                    release: `evb-viewer-desktop@${JSON.parse(readFileSync('package.json', 'utf8')).version}`,
+                    dist: 'macos-arm64',
+                    environment: 'test',
+                }),
+                'process.env.EVB_SENTRY_RELEASE': JSON.stringify(
+                    `evb-viewer-desktop@${JSON.parse(readFileSync('package.json', 'utf8')).version}`,
+                ),
+                'process.env.EVB_SENTRY_DIST': JSON.stringify('macos-arm64'),
+                'process.env.EVB_SENTRY_ENVIRONMENT': JSON.stringify('test'),
+                '__EVB_SENTRY_DESKTOP_DSN__': JSON.stringify('https://public@example.invalid/1'),
+                'process.env.SENTRY_DESKTOP_DSN': JSON.stringify('https://public@example.invalid/1'),
+            }),
         }));
         expect(mocks.copyFile).toHaveBeenCalledWith(
             'node_modules/pdfjs-dist/legacy/build/pdf.worker.mjs',
@@ -76,5 +102,14 @@ describe('Electron build script', () => {
             'dist-electron/package.json',
             `${JSON.stringify({type: 'module'}, null, 4)}\n`,
         );
+        expect(mocks.stagePrivateSourcemaps).toHaveBeenCalledWith({
+            identity: {
+                target: 'desktop',
+                release: `evb-viewer-desktop@${JSON.parse(readFileSync('package.json', 'utf8')).version}`,
+                dist: 'macos-arm64',
+                environment: 'test',
+            },
+            outputRoots: ['dist-electron'],
+        });
     });
 });

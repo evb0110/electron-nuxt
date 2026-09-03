@@ -12,6 +12,11 @@ on:
         required: false
         default: artifact-build
         type: string
+      sentry_environment:
+        description: Closed Sentry build environment for this artifact.
+        required: false
+        default: test
+        type: string
     secrets:
       CSC_LINK:
         required: false
@@ -22,6 +27,14 @@ on:
       APPLE_API_KEY_ID:
         required: false
       APPLE_API_ISSUER:
+        required: false
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DESKTOP_PROJECT:
+        required: false
+      SENTRY_DESKTOP_DSN:
         required: false
 
 permissions:
@@ -37,6 +50,13 @@ jobs:
     name: build (macos-15-intel, mac, x64)
     runs-on: macos-15-intel
     environment: ${{ inputs.release_environment }}
+    env:
+      EVB_RELEASE_TARGET_ARCH: x64
+      EVB_RELEASE_TARGET_PLATFORM: mac
+      EVB_RELEASE_TARGET_DIST: macos-x64
+      EVB_SENTRY_TARGET: desktop
+      EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
 
     steps:
       - name: Checkout
@@ -51,6 +71,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           rust-targets: wasm32-unknown-unknown
           brew-formulae: tesseract poppler qpdf djvulibre meson pkg-config sphinx-doc
+
+      - name: Resolve Sentry build identity
+        run: node scripts/release/resolve-sentry-build-identity.mjs --target=desktop
 
       - name: Bundle native tools (macOS Intel)
         timeout-minutes: 30
@@ -123,6 +146,39 @@ jobs:
           executable="$(find release -type f -path '*/EVB Viewer.app/Contents/MacOS/EVB Viewer' -print -quit)"
           test -n "$executable"
           pnpm run test:packaged-core-pdf-smoke -- --executable "$executable"
+
+      - name: Check private Sentry upload readiness
+        id: sentry_upload
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: |
+          set -euo pipefail
+          configured=0
+          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
+            if [ -n "$value" ]; then configured=$((configured + 1)); fi
+          done
+          if [ "$configured" -eq 4 ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [ "$configured" -eq 0 ] && [ "$EVB_SENTRY_ENVIRONMENT" != 'production' ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Private Sentry upload is not configured for this non-production build.'
+          else
+            echo '::error::Sentry diagnostics credentials are incomplete or absent for a production build.'
+            exit 1
+          fi
+
+      - name: Upload private Sentry source maps
+        if: steps.sentry_upload.outputs.enabled == 'true'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs
 
       - name: Upload artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
