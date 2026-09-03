@@ -13,6 +13,13 @@ export interface FailurePresentation extends IPresentedFailureCapture {
     actions?: TFailurePresentationAction[];
 }
 
+export interface IFailureToastTarget {add: (options: {
+    color: 'error';
+    title: string;
+    description: string;
+    actions: TFailurePresentationAction[];
+}) => unknown}
+
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
 
 export function getFailureErrorId(receipt: FailureReceipt) {
@@ -60,10 +67,8 @@ export async function copyFailurePresentation(presentation: FailurePresentation)
     }
 }
 
-export const useFailureToast = () => {
-    const toast = useToast();
-
-    function presentFailureToast(presentation: FailurePresentation) {
+export function createFailureToastPresenter(toast: IFailureToastTarget) {
+    return function presentFailureToast(presentation: FailurePresentation) {
         toast.add({
             color: 'error',
             title: presentation.title,
@@ -75,7 +80,12 @@ export const useFailureToast = () => {
                 },
             }],
         });
-    }
+    };
+}
+
+export const useFailureToast = () => {
+    const toast = useToast();
+    const presentFailureToast = createFailureToastPresenter(toast);
 
     return {
         presentFailureToast,
