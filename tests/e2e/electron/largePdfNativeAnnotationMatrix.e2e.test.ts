@@ -610,9 +610,77 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         throw new Error(`Canonical entity is not mounted: ${id}`);
     }
     await page.mouse.click(point.x, point.y);
-    await page.waitForFunction((annotationId: string) => Array.from(document.querySelectorAll<HTMLElement>(
-        '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
-    )).some(entity => entity.dataset.annotationId === annotationId), {timeout: 10_000}, id);
+    try {
+        await page.waitForFunction((annotationId: string) => Array.from(document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+        )).some(entity => entity.dataset.annotationId === annotationId), {timeout: 10_000}, id);
+    } catch (error) {
+        const diagnostics = await page.evaluate((selection: {
+            id: string;
+            pageNumber: number;
+            point: {
+                x: number;
+                y: number
+            }
+        }) => {
+            const entity = Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+            )).find(candidate => candidate.dataset.annotationId === selection.id);
+            const pageContainer = entity?.closest<HTMLElement>('.page_container');
+            const layer = entity?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+            const viewer = layer?.closest<HTMLElement>('.pdfViewer');
+            const rect = entity?.getBoundingClientRect();
+            const hit = document.elementFromPoint(selection.point.x, selection.point.y);
+            return {
+                entity: entity
+                    ? {
+                        bounds: rect ? {
+                            bottom: rect.bottom,
+                            height: rect.height,
+                            left: rect.left,
+                            right: rect.right,
+                            top: rect.top,
+                            width: rect.width,
+                        } : null,
+                        className: entity.className,
+                        datasetKind: entity.dataset.annotationKind,
+                        isSelected: entity.classList.contains('is-selected'),
+                        pointerEvents: getComputedStyle(entity).pointerEvents,
+                    }
+                    : null,
+                hit: hit
+                    ? {
+                        annotationId: (hit.closest<HTMLElement>('[data-annotation-id]'))?.dataset.annotationId ?? null,
+                        className: hit.className,
+                        tagName: hit.tagName,
+                    }
+                    : null,
+                page: {
+                    bounds: pageContainer?.getBoundingClientRect().toJSON() ?? null,
+                    expectedPage: selection.pageNumber,
+                    reportedPage: pageContainer?.dataset.page ?? null,
+                },
+                point: selection.point,
+                viewport: {
+                    devicePixelRatio: window.devicePixelRatio,
+                    height: window.innerHeight,
+                    width: window.innerWidth,
+                },
+                viewer: {
+                    bounds: viewer?.getBoundingClientRect().toJSON() ?? null,
+                    scrollHeight: viewer?.scrollHeight ?? null,
+                    scrollLeft: viewer?.scrollLeft ?? null,
+                    scrollTop: viewer?.scrollTop ?? null,
+                    scrollWidth: viewer?.scrollWidth ?? null,
+                },
+            };
+        }, {
+            id,
+            pageNumber,
+            point,
+        });
+        throw new Error(`Canonical entity did not become selected: ${JSON.stringify(diagnostics)}`, {cause: error});
+    }
 }
 
 async function focusCanonicalLayer(page: Page, pageNumber: number) {
