@@ -690,7 +690,22 @@ function collectProjectedNativeAnnotationIds(input: {
             && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
         const hasProjectedGeometryUpdate = targetRef !== null
             && geometryUpdatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
-        if (hasProjectedTextUpdate || hasProjectedGeometryUpdate || freeTextStableKeys.has(comment.stableKey)) {
+        const hasProjectedFreeTextNote = input.freeTextNotes.some(note => [
+            comment.appAnnotationId,
+            comment.annotationId,
+            comment.id,
+            comment.uid,
+            comment.stableKey,
+        ].some(identity => (
+            identity === note.stableKey
+            || areAnnotationIdentityAliasesEqual(identity, note.stableKey)
+        )));
+        if (
+            hasProjectedTextUpdate
+            || hasProjectedGeometryUpdate
+            || freeTextStableKeys.has(comment.stableKey)
+            || hasProjectedFreeTextNote
+        ) {
             addCommentIdentityAliases(ids, comment);
         }
     });

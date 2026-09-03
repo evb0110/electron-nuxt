@@ -63,6 +63,7 @@ import {
 import {
     clickLatestVisibleNoteWindowClose,
     clickAnnotationTool,
+    createCanonicalTextBoxWithPointer,
     createFreeTextAnnotation,
     createFreeTextAnnotationWithPointer,
     createStickyNoteWithPointer,
@@ -3223,7 +3224,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         expect(restartedPdfGeometry.pageNumber).toBe(restoredCanonical.pageNumber);
     }, IMPORTED_TEXT_POPUP_TIMEOUT_MS);
 
-    it('saves a toolbar note with multiple ordinary FreeText editors on a large PDF', async () => {
+    it('saves canonical notes and text boxes with multiple edits on a large PDF', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -3233,14 +3234,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const fixturePath = copyLargePdfFixture(`large-pdf-note-${Date.now()}.pdf`);
         const firstText = `фвыафыва ${Date.now()}`;
         const secondText = `second toolbar note ${Date.now()}`;
+        const firstTextBox = `first canonical text box ${Date.now()}`;
+        const secondTextBox = `second canonical text box ${Date.now()}`;
         const existingFixtureNotes = await readPdfNoteContents(fixturePath);
 
         await openPdfInApp(page, fixturePath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
-        await page.evaluate(() => {
-            (window as Window & {__diagnosticWarnAsWarn?: boolean}).__diagnosticWarnAsWarn = true;
-        });
 
         await createStickyNoteWithPointer(page, firstText, {
             x: 0.72,
@@ -3249,22 +3249,24 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await clickLatestVisibleNoteWindowClose(page);
         await waitForNoOpenNoteWindows(page);
         await openAnnotationsTab(page, 30_000);
-        expect(await createFreeTextAnnotationWithPointer(
+        const firstTextBoxId = await createCanonicalTextBoxWithPointer(
             page,
-            `first editor ${Date.now()}`,
+            firstTextBox,
             {
                 x: 0.3,
                 y: 0.3,
             },
-        )).toBeGreaterThan(0);
-        expect(await createFreeTextAnnotationWithPointer(
+        );
+        expect(firstTextBoxId).toMatch(/^anno_/u);
+        const secondTextBoxId = await createCanonicalTextBoxWithPointer(
             page,
-            `second editor ${Date.now()}`,
+            secondTextBox,
             {
                 x: 0.7,
                 y: 0.6,
             },
-        )).toBeGreaterThan(0);
+        );
+        expect(secondTextBoxId).toMatch(/^anno_/u);
         const saveStartedAt = Date.now();
         try {
             const saveEvent = await saveViaVisibleToolbarWithDeadline(
@@ -3336,7 +3338,25 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             .toBe(false);
 
         const savedNotes = await expectPdfContainsE2ENote(savedPath, firstText);
-        expect(savedNotes.filter(note => note.contents === secondText)).toHaveLength(1);
+        expect(savedNotes.filter(note => note.contents === firstText)).toEqual([expect.objectContaining({
+            name: expect.stringMatching(/^anno_/u),
+            popup: expect.stringMatching(/\d+\s+\d+\s+R/u),
+            subtype: '/Text',
+        })]);
+        expect(savedNotes.filter(note => note.contents === secondText)).toEqual([expect.objectContaining({
+            name: expect.stringMatching(/^anno_/u),
+            subtype: '/Text',
+        })]);
+        expect(savedNotes.filter(note => note.contents === firstTextBox)).toEqual([expect.objectContaining({
+            name: firstTextBoxId,
+            popup: '',
+            subtype: '/FreeText',
+        })]);
+        expect(savedNotes.filter(note => note.contents === secondTextBox)).toEqual([expect.objectContaining({
+            name: secondTextBoxId,
+            popup: '',
+            subtype: '/FreeText',
+        })]);
         expect(savedNotes, JSON.stringify({
             savedPath,
             savedNotes: savedNotes.slice(0, 20),
@@ -3347,6 +3367,15 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await openPdfInApp(page, reopenPath, LARGE_PDF_TIMEOUT_MS);
         await waitForPdfLoaded(page, LARGE_PDF_TIMEOUT_MS);
         await waitForViewerInteractive(page, LARGE_PDF_TIMEOUT_MS);
+        await openAnnotationsTab(page, 30_000);
+        await page.waitForFunction((expectedTexts: string[]) => expectedTexts.every(expectedText => (
+            Array.from(document.querySelectorAll<HTMLElement>(
+                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id]',
+            )).some(entity => entity.textContent?.includes(expectedText))
+        )), {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}, [
+            firstTextBox,
+            secondTextBox,
+        ]);
         const reopenedNotes = await readPdfNoteContents(reopenPath);
         expect(reopenedNotes.filter(note => note.contents === firstText), JSON.stringify({
             reopenPath,
@@ -3356,6 +3385,14 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
         })).toHaveLength(1);
+        expect(reopenedNotes.filter(note => note.contents === firstTextBox)).toEqual([expect.objectContaining({
+            name: firstTextBoxId,
+            subtype: '/FreeText',
+        })]);
+        expect(reopenedNotes.filter(note => note.contents === secondTextBox)).toEqual([expect.objectContaining({
+            name: secondTextBoxId,
+            subtype: '/FreeText',
+        })]);
         expect(reopenedNotes, JSON.stringify({
             reopenPath,
             reopenedNotes: reopenedNotes.slice(0, 20),
