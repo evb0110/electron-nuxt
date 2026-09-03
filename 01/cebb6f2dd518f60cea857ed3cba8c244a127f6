@@ -1,0 +1,22 @@
+tests/unit/app/platform/platformApiContractParity.test.ts
+  s_b412fd4cd3f576::t_8f731a73b27945 120-128
+tests/unit/app/composables/scanCleanupRuntimeDiagnosticReporting.test.ts
+  s_b412fd4cd3f576::t_8f731a73b27945 12,34-37,47-53,59,108-109,121-127
+  s_b412fd4cd3f576::t_2930079031efd0 111
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "01cebb6f2dd518f60cea857ed3cba8c244a127f6",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
