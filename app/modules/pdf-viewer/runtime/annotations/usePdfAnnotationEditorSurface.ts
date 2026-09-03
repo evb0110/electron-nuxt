@@ -24,6 +24,8 @@ import type {
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
 
+type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
+
 export interface IAnnotationGesture {
     readonly annotationId: AnnotationId;
     readonly entity: AnnotationEntity;
@@ -65,8 +67,8 @@ export interface IAnnotationEditorSurface {
     moveSelection(deltaX: number, deltaY: number): void;
     nudgeSelection(deltaX: number, deltaY: number): void;
     nudgeSelectionByPdfPoints(deltaX: number, deltaY: number, pageView: number[], pageRotation?: 0 | 90 | 180 | 270): void;
-    undo(): boolean;
-    redo(): boolean;
+    undo(): boolean | Promise<boolean>;
+    redo(): boolean | Promise<boolean>;
     getPageGeometry(pageIndex: number): {
         pageView: number[];
         rotation: 0 | 90 | 180 | 270
@@ -139,6 +141,8 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
     emitAnnotationModified?: () => void;
     runHistoryTransaction?: <T>(action: () => T) => T;
+    undo?: TAnnotationHistoryAction;
+    redo?: TAnnotationHistoryAction;
     emitShapeContextMenu?: (payload: {
         shapeId: AnnotationId;
         clientX: number;
@@ -594,8 +598,8 @@ export const usePdfAnnotationEditorSurface = (
         moveSelection,
         nudgeSelection,
         nudgeSelectionByPdfPoints,
-        undo: () => store().undo(),
-        redo: () => store().redo(),
+        undo: () => options.undo?.() ?? store().undo(),
+        redo: () => options.redo?.() ?? store().redo(),
         getPageGeometry: options.getPageGeometry ?? (() => null),
         beginMove: annotationId => beginGesture(annotationId, 'move'),
         beginResize: annotationId => beginGesture(annotationId, 'resize'),

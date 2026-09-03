@@ -346,6 +346,14 @@ export const usePdfAppAnnotationHistory = (options: {
         });
     }
 
+    function undoForEditor() {
+        return workspaceCommandSink?.undo?.() ?? undo();
+    }
+
+    function redoForEditor() {
+        return workspaceCommandSink?.redo?.() ?? redo();
+    }
+
     function clear() {
         undoStack.length = 0;
         redoStack.length = 0;
@@ -367,6 +375,8 @@ export const usePdfAppAnnotationHistory = (options: {
         isRoutingPdfjsHistory,
         undo,
         redo,
+        undoForEditor,
+        redoForEditor,
         clear,
         emitCombinedState,
         setBeforeReplayEffect,

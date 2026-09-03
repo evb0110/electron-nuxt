@@ -116,6 +116,30 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(present).toBe(false);
     });
 
+    it('routes editor history through the workspace timeline when attached', async () => {
+        const ledger = useWorkspaceCommandLedger();
+        const workspaceUndo = vi.fn(async () => true);
+        const workspaceRedo = vi.fn(async () => true);
+        const history = usePdfAppAnnotationHistory({
+            pdfjsAnnotationState: ref(createAnnotationState()),
+            emitAnnotationState: vi.fn(),
+            markModified: vi.fn(),
+        });
+
+        history.setWorkspaceCommandSink({
+            register: ledger.registerCommand,
+            reset: ledger.resetSource,
+            forget: ledger.forgetSourceEntries,
+            undo: workspaceUndo,
+            redo: workspaceRedo,
+        });
+
+        await expect(history.undoForEditor()).resolves.toBe(true);
+        await expect(history.redoForEditor()).resolves.toBe(true);
+        expect(workspaceUndo).toHaveBeenCalledOnce();
+        expect(workspaceRedo).toHaveBeenCalledOnce();
+    });
+
     it('reports app-owned executor command availability without rewriting native state', () => {
         const pdfjsAnnotationState = ref(createAnnotationState());
         const emittedStates: IAnnotationEditorState[] = [];

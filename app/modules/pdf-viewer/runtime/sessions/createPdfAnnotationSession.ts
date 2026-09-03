@@ -414,6 +414,8 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
         runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
+        undo: () => appAnnotationHistory.undoForEditor(),
+        redo: () => appAnnotationHistory.redoForEditor(),
         emitShapeContextMenu: options.emitShapeContextMenu,
         getPageGeometry: pageIndex => {
             const metric = documentSession.pageMetrics.value[pageIndex];
