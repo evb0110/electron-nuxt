@@ -67,6 +67,7 @@ import {
     createBrowserStoreStagedArtifact,
 } from '@app/platform/browser/browserStagedArtifact';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
+import {nativePdfSemanticScope} from '@contracts/nativePdfSemanticScope';
 
 const BROWSER_DEFAULT_PDF_APP_UNSUPPORTED = 'Opening via the default desktop PDF app is unavailable in the browser capability';
 const BROWSER_NATIVE_PRINT_UNSUPPORTED = 'Printing via the native desktop dialog is unavailable in the browser capability';
@@ -550,6 +551,7 @@ export function createBrowserDocumentsFileCapability(
                             qpdfCheck: false,
                             tailCheck: true,
                             semanticCheck: true,
+                            semanticScopeSha256: nativePdfSemanticScope,
                             fsynced: false,
                         },
                     },

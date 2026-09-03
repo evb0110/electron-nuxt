@@ -1528,7 +1528,7 @@ export default {
         },
         'browser': {
             'filePickerSetupDenied': 'L’accès du navigateur aux fichiers a été refusé. Choisissez à nouveau Ouvrir pour utiliser le sélecteur compatible.',
-           'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.',
+            'largeSaveHandleHint': 'Utilisez un navigateur avec l’accès au système de fichiers local activé pour enregistrer de grands documents.',
             'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {

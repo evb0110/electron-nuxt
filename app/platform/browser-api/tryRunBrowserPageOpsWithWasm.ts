@@ -59,7 +59,7 @@ interface IBrowserPageOpsWasmDecryptResult {
     pageCount: number;
 }
 
-export interface IBrowserPageOpsWasmSaveMutationsResult {
+interface IBrowserPageOpsWasmSaveMutationsResult {
     data: Uint8Array;
     pageCount: number;
     identityBindings: IPdfNativeAnnotationIdentityBinding[];

@@ -1517,7 +1517,7 @@ export default {
         },
         'browser': {
             'filePickerSetupDenied': 'Browsertoegang tot bestanden is geweigerd. Kies opnieuw Openen om de compatibele bestandskiezer te gebruiken.',
-           'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
+            'largeSaveHandleHint': 'Gebruik een browser met lokale bestandssysteemtoegang ingeschakeld om grote documenten op te slaan.',
             'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {

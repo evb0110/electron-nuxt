@@ -82,6 +82,8 @@ export function createLazyBrowserPlatformApiGenerated({
     const documentFilesResyncWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.resyncWorkingCopy.path);
     const documentFilesSavePdfDataMethod = lazyAsync(pathDescriptors.documentFiles.savePdfData.path);
     const documentFilesSavePdfDataChunksMethod = lazyAsync(pathDescriptors.documentFiles.savePdfDataChunks.path);
+    const documentFilesApplyPdfNativeMutationsToWorkingCopyMethod = lazyAsync(pathDescriptors.documentFiles.applyPdfNativeMutationsToWorkingCopy.path);
+    const documentFilesCommitStagedPdfNativeMutationsMethod = lazyAsync(pathDescriptors.documentFiles.commitStagedPdfNativeMutations.path);
     const documentFilesOnDocumentRevisionChangedMethod = lazyEvent(pathDescriptors.documentFiles.onDocumentRevisionChanged.path);
     const documentPdfAnalyzePdfConformanceMethod = lazyAsync(pathDescriptors.documentPdf.analyzePdfConformance.path);
     const documentPdfValidatePdfDataMethod = lazyAsync(pathDescriptors.documentPdf.validatePdfData.path);
@@ -323,6 +325,8 @@ export function createLazyBrowserPlatformApiGenerated({
         resyncWorkingCopy: documentFilesResyncWorkingCopyMethod,
         savePdfData: documentFilesSavePdfDataMethod,
         savePdfDataChunks: documentFilesSavePdfDataChunksMethod,
+        applyPdfNativeMutationsToWorkingCopy: documentFilesApplyPdfNativeMutationsToWorkingCopyMethod,
+        commitStagedPdfNativeMutations: documentFilesCommitStagedPdfNativeMutationsMethod,
         onDocumentRevisionChanged: documentFilesOnDocumentRevisionChangedMethod,
     },
     documentPdf: {

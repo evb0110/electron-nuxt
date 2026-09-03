@@ -1517,7 +1517,7 @@ export default {
         },
         'browser': {
             'filePickerSetupDenied': 'Der Browser-Dateizugriff wurde verweigert. Wählen Sie erneut „Öffnen“, um die kompatible Dateiauswahl zu verwenden.',
-           'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.',
+            'largeSaveHandleHint': 'Verwenden Sie einen Browser mit aktiviertem lokalem Dateisystemzugriff, um große Dokumente zu speichern.',
             'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {

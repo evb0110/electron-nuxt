@@ -1528,7 +1528,7 @@ export default {
         },
         'browser': {
             'filePickerSetupDenied': 'O acesso do navegador aos arquivos foi negado. Escolha Abrir novamente para usar o seletor compatível.',
-           'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de arquivos local ativado para salvar documentos grandes.',
+            'largeSaveHandleHint': 'Use um navegador com acesso ao sistema de arquivos local ativado para salvar documentos grandes.',
             'useNativeApp': 'Use the native app for files this large.',
         },
         'search': {

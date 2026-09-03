@@ -150,6 +150,40 @@ describe('browser staged artifact commit', () => {
         await expect(store.exists(stagedRef)).resolves.toBe(true);
     });
 
+    it('rejects a semantic receipt without its scope proof before consuming it', async () => {
+        const store = new BrowserDocumentStore();
+        const sourceRef = await store.createStoredDocument('semantic-source.pdf', Uint8Array.of(1), PDF_OPTIONS);
+        const workingRef = await store.cloneAsWorkingCopy(sourceRef);
+        const stagedBytes = Uint8Array.of(2);
+        const stagedRef = await store.createStoredDocument('semantic-output.pdf', stagedBytes, {
+            ...PDF_OPTIONS,
+            kind: 'output',
+            retention: 'transient',
+        });
+        const targetRevision = await store.getDocumentRevision(workingRef);
+        const validArtifact = await createBrowserStoreStagedArtifact(store, stagedRef, {
+            leaseId: 'browser-semantic-lease',
+            sha256: sha256(stagedBytes),
+            validations: stagedValidations(),
+        });
+        const missingScopeArtifact = {
+            ...validArtifact,
+            validations: {
+                ...validArtifact.validations,
+                semanticScopeSha256: undefined,
+            },
+        };
+
+        await expect(commitBrowserStoreStagedArtifact(
+            store,
+            missingScopeArtifact,
+            workingRef,
+            targetRevision.token,
+        )).rejects.toThrow('Expected a browser-store staged artifact');
+        await expect(store.exists(stagedRef)).resolves.toBe(true);
+        await expect(store.read(workingRef)).resolves.toEqual(Uint8Array.of(1));
+    });
+
     it('leaves the staged record available when the target revision is stale', async () => {
         const store = new BrowserDocumentStore();
         const sourceRef = await store.createStoredDocument(
