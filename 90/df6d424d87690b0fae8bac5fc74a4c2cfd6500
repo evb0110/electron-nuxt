@@ -1,0 +1,61 @@
+tests/unit/app/modules/scan-cleanup/scanCleanupRunCoordinator.test.ts
+  s_b412fd4cd3f576::t_92095952adb5d2 418
+  s_b412fd4cd3f576::t_8d894b90031f11 12,15-25,104-105
+  s_b412fd4cd3f576::t_0ced22f47b2f4a 416,460,463-464,576,585,587-591
+tests/unit/contracts/scanCleanupIpcResultCodecs.test.ts
+  s_b412fd4cd3f576::t_e3a8836a1c3dfa 1-47
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_0b4ab9560c58b2 10,13,24
+  s_b412fd4cd3f576::t_e928f97c812b60 14-23,25-26,74-75,80-85,87-88,90-94
+  s_b412fd4cd3f576::t_6ea205f8d6b48c 95
+tests/unit/electron/scanCleanupService.test.ts
+  s_b412fd4cd3f576::t_6dcdc0c3cf17cd 223
+  s_b412fd4cd3f576::t_078fbf1b93dff3 20,68-73,84-86,93-101,534-552
+packages/contracts/scan-cleanup/ipc.ts
+  s_b412fd4cd3f576::t_4f1c2a16cf65ed 6,669-670
+packages/contracts/scan-cleanup/ipcResultCodecs.ts
+  s_b412fd4cd3f576::t_4f1c2a16cf65ed 2,968,974
+  s_b412fd4cd3f576::t_4603438cd39347 961-967
+electron/features/scan-cleanup/createScanCleanupService.ts
+  s_b412fd4cd3f576::t_201c45e803553b 22,35-36,95,98,313,323-340
+electron/features/scan-cleanup/runScanCleanupWorkerTask.ts
+  s_b412fd4cd3f576::t_49fe6cab3c2833 18,112-115
+tests/unit/electron/runScanCleanupWorkerTask.test.ts
+  s_b412fd4cd3f576::t_b92ae60d17306f 32-37,147
+  s_b412fd4cd3f576::t_03bf345c0b34fd 47
+electron/utils/workerTask.ts
+  s_b412fd4cd3f576::t_49fe6cab3c2833 234-238
+packages/contracts/diagnostics/failureReceipt.ts
+  s_b412fd4cd3f576::t_cf55f243ba1349 3-7,9-16,40-74
+  s_b412fd4cd3f576::t_596764de8a5f79 75-76
+app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator.ts
+  s_b412fd4cd3f576::t_e26faefa4748eb 8,10,81,159,167,177,179-191,196-197,449-460,462-467,472,492-493,496-502
+  s_b412fd4cd3f576::t_aa6429a9c88ae7 11,133-140
+  s_7aa6a61bedd5ad::t_3a12d657d830ff 141-142
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_b412fd4cd3f576::t_4d7fb4ed633c90 30,46,148-166
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "90df6d424d87690b0fae8bac5fc74a4c2cfd6500",
+  "prompts": {},
+  "sessions": {
+    "s_7aa6a61bedd5ad": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a03a68-97aa-7471-a833-028dfb487475",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
