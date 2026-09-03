@@ -534,16 +534,15 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
             && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
         ));
         const layer = entity?.closest<HTMLElement>('.pdf-annotation-editor-layer');
-        const host = entity?.closest<HTMLElement>('.workspace-host');
         const scrollViewport = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
-        if (!entity || !layer || !host || !scrollViewport) {
+        if (!entity || !layer || !scrollViewport) {
             return;
         }
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
         const entityRect = entity.getBoundingClientRect();
-        const hostRect = host.getBoundingClientRect();
-        const visibleTop = Math.max(hostRect.top, 24);
-        const visibleBottom = Math.min(hostRect.bottom, window.innerHeight - 24);
+        const viewportRect = scrollViewport.getBoundingClientRect();
+        const visibleTop = Math.max(viewportRect.top, 24);
+        const visibleBottom = Math.min(viewportRect.bottom, window.innerHeight - 24);
         if (visibleBottom > visibleTop) {
             scrollViewport.scrollTop += entityRect.top + entityRect.height / 2 - ((visibleTop + visibleBottom) / 2);
             await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
