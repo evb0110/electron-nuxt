@@ -1,0 +1,33 @@
+tests/unit/app/modules/pdf-viewer/composables/usePageOperations.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 587-595
+tests/unit/app/composables/useDjvu.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 488-491,615-618
+tests/unit/app/modules/workspace-shell/composables/useTabsShellBindings.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 646-649
+tests/unit/app/modules/workspace-shell/composables/usePageFileOperations.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 192-195,522-525
+tests/unit/app/modules/scan-cleanup/scanCleanupWorkspaceSession.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 397-399,2783-2785
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveService.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 165-167,1029-1031
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceNativePersistence.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 395-397,453-455,1184-1186,1286-1288
+tests/unit/app/modules/workspace-shell/checkpoint/handleDocumentWorkspaceCrash.test.ts
+  s_b412fd4cd3f576::t_9f2e77a5c52904 39-44,46-49
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ae95b62a7e63da4e2def79321e5c443825ed000e",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
