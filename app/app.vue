@@ -505,8 +505,11 @@ onMounted(async () => {
         dispatchAppReady();
         schedulePostReadyRecentGeometryWarmup(resolveStartupWorkProfile());
     } catch (error) {
-        BrowserLogger.error('loader', 'App bootstrap failed', error);
-        setFatalRuntimeError('startup', error, 'app-bootstrap');
+        const failure = BrowserLogger.error('loader', 'App bootstrap failed', error);
+        setFatalRuntimeError('startup', {
+            failure,
+            title: t('errors.runtime.title'),
+        });
     }
 });
 </script>

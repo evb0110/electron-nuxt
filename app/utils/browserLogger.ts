@@ -1,9 +1,21 @@
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
+import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import {
+    captureRendererFailure,
+    initializeRendererFailureReporter,
+} from '@app/utils/failureReporter';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
 type TLazyValue = unknown | (() => unknown);
+
+const ORIGINAL_CONSOLE_SINKS = {
+    debug: console.log.bind(console),
+    error: console.error.bind(console),
+    info: console.info.bind(console),
+    warn: console.warn.bind(console),
+};
 
 const LOG_LEVELS: Record<TBrowserLogLevel, number> = {
     debug: 10,
@@ -80,6 +92,19 @@ function isPdfNavConsoleDiagnosticEnabled() {
     }
 
     return (window as Window & {__pdfNavLogConsole?: boolean;}).__pdfNavLogConsole === true;
+}
+
+function hasElectronRendererBridge() {
+    if (typeof window === 'undefined') {
+        return false;
+    }
+
+    try {
+        const electronAPI = (window as Window & {electronAPI?: unknown;}).electronAPI;
+        return typeof electronAPI === 'object' && electronAPI !== null;
+    } catch {
+        return false;
+    }
 }
 
 function serializeForRendererLog(value: unknown) {
@@ -216,37 +241,11 @@ function enrichThrottledPayload(
 }
 
 function writeToConsole(level: TEmitLogLevel, line: string, resolved: unknown) {
-    if (level === 'error') {
-        if (resolved !== undefined) {
-            console.error(line, resolved);
-        } else {
-            console.error(line);
-        }
-        return;
-    }
-
-    if (level === 'warn') {
-        if (resolved !== undefined) {
-            console.warn(line, resolved);
-        } else {
-            console.warn(line);
-        }
-        return;
-    }
-
-    if (level === 'info') {
-        if (resolved !== undefined) {
-            console.info(line, resolved);
-        } else {
-            console.info(line);
-        }
-        return;
-    }
-
+    const sink = ORIGINAL_CONSOLE_SINKS[level];
     if (resolved !== undefined) {
-        console.log(line, resolved);
+        sink(line, resolved);
     } else {
-        console.log(line);
+        sink(line);
     }
 }
 
@@ -353,7 +352,28 @@ export const BrowserLogger = {
         );
     },
 
-    error: (section: string, message: string, error?: TLazyValue) => {
-        emitLog('error', section, message, error);
+    error: (
+        section: string,
+        message: string,
+        error?: TLazyValue,
+        existingReceipt?: FailureReceipt,
+    ): FailureReceipt => {
+        const resolved = resolveLazyValue(error);
+        const input = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {},
+            local: {
+                source: section,
+                message,
+                cause: resolved,
+                data: resolved,
+            },
+        } as const;
+        const captureOptions = {localAlreadyRecorded: true};
+        const receipt = existingReceipt ?? captureRendererFailure(input, captureOptions)
+            ?? initializeRendererFailureReporter({host: hasElectronRendererBridge() ? 'electron' : 'hosted-browser'}).capture(input, captureOptions);
+
+        emitLog('error', section, message, resolved);
+        return receipt;
     },
 };

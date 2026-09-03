@@ -7,8 +7,15 @@ import {
     vi,
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import type * as FailureReporterModule from '@app/utils/failureReporter';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
+const EXISTING_RECEIPT = {
+    eventId: '0123456789abcdef0123456789abcdef',
+    code: 'UNCLASSIFIED_RENDERER_ERROR',
+    occurredAt: 1,
+    severity: 'error',
+} as const;
 interface IWindowStubOptions {
     logLevel?: string;
     diagnosticWarnAsWarn?: boolean;
@@ -52,6 +59,7 @@ async function importBrowserLogger() {
 describe('BrowserLogger', () => {
     beforeEach(() => {
         vi.resetModules();
+        vi.doUnmock('@app/utils/failureReporter');
     });
 
     afterEach(() => {
@@ -87,7 +95,7 @@ describe('BrowserLogger', () => {
         const logger = await importBrowserLogger();
 
         logger.warn('section-a', 'warn message', {detail: 1});
-        logger.error('section-a', 'error message');
+        logger.error('section-a', 'error message', undefined, EXISTING_RECEIPT);
 
         expect(consoleSpies.warn).toHaveBeenCalledTimes(1);
         expect(consoleSpies.error).toHaveBeenCalledTimes(1);
@@ -275,11 +283,144 @@ describe('BrowserLogger', () => {
         const consoleSpies = spyOnConsole();
         const logger = await importBrowserLogger();
 
-        logger.error('section-a', 'error message');
+        logger.error('section-a', 'error message', undefined, EXISTING_RECEIPT);
         logger.warn('section-a', 'warn message');
 
         expect(consoleSpies.error).not.toHaveBeenCalled();
         expect(consoleSpies.warn).not.toHaveBeenCalled();
         expect(rendererLog).not.toHaveBeenCalled();
+    });
+
+    it('captures a closed fallback receipt while retaining the full local log entry', async () => {
+        const {
+            windowStub,
+            rendererLog,
+        } = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        spyOnConsole();
+        const captureRendererFailure = vi.fn();
+        const sender = vi.fn();
+        const actualFailureReporter = await vi.importActual<typeof FailureReporterModule>(
+            '@app/utils/failureReporter',
+        );
+        const reporter = actualFailureReporter.createRendererFailureReporter({
+            host: 'electron',
+            electronSender: sender,
+        });
+        const initializeRendererFailureReporter = vi.fn(() => reporter);
+        vi.doMock('@app/utils/failureReporter', () => ({
+            captureRendererFailure,
+            initializeRendererFailureReporter,
+        }));
+        const logger = await importBrowserLogger();
+        const localOnlyMessage = 'private BrowserLogger error detail';
+        const localOnlyCause = new Error('private BrowserLogger error cause');
+
+        const receipt = logger.error('browser-logger-test', localOnlyMessage, {
+            cause: localOnlyCause,
+            argument: 'private BrowserLogger argument',
+        });
+
+        expect(receipt).toMatchObject({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            severity: 'error',
+        });
+        expect(captureRendererFailure).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            context: {},
+            local: expect.objectContaining({
+                cause: expect.objectContaining({
+                    argument: 'private BrowserLogger argument',
+                    cause: expect.any(Error),
+                }),
+                data: expect.objectContaining({argument: 'private BrowserLogger argument'}),
+                message: localOnlyMessage,
+                source: 'browser-logger-test',
+            }),
+        }), {localAlreadyRecorded: true});
+        expect(initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
+        expect(sender).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            runtime: 'electron-renderer',
+        }));
+        const record = sender.mock.calls[0]?.[0];
+        expect(record.frames).not.toContainEqual(expect.objectContaining({module: 'app/utils/browserLogger.ts'}));
+        expect(JSON.stringify(record)).not.toContain(localOnlyMessage);
+        expect(JSON.stringify(record)).not.toContain('private BrowserLogger error cause');
+        expect(JSON.stringify(record)).not.toContain('private BrowserLogger argument');
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
+            level: 'error',
+            section: 'browser-logger-test',
+            message: localOnlyMessage,
+            data: expect.objectContaining({
+                cause: expect.objectContaining({message: 'private BrowserLogger error cause'}),
+                argument: 'private BrowserLogger argument',
+            }),
+        }));
+    });
+
+    it('reuses a supplied receipt without recapturing and keeps the renderer log entry intact', async () => {
+        const {
+            windowStub,
+            rendererLog,
+        } = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        spyOnConsole();
+        const logger = await importBrowserLogger();
+        const receipt = {
+            eventId: '0123456789abcdef0123456789abcdef',
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: 1,
+            severity: 'error',
+        } as const;
+
+        expect(logger.error('section-a', 'existing receipt', {detail: 'kept locally'}, receipt)).toBe(receipt);
+        expect(rendererLog).toHaveBeenCalledWith(expect.objectContaining({
+            level: 'error',
+            section: 'section-a',
+            message: 'existing receipt',
+            data: {detail: 'kept locally'},
+        }));
+    });
+
+    it('initializes and uses the shared reporter before the plugin is ready', async () => {
+        const {windowStub} = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        spyOnConsole();
+        const captureRendererFailure = vi.fn();
+        const capture = vi.fn();
+        const initializeRendererFailureReporter = vi.fn(() => ({capture}));
+        vi.doMock('@app/utils/failureReporter', () => ({
+            captureRendererFailure,
+            initializeRendererFailureReporter,
+        }));
+        const logger = await importBrowserLogger();
+        const receipt = {
+            eventId: 'fedcba9876543210fedcba9876543210',
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            occurredAt: 1,
+            severity: 'error',
+        } as const;
+        capture.mockReturnValue(receipt);
+
+        expect(logger.error('early-startup', 'Reporter is not ready')).toBe(receipt);
+
+        expect(initializeRendererFailureReporter).toHaveBeenCalledWith({host: 'electron'});
+        expect(capture).toHaveBeenCalledWith(expect.objectContaining({code: 'UNCLASSIFIED_RENDERER_ERROR'}), {localAlreadyRecorded: true});
+        expect(captureRendererFailure).toHaveBeenCalledOnce();
+    });
+
+    it('uses the sink captured before a console observer replaces console.error', async () => {
+        const {windowStub} = createWindowStub();
+        vi.stubGlobal('window', windowStub);
+        const capturedSink = vi.spyOn(console, 'error').mockImplementation(() => {});
+        const logger = await importBrowserLogger();
+        const observer = vi.fn();
+        console.error = observer;
+
+        logger.error('section-a', 'observer must not recapture', undefined, EXISTING_RECEIPT);
+
+        expect(capturedSink).toHaveBeenCalledOnce();
+        expect(observer).not.toHaveBeenCalled();
     });
 });
