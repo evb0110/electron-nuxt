@@ -1,0 +1,22 @@
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_343b9da5f25bd1 173
+app/plugins/runtimeErrorLogStream.client.ts
+  s_b412fd4cd3f576::t_343b9da5f25bd1 16,56-59,69-70,99,102,175,177
+  s_b412fd4cd3f576::t_7aefada38bbd9f 60-68
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "babbf8eb5a082e640ea10e54b4ba64e6b0abaf81",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
