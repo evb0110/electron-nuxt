@@ -817,7 +817,7 @@ describe('useWorkspacePrint', () => {
             expect(ensureWorkingCopyFreshForRead).toHaveBeenCalledOnce();
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
+                color: 'warning',
                 description: expect.stringContaining('native desktop dialog is unavailable'),
             }));
         } finally {
@@ -1026,7 +1026,7 @@ describe('useWorkspacePrint', () => {
             );
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
+                color: 'warning',
                 description: expect.stringContaining('native desktop dialog is unavailable'),
             }));
         } finally {
@@ -2023,7 +2023,7 @@ describe('useWorkspacePrint', () => {
             expect(getPrintableSourceData).not.toHaveBeenCalled();
             expect(buildPrintablePdfDataMock).not.toHaveBeenCalled();
             expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-                color: 'error',
+                color: 'warning',
                 description: expect.stringContaining('print.highPageCountAdvancedLayout'),
             }));
         } finally {

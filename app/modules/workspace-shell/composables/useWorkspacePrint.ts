@@ -90,6 +90,10 @@ function isPrintAbortError(error: unknown) {
     return error instanceof Error && error.name === 'AbortError';
 }
 
+function isNativePrintRequiredError(error: unknown): error is NativePrintRequiredError {
+    return error instanceof NativePrintRequiredError;
+}
+
 function throwIfPrintAborted(signal: AbortSignal | undefined) {
     if (signal?.aborted) {
         throw createPrintAbortError();
@@ -981,6 +985,18 @@ export const useWorkspacePrint = (deps: IWorkspacePrintDeps) => {
             const localizedError = error instanceof Error && error.message
                 ? t('print.failedWithReason', { reason: error.message })
                 : t('print.failed');
+            if (isNativePrintRequiredError(error) && preparationFailureReceipt === undefined) {
+                BrowserLogger.warn('workspace-print', 'Print needs an unavailable native backend', {
+                    kind: 'expected',
+                    code: 'temporarily-unavailable',
+                } satisfies ExpectedOutcome);
+                toast.add({
+                    color: 'warning',
+                    title: t('print.failed'),
+                    description: localizedError,
+                });
+                return;
+            }
             const failure = BrowserLogger.error(
                 'workspace-print',
                 'Document print failed',
