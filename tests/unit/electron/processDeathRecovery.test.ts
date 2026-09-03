@@ -83,7 +83,15 @@ describe('processDeathRecovery', () => {
             },
             local: expect.objectContaining({source: 'process-death'}),
         }));
-        expect(fixture.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: 'a'.repeat(32)}));
+        expect(fixture.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('[process-death] Utility process gone (Audio Service, reason=crashed, exitCode=133)'),
+            expect.objectContaining({
+                eventId: 'a'.repeat(32),
+                code: 'MAIN_CHILD_PROCESS_GONE',
+                occurredAt: 1,
+                severity: 'error',
+            }),
+        );
     });
 
     it('uses one receipt per GPU death and a specific safe-mode recovery code', () => {
@@ -270,6 +278,10 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (EVB document fingerprint, reason=crashed, exitCode=133)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -290,6 +302,10 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (Audio Service, reason=killed, exitCode=9)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -305,6 +321,10 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             '[process-death] Utility process gone (Utility, reason=killed, exitCode=9)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -328,6 +348,10 @@ describe('processDeathRecovery', () => {
 
         expect(fixture.logger.error).toHaveBeenCalledWith(
             `[process-death] ${type} process gone (${type}, reason=killed, exitCode=9)`,
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
         );
         expect(fixture.logger.warn).not.toHaveBeenCalled();
     });
@@ -345,6 +369,22 @@ describe('processDeathRecovery', () => {
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('logged');
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch');
         expect(fixture.logger.error).toHaveBeenCalledTimes(2);
+        expect(fixture.logger.error).toHaveBeenNthCalledWith(
+            1,
+            '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
+        );
+        expect(fixture.logger.error).toHaveBeenNthCalledWith(
+            2,
+            '[process-death] GPU process gone (GPU, reason=killed, exitCode=9)',
+            {
+                code: 'MAIN_PROCESS_RECOVERY_FAILED',
+                context: {},
+            },
+        );
     });
 
     it('requests at most one coordinated relaunch after repeated GPU crashes', () => {

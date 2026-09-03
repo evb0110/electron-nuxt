@@ -211,11 +211,12 @@ describe('shutdown coordinator', () => {
         const logger = createLogger();
         const clearCheckpoint = vi.fn();
         const clearWorkingCopies = vi.fn();
+        const failure = new Error('renderer unavailable');
         const phases = createShutdownPhaseRunners(logger, {
             createPreservationSteps: () => [{
                 label: 'renderer-save-flush',
                 run: () => {
-                    throw new Error('renderer unavailable');
+                    throw failure;
                 },
             }],
             createBestEffortCleanupSteps: context => [
@@ -240,8 +241,23 @@ describe('shutdown coordinator', () => {
         expect(context.preserveRecoveryState).toBe(true);
         expect(clearCheckpoint).not.toHaveBeenCalled();
         expect(clearWorkingCopies).not.toHaveBeenCalled();
-        expect(logger.error).toHaveBeenCalledWith(
+        expect(logger.error).toHaveBeenCalledTimes(2);
+        expect(logger.error).toHaveBeenNthCalledWith(
+            1,
+            'Shutdown step failed (renderer-save-flush): renderer unavailable',
+            {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
+        expect(logger.error).toHaveBeenNthCalledWith(
+            2,
             'Shutdown preservation was incomplete; retaining workspace recovery state',
+            {
+                code: 'MAIN_SHUTDOWN_FAILED',
+                context: {},
+            },
         );
     });
 

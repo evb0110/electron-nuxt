@@ -116,6 +116,10 @@ describe('requestShutdownSaveFlush', () => {
         });
         expect(logger.error).toHaveBeenCalledWith(
             expect.stringContaining('WORKING_COPY_SHUTDOWN_FLUSH_UNMATERIALIZED'),
+            {
+                code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                context: {},
+            },
         );
     });
 
@@ -147,6 +151,10 @@ describe('requestShutdownSaveFlush', () => {
         });
         expect(logger.error).toHaveBeenCalledWith(
             expect.stringContaining('both dirty and flushed'),
+            {
+                code: 'MAIN_SHUTDOWN_SAVE_FLUSH_FAILED',
+                context: {},
+            },
         );
     });
 

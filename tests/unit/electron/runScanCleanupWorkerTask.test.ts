@@ -142,7 +142,14 @@ describe('runScanCleanupWorkerTask', () => {
             vi.fn(),
         )).rejects.toBe(failure);
 
-        expect(mocks.logger.error).toHaveBeenCalledWith(expect.stringContaining('native pipeline failed'));
+        expect(mocks.logger.error).toHaveBeenCalledWith(
+            expect.stringContaining('native pipeline failed'),
+            {
+                code: 'MAIN_SCAN_CLEANUP_FAILED',
+                context: {},
+                cause: failure,
+            },
+        );
         expect(mocks.logger.info).not.toHaveBeenCalled();
         expect(mocks.reportedErrors.get(failure)).toBe(mocks.failureReceipt);
     });
