@@ -137,17 +137,28 @@ function copyExactFixture(sourcePath: string) {
 
 async function waitForCrashCheckpoint(sessionName: string, expectedPath: string) {
     const expectedRealPath = realpathSync(expectedPath);
-    await expect.poll(() => {
+    const readMatchingCheckpointTab = () => {
         const checkpointPath = workspaceCrashCheckpointPath(sessionName);
         if (!existsSync(checkpointPath)) {
-            return false;
+            return null;
         }
-        const stored = JSON.parse(String(readFileSync(checkpointPath))) as {checkpoint?: {tabs?: Array<{sourceRef?: string | null}>};};
-        return stored.checkpoint?.tabs?.some(tab => (
-            typeof tab.sourceRef === 'string'
+        const stored = JSON.parse(String(readFileSync(checkpointPath))) as {checkpoint?: {tabs?: Array<{
+            isDirty?: boolean;
+            sourceRef?: string | null;
+            workingCopyRef?: string | null;
+        }>;};};
+        return stored.checkpoint?.tabs?.find(tab => (
+            tab.isDirty === false
+            && typeof tab.sourceRef === 'string'
             && realpathSync(tab.sourceRef) === expectedRealPath
-        )) ?? false;
-    }, {timeout: 60_000}).toBe(true);
+        )) ?? null;
+    };
+    await expect.poll(readMatchingCheckpointTab, {timeout: 60_000}).toMatchObject({isDirty: false});
+    const checkpointTab = readMatchingCheckpointTab();
+    if (!checkpointTab) {
+        throw new Error(`Clean crash checkpoint disappeared before restart for ${expectedPath}`);
+    }
+    return checkpointTab;
 }
 
 async function readWorkingCopyPath(page: Page) {
@@ -724,7 +735,11 @@ async function hardRestartAfterSave(
     session: {name: string},
     documentPath: string,
 ) {
-    await waitForCrashCheckpoint(session.name, documentPath);
+    const checkpointTab = await waitForCrashCheckpoint(session.name, documentPath);
+    expect(checkpointTab).toMatchObject({
+        isDirty: false,
+        sourceRef: documentPath,
+    });
     const restarted = await sessionFixture.restart({
         clean: false,
         hard: true,
