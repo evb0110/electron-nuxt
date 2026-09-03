@@ -248,6 +248,59 @@ describe('web deploy assets check', () => {
         }
     });
 
+    it('rejects private maps and staged sources in Vercel output', async () => {
+        const tempRoot = await createTempProject();
+        try {
+            await mkdir(path.join(tempRoot, '.vercel/output/static/_nuxt'), {recursive: true});
+            await writeFile(
+                path.join(tempRoot, '.vercel/output/static/_nuxt/app.js.map'),
+                '{}',
+                'utf8',
+            );
+            await mkdir(
+                path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources'),
+                {recursive: true},
+            );
+            await writeFile(
+                path.join(tempRoot, '.vercel/output/static/private-sourcemaps/sources/app.ts'),
+                'private source',
+                'utf8',
+            );
+
+            await expect(validateWebDeployAssets({
+                env: {VERCEL: '1'},
+                projectRoot: tempRoot,
+            })).rejects.toThrow('contains forbidden public artifacts');
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
+    it('rejects auth tokens from Vercel static output', async () => {
+        const tempRoot = await createTempProject();
+        try {
+            await mkdir(path.join(tempRoot, '.vercel/output/static/_nuxt'), {recursive: true});
+            await writeFile(
+                path.join(tempRoot, '.vercel/output/static/_nuxt/app.js'),
+                `const token="sntrys_${'a'.repeat(24)}";`,
+                'utf8',
+            );
+
+            await expect(validateWebDeployAssets({
+                env: {VERCEL: '1'},
+                projectRoot: tempRoot,
+            })).rejects.toThrow('contains forbidden public artifacts');
+        } finally {
+            await rm(tempRoot, {
+                force: true,
+                recursive: true,
+            });
+        }
+    });
+
     it('uses the same output roots as nuxt.config.ts', () => {
         expect(getExpectedWebDeployOutputRoots({})).toEqual(['nuxt-output/public']);
         expect(getExpectedWebDeployOutputRoots({VERCEL: '1'})).toEqual(['.vercel/output/static']);
