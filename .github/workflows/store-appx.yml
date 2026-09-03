@@ -12,6 +12,15 @@ on:
         required: false
         default: test
         type: string
+    secrets:
+      SENTRY_AUTH_TOKEN:
+        required: false
+      SENTRY_ORG:
+        required: false
+      SENTRY_DESKTOP_PROJECT:
+        required: false
+      SENTRY_DESKTOP_DSN:
+        required: false
 permissions:
   contents: read
 
@@ -31,6 +40,7 @@ jobs:
       EVB_RELEASE_TARGET_DIST: store-appx-${{ matrix.arch }}
       EVB_SENTRY_TARGET: desktop
       EVB_SENTRY_ENVIRONMENT: ${{ inputs.sentry_environment }}
+      SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
     strategy:
       fail-fast: false
       matrix:
@@ -190,6 +200,39 @@ jobs:
           node scripts/release/build-provenance.mjs create store "${{ matrix.arch }}" \
             ".tmp/store-appx-${{ matrix.arch }}/app/resources/app.asar" \
             "release/EVB-Viewer-${version}-store-${{ matrix.arch }}-provenance.json"
+
+      - name: Check private Sentry upload readiness
+        id: sentry_upload
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: |
+          set -euo pipefail
+          configured=0
+          for value in "$SENTRY_AUTH_TOKEN" "$SENTRY_DESKTOP_DSN" "$SENTRY_DESKTOP_PROJECT" "$SENTRY_ORG"; do
+            if [ -n "$value" ]; then configured=$((configured + 1)); fi
+          done
+          if [ "$configured" -eq 4 ]; then
+            echo 'enabled=true' >> "$GITHUB_OUTPUT"
+          elif [ "$configured" -eq 0 ] && [ "$EVB_SENTRY_ENVIRONMENT" != 'production' ]; then
+            echo 'enabled=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::Private Sentry upload is not configured for this non-production build.'
+          else
+            echo '::error::Sentry diagnostics credentials are incomplete or absent for a production build.'
+            exit 1
+          fi
+
+      - name: Upload private Sentry source maps
+        if: steps.sentry_upload.outputs.enabled == 'true'
+        shell: bash
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: node scripts/release/upload-sentry-sourcemaps.mjs
 
       - name: Upload Microsoft Store AppX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

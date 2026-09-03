@@ -368,6 +368,7 @@ describe('private Vercel deployment source', () => {
             args: string[];
             command: string
         }> = [];
+        const lifecycle: string[] = [];
         try {
             mkdirSync(path.dirname(bundlePath), {recursive: true});
             writeFileSync(path.join(outputRoot, 'config.json'), '{"version":3}\n');
@@ -397,14 +398,20 @@ describe('private Vercel deployment source', () => {
                 }),
                 projectRoot,
                 rawArgs: [],
+                uploadSourcemaps: async () => {
+                    lifecycle.push('upload');
+                    return {};
+                },
                 spawnSyncImpl: (command: string, args: string[]) => {
                     calls.push({
                         args,
                         command,
                     });
                     if (command === 'pnpm') {
+                        lifecycle.push('build');
                         return {status: 0};
                     }
+                    lifecycle.push('deploy');
                     const deploySourceRoot = args[1];
                     expect(deploySourceRoot).toBeTypeOf('string');
                     expect(existsSync(path.join(
@@ -435,6 +442,11 @@ describe('private Vercel deployment source', () => {
                 '--prebuilt',
             ]));
             expect(calls[1]?.args).not.toContain('--archive=tgz');
+            expect(lifecycle).toEqual([
+                'build',
+                'upload',
+                'deploy',
+            ]);
             await expect(assertServedSentryBundleParity({
                 deploymentUrl: 'https://evb-viewer-test.vercel.app',
                 fetchImpl: async () => ({
