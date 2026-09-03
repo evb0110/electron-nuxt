@@ -1,0 +1,26 @@
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_82673389cc1ab8 47-50,249-250,252-260
+  s_b412fd4cd3f576::t_0128840fa440c9 46,251
+  s_b412fd4cd3f576::t_39444ab9033a40 261-263
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_f2bc4e593a3f68 2,10-13,71-74,126-144
+  s_b412fd4cd3f576::t_6fad9ff7ce3b14 145
+electron/main.ts
+  s_b412fd4cd3f576::t_82673389cc1ab8 191-192
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "ce4347b9631e28d9b33840124c1c354967aa98bc",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
