@@ -7,6 +7,12 @@ export {
 export { LOCALE_DEFINITIONS } from '@evb/i18n-core/localeDefinitions';
 
 export {
+    PRIVACY_MESSAGES,
+    type IPrivacyMessages,
+    type IPrivacySectionMessages,
+} from '@evb/i18n-core/privacyMessages';
+
+export {
     formatTranslationLeaf,
     getNestedTranslationLeaf,
     isLocaleMessageSource,

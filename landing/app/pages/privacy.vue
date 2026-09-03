@@ -5,56 +5,56 @@
         id="privacy-title"
         class="page-title"
       >
-        {{ t('privacy.hero.title') }}
+        {{ privacy.hero.title }}
       </h1>
       <p class="page-subtitle">
-        {{ t('privacy.hero.subtitle') }}
+        {{ privacy.hero.subtitle }}
       </p>
       <p class="privacy-effective-date">
-        {{ t('privacy.hero.effectiveDate') }}
+        {{ privacy.hero.effectiveDate }}
       </p>
     </section>
 
     <section class="content-section privacy-content">
       <div>
-        <h2>{{ t('privacy.documents.heading') }}</h2>
-        <p>{{ t('privacy.documents.body') }}</p>
+        <h2>{{ privacy.documents.heading }}</h2>
+        <p>{{ privacy.documents.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.assistant.heading') }}</h2>
-        <p>{{ t('privacy.assistant.body') }}</p>
+        <h2>{{ privacy.assistant.heading }}</h2>
+        <p>{{ privacy.assistant.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.analytics.heading') }}</h2>
-        <p>{{ t('privacy.analytics.body') }}</p>
+        <h2>{{ privacy.analytics.heading }}</h2>
+        <p>{{ privacy.analytics.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.settings.heading') }}</h2>
-        <p>{{ t('privacy.settings.body') }}</p>
+        <h2>{{ privacy.settings.heading }}</h2>
+        <p>{{ privacy.settings.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.storage.heading') }}</h2>
-        <p>{{ t('privacy.storage.body') }}</p>
+        <h2>{{ privacy.storage.heading }}</h2>
+        <p>{{ privacy.storage.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.retention.heading') }}</h2>
-        <p>{{ t('privacy.retention.body') }}</p>
+        <h2>{{ privacy.retention.heading }}</h2>
+        <p>{{ privacy.retention.body }}</p>
       </div>
 
       <div>
-        <h2>{{ t('privacy.contact.heading') }}</h2>
+        <h2>{{ privacy.contact.heading }}</h2>
         <p>
-          {{ t('privacy.contact.intro') }}
+          {{ privacy.contact.intro }}
           <a
             href="https://github.com/evb0110/evb-viewer/issues"
             target="_blank"
             rel="noreferrer"
-          >{{ t('privacy.contact.linkLabel') }}</a>.
+          >{{ privacy.contact.linkLabel }}</a>.
         </p>
       </div>
     </section>
@@ -62,11 +62,14 @@
 </template>
 
 <script setup lang="ts">
-const { t } = useTypedI18n();
+import { PRIVACY_MESSAGES } from '@i18n-core';
+
+const { locale } = useTypedI18n();
+const privacy = computed(() => PRIVACY_MESSAGES[locale.value]);
 
 useLandingPageSeo({
-    title: () => t('privacy.seo.title'),
-    description: () => t('privacy.seo.description'),
+    title: () => privacy.value.seo.title,
+    description: () => privacy.value.seo.description,
 });
 </script>
 

@@ -1,5 +1,7 @@
 <template>
   <footer class="site-footer">
+    <SentryAcknowledgement />
+
     <div class="footer-copy">
       <p class="footer-title">{{ t('app.title') }}</p>
       <p class="footer-meta">{{ t('footer.copyright') }}</p>
@@ -26,6 +28,7 @@
 
 <script setup lang="ts">
 import { GITHUB_REPOSITORY_URL } from '~/constants/githubRepositoryUrl';
+import SentryAcknowledgement from './SentryAcknowledgement.vue';
 
 const { t } = useTypedI18n();
 const localePath = useLocalePath();

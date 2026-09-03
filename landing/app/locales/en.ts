@@ -1,3 +1,5 @@
+import { PRIVACY_MESSAGES } from '@i18n-core';
+
 export default {
     app: {
         title: 'EVB Viewer',
@@ -17,47 +19,12 @@ export default {
         docs: 'Documentation',
         features: 'Features',
         viewSource: 'View source',
-    },
-    privacy: {
-        seo: {
-            title: 'Privacy Policy',
-            description: 'Privacy policy for EVB Viewer desktop, browser, website, and optional assistant features.',
-        },
-        hero: {
-            title: 'Privacy Policy',
-            subtitle: 'How EVB Viewer handles documents, settings, analytics, and optional assistant features.',
-            effectiveDate: 'Effective August 19, 2026',
-        },
-        documents: {
-            heading: 'Documents and local processing',
-            body: 'EVB Viewer opens documents selected by you. Desktop document viewing, OCR, annotation, page operations, and export are performed on your device. The browser app processes selected documents in your browser unless you choose a feature that explicitly uses an external service. EVB Viewer does not upload your documents to the developer by default.',
-        },
-        assistant: {
-            heading: 'Optional assistant services',
-            body: 'Assistant features are optional. When you use an assistant backed by Codex, OpenAI, or Anthropic Claude, prompts and any content or attachments you choose to include are sent to that provider under your account and are governed by that provider’s terms and privacy policy. EVB Viewer does not sell this information.',
-        },
-        analytics: {
-            heading: 'Analytics and technical information',
-            body: 'The EVB Viewer website and browser app may collect limited usage and technical events, such as page paths, feature events, locale, screen category, referrer, browser user agent, approximate region, and a rotating hashed visitor identifier. This information is used to understand reliability and product usage. It is not used to identify document contents.',
-        },
-        settings: {
-            heading: 'Settings, recent files, and updates',
-            body: 'App preferences, workspace state, and recent-file references may be stored locally on your device. The desktop app may contact GitHub to check for and download software updates. Operating-system and app-store services may process additional technical information under their own policies.',
-        },
-        storage: {
-            heading: 'Cookies and browser storage',
-            body: 'EVB Viewer uses first-party preference cookies to remember language and, in the browser app, theme. Language cookies may last up to one year, and the theme cookie may last up to 180 days. The download site uses an opaque, HttpOnly cohort cookie for up to 90 days to keep staged release recommendations consistent; it is not used for advertising or cross-site tracking. The browser app also uses local storage, session storage, and IndexedDB for preferences, recent-file references, workspace state, document data you choose to retain, and a random per-session analytics identifier. EVB Viewer does not set advertising or third-party cookies. You can remove cookies and browser-stored data through your browser’s site-data controls; doing so resets preferences and locally retained app data.',
-        },
-        retention: {
-            heading: 'Retention and choices',
-            body: 'Local app data remains on your device until you remove it or uninstall the app. You control which documents and attachments are opened or sent to optional assistant services. Website analytics records are retained only as needed for product operation, security, and trend analysis and are scheduled for automatic deletion after 90 days.',
-        },
-        contact: {
-            heading: 'Contact',
-            intro: 'Questions or privacy requests can be submitted through the',
-            linkLabel: 'EVB Viewer issue tracker',
+        sentryAcknowledgement: {
+            message: 'Thank you to Sentry for supporting EVB Viewer through its open-source program.',
+            linkLabel: 'Learn about Sentry for Open Source',
         },
     },
+    privacy: PRIVACY_MESSAGES['en'],
     home: {
         seo: {
             title: 'EVB Viewer web app and desktop downloads',
