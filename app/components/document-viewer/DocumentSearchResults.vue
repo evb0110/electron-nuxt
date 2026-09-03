@@ -1,5 +1,5 @@
 <template>
-    <div class="document-search-results flex flex-col">
+    <div class="document-search-results">
         <DocumentPanelEmptyState
             v-if="!trimmedQuery"
             icon="i-ph-magnifying-glass"
@@ -89,7 +89,6 @@
 
                     <DocumentSearchResultItem
                             v-else
-                            :ref="element => setResultRef(asMatchRow(virtualRow.data).resultIndex, element)"
                             :result="asMatchRow(virtualRow.data).match"
                             :is-active="asMatchRow(virtualRow.data).resultIndex === currentResultIndex"
                             :data-page-number="asMatchRow(virtualRow.data).match.pageIndex + 1"
@@ -108,7 +107,6 @@
 </template>
 
 <script setup lang="ts">
-import type { ComponentPublicInstance } from 'vue';
 import { useVirtualList } from '@vueuse/core';
 import { groupBy } from 'es-toolkit/array';
 import type { IDocumentSearchMatch } from '@app/utils/document-viewer/providers/documentSearch';
@@ -120,6 +118,16 @@ import {
     formatPageIndicatorWithOptions,
     type TDocumentPageLabelLookup,
 } from '@app/utils/document-viewer/pageLabels';
+import { resolveVirtualRowRevealScrollTop } from '@app/utils/document-viewer/virtualization/resolveVirtualRowRevealScrollTop';
+
+const SEARCH_VIRTUAL_ROW_HEIGHT_TOKENS = Object.freeze({
+    group: '--app-search-virtual-group-row-height',
+    match: '--app-search-virtual-row-height',
+});
+const searchVirtualRowHeightsPx = reactive({
+    group: 36,
+    match: 84,
+});
 
 const { t } = useTypedI18n();
 
@@ -160,7 +168,6 @@ const isTruncated = computed(() => isTruncatedProp ?? false);
 const expandedPages = ref<Set<number>>(new Set());
 const knownGroupPages = ref<Set<number>>(new Set());
 const previousSearchQuery = ref('');
-const resultItemRefs = new Map<number, HTMLElement>();
 
 const searchSummaryText = computed(() => formatDocumentSearchResultsSummary({
     isSearching: Boolean(isSearching),
@@ -233,9 +240,10 @@ const {
     list: virtualRows,
     containerProps,
     wrapperProps,
-    scrollTo: scrollToVirtualRow,
 } = useVirtualList(flattenedRows, {
-    itemHeight: index => flattenedRows.value[index]?.kind === 'group' ? 36 : 84,
+    itemHeight: index => flattenedRows.value[index]?.kind === 'group'
+        ? searchVirtualRowHeightsPx.group
+        : searchVirtualRowHeightsPx.match,
     overscan: 8,
 });
 const searchResultsList = containerProps.ref;
@@ -281,44 +289,69 @@ function isGroupExpanded(pageIndex: number) {
     return expandedPages.value.has(pageIndex);
 }
 
-function togglePage(pageIndex: number) {
+function virtualRowHeight(row: TSearchVirtualRow) {
+    return searchVirtualRowHeightsPx[row.kind];
+}
+
+onMounted(() => {
+    const styles = window.getComputedStyle(document.documentElement);
+    for (const kind of [
+        'group',
+        'match',
+    ] as const) {
+        const tokenValue = styles.getPropertyValue(SEARCH_VIRTUAL_ROW_HEIGHT_TOKENS[kind]).trim();
+        const pixels = tokenValue.endsWith('px') ? Number.parseFloat(tokenValue) : Number.NaN;
+        if (Number.isFinite(pixels) && pixels > 0) {
+            searchVirtualRowHeightsPx[kind] = pixels;
+        }
+    }
+});
+
+function revealVirtualRowSpan(startIndex: number, endIndex: number) {
+    const listElement = searchResultsList.value;
+    if (!listElement || !listElement.isConnected) {
+        return false;
+    }
+    const nextScrollTop = resolveVirtualRowRevealScrollTop({
+        rowHeights: flattenedRows.value.map(virtualRowHeight),
+        startIndex,
+        endIndex,
+        scrollTop: listElement.scrollTop,
+        clientHeight: listElement.clientHeight,
+    });
+    if (nextScrollTop === null) {
+        return false;
+    }
+    listElement.scrollTop = nextScrollTop;
+    listElement.dispatchEvent(new Event('scroll'));
+    return true;
+}
+
+async function togglePage(pageIndex: number) {
     const next = new Set(expandedPages.value);
+    const isExpanding = !next.has(pageIndex);
     if (next.has(pageIndex)) {
         next.delete(pageIndex);
     } else {
         next.add(pageIndex);
     }
     expandedPages.value = next;
-}
-
-function setResultRef(
-    resultIndex: number,
-    component: ComponentPublicInstance | Element | null,
-) {
-    if (!component) {
-        resultItemRefs.delete(resultIndex);
+    if (!isExpanding) {
         return;
     }
-
-    if (component instanceof HTMLElement) {
-        resultItemRefs.set(resultIndex, component);
+    await nextTick();
+    if (!expandedPages.value.has(pageIndex)) {
         return;
     }
-
-    if ('$el' in component && component.$el instanceof HTMLElement) {
-        resultItemRefs.set(resultIndex, component.$el);
+    const groupIndex = flattenedRows.value.findIndex(row => (
+        row.kind === 'group' && row.pageIndex === pageIndex
+    ));
+    if (groupIndex < 0) {
+        return;
     }
-}
-
-function isResultVisibleInSearchList(resultElement: HTMLElement) {
-    const listElement = searchResultsList.value;
-    if (!listElement) {
-        return false;
-    }
-
-    const listRect = listElement.getBoundingClientRect();
-    const resultRect = resultElement.getBoundingClientRect();
-    return resultRect.top >= listRect.top && resultRect.bottom <= listRect.bottom;
+    const group = flattenedRows.value[groupIndex];
+    const matchCount = group?.kind === 'group' ? group.matchCount : 0;
+    revealVirtualRowSpan(groupIndex, groupIndex + matchCount);
 }
 
 watch(
@@ -387,14 +420,8 @@ watch(
         const virtualIndex = flattenedRows.value.findIndex(row => (
             row.kind === 'match' && row.resultIndex === nextIndex
         ));
-        // VueUse places a scrolled-to row at the top by default. Keep a visible
-        // row at the position where the user selected it.
-        const resultElement = resultItemRefs.get(nextIndex);
-        if (!resultElement || !isResultVisibleInSearchList(resultElement)) {
-            if (virtualIndex >= 0) {
-                scrollToVirtualRow(virtualIndex);
-                await nextTick();
-            }
+        if (virtualIndex >= 0) {
+            revealVirtualRowSpan(virtualIndex, virtualIndex);
         }
     },
     { flush: 'post' },
@@ -403,11 +430,18 @@ watch(
 
 <style lang="scss" scoped>
 .document-search-results {
-    min-height: 100%;
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .document-search-results-virtual-match {
+    box-sizing: border-box;
     height: var(--app-search-virtual-row-height);
+    min-height: var(--app-search-virtual-row-height);
+    max-height: var(--app-search-virtual-row-height);
     overflow: hidden;
 }
 
@@ -476,7 +510,11 @@ watch(
 
 .document-search-results-group-toggle {
     display: flex;
+    box-sizing: border-box;
     width: 100%;
+    height: var(--app-search-virtual-group-row-height);
+    min-height: var(--app-search-virtual-group-row-height);
+    max-height: var(--app-search-virtual-group-row-height);
     align-items: center;
     gap: var(--app-sidebar-row-gap);
     border: none;
@@ -487,6 +525,8 @@ watch(
     font-size: var(--app-sidebar-row-font-size);
     font-weight: 600;
     cursor: pointer;
+    overflow: hidden;
+    white-space: nowrap;
 }
 
 .document-search-results-group-chevron {
@@ -498,7 +538,11 @@ watch(
 }
 
 .document-search-results-group-label {
+    flex: 1 1 auto;
     min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 @keyframes document-search-spin {

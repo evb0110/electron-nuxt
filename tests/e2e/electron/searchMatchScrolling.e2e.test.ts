@@ -29,7 +29,8 @@ import {
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 
 const SEARCH_MATCH_SCROLL_TIMEOUT_MS = 240_000;
-const SEARCH_MATCH_PAINT_TIMEOUT_MS = 30_000;
+const SEARCH_MATCH_PAINT_TIMEOUT_MS = 5_000;
+const SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX = 8;
 const defaultSearchMatchScrollResultCount = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT - 1 + 4;
 const suppliedSearchMatchScrollPdf = process.env.EVB_SEARCH_SCROLL_PDF;
 
@@ -109,7 +110,15 @@ function readPositiveNumberEnv(name: string, fallback: number) {
     return value;
 }
 
+function normalizeMatchText(value: string) {
+    return value.normalize('NFC').replaceAll(/\s+/g, ' ').trim().toLocaleLowerCase();
+}
+
 const searchMatchScrollConfig = {
+    applyBudgetMs: readPositiveNumberEnv(
+        'EVB_SEARCH_SCROLL_APPLY_BUDGET_MS',
+        suppliedSearchMatchScrollPdf ? 2_000 : 1_500,
+    ),
     expectedResultCount: readPositiveIntegerEnv(
         'EVB_SEARCH_SCROLL_RESULT_COUNT',
         suppliedSearchMatchScrollPdf ? 25 : defaultSearchMatchScrollResultCount,
@@ -118,18 +127,18 @@ const searchMatchScrollConfig = {
     query: process.env.EVB_SEARCH_SCROLL_QUERY
         ?? (suppliedSearchMatchScrollPdf ? 'lezgian' : SEARCH_MATCH_SCROLL_FIXTURE_QUERY),
     targetGroup: process.env.EVB_SEARCH_SCROLL_TARGET_GROUP
-        ?? String(suppliedSearchMatchScrollPdf ? 23 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE),
+        ?? String(suppliedSearchMatchScrollPdf ? 369 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE),
     targetMatch: readPositiveIntegerEnv(
         'EVB_SEARCH_SCROLL_TARGET_MATCH',
-        suppliedSearchMatchScrollPdf ? 2 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH,
+        suppliedSearchMatchScrollPdf ? 1 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_MATCH,
     ),
     targetViewerPage: readPositiveIntegerEnv(
         'EVB_SEARCH_SCROLL_TARGET_PAGE',
-        suppliedSearchMatchScrollPdf ? 23 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+        suppliedSearchMatchScrollPdf ? 369 : SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
     ),
     zoom: readPositiveNumberEnv(
         'EVB_SEARCH_SCROLL_ZOOM',
-        suppliedSearchMatchScrollPdf ? 1.31 : 3.8,
+        suppliedSearchMatchScrollPdf ? 2.84 : 3.8,
     ),
 };
 
@@ -140,7 +149,7 @@ const sessionFixture = createElectronE2ESessionFixture({
 });
 
 describe('Electron E2E - PDF search match scrolling', () => {
-    it('centers the clicked duplicate match after a high-zoom xlarge search', async () => {
+    it('keeps the final result visible and centers its match after a high-zoom xlarge search', async () => {
         const session = sessionFixture.getSession();
         if (!session) {
             return;
@@ -199,7 +208,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
             minEffectiveZoom: searchMatchScrollConfig.zoom * 0.98,
         }, {timeoutMs: SEARCH_MATCH_SCROLL_TIMEOUT_MS});
 
-        const foundTargetGroup = await session.page.evaluate(async (targetGroup: string) => {
+        const collapsedGroupAtListBottom = await session.page.evaluate(async (targetGroup: string) => {
             const list = document.querySelector<HTMLElement>(
                 '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
             );
@@ -213,34 +222,69 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 requestAnimationFrame(() => resolve())
             )));
             const step = Math.max(36, Math.floor(list.clientHeight * 0.75));
-            for (let top = 0; top <= list.scrollHeight; top += step) {
-                list.scrollTop = top;
+            const findTargetGroup = async () => {
+                const maxScrollTop = Math.max(0, list.scrollHeight - list.clientHeight);
+                for (let top = 0; top <= maxScrollTop; top += step) {
+                    list.scrollTop = top;
+                    list.dispatchEvent(new Event('scroll'));
+                    await waitForVirtualRows();
+                    const group = findGroup();
+                    if (group) {
+                        return group;
+                    }
+                }
+                list.scrollTop = maxScrollTop;
                 list.dispatchEvent(new Event('scroll'));
                 await waitForVirtualRows();
-                const group = findGroup();
-                if (group) {
-                    group.scrollIntoView({block: 'center'});
-                    await waitForVirtualRows();
-                    return true;
-                }
+                return findGroup() ?? null;
+            };
+
+            let group = await findTargetGroup();
+            if (!group) {
+                return null;
             }
-            list.scrollTop = list.scrollHeight;
+            if (group.getAttribute('aria-expanded') === 'true') {
+                group.click();
+                await waitForVirtualRows();
+                group = findGroup() ?? await findTargetGroup();
+            }
+            if (!group || group.getAttribute('aria-expanded') !== 'false') {
+                return null;
+            }
+
+            const listRect = list.getBoundingClientRect();
+            const groupRect = group.getBoundingClientRect();
+            list.scrollTop = Math.min(
+                Math.max(0, list.scrollHeight - list.clientHeight),
+                Math.max(0, list.scrollTop + groupRect.bottom - listRect.bottom),
+            );
             list.dispatchEvent(new Event('scroll'));
             await waitForVirtualRows();
-            return Boolean(findGroup());
+            group = findGroup() ?? null;
+            if (!group) {
+                return null;
+            }
+            const alignedListRect = list.getBoundingClientRect();
+            const alignedGroupRect = group.getBoundingClientRect();
+            return {
+                bottomGap: alignedListRect.bottom - alignedGroupRect.bottom,
+                expanded: group.getAttribute('aria-expanded'),
+            };
         }, searchMatchScrollConfig.targetGroup);
-        expect(foundTargetGroup).toBe(true);
+        expect(collapsedGroupAtListBottom).not.toBeNull();
+        expect(collapsedGroupAtListBottom!.expanded).toBe('false');
+        expect(Math.abs(collapsedGroupAtListBottom!.bottomGap)).toBeLessThanOrEqual(
+            SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX,
+        );
 
         const openedTargetGroup = await session.page.evaluate((targetGroup: string) => {
             const group = Array.from(document.querySelectorAll<HTMLButtonElement>(
                 '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-group-toggle',
             )).find(candidate => candidate.dataset.pageNumber === targetGroup);
-            if (!group) {
+            if (!group || group.getAttribute('aria-expanded') !== 'false') {
                 return false;
             }
-            if (group.getAttribute('aria-expanded') !== 'true') {
-                group.click();
-            }
+            group.click();
             return true;
         }, searchMatchScrollConfig.targetGroup);
         expect(openedTargetGroup).toBe(true);
@@ -251,12 +295,101 @@ describe('Electron E2E - PDF search match scrolling', () => {
         }: {
             targetMatch: number;
             targetPage: number;
-        }) => Boolean(document.querySelector(
-            `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
-        )), {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS}, {
+        }) => {
+            const list = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"] .document-search-results-list',
+            );
+            const result = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+            );
+            if (!list || !result) {
+                return false;
+            }
+            const listRect = list.getBoundingClientRect();
+            const resultRect = result.getBoundingClientRect();
+            return resultRect.top >= listRect.top - 1 && resultRect.bottom <= listRect.bottom + 1;
+        }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, {
             targetMatch: searchMatchScrollConfig.targetMatch,
             targetPage: searchMatchScrollConfig.targetViewerPage,
         });
+
+        const sidebarStatusGeometry = await session.page.evaluate(({
+            targetMatch,
+            targetPage,
+        }: {
+            targetMatch: number;
+            targetPage: number;
+        }) => {
+            const sidebar = document.querySelector<HTMLElement>(
+                '.editor-pane.is-active [data-testid="document-sidebar"]',
+            );
+            const sidebarContent = sidebar?.querySelector<HTMLElement>('.app-sidebar-shell__content');
+            const panel = sidebar?.querySelector<HTMLElement>('.document-search-panel');
+            const results = sidebar?.querySelector<HTMLElement>('.document-search-results');
+            const listShell = sidebar?.querySelector<HTMLElement>('.document-search-results-list-shell');
+            const list = sidebar?.querySelector<HTMLElement>('.document-search-results-list');
+            const result = sidebar?.querySelector<HTMLElement>(
+                `.document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
+            );
+            const status = document.querySelector<HTMLElement>('#editor-global-status-host .status-bar');
+            if (!sidebar || !sidebarContent || !panel || !results || !listShell || !list || !result || !status) {
+                throw new Error('Sidebar status geometry could not be measured');
+            }
+            const sidebarRect = sidebar.getBoundingClientRect();
+            const sidebarContentRect = sidebarContent.getBoundingClientRect();
+            const panelRect = panel.getBoundingClientRect();
+            const resultsRect = results.getBoundingClientRect();
+            const listShellRect = listShell.getBoundingClientRect();
+            const listRect = list.getBoundingClientRect();
+            const resultRect = result.getBoundingClientRect();
+            const statusRect = status.getBoundingClientRect();
+            const resultCenterX = resultRect.left + resultRect.width / 2;
+            const resultCenterY = resultRect.top + resultRect.height / 2;
+            const hitTarget = document.elementFromPoint(resultCenterX, resultCenterY);
+            return {
+                listBottom: listRect.bottom,
+                listShellBottom: listShellRect.bottom,
+                panelBottom: panelRect.bottom,
+                resultBottom: resultRect.bottom,
+                resultCenterX,
+                resultCenterY,
+                resultHitTarget: hitTarget === result || Boolean(hitTarget && result.contains(hitTarget)),
+                resultIndex: Number(result.dataset.resultIndex),
+                resultsBottom: resultsRect.bottom,
+                sidebarContentBottom: sidebarContentRect.bottom,
+                sidebarBottom: sidebarRect.bottom,
+                statusTop: statusRect.top,
+            };
+        }, {
+            targetMatch: searchMatchScrollConfig.targetMatch,
+            targetPage: searchMatchScrollConfig.targetViewerPage,
+        });
+        expect(
+            sidebarStatusGeometry.sidebarBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
+        expect(
+            Math.abs(sidebarStatusGeometry.panelBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(sidebarStatusGeometry.resultsBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            Math.abs(sidebarStatusGeometry.listShellBottom - sidebarStatusGeometry.sidebarContentBottom),
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(1);
+        expect(
+            sidebarStatusGeometry.listBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.sidebarContentBottom + 1);
+        expect(
+            sidebarStatusGeometry.resultBottom,
+            JSON.stringify({sidebarStatusGeometry}),
+        ).toBeLessThanOrEqual(sidebarStatusGeometry.statusTop + SEARCH_RESULT_LIST_EDGE_TOLERANCE_PX);
+        expect(sidebarStatusGeometry.resultIndex).toBe(searchMatchScrollConfig.expectedResultCount - 1);
+        expect(sidebarStatusGeometry.resultHitTarget, JSON.stringify({sidebarStatusGeometry})).toBe(true);
 
         await session.page.evaluate(() => {
             const diagnosticWindow = window as Window & {
@@ -276,13 +409,24 @@ describe('Electron E2E - PDF search match scrolling', () => {
             const result = document.querySelector<HTMLElement>(
                 `.editor-pane.is-active [data-testid="document-sidebar"] .document-search-result[data-page-number="${String(targetPage)}"][data-page-match-number="${String(targetMatch)}"]`,
             );
-            result?.click();
-            return Boolean(result);
+            const matchText = result?.querySelector<HTMLElement>(
+                '.document-search-result-highlight',
+            )?.textContent ?? '';
+            const resultRect = result?.getBoundingClientRect();
+            const clickedAtMs = performance.now();
+            return result && resultRect ? {
+                centerX: resultRect.left + resultRect.width / 2,
+                centerY: resultRect.top + resultRect.height / 2,
+                clickedAtMs,
+                matchText,
+            } : null;
         }, {
             targetMatch: searchMatchScrollConfig.targetMatch,
             targetPage: searchMatchScrollConfig.targetViewerPage,
         });
-        expect(clickedTarget).toBe(true);
+        expect(clickedTarget).not.toBeNull();
+        expect(clickedTarget!.matchText.trim().length).toBeGreaterThan(0);
+        await session.page.mouse.click(clickedTarget!.centerX, clickedTarget!.centerY);
 
         await waitForFunctionInPage(session.page, ({
             targetMatch,
@@ -317,6 +461,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
             const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host #pdf-viewer');
             const page = viewer?.querySelector<HTMLElement>(`.page_container[data-page="${String(targetPage)}"]`);
             const viewerRect = viewer?.getBoundingClientRect() ?? null;
+            const pageRect = page?.getBoundingClientRect() ?? null;
             const highlightElements = Array.from(page?.querySelectorAll<HTMLElement>(
                 '.pdf-search-highlight--current, .pdf-word-box--current',
             ) ?? []);
@@ -340,7 +485,54 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 entry.event === 'navigation-viewport-authority-applied'
                 && entry.payload?.kind === 'search'
             )).length;
+            const applied = trace.find(entry => (
+                entry.event === 'navigation-viewport-authority-applied'
+                && entry.payload?.kind === 'search'
+                && entry.payload?.page === targetPage
+            ));
+            const afterRangeUpdate = trace.find(entry => (
+                entry.event === 'navigation-viewport-authority-after-range-update'
+                && entry.payload?.intentId === applied?.payload?.intentId
+            ));
+            const refined = [...trace].reverse().find(entry => (
+                entry.event === 'navigation-text-anchor-refined'
+                && entry.payload?.intentId === applied?.payload?.intentId
+                && entry.payload?.page === targetPage
+            ));
+            const targetTrace = trace.filter(entry => entry.payload?.pageNumber === targetPage);
+            const cancelledCount = trace.filter(entry => (
+                entry.event.endsWith('-intent-cancelled')
+                && entry.payload?.intentId === applied?.payload?.intentId
+            )).length;
+            const resolvedRectValue = refined?.payload?.resolvedRect;
+            const resolvedRect = resolvedRectValue && typeof resolvedRectValue === 'object'
+                ? resolvedRectValue as Record<string, unknown>
+                : null;
+            const resolvedNumbers = resolvedRect
+                ? [
+                    resolvedRect.left,
+                    resolvedRect.top,
+                    resolvedRect.width,
+                    resolvedRect.height,
+                ].map(Number)
+                : [];
+            const resolvedHighlightEdgeDelta = highlight && pageRect
+                && resolvedNumbers.length === 4
+                && resolvedNumbers.every(Number.isFinite)
+                ? Math.max(
+                    Math.abs(highlight.left - (pageRect.left + resolvedNumbers[0]! * pageRect.width)),
+                    Math.abs(highlight.top - (pageRect.top + resolvedNumbers[1]! * pageRect.height)),
+                    Math.abs(highlight.right - (
+                        pageRect.left + (resolvedNumbers[0]! + resolvedNumbers[2]!) * pageRect.width
+                    )),
+                    Math.abs(highlight.bottom - (
+                        pageRect.top + (resolvedNumbers[1]! + resolvedNumbers[3]!) * pageRect.height
+                    )),
+                )
+                : null;
             return {
+                afterRangeActualTop: Number(afterRangeUpdate?.payload?.actualTop),
+                appliedActualTop: Number(applied?.payload?.actualTop),
                 highlight: highlight
                     ? {
                         bottom: highlight.bottom,
@@ -351,19 +543,44 @@ describe('Electron E2E - PDF search match scrolling', () => {
                     : null,
                 highlightBackgroundColors: highlightElements.map(element => getComputedStyle(element).backgroundColor),
                 highlightOpacities: highlightElements.map(element => getComputedStyle(element).opacity),
-                highlightText: highlightElements.map(element => element.textContent ?? '').join(''),
+                highlightText: highlightElements.map(element => (
+                    element.textContent || element.dataset.word || ''
+                )).join(''),
                 highlightVisibilities: highlightElements.map(element => getComputedStyle(element).visibility),
+                hydrationBeginCount: targetTrace.filter(entry => (
+                    entry.event === 'renderer-layer-hydration-begin'
+                )).length,
+                hydrationReadyCount: targetTrace.filter(entry => (
+                    entry.event === 'renderer-layer-hydration-settled'
+                    && entry.payload?.outcome === 'ready'
+                )).length,
+                leaseAcquireCount: targetTrace.filter(entry => (
+                    entry.event === 'pdf-document-page-lease-acquire'
+                )).length,
                 navigationMessages,
                 scrollTop: viewer?.scrollTop ?? null,
                 appliedCount,
-                trace: trace.filter(entry => [
-                    'navigation-text-anchor-refined',
-                    'navigation-viewport-authority-applied',
-                ].includes(entry.event)),
+                appliedTraceAtMs: Number(applied?.payload?.traceAtMs),
+                cancelledCount,
+                hasResolvedRect: refined?.payload?.hasResolvedRect === true,
+                hasResolvedSearchRange: refined?.payload?.searchRange !== null
+                    && refined?.payload?.searchRange !== undefined,
+                resolvedHighlightEdgeDelta,
+                singlePageBeginCount: targetTrace.filter(entry => (
+                    entry.event === 'renderer-single-page-begin'
+                )).length,
                 viewportSize: {
                     height: window.innerHeight,
                     width: window.innerWidth,
                 },
+                page: pageRect
+                    ? {
+                        bottom: pageRect.bottom,
+                        left: pageRect.left,
+                        right: pageRect.right,
+                        top: pageRect.top,
+                    }
+                    : null,
                 viewer: viewerRect
                     ? {
                         bottom: viewerRect.bottom,
@@ -377,9 +594,10 @@ describe('Electron E2E - PDF search match scrolling', () => {
 
         let finalState = await readFinalState();
         expect(finalState.highlight).not.toBeNull();
+        expect(finalState.page).not.toBeNull();
         expect(finalState.viewer).not.toBeNull();
-        expect(finalState.highlightText.toLocaleLowerCase()).toContain(
-            searchMatchScrollConfig.query.toLocaleLowerCase(),
+        expect(normalizeMatchText(finalState.highlightText)).toBe(
+            normalizeMatchText(clickedTarget!.matchText),
         );
         expect(finalState.highlightBackgroundColors).not.toContain('rgba(0, 0, 0, 0)');
         expect(finalState.highlightOpacities).not.toContain('0');
@@ -390,10 +608,21 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 event: string;
                 payload?: Record<string, unknown>
             }>;}).__getPdfRenderTrace?.() ?? []);
-            return trace.filter(entry => (
+            const applied = trace.filter(entry => (
                 entry.event === 'navigation-viewport-authority-applied'
                 && entry.payload?.kind === 'search'
-            )).length === 1;
+            ));
+            const intentId = applied[0]?.payload?.intentId;
+            return applied.length === 1
+                && trace.some(entry => (
+                    entry.event === 'navigation-viewport-authority-after-range-update'
+                    && entry.payload?.intentId === intentId
+                ))
+                && trace.some(entry => (
+                    entry.event === 'navigation-text-anchor-refined'
+                    && entry.payload?.intentId === intentId
+                    && entry.payload?.hasResolvedRect === true
+                ));
         }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS});
 
         await waitForFunctionInPage(session.page, (targetPage: number) => {
@@ -425,6 +654,22 @@ describe('Electron E2E - PDF search match scrolling', () => {
 
         finalState = await readFinalState();
         expect(finalState.appliedCount).toBe(1);
+        expect(finalState.cancelledCount).toBe(0);
+        expect(Number.isFinite(finalState.appliedTraceAtMs)).toBe(true);
+        expect(finalState.appliedTraceAtMs - clickedTarget!.clickedAtMs).toBeLessThanOrEqual(
+            searchMatchScrollConfig.applyBudgetMs,
+        );
+        expect(finalState.appliedTraceAtMs).toBeGreaterThanOrEqual(clickedTarget!.clickedAtMs);
+        expect(finalState.scrollTop).toBeCloseTo(finalState.appliedActualTop, 0);
+        expect(finalState.afterRangeActualTop).toBeCloseTo(finalState.appliedActualTop, 0);
+        expect(finalState.hasResolvedSearchRange).toBe(true);
+        expect(finalState.hasResolvedRect).toBe(true);
+        expect(finalState.resolvedHighlightEdgeDelta).not.toBeNull();
+        expect(finalState.resolvedHighlightEdgeDelta!).toBeLessThanOrEqual(4);
+        expect(finalState.singlePageBeginCount).toBeLessThanOrEqual(1);
+        expect(finalState.hydrationBeginCount).toBe(1);
+        expect(finalState.hydrationReadyCount).toBe(1);
+        expect(finalState.leaseAcquireCount).toBeLessThanOrEqual(4);
         expect(finalState.navigationMessages.some(message => message.includes('scrollToCurrentMatch'))).toBe(false);
         expect(finalState.highlight!.left).toBeGreaterThanOrEqual(finalState.viewer!.left - 2);
         expect(finalState.highlight!.right).toBeLessThanOrEqual(finalState.viewer!.right + 2);
