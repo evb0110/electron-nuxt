@@ -14,7 +14,7 @@ import type {
 } from '@electron/features/scan-cleanup/worker/runScanCleanupPipeline';
 import type {IScanCleanupDetectionResultStoreDescriptor} from '@electron/features/scan-cleanup/detectionResultStoreDescriptor';
 import {
-    hasWorkerTaskErrorBeenReported,
+    getWorkerTaskFailureReceipt,
     resolveUnpackedWorkerPath,
     startStreamingWorkerTask,
 } from '@electron/utils/workerTask';
@@ -101,7 +101,7 @@ export async function runScanCleanupWorkerTask(
         const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
         if (signal.aborted || isAbortError(error)) {
             logger.info('Scan cleanup worker task canceled');
-        } else if (hasWorkerTaskErrorBeenReported(error)) {
+        } else if (getWorkerTaskFailureReceipt(error) !== undefined) {
             // The generic worker-task layer already reported this exact
             // rejection at error level. Repeating it at error level would make
             // the renderer count one fault twice, so keep the scan-cleanup

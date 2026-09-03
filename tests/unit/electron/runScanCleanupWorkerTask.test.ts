@@ -13,15 +13,21 @@ const mocks = vi.hoisted(() => ({
         info: vi.fn(),
         warn: vi.fn(),
     },
-    reportedErrors: new WeakSet<object>(),
+    reportedErrors: new WeakMap<object, object>(),
+    failureReceipt: {
+        eventId: '0123456789abcdef0123456789abcdef',
+        code: 'UNCLASSIFIED_MAIN_ERROR',
+        occurredAt: 1,
+        severity: 'error',
+    },
     startStreamingWorkerTask: vi.fn(),
 }));
 
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => mocks.logger}));
 
 vi.mock('@electron/utils/workerTask', () => ({
-    hasWorkerTaskErrorBeenReported: (error: unknown) => (
-        typeof error === 'object' && error !== null && mocks.reportedErrors.has(error)
+    getWorkerTaskFailureReceipt: (error: unknown) => (
+        typeof error === 'object' && error !== null ? mocks.reportedErrors.get(error) : undefined
     ),
     resolveUnpackedWorkerPath: (_baseDir: string, workerFileName: string) => workerFileName,
     startStreamingWorkerTask: mocks.startStreamingWorkerTask,
@@ -88,7 +94,7 @@ describe('runScanCleanupWorkerTask', () => {
         // report stream keys diagnostics by source and message, so a second
         // error-level line would count one underlying failure twice.
         const failure = new Error('pdftoppm: No such file or directory');
-        mocks.reportedErrors.add(failure);
+        mocks.reportedErrors.set(failure, mocks.failureReceipt);
         mocks.startStreamingWorkerTask.mockReturnValue({
             worker: {},
             promise: Promise.reject(failure),
