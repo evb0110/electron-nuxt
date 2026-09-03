@@ -277,7 +277,7 @@ describe('renderer failure reporter', () => {
         expect(transport.send).not.toHaveBeenCalled();
         expect(reporter.getHealthSnapshot()).toMatchObject({
             attempted: 3,
-            accepted: 1,
+            accepted: 0,
             duplicate: 1,
             burstSuppressed: 1,
         });
@@ -298,9 +298,7 @@ describe('renderer failure reporter', () => {
             throw new Error('raw warning failed');
         });
         const {reporter} = createElectronReporter({
-            electronSender: () => {
-                throw new Error('send failed');
-            },
+            electronSender: () => false,
             rawWarningSink,
         });
 
@@ -310,8 +308,31 @@ describe('renderer failure reporter', () => {
         expect(rawWarningSink.mock.calls[0]?.[0].length).toBeLessThanOrEqual(512);
         expect(reporter.getHealthSnapshot()).toMatchObject({
             attempted: 1,
-            accepted: 1,
+            accepted: 0,
             transportFailed: 1,
+        });
+    });
+
+    it('keeps an async-rejected send reserved without counting it as accepted', async () => {
+        const sender = vi.fn(() => Promise.reject(new Error('send rejected')));
+        const reporter = createRendererFailureReporter({
+            host: 'electron',
+            electronSender: sender,
+            createEventId: () => eventId(1),
+        });
+
+        reporter.capture(createFailureInput('first'));
+        reporter.capture(createFailureInput('duplicate'));
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(sender).toHaveBeenCalledOnce();
+        expect(reporter.getHealthSnapshot()).toMatchObject({
+            attempted: 2,
+            accepted: 0,
+            duplicate: 1,
+            transportFailed: 1,
+            lastDropReason: 'transport-failed',
         });
     });
 
@@ -330,5 +351,27 @@ describe('renderer failure reporter', () => {
             schemaDropped: 1,
             lastDropReason: 'schema-dropped',
         });
+    });
+
+    it('exposes one initialized reporter and leaves capture-before-initialize explicit', async () => {
+        vi.resetModules();
+        const module = await import('@app/utils/failureReporter');
+        const sender = vi.fn();
+
+        expect(module.getRendererFailureReporter()).toBeNull();
+        expect(module.captureRendererFailure(createFailureInput())).toBeUndefined();
+
+        const initialized = module.initializeRendererFailureReporter({
+            host: 'electron',
+            electronSender: sender,
+            createEventId: () => eventId(1),
+        });
+        const secondInitialization = module.initializeRendererFailureReporter({host: 'hosted-browser'});
+        const receipt = module.captureRendererFailure(createFailureInput());
+
+        expect(secondInitialization).toBe(initialized);
+        expect(module.getRendererFailureReporter()).toBe(initialized);
+        expect(receipt).toEqual(expect.objectContaining({eventId: eventId(1)}));
+        expect(sender).toHaveBeenCalledOnce();
     });
 });

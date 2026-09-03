@@ -107,6 +107,7 @@ interface IBurstDecision {
 interface IHealthState extends IRendererDiagnosticsHealthSnapshot {}
 
 let fallbackEventIdCounter = 0;
+let rendererFailureReporter: IRendererFailureReporter | null = null;
 
 function normalizePreference(value: unknown): TRendererDiagnosticsPreference {
     return value === 'granted' || value === 'denied' ? value : 'unknown';
@@ -345,9 +346,9 @@ export function createRendererFailureReporter(
     function pruneRecentIds(currentTime: number) {
         for (const [
             eventId,
-            acceptedAt,
+            reservedAt,
         ] of recentIds) {
-            if (currentTime - acceptedAt >= recentIdWindowMs) {
+            if (currentTime - reservedAt >= recentIdWindowMs) {
                 recentIds.delete(eventId);
             }
         }
@@ -434,7 +435,7 @@ export function createRendererFailureReporter(
         };
     }
 
-    function markAccepted(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
+    function reserveAdmission(record: DiagnosticRecord, currentTime: number, decision: IBurstDecision) {
         const state = burstStates.get(decision.key);
         if (state) {
             state.sentCount = increment(state.sentCount);
@@ -442,6 +443,9 @@ export function createRendererFailureReporter(
         }
         recentIds.set(record.eventId, currentTime);
         pruneRecentIds(currentTime);
+    }
+
+    function markAccepted() {
         health.accepted = increment(health.accepted);
     }
 
@@ -460,6 +464,8 @@ export function createRendererFailureReporter(
             ) {
                 if (result === false) {
                     reportTransportFailure(record);
+                } else {
+                    markAccepted();
                 }
                 return;
             }
@@ -468,6 +474,8 @@ export function createRendererFailureReporter(
                 resolved => {
                     if (resolved === false) {
                         reportTransportFailure(record);
+                    } else {
+                        markAccepted();
                     }
                 },
                 () => reportTransportFailure(record),
@@ -562,7 +570,7 @@ export function createRendererFailureReporter(
         }
 
         if (host === 'electron') {
-            markAccepted(record, currentTime, decision);
+            reserveAdmission(record, currentTime, decision);
             if (!sendElectronRecord(record, decision.suppressedCount)) {
                 reportTransportFailure(record);
                 return receipt;
@@ -570,7 +578,7 @@ export function createRendererFailureReporter(
             return receipt;
         }
 
-        markAccepted(record, currentTime, decision);
+        reserveAdmission(record, currentTime, decision);
         sendHostedRecord(record, decision.suppressedCount);
         return receipt;
     }
@@ -632,4 +640,24 @@ export function createRendererFailureReporter(
             }
         },
     };
+}
+
+export function initializeRendererFailureReporter(
+    options: IRendererFailureReporterOptions = {},
+) {
+    if (rendererFailureReporter) {
+        return rendererFailureReporter;
+    }
+    rendererFailureReporter = createRendererFailureReporter(options);
+    return rendererFailureReporter;
+}
+
+export function getRendererFailureReporter() {
+    return rendererFailureReporter;
+}
+
+export function captureRendererFailure<C extends DiagnosticCode>(
+    input: CaptureFailureInput<C>,
+): FailureReceipt | undefined {
+    return rendererFailureReporter?.capture(input);
 }

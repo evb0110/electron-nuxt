@@ -3,7 +3,7 @@ import type {TLocale} from '@i18n-app';
 import {isLocaleMessageSource} from '@i18n-core';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {createPluginTranslate} from '@app/utils/createPluginTranslate';
-import {createRendererFailureReporter} from '@app/utils/failureReporter';
+import {initializeRendererFailureReporter} from '@app/utils/failureReporter';
 import {hasElectronAPI} from '@app/utils/platform';
 import { getIgnorableRuntimeErrorMessage } from '@app/utils/runtimeErrorFilter';
 
@@ -135,7 +135,7 @@ export default defineNuxtPlugin((nuxtApp) => {
         return;
     }
 
-    const reporter = createRendererFailureReporter({
+    const reporter = initializeRendererFailureReporter({
         host: hasElectronAPI() ? 'electron' : 'hosted-browser',
         localSink: (detail, receipt) => {
             BrowserLogger.error('renderer-guard', detail.message, {
