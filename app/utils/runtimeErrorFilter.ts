@@ -1,4 +1,5 @@
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import type {FailurePresentation} from '@app/composables/useFailureToast';
 
 const UI_REPORTABLE_MESSAGE_PREFIX = '[ERROR]';
 
@@ -124,5 +125,40 @@ export function createDebugLogRuntimeErrorReport(entry: IDebugLogEntry, title: s
         source: entry.source,
         error: `${entry.timestamp}\n${entry.message}`,
         dedupeKey: `${entry.source}\n${normalizeRuntimeReportFault(entry.message)}`,
+    };
+}
+
+function parseDebugLogTimestamp(timestamp: string) {
+    const parsed = Date.parse(timestamp);
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+/**
+ * Turns a main-owned debug entry into a renderer presentation. The entry's
+ * reference is copied into the receipt, while the message remains a local card
+ * detail and never becomes a new diagnostic occurrence.
+ */
+export function createDebugLogRuntimeErrorPresentation(
+    entry: IDebugLogEntry,
+    title: string,
+): FailurePresentation | null {
+    const failureRef = entry.failureRef;
+    if (failureRef === undefined) {
+        return null;
+    }
+
+    return {
+        failure: {
+            eventId: failureRef.eventId,
+            code: failureRef.code,
+            occurredAt: parseDebugLogTimestamp(entry.timestamp),
+            severity: failureRef.severity,
+        },
+        title,
+        description: [
+            entry.timestamp,
+            entry.message,
+            `Error ID: ${failureRef.eventId}`,
+        ].join('\n'),
     };
 }

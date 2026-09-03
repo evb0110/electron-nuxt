@@ -14,7 +14,10 @@ import type {
     IDocumentsWorkingCopyCapability,
 } from '@contracts/electronApiDocuments';
 import type { IDocxExportFileCapability } from '@contracts/docxExport';
-import type { TMenuEventUnsubscribe } from '@contracts/electronApiCommon';
+import {
+    decodeDebugLogEntry,
+    type TMenuEventUnsubscribe,
+} from '@contracts/electronApiCommon';
 import type { IHostResourceProfileSnapshot } from '@contracts/hostResourceProfile';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import type {
@@ -42,7 +45,6 @@ import {
     DOCUMENT_WINDOW_PLATFORM_FEATURE,
 } from '@contracts/documentsPlatformFeature';
 import { getDebugLogMessages } from '@electron/preload/debugLogBuffer';
-import { decodeDebugLogEntry } from '@electron/preload/installDebugLogListener';
 import {createDocumentsPreloadClient} from '@electron/features/documents/createDocumentsPreloadClient';
 import { DOCUMENTS_IPC_CODECS } from '@electron/features/documents/documentsIpcCodecs';
 import {
@@ -60,7 +62,6 @@ import {
     CORE_IPC_CHANNELS,
     CORE_IPC_EVENT_CHANNELS,
     CORE_IPC_SEND_CHANNELS,
-    decodeDiagnosticsDebugLogEntry,
     type IPreloadDiagnosticsApi,
     type ICoreEventMap,
     type IShutdownSaveFlushRequest,
@@ -604,7 +605,7 @@ export function createElectronApi(
             },
             onDebugLog: (callback) => eventSubscriber.onDecodedPayload(
                 CORE_IPC_EVENT_CHANNELS.debugLog,
-                decodeDiagnosticsDebugLogEntry,
+                decodeDebugLogEntry,
                 callback,
             ),
         },

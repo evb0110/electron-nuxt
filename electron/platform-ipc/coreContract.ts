@@ -1,14 +1,14 @@
-import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import {
-    isDiagnosticCode,
-    type DiagnosticCode,
-} from '@contracts/diagnostics/diagnosticCodes';
+    decodeDebugLogEntry,
+    type IDebugLogEntry,
+    type IDebugLogFailureRef,
+} from '@contracts/electronApiCommon';
 import {
-    isDiagnosticEventId,
-    type DiagnosticEventId,
-} from '@contracts/diagnostics/diagnosticEventId';
-import type { FailureSeverity } from '@contracts/diagnostics/diagnosticRecord';
-import type { IDiagnosticsRendererCapability } from '@contracts/diagnostics/diagnosticsCapability';
+    DIAGNOSTICS_POLICY_HINTS,
+    type IDiagnosticsRendererCapability,
+    type IDiagnosticsStartupPolicy,
+    type TDiagnosticsPolicyHint,
+} from '@contracts/diagnostics/diagnosticsCapability';
 import {isRecord} from '@contracts/runtimeGuards';
 import type {
     IWindowCloseRequest,
@@ -32,28 +32,17 @@ export const CORE_IPC_SEND_CHANNELS = {
 } as const;
 
 export const DIAGNOSTICS_POLICY_ARGUMENT_PREFIX = '--evb-diagnostics-policy=';
-export const DIAGNOSTICS_POLICY_HINTS = [
-    'unknown',
-    'granted',
-    'denied',
-] as const;
+export {DIAGNOSTICS_POLICY_HINTS};
+export type {
+    IDiagnosticsStartupPolicy,
+    TDiagnosticsPolicyHint,
+} from '@contracts/diagnostics/diagnosticsCapability';
 
-export type TDiagnosticsPolicyHint = typeof DIAGNOSTICS_POLICY_HINTS[number];
+/** Compatibility aliases retained while callers converge on the shared entry contract. */
+export type IDiagnosticsFailureRef = IDebugLogFailureRef;
+export type IDiagnosticsDebugLogEntry = IDebugLogEntry;
 
-export interface IDiagnosticsStartupPolicy {mode: TDiagnosticsPolicyHint;}
-
-export interface IDiagnosticsFailureRef {
-    eventId: DiagnosticEventId;
-    code: DiagnosticCode;
-    severity: FailureSeverity;
-}
-
-export interface IDiagnosticsDebugLogEntry extends IDebugLogEntry {failureRef?: IDiagnosticsFailureRef;}
-
-export interface IPreloadDiagnosticsApi extends IDiagnosticsRendererCapability {
-    startupPolicy: Readonly<IDiagnosticsStartupPolicy>;
-    onDebugLog: (callback: (entry: IDiagnosticsDebugLogEntry) => void) => () => void;
-}
+export type IPreloadDiagnosticsApi = IDiagnosticsRendererCapability;
 
 export interface ICoreEventMap {
     [CORE_IPC_EVENT_CHANNELS.menuCheckForUpdates]: undefined;
@@ -78,37 +67,7 @@ export function encodeDiagnosticsPolicyArgument(value: unknown) {
     return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
 }
 
-export function decodeDiagnosticsDebugLogEntry(value: unknown): IDiagnosticsDebugLogEntry | null {
-    if (!isRecord(value)
-        || typeof value.source !== 'string'
-        || typeof value.message !== 'string'
-        || typeof value.timestamp !== 'string'
-        || (value.level !== undefined
-            && value.level !== 'DEBUG'
-            && value.level !== 'INFO'
-            && value.level !== 'WARN'
-            && value.level !== 'ERROR')) {
-        return null;
-    }
-
-    const failureRef = value.failureRef;
-    if (failureRef !== undefined && (!isRecord(failureRef)
-        || !isDiagnosticEventId(failureRef.eventId)
-        || !isDiagnosticCode(failureRef.code)
-        || (failureRef.severity !== 'error' && failureRef.severity !== 'fatal')
-        || Reflect.ownKeys(failureRef).some(key => key !== 'eventId' && key !== 'code' && key !== 'severity'))) {
-        return null;
-    }
-    const decodedFailureRef = failureRef as IDiagnosticsFailureRef | undefined;
-
-    return {
-        source: value.source,
-        message: value.message,
-        timestamp: value.timestamp,
-        ...(value.level === undefined ? {} : {level: value.level}),
-        ...(decodedFailureRef === undefined ? {} : {failureRef: decodedFailureRef}),
-    };
-}
+export const decodeDiagnosticsDebugLogEntry = decodeDebugLogEntry;
 
 export interface IShutdownSaveFlushRequest { requestId: string; }
 

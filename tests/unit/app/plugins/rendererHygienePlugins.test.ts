@@ -15,6 +15,7 @@ const mocks = vi.hoisted(() => {
         installConsoleErrorObserver: vi.fn(() => ({cleanup: consoleObserverCleanup})),
         hasElectronAPI: vi.fn(() => false),
         isElectronUserAgent: vi.fn(() => false),
+        getValidatedElectronPlatformApi: vi.fn((): unknown => undefined),
         waitForPreferredDesktopPlatformBridge: vi.fn(async () => ({
             bridgeReady: false,
             shouldWait: false,
@@ -28,6 +29,7 @@ vi.mock('@app/utils/platform', () => ({
     isElectronUserAgent: mocks.isElectronUserAgent,
     waitForPreferredDesktopPlatformBridge: mocks.waitForPreferredDesktopPlatformBridge,
 }));
+vi.mock('@app/utils/electronPlatformBridge', () => ({getValidatedElectronPlatformApi: mocks.getValidatedElectronPlatformApi}));
 
 vi.mock('@app/composables/useRuntimeErrorReports', () => (
     {useRuntimeErrorReports: () => ({reportRuntimeError: mocks.reportRuntimeError})}
@@ -120,6 +122,11 @@ describe('renderer hygiene plugins', () => {
             configurable: true,
             value: { pathname: '/electron' },
         });
+        Object.defineProperty(window, 'electronAPI', {
+            configurable: true,
+            value: { diagnostics: { onDebugLog: mocks.onDebugLog } },
+        });
+        mocks.getValidatedElectronPlatformApi.mockReturnValue({diagnostics: {onDebugLog: mocks.onDebugLog}} as never);
         const plugin = (await import('@app/plugins/runtimeErrorLogStream.client')).default as (app: unknown) => void;
         const harness = createNuxtApp();
 

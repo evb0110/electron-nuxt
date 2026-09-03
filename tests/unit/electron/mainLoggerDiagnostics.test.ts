@@ -13,12 +13,13 @@ const mocks = vi.hoisted(() => ({
     broadcasts: [] as unknown[][],
     reporter: {capture: vi.fn()},
     activeReporter: true,
+    windows: [] as Array<{
+        isDestroyed: () => boolean;
+        webContents: {send: (...args: unknown[]) => void};
+    }>,
 }));
 
-vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => [{
-    isDestroyed: () => false,
-    webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
-}]}}));
+vi.mock('electron', () => ({BrowserWindow: {getAllWindows: () => mocks.windows}}));
 vi.mock('worker_threads', () => ({isMainThread: true}));
 vi.mock('@electron/features/diagnostics/public', () => ({getMainFailureReporter: () => mocks.activeReporter ? mocks.reporter : null}));
 vi.mock('fs', () => ({
@@ -51,6 +52,10 @@ describe('main logger diagnostic receipt ownership', () => {
         mocks.broadcasts = [];
         mocks.activeReporter = true;
         mocks.reporter.capture.mockReset().mockReturnValue(receipt);
+        mocks.windows = [{
+            isDestroyed: () => false,
+            webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
+        }];
         process.env.ELECTRON_FILE_LOG_LEVEL = 'DEBUG';
         process.env.ELECTRON_RENDER_LOG_LEVEL = 'WARN';
     });
@@ -111,6 +116,47 @@ describe('main logger diagnostic receipt ownership', () => {
             code: receipt.code,
             severity: receipt.severity,
         });
+    });
+
+    it('projects one main-owned event to every live window with the same Error ID', async () => {
+        mocks.windows.push({
+            isDestroyed: () => false,
+            webContents: {send: (...args: unknown[]) => mocks.broadcasts.push(args)},
+        });
+        const {
+            createLogger,
+            flushPendingLogWrites,
+        } = await import('@electron/utils/createLogger');
+        const logger = createLogger('main-multi-window-test');
+
+        expect(logger.error('one main failure')).toEqual(receipt);
+        expect(mocks.reporter.capture).toHaveBeenCalledOnce();
+        await flushPendingLogWrites();
+        await vi.dynamicImportSettled();
+
+        expect(mocks.broadcasts).toHaveLength(2);
+        const projections = mocks.broadcasts.map(([
+            , data,
+        ]) => data);
+        expect(projections[0]).toBe(projections[1]);
+        expect(projections).toEqual([
+            expect.objectContaining({
+                level: 'ERROR',
+                failureRef: {
+                    eventId: receipt.eventId,
+                    code: receipt.code,
+                    severity: receipt.severity,
+                },
+            }),
+            expect.objectContaining({
+                level: 'ERROR',
+                failureRef: {
+                    eventId: receipt.eventId,
+                    code: receipt.code,
+                    severity: receipt.severity,
+                },
+            }),
+        ]);
     });
 
     it('does not attach a reference when the logger has no active main reporter', async () => {

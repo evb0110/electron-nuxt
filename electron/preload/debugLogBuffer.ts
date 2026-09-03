@@ -1,14 +1,9 @@
-interface IDebugLogMessage {
-    source: string;
-    message: string;
-    timestamp: string;
-    level?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
-}
+import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 
 const MAX_DEBUG_LOG_ENTRIES = 2000;
-const debugLogBuffer: IDebugLogMessage[] = [];
+const debugLogBuffer: IDebugLogEntry[] = [];
 
-export function pushDebugLogMessage(message: IDebugLogMessage) {
+export function pushDebugLogMessage(message: IDebugLogEntry) {
     debugLogBuffer.push(message);
 
     if (debugLogBuffer.length <= MAX_DEBUG_LOG_ENTRIES) {
