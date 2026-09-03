@@ -150,6 +150,10 @@ describe('SEN-GATE-01 warning migration rules', () => {
             '<template><UAlert color="error" /></template>',
             'app/components/AppFatalRuntimeDialog.vue',
         )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/no-raw-red-presentation'}));
+        await expect(lintFixture(
+            '<template><UAlert color="error" /></template>',
+            'app/components/AppFailureAlert.vue',
+        )).resolves.not.toContainEqual(expect.objectContaining({ruleId: 'custom/no-raw-red-presentation'}));
     });
 
     it('warns on direct console.error and keeps only the documented sinks exempt', async () => {

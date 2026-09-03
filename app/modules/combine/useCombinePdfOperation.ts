@@ -9,6 +9,8 @@ import {
 } from '@app/services/pdf/combinePdfFiles';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
 import {removeCompletedCombineSnapshot} from '@app/services/pdf/combineOperationSnapshot';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {BrowserLogger} from '@app/utils/browserLogger';
 
 export const useCombinePdfOperation = <T extends {
     id: string;
@@ -23,6 +25,8 @@ export const useCombinePdfOperation = <T extends {
     const isCombining = ref(false);
     const progress = ref<IDocumentsBatchProgress | null>(null);
     const combineError = ref<string | null>(null);
+    const combineFailure = ref<FailureReceipt | null>(null);
+    const combineErrorIsExpected = ref(false);
     const pendingCombinedResult = ref<TOpenFileResult | null>(null);
     const queueMutationLocked = computed(() => (
         isCombining.value || pendingCombinedResult.value !== null
@@ -43,6 +47,8 @@ export const useCombinePdfOperation = <T extends {
         isCombining.value = true;
         abortController = new AbortController();
         combineError.value = null;
+        combineFailure.value = null;
+        combineErrorIsExpected.value = false;
         progress.value = {
             processed: 0,
             total: snapshot.length,
@@ -67,6 +73,18 @@ export const useCombinePdfOperation = <T extends {
             progress.value = null;
         } catch (error) {
             progress.value = null;
+            const expected = error instanceof CombinePdfError && [
+                'canceled',
+                'invalid-input',
+                'limit',
+                'unsupported',
+            ].includes(error.code);
+            combineFailure.value = expected
+                ? null
+                : error instanceof CombinePdfError && error.failure
+                    ? error.failure
+                    : BrowserLogger.error('pdf-combine', 'PDF combine controller failed', error);
+            combineErrorIsExpected.value = expected;
             combineError.value = error instanceof CombinePdfError && error.code === 'canceled'
                 ? null
                 : error instanceof CombinePdfError && [
@@ -93,9 +111,19 @@ export const useCombinePdfOperation = <T extends {
         }
         try {
             const savedPath = await getDocumentFilesCapability().savePdfAs(pending.workingPath, undefined);
-            if (savedPath) combineError.value = null;
-        } catch {
+            if (savedPath) {
+                combineError.value = null;
+                combineFailure.value = null;
+                combineErrorIsExpected.value = false;
+            }
+        } catch (error) {
             combineError.value = options.translate('errors.file.save');
+            combineErrorIsExpected.value = false;
+            combineFailure.value = BrowserLogger.error(
+                'pdf-combine',
+                'Saving the combined PDF failed',
+                error,
+            );
         }
     }
 
@@ -103,6 +131,8 @@ export const useCombinePdfOperation = <T extends {
         isCombining,
         progress,
         combineError,
+        combineFailure,
+        combineErrorIsExpected,
         pendingCombinedResult,
         queueMutationLocked,
         combine,
