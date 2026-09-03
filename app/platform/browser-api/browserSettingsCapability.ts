@@ -13,6 +13,10 @@ import {
     normalizeTheme,
     sanitizeSettings,
 } from '@contracts/settings';
+import {
+    parseClientDiagnosticsPreference,
+    type TClientDiagnosticsPreference,
+} from '@contracts/diagnostics/diagnosticsPreference';
 import type { ISettingsData } from '@contracts/shared';
 import {
     readLocalStorageItem,
@@ -32,9 +36,12 @@ import {
 import { safeDecodeURIComponent } from '@app/utils/browserSafe';
 import { SETTINGS_STORAGE_KEY } from '@app/platform/browser-api/browserApiStorageKeys';
 import { noopUnsubscribe } from '@app/platform/browser-api/browserMenuHelpers';
+import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 
 let settingsState: ISettingsData = { ...DEFAULT_SETTINGS };
 let browserSettingsLoaded = false;
+let diagnosticsPreferenceOverride: TClientDiagnosticsPreference | null = null;
+let diagnosticsPreferenceRevision = 0;
 
 interface IBrowserSettingsReadResult {
     settings: ISettingsData;
@@ -101,15 +108,26 @@ function readBrowserSettingsFromStorage(options: { allowUnavailable?: boolean } 
 function readLatestBrowserSettingsForSave() {
     const persistedSettings = readBrowserSettingsFromStorage();
     if (persistedSettings) {
-        return persistedSettings;
+        return applyDiagnosticsPreferenceOverride(persistedSettings);
     }
 
     if (browserSettingsLoaded) {
-        return settingsState;
+        return applyDiagnosticsPreferenceOverride(settingsState);
     }
 
-    return readAndMigrateBrowserSettings()?.settings
-        ?? { ...DEFAULT_SETTINGS };
+    return applyDiagnosticsPreferenceOverride(
+        readAndMigrateBrowserSettings()?.settings
+            ?? { ...DEFAULT_SETTINGS },
+    );
+}
+
+function applyDiagnosticsPreferenceOverride(settings: ISettingsData) {
+    return diagnosticsPreferenceOverride === null
+        ? settings
+        : {
+            ...settings,
+            clientDiagnosticsPreference: diagnosticsPreferenceOverride,
+        };
 }
 
 function writeBrowserSettingsBootstrapCookies(
@@ -201,6 +219,7 @@ export const browserSettingsCapability: ISettingsCapability = {
             if (!browserSettingsLoaded) {
                 const migration = readAndMigrateBrowserSettings({allowUnavailable: true});
                 settingsState = migration?.settings ?? { ...DEFAULT_SETTINGS };
+                settingsState = applyDiagnosticsPreferenceOverride(settingsState);
                 writeBrowserSettingsBootstrapCookies(settingsState, {expireLegacySettingsCookie: migration?.persisted !== false});
                 browserSettingsLoaded = true;
             }
@@ -208,6 +227,27 @@ export const browserSettingsCapability: ISettingsCapability = {
         });
     },
     save(settings) {
+        const hasDiagnosticsPreference = Object.hasOwn(settings, 'clientDiagnosticsPreference');
+        const previousDiagnosticsPreference = diagnosticsPreferenceOverride
+            ?? settingsState.clientDiagnosticsPreference;
+        const nextDiagnosticsPreference = hasDiagnosticsPreference
+            ? parseClientDiagnosticsPreference(settings.clientDiagnosticsPreference)
+            : null;
+        const diagnosticsSaveRevision = nextDiagnosticsPreference === null
+            ? null
+            : diagnosticsPreferenceRevision + 1;
+        if (diagnosticsSaveRevision !== null) {
+            diagnosticsPreferenceRevision = diagnosticsSaveRevision;
+        }
+        if (nextDiagnosticsPreference !== null) {
+            // Browser persistence is promise-based. Change the live gate before
+            // that promise can resolve so revocation cannot wait on storage.
+            setRendererDiagnosticsPreference(nextDiagnosticsPreference);
+            if (nextDiagnosticsPreference !== 'granted') {
+                diagnosticsPreferenceOverride = nextDiagnosticsPreference;
+            }
+        }
+
         return Promise.resolve().then(() => {
             const currentSettings = readLatestBrowserSettingsForSave();
             const nextSettings = sanitizeSettings({
@@ -218,6 +258,27 @@ export const browserSettingsCapability: ISettingsCapability = {
             writeBrowserSettingsBootstrapCookies(nextSettings);
             settingsState = nextSettings;
             browserSettingsLoaded = true;
+            if (
+                diagnosticsSaveRevision === null
+                || diagnosticsSaveRevision === diagnosticsPreferenceRevision
+            ) {
+                diagnosticsPreferenceOverride = null;
+            }
+            if (
+                diagnosticsSaveRevision === diagnosticsPreferenceRevision
+                && nextSettings.clientDiagnosticsPreference === 'granted'
+            ) {
+                setRendererDiagnosticsPreference(nextSettings.clientDiagnosticsPreference);
+            }
+        }).catch((error: unknown) => {
+            if (
+                nextDiagnosticsPreference === 'granted'
+                && diagnosticsSaveRevision === diagnosticsPreferenceRevision
+            ) {
+                // A failed grant must not leave the in-memory reporter open.
+                setRendererDiagnosticsPreference(previousDiagnosticsPreference);
+            }
+            throw error;
         });
     },
     getDebugLogs(): Promise<IDebugLogEntry[]> {

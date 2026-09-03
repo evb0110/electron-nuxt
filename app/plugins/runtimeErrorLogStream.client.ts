@@ -128,7 +128,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                 // The bridge readiness probe can finish before the diagnostics
                 // capability is available. This is a separate renderer fault,
                 // so it owns one occurrence and then presents that receipt.
-                const failure = initializeRendererFailureReporter({host: isElectronUserAgent() ? 'electron' : 'hosted-browser'}).capture({
+                const presentation = initializeRendererFailureReporter({host: isElectronUserAgent() ? 'electron' : 'hosted-browser'}).captureForPresentation({
                     code: 'UNCLASSIFIED_RENDERER_ERROR',
                     context: {},
                     local: {
@@ -137,7 +137,7 @@ export default defineNuxtPlugin((nuxtApp) => {
                     },
                 });
                 reportRuntimeError({
-                    failure,
+                    ...presentation,
                     title: t('errors.runtime.streamError'),
                 });
             }

@@ -27,6 +27,11 @@
       </div>
 
       <div>
+        <h2>{{ privacy.diagnostics.heading }}</h2>
+        <p>{{ privacy.diagnostics.body }}</p>
+      </div>
+
+      <div>
         <h2>{{ privacy.analytics.heading }}</h2>
         <p>{{ privacy.analytics.body }}</p>
       </div>

@@ -43,6 +43,7 @@ function createElectronReporter(overrides: Parameters<typeof createRendererFailu
     const reporter = createRendererFailureReporter({
         host: 'electron',
         electronSender: sender,
+        preference: 'granted',
         createEventId: () => eventId(nextEventId++),
         ...overrides,
     });
@@ -122,6 +123,7 @@ describe('renderer failure reporter', () => {
         const sent: Array<{suppressedCount?: number}> = [];
         const reporter = createRendererFailureReporter({
             host: 'electron',
+            preference: 'granted',
             now: () => currentTime,
             burstLimit: 1,
             burstWindowMs: 10,
@@ -153,6 +155,7 @@ describe('renderer failure reporter', () => {
         const sender = vi.fn();
         const reporter = createRendererFailureReporter({
             host: 'electron',
+            preference: 'granted',
             now: () => currentTime,
             burstLimit: 1,
             burstWindowMs: 10,
@@ -198,19 +201,22 @@ describe('renderer failure reporter', () => {
     it.each([
         'unknown',
         'denied',
-    ] as const)('forwards Electron records despite the %s startup hint', (startupHint) => {
+    ] as const)('keeps Electron records closed while the %s startup hint is active', (startupHint) => {
         const {
             reporter,
             sender,
-        } = createElectronReporter({readHostedPreference: () => startupHint});
+        } = createElectronReporter({
+            preference: startupHint,
+            readHostedPreference: () => 'granted',
+        });
 
         reporter.capture(createFailureInput());
 
-        expect(sender).toHaveBeenCalledOnce();
+        expect(sender).not.toHaveBeenCalled();
         expect(reporter.getHealthSnapshot()).toMatchObject({
-            mode: 'unknown',
-            policyDropped: 0,
-            accepted: 1,
+            mode: startupHint,
+            policyDropped: 1,
+            accepted: 0,
         });
     });
 
@@ -284,6 +290,36 @@ describe('renderer failure reporter', () => {
         });
     });
 
+    it('keeps one closed Electron record in a move-only lease until grant', () => {
+        const {
+            reporter,
+            sender,
+        } = createElectronReporter({
+            preference: 'unknown',
+            createEventId: () => eventId(41),
+        });
+
+        const presented = reporter.captureForPresentation(createFailureInput('lease detail'));
+        const lease = presented.pendingDiagnostic;
+
+        expect(lease).toBeDefined();
+        expect(lease).not.toHaveProperty('record');
+        expect(lease).not.toHaveProperty('getRecord');
+        expect(lease?.failure).toEqual(presented.failure);
+        expect(lease?.isLive).toBe(true);
+        expect(sender).not.toHaveBeenCalled();
+
+        reporter.setPreference('granted');
+
+        expect(lease?.resendOnceAfterGrant()).toBe(true);
+        expect(sender).toHaveBeenCalledOnce();
+        expect(sender.mock.calls[0]?.[0]).toMatchObject({eventId: presented.failure.eventId});
+        expect(lease?.isLive).toBe(false);
+        expect(lease?.resendOnceAfterGrant()).toBe(false);
+        lease?.discard();
+        expect(sender).toHaveBeenCalledOnce();
+    });
+
     it('reserves hosted recent-ID and burst slots before a deferred transport resolves', async () => {
         let resolveTransport!: (transport: IHostedDiagnosticsTransport) => void;
         const transport = {send: vi.fn()};
@@ -327,6 +363,76 @@ describe('renderer failure reporter', () => {
         });
     });
 
+    it('fences a pending hosted continuation after revocation and opens a fresh generation after grant', async () => {
+        let resolveFirstTransport!: (transport: IHostedDiagnosticsTransport) => void;
+        let resolveSecondTransport!: (transport: IHostedDiagnosticsTransport) => void;
+        const firstTransport = {send: vi.fn()};
+        const secondTransport = {send: vi.fn()};
+        const loadHostedTransport = vi.fn()
+            .mockImplementationOnce(() => new Promise<IHostedDiagnosticsTransport>((resolve) => {
+                resolveFirstTransport = resolve;
+            }))
+            .mockImplementationOnce(() => new Promise<IHostedDiagnosticsTransport>((resolve) => {
+                resolveSecondTransport = resolve;
+            }));
+        const reporter = createRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+            loadHostedTransport,
+            createEventId: (() => {
+                let value = 50;
+                return () => eventId(value++);
+            })(),
+        });
+
+        reporter.capture(createFailureInput('stale hosted send'));
+        const generationBeforeRevoke = reporter.getGeneration();
+        reporter.setPreference('denied');
+
+        expect(reporter.getGeneration()).toBe(generationBeforeRevoke + 1);
+        resolveFirstTransport(firstTransport);
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(firstTransport.send).not.toHaveBeenCalled();
+
+        reporter.setPreference('granted');
+        reporter.capture(createFailureInput('fresh hosted send'));
+        expect(loadHostedTransport).toHaveBeenCalledTimes(2);
+        resolveSecondTransport(secondTransport);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(secondTransport.send).toHaveBeenCalledOnce();
+    });
+
+    it('does not apply a hosted send result after revocation', async () => {
+        let resolveSend!: (value: unknown) => void;
+        const transport = {send: vi.fn(() => new Promise(resolve => {
+            resolveSend = resolve;
+        }))};
+        const reporter = createRendererFailureReporter({
+            host: 'hosted-browser',
+            preference: 'granted',
+            loadHostedTransport: () => transport,
+            createEventId: () => eventId(60),
+        });
+
+        reporter.capture(createFailureInput('pending result'));
+        await Promise.resolve();
+        await Promise.resolve();
+        expect(transport.send).toHaveBeenCalledOnce();
+
+        reporter.setPreference('denied');
+        resolveSend(undefined);
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(reporter.getHealthSnapshot()).toMatchObject({
+            accepted: 0,
+            transportFailed: 0,
+        });
+    });
+
     it('contains transport failure warnings and never turns a warning into another occurrence', () => {
         const rawWarningSink = vi.fn((_message: string) => {
             throw new Error('raw warning failed');
@@ -351,6 +457,7 @@ describe('renderer failure reporter', () => {
         const sender = vi.fn(() => Promise.reject(new Error('send rejected')));
         const reporter = createRendererFailureReporter({
             host: 'electron',
+            preference: 'granted',
             electronSender: sender,
             createEventId: () => eventId(1),
         });
@@ -397,6 +504,7 @@ describe('renderer failure reporter', () => {
 
         const initialized = module.initializeRendererFailureReporter({
             host: 'electron',
+            preference: 'granted',
             electronSender: sender,
             createEventId: () => eventId(1),
         });
@@ -419,6 +527,7 @@ describe('renderer failure reporter', () => {
             const module = await import('@app/utils/failureReporter');
             const early = module.initializeRendererFailureReporter({
                 host: 'electron',
+                preference: 'granted',
                 createEventId: () => eventId(1),
             });
             const later = module.initializeRendererFailureReporter({

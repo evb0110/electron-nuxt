@@ -153,7 +153,7 @@ export default defineNuxtPlugin((nuxtApp) => {
     });
 
     const report = (logMessage: string, cause: unknown, details: Record<string, unknown>) => {
-        const receipt = reporter.capture({
+        const presentation = reporter.captureForPresentation({
             code: 'UNCLASSIFIED_RENDERER_ERROR',
             context: {},
             local: {
@@ -164,7 +164,7 @@ export default defineNuxtPlugin((nuxtApp) => {
             },
         });
         reportRuntimeError({
-            failure: receipt,
+            ...presentation,
             title: t('errors.runtime.title'),
         });
     };

@@ -67,7 +67,7 @@
         <section class="settings-card">
             <SettingsPrivacyPanel
                 :settings="settings"
-                @update:client-diagnostics-preference="updateSettingSafely('clientDiagnosticsPreference', $event)"
+                @update:client-diagnostics-preference="applyClientDiagnosticsPreference"
             />
         </section>
 
@@ -168,6 +168,7 @@ import SettingsShortcutsPanel from '@app/components/settings/SettingsShortcutsPa
 import SettingsUpdatesPanel from '@app/components/settings/SettingsUpdatesPanel.vue';
 import SettingsViewerDefaultsPanel from '@app/components/settings/SettingsViewerDefaultsPanel.vue';
 import { isMacClientPlatform } from '@app/utils/clientPlatform';
+import { setRendererDiagnosticsPreference } from '@app/utils/failureReporter';
 
 const { isDesktopRuntime } = useRuntimeEnvironment();
 const LOCALE_FLAGS = {
@@ -280,6 +281,10 @@ const {
     updateSetting,
 } = useSettings();
 const {
+    discardPendingDiagnostics,
+    resendPendingDiagnosticOnce,
+} = useRuntimeErrorReports();
+const {
     checkForUpdates,
     ensureInitialized: ensureUpdatesInitialized,
     isCheckInProgress,
@@ -297,6 +302,7 @@ const isAssistantBusy = computed(() => assistantAction.value !== null);
 const settingsLoadFailed = ref(false);
 const settingsLoadPending = ref(false);
 let assistantPanelPreferenceSave: Promise<boolean> | null = null;
+let diagnosticsPreferenceSave: Promise<boolean> | null = null;
 
 watch(isLoaded, (loaded) => {
     if (loaded) {
@@ -447,6 +453,51 @@ function updateSettingSafely<K extends keyof ISettingsData>(key: K, value: ISett
         return;
     }
     updateSetting(key, value);
+}
+
+function restoreDiagnosticsPreference(preference: ISettingsData['clientDiagnosticsPreference']) {
+    settings.value = {
+        ...settings.value,
+        clientDiagnosticsPreference: preference,
+    };
+    setRendererDiagnosticsPreference(preference);
+}
+
+async function applyClientDiagnosticsPreference(
+    preference: ISettingsData['clientDiagnosticsPreference'],
+) {
+    if (!isLoaded.value || diagnosticsPreferenceSave) {
+        return;
+    }
+
+    const previousPreference = settings.value.clientDiagnosticsPreference;
+    if (preference !== 'granted') {
+        // updateSetting changes the live gate synchronously. Dispose the old
+        // presentation before the persistence request is started.
+        updateSetting('clientDiagnosticsPreference', preference);
+        discardPendingDiagnostics();
+        diagnosticsPreferenceSave = save().finally(() => {
+            diagnosticsPreferenceSave = null;
+        });
+        await diagnosticsPreferenceSave;
+        return;
+    }
+
+    updateSetting('clientDiagnosticsPreference', preference);
+    diagnosticsPreferenceSave = save().finally(() => {
+        diagnosticsPreferenceSave = null;
+    });
+    const saved = await diagnosticsPreferenceSave;
+    if (disposed) {
+        return;
+    }
+    if (!saved) {
+        restoreDiagnosticsPreference(previousPreference);
+        return;
+    }
+    if (settings.value.clientDiagnosticsPreference === 'granted') {
+        resendPendingDiagnosticOnce();
+    }
 }
 
 function applyTheme(theme: TAppTheme) {

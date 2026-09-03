@@ -68,6 +68,7 @@ export interface IHostedDiagnosticsTransport {send: (record: DiagnosticRecord, s
 
 export interface IRendererFailureReporterOptions {
     host?: TRendererDiagnosticsHost;
+    preference?: unknown;
     now?: () => number;
     createEventId?: () => DiagnosticEventId;
     burstLimit?: number;
@@ -80,13 +81,32 @@ export interface IRendererFailureReporterOptions {
     rawWarningSink?: (message: string) => void;
 }
 
+export interface ILiveDiagnosticLease {
+    readonly failure: FailureReceipt;
+    readonly isLive: boolean;
+    resendOnceAfterGrant(): boolean;
+    discard(): void;
+}
+
+export interface IPresentedFailureCapture {
+    failure: FailureReceipt;
+    pendingDiagnostic?: ILiveDiagnosticLease;
+}
+
 export interface IRendererFailureReporter {
     capture<C extends DiagnosticCode>(
         input: CaptureFailureInput<C>,
         options?: IRendererFailureCaptureOptions,
     ): FailureReceipt;
+    captureForPresentation<C extends DiagnosticCode>(
+        input: CaptureFailureInput<C>,
+        options?: IRendererFailureCaptureOptions,
+    ): IPresentedFailureCapture;
     captureRecord(value: unknown): FailureReceipt;
     getHealthSnapshot(): IRendererDiagnosticsHealthSnapshot;
+    getPreference(): TRendererDiagnosticsPreference;
+    getGeneration(): number;
+    setPreference(preference: unknown): void;
     withSuppressedCapture<T>(callback: () => T): T;
     /** Adds late-bound integration callbacks without resetting reporter state. */
     fillMissingOptions(options: IRendererFailureReporterOptions): void;
@@ -126,6 +146,7 @@ interface IHealthState extends IRendererDiagnosticsHealthSnapshot {}
 
 let fallbackEventIdCounter = 0;
 let rendererFailureReporter: IRendererFailureReporter | null = null;
+let pendingRendererDiagnosticsPreference: TRendererDiagnosticsPreference | null = null;
 
 function normalizePreference(value: unknown): TRendererDiagnosticsPreference {
     return parseClientDiagnosticsPreference(value);
@@ -372,6 +393,30 @@ function getElectronDiagnosticSender(): TRendererDiagnosticSender | null {
     }
 }
 
+function readElectronDiagnosticsPreferenceSync(): TRendererDiagnosticsPreference {
+    try {
+        const rendererWindow = Reflect.get(globalThis, 'window');
+        if (typeof rendererWindow !== 'object' || rendererWindow === null) {
+            return 'unknown';
+        }
+        const electronApi = Reflect.get(rendererWindow, 'electronAPI');
+        if (typeof electronApi !== 'object' || electronApi === null) {
+            return 'unknown';
+        }
+        const diagnostics = Reflect.get(electronApi, 'diagnostics');
+        if (typeof diagnostics !== 'object' || diagnostics === null) {
+            return 'unknown';
+        }
+        const startupPolicy = Reflect.get(diagnostics, 'startupPolicy');
+        if (typeof startupPolicy !== 'object' || startupPolicy === null) {
+            return 'unknown';
+        }
+        return normalizePreference(Reflect.get(startupPolicy, 'mode'));
+    } catch {
+        return 'unknown';
+    }
+}
+
 export function createRendererFailureReporter(
     options: IRendererFailureReporterOptions = {},
 ): IRendererFailureReporter {
@@ -390,7 +435,12 @@ export function createRendererFailureReporter(
         options.recentIdWindowMs,
         RENDERER_DIAGNOSTICS_DEFAULT_RECENT_ID_WINDOW_MS,
     );
+    const initialPreference = normalizePreference(
+        options.preference
+            ?? (host === 'electron' ? readElectronDiagnosticsPreferenceSync() : 'unknown'),
+    );
     const health = createHealthState();
+    health.mode = initialPreference;
     const recentIds = new Map<DiagnosticEventId, number>();
     const burstStates = new Map<string, IBurstState>();
     let electronSender = options.electronSender;
@@ -401,6 +451,56 @@ export function createRendererFailureReporter(
     let rawWarningSink = options.rawWarningSink;
     let suppressionDepth = 0;
     let warningInProgress = false;
+    let preference = initialPreference;
+    let preferencePinned = options.preference !== undefined || host === 'electron';
+    let generation = 0;
+    const dropLiveSender: TRendererDiagnosticSender = () => undefined;
+    let liveSender: TRendererDiagnosticSender = preference === 'granted'
+        ? sendLiveRecord
+        : dropLiveSender;
+
+    function applyPreference(value: unknown, pin: boolean) {
+        const nextPreference = normalizePreference(value);
+        const wasGranted = preference === 'granted';
+        if (nextPreference !== 'granted') {
+            // Drop the live path before changing any state that an async
+            // continuation can observe. The generation fences already-started
+            // hosted loads after this pointer swap.
+            liveSender = dropLiveSender;
+            if (preference !== nextPreference) {
+                generation = increment(generation);
+            }
+            if (wasGranted || preference !== nextPreference) {
+                hostedTransportLoad = null;
+            }
+        } else {
+            liveSender = sendLiveRecord;
+        }
+        preference = nextPreference;
+        health.mode = nextPreference;
+        if (pin) {
+            preferencePinned = true;
+            pendingRendererDiagnosticsPreference = nextPreference;
+        }
+    }
+
+    function syncHostedPreference() {
+        if (host !== 'hosted-browser' || preferencePinned) {
+            return;
+        }
+
+        let nextPreference: TRendererDiagnosticsPreference;
+        try {
+            nextPreference = normalizePreference(
+                readHostedPreference
+                    ? readHostedPreference()
+                    : readHostedDiagnosticsPreferenceSync(),
+            );
+        } catch {
+            nextPreference = 'unknown';
+        }
+        applyPreference(nextPreference, false);
+    }
 
     function setDropReason(reason: TRendererDiagnosticsDropReason) {
         health.lastDropReason = reason;
@@ -518,13 +618,20 @@ export function createRendererFailureReporter(
         writeRawTransportWarning(record);
     }
 
-    function reportTransportResult(result: unknown, record: DiagnosticRecord) {
+    function reportTransportResult(
+        result: unknown,
+        record: DiagnosticRecord,
+        isCurrent: () => boolean = () => true,
+    ) {
         try {
             if (
                 result === null
                 || (typeof result !== 'object' && typeof result !== 'function')
                 || typeof (result as {then?: unknown}).then !== 'function'
             ) {
+                if (!isCurrent()) {
+                    return;
+                }
                 if (result === false) {
                     reportTransportFailure(record);
                 } else {
@@ -535,16 +642,25 @@ export function createRendererFailureReporter(
             const pending: Promise<unknown> = Promise.resolve(result);
             void pending.then(
                 resolved => {
+                    if (!isCurrent()) {
+                        return;
+                    }
                     if (resolved === false) {
                         reportTransportFailure(record);
                     } else {
                         markAccepted();
                     }
                 },
-                () => reportTransportFailure(record),
+                () => {
+                    if (isCurrent()) {
+                        reportTransportFailure(record);
+                    }
+                },
             );
         } catch {
-            reportTransportFailure(record);
+            if (isCurrent()) {
+                reportTransportFailure(record);
+            }
         }
     }
 
@@ -567,37 +683,102 @@ export function createRendererFailureReporter(
     function sendHostedRecord(
         record: DiagnosticRecord,
         suppressedCount: number,
+        generationAtAdmission = generation,
     ) {
         if (hostedTransportLoad === null) {
             try {
                 const loaded = loadHostedTransport?.();
                 if (!loaded) {
                     reportTransportFailure(record);
-                    return;
+                    return false;
                 }
                 hostedTransportLoad = Promise.resolve(loaded);
             } catch {
                 reportTransportFailure(record);
-                return;
+                return false;
             }
         }
 
         const transportLoad = hostedTransportLoad;
         void transportLoad.then((transport) => {
+            if (
+                generationAtAdmission !== generation
+                || preference !== 'granted'
+                || liveSender !== sendLiveRecord
+            ) {
+                return;
+            }
             try {
                 const result = suppressedCount > 0
                     ? transport.send(record, suppressedCount)
                     : transport.send(record);
-                reportTransportResult(result, record);
+                reportTransportResult(
+                    result,
+                    record,
+                    () => generationAtAdmission === generation
+                        && preference === 'granted'
+                        && liveSender === sendLiveRecord,
+                );
             } catch {
-                reportTransportFailure(record);
+                if (generationAtAdmission === generation && preference === 'granted') {
+                    reportTransportFailure(record);
+                }
             }
         }, () => {
             if (hostedTransportLoad === transportLoad) {
                 hostedTransportLoad = null;
             }
-            reportTransportFailure(record);
+            if (generationAtAdmission === generation && preference === 'granted') {
+                reportTransportFailure(record);
+            }
         });
+        return true;
+    }
+
+    function sendLiveRecord(record: DiagnosticRecord, suppressedCount = 0) {
+        return host === 'electron'
+            ? sendElectronRecord(record, suppressedCount)
+            : sendHostedRecord(record, suppressedCount, generation);
+    }
+
+    function reserveResend(record: DiagnosticRecord, currentTime: number) {
+        const key = getBurstKey(record);
+        if (!burstStates.has(key)) {
+            burstStates.set(key, {
+                sentCount: 0,
+                startedAt: currentTime,
+                suppressedCount: 0,
+            });
+            pruneBurstStates();
+        }
+        reserveAdmission(record, currentTime, {
+            key,
+            send: true,
+            suppressedCount: 0,
+        });
+    }
+
+    function resendClosedRecord(record: DiagnosticRecord, generationAtCapture: number) {
+        if (
+            generationAtCapture !== generation
+            || preference !== 'granted'
+            || liveSender === dropLiveSender
+        ) {
+            return false;
+        }
+
+        health.attempted = increment(health.attempted);
+        const currentTime = safeNow(now);
+        pruneRecentIds(currentTime);
+        reserveResend(record, currentTime);
+        const result = liveSender(record);
+        if (result === false) {
+            if (host === 'electron') {
+                reportTransportFailure(record);
+            }
+            return false;
+        }
+        return true;
     }
 
     function processRecord(
@@ -617,29 +798,19 @@ export function createRendererFailureReporter(
             recordLocalDetail(detail, receipt);
         }
 
+        syncHostedPreference();
+        if (preference !== 'granted' || liveSender === dropLiveSender) {
+            health.policyDropped = increment(health.policyDropped);
+            setDropReason('policy-dropped');
+            return receipt;
+        }
+
         const currentTime = safeNow(now);
         pruneRecentIds(currentTime);
         if (recentIds.has(record.eventId)) {
             health.duplicate = increment(health.duplicate);
             setDropReason('duplicate');
             return receipt;
-        }
-
-        if (host === 'hosted-browser') {
-            try {
-                health.mode = normalizePreference(
-                    readHostedPreference
-                        ? readHostedPreference()
-                        : readHostedDiagnosticsPreferenceSync(),
-                );
-            } catch {
-                health.mode = 'unknown';
-            }
-            if (health.mode !== 'granted') {
-                health.policyDropped = increment(health.policyDropped);
-                setDropReason('policy-dropped');
-                return receipt;
-            }
         }
 
         const decision = decideBurst(record, currentTime);
@@ -657,8 +828,77 @@ export function createRendererFailureReporter(
         }
 
         reserveAdmission(record, currentTime, decision);
-        sendHostedRecord(record, decision.suppressedCount);
+        sendHostedRecord(record, decision.suppressedCount, generation);
         return receipt;
+    }
+
+    function buildCaptureRecord<C extends DiagnosticCode>(
+        input: CaptureFailureInput<C>,
+        captureOptions: IRendererFailureCaptureOptions,
+    ) {
+        const runtime = captureOptions.runtime ?? resolveRuntime(host);
+        try {
+            return {
+                detail: input.local,
+                record: buildClosedRecord(
+                    input,
+                    runtime,
+                    createSafeEventId(createEventId),
+                    safeNow(now),
+                ),
+            };
+        } catch {
+            return {
+                detail: {
+                    source: 'failure-reporter',
+                    message: 'Renderer failure reporter fallback',
+                },
+                record: buildClosedRecord(
+                    {} as CaptureFailureInput,
+                    runtime,
+                    createFallbackEventId(),
+                    safeNow(now),
+                ),
+            };
+        }
+    }
+
+    function createLiveDiagnosticLease(
+        record: DiagnosticRecord,
+        failure: FailureReceipt,
+        generationAtCapture: number,
+    ): ILiveDiagnosticLease {
+        let retainedRecord: DiagnosticRecord | null = record;
+        let live = true;
+
+        return {
+            failure,
+            get isLive() {
+                return live
+                    && retainedRecord !== null
+                    && generation === generationAtCapture
+                    && (preference === 'unknown' || preference === 'granted');
+            },
+            resendOnceAfterGrant() {
+                if (
+                    !live
+                    || retainedRecord === null
+                    || generation !== generationAtCapture
+                    || preference !== 'granted'
+                ) {
+                    return false;
+                }
+
+                const recordToResend = retainedRecord;
+                retainedRecord = null;
+                live = false;
+                return resendClosedRecord(recordToResend, generationAtCapture);
+            },
+            discard() {
+                retainedRecord = null;
+                live = false;
+            },
+        };
     }
 
     return {
@@ -666,27 +906,32 @@ export function createRendererFailureReporter(
             input: CaptureFailureInput<C>,
             captureOptions: IRendererFailureCaptureOptions = {},
         ) => {
+            const capture = buildCaptureRecord(input, captureOptions);
+            return processRecord(capture.record, capture.detail, captureOptions);
+        },
+        captureForPresentation: <C extends DiagnosticCode>(
+            input: CaptureFailureInput<C>,
+            captureOptions: IRendererFailureCaptureOptions = {},
+        ) => {
+            const capture = buildCaptureRecord(input, captureOptions);
+            const failure = processRecord(capture.record, capture.detail, captureOptions);
             const runtime = captureOptions.runtime ?? resolveRuntime(host);
-            try {
-                const record = buildClosedRecord(
-                    input,
-                    runtime,
-                    createSafeEventId(createEventId),
-                    safeNow(now),
-                );
-                return processRecord(record, input.local, captureOptions);
-            } catch {
-                const record = buildClosedRecord(
-                    {} as CaptureFailureInput,
-                    runtime,
-                    createFallbackEventId(),
-                    safeNow(now),
-                );
-                return processRecord(record, {
-                    source: 'failure-reporter',
-                    message: 'Renderer failure reporter fallback',
-                }, captureOptions);
+            if (
+                suppressionDepth > 0
+                || preference !== 'unknown'
+                || runtime !== resolveRuntime(host)
+            ) {
+                return {failure};
             }
+
+            return {
+                failure,
+                pendingDiagnostic: createLiveDiagnosticLease(
+                    capture.record,
+                    failure,
+                    generation,
+                ),
+            };
         },
         captureRecord: (value) => {
             try {
@@ -713,6 +958,11 @@ export function createRendererFailureReporter(
             return createReceipt(record);
         },
         getHealthSnapshot: () => serializeHealthState(health),
+        getPreference: () => preference,
+        getGeneration: () => generation,
+        setPreference: (value: unknown) => {
+            applyPreference(value, true);
+        },
         withSuppressedCapture: <T>(callback: () => T) => {
             suppressionDepth = increment(suppressionDepth);
             try {
@@ -723,6 +973,9 @@ export function createRendererFailureReporter(
         },
         fillMissingOptions: (lateOptions) => {
             health.initializationCount = increment(health.initializationCount);
+            if (lateOptions.preference !== undefined) {
+                applyPreference(lateOptions.preference, true);
+            }
             electronSender ??= lateOptions.electronSender;
             readHostedPreference ??= lateOptions.readHostedPreference;
             loadHostedTransport ??= lateOptions.loadHostedTransport;
@@ -739,12 +992,25 @@ export function initializeRendererFailureReporter(
         rendererFailureReporter.fillMissingOptions(options);
         return rendererFailureReporter;
     }
-    rendererFailureReporter = createRendererFailureReporter(options);
+    rendererFailureReporter = createRendererFailureReporter(
+        pendingRendererDiagnosticsPreference !== null && options.preference === undefined
+            ? {
+                ...options,
+                preference: pendingRendererDiagnosticsPreference,
+            }
+            : options,
+    );
     return rendererFailureReporter;
 }
 
 export function getRendererFailureReporter() {
     return rendererFailureReporter;
+}
+
+export function setRendererDiagnosticsPreference(preference: unknown) {
+    const normalizedPreference = normalizePreference(preference);
+    pendingRendererDiagnosticsPreference = normalizedPreference;
+    rendererFailureReporter?.setPreference(normalizedPreference);
 }
 
 export function captureRendererFailure<C extends DiagnosticCode>(

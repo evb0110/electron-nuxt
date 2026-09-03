@@ -13,6 +13,7 @@ import {
 } from '@electron/settings';
 import { setElectronLocale } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
+import { setMainDiagnosticsPreference } from '@electron/features/diagnostics/public';
 
 const logger = createLogger('ipc');
 const STARTUP_TRACE_ENABLED = process.env.EVB_STARTUP_TRACE === '1';
@@ -52,7 +53,20 @@ async function applySettingsSavePatch(
 }
 
 function scheduleSettingsSaveFlush(senderId: number, queue: IQueuedSettingsSave) {
-    if (queue.timer || queue.flushing) {
+    if (queue.flushing) {
+        return;
+    }
+
+    if (Object.hasOwn(queue.pendingPatch, 'clientDiagnosticsPreference')) {
+        if (queue.timer !== null) {
+            clearTimeout(queue.timer);
+            queue.timer = null;
+        }
+        void flushSettingsSaveQueue(senderId, queue);
+        return;
+    }
+
+    if (queue.timer !== null) {
         return;
     }
 
@@ -113,6 +127,14 @@ function queueSettingsSave(
         ...queue.pendingPatch,
         ...settingsPayload,
     };
+    if (
+        Object.hasOwn(settingsPayload, 'clientDiagnosticsPreference')
+        && settingsPayload.clientDiagnosticsPreference !== 'granted'
+    ) {
+        // Revocation must close the main-process path before the save queue or
+        // its persistence work can run.
+        setMainDiagnosticsPreference(settingsPayload.clientDiagnosticsPreference);
+    }
 
     const savePromise = new Promise<void>((resolve, reject) => {
         queue.waiters.push({

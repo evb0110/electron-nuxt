@@ -1,28 +1,17 @@
+import type {ToastProps} from '@nuxt/ui';
+import type {IPresentedFailureCapture} from '@app/utils/failureReporter';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+
+export type TFailurePresentationAction = NonNullable<ToastProps['actions']>[number];
 
 // The public name is pinned by SEN-CORE-06 and intentionally differs from the
 // repository's usual interface naming convention during this migration.
 // eslint-disable-next-line @typescript-eslint/naming-convention
-export interface FailurePresentation {
-    failure: FailureReceipt;
+export interface FailurePresentation extends IPresentedFailureCapture {
     title: string;
     description?: string;
-    actions?: IFailureToastAction[];
+    actions?: TFailurePresentationAction[];
 }
-
-export interface IFailureToastAction {
-    label: string;
-    color?: 'neutral' | 'primary';
-    variant?: 'outline' | 'soft';
-    onClick: () => void;
-}
-
-export interface IFailureToastTarget {add: (options: {
-    color: 'error';
-    title: string;
-    description: string;
-    actions: IFailureToastAction[];
-}) => unknown}
 
 const FAILURE_ERROR_ID_SHORT_LENGTH = 8;
 
@@ -71,28 +60,22 @@ export async function copyFailurePresentation(presentation: FailurePresentation)
     }
 }
 
-export function createFailureToastPresenter(toast: IFailureToastTarget) {
-    return function presentFailureToast(presentation: FailurePresentation) {
+export const useFailureToast = () => {
+    const toast = useToast();
+
+    function presentFailureToast(presentation: FailurePresentation) {
         toast.add({
             color: 'error',
             title: presentation.title,
             description: formatFailurePresentationDescription(presentation),
-            actions: [
-                {
-                    label: 'Copy details',
-                    onClick: () => {
-                        void copyFailurePresentation(presentation);
-                    },
+            actions: presentation.actions ?? [{
+                label: 'Copy details',
+                onClick: () => {
+                    void copyFailurePresentation(presentation);
                 },
-                ...(presentation.actions ?? []),
-            ],
+            }],
         });
-    };
-}
-
-export const useFailureToast = () => {
-    const toast = useToast();
-    const presentFailureToast = createFailureToastPresenter(toast);
+    }
 
     return {
         presentFailureToast,

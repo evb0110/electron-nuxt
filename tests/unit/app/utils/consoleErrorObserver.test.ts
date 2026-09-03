@@ -42,6 +42,7 @@ function createReporter(
 ) {
     return createRendererFailureReporter({
         host: 'electron',
+        preference: 'granted',
         electronSender: sender,
         createEventId: () => eventId(1),
         ...overrides,
