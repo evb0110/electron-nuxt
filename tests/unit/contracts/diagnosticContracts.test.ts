@@ -225,6 +225,15 @@ describe('diagnostic contracts', () => {
             'UNCLASSIFIED_MAIN_ERROR',
             'UNCLASSIFIED_CONSOLE_ERROR',
             'MAIN_STARTUP_CRASH',
+            'MAIN_CHILD_PROCESS_GONE',
+            'MAIN_RENDERER_PROCESS_GONE',
+            'MAIN_PRELOAD_ERROR',
+            'MAIN_UNRESPONSIVE_RENDERER',
+            'MAIN_RENDERER_RECOVERY_FAILED',
+            'MAIN_UNRESPONSIVE_RECOVERY_FAILED',
+            'MAIN_GPU_SAFE_MODE_RECOVERY',
+            'MAIN_UNHANDLED_REJECTION',
+            'MAIN_UNHANDLED_REJECTION_RECOVERY',
         ]);
         expect(Object.keys(DIAGNOSTIC_DEFINITIONS)).toEqual(DIAGNOSTIC_CODES);
         expect(Object.values(DIAGNOSTIC_DEFINITIONS).every(definition => (
@@ -249,6 +258,84 @@ describe('diagnostic contracts', () => {
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {attempt: Number.POSITIVE_INFINITY})).toBeNull();
         expect(decodeDiagnosticContext('UNCLASSIFIED_RENDERER_ERROR', {unexpected: true})).toBeNull();
         expect(decodeDiagnosticContext('MAIN_STARTUP_CRASH', {attempt: 1})).toBeNull();
+    });
+
+    it('keeps process-death and recovery context closed and bounded', () => {
+        expect(decodeDiagnosticContext('MAIN_CHILD_PROCESS_GONE', {
+            processType: 'utility',
+            reason: 'crashed',
+            exitCode: 9,
+        })).toEqual({
+            processType: 'utility',
+            reason: 'crashed',
+            exitCode: 9,
+        });
+        expect(decodeDiagnosticContext('MAIN_CHILD_PROCESS_GONE', {
+            processType: 'Utility',
+            reason: 'crashed',
+            exitCode: 9,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_RENDERER_PROCESS_GONE', {
+            reason: 'oom',
+            exitCode: 255,
+        })).toEqual({
+            reason: 'oom',
+            exitCode: 255,
+        });
+        expect(decodeDiagnosticContext('MAIN_RENDERER_PROCESS_GONE', {
+            reason: 'oom',
+            exitCode: 256,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_PRELOAD_ERROR', {hasStack: true})).toEqual({hasStack: true});
+        expect(decodeDiagnosticContext('MAIN_UNRESPONSIVE_RENDERER', {
+            automated: true,
+            recoveryAttempt: 0,
+        })).toEqual({
+            automated: true,
+            recoveryAttempt: 0,
+        });
+        expect(decodeDiagnosticContext('MAIN_RENDERER_RECOVERY_FAILED', {
+            trigger: 'renderer-gone',
+            recoveryAttempt: 3,
+        })).toEqual({
+            trigger: 'renderer-gone',
+            recoveryAttempt: 3,
+        });
+        expect(decodeDiagnosticContext('MAIN_RENDERER_RECOVERY_FAILED', {
+            trigger: 'renderer-gone',
+            recoveryAttempt: 0,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_UNRESPONSIVE_RECOVERY_FAILED', {
+            trigger: 'unresponsive-automation',
+            recoveryAttempt: 1,
+        })).toEqual({
+            trigger: 'unresponsive-automation',
+            recoveryAttempt: 1,
+        });
+        expect(decodeDiagnosticContext('MAIN_UNRESPONSIVE_RECOVERY_FAILED', {
+            trigger: 'renderer-gone',
+            recoveryAttempt: 1,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_PRELOAD_ERROR', {
+            hasStack: true,
+            preloadPath: '/private/secret/preload.cjs',
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_GPU_SAFE_MODE_RECOVERY', {
+            safeMode: false,
+            action: 'relaunch',
+            crashCount: 2,
+        })).toEqual({
+            safeMode: false,
+            action: 'relaunch',
+            crashCount: 2,
+        });
+        expect(decodeDiagnosticContext('MAIN_GPU_SAFE_MODE_RECOVERY', {
+            safeMode: false,
+            action: 'relaunch',
+            crashCount: 101,
+        })).toBeNull();
+        expect(decodeDiagnosticContext('MAIN_UNHANDLED_REJECTION', {subsystem: 'search'})).toEqual({subsystem: 'search'});
+        expect(decodeDiagnosticContext('MAIN_UNHANDLED_REJECTION_RECOVERY', {subsystem: 'unknown'})).toEqual({subsystem: 'unknown'});
     });
 
     it('creates unique lowercase 128-bit occurrence IDs', () => {

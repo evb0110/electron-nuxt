@@ -16,8 +16,18 @@ import {
     createShutdownCoordinator,
     type IShutdownContext,
 } from '@electron/bootstrap/shutdown';
+import type {DiagnosticCode} from '@contracts/diagnostics/diagnosticCodes';
+import type {
+    CaptureFailureInput,
+    FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 
-function createFixture(argv = ['/app/evb-viewer']) {
+type TFailureCapture = <C extends DiagnosticCode>(input: CaptureFailureInput<C>) => FailureReceipt | undefined;
+
+function createFixture(
+    argv = ['/app/evb-viewer'],
+    options: {captureFailure?: TFailureCapture} = {},
+) {
     const app = {commandLine: {appendSwitch: vi.fn()}};
     const logger = {
         error: vi.fn(),
@@ -32,12 +42,108 @@ function createFixture(argv = ['/app/evb-viewer']) {
             argv,
             logger,
             requestSafeModeRelaunch,
+            ...options,
         }),
         requestSafeModeRelaunch,
     };
 }
 
+function createReportingFixture(argv = ['/app/evb-viewer']) {
+    const captureFailure = vi.fn().mockReturnValue({
+        eventId: 'a'.repeat(32),
+        code: 'MAIN_CHILD_PROCESS_GONE',
+        occurredAt: 1,
+        severity: 'error',
+    });
+    return {
+        ...createFixture(argv, {captureFailure}),
+        captureFailure,
+    };
+}
+
 describe('processDeathRecovery', () => {
+    it('owns one closed child-process occurrence with bounded context', () => {
+        const fixture = createReportingFixture();
+
+        fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'crashed',
+            exitCode: 133,
+            name: 'Audio Service',
+        });
+
+        expect(fixture.captureFailure).toHaveBeenCalledOnce();
+        expect(fixture.captureFailure).toHaveBeenCalledWith(expect.objectContaining({
+            code: 'MAIN_CHILD_PROCESS_GONE',
+            operation: 'main-error',
+            context: {
+                processType: 'utility',
+                reason: 'crashed',
+                exitCode: 133,
+            },
+            local: expect.objectContaining({source: 'process-death'}),
+        }));
+        expect(fixture.logger.error).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({eventId: 'a'.repeat(32)}));
+    });
+
+    it('uses one receipt per GPU death and a specific safe-mode recovery code', () => {
+        const fixture = createReportingFixture();
+        const details = {
+            type: 'GPU',
+            reason: 'crashed',
+            exitCode: 9,
+        };
+
+        fixture.recovery.handleChildProcessGone(details);
+        fixture.recovery.handleChildProcessGone(details);
+
+        expect(fixture.captureFailure).toHaveBeenCalledTimes(2);
+        expect(fixture.captureFailure.mock.calls.map(([input]) => input.code)).toEqual([
+            'MAIN_CHILD_PROCESS_GONE',
+            'MAIN_GPU_SAFE_MODE_RECOVERY',
+        ]);
+        expect(fixture.captureFailure.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
+            safeMode: false,
+            action: 'relaunch',
+            crashCount: 2,
+        }}));
+        expect(fixture.logger.error.mock.calls.map(([
+            , receipt,
+        ]) => receipt?.eventId)).toEqual([
+            'a'.repeat(32),
+            'a'.repeat(32),
+        ]);
+    });
+
+    it('keeps expected utility teardown at warning level with no occurrence', () => {
+        const fixture = createReportingFixture();
+
+        fixture.recovery.handleChildProcessGone({
+            type: 'Utility',
+            reason: 'killed',
+            exitCode: 15,
+            name: DOCUMENT_SAVE_SERVICE_NAME,
+        });
+
+        expect(fixture.captureFailure).not.toHaveBeenCalled();
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledOnce();
+    });
+
+    it('leaves renderer child death to the webContents owner', () => {
+        const fixture = createReportingFixture();
+
+        fixture.recovery.handleChildProcessGone({
+            type: 'Renderer',
+            reason: 'crashed',
+            exitCode: 1,
+        });
+
+        expect(fixture.captureFailure).not.toHaveBeenCalled();
+        expect(fixture.logger.error).not.toHaveBeenCalled();
+        expect(fixture.logger.warn).toHaveBeenCalledOnce();
+    });
+
     it('enables software rendering before startup when relaunched in safe mode', () => {
         const fixture = createFixture([
             '/app/evb-viewer',
@@ -71,7 +177,7 @@ describe('processDeathRecovery', () => {
     });
 
     it('does not enter a relaunch loop when the GPU fails in safe mode', () => {
-        const fixture = createFixture([
+        const fixture = createReportingFixture([
             '/app/evb-viewer',
             PROCESS_SAFE_MODE_ARGUMENT,
         ]);
@@ -84,6 +190,15 @@ describe('processDeathRecovery', () => {
         fixture.recovery.handleChildProcessGone(details);
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-failed');
         expect(fixture.requestSafeModeRelaunch).not.toHaveBeenCalled();
+        expect(fixture.captureFailure.mock.calls.map(([input]) => input.code)).toEqual([
+            'MAIN_CHILD_PROCESS_GONE',
+            'MAIN_GPU_SAFE_MODE_RECOVERY',
+        ]);
+        expect(fixture.captureFailure.mock.calls[1]?.[0]).toEqual(expect.objectContaining({context: {
+            safeMode: true,
+            action: 'failed',
+            crashCount: 2,
+        }}));
     });
 
     // The app kills its own utility processes as their ordinary teardown, and
@@ -233,7 +348,7 @@ describe('processDeathRecovery', () => {
     });
 
     it('requests at most one coordinated relaunch after repeated GPU crashes', () => {
-        const fixture = createFixture();
+        const fixture = createReportingFixture();
         const details = {
             type: 'GPU',
             reason: 'crashed',
@@ -244,6 +359,8 @@ describe('processDeathRecovery', () => {
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch');
         expect(fixture.recovery.handleChildProcessGone(details).action).toBe('safe-mode-relaunch-pending');
         expect(fixture.requestSafeModeRelaunch).toHaveBeenCalledOnce();
+        expect(fixture.captureFailure).toHaveBeenCalledTimes(2);
+        expect(fixture.logger.warn).toHaveBeenCalledWith(expect.stringContaining('GPU process gone'));
     });
 
     it('orders the safe-mode relaunch after coordinated cleanup', async () => {
