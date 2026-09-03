@@ -1,0 +1,60 @@
+packages/contracts/diagnostics/diagnosticRecord.ts
+  s_b412fd4cd3f576::t_4882bcfa6b64c6 216-217,220-221
+  s_b412fd4cd3f576::t_742edc511d30b3 1-2,22-27,77,79-95,130,166,168,199,209-210
+  s_b412fd4cd3f576::t_928886e3b78ebf 110-113,131-154
+  s_b412fd4cd3f576::t_1a2e6b3226b387 3-21,28-76,78,96-109,114-129,155-165,167,169-198,200-208,211-215,218-219,222-226
+packages/contracts/diagnostics/failureReceipt.ts
+  s_b412fd4cd3f576::t_a61a5d2d79e781 1-2,44,46-57,61-68
+  s_b412fd4cd3f576::t_43f08711643d97 3-43,45,58-60,69-72
+  s_b412fd4cd3f576::t_0f09d663c8fa11 73-76
+tests/unit/contracts/canonicalAppFrames.test.ts
+  s_b412fd4cd3f576::t_c689f55380ebf4 18-23,80-83,86-92,94-115,130-131
+  s_b412fd4cd3f576::t_b0e714146b797a 1-17,24-79,84-85,93,116-129,132-145
+packages/contracts/diagnostics/diagnosticCodes.ts
+  s_b412fd4cd3f576::t_f76b392ca7783f 3-11,13-27,29-56,62-67,69-112,114-116,121-130,133-142,144-202,207-220
+  s_b412fd4cd3f576::t_a8fed06dcede20 1-2,113,143
+  s_b412fd4cd3f576::t_928886e3b78ebf 12,28,57-61,68,117-120,131-132
+  s_b412fd4cd3f576::t_41eaca57f2c7cb 203-206
+packages/contracts/diagnostics/diagnosticEventId.ts
+  s_b412fd4cd3f576::t_41eaca57f2c7cb 48
+  s_b412fd4cd3f576::t_578de9b4c414be 1-2
+  s_b412fd4cd3f576::t_99a126e525da49 3-47,49-51
+packages/contracts/diagnostics/canonicalAppFrames.ts
+  s_b412fd4cd3f576::t_e16b73f0010b08 459,475
+  s_b412fd4cd3f576::t_977acdc090d276 1-2,64-65,68-69,79,83,91,99-106
+  s_b412fd4cd3f576::t_e01ca210a1cfb6 200
+  s_b412fd4cd3f576::t_8577829d9f7ad2 280,517-523
+  s_b412fd4cd3f576::t_928886e3b78ebf 16,18,232-235,240-243,379-385,390-401,503-508,510-512,526-529,531-532,535-538
+  s_b412fd4cd3f576::t_862d36b3d5e8dd 3-6,8-15,17,19-63,66-67,70-78,80-82,84-90,92-98,107-199,201-231,236-239,244-279,281-315,317-321,323-324,331-378,386-389,402-457,460,463-474,476-502,509,513-516,524-525,530,533-534,539-582
+  s_b412fd4cd3f576::t_4882bcfa6b64c6 7,316,322,325-330,458,461-462
+packages/contracts/diagnostics/startupCrashMarker.ts
+  s_b412fd4cd3f576::t_4882bcfa6b64c6 30-31,39,91,95
+  s_b412fd4cd3f576::t_8577829d9f7ad2 18-29,84,87-90,92-94,96,141-142
+  s_b412fd4cd3f576::t_bbc97cff5022b2 1-2,47,49-65,137,139
+  s_b412fd4cd3f576::t_3a9ddaf64eb229 3-17,32-38,40-46,48,66-79,85-86,97-107,129-136,138,140,143-187
+  s_b412fd4cd3f576::t_928886e3b78ebf 80-83,108-128
+tests/helpers/captureTransport.ts
+  s_b412fd4cd3f576::t_978b602dffbcf8 3-25
+  s_b412fd4cd3f576::t_39fda84d1b84b7 1-2
+tests/unit/contracts/diagnosticContracts.test.ts
+  s_b412fd4cd3f576::t_6cdb0d63f2b391 3-67,71-75,97-115,119,123-133,137-168,174-203,290-302,314-326,349-361,375-385,388-391,393-399,401-414,417,419-420,422-426,434-465,467-468
+  s_b412fd4cd3f576::t_8577829d9f7ad2 68-70
+  s_b412fd4cd3f576::t_e06eb504a6cca5 76-96,116-118,120-122,134-136,169-173,204-289,303-313,327-348,362-374,386-387,392,400,415-416,418,421,427-433
+  s_b412fd4cd3f576::t_39fda84d1b84b7 1-2,466
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e8d3c4ec5123a59a782d28f8524401057edbfd98",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
