@@ -1,4 +1,7 @@
-import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/public';
+import type {
+    IAnnotationCreationFailureReport,
+    TAnnotationCreationFailureReason,
+} from '@app/modules/pdf-viewer/public';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -39,11 +42,6 @@ export const useWorkspaceFailureSurface = () => {
     // attempts cannot accumulate ids nothing will ever read again.
     const lastReportedOperationIds = new Map<TWorkspaceFailureDomain, string>();
 
-    /**
-     * Shows the toast unless this operation already produced one. A low-level
-     * failure and the service result that follows it share one operation id,
-     * so the user sees one toast for one failed action.
-     */
     function isDuplicateFailure(failure: {
         domain: TWorkspaceFailureDomain;
         operationId: string;
@@ -56,28 +54,6 @@ export const useWorkspaceFailureSurface = () => {
             return true;
         }
         return false;
-    }
-
-    function toastOnce(failure: {
-        domain: TWorkspaceFailureDomain;
-        operationId: string;
-        title: string;
-        description: string | null;
-    }) {
-        if (lastReportedOperationIds.get(failure.domain) === failure.operationId) {
-            BrowserLogger.debug('workspace', 'Suppressed duplicate workspace failure toast', {
-                domain: failure.domain,
-                operationId: failure.operationId,
-            });
-            return false;
-        }
-        lastReportedOperationIds.set(failure.domain, failure.operationId);
-        toast.add({
-            color: 'error',
-            title: failure.title,
-            ...(failure.description ? {description: failure.description} : {}),
-        });
-        return true;
     }
 
     function clearSaveFailure() {
@@ -167,21 +143,34 @@ export const useWorkspaceFailureSurface = () => {
         }
     }
 
-    function reportAnnotationFailure(failure: {
-        operationId: string;
-        reason: TAnnotationCreationFailureReason;
-    }) {
+    function reportAnnotationFailure(failure: IAnnotationCreationFailureReport) {
         const described = describeAnnotationFailure(failure.reason);
         if (!described) {
             BrowserLogger.debug('annotations', 'Annotation creation failure is not user-visible', failure);
             return false;
         }
-        return toastOnce({
+        if (isDuplicateFailure({
             domain: 'annotation',
             operationId: failure.operationId,
+        })) {
+            return false;
+        }
+        lastReportedOperationIds.set('annotation', failure.operationId);
+        if (failure.kind === 'expected') {
+            BrowserLogger.warn('annotations', 'Annotation creation ended with an expected outcome', failure.outcome);
+            toast.add({
+                color: 'warning',
+                title: t('errors.annotation.create'),
+                ...(described.description ? {description: described.description} : {}),
+            });
+            return true;
+        }
+        presentFailureToast({
+            failure: failure.failure,
             title: t('errors.annotation.create'),
-            description: described.description,
+            ...(described.description ? {description: described.description} : {}),
         });
+        return true;
     }
 
     return {

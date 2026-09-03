@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
 const toastAddMock = vi.fn();
@@ -17,6 +18,26 @@ vi.stubGlobal('useToast', () => ({add: toastAddMock}));
 const { useWorkspaceFailureSurface } = await import(
     '@app/modules/workspace-shell/composables/useWorkspaceFailureSurface'
 );
+
+function expectedAnnotationReport(
+    operationId: string,
+    reason: Extract<IAnnotationCreationFailureReport, {kind: 'expected'}>['reason'],
+): IAnnotationCreationFailureReport {
+    return {
+        kind: 'expected',
+        operationId,
+        pageNumber: 1,
+        reason,
+        outcome: {
+            kind: 'expected',
+            code: reason === 'selection-spans-pages'
+                || reason === 'no-selection'
+                || reason === 'selection-not-in-text-layer'
+                ? 'validation-rejected'
+                : 'temporarily-unavailable',
+        },
+    };
+}
 
 // The composable resolves both globals on every call, so the stubs have to
 // outlive each test and are dropped once for the file.
@@ -116,13 +137,13 @@ describe('useWorkspaceFailureSurface', () => {
     it('keeps a rejected annotation out of the save state', () => {
         const surface = useWorkspaceFailureSurface();
 
-        expect(surface.reportAnnotationFailure({
-            operationId: 'annotation-create-1',
-            reason: 'selection-spans-pages',
-        })).toBe(true);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
+            'annotation-create-1',
+            'selection-spans-pages',
+        ))).toBe(true);
 
         expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
-            color: 'error',
+            color: 'warning',
             title: 'errors.annotation.create',
             description: 'errors.annotation.selectionSpansPages',
         }));
@@ -133,10 +154,7 @@ describe('useWorkspaceFailureSurface', () => {
         const surface = useWorkspaceFailureSurface();
 
         surface.reportSaveFailure('op-1', 'persist-rejected');
-        surface.reportAnnotationFailure({
-            operationId: 'op-1',
-            reason: 'selection-spans-pages',
-        });
+        surface.reportAnnotationFailure(expectedAnnotationReport('op-1', 'selection-spans-pages'));
 
         expect(toastAddMock).toHaveBeenCalledTimes(2);
     });
@@ -144,33 +162,45 @@ describe('useWorkspaceFailureSurface', () => {
     it('stays silent for annotation reasons that are ordinary no-ops', () => {
         const surface = useWorkspaceFailureSurface();
 
-        expect(surface.reportAnnotationFailure({
-            operationId: 'annotation-create-1',
-            reason: 'no-selection',
-        })).toBe(false);
-        expect(surface.reportAnnotationFailure({
-            operationId: 'annotation-create-2',
-            reason: 'editor-unavailable',
-        })).toBe(false);
-        expect(surface.reportAnnotationFailure({
-            operationId: 'annotation-create-3',
-            reason: 'selection-not-in-text-layer',
-        })).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
+            'annotation-create-1',
+            'no-selection',
+        ))).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
+            'annotation-create-2',
+            'editor-unavailable',
+        ))).toBe(false);
+        expect(surface.reportAnnotationFailure(expectedAnnotationReport(
+            'annotation-create-3',
+            'selection-not-in-text-layer',
+        ))).toBe(false);
 
         expect(toastAddMock).not.toHaveBeenCalled();
     });
 
-    it('toasts the shared title with no detail for reasons the user cannot act on', () => {
+    it('presents the bridge-owned receipt for an annotation defect', () => {
+        const receipt = {
+            code: 'UNCLASSIFIED_RENDERER_ERROR',
+            eventId: 'annotation-failure-123456789',
+            occurredAt: 1,
+            severity: 'error',
+        } as FailureReceipt;
+        const capture = vi.spyOn(BrowserLogger, 'error');
         const surface = useWorkspaceFailureSurface();
 
         expect(surface.reportAnnotationFailure({
+            kind: 'fault',
             operationId: 'annotation-create-1',
+            pageNumber: 1,
             reason: 'mode-switch-failed',
+            failure: receipt,
         })).toBe(true);
 
-        expect(toastAddMock).toHaveBeenCalledWith({
+        expect(capture).not.toHaveBeenCalled();
+        expect(toastAddMock).toHaveBeenCalledWith(expect.objectContaining({
             color: 'error',
             title: 'errors.annotation.create',
-        });
+            description: expect.stringContaining('Error ID: annotati'),
+        }));
     });
 });
