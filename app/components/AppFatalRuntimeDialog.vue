@@ -127,11 +127,12 @@ function getLocalDetails() {
 }
 
 function handleCopy() {
+    const description = getLocalDetails();
     const text = props.failure
         ? formatFailurePresentationCopy({
             failure: props.failure,
             title: props.title,
-            description: getLocalDetails(),
+            ...(description ? {description} : {}),
         })
         : props.detail ?? undefined;
     emit('copy', text);
