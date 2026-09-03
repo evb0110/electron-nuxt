@@ -226,6 +226,8 @@ describe('diagnostic contracts', () => {
             'UNCLASSIFIED_RENDERER_ERROR',
             'UNCLASSIFIED_MAIN_ERROR',
             'UNCLASSIFIED_CONSOLE_ERROR',
+            'NITRO_ANALYTICS_DATABASE_INITIALIZATION_FAILED',
+            'NITRO_ANALYTICS_INSERT_FAILED',
             'MAIN_STARTUP_CRASH',
             'MAIN_CHILD_PROCESS_GONE',
             'MAIN_RENDERER_PROCESS_GONE',
