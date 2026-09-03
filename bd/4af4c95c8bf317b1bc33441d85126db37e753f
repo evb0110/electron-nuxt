@@ -1,0 +1,70 @@
+app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.ts
+  s_119bb52352139e::t_b11c1c7aa3e932 1-3,14,26,28-32,40-43,52-54,62-64
+  s_119bb52352139e::t_8f9aeed0d2f27a 4-13,15-25,27
+  s_119bb52352139e::t_b9acb372604a55 33-34
+  s_119bb52352139e::t_13c2e9429b9dbc 35-39,44,46-51,55,59-61,65-103
+  s_119bb52352139e::t_ead0ef4e79c79b 45,56-58
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_119bb52352139e::t_25dda1ed5d05ba 881
+tests/unit/app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry.test.ts
+  s_119bb52352139e::t_0ed81538e78471 13,40,69-70,77-78,85-88
+  s_119bb52352139e::t_5457365cda20dc 41-68,71-76,79-84
+  s_119bb52352139e::t_185c7c2105df41 89,91,93,96,98
+  s_119bb52352139e::t_ead0ef4e79c79b 90,92,94-95,97,99-101
+app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints.ts
+  s_119bb52352139e::t_eee7a6b63e666c 1-13,30-32,36-41,48
+  s_119bb52352139e::t_13c2e9429b9dbc 14-29,33-35,42-47
+app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture.ts
+  s_119bb52352139e::t_5ba8676668f7bc 7-8,79-81,94-101
+  s_119bb52352139e::t_34ff182520dcc0 84
+  s_119bb52352139e::t_13c2e9429b9dbc 102-107
+app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface.ts
+  s_119bb52352139e::t_799047dca54929 25,65,67-69,136
+  s_119bb52352139e::t_22999fa9e755da 70-73,137-140
+  s_119bb52352139e::t_f8a322d76a155d 294-296,307,309-310,362,368-381,393-403,412-420,576,578-580
+  s_119bb52352139e::t_13c2e9429b9dbc 382-384,404-411
+  s_119bb52352139e::t_ead0ef4e79c79b 385-392
+  s_119bb52352139e::t_d6b1604d9011d6 581
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_119bb52352139e::t_dc017b25f248c6 414
+  s_119bb52352139e::t_d6b1604d9011d6 415-416,420,433-436
+  s_119bb52352139e::t_22999fa9e755da 417-419,421-432
+app/modules/pdf-viewer/components/PdfStampAnnotation.vue
+  s_119bb52352139e::t_c7318a52ce13e2 25,63-66
+  s_119bb52352139e::t_2143cb88ba2522 30
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.test.ts
+  s_119bb52352139e::t_5457365cda20dc 1-6,27-32,37,45,56-59,61-72,81
+  s_119bb52352139e::t_6e4bbee9870537 7-8,10-12,14-18,20-26,33,48-55,60,73-76,78-79,90-92,111
+  s_119bb52352139e::t_c4f8f42be69a08 9,13
+  s_119bb52352139e::t_8f9aeed0d2f27a 19,89
+  s_119bb52352139e::t_34ba3ad1720c81 34-36,38-44,46-47,77,80,82-88
+  s_119bb52352139e::t_ead0ef4e79c79b 93-110
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_119bb52352139e::t_25dda1ed5d05ba 405-406
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_119bb52352139e::t_94347e34a87d79 7,15,124,197-199,622,624-627
+  s_119bb52352139e::t_c7318a52ce13e2 69,322-327
+  s_119bb52352139e::t_d6ff40faa5daf5 114,174-178,183-184,202-212,219-222,395-398,406-409
+  s_119bb52352139e::t_34ff182520dcc0 120-123,623,629
+  s_119bb52352139e::t_5d97c4019f6af8 158-162
+  s_119bb52352139e::t_aaaeeb772bfc54 179-182
+  s_119bb52352139e::t_6b56b7b8ebe86e 370-373,435,455,500
+  s_119bb52352139e::t_3931104b7c9b13 655-659,665-666
+  s_119bb52352139e::t_13c2e9429b9dbc 660-664
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bd4af4c95c8bf317b1bc33441d85126db37e753f",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
