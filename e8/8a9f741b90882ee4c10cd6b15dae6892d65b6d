@@ -1,0 +1,52 @@
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_b412fd4cd3f576::t_e4dcd831f63d36 402,407,409
+  s_b412fd4cd3f576::t_9ae64d382958f6 403-406
+app/plugins/rendererErrorGuard.client.ts
+  s_b412fd4cd3f576::t_a1138ecd8a71a0 145
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_d78260eabf4c49 10,303
+  s_b412fd4cd3f576::t_0a244b966a1c14 386,398-399,401,403,405-407,410-411
+  s_b412fd4cd3f576::t_a90443f485f425 408
+  s_b412fd4cd3f576::t_57fc0d4d077406 293,295-300,315-323,329-330,351-385,387-389,397,400,402,413-422,424-425
+  s_b412fd4cd3f576::t_47bf2101e4b38f 332-335
+  s_b412fd4cd3f576::t_89fb74a76c98ad 302,304-310,324-327,341-350
+  s_b412fd4cd3f576::t_0ab9ac1d5275b7 13-18,62,98,286,301,311-314,328,390-396,404,409,412,423
+  s_b412fd4cd3f576::t_83decd9a08ef84 294,331,336-340
+app/app.vue
+  s_b412fd4cd3f576::t_d5e948587965e9 508-512
+docs/architecture/unclassified-renderer-error-migration-report-2026-09-03.md
+  s_b412fd4cd3f576::t_9208c534d421ea 1-23,25-63
+  s_b412fd4cd3f576::t_fdfa290b93209d 24
+app/utils/browserLogger.ts
+  s_b412fd4cd3f576::t_69bda57194e299 97-109,371
+  s_b412fd4cd3f576::t_d5e948587965e9 13-19,244,246,248,355-361,373-375,377
+  s_b412fd4cd3f576::t_d78260eabf4c49 362-367
+  s_b412fd4cd3f576::t_a90443f485f425 370,372
+  s_b412fd4cd3f576::t_e4dcd831f63d36 3
+  s_b412fd4cd3f576::t_0a244b966a1c14 4-7,368-369
+  s_b412fd4cd3f576::t_1b294dfa56b91f 376
+app/modules/pdf-viewer/runtime/composables/pdf/usePageOperations.ts
+  s_b412fd4cd3f576::t_d5e948587965e9 485,487
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_7411a88f94ff04 550,560,603,612
+  s_b412fd4cd3f576::t_d78260eabf4c49 88
+  s_b412fd4cd3f576::t_d5e948587965e9 79-82,89,97-100,547-549,551,561-562,601-602,604,678,680
+app/modules/workspace-shell/composables/useAppShellTabLifecycle.ts
+  s_b412fd4cd3f576::t_d5e948587965e9 115,117
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "e88a9f741b90882ee4c10cd6b15dae6892d65b6d",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-terra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
