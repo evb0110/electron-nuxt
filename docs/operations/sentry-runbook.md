@@ -32,18 +32,18 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 
 | Alert class | Project and filter | Trigger | Exclusions |
 | --- | --- | --- | --- |
-| New or regressed fatal | Both projects, `environment:production`, fatal diagnostic codes only | First new or regressed issue in a release | Preview, development, test, expected teardown, recovery already in progress |
-| New diagnostic code | Both projects, `environment:production` | First event for a code not seen in the preceding production release | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
-| Code rate | Both projects, `environment:production`, grouped by diagnostic code | The code exceeds the bounded burst threshold in its diagnostic definition | Preview, development, test, and suppressed repeats |
+| New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress |
+| New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
+| Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, and client-suppressed repeats |
 | Quota | Organization usage | 50, 75, and 90 percent of the included event quota | No pay-as-you-go continuation |
 
 Record completion without private links:
 
 | Control | Owner | Verified date | State |
 | --- | --- | --- | --- |
-| Fatal alert | Repository owner | Pending | Pending |
-| New-code alert | Repository owner | Pending | Pending |
-| Rate alert | Repository owner | Pending | Pending |
+| Fatal alert | Repository owner | 2026-09-04 | Enabled |
+| New-code alert | Repository owner | 2026-09-04 | Enabled |
+| Rate alert | Repository owner | 2026-09-04 | Enabled |
 | Quota alert | Repository owner | Pending | Pending |
 
 ## Weekly and post-release triage
@@ -154,7 +154,7 @@ artifact-scan checks for every dist below.
 
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `macos-arm64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
+| `macos-arm64` | `evb-viewer-desktop@0.1.450` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass for sampled main, renderer, and worker bundles | Public build roots map-free | Pending | 2026-09-04 |
 | `macos-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
 | `windows-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
 | `windows-arm64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
@@ -167,6 +167,12 @@ artifact-scan checks for every dist below.
 Every request count under unknown and denied must be zero. A granted canary must
 produce one envelope with one event item. Revocation must produce no queued,
 close-time, or client-report envelope.
+
+The macOS arm64 source-map run uploaded 280 private bundles. It sent 228
+deterministic canaries for bundles with an EVB source mapping and recorded 52
+generated or vendor-only chunks as ineligible for original-source proof. This
+is source-map evidence only. It does not replace the packaged consent and
+behavior matrix still marked pending in the same row.
 
 ### Hosted browser
 
@@ -221,4 +227,4 @@ Run this rehearsal in a disposable worktree. Do not publish the rehearsal.
 
 | Tested commit | Date | Gates | Platforms | Local behavior | Sentry requests | Result |
 | --- | --- | --- | --- | --- | --- | --- |
-| Pending | Pending | Pending | Pending | Pending | Zero expected | Pending |
+| `f39a0e2d6fcb3610f96fcde81496a9dc5108483d` | 2026-09-04 | Typecheck, 10,876 unit tests, architecture, desktop build, package, packaged core PDF smoke | macOS arm64 | Startup, PDF open, annotation save, metadata-preserving rotation, source isolation, search, and shutdown passed; print, export, updater download, recovery relaunch, and fatal dialog were not exercised | Zero structurally possible; packages, adapters, ingest endpoint, upload commands, and credentials were absent, but no packet-capture proxy was used | Partial pass; repeat the omitted behaviors before calling the full rehearsal complete |

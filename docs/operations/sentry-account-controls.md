@@ -59,6 +59,7 @@ passwordless.
 | Minidump attachment storage | Disabled | Owner verified 2026-09-03 |
 | Aggregated identifying service data use | Disabled | Owner verified 2026-09-03 |
 | Global safe fields | Empty | Owner verified 2026-09-04 |
+| Derived user geography | Removed with `[Remove] [Anything] from [$user.geo.**]` in both projects | Owner verified by post-change test events 2026-09-04 |
 
 The verified global sensitive-field list is:
 
@@ -88,6 +89,7 @@ names and their runtime purpose here, never their values.
 | Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview | Owner verified 2026-09-04 |
+| Browser canary secret | `SENTRY_BROWSER_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
 | Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
 
@@ -99,7 +101,13 @@ names and their runtime purpose here, never their values.
 | Resolved-issue deletion | Weekly operator procedure | Pending |
 | Quota alerts | Enabled with pay-as-you-go still disabled | Pending |
 | Source-map access review | Debug-file access Owner; source fetching disabled after upload | Owner verified 2026-09-04 |
-| Removal procedure | Tested without sending a production event | Pending |
+| Removal procedure | Tested without sending a production event | Partial macOS arm64 rehearsal verified 2026-09-04; omitted packaged behaviors remain recorded in the runbook |
+
+Sentry derived a user geography from ingress metadata on the first closed test
+events even though IP storage was prevented and no user or request field was
+sent. Both projects therefore use the explicit `$user.geo.**` removal rule.
+Post-change desktop and browser test events contained no geography. This rule
+is required and must survive account-control reviews.
 
 The alert definitions, weekly deletion procedure, privacy incident response,
 credential rotation, emergency disablement, canary evidence tables, and package

@@ -84,7 +84,7 @@ describe('privacy localization', () => {
         }
     });
 
-    it('keeps both privacy pages on the shared tree without inline or Sentry-specific copy', () => {
+    it('keeps both privacy pages on the shared tree with the public Sentry notice', () => {
         expect(rootPrivacyPageSource).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\';');
         expect(rootPrivacyPageSource).toContain('PRIVACY_MESSAGES[locale.value]');
         expect(rootPrivacyPageSource).not.toContain('PRIVACY_COPY');
@@ -93,7 +93,13 @@ describe('privacy localization', () => {
         expect(landingPrivacyPageSource).toContain('PRIVACY_MESSAGES[locale.value]');
         expect(landingPrivacyPageSource).not.toMatch(/t\('privacy\./u);
 
-        expect(JSON.stringify(PRIVACY_MESSAGES)).not.toMatch(/Sentry/iu);
+        for (const locale of LOCALE_CODES) {
+            const diagnostics = PRIVACY_MESSAGES[locale].diagnostics;
+            expect(diagnostics.heading, locale).toMatch(/Sentry/iu);
+            expect(diagnostics.body, locale).toMatch(/Sentry/iu);
+            expect(diagnostics.body, locale).toMatch(/90/iu);
+            expect(diagnostics.body, locale).toMatch(/Nitro/iu);
+        }
     });
 
     it('keeps locale modules as thin consumers of the shared privacy tree', () => {

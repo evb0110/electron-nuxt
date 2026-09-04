@@ -1,25 +1,30 @@
 import {
     createTransport,
     createEventEnvelope,
+    createStackParser,
     getEnvelopeEndpointWithUrlEncodedAuth,
+    getFilenameToDebugIdMap,
     makeDsn,
+    nodeStackLineParser,
     type Event,
     type Transport,
 } from '@sentry/core';
 import {request as requestHttps} from 'node:https';
-import {DIAGNOSTIC_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {
     decodeDiagnosticRecord,
     type DiagnosticRecord,
 } from '@contracts/diagnostics/diagnosticRecord';
 import {decodeDiagnosticsSuppressedCount} from '@contracts/diagnostics/diagnosticsCapability';
 import {
+    buildSentryClosedEvent,
+    EVB_DIAGNOSTIC_SCHEMA_MARKER,
+} from '@contracts/diagnostics/sentryClosedEvent';
+import {
     assertSentryBuildIdentity,
     type SentryBuildIdentity,
 } from '@contracts/diagnostics/releaseIdentity.js';
 import type {IMainDiagnosticsTransport} from '@electron/features/diagnostics/mainFailureReporter';
 
-const EVB_DIAGNOSTIC_SCHEMA_MARKER = 'evb-diagnostic-v1';
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 
 interface INodeEnvelopeTransportOptions {
@@ -41,6 +46,7 @@ export interface ISentryNodeAdapterOptions {
         node?: string;
     };
     makeTransport?: TSentryTransportFactory;
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
 }
 
 export type TSentryNodeRuntimeOptions = Omit<
@@ -85,68 +91,17 @@ function requireEuDsn(value: string) {
     return dsn;
 }
 
-function closedContext(value: DiagnosticRecord['context']) {
-    return Object.fromEntries(Object.entries(value));
-}
-
-function buildClosedEvent(
-    record: DiagnosticRecord,
-    suppressedCount: number,
-    identity: SentryBuildIdentity,
-    options: ISentryNodeAdapterOptions,
-): Event {
-    const definition = DIAGNOSTIC_DEFINITIONS[record.code];
-    const topFrame = record.frames[0];
+function buildRuntimeContext(options: ISentryNodeAdapterOptions) {
     const electronMajor = majorVersion(options.runtimeVersions?.electron);
     const chromiumMajor = majorVersion(options.runtimeVersions?.chrome);
     const nodeMajor = majorVersion(options.runtimeVersions?.node);
-    const runtimeContext = {
+    return {
         app_version: options.appVersion,
         platform: options.platform ?? 'unknown',
         architecture: options.architecture ?? 'unknown',
         ...(electronMajor === undefined ? {} : {electron_major: electronMajor}),
         ...(chromiumMajor === undefined ? {} : {chromium_major: chromiumMajor}),
         ...(nodeMajor === undefined ? {} : {node_major: nodeMajor}),
-    };
-
-    return {
-        event_id: record.eventId,
-        timestamp: record.occurredAt / 1_000,
-        level: record.severity,
-        platform: 'javascript',
-        logger: 'evb-viewer.diagnostics',
-        release: identity.release,
-        dist: identity.dist,
-        environment: identity.environment,
-        fingerprint: [
-            record.runtime,
-            record.code,
-            topFrame?.module ?? 'no-application-frame',
-        ],
-        exception: {values: [{
-            type: definition.exceptionType,
-            value: definition.exceptionValue,
-            stacktrace: {frames: [...record.frames].reverse().map(frame => ({
-                filename: frame.module,
-                module: frame.module,
-                ...(frame.function === undefined ? {} : {function: frame.function}),
-                ...(frame.line === undefined ? {} : {lineno: frame.line}),
-                ...(frame.column === undefined ? {} : {colno: frame.column}),
-                in_app: true,
-            }))},
-        }]},
-        tags: {
-            evb_schema: EVB_DIAGNOSTIC_SCHEMA_MARKER,
-            diagnostic_code: record.code,
-            diagnostic_runtime: record.runtime,
-            ...(record.operation === undefined ? {} : {diagnostic_operation: record.operation}),
-        },
-        contexts: {evb_runtime: runtimeContext},
-        extra: {
-            schemaVersion: record.schemaVersion,
-            context: closedContext(record.context),
-            ...(suppressedCount === 0 ? {} : {suppressedCount}),
-        },
     };
 }
 
@@ -230,9 +185,23 @@ export function createSentryNodeDiagnosticsTransport(
             if (record === null || suppressedCount === null) {
                 return false;
             }
-            const event = buildClosedEvent(record, suppressedCount, identity, options);
+            const filenameToDebugId = options.resolveFilenameDebugIds?.()
+                ?? getFilenameToDebugIdMap(createStackParser(nodeStackLineParser()));
+            const event: Event = buildSentryClosedEvent(
+                record,
+                suppressedCount,
+                identity,
+                buildRuntimeContext(options),
+                filenameToDebugId,
+            );
             const markedEvent = event.tags?.evb_schema === EVB_DIAGNOSTIC_SCHEMA_MARKER
-                ? buildClosedEvent(record, suppressedCount, identity, options)
+                ? buildSentryClosedEvent(
+                    record,
+                    suppressedCount,
+                    identity,
+                    buildRuntimeContext(options),
+                    filenameToDebugId,
+                )
                 : null;
             if (markedEvent === null) {
                 return false;

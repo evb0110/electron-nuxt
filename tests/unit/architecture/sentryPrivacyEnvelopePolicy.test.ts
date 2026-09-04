@@ -132,6 +132,7 @@ const ALLOWED_EVENT_KEYS = new Set([
     'exception',
     'tags',
     'contexts',
+    'debug_meta',
     'extra',
 ]);
 
@@ -320,6 +321,21 @@ function assertClosedEvent(event: object) {
     for (const key of FORBIDDEN_EVENT_KEYS) {
         expect(event).not.toHaveProperty(key);
     }
+    const debugMeta = Reflect.get(event, 'debug_meta') as unknown;
+    if (debugMeta !== undefined) {
+        expect(debugMeta).toEqual({images: expect.any(Array)});
+        const images = (debugMeta as {images: unknown[]}).images;
+        for (const image of images) {
+            expect(image).toEqual({
+                type: 'sourcemap',
+                code_file: expect.stringMatching(/^(?:_nuxt|dist-electron|server-bundle)\/[^?#:\\]+$/u),
+                debug_id: expect.stringMatching(/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu),
+            });
+            const codeFile = (image as {code_file: string}).code_file;
+            expect(codeFile.split('/')).not.toContain('..');
+            expect(codeFile.split('/')).not.toContain('.');
+        }
+    }
     assertNoForbiddenValues(event);
 }
 
@@ -420,6 +436,31 @@ function createNitroFixture() {
 }
 
 describe('SEN-GATE-03 privacy envelope policy', () => {
+    it.each([
+        'file:///Users/example/private.js',
+        'https://evb-viewer.com/_nuxt/private.js',
+        'dist-electron/../private.js',
+        'server-bundle/chunks/../../private.js',
+    ])('rejects a non-canonical source-map code file: %s', codeFile => {
+        const image = {
+            type: 'sourcemap',
+            code_file: codeFile,
+            debug_id: '11111111-1111-4111-8111-111111111111',
+        };
+        const event = {debug_meta: {images: [image]}};
+        expect(() => assertClosedEvent(event)).toThrow();
+    });
+
+    it('accepts the closed canonical source-map image shape', () => {
+        const image = {
+            type: 'sourcemap',
+            code_file: 'dist-electron/main.js',
+            debug_id: '11111111-1111-4111-8111-111111111111',
+        };
+        const event = {debug_meta: {images: [image]}};
+        expect(() => assertClosedEvent(event)).not.toThrow();
+    });
+
     it('keeps the accepted desktop record to one event item with no forbidden payload', async () => {
         const fixture = createDesktopFixture();
         const record = createRecord('electron-main', '00000000000000000000000000000001');

@@ -26,6 +26,18 @@ const execFileAsync = promisify(execFile);
 const SENTRY_EU_API_ORIGIN = 'https://de.sentry.io/';
 export const UPLOAD_RECEIPT_SCHEMA_VERSION = 1;
 const SAFE_CONFIGURATION_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const UPLOAD_EXTENSIONS = [
+    'js',
+    'cjs',
+    'mjs',
+    'map',
+    'jsbundle',
+    'bundle',
+    'ts',
+    'tsx',
+    'vue',
+    'json',
+];
 
 function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
@@ -278,6 +290,10 @@ export async function uploadSentrySourcemaps({
                 '--strict',
                 '--wait',
                 '--quiet',
+                ...UPLOAD_EXTENSIONS.flatMap(extension => [
+                    '--ext',
+                    extension,
+                ]),
                 uploadRoot,
             ], {token});
         } catch {

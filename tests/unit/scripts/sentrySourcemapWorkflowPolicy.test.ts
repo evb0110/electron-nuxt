@@ -54,9 +54,12 @@ describe('private Sentry source-map workflow policy', () => {
             '- name: Check private Sentry upload readiness',
             '- name: Upload private Sentry source maps',
             'run: node scripts/release/upload-sentry-sourcemaps.mjs',
+            '- name: Send private Sentry source-map canaries',
+            'run: node scripts/release/send-sentry-sourcemap-canaries.mjs',
             `- name: ${artifactStep}`,
         ]);
         expect(source).toContain('steps.sentry_upload.outputs.enabled == \'true\'');
+        expect(source).toContain('inputs.send_sentry_canaries');
         expect(source).toContain('SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}');
         expect(source).toContain('SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}');
         expect(source).toContain('SENTRY_ORG: ${{ secrets.SENTRY_ORG }}');

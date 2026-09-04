@@ -12,6 +12,11 @@ on:
         required: false
         default: test
         type: string
+      send_sentry_canaries:
+        description: Send one test source-map canary for every private bundle after upload.
+        required: false
+        default: false
+        type: boolean
     outputs:
       artifact_ready:
         description: Whether the legacy Windows 7 artifact was produced.
@@ -182,6 +187,11 @@ jobs:
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         run: node scripts/release/upload-sentry-sourcemaps.mjs
+
+      - name: Send private Sentry source-map canaries
+        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
+        shell: bash
+        run: node scripts/release/send-sentry-sourcemap-canaries.mjs
 
       - name: Upload artifacts
         if: steps.artifact_status.outputs.ready == 'true'

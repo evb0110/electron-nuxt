@@ -182,7 +182,10 @@ function isJavaScriptBundle(relativePath) {
         && !relativePath.endsWith('.meta.json');
 }
 
-function classifyBundle(outputRoot, relativePath, {includePreload = false} = {}) {
+function classifyBundle(outputRoot, relativePath, {
+    includePreload = false,
+    includeNitro = true,
+} = {}) {
     const normalizedRoot = slashPath(outputRoot);
     const normalizedPath = slashPath(relativePath);
     const fileName = path.posix.basename(normalizedPath);
@@ -221,7 +224,7 @@ function classifyBundle(outputRoot, relativePath, {includePreload = false} = {})
         || normalizedPath.startsWith('functions/')
         || normalizedPath.includes('/functions/')
     ) {
-        return 'nitro-server';
+        return includeNitro ? 'nitro-server' : null;
     }
 
     return null;
@@ -672,6 +675,7 @@ async function writeManifest(manifestPath, manifest) {
  *   resetCompletedIdentityLock?: boolean,
  *   removePublicOutputMaps?: boolean,
  *   includePreload?: boolean,
+ *   includeNitro?: boolean,
  * }} options
  */
 export async function stagePrivateSourcemaps({
@@ -682,6 +686,7 @@ export async function stagePrivateSourcemaps({
     resetCompletedIdentityLock = false,
     removePublicOutputMaps = true,
     includePreload = false,
+    includeNitro = true,
 } = {}) {
     const normalizedIdentity = assertSentryBuildIdentity(identity);
     const root = path.resolve(projectRoot);
@@ -723,7 +728,10 @@ export async function stagePrivateSourcemaps({
             .filter(file => isJavaScriptBundle(file.relativePath))
             .map(file => ({
                 ...file,
-                role: classifyBundle(normalizedOutputRoot, file.relativePath, {includePreload}),
+                role: classifyBundle(normalizedOutputRoot, file.relativePath, {
+                    includePreload,
+                    includeNitro,
+                }),
             }))
             .filter(file => file.role !== null)
             .sort((left, right) => compareStrings(left.relativePath, right.relativePath));

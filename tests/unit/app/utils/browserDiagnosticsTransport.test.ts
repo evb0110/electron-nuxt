@@ -25,7 +25,7 @@ const RECORD = requireDiagnosticRecord({
     context: {phase: 'operation'},
 });
 
-function setup() {
+function setup(resolveFilenameDebugIds?: () => Readonly<Record<string, string>>) {
     const envelopes: unknown[] = [];
     const send = vi.fn((envelope: unknown) => {
         envelopes.push(envelope);
@@ -44,6 +44,7 @@ function setup() {
             send,
             flush,
         } as Transport),
+        ...(resolveFilenameDebugIds === undefined ? {} : {resolveFilenameDebugIds}),
     });
     return {
         adapter,
@@ -77,6 +78,28 @@ describe('hosted browser diagnostics transport', () => {
         const envelope = envelopes[0] as [unknown, unknown[]];
         expect(envelope[1]).toHaveLength(1);
         expect((envelope[1][0] as [{type: string}, unknown])[0]).toEqual({type: 'event'});
+    });
+
+    it('attaches the injected Debug ID without exposing the deployment URL', async () => {
+        const bundledRecord = requireDiagnosticRecord({
+            ...RECORD,
+            frames: [{
+                module: '_nuxt/viewer-abc.js',
+                function: 'render',
+                line: 12,
+                column: 3,
+            }],
+        });
+        const {
+            adapter,
+            envelopes,
+        } = setup(() => ({'https://web.evb-viewer.com/_nuxt/viewer-abc.js':
+                'abcdefab-cdef-4abc-8def-abcdefabcdef'}));
+
+        await expect(adapter.send(bundledRecord)).resolves.toBe(true);
+        const serialized = JSON.stringify(envelopes[0]);
+        expect(serialized).toContain('"debug_meta":{"images":[{"type":"sourcemap","code_file":"_nuxt/viewer-abc.js","debug_id":"abcdefab-cdef-4abc-8def-abcdefabcdef"}]}');
+        expect(serialized).not.toContain('web.evb-viewer.com');
     });
 
     it('rejects malformed records and non-EU DSNs', () => {

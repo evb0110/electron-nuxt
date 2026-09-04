@@ -61,7 +61,9 @@ function createRecord(eventId = '00000000000000000000000000000001'): DiagnosticR
     };
 }
 
-function createAdapterFixture() {
+function createAdapterFixture(
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>,
+) {
     const capturedEvents: unknown[] = [];
     let capturedOptions: Parameters<TSentryNitroClientFactory>[0] | undefined;
     const close = vi.fn(async () => true);
@@ -79,6 +81,7 @@ function createAdapterFixture() {
         clientFactory,
         buildConfiguration: BUILD_CONFIGURATION,
         runtimeConfig: RUNTIME_CONFIG,
+        ...(resolveFilenameDebugIds === undefined ? {} : {resolveFilenameDebugIds}),
     });
     return {
         adapter,
@@ -252,6 +255,29 @@ describe('viewer Nitro Sentry adapter', () => {
         expect(JSON.stringify(finalEvent)).not.toContain('document-secret.pdf');
         expect(JSON.stringify(finalEvent)).not.toContain('https://private.example');
         expect(JSON.stringify(finalEvent)).toContain('suppressedCount');
+    });
+
+    it('preserves only a validated Nitro bundle Debug ID through final sanitization', () => {
+        const fixture = createAdapterFixture(() => ({'/var/task/chunks/nitro.mjs':
+                '55555555-5555-4555-8555-555555555555'}));
+        const record = {
+            ...createRecord(),
+            frames: [{
+                module: 'server-bundle/chunks/nitro.mjs',
+                function: 'handleRequest',
+                line: 12,
+                column: 4,
+            }],
+        } satisfies DiagnosticRecord;
+
+        expect(fixture.adapter.send(record)).toBe(record.eventId);
+        const finalEvent = fixture.adapter.sanitizeEvent(fixture.capturedEvents[0]);
+        expect(finalEvent).toMatchObject({debug_meta: {images: [{
+            type: 'sourcemap',
+            code_file: 'server-bundle/chunks/nitro.mjs',
+            debug_id: '55555555-5555-4555-8555-555555555555',
+        }]}});
+        expect(JSON.stringify(finalEvent)).not.toContain('/var/task');
     });
 
     it('reconstructs only marked records and drops arbitrary or unmarked events', () => {

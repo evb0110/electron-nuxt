@@ -147,6 +147,29 @@ async function fileExists(filePath: string) {
 }
 
 describe('private Sentry source-map staging', () => {
+    it('can stage desktop renderer maps while pruning unshipped Nitro maps', async () => {
+        const projectRoot = await createTemporaryRoot();
+        await writeFixture(projectRoot);
+
+        const manifest = await stagePrivateSourcemaps({
+            projectRoot,
+            identity: desktopIdentity('macos-arm64'),
+            outputRoots: ['nuxt-output'],
+            reset: true,
+            includeNitro: false,
+        });
+
+        expect(manifest.bundles.map(bundle => bundle.role).sort()).toEqual([
+            'browser-renderer',
+            'browser-worker-parent',
+        ]);
+        expect(manifest.bundles.some(bundle => bundle.role === 'nitro-server')).toBe(false);
+        expect(await fileExists(path.join(
+            projectRoot,
+            'nuxt-output/server/index.mjs.map',
+        ))).toBe(false);
+    });
+
     it('records manifest-proven generated browser bundles but rejects unlisted map gaps', async () => {
         const projectRoot = await createTemporaryRoot();
         const outputRoot = '.vercel/output';
