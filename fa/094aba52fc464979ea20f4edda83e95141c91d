@@ -1,0 +1,41 @@
+.github/workflows/release-artifacts.yml
+  s_cbcef7935f20a3::t_8cceaa683917df 274-278
+tests/unit/scripts/makeDrillReleaseAssets.test.ts
+  s_cbcef7935f20a3::t_052fa4741b1b4a 24,26-29,77-78,157-159
+  s_cbcef7935f20a3::t_8cceaa683917df 79,81
+  s_cbcef7935f20a3::t_a9dc386b209ba8 25,80
+  s_cbcef7935f20a3::t_38d603f533d8d8 160-161
+scripts/bundle-tools-windows.sh
+  s_cbcef7935f20a3::t_ff0c6362007ea9 331,347-349,351-352,357-358
+scripts/release/make-drill-release-assets.mjs
+  s_cbcef7935f20a3::t_a9dc386b209ba8 51,194-199
+  s_cbcef7935f20a3::t_f53f397a1b6bfe 21,52-55,87,189-193
+docs/release-guardrails.md
+  s_cbcef7935f20a3::t_f53f397a1b6bfe 104
+  s_cbcef7935f20a3::t_c88280a4963619 105
+scripts/release/publish-release-mirror.mjs
+  s_cbcef7935f20a3::t_ee2ff30b3c0df7 3,5,15-17,24,40-42,46,48-51,70,121-124,147,374,376,394-398,402-419,435-559,588,597
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_c88280a4963619 1312-1315
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_cbcef7935f20a3::t_a9dc386b209ba8 440-441
+  s_cbcef7935f20a3::t_88ed8f81c3231a 270-273
+  s_cbcef7935f20a3::t_5381278b61f84f 10-12,18,219,262-269,274-439,442-471
+  s_cbcef7935f20a3::t_b21702b8312821 472
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fa094aba52fc464979ea20f4edda83e95141c91d",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
