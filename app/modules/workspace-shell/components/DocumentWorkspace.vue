@@ -1049,6 +1049,10 @@ function handlePreviewAwareGoToPage(pageNumber: number, options?: IScrollToPageO
         Math.max(1, Math.trunc(pageNumber)),
         Math.max(1, openingPreviewPageCount.value),
     );
+    if (options) {
+        handleGoToPage(boundedPage, options);
+        return;
+    }
     documentOpenSurface.requestNavigation(boundedPage);
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);
