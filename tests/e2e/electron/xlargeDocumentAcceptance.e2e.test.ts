@@ -8,6 +8,10 @@ import {
     writeFile,
 } from 'node:fs/promises';
 import {
+    createReadStream,
+    existsSync,
+} from 'node:fs';
+import {
     dirname,
     join,
     resolve,
@@ -1610,6 +1614,14 @@ async function writeTelemetry(telemetry: IXlargeAcceptanceTelemetry) {
     );
 }
 
+async function hashPath(path: string) {
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(path)) {
+        hash.update(chunk);
+    }
+    return hash.digest('hex');
+}
+
 xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
     it('keeps embedded annotations across two sessions and a fresh renderer save/reopen', async () => {
         const telemetry = createTelemetry();
@@ -1893,6 +1905,7 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             });
             activeHeartbeat = null;
             await timed(telemetry, 'saved-output-qpdf-check', () => assertQpdfCheck(savedPath));
+            const savedContentHash = await hashPath(savedPath);
             await timed(telemetry, 'fresh-renderer-reload', async () => {
                 await sessionB!.page.reload({waitUntil: 'domcontentloaded'});
                 activeHeartbeat = await startRendererHeartbeat(sessionB!.page);
@@ -1900,6 +1913,24 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 await waitForViewerInteractive(sessionB!.page, XLARGE_SAVE_TIMEOUT_MS);
             });
 
+            await expect.poll(
+                async () => {
+                    const state = await readWorkspaceStateValues<{
+                        documentRevisionToken?: string | null;
+                        pdfSourceState?: IPdfSourceStateSnapshot;
+                        workingCopyPath?: string | null;
+                    }>(sessionB!.page, [
+                        'documentRevisionToken',
+                        'pdfSourceState',
+                        'workingCopyPath',
+                    ]);
+                    const reopenedPath = state.pdfSourceState?.reloadPath
+                        ?? state.workingCopyPath
+                        ?? null;
+                    return typeof reopenedPath === 'string' && existsSync(reopenedPath);
+                },
+                {timeout: XLARGE_SAVE_TIMEOUT_MS},
+            ).toBe(true);
             const reopenedState = await readWorkspaceStateValues<{
                 documentRevisionToken?: string | null;
                 pdfSourceState?: IPdfSourceStateSnapshot;
@@ -1909,16 +1940,24 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
                 'pdfSourceState',
                 'workingCopyPath',
             ]);
-            expect(reopenedState.workingCopyPath).toBe(savedPath);
             expect(reopenedState.documentRevisionToken).toBe(savedState.documentRevisionToken);
             expect(reopenedState.pdfSourceState).toEqual({
                 hasInMemoryData: false,
                 reloadKind: 'path',
-                reloadPath: savedPath,
+                reloadPath: reopenedState.workingCopyPath,
             });
             const reopenedPath = reopenedState.pdfSourceState?.reloadPath
                 ?? reopenedState.workingCopyPath
-                ?? savedPath;
+                ?? null;
+            expect(reopenedPath).toEqual(expect.any(String));
+            if (!reopenedPath) {
+                throw new Error('Reopened workspace state did not expose a working-copy path');
+            }
+            expect(existsSync(reopenedPath)).toBe(true);
+            // A fresh renderer reload may rematerialize the disposable working
+            // copy, so its path is not a durable identity. The saved bytes and
+            // revision remain the real save/reopen contract.
+            expect(await hashPath(reopenedPath)).toBe(savedContentHash);
             await waitForDetachedEditorLayers(sessionB.page);
             const finalIndex = await timed(
                 telemetry,
