@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_a82182afd52c56::t_082618089d190d 29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "873f217d7b57f887bdbedf1ac10e0266e1f566cd",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
