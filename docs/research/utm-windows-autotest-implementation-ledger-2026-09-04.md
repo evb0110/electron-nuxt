@@ -156,8 +156,9 @@ repository commands in plan section 10.
 
 Closure gates:
 
-- [ ] `pnpm windows:test`, `windows:test:doctor`, `windows:test:report` and
-      `windows:test:stop` exist with the documented exit codes 0 to 6.
+- [ ] Package scripts `windows:test`, `windows:test:doctor`,
+      `windows:test:report` and `windows:test:stop` exist with the documented
+      exit codes 0 to 6.
 - [ ] Host data root, config allowlist, candidate manifest and bounded report
       directory exist outside the source checkout. Credentials are in host
       secret storage.

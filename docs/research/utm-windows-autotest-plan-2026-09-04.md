@@ -494,15 +494,15 @@ Do not upload or publish releases, change Store listings, or create automation s
 
 The user requires a permanent suite that can be run at will on this machine. Permanence is an acceptance condition, not an optional follow-up. Keep runner source, PowerShell/Windows worker code, native UI adapter, fixture manifests, assertions, capability registry, dependency locks and operating documentation in this repository. A one-off agent script or commands retained only in a conversation do not satisfy the requirement.
 
-Provide one stable repository command. The following is the proposed interface, not currently implemented:
+Provide one stable repository command. The proposed package scripts below do not exist yet. The repository's script-citation policy test rejects any tracked document that cites a nonexistent script as a `pnpm` command, so they are listed as script names until M1 adds them to `package.json`:
 
-```sh
-pnpm windows:test
-pnpm windows:test --suite critical --artifact /absolute/path/to/candidate.exe
-pnpm windows:test --suite all --environment utm-win11-arm64-app-arm64
-pnpm windows:test:doctor
-pnpm windows:test:report --run RUN_ID
-pnpm windows:test:stop --run RUN_ID
+```text
+windows:test
+windows:test --suite critical --artifact /absolute/path/to/candidate.exe
+windows:test --suite all --environment utm-win11-arm64-app-arm64
+windows:test:doctor
+windows:test:report --run RUN_ID
+windows:test:stop --run RUN_ID
 ```
 
 In M1 the foreground CLI process is the coordinator and lease owner. The optional M3 LaunchAgent uses the same job/lease contract; it must not create a second concurrent controller.
