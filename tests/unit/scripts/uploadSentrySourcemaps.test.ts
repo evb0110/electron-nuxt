@@ -181,6 +181,12 @@ describe('uploadSentrySourcemaps', () => {
             reset: true,
         });
         const runCli = vi.fn(async (args: string[]) => {
+            const projectArgumentIndex = args.indexOf('--project');
+            expect(args.slice(projectArgumentIndex, projectArgumentIndex + 2)).toEqual([
+                '--project',
+                'private-web-project',
+            ]);
+            expect(args).not.toContain('private-desktop-project');
             const staticRoot = args.at(-1)!;
             expect(await readFile(path.join(
                 staticRoot,
