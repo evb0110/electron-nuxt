@@ -271,6 +271,8 @@ jobs:
       - prepare
       - quality
     if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.quality.result != 'failure' && needs.quality.result != 'cancelled' }}
+    # Advisory: the called workflow's job carries continue-on-error, because a
+    # reusable-workflow call job cannot declare it itself.
     uses: ./.github/workflows/build-win7-legacy.yml
     with:
       ref: ${{ needs.prepare.outputs.target_sha }}

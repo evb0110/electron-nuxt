@@ -8,10 +8,19 @@ import {
     rmSync,
     writeFileSync,
 } from 'node:fs';
+import {
+    link as linkAsync,
+    open as openFile,
+    readFile as readFileAsync,
+    unlink as unlinkAsync,
+} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {createHash} from 'node:crypto';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
 import {
     fileURLToPath,
     pathToFileURL,
@@ -45,6 +54,8 @@ const landingBuildCommand = [
     'pnpm --dir landing run build',
     'node scripts/deployVercelPrivate.mjs --promote-landing-output',
 ].join(' && ');
+const PRODUCTION_DEPLOY_LOCK_WAIT_MS = 15 * 60_000;
+const PRODUCTION_DEPLOY_LOCK_POLL_MS = 250;
 
 // The copy filter and the `check-web-deploy-source.mjs` walker share one entry
 // predicate, so what this deploy uploads is what that check measured: local-only
@@ -521,16 +532,21 @@ export function extractVercelDeploymentUrl(output) {
     return output.match(/https:\/\/[a-z0-9][a-z0-9.-]*\.vercel\.app(?:\/[^\s"'<>]*)?/iu)?.[0] ?? null;
 }
 
-export function buildVercelRollbackArgs(deploymentUrl) {
-    if (!deploymentUrl) {
-        throw new Error('A deployment URL is required before a production rollback can run.');
+export function buildVercelRollbackArgs(previousDeployment) {
+    if (!previousDeployment) {
+        throw new Error('A previous deployment is required before a production rollback can run.');
     }
     return [
         'rollback',
-        deploymentUrl,
+        previousDeployment,
         '--yes',
     ];
 }
+
+const DEFAULT_PRODUCTION_ACCEPTANCE_URLS = Object.freeze({
+    landing: 'https://evb-viewer.com/',
+    viewer: 'https://web.evb-viewer.com/',
+});
 
 function parseHttpsAcceptanceUrls(rawValue) {
     return rawValue
@@ -546,7 +562,191 @@ function parseHttpsAcceptanceUrls(rawValue) {
         });
 }
 
+export function resolveProductionAcceptanceUrls({
+    deployTarget,
+    env,
+}) {
+    const configuredUrl = env.EVB_DEPLOY_ACCEPTANCE_URL?.trim();
+    if (configuredUrl) {
+        const configuredUrls = parseHttpsAcceptanceUrls(configuredUrl);
+        if (configuredUrls.length === 0) {
+            throw new Error('EVB_DEPLOY_ACCEPTANCE_URL must contain at least one HTTPS URL.');
+        }
+        return configuredUrls;
+    }
+    const defaultUrl = DEFAULT_PRODUCTION_ACCEPTANCE_URLS[deployTarget];
+    if (!defaultUrl) {
+        throw new Error(`No production acceptance URL is configured for deploy target ${deployTarget}.`);
+    }
+    return [defaultUrl];
+}
+
+function resolveProductionAliasUrl(deployTarget) {
+    const aliasUrl = DEFAULT_PRODUCTION_ACCEPTANCE_URLS[deployTarget];
+    if (!aliasUrl) {
+        throw new Error(`No production alias is configured for deploy target ${deployTarget}.`);
+    }
+    return aliasUrl;
+}
+
+export function extractVercelDeploymentIdentity(output, {
+    expectedAliasUrl,
+    expectedProjectName,
+} = {}) {
+    let parsed;
+    try {
+        parsed = JSON.parse(output);
+    } catch (error) {
+        throw new Error('Vercel inspect did not return valid JSON.', {cause: error});
+    }
+    const id = typeof parsed?.id === 'string' ? parsed.id.trim() : '';
+    const url = typeof parsed?.url === 'string' ? parsed.url.trim() : '';
+    if (expectedProjectName && parsed?.name !== expectedProjectName) {
+        throw new Error('Vercel inspect returned a deployment from a different project.');
+    }
+    if (expectedAliasUrl) {
+        const expectedAlias = new URL(expectedAliasUrl).hostname;
+        const aliases = Array.isArray(parsed?.aliases) ? parsed.aliases : [];
+        if (!aliases.includes(expectedAlias)) {
+            throw new Error('Vercel inspect returned a deployment that does not own the production alias.');
+        }
+    }
+    if (id) {
+        return id;
+    }
+    if (url) {
+        return /^https?:\/\//iu.test(url) ? url : `https://${url}`;
+    }
+    throw new Error('Vercel inspect did not identify the current production deployment.');
+}
+
+function inspectCurrentProductionDeployment({
+    aliasUrl,
+    command,
+    env,
+    expectedProjectName,
+    sourceRoot,
+    spawnSyncImpl,
+}) {
+    const useShell = process.platform === 'win32';
+    const inspectArgs = [
+        'inspect',
+        aliasUrl,
+        '--json',
+    ];
+    const inspectCommand = useShell ? quoteWindowsShellArg(command) : command;
+    const inspectSpawnArgs = useShell ? inspectArgs.map(quoteWindowsShellArg) : inspectArgs;
+    const result = spawnSyncImpl(inspectCommand, inspectSpawnArgs, {
+        cwd: sourceRoot,
+        encoding: 'utf8',
+        env,
+        shell: useShell,
+        stdio: [
+            'ignore',
+            'pipe',
+            'pipe',
+        ],
+    });
+    if (result.error) {
+        throw result.error;
+    }
+    if ((result.status ?? 1) !== 0) {
+        throw new Error(`Vercel inspect exited with ${result.status ?? 1}; refusing a production deploy without a rollback target.`);
+    }
+    return extractVercelDeploymentIdentity(result.stdout ?? '', {
+        expectedAliasUrl: aliasUrl,
+        expectedProjectName,
+    });
+}
+
+function readVercelProjectLink(sourceRoot) {
+    const projectLinkPath = path.join(sourceRoot, '.vercel', 'project.json');
+    let projectLink;
+    try {
+        projectLink = JSON.parse(readFileSync(projectLinkPath, 'utf8'));
+    } catch (error) {
+        throw new Error('Production deploy locking requires valid Vercel project linkage.', {cause: error});
+    }
+    const projectId = typeof projectLink?.projectId === 'string'
+        ? projectLink.projectId.trim()
+        : '';
+    if (!projectId) {
+        throw new Error('Production deploy locking requires a Vercel project ID.');
+    }
+    const projectName = typeof projectLink?.projectName === 'string'
+        ? projectLink.projectName.trim()
+        : '';
+    if (!projectName) {
+        throw new Error('Production deploy locking requires a Vercel project name.');
+    }
+    return {
+        projectId,
+        projectName,
+    };
+}
+
+function getProductionDeployLockPath(projectId) {
+    const projectFingerprint = createHash('sha256').update(projectId).digest('hex').slice(0, 24);
+    return path.join(tmpdir(), `evb-vercel-production-${projectFingerprint}.lock`);
+}
+
+async function readProductionDeployLock(lockPath) {
+    try {
+        return JSON.parse(await readFileAsync(lockPath, 'utf8'));
+    } catch {
+        return null;
+    }
+}
+
+async function acquireProductionDeployLock({
+    env,
+    projectId,
+}) {
+    const lockPath = getProductionDeployLockPath(projectId);
+    const lockToken = randomUUID();
+    const configuredWaitMs = Number(env.EVB_PRODUCTION_DEPLOY_LOCK_WAIT_MS);
+    const waitMs = Number.isSafeInteger(configuredWaitMs) && configuredWaitMs >= 0
+        ? configuredWaitMs
+        : PRODUCTION_DEPLOY_LOCK_WAIT_MS;
+    const deadline = Date.now() + waitMs;
+
+    while (true) {
+        const temporaryPath = `${lockPath}.${process.pid}.${lockToken}.tmp`;
+        try {
+            const handle = await openFile(temporaryPath, 'wx', 0o600);
+            try {
+                await handle.writeFile(JSON.stringify({
+                    acquiredAt: Date.now(),
+                    pid: process.pid,
+                    token: lockToken,
+                }));
+            } finally {
+                await handle.close();
+            }
+            await linkAsync(temporaryPath, lockPath);
+            await unlinkAsync(temporaryPath).catch(() => undefined);
+            return async () => {
+                const currentOwner = await readProductionDeployLock(lockPath);
+                if (currentOwner?.token === lockToken) {
+                    await unlinkAsync(lockPath).catch(() => undefined);
+                }
+            };
+        } catch (error) {
+            await unlinkAsync(temporaryPath).catch(() => undefined);
+            if (error?.code !== 'EEXIST') {
+                throw error;
+            }
+        }
+
+        if (Date.now() >= deadline) {
+            throw new Error(`Timed out waiting for the production deploy lock for ${waitMs}ms.`);
+        }
+        await new Promise(resolve => setTimeout(resolve, PRODUCTION_DEPLOY_LOCK_POLL_MS));
+    }
+}
+
 async function runDeployAcceptanceChecks({
+    acceptanceUrls,
     deploymentUrl,
     deployTarget,
     env,
@@ -554,17 +754,14 @@ async function runDeployAcceptanceChecks({
     sourceRoot,
     spawnSyncImpl,
 }) {
-    const configuredUrls = env.EVB_DEPLOY_ACCEPTANCE_URL?.trim()
-        ? parseHttpsAcceptanceUrls(env.EVB_DEPLOY_ACCEPTANCE_URL)
-        : [deploymentUrl];
-    if (configuredUrls.length === 0) {
-        throw new Error('Production deploy acceptance requires EVB_DEPLOY_ACCEPTANCE_URL or a Vercel deployment URL.');
+    if (acceptanceUrls.length === 0) {
+        throw new Error('Production deploy acceptance requires at least one public URL.');
     }
     if (typeof fetchImpl !== 'function') {
         throw new Error('Production deploy acceptance requires a fetch implementation.');
     }
 
-    for (const url of configuredUrls) {
+    for (const url of acceptanceUrls) {
         const response = await fetchImpl(url, {
             headers: {accept: 'text/html,application/json'},
             redirect: 'follow',
@@ -650,8 +847,34 @@ export async function runPrivateVercelDeploy({
         projectRoot,
     });
     const commandArgs = buildPrivateDeployArgs(prepared.sourceRoot, deployArgs, {prebuilt});
+    let releaseProductionDeployLock = async () => undefined;
 
     try {
+        const projectLink = isProduction
+            ? readVercelProjectLink(prepared.sourceRoot)
+            : null;
+        if (isProduction) {
+            releaseProductionDeployLock = await acquireProductionDeployLock({
+                env,
+                projectId: projectLink.projectId,
+            });
+        }
+        const acceptanceUrls = isProduction
+            ? resolveProductionAcceptanceUrls({
+                deployTarget,
+                env,
+            })
+            : [];
+        const previousProductionDeployment = isProduction
+            ? inspectCurrentProductionDeployment({
+                aliasUrl: resolveProductionAliasUrl(deployTarget),
+                command,
+                env,
+                expectedProjectName: projectLink.projectName,
+                sourceRoot: prepared.sourceRoot,
+                spawnSyncImpl,
+            })
+            : null;
         const useShell = process.platform === 'win32';
         const spawnCommand = useShell ? quoteWindowsShellArg(command) : command;
         const spawnArgs = useShell ? commandArgs.map(quoteWindowsShellArg) : commandArgs;
@@ -704,6 +927,7 @@ export async function runPrivateVercelDeploy({
 
         try {
             await runDeployAcceptanceChecks({
+                acceptanceUrls,
                 deploymentUrl,
                 deployTarget,
                 env,
@@ -714,7 +938,7 @@ export async function runPrivateVercelDeploy({
         } catch (error) {
             let rollbackError;
             try {
-                const rollbackArgs = buildVercelRollbackArgs(deploymentUrl);
+                const rollbackArgs = buildVercelRollbackArgs(previousProductionDeployment);
                 const rollbackUseShell = process.platform === 'win32';
                 const rollbackCommand = rollbackUseShell ? quoteWindowsShellArg(command) : command;
                 const rollbackSpawnArgs = rollbackUseShell
@@ -744,6 +968,7 @@ export async function runPrivateVercelDeploy({
 
         return 0;
     } finally {
+        await releaseProductionDeployLock();
         prepared.cleanup();
     }
 }

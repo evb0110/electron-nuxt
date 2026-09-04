@@ -18,6 +18,7 @@ import {
     getRequiredArtifactPatterns,
 } from './policy.mjs';
 import {DRILL_TAG_PATTERN} from './releaseTag.mjs';
+import {MULTIPART_PART_BYTES} from './publish-release-mirror.mjs';
 
 const DRILL_POLICY_ENV = Object.freeze({
     EVB_RELEASE_HAS_MAC_SIGNING: 'true',
@@ -47,7 +48,11 @@ const TARGETS = Object.freeze([
     },
 ]);
 
-const DRILL_ASSET_BYTES = 4 * 1024;
+export const DRILL_ASSET_BYTES = 4 * 1024;
+// One drill asset spans three mirror parts so every drill proves the
+// multipart upload path against the real bucket, not only the unit fakes.
+export const DRILL_MULTIPART_ASSET_BYTES = MULTIPART_PART_BYTES * 2 + 1024;
+const DRILL_MULTIPART_ASSET_SUFFIX = '.dmg';
 
 export async function makeDrillReleaseAssets(outputDirectory, version) {
     validateDrillVersion(version);
@@ -79,7 +84,7 @@ export async function makeDrillReleaseAssets(outputDirectory, version) {
         for (const name of artifactNames) {
             await writeFile(
                 join(targetDirectory, name),
-                createDeterministicBytes(version, name),
+                createDeterministicBytes(version, name, drillAssetBytes(name)),
             );
         }
 
@@ -181,9 +186,17 @@ async function createUpdaterMetadata(target, targetDirectory, version, artifactN
     ].join('\n');
 }
 
-function createDeterministicBytes(version, name) {
-    const seed = `EVB Viewer publish-chain drill ${version} ${name}\n`;
-    return Buffer.from(seed.repeat(Math.ceil(DRILL_ASSET_BYTES / seed.length)).slice(0, DRILL_ASSET_BYTES));
+function drillAssetBytes(name) {
+    return name.endsWith(DRILL_MULTIPART_ASSET_SUFFIX) ? DRILL_MULTIPART_ASSET_BYTES : DRILL_ASSET_BYTES;
+}
+
+function createDeterministicBytes(version, name, byteLength) {
+    const seed = Buffer.from(`EVB Viewer publish-chain drill ${version} ${name}\n`, 'utf8');
+    const bytes = Buffer.alloc(byteLength);
+    for (let offset = 0; offset < byteLength; offset += seed.byteLength) {
+        seed.copy(bytes, offset, 0, Math.min(seed.byteLength, byteLength - offset));
+    }
+    return bytes;
 }
 
 async function getArtifactInfo(filePath) {

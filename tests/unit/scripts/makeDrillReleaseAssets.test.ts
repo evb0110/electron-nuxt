@@ -21,7 +21,12 @@ import {
     getLocalReleaseTargets,
     getRequiredArtifactPatterns,
 } from '@scripts/release/policy.mjs';
-import {makeDrillReleaseAssets} from '@scripts/release/make-drill-release-assets.mjs';
+import {
+    DRILL_ASSET_BYTES,
+    DRILL_MULTIPART_ASSET_BYTES,
+    makeDrillReleaseAssets,
+} from '@scripts/release/make-drill-release-assets.mjs';
+import {MULTIPART_PART_BYTES} from '@scripts/release/publish-release-mirror.mjs';
 
 const directories: string[] = [];
 const policyEnvironment = {
@@ -69,7 +74,11 @@ describe('drill release asset generator', () => {
             name,
             firstPath,
         ] of firstFiles) {
-            expect(await readFile(firstPath)).toEqual(await readFile(secondFiles.get(name) ?? ''));
+            const firstBytes = await readFile(firstPath);
+            expect(firstBytes.equals(await readFile(secondFiles.get(name) ?? ''))).toBe(true);
+            if (!name.endsWith('.yml')) {
+                expect(firstBytes.byteLength).toBe(name.endsWith('.dmg') ? DRILL_MULTIPART_ASSET_BYTES : DRILL_ASSET_BYTES);
+            }
         }
 
         const metadata = new Map<string, string>();
@@ -143,6 +152,11 @@ describe('drill release asset generator', () => {
                 expect(names.some(name => pattern.test(name))).toBe(true);
             }
         }
+    });
+
+    it('seeds one asset that spans more than two mirror parts', () => {
+        expect(DRILL_MULTIPART_ASSET_BYTES).toBeGreaterThan(MULTIPART_PART_BYTES * 2);
+        expect(DRILL_MULTIPART_ASSET_BYTES).toBeLessThan(MULTIPART_PART_BYTES * 3);
     });
 
     it('rejects non-drill versions and does not create an incomplete output', async () => {

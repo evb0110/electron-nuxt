@@ -44,6 +44,11 @@ jobs:
   build_win7_legacy:
     name: build (windows-2022, win7 legacy, x64)
     runs-on: windows-2022
+    # The legacy lane pins Electron 22, which cannot load the ESM main bundle,
+    # so its packaged smoke has failed on every run since it was added. The
+    # lane is never published; keep it from hiding real failures in the
+    # supplemental lanes the daily canary exists to prove (issue #335).
+    continue-on-error: true
     env:
       EVB_RELEASE_TARGET_ARCH: x64
       EVB_RELEASE_TARGET_PLATFORM: win

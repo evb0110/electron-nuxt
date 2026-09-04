@@ -14,7 +14,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import {sendSentrySourcemapCanaries} from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
+import {
+    sendEnvelope,
+    sendSentrySourcemapCanaries,
+} from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
 
 const roots: string[] = [];
@@ -74,6 +77,62 @@ afterEach(async () => {
 });
 
 describe('Sentry source-map canaries', () => {
+    it('retries transient ingest responses with bounded server-directed backoff', async () => {
+        const responses = [
+            new Response(null, {status: 503}),
+            new Response(null, {
+                headers: {'retry-after': '0'},
+                status: 429,
+            }),
+            new Response(null, {status: 200}),
+        ];
+        const fetchImpl = vi.fn(async () => responses.shift() ?? new Response(null, {status: 500}));
+        const sleep = vi.fn(async () => undefined);
+
+        await sendEnvelope({event_id: 'a'.repeat(32)}, 'https://public@o123.ingest.de.sentry.io/42', {
+            fetchImpl,
+            sleep,
+        });
+
+        expect(fetchImpl).toHaveBeenCalledTimes(3);
+        expect(sleep).toHaveBeenNthCalledWith(1, 500);
+        expect(sleep).toHaveBeenNthCalledWith(2, 0);
+    });
+
+    it('does not retry a permanent ingest rejection', async () => {
+        const fetchImpl = vi.fn(async () => new Response(null, {status: 400}));
+        const sleep = vi.fn();
+
+        await expect(sendEnvelope(
+            {event_id: 'a'.repeat(32)},
+            'https://public@o123.ingest.de.sentry.io/42',
+            {
+                fetchImpl,
+                sleep,
+            },
+        )).rejects.toThrow('HTTP 400 after 1 attempt');
+        expect(fetchImpl).toHaveBeenCalledOnce();
+        expect(sleep).not.toHaveBeenCalled();
+    });
+
+    it('bounds retries for transport failures', async () => {
+        const fetchImpl = vi.fn(async () => {
+            throw new Error('temporary network failure');
+        });
+        const sleep = vi.fn(async () => undefined);
+
+        await expect(sendEnvelope(
+            {event_id: 'a'.repeat(32)},
+            'https://public@o123.ingest.de.sentry.io/42',
+            {
+                fetchImpl,
+                sleep,
+            },
+        )).rejects.toThrow('failed after 5 attempts');
+        expect(fetchImpl).toHaveBeenCalledTimes(5);
+        expect(sleep).toHaveBeenCalledTimes(4);
+    });
+
     it('sends one closed deterministic Debug-ID event per project-source bundle', async () => {
         const root = await setup();
         const sentEvents: unknown[] = [];
