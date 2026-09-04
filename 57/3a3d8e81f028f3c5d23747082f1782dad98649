@@ -1,0 +1,40 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_d016d04f5c20a0::t_dbb5a3645e5755 987,989
+  s_d016d04f5c20a0::t_46dde66de174e3 975-982,1356
+  s_d016d04f5c20a0::t_387db081373e4a 988
+tests/unit/app/modules/workspace-shell/composables/useDjvuProjectionActions.test.ts
+  s_d016d04f5c20a0::t_9b8cbd2b21a0aa 11-31
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_d016d04f5c20a0::t_dbb5a3645e5755 845,848,856,858,866
+app/modules/workspace-shell/composables/useDjvuProjectionActions.ts
+  s_d016d04f5c20a0::t_9b8cbd2b21a0aa 38-39,41-42
+  s_d016d04f5c20a0::t_d3aff7d4c7bfde 40
+  s_d016d04f5c20a0::t_ca7b3cb73a4b78 73-75
+  s_d016d04f5c20a0::t_a52f2295b0b4d0 76-80
+app/modules/workspace-shell/expose/workspaceExposeDescriptors.ts
+  s_d016d04f5c20a0::t_514415a38a8c2f 406
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_d016d04f5c20a0::t_9ef6a8e7cd36a8 116
+  s_d016d04f5c20a0::t_514415a38a8c2f 115,117-123
+tests/unit/app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder.test.ts
+  s_d016d04f5c20a0::t_e513a4c27b133a 16,31-37
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_d016d04f5c20a0::t_92443f7bc5aca8 675
+  s_d016d04f5c20a0::t_133905cf8a9af7 118,648,673,676
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "573a3d8e81f028f3c5d23747082f1782dad98649",
+  "prompts": {},
+  "sessions": {
+    "s_d016d04f5c20a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a069ad-570d-77a3-9656-e26c0ad247f7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,41 @@
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_119bb52352139e::t_94347e34a87d79 7,16,126,201-203,629,631-634,511
+  s_119bb52352139e::t_c7318a52ce13e2 70,326-331
+  s_119bb52352139e::t_d6ff40faa5daf5 116,178-182,187-188,223-226,394-397,405-408
+  s_119bb52352139e::t_34ff182520dcc0 122-125,630,636
+  s_119bb52352139e::t_5d97c4019f6af8 160-164
+  s_119bb52352139e::t_aaaeeb772bfc54 183-186
+  s_119bb52352139e::t_6b56b7b8ebe86e 369-372,434,457,505,700-701,713-714
+  s_119bb52352139e::t_3931104b7c9b13 662-666,672-673
+  s_119bb52352139e::t_13c2e9429b9dbc 667-671
+  s_119bb52352139e::t_96a0a10a9d0976 697-699,14,442,465,702-712
+  s_119bb52352139e::t_cbd49e65c70fe9 166-167
+  s_119bb52352139e::t_cdddf22c9f28a1 168
+  s_119bb52352139e::t_bfd693b3e41865 439-441,462-464
+  s_119bb52352139e::t_e627bfbf280b81 508-510
+  s_a82182afd52c56::t_3b97186174e796 349
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "263e9ae768c5846435ee05ba00c8a272cb478722",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

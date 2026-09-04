@@ -1,0 +1,21 @@
+tests/unit/app/modules/workspace-shell/composables/workspaceViewState.test.ts
+  s_d016d04f5c20a0::t_2d47a07a667658 228,235,246
+app/modules/workspace-shell/composables/useWorkspaceViewState.ts
+  s_d016d04f5c20a0::t_2d47a07a667658 195-197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "be2c697335acf16490f40ad07f906ae8a3bf366b",
+  "prompts": {},
+  "sessions": {
+    "s_d016d04f5c20a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a069ad-570d-77a3-9656-e26c0ad247f7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

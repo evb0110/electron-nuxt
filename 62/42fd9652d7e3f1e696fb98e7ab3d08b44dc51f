@@ -1,0 +1,45 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_0b87179a09fd3d::t_21152399f39b7c 75
+app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard.ts
+  s_0b87179a09fd3d::t_66d2001eb21ce0 48-52
+app/modules/workspace-shell/composables/pageAnnotationActionsPdfViewer.ts
+  s_0b87179a09fd3d::t_6abfbfe4f62ba3 11
+app/modules/workspace-shell/components/DeferredDocumentWorkspaceHost.vue
+  s_0b87179a09fd3d::t_901487fe6628d7 800,806
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_0b87179a09fd3d::t_9b86bf28473354 656,664,666
+  s_0b87179a09fd3d::t_67b720e76d45cb 657-659,661-663
+  s_0b87179a09fd3d::t_901487fe6628d7 129,655,660
+tests/unit/app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot.test.ts
+  s_0b87179a09fd3d::t_67b720e76d45cb 1-5
+  s_0b87179a09fd3d::t_901487fe6628d7 6-32
+tests/unit/app/modules/workspace-shell/composables/usePageAnnotationActions.test.ts
+  s_0b87179a09fd3d::t_9b86bf28473354 166,875-881,886-890,892-893
+  s_0b87179a09fd3d::t_67b720e76d45cb 882-885,891
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_0b87179a09fd3d::t_901487fe6628d7 858,860
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_0b87179a09fd3d::t_83310a19055ae8 104-109,116-122
+  s_0b87179a09fd3d::t_67b720e76d45cb 110-115
+tests/unit/app/modules/workspace-shell/annotations/readPageAnnotationImageFileFromClipboard.test.ts
+  s_0b87179a09fd3d::t_0981d07809593f 1-17,25-34
+  s_0b87179a09fd3d::t_b0eb18bffc8782 18-24
+app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot.ts
+  s_0b87179a09fd3d::t_901487fe6628d7 1-8
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6242fd9652d7e3f1e696fb98e7ab3d08b44dc51f",
+  "prompts": {},
+  "sessions": {
+    "s_0b87179a09fd3d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a4f-7156-7441-bc81-bdaf8997d62f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

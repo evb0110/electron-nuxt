@@ -1,0 +1,98 @@
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_119bb52352139e::t_da007d06db7f16 182-186,191-194,407,660
+  s_119bb52352139e::t_256e2ce52a6944 679-684
+  s_d016d04f5c20a0::t_dbb5a3645e5755 845,848,856,858,866
+app/modules/workspace-shell/composables/useDjvuProjectionActions.ts
+  s_d016d04f5c20a0::t_9b8cbd2b21a0aa 38-39,41-42
+  s_d016d04f5c20a0::t_d3aff7d4c7bfde 40
+  s_d016d04f5c20a0::t_ca7b3cb73a4b78 73-75
+  s_d016d04f5c20a0::t_a52f2295b0b4d0 76-80
+tests/unit/app/modules/workspace-shell/composables/useDjvuProjectionActions.test.ts
+  s_d016d04f5c20a0::t_9b8cbd2b21a0aa 11-31
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_d016d04f5c20a0::t_133905cf8a9af7 118,648,673,676
+  s_d016d04f5c20a0::t_92443f7bc5aca8 675
+app/modules/workspace-shell/expose/workspaceExposeDescriptors.ts
+  s_d016d04f5c20a0::t_514415a38a8c2f 406
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_c57729f2c66bed::t_3e90b45d6d76e9 32-40,63,65-66,68,79-100,128-129,169,179,232,270,292-304,307-309,312,315,318-376,378,381,383-387,390,395-403,407,409-412,414-415,430-433,450,474-475,477-506,508-510,706-713,715-716,718,792-797,800-801,806-817,822-828,831-847,851-874,877,880-889,892-901,903-904,907-911,917-927,931,990-993,996-997,1003-1004,1006,1011,1021-1022,1043,1045,1050-1052,1060-1067,1069-1071,1073-1080,1083-1088,1090-1091,1093-1098,1100,1102-1106,1108-1123,1126-1138,1140-1142,1146-1151,1153-1155,1159-1164,1166-1168,1172-1177,1179-1181,1185-1190,1192-1194,1196-1198,1202-1212,1214,1216-1220,1222-1240,1242-1247,1249-1251,1253-1274,1276-1281,1283-1294,1296-1298,1301,1303-1306,1308-1330,1333,1347-1352,1354-1355,1357-1358,1360-1362,1365-1366,1369,1372-1380,1382-1383,1385-1394,1396-1397,1400,1402-1409,1411-1417,1419-1420,1423,1425-1428,1430-1435,416,427-429,443,460-461,471-472,697,552,805,147,916,728-730,768,774,781,787,574,576,611,621,649,691,523,531,536,540,543,545,979
+  s_c57729f2c66bed::t_b3a2745aa3020e 389,391-394,404-406,408,417-426
+  s_c57729f2c66bed::t_e28a1144dafa01 434-440,442,444,448-449,462-469,473
+  s_c57729f2c66bed::t_4a2b9f531e547e 441
+  s_c57729f2c66bed::t_b298a40380ba71 445-447,451-453
+  s_1349f3b3502f3a::t_c0d06e79f19409 454,556-557,719-726,731-767,769-773,775-780,782,788,563,565,567-569,578,588-590,592,656-657,661,663-666,674-679,687-690,692,524,529
+  s_c57729f2c66bed::t_f38f046b4d2979 455-459
+  s_1349f3b3502f3a::t_569cb808837f1a 470,564,566,570-573,575,577,579-587,591,593-610,612-620,622-648,650-655,658-660,662,667-673,680-686,693-694
+  s_c57729f2c66bed::t_f0b986ff8e0c5c 1139,1143,1152,1156,1165,1169,1178,1182,1191,1195,1199
+  s_c57729f2c66bed::t_f6dc990b2eac6d 511-514,703-704,159
+  s_c57729f2c66bed::t_70763640ae3e2c 696,698,700-702,714
+  s_a82182afd52c56::t_90a4b533935249 699
+  s_a82182afd52c56::t_bacc10cf8953c8 1215
+  s_1349f3b3502f3a::t_c05767a30a9f01 549,551,554
+  s_1349f3b3502f3a::t_013cce471a5dea 550,517
+  s_1349f3b3502f3a::t_c6f8d1416a3619 553,555,558-561
+  s_d016d04f5c20a0::t_dbb5a3645e5755 562,164,789,695,534,548,986,987,989
+  s_1349f3b3502f3a::t_b401e0b23d60df 802-804,818,849-850,875-876
+  s_1349f3b3502f3a::t_f3c35a68bdce99 144,161-163
+  s_1349f3b3502f3a::t_b55683f7e11e3a 149-156,158,165,912-915
+  s_1349f3b3502f3a::t_a9ffac5288b883 160
+  s_1349f3b3502f3a::t_330e5735de2e81 727,783-786,539
+  s_d016d04f5c20a0::t_46e4a040573f1d 515
+  s_d016d04f5c20a0::t_2a3a068dcbb891 47,50-53
+  s_d016d04f5c20a0::t_1fd4aa67dc5508 516,518-522,525-528,530,532-533,535,537,546-547,983-985
+  s_d016d04f5c20a0::t_471817b9de62b4 538,541-542,544
+  s_d016d04f5c20a0::t_46dde66de174e3 975-978,980-982,1356
+tests/unit/app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder.test.ts
+  s_d016d04f5c20a0::t_e513a4c27b133a 16,31-37
+tests/unit/app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy.test.ts
+  s_d016d04f5c20a0::t_514415a38a8c2f 115,117-123
+  s_d016d04f5c20a0::t_9ef6a8e7cd36a8 116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "bcacd098c5812c86bee8bdf3c3d265b6589987d0",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_1349f3b3502f3a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06913-7030-7ab0-9a9d-87fa4208642a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d016d04f5c20a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a069ad-570d-77a3-9656-e26c0ad247f7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

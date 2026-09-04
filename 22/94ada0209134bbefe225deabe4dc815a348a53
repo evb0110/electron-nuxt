@@ -1,0 +1,19 @@
+tests/unit/app/modules/workspace-shell/components/workspacePdfToolbarView.test.ts
+  s_0b87179a09fd3d::t_b1d69d1c9675b4 50,53
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2294ada0209134bbefe225deabe4dc815a348a53",
+  "prompts": {},
+  "sessions": {
+    "s_0b87179a09fd3d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a4f-7156-7441-bc81-bdaf8997d62f",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

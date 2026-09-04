@@ -1,0 +1,78 @@
+app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes.ts
+  s_c57729f2c66bed::t_dba5233c56098e 30-35
+  s_c57729f2c66bed::t_a99bf0829c33a2 54
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_c57729f2c66bed::t_3e90b45d6d76e9 32-40,59,61-62,64,75-96,124-125,154,164,217,255,277-289,292-294,297,300,303-361,363,366,368-372,375,380-388,392,394-397,399-400,415-418,435,459-460,462-491,493-495,501,503,549-556,558-559,561,567-572,575-588,593-599,602-618,620-643,646,649-658,661-670,672-673,676-680,682-692,696,773-776,779-780,786-787,789,794,804-805,826,828,833-835,843-850,852-854,856-863,866-871,873-874,876-881,883,885-889,891-906,909-921,923-925,929-934,936-938,942-947,949-951,955-960,962-964,968-973,975-977,979-981,985-995,997,999-1003,1005-1023,1025-1030,1032-1034,1036-1057,1059-1064,1066-1077,1079-1081,1084,1086-1089,1091-1113,1116,1130-1135,1137-1138,1140-1141,1143-1145,1148-1149,1152,1155-1163,1165-1166,1168-1177,1179-1180,1183,1185-1192,1194-1200,1202-1203,1206,1208-1211,1213-1218,401,412-414,428,445-446,456-457,511,513,516,525,527,530,540
+  s_c57729f2c66bed::t_70763640ae3e2c 502,504-506,514,517,519-521,539,541,543-545,557
+  s_a82182afd52c56::t_319f7f93964768 744,509,524
+  s_d016d04f5c20a0::t_dbb5a3645e5755 747
+  s_c57729f2c66bed::t_b3a2745aa3020e 374,376-379,389-391,393,402-411
+  s_c57729f2c66bed::t_e28a1144dafa01 419-425,427,429,433-434,447-454,458
+  s_c57729f2c66bed::t_4a2b9f531e547e 426
+  s_c57729f2c66bed::t_b298a40380ba71 430-432,436-438
+  s_1349f3b3502f3a::t_c0d06e79f19409 439
+  s_c57729f2c66bed::t_f38f046b4d2979 440-444
+  s_1349f3b3502f3a::t_569cb808837f1a 455
+  s_c57729f2c66bed::t_f0b986ff8e0c5c 922,926,935,939,948,952,961,965,974,978,982
+  s_c57729f2c66bed::t_f6dc990b2eac6d 496-499,507-508,522-523,546-547
+  s_a82182afd52c56::t_90a4b533935249 518,542
+  s_a82182afd52c56::t_bacc10cf8953c8 998
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_119bb52352139e::t_cbc25392bb537d 327-333
+  s_119bb52352139e::t_73ff699c9f5469 373
+  s_c57729f2c66bed::t_4f3945e65852bf 693
+  s_c57729f2c66bed::t_baba77ee78b8aa 694-708
+  s_c57729f2c66bed::t_782f938b53d1d4 808-810
+  s_c57729f2c66bed::t_a99bf0829c33a2 776-784,786-789
+tests/unit/app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.test.ts
+  s_c57729f2c66bed::t_310551db2c662d 489,510-559,564-565,567-569,571-572,582-644,649-652,654-657
+  s_c57729f2c66bed::t_a99bf0829c33a2 490-509,560-561,563,573-575,577-579,581,645-648
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3f1b21d656abfb089a2a4043d9620412d3bfba25",
+  "prompts": {},
+  "sessions": {
+    "s_119bb52352139e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a065f0-d6de-7403-a44c-1b272e7df8a9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_1349f3b3502f3a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06913-7030-7ab0-9a9d-87fa4208642a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d016d04f5c20a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a069ad-570d-77a3-9656-e26c0ad247f7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
