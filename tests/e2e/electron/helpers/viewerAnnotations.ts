@@ -286,6 +286,55 @@ async function getOrdinaryFreeTextEditorCount(page: Page) {
     });
 }
 
+/**
+ * Creates a text box through EVB's editor layer and waits for its real input
+ * before typing. This is the packaged-smoke seam: the active toolbar button
+ * alone is not enough to prove that the editor layer can accept a box.
+ */
+export async function createCanonicalTextBoxWithPointer(
+    page: Page,
+    text: string,
+    position: {
+        x: number;
+        y: number;
+    },
+    pageNumber = 1,
+) {
+    await clickAnnotationTool(page, 'Text', 30_000);
+    await page.waitForFunction((targetPageNumber: number) => {
+        const selector = `.page_container[data-page="${targetPageNumber}"]`;
+        const host = document.querySelector<HTMLElement>('.editor-pane.is-active .workspace-host');
+        const container = host?.querySelector<HTMLElement>(selector);
+        const layer = container?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        const rect = layer?.getBoundingClientRect();
+        return Boolean(layer && rect && rect.width > 0 && rect.height > 0 && layer.classList.contains('is-interactive'));
+    }, {timeout: 30_000}, pageNumber);
+
+    const point = await resolveAnnotationLayerPoint(page, position, pageNumber);
+    if (!point) {
+        throw new Error(`Canonical text-box creation could not resolve page ${pageNumber}`);
+    }
+    await page.mouse.click(point.x, point.y);
+
+    const editorSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] `
+        + '.pdf-annotation-editor-text-box [contenteditable="true"]';
+    await page.waitForSelector(editorSelector, {
+        timeout: 30_000,
+        visible: true,
+    });
+    await page.focus(editorSelector);
+    await page.keyboard.type(text, {delay: 10});
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    await page.keyboard.down(modifier);
+    await page.keyboard.press('Enter');
+    await page.keyboard.up(modifier);
+    await page.waitForFunction((expectedText: string) => Array.from(
+        document.querySelectorAll<HTMLElement>(
+            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
+        ),
+    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 30_000}, text);
+}
+
 async function getVisibleHighlightEditorCounts(page: Page) {
     return page.evaluate(() => {
         const visibleHosts = Array.from(document.querySelectorAll<HTMLElement>('.workspace-host'))
