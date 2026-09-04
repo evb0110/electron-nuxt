@@ -64,7 +64,7 @@ proposals that reviews already declined so nobody re-proposes them by accident.
 
 ### M0a image and transport
 
-Status: Planned
+Status: In progress
 
 Owner roles: Windows/VM maintainer, infrastructure engineer.
 
@@ -106,11 +106,23 @@ Blocking rule: if automatic sign-in cannot qualify on the isolated image, set
 this package to Blocked, do not start M1, and record the evaluated alternative
 Windows environment. Assisted runs do not close this package.
 
-Evidence: none.
+Evidence: commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40 on `main` landed `scripts/windows-test/host/` and
+`scripts/windows-test/images/`: the `utmctl` client with supervised `exec`
+and consent detection (OSStatus -1743 reported with the launcher name), the
+host lock and lease with stale-owner recovery, the forward-only transition
+ledger, the VM identity guard that refuses the golden image and any denied
+UUID or bundle path, the image manifest, `doctor`, `report` and `stop`. Unit
+tests under `tests/unit/scripts/windows-test/host*.test.ts` and
+`images*.test.ts` cover the rejection paths above. No gate is ticked because
+every gate needs the isolated golden image, which has not been built. The
+guest-side rejection half of the mailbox gate (stale run ID, unsupported
+schema, path outside root, duplicate run, artifact hash mismatch) has unit
+coverage in `guestJobValidation.test.ts`; the cross-session ACL half still
+needs the VM.
 
 ### M0b native UI feasibility
 
-Status: Evidence first
+Status: In progress
 
 Owner role: Windows UI test engineer.
 
@@ -141,11 +153,22 @@ Closure gates:
       accessibility proxy recorded, without inferring it from the virtual
       display device.
 
-Evidence: none.
+Evidence: commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40 on `main` landed the adapter contract in
+`scripts/windows-test/guest/native-ui/nativeUiAdapter.ts`, a WinApp CLI
+adapter pinned to v0.6.0 and a FlaUI UIA3 PowerShell adapter behind that
+contract, and the selector record file `tests/windows/native-ui/selectors.json`
+with a schema lint. Reinterpretation recorded: the ledger asked for the POC
+before adapter code. Both adapters were written first so the POC selects
+between two working candidates instead of designing one; the selection gate
+stays open until the POC runs on the ARM64 guest. The selector records are
+placeholders written from documentation, not from an enumerated dialog tree,
+and must be replaced by the second gate. Unit tests in
+`nativeUiAdapters.test.ts` prove the ambiguous-selector, locked-desktop and
+pattern-versus-input labeling behaviors on fake command runners only.
 
 ### M1 regression slice
 
-Status: Planned
+Status: In progress
 
 Owner roles: Electron test engineer, desktop test engineer.
 
@@ -156,9 +179,10 @@ repository commands in plan section 10.
 
 Closure gates:
 
-- [ ] Package scripts `windows:test`, `windows:test:doctor`,
+- [x] Package scripts `windows:test`, `windows:test:doctor`,
       `windows:test:report` and `windows:test:stop` exist with the documented
-      exit codes 0 to 6.
+      exit codes 0 to 6. Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40; `cliArgs.test.ts` maps every outcome to
+      its exit code and `packageScripts.test.ts` pins the script names.
 - [ ] Host data root, config allowlist, candidate manifest and bounded report
       directory exist outside the source checkout. Credentials are in host
       secret storage.
@@ -168,21 +192,28 @@ Closure gates:
       intervention.
 - [ ] A separate no-debug launch covers package identity and first-run
       behavior.
-- [ ] Runner tests feed malformed, missing and stale result files, wrong
+- [x] Runner tests feed malformed, missing and stale result files, wrong
       artifact hashes, a zero-exit error response, an absent desktop and a
-      crashed worker. Each is rejected.
+      crashed worker. Each is rejected. Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40;
+      `hostResultValidation.test.ts` and `hostCoordinator.test.ts`.
 - [ ] First failure evidence remains inspectable after the next run.
 - [ ] Second run from a new terminal and a run on a later day succeed from the
       documented command alone. Removing a required dependency produces a
       useful `doctor` failure.
-- [ ] Human contact-sheet review obligation reported separately from the
-      automated result.
+- [x] Human contact-sheet review obligation reported separately from the
+      automated result. Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40; `hostReport.test.ts` prints the
+      obligation on its own line and never folds it into the outcome.
 
-Evidence: none.
+Evidence: commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40 on `main` landed the guest worker
+(`scripts/windows-test/guest/`), the nine critical case implementations, the
+host coordinator and the four package scripts. The VM-dependent gates stay
+open: no run against official 0.1.450 has happened, so the two product
+failures are unreproduced, and no fresh-clone run has executed at all. The
+ten-run and two-terminal gates need the M0a image first.
 
 ### M2 packaging and critical suite
 
-Status: Planned
+Status: In progress
 
 Owner roles: Electron test engineer, test maintainer, module owners.
 
@@ -196,14 +227,24 @@ Closure gates:
 - [ ] Remaining initial critical cases (WIN-SAVE-02, WIN-SAVE-04, WIN-SAVE-08,
       WIN-PRINT-02, WIN-PRINT-07, WIN-UI-02, WIN-TOOLS-01) implemented with
       negative controls proven.
-- [ ] `tests/windows/capabilities.json` registry exists with a lint that
+- [x] `tests/windows/capabilities.json` registry exists with a lint that
       rejects missing tests, duplicate IDs, empty oracles and skipped required
-      cases.
-- [ ] Change-area selector maps Electron, print/CSP, revision, native tools,
+      cases. Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40; `registryLint.test.ts` and the policy test
+      `tests/unit/scripts/windowsTestRegistryPolicy.test.ts` run the lint
+      against the committed registry on every `pnpm test`.
+- [x] Change-area selector maps Electron, print/CSP, revision, native tools,
       installer and path changes to suites, with a smoke that runs regardless.
+      Commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40; `changeSelector.test.ts` checks every declared pattern
+      against a file that exists in the working tree.
 - [ ] No native-dialog case is satisfied by an internal API substitute.
 
-Evidence: none.
+Evidence: commit 6ea0020a7a563d7697f46e3fea40c1ca898a3e40 on `main` registers 75 cases, nine of them
+`implemented` and gated as advisory, with negative-control fixtures F05 and
+F08 generated by `scripts/windows-test/fixtures/`. The seven remaining
+critical cases have step code and unit tests against fake drivers, but their
+negative controls are unproven until they run on the image. The NSIS and AppX
+install gate has the per-user NSIS script and package identity check written
+and untested on Windows.
 
 ### M3 nightly breadth
 
@@ -255,15 +296,15 @@ before the case can become required.
 
 | ID | Family | Driver | Negative control | Package | State |
 | --- | --- | --- | --- | --- | --- |
-| WIN-SAVE-01 | Delete, save, delete, save, reopen | APP + NATIVE | Official 0.1.450 stale-revision error | M1 | Planned |
-| WIN-PRINT-01 | Print all pages through Microsoft Print to PDF, repeat warm | WIN | Official 0.1.450 blank one-page PDF; labeled blank and wrong-marker PDFs | M1 | Planned |
-| WIN-PRINT-02 | Delete, save, delete, save, print, reopen | APP + WIN | Wrong-page-marker PDF | M2 | Planned |
-| WIN-PRINT-07 | Cancel app, native and output dialogs; overwrite refusal | WIN | Injected stray output and orphan window | M2 | Planned |
-| WIN-SAVE-02 | Annotate, save, edit, save; Save As with native picker | APP + WIN | Source-modified-on-Save-As control | M2 | Planned |
-| WIN-SAVE-04 | Delete-sharing denied during replacement | NATIVE + APP | Truncated or lost output control | M2 | Planned |
-| WIN-SAVE-08 | Corrupt or missing revision sidecar and journals | NATIVE + APP | Recovery-loop control | M2 | Planned |
-| WIN-UI-02 | Native open and save picker, keyboard-only, Unicode names | WIN | Internal open API path labeled as integration, not native | M2 | Planned |
-| WIN-TOOLS-01 | Every bundled Windows executable loads from the package | NATIVE | Conflicting host PATH tool control | M2 | Planned |
+| WIN-SAVE-01 | Delete, save, delete, save, reopen | APP + NATIVE | Official 0.1.450 stale-revision error | M1 | In progress, unproven on the image |
+| WIN-PRINT-01 | Print all pages through Microsoft Print to PDF, repeat warm | WIN | Official 0.1.450 blank one-page PDF; labeled blank and wrong-marker PDFs | M1 | In progress, unproven on the image |
+| WIN-PRINT-02 | Delete, save, delete, save, print, reopen | APP + WIN | Wrong-page-marker PDF | M2 | In progress, unproven on the image |
+| WIN-PRINT-07 | Cancel app, native and output dialogs; overwrite refusal | WIN | Injected stray output and orphan window | M2 | In progress, unproven on the image |
+| WIN-SAVE-02 | Annotate, save, edit, save; Save As with native picker | APP + WIN | Source-modified-on-Save-As control | M2 | In progress, unproven on the image |
+| WIN-SAVE-04 | Delete-sharing denied during replacement | NATIVE + APP | Truncated or lost output control | M2 | In progress, unproven on the image |
+| WIN-SAVE-08 | Corrupt or missing revision sidecar and journals | NATIVE + APP | Recovery-loop control | M2 | In progress, unproven on the image |
+| WIN-UI-02 | Native open and save picker, keyboard-only, Unicode names | WIN | Internal open API path labeled as integration, not native | M2 | In progress, unproven on the image |
+| WIN-TOOLS-01 | Every bundled Windows executable loads from the package | NATIVE | Conflicting host PATH tool control | M2 | In progress, unproven on the image |
 
 ## Open questions
 

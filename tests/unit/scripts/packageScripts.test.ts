@@ -175,7 +175,7 @@ describe('package scripts', () => {
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
         // OCR-quality, and xlarge-PDF gates.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(111);
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(118);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

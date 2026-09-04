@@ -211,6 +211,34 @@ describe('sessionManager automation launch args', () => {
         ]);
     });
 
+    it('prepends whitespace-separated extra Chromium switches from the stress env hook', () => {
+        expect(buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '  --js-flags=--max-old-space-size=1024\n--renderer-process-limit=1 --evb-safe-mode '},
+            platform: 'darwin',
+        })).toEqual([
+            '--js-flags=--max-old-space-size=1024',
+            '--renderer-process-limit=1',
+            '--evb-safe-mode',
+            '--remote-debugging-port=9222',
+            '--user-data-dir=/tmp/evb-user-data',
+            '--disable-http-cache',
+            '/tmp/main.js',
+        ]);
+    });
+
+    it('rejects extra Chromium tokens that are not switches', () => {
+        expect(() => buildElectronAutomationArgs({
+            cdpPort: 9222,
+            automationUserDataDir: '/tmp/evb-user-data',
+            mainJs: '/tmp/main.js',
+            env: {EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES: '--evb-safe-mode /tmp/evil.pdf'},
+            platform: 'darwin',
+        })).toThrow(/rejected: \/tmp\/evil\.pdf/);
+    });
+
     it('allows an explicit opt-in override on any platform', () => {
         expect(shouldDisableAutomationSandbox({ EVB_AUTOMATION_DISABLE_SANDBOX: 'true' }, 'darwin')).toBe(true);
     });
