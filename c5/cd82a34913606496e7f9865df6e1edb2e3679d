@@ -1,0 +1,21 @@
+tests/unit/architecture/sentryMainLoggerMigration.test.ts
+  s_de4eb7ea9d9bbe::t_48093d82481499 154
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_de4eb7ea9d9bbe::t_84e56302ef3cc5 21-27,29-30,75-99,136-146,148,164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c5cd82a34913606496e7f9865df6e1edb2e3679d",
+  "prompts": {},
+  "sessions": {
+    "s_de4eb7ea9d9bbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1ffbedc-c4e5-4af2-95f0-de71e7942a7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
