@@ -329,15 +329,16 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     placedImages?: ReadonlyArray<Pick<IPlacedImageEntity, 'identity'>>;
 }) {
     const ids = new Set<string>();
+    const placedImageGeometryUpdates = input.placedImages?.map(image => ({
+        stableKey: image.identity.id,
+        ...(image.identity.pdfRef === undefined ? {} : {annotationId: image.identity.pdfRef}),
+    }));
     addReplayableNativeEntityIds(ids, {
         shapes: input.shapes ?? null,
         deletedShapeAnnotationIds: input.deletedShapeAnnotationIds ?? [],
         deletedShapeStableKeys: input.deletedShapeStableKeys ?? [],
         textBoxes: input.nativeTextBoxes ?? [],
-        placedImageGeometryUpdates: input.placedImages?.map(image => ({
-            stableKey: image.identity.id,
-            annotationId: image.identity.pdfRef,
-        })),
+        ...(placedImageGeometryUpdates === undefined ? {} : {placedImageGeometryUpdates}),
     });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
@@ -603,7 +604,7 @@ function buildNativePlacedImageGeometryUpdates(
             entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
         ))
         .map(entity => ({
-            pageIndex: entity.pageIndex,
+            pageIndex: requirePageIndex(entity.pageIndex),
             stableKey: entity.identity.id,
             annotationId: entity.identity.pdfRef ?? null,
             x: entity.rect.left,
