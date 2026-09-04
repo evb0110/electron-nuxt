@@ -20,7 +20,9 @@ import {
 } from '@scripts/stress/stressCalibration';
 import {
     STRESS_CLI_USAGE,
+    isStressCliEntrypoint,
     parseStressCliOptions,
+    runStressCliMain,
 } from '@scripts/stress/stressCliOptions';
 import type { IStressCliOptions } from '@scripts/stress/stressCliOptions';
 import { runStressDeterministicSteps } from '@scripts/stress/stressDeterministicDriver';
@@ -407,8 +409,9 @@ function applyBaselineFindings(result: IStressScenarioResult, baselineFindings: 
     }
 }
 
-async function main() {
-    const options = parseStressCliOptions(process.argv.slice(2));
+/** Whole CLI as a function of argv so tests can drive it without spawning a process. */
+export async function runStress(argv: readonly string[]) {
+    const options = parseStressCliOptions(argv);
     if (options.help) {
         console.log(STRESS_CLI_USAGE);
         return 0;
@@ -586,9 +589,6 @@ async function main() {
     return run.verdict === 'passed' ? 0 : 1;
 }
 
-main().then((code) => {
-    process.exitCode = code;
-}, (error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 2;
-});
+if (isStressCliEntrypoint(import.meta.url)) {
+    void runStressCliMain(runStress);
+}

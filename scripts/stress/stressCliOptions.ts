@@ -1,3 +1,5 @@
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { STRESS_HOST_PROFILE_IDS } from '@scripts/stress/stressHostProfiles';
 import { DEFAULT_STRESS_OPERATOR_MODEL } from '@scripts/stress/stressOperatorCost';
 import type {
@@ -53,38 +55,48 @@ function readValue(argv: readonly string[], index: number, flag: string) {
     return value;
 }
 
-function parseOptionToken(arg: string) {
-    const separatorIndex = arg.indexOf('=');
-    if (separatorIndex === -1) {
-        return {
-            flag: arg,
-            inlineValue: undefined,
-        };
-    }
-    return {
-        flag: arg.slice(0, separatorIndex),
-        inlineValue: arg.slice(separatorIndex + 1),
-    };
-}
+type TCliFlagHandler = (flag: string, takeValue: () => string, arg: string) => void;
 
-function readOption(argv: readonly string[], cursor: {index: number}) {
-    const arg = argv[cursor.index] ?? '';
-    const {
-        flag,
-        inlineValue,
-    } = parseOptionToken(arg);
-    return {
-        arg,
-        flag,
-        takeValue: () => {
+/** Splits `--flag=value` and `--flag value` forms the same way for every stress CLI. */
+function forEachCliFlag(argv: readonly string[], handle: TCliFlagHandler) {
+    for (let index = 0; index < argv.length; index += 1) {
+        const arg = argv[index] ?? '';
+        const separator = arg.indexOf('=');
+        const flag = separator === -1 ? arg : arg.slice(0, separator);
+        const inlineValue = separator === -1 ? undefined : arg.slice(separator + 1);
+        const takeValue = () => {
             if (inlineValue !== undefined) {
                 return inlineValue;
             }
-            const value = readValue(argv, cursor.index, flag);
-            cursor.index += 1;
+            const value = readValue(argv, index, flag);
+            index += 1;
             return value;
-        },
-    };
+        };
+        handle(flag, takeValue, arg);
+    }
+}
+
+function parseHostProfileId(value: string) {
+    if (!(STRESS_HOST_PROFILE_IDS as readonly string[]).includes(value)) {
+        throw new Error(`unknown --profile ${value}; expected one of ${STRESS_HOST_PROFILE_IDS.join(', ')}`);
+    }
+    return value as TStressHostProfileId;
+}
+
+/** True when tsx launched this module directly, false when vitest or another module imported it. */
+export function isStressCliEntrypoint(moduleUrl: string, argv: readonly string[] = process.argv) {
+    const scriptPath = argv[1];
+    return scriptPath !== undefined && moduleUrl === pathToFileURL(resolve(scriptPath)).href;
+}
+
+/** Maps a CLI main's exit code (or thrown error) onto process.exitCode without ever calling process.exit. */
+export async function runStressCliMain(main: (argv: string[]) => Promise<number>, argv: readonly string[] = process.argv) {
+    try {
+        process.exitCode = await main(argv.slice(2));
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : String(error));
+        process.exitCode = 2;
+    }
 }
 
 /** Pure argv parser; throws on unknown flags so typos never silently run the default plan. */
@@ -106,12 +118,7 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
         maxRunCostUsd: null,
         help: false,
     };
-    for (const cursor = {index: 0}; cursor.index < argv.length; cursor.index += 1) {
-        const {
-            arg,
-            flag,
-            takeValue,
-        } = readOption(argv, cursor);
+    forEachCliFlag(argv, (flag, takeValue, arg) => {
         switch (flag) {
             case '--list':
                 options.list = true;
@@ -133,14 +140,9 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
                 options.kind = kind;
                 break;
             }
-            case '--profile': {
-                const profile = takeValue();
-                if (!(STRESS_HOST_PROFILE_IDS as string[]).includes(profile)) {
-                    throw new Error(`unknown --profile ${profile}; expected one of ${STRESS_HOST_PROFILE_IDS.join(', ')}`);
-                }
-                options.profile = profile as TStressHostProfileId;
+            case '--profile':
+                options.profile = parseHostProfileId(takeValue());
                 break;
-            }
             case '--model':
                 options.model = takeValue();
                 break;
@@ -182,7 +184,7 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
             default:
                 throw new Error(`unknown option ${arg}\n${STRESS_CLI_USAGE}`);
         }
-    }
+    });
     return options;
 }
 
@@ -205,24 +207,14 @@ export function parseStressReplayCliOptions(argv: readonly string[]): IStressRep
         scenarioId: null,
         help: false,
     };
-    for (const cursor = {index: 0}; cursor.index < argv.length; cursor.index += 1) {
-        const {
-            arg,
-            flag,
-            takeValue,
-        } = readOption(argv, cursor);
+    forEachCliFlag(argv, (flag, takeValue, arg) => {
         switch (flag) {
             case '--actions':
                 options.actionsPath = takeValue();
                 break;
-            case '--profile': {
-                const profile = takeValue();
-                if (!(STRESS_HOST_PROFILE_IDS as string[]).includes(profile)) {
-                    throw new Error(`unknown --profile ${profile}`);
-                }
-                options.profile = profile as TStressHostProfileId;
+            case '--profile':
+                options.profile = parseHostProfileId(takeValue());
                 break;
-            }
             case '--scenario':
                 options.scenarioId = takeValue();
                 break;
@@ -233,6 +225,6 @@ export function parseStressReplayCliOptions(argv: readonly string[]): IStressRep
             default:
                 throw new Error(`unknown option ${arg}\n${STRESS_REPLAY_USAGE}`);
         }
-    }
+    });
     return options;
 }

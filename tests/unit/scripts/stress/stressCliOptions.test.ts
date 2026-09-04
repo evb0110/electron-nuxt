@@ -1,11 +1,17 @@
+import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
+    isStressCliEntrypoint,
     parseStressCliOptions,
     parseStressReplayCliOptions,
+    runStressCliMain,
 } from '@scripts/stress/stressCliOptions';
 import { DEFAULT_STRESS_OPERATOR_MODEL } from '@scripts/stress/stressOperatorCost';
 
@@ -115,5 +121,55 @@ describe('parseStressReplayCliOptions', () => {
             'nope',
         ])).toThrow(/unknown --profile/u);
         expect(parseStressReplayCliOptions([]).actionsPath).toBeNull();
+    });
+});
+
+describe('isStressCliEntrypoint', () => {
+    it('is true only when argv[1] resolves to the module itself', () => {
+        const scriptPath = resolve('scripts/stress/runStress.ts');
+        const moduleUrl = pathToFileURL(scriptPath).href;
+        expect(isStressCliEntrypoint(moduleUrl, [
+            'node',
+            'scripts/stress/runStress.ts',
+        ])).toBe(true);
+        expect(isStressCliEntrypoint(moduleUrl, [
+            'node',
+            'scripts/stress/replayStress.ts',
+        ])).toBe(false);
+        expect(isStressCliEntrypoint(moduleUrl, ['node'])).toBe(false);
+    });
+});
+
+describe('runStressCliMain', () => {
+    afterEach(() => {
+        process.exitCode = undefined;
+        vi.restoreAllMocks();
+    });
+
+    it('passes argv past the script path and stores the returned exit code', async () => {
+        const main = vi.fn(async (argv: string[]) => argv.length);
+        await runStressCliMain(main, [
+            'node',
+            'script',
+            '--list',
+            '--dry-run',
+        ]);
+        expect(main).toHaveBeenCalledWith([
+            '--list',
+            '--dry-run',
+        ]);
+        expect(process.exitCode).toBe(2);
+    });
+
+    it('prints a thrown error and exits 2 without calling process.exit', async () => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        await runStressCliMain(async () => {
+            throw new Error('no scenarios matched');
+        }, [
+            'node',
+            'script',
+        ]);
+        expect(error).toHaveBeenCalledWith('no scenarios matched');
+        expect(process.exitCode).toBe(2);
     });
 });

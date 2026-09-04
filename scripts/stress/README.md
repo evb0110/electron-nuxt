@@ -23,6 +23,11 @@ pnpm run stress -- --kind deterministic --update-baseline
 pnpm run stress:replay -- --actions .devkit/stress/runs/<run-id>/op-tab-juggle/actions.jsonl
 ```
 
+Both commands export their entry function (`runStress`, `replayStress`) as a
+function of argv and only self-invoke when tsx launched the file directly, so
+the unit tests under `tests/unit/scripts/stress` drive the whole CLI with a
+mocked Electron session and mocked model responses.
+
 `pnpm run stress` builds the Electron main bundle first, exactly like the E2E
 lane. Operator scenarios need `ANTHROPIC_API_KEY` in the environment. The key
 never reaches a file; a missing key fails before Electron starts unless

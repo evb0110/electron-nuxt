@@ -18,12 +18,16 @@ const sentryRules = {
     'custom/no-unclassified-diagnostic-code': 'error',
 } as const;
 
-const sentryFilePatterns = [
-    'app/**/*.{ts,vue}',
-    'electron/**/*.ts',
-    'landing/**/*.{ts,vue}',
-    'server/**/*.ts',
+const sentryRuleIds = Object.keys(sentryRules);
+
+const lintGateSamplePaths = [
+    'app/components/SentryGateSample.vue',
+    'app/composables/useSentryGateSample.ts',
+    'electron/main/sentryGateSample.ts',
+    'server/api/sentryGateSample.ts',
 ];
+
+const landingFilePatterns = ['landing/**/*.{ts,vue}'];
 interface ISentryLintMessage {
     column?: number;
     line?: number;
@@ -68,6 +72,31 @@ function createSentryEslint() {
     });
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null;
+}
+
+function isErrorSeverity(value: unknown) {
+    const severity = Array.isArray(value) ? value[0] : value;
+    return severity === 2 || severity === 'error';
+}
+
+async function readLintGateRuleSeverities(filePath: string) {
+    const eslint = new ESLint({cwd: process.cwd()});
+    if (await eslint.isPathIgnored(filePath)) {
+        throw new Error(`${filePath} is ignored by the lint gate`);
+    }
+    const config: unknown = await eslint.calculateConfigForFile(filePath);
+    const rules = isRecord(config) ? config.rules : undefined;
+    if (!isRecord(rules)) {
+        throw new Error(`The lint gate resolved no rules for ${filePath}`);
+    }
+    return Object.fromEntries(sentryRuleIds.map(ruleId => [
+        ruleId,
+        isErrorSeverity(rules[ruleId]) ? 'error' : 'off',
+    ]));
+}
+
 function getSentryMessages(results: ISentryLintResult[]) {
     return results.flatMap(result => result.messages)
         .filter(message => message.ruleId && message.ruleId in sentryRules);
@@ -104,9 +133,19 @@ async function lintFixture(code: string, filePath: string) {
 }
 
 describe('SEN-GATE-01 blocking rules', () => {
-    it('keeps the red-presentation and unclassified-code reports at zero', async () => {
+    it('enforces every rule as an error through the lint gate for app, electron, and server', async () => {
+        const expectedSeverities = Object.fromEntries(sentryRuleIds.map(ruleId => [
+            ruleId,
+            'error',
+        ]));
+        for (const filePath of lintGateSamplePaths) {
+            await expect(readLintGateRuleSeverities(filePath), filePath).resolves.toEqual(expectedSeverities);
+        }
+    });
+
+    it('keeps the landing red-presentation and unclassified-code reports at zero', async () => {
         const eslint = createSentryEslint();
-        const results = await eslint.lintFiles(sentryFilePatterns);
+        const results = await eslint.lintFiles(landingFilePatterns);
         const messages = getSentryMessages(results);
         const redMessages = messages.filter(message => message.ruleId === 'custom/no-raw-red-presentation');
         const unclassifiedMessages = messages.filter(message => (
@@ -122,7 +161,7 @@ describe('SEN-GATE-01 blocking rules', () => {
         expect(messages.every(message => message.severity === 2)).toBe(true);
         expect(redReport.count).toBe(0);
         expect(unclassifiedReport.count).toBe(0);
-    }, 60_000);
+    });
 
     it('blocks raw red presenters and allows the shared presenter owners', async () => {
         await expect(lintFixture(
