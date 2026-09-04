@@ -397,7 +397,7 @@ describe('private Vercel deployment source', () => {
                 uploadSourcemaps: async () => {
                     lifecycle.push('upload');
                     return {
-                        schemaVersion: 1,
+                        schemaVersion: 3,
                         bundleCount: 1,
                         destinationFingerprint: 'a'.repeat(64),
                         manifestSha256: 'b'.repeat(64),

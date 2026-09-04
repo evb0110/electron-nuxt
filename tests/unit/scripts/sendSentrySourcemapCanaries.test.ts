@@ -188,7 +188,9 @@ describe('Sentry source-map canaries', () => {
             }],
         }));
         const sentEvents: unknown[] = [];
-        const sendEvent = vi.fn(async (event: unknown) => sentEvents.push(event));
+        const sendEvent = vi.fn(async (event: unknown) => {
+            sentEvents.push(event);
+        });
 
         await sendSentrySourcemapCanaries({
             environment: {
