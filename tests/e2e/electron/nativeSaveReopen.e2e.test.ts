@@ -28,7 +28,6 @@ import {
 import {
     callWorkspaceCommand,
     readWorkspaceStateValues,
-    waitForAutomationEvent,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     startElectronE2ESession,
