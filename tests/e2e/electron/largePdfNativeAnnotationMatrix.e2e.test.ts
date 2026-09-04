@@ -359,9 +359,12 @@ async function readTopmostCanonicalTextMarkupId(
         pageNumber: number;
     }) => {
         const ids = new Set(input.annotationIds);
-        const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] .pdf-annotation-editor-layer [data-annotation-kind="text-markup"]`,
-        )).find(candidate => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"]`,
+        );
+        const entity = Array.from(pageContainer?.querySelectorAll<HTMLElement>(
+            '[data-annotation-id][data-annotation-kind="text-markup"]',
+        ) ?? []).find(candidate => {
             const rect = candidate.getBoundingClientRect();
             return rect.width > 0 && rect.height > 0;
         });
@@ -369,16 +372,19 @@ async function readTopmostCanonicalTextMarkupId(
             return null;
         }
         const rect = entity.getBoundingClientRect();
-        return document.elementsFromPoint(
+        const hitStack = document.elementsFromPoint(
             rect.left + rect.width / 2,
             rect.top + rect.height / 2,
-        ).map(candidate => candidate.closest<HTMLElement>('[data-annotation-id]'))
-            .find(candidate => (
-                candidate !== null
-                && ids.has(candidate.dataset.annotationId ?? '')
-                && candidate.closest<HTMLElement>('.page_container')?.dataset.page === String(input.pageNumber)
-            ))
-            ?.dataset.annotationId ?? null;
+        ).map(candidate => ({
+            annotationId: candidate.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId ?? null,
+            className: candidate.getAttribute('class'),
+            kind: candidate.closest<HTMLElement>('[data-annotation-kind]')?.dataset.annotationKind ?? null,
+            page: candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
+            tag: candidate.tagName,
+        }));
+        return hitStack.map(candidate => candidate.annotationId)
+            .find(candidate => candidate !== null && ids.has(candidate))
+            ?? null;
     }, {
         annotationIds: [...annotationIds],
         pageNumber,
@@ -1353,12 +1359,13 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         ] as const) {
             let entity: ICanonicalEntitySnapshot | undefined;
             if (kind === 'text-markup') {
-                const topmostId = await readTopmostCanonicalTextMarkupId(
+                await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
+                const topmost = await readTopmostCanonicalTextMarkupId(
                     session.page,
                     MATRIX_PAGE_NUMBER,
                     reopenedEntities.filter(candidate => candidate.kind === kind).map(candidate => candidate.id),
                 );
-                entity = reopenedEntities.find(candidate => candidate.id === topmostId);
+                entity = reopenedEntities.find(candidate => candidate.id === topmost);
             } else {
                 entity = reopenedEntities.find(candidate => candidate.kind === kind);
             }
