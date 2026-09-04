@@ -6,7 +6,6 @@ import { applyNewFreeTextNoteAnnotations } from '@app/modules/pdf-viewer/engine/
 import { applyMarkupSubtypeRewrites } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-markup/applyMarkupSubtypeRewrites';
 import { applyBookmarks } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-outline/applyBookmarks';
 import { applyPageLabels } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-outline/applyPageLabels';
-import { applyPlacedImage } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/applyPlacedImage';
 import { applyShapeAnnotations } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shape-annotations/applyShapeAnnotations';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import {applyCanonicalAnnotationIdentityBindings} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
@@ -72,8 +71,7 @@ function hasSaveWork(payload: IPdfSerializationSavePayload) {
         || payload.freeTextComments.length > 0
         || payload.pendingEmbeddedTextUpdates.length > 0
         || payload.pageLabelsDirty
-        || payload.bookmarksDirty
-        || Boolean(payload.placedImage);
+        || payload.bookmarksDirty;
 }
 
 export async function serializePdfEdits(
@@ -115,7 +113,6 @@ export async function serializePdfEdits(
         payload.totalPages,
         payload.untitledBookmarkLabel,
     ) || modified;
-    modified = await applyPlacedImage(doc, payload.placedImage) || modified;
 
     if (!modified && !payload.forceRewrite) {
         return data;
