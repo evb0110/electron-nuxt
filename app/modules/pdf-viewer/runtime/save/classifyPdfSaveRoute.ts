@@ -286,8 +286,15 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
     liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     nativeTextBoxes?: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
+    shapes?: readonly IShapeAnnotation[] | null;
 }) {
     const ids = new Set<string>();
+    input.shapes?.forEach((shape) => {
+        // Managed shapes are written by the structured native shape payload.
+        // Their PDF.js aliases must not force the whole save onto materialization.
+        addReplayableAnnotationId(ids, shape.annotationId);
+        addReplayableAnnotationId(ids, shape.stableKey);
+    });
     input.nativeTextBoxes?.forEach((textBox) => {
         // An imported FreeText can appear in PDF.js storage under both the
         // canonical /NM and its indirect PDF object ref. The native payload
@@ -406,6 +413,7 @@ function deriveCanonicalSaveInputs(
             ...(capabilities.nativeTextBoxes === undefined
                 ? {}
                 : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
+            shapes: capabilities.shapes,
         }),
         replayableCanonicalStickyNoteStableKeys,
     };
@@ -666,6 +674,7 @@ function collectProjectedNativeAnnotationIds(input: {
         stableKey: string;
         annotationId?: string | null
     }>;
+    shapes: readonly IShapeAnnotation[] | null;
     markup: {
         overrides: Array<readonly [string, TMarkupSubtype]>;
         hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
@@ -677,6 +686,11 @@ function collectProjectedNativeAnnotationIds(input: {
     const geometryUpdatedRefs = new Set(input.noteGeometryUpdates.map(update =>
         `${update.objectNumber}R${update.generationNumber}`));
     const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
+
+    input.shapes?.forEach((shape) => {
+        addReplayableAnnotationId(ids, shape.annotationId);
+        addReplayableAnnotationId(ids, shape.stableKey);
+    });
 
     input.textBoxes.forEach((textBox) => {
         addReplayableAnnotationId(ids, textBox.stableKey);
@@ -857,6 +871,7 @@ function buildClassifiedNativeMutationProjection(
         noteGeometryUpdates,
         freeTextNotes,
         textBoxes,
+        shapes: capabilities.shapes,
         nativeFreeTextEditors: replayAllowed
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
             : new Map(),

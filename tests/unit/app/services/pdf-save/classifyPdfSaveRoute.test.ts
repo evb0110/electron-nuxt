@@ -1135,6 +1135,41 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         }]});
     });
 
+    it('keeps an imported text update replayable beside managed shape editor ids', () => {
+        const movedNote = embeddedNote('anno_moved_note', '12R');
+        const decision = classifyPdfSaveRoute(
+            planOf([movedNote]),
+            capabilities({
+                dirtyState: {
+                    ...capabilities().dirtyState!,
+                    hasLivePdfJsAnnotationChanges: true,
+                    shapeStateDirty: true,
+                },
+                shapes: [nativeShapeWithRef('22R')],
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_moved_note',
+                        '12R',
+                        '22R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    hasChanges: true,
+                    fingerprint: 'reopened-note-with-managed-shape-edit',
+                }),
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.annotationRoute.route).toBe('source-replay');
+        expect(decision.nativeMutationProjection.mutations.updates).toEqual([{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'text-anno_moved_note',
+        }]);
+        expect(decision.nativeMutationProjection.mutations.shapes).toBeDefined();
+    });
+
     it('projects imported FreeText geometry and style edits through the native editor route', () => {
         const importedEditor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),
