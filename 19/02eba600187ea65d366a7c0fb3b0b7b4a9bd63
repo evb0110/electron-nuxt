@@ -1,0 +1,21 @@
+tests/unit/scripts/windows-test/windowsHostOracleDispatcher.test.ts
+  s_dce5cb16f63961::t_b4c242f6f8eba1 161
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_dce5cb16f63961::t_b4c242f6f8eba1 31,58,75,89,97,104,110,148-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1902eba600187ea65d366a7c0fb3b0b7b4a9bd63",
+  "prompts": {},
+  "sessions": {
+    "s_dce5cb16f63961": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e51-7a49-77b2-8efa-6de7e66c342c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
