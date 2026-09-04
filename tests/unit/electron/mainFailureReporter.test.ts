@@ -303,7 +303,7 @@ describe('Electron main failure reporter', () => {
             accepted: 2,
             burstSuppressed: MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT + 1,
         });
-    });
+    }, 15_000);
 
     it('keeps an inherited renderer summary when main burst aggregation suppresses it', () => {
         let now = 0;

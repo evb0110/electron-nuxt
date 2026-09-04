@@ -7,7 +7,7 @@ import {
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import type { DiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import {CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
-import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/rendererDiagnosticBridge';
+import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/registerRendererDiagnosticBridge';
 import { createMainFailureReporter } from '@electron/features/diagnostics/public';
 
 const record: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {

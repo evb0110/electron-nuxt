@@ -1,13 +1,16 @@
 # Sentry error telemetry implementation ledger
 
-- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-03
+- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-04
 - Ledger date: 2026-09-01
 - Repository version at planning time: 0.1.445
 - Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
-- Implementation snapshot: 49 items are locally implemented, 6 are partially
-  complete, and 9 are blocked by named external or time-based gates.
+- Implementation snapshot: repository work is implemented. Live account
+  hardening, project and credential provisioning, and one exact-byte web
+  Preview upload are verified. Desktop canaries, web symbolication canaries,
+  legal approval for Nitro, operations cycles, and production observation
+  periods remain open.
 - This ledger is current. It is not deferred or superseded. A blocked item
   remains part of this ledger until its external evidence or observation period
   is complete.
@@ -97,31 +100,39 @@ reporting and does not satisfy a live canary.
 - Browser, Electron, and Nitro production reporting remain disabled without
   their separately scoped credentials and environment gates.
 
-### Live control proof recorded on 2026-09-03
+### Live control proof recorded through 2026-09-04
 
 - The Sentry organization uses the European Union data region. DPA version
   5.1.0 and the BAA are signed. Aggregated identifying service-data use and
   minidump attachment storage are disabled.
-- The organization has one owner, Google is the connected identity, native
-  Sentry 2FA is not enabled, pay-as-you-go is zero, and no payment method is
-  configured.
-- No Sentry project or runtime key exists yet. Enhanced Privacy, required data
-  scrubbers, IP storage prevention, JavaScript source-fetching disablement,
-  access restrictions, and Generative AI disablement remain pending.
-- GitHub Actions has no Sentry secrets. The Vercel viewer project has no Sentry
-  environment variables. Production therefore has no configured transport.
-- The repository-linked public GitHub project records 40 items in progress and
-  12 blocked or not-yet-started items in Todo. Nothing is Done until the final
-  SHA lands on `main` and its hosted checks pass.
+- The organization has one owner and uses the connected Google account for
+  routine sign-in. Personal Gmail cannot configure organization SSO, and the
+  Sentry Security page exposes no password-removal control. Sentry-native and
+  organization 2FA remain off by explicit owner decision for this route.
+- Generative AI, shared issues, open membership, join requests, member
+  privileges, IP storage, and JavaScript source fetching are disabled. Enhanced
+  Privacy and both required scrubbers are enabled. Attachment and debug-file
+  access are Owner-only. The targeted sensitive-field list preserves canonical
+  frame and Debug ID fields.
+- Exactly two projects and three purpose-specific keys exist. One source-map
+  token has only `org:ci`. GitHub Actions stores the desktop and upload settings.
+  Vercel stores separate browser and Nitro DSNs in Preview only. Nitro remains
+  disabled because its legal, retention, and objection gates are not complete.
+- A strict upload accepted the web release with 473 mapped bundles, 16
+  manifest-proved mapless generated facades, and 1,373 project sources. The
+  protected Preview deployment is Ready, ships no public maps, and every served
+  browser bundle hash matches the private manifest through authenticated Vercel
+  access.
+- The repository-linked public GitHub project is the live status view. Ticket
+  status follows verified exit evidence rather than the original planning count.
 
 ### External and elapsed-time gates still open
 
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
-- The two named Sentry projects, three runtime keys, and one least-privilege
-  source-map upload token still need creation after account hardening.
 - Exact private maps still need live upload and symbolication proof for the
-  nine desktop distributions and the hosted viewer.
+  nine desktop distributions. The hosted viewer upload and exact-byte parity
+  pass, but its Debug ID symbolication canary remains open.
 - Desktop and browser preview canaries, the one-week Nitro canary, alert setup,
   the first weekly operations cycle, production enablement, and the four-week
   production proof remain incomplete.
@@ -228,7 +239,7 @@ Paths that do not exist yet are marked `new`. Every other path exists at
 | `electron/window.ts`, `electron/window/rendererReady.ts` | renderer death, preload failure, and unresponsive recovery; load-failure regions remain SEN-MIG-07 | SEN-MIG-08 |
 | `electron/utils/workerTask.ts` | worker parent seam; the reported-error `WeakSet` becomes a receipt-carrying `WeakMap` | SEN-MIG-09 |
 | `electron/platform-ipc/coreContract.ts` | new renderer diagnostic send channel and its decoder | SEN-CORE-08 |
-| `electron/platform-ipc/rendererDiagnosticBridge.ts` (new) | trusted-sender check, schema, size, rate, and frame validation | SEN-CORE-08 |
+| `electron/platform-ipc/registerRendererDiagnosticBridge.ts` (new) | trusted-sender check, schema, size, rate, and frame validation | SEN-CORE-08 |
 | `electron/platform-ipc/registerCoreIpcHandlers.ts` | registration of the diagnostic channel | SEN-CORE-08 |
 | `electron/preload.ts`, `electron/preload/createElectronApi.ts` | immutable startup policy snapshot and typed record send only | SEN-CORE-09 |
 | `electron/preload/readDiagnosticsPolicyArgument.ts` (new) | decodes the snapshot passed through `additionalArguments` | SEN-CORE-09 |
@@ -426,12 +437,15 @@ current repository or external-gate status.
 
 #### SEN-EXT-01 Account recovery and organization access hardening
 
-- Status: partially complete; live Sentry permission changes and recovery verification pending
+- Status: complete; live controls and the provider limitations were verified on 2026-09-04
 - Depends on: none
 - Difficulty: medium
 - Scope: Sentry account only. No repository change.
-- Behavior: confirm two independent owner recovery methods, then require
-  organization 2FA. Disable Generative AI features and leave Seer unconfigured.
+- Behavior: use the sole owner's connected Google account for routine sign-in.
+  Record that personal Gmail cannot configure organization SSO and Sentry offers
+  no password-removal control. Keep Sentry-native and organization 2FA off by
+  the owner's explicit decision for this route; Google account recovery is the
+  operative recovery boundary. Disable Generative AI features and leave Seer unconfigured.
   Disable shared issues, join requests, open team membership, and member
   invitations. Limit project creation, event deletion, and alert or monitor
   editing to the minimum owner or manager roles. Raise attachment and debug-file
@@ -445,7 +459,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-02 Privacy and scrubbing controls
 
-- Status: partially complete; live Sentry privacy-setting changes pending
+- Status: partially complete; all privacy and scrubber controls are verified, but quota alerts remain pending
 - Depends on: SEN-EXT-01
 - Difficulty: medium
 - Scope: Sentry account only.
@@ -674,7 +688,7 @@ current repository or external-gate status.
 - Depends on: SEN-CORE-04, SEN-CORE-07
 - Difficulty: hard
 - Paths: `electron/platform-ipc/coreContract.ts`,
-  `electron/platform-ipc/rendererDiagnosticBridge.ts` (new),
+  `electron/platform-ipc/registerRendererDiagnosticBridge.ts` (new),
   `electron/platform-ipc/registerCoreIpcHandlers.ts`
 - Behavior: one new send channel carries a sanitized `DiagnosticRecord` from
   renderer to main. Main validates the trusted sender, the exact schema, the
@@ -1201,7 +1215,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-06 Projects, client keys, and upload token
 
-- Status: blocked; live Sentry provisioning confirmation pending
+- Status: complete; two projects, three keys, exact browser origins, and one `org:ci` token verified 2026-09-04
 - Depends on: SEN-EXT-03
 - Difficulty: hard
 - Scope: Sentry account and CI secrets. The only repository change is the
@@ -1221,7 +1235,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-07 Disable Sentry source fetching after upload
 
-- Status: blocked by source-map upload and symbolication verification
+- Status: partially complete; source fetching is disabled in both projects, but the post-change symbolication canary remains pending
 - Depends on: SEN-MAP-04
 - Difficulty: medium
 - Scope: Sentry account only, plus the credential-free inventory.
@@ -1352,7 +1366,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-01 Emit private maps for every reportable bundle
 
-- Status: implemented and locally verified
+- Status: implemented and locally verified; live web build inventory verified 2026-09-04
 - Depends on: SEN-SDK-04
 - Difficulty: hard
 - Paths: `scripts/build-electron.mjs`, `nuxt.config.ts`, and the worker and
@@ -1374,7 +1388,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-02 Inject Debug IDs and stage maps before pruning
 
-- Status: implemented and locally verified
+- Status: implemented and locally verified; strict web upload accepted 2026-09-04
 - Depends on: SEN-MAP-01
 - Difficulty: x-hard
 - Paths: `scripts/release/stage-private-sourcemaps.mjs` (new), the `build` and
@@ -1401,7 +1415,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-03 Receipts computed from injected bytes
 
-- Status: implemented and locally verified
+- Status: implemented and locally verified; live web local-to-served parity verified 2026-09-04
 - Depends on: SEN-MAP-02
 - Difficulty: hard
 - Paths: `scripts/release/build-receipt.mjs`, the private manifest written by
@@ -1424,7 +1438,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: blocked; live projects and upload credential pending
+- Status: partially complete; strict web upload passed, while web symbolication and all desktop canaries remain pending
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1457,7 +1471,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: partially complete; exact prebuilt path implemented, live preview deployment pending
+- Status: complete; protected Preview deployment and full served-byte parity verified 2026-09-04
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
@@ -1483,7 +1497,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-06 Public artifact scans
 
-- Status: partially complete; local scans pass, served-preview scan pending
+- Status: partially complete; local and exact-byte web Preview scans pass, while shipping desktop scans remain pending
 - Depends on: SEN-EXT-07
 - Difficulty: medium
 - Paths: `scripts/check-web-deploy-assets.mjs`,
@@ -1761,7 +1775,7 @@ already exists at `55e00c767`.
 | Source maps | Debug endpoint and canaries show original file, function, line, release, and dist | release workflow canary step |
 | Build identity | Desktop receipt inputs match injected package bytes; the viewer's private manifest matches local and served prebuilt bytes | `tests/unit/scripts/`, release workflow |
 | Public artifacts | No map, source, staging directory, token, or wrong-runtime DSN ships | `scripts/check-web-deploy-assets.mjs`, `scripts/release/assert-packaged-app-contents.mjs` (existing) |
-| Account | Evidence of AI off, required 2FA, restricted roles, enhanced privacy, scrubbing, IP prevention, source fetching off, retention, no pay-as-you-go | SEN-EXT issues |
+| Account | Evidence of AI off, the Google-login decision and provider limitations, restricted roles, enhanced privacy, scrubbing, IP prevention, source fetching off, retention, no pay-as-you-go | SEN-EXT issues |
 | Shutdown | Preservation and log flush deadlines unchanged; Sentry never delays recovery relaunch or system shutdown | `tests/unit/electron/`, `tests/e2e/electron/` |
 | Acknowledgement | Both landing footers and the app page render localized local assets offline with no Sentry request before a click | `tests/unit/landing/`, `tests/unit/app/` |
 | Deletion | Removing the Sentry packages and adapters leaves local logs, error UI, recovery, save, print, and update intact | a documented removal rehearsal recorded in SEN-OPS-02 |

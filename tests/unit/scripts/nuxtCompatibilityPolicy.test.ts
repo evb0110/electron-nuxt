@@ -34,7 +34,7 @@ describe('Nuxt compatibility policy', () => {
         }
 
         expect(rootConfig).toContain('noUncheckedSideEffectImports: false');
-        expect(rootConfig).toContain('worker: {format: \'es\'}');
+        expect(rootConfig).toMatch(/worker:\s*\{\s*format:\s*'es'/u);
         expect(rootConfig).toContain('EVB_NUXT_VITE_CACHE_DIR');
     });
 

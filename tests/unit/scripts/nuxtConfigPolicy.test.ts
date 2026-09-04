@@ -170,7 +170,7 @@ describe('Nuxt config policy', () => {
         expect(getPropertyInitializer(publicSentry, 'environment')).not.toBeNull();
         expect(getPropertyInitializer(publicSentry, 'nitroDsn')).toBeNull();
         expect(source).toContain('const sentryDiagnosticsEligible = isSentryDiagnosticsBuild(process.env);');
-        expect(source).toContain('\'build:done\': stageNuxtPrivateSourcemaps');
+        expect(source).not.toContain('stagePrivateSourcemaps');
     });
 
     it('enables every Nuxt map control only for the closed diagnostics build', async () => {
@@ -180,6 +180,9 @@ describe('Nuxt config policy', () => {
         const sourcemap = getRequiredObjectProperty(configObject, 'sourcemap');
         const vite = getRequiredObjectProperty(configObject, 'vite');
         const viteBuild = getRequiredObjectProperty(vite, 'build');
+        const viteWorker = getRequiredObjectProperty(vite, 'worker');
+        const viteWorkerRolldown = getRequiredObjectProperty(viteWorker, 'rolldownOptions');
+        const viteWorkerOutput = getRequiredObjectProperty(viteWorkerRolldown, 'output');
         const nitro = getRequiredObjectProperty(configObject, 'nitro');
 
         for (const propertyName of [
@@ -189,6 +192,8 @@ describe('Nuxt config policy', () => {
             expect(getPropertyInitializer(sourcemap, propertyName)).toMatchObject({text: 'sentryDiagnosticsEligible'});
         }
         expect(getPropertyInitializer(viteBuild, 'sourcemap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
+        expect(getPropertyInitializer(viteWorkerOutput, 'sourcemapExcludeSources'))
+            .toMatchObject({text: 'sentryDiagnosticsEligible'});
         expect(getPropertyInitializer(nitro, 'sourceMap')).toMatchObject({text: 'sentryDiagnosticsEligible'});
         expect(source).toContain('sourcemapExcludeSources: sentryDiagnosticsEligible');
     });

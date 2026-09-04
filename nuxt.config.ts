@@ -123,9 +123,6 @@ function resolveSentryEuIngestOrigin(dsn: string) {
     }
 }
 const sentryBrowserIngestOrigin = resolveSentryEuIngestOrigin(sentryBrowserDsn);
-const sentryNuxtOutputRoot = isVercelBuildOutput
-    ? '.vercel/output'
-    : isolatedNuxtOutputDir || 'nuxt-output';
 const nitroOutput = isVercelBuildOutput
     // Let Nitro's Vercel preset keep Build Output API directories as static/ and functions/.
     ? {dir: '.vercel/output'}
@@ -184,19 +181,6 @@ const knownSourcemapWarningPlugins = new Set([
     'nuxt:module-preload-polyfill',
     'nuxt:server-devonly:transform',
 ]);
-
-async function stageNuxtPrivateSourcemaps() {
-    if (!sentryBuildIdentity) {
-        return;
-    }
-
-    const {stagePrivateSourcemaps} = await import('./scripts/release/stage-private-sourcemaps.mjs');
-    await stagePrivateSourcemaps({
-        identity: sentryBuildIdentity,
-        outputRoots: [sentryNuxtOutputRoot],
-        reset: true,
-    });
-}
 
 interface IRollupLog {
     code?: string | undefined;
@@ -325,7 +309,6 @@ export default defineNuxtConfig({
                 }
             }
         },
-        'build:done': stageNuxtPrivateSourcemaps,
     },
 
     alias: {
@@ -588,7 +571,12 @@ export default defineNuxtConfig({
 
     vite: {
         ...(isolatedNuxtViteCacheDir ? {cacheDir: isolatedNuxtViteCacheDir} : {}),
-        worker: {format: 'es'},
+        worker: {
+            format: 'es',
+            rolldownOptions: {
+                output: {sourcemapExcludeSources: sentryDiagnosticsEligible},
+            },
+        },
         css: {
             preprocessorOptions: {
                 scss: {

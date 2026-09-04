@@ -363,41 +363,53 @@ export async function waitForAutomationEvent(
     const afterEventId = options.afterEventId ?? 0;
     const timeoutMs = options.timeoutMs ?? 30_000;
     const normalizedPath = options.path?.replace(/\\/gu, '/').toLowerCase() ?? null;
+    const deadline = Date.now() + timeoutMs;
 
     await installWorkspaceExposeProbe(page);
-    return evaluateInPage(page, async (payload: {
-        afterEventId: number;
-        normalizedPath: string | null;
-        timeoutMs: number;
-        type: TEvbAutomationEventType;
-    }) => {
-        const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
-        if (!api?.waitForAutomationEvent) {
-            return null;
-        }
+    while (Date.now() < deadline) {
+        const result = await evaluateInPage(page, (payload: {
+            afterEventId: number;
+            normalizedPath: string | null;
+            type: TEvbAutomationEventType;
+        }) => {
+            const api = (window as IWorkspaceExposeProbeWindow).__evbTestApi;
+            if (!api?.getAutomationEvents) {
+                return {
+                    available: false,
+                    event: null,
+                };
+            }
 
-        return api.waitForAutomationEvent(
-            payload.type,
-            (event) => {
-                if (event.id <= payload.afterEventId) {
+            const event = api.getAutomationEvents().find((candidate) => {
+                if (candidate.type !== payload.type || candidate.id <= payload.afterEventId) {
                     return false;
                 }
                 if (!payload.normalizedPath) {
                     return true;
                 }
-                const path = typeof event.detail.path === 'string'
-                    ? event.detail.path.replace(/\\/gu, '/').toLowerCase()
+                const path = typeof candidate.detail.path === 'string'
+                    ? candidate.detail.path.replace(/\\/gu, '/').toLowerCase()
                     : '';
                 return path === payload.normalizedPath;
-            },
-            payload.timeoutMs,
-        );
-    }, {
-        afterEventId,
-        normalizedPath,
-        timeoutMs,
-        type,
-    });
+            }) ?? null;
+            return {
+                available: true,
+                event,
+            };
+        }, {
+            afterEventId,
+            normalizedPath,
+            type,
+        });
+        if (!result.available) {
+            return null;
+        }
+        if (result.event) {
+            return result.event;
+        }
+        await delay(50);
+    }
+    throw new Error(`Timed out waiting for automation event '${type}' after ${String(timeoutMs)}ms`);
 }
 
 export async function getLatestAutomationEventId(page: Page) {

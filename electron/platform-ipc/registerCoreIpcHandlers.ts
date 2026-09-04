@@ -16,7 +16,7 @@ import {
 } from '@electron/windowTabTransfer';
 import { getAllRegisteredAppWindows } from '@electron/window/registry';
 import { registerRendererLogBridge } from '@electron/platform-ipc/rendererLogBridge';
-import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/rendererDiagnosticBridge';
+import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/registerRendererDiagnosticBridge';
 import { getMainFailureReporter } from '@electron/features/diagnostics/public';
 import { isTrustedWebContentsSender } from '@electron/platform-ipc/trustedIpcSender';
 import {

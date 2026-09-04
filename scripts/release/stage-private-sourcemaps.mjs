@@ -39,6 +39,13 @@ const JAVASCRIPT_EXTENSIONS = new Set([
     '.js',
     '.mjs',
 ]);
+const MAX_GENERATED_MAPLESS_BROWSER_BUNDLE_BYTES = 2 * 1024;
+const NUXT_CLIENT_MANIFEST_RELATIVE_PATHS = [
+    '.nuxt/dist/server/client.manifest.mjs',
+    'node_modules/.cache/nuxt/.nuxt/dist/server/client.manifest.mjs',
+];
+const PDFJS_WORKER_FACADE_FILE_PATTERN = /^pdf-[A-Za-z0-9_-]{8}\.js$/u;
+const PDFJS_WORKER_IMPORT_PATTERN = /from["']\.\/pdf-[A-Za-z0-9_-]{8}\.js["']/u;
 const ELECTRON_UTILITY_BUNDLE_IDS = new Set([
     'pdf-conformance',
     'pdf-print-layout',
@@ -227,6 +234,7 @@ function mapPathForBundle(bundlePath) {
 function isVirtualSource(source) {
     return source.startsWith('\0')
         || source.startsWith('virtual:')
+        || /(?:^|\/)virtual:[^/]+/u.test(source)
         || source.startsWith('data:')
         || source.startsWith('http://')
         || source.startsWith('https://')
@@ -400,11 +408,94 @@ function manifestBundleMap(manifest) {
     ]));
 }
 
-function manifestSourceMap(manifest) {
-    return new Map((manifest?.sources ?? []).map(source => [
-        source.path,
-        source,
+function manifestUnmappedGeneratedBundleMap(manifest) {
+    return new Map((manifest?.unmappedGeneratedBundles ?? []).map(bundle => [
+        bundle.bundle,
+        bundle,
     ]));
+}
+
+function decodeGeneratedManifestString(encoded) {
+    try {
+        return JSON.parse(`"${encoded}"`);
+    } catch {
+        return null;
+    }
+}
+
+function normalizeNuxtAssetPath(value) {
+    const slashed = value.replaceAll('\\', '/').replace(/^\/+/, '');
+    const withoutNuxtPrefix = slashed.startsWith('_nuxt/')
+        ? slashed.slice('_nuxt/'.length)
+        : slashed;
+    const normalized = path.posix.normalize(withoutNuxtPrefix);
+    if (
+        !normalized
+        || normalized === '.'
+        || normalized === '..'
+        || normalized.startsWith('../')
+        || path.posix.isAbsolute(normalized)
+    ) {
+        return null;
+    }
+    return normalized;
+}
+
+function relativeNuxtAssetPath(relativeBundlePath) {
+    const marker = '/_nuxt/';
+    const markerIndex = relativeBundlePath.indexOf(marker);
+    return markerIndex === -1
+        ? null
+        : normalizeNuxtAssetPath(relativeBundlePath.slice(markerIndex + marker.length));
+}
+
+async function readNuxtGeneratedBrowserBundleNames(projectRoot) {
+    const configuredBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
+    const manifestPaths = [
+        ...(configuredBuildDir
+            ? [path.join(configuredBuildDir, 'dist/server/client.manifest.mjs')]
+            : []),
+        ...NUXT_CLIENT_MANIFEST_RELATIVE_PATHS,
+    ];
+    for (const manifestPath of manifestPaths) {
+        const absoluteManifestPath = path.resolve(projectRoot, manifestPath);
+        if (!(await fileExists(absoluteManifestPath))) {
+            continue;
+        }
+        const manifestText = await readFile(absoluteManifestPath, 'utf8');
+        const bundleNames = new Set();
+        for (const match of manifestText.matchAll(/(?:"file"|\bfile):"((?:\\.|[^"\\])+)"/gu)) {
+            const decoded = decodeGeneratedManifestString(match[1]);
+            const normalized = typeof decoded === 'string'
+                ? normalizeNuxtAssetPath(decoded)
+                : null;
+            if (normalized && isJavaScriptBundle(normalized)) {
+                bundleNames.add(normalized);
+            }
+        }
+        if (bundleNames.size === 0) {
+            throw new Error(`Nuxt client manifest has no JavaScript bundles: ${manifestPath}`);
+        }
+        return bundleNames;
+    }
+    return new Set();
+}
+
+function identifyGeneratedMaplessBrowserBundle(relativeAssetPath, bundleText, generatedBundleNames) {
+    if (bundleText.includes('sourceMappingURL')) {
+        return null;
+    }
+    if (generatedBundleNames.has(relativeAssetPath)) {
+        return 'nuxt-client-manifest';
+    }
+    if (
+        PDFJS_WORKER_FACADE_FILE_PATTERN.test(relativeAssetPath)
+        && PDFJS_WORKER_IMPORT_PATTERN.test(bundleText)
+        && bundleText.includes('export{')
+    ) {
+        return 'pdfjs-worker-facade-policy';
+    }
+    return null;
 }
 
 async function stageBundle({
@@ -429,12 +520,26 @@ async function stageBundle({
     const sourceFiles = [];
     const uniqueSources = new Set();
     for (const source of mapPayload.sources) {
-        const sourceRelativePath = resolveMapSource(
+        let sourceRelativePath = resolveMapSource(
             projectRoot,
             path.join(projectRoot, mapRelativePath),
             mapPayload.sourceRoot,
             source,
         );
+        if (
+            sourceRelativePath
+            && !(await fileExists(path.join(projectRoot, sourceRelativePath)))
+            && typeof source === 'string'
+        ) {
+            const rootRelativeSource = source.replace(/^(?:\.\.\/)+/u, '').replace(/^\.\//u, '');
+            const rootRelativePath = privateProjectSource(relativeProjectPath(
+                projectRoot,
+                path.resolve(projectRoot, rootRelativeSource),
+            ));
+            if (rootRelativePath && await fileExists(path.join(projectRoot, rootRelativePath))) {
+                sourceRelativePath = rootRelativePath;
+            }
+        }
         if (!sourceRelativePath || uniqueSources.has(sourceRelativePath)) {
             continue;
         }
@@ -476,6 +581,49 @@ async function stageBundle({
     };
 }
 
+async function describeUnmappedGeneratedBrowserBundle({
+    candidate,
+    generatedBundleNames,
+    outputRoot,
+    projectRoot,
+}) {
+    if (
+        candidate.role !== 'browser-renderer'
+        || !(
+            candidate.relativePath.startsWith('public/_nuxt/')
+            || candidate.relativePath.startsWith('static/_nuxt/')
+        )
+    ) {
+        return null;
+    }
+    const bundlePath = path.join(projectRoot, outputRoot, candidate.relativePath);
+    const bundleStat = await stat(bundlePath);
+    if (bundleStat.size > MAX_GENERATED_MAPLESS_BROWSER_BUNDLE_BYTES) {
+        return null;
+    }
+    const bundleText = await readFile(bundlePath, 'utf8');
+    const relativeAssetPath = relativeNuxtAssetPath(candidate.relativePath);
+    if (!relativeAssetPath) {
+        return null;
+    }
+    const producer = identifyGeneratedMaplessBrowserBundle(
+        relativeAssetPath,
+        bundleText,
+        generatedBundleNames,
+    );
+    if (!producer) {
+        return null;
+    }
+    const bundle = slashPath(path.join(outputRoot, candidate.relativePath));
+    return {
+        bundle,
+        bundleBytes: bundleStat.size,
+        bundleSha256: await sha256(bundlePath),
+        producer,
+        role: 'browser-generated-mapless',
+    };
+}
+
 async function removeMaps(outputRootPath) {
     const files = await collectFiles(outputRootPath);
     const mapFiles = files.filter(file => file.relativePath.endsWith('.map'));
@@ -485,8 +633,8 @@ async function removeMaps(outputRootPath) {
     return mapFiles.map(file => file.relativePath).sort(compareStrings);
 }
 
-function mergeSourceEntries(existingManifest, bundles) {
-    const sources = new Map(manifestSourceMap(existingManifest));
+function collectSourceEntries(bundles) {
+    const sources = new Map();
     for (const bundle of bundles) {
         for (const source of bundle.sourceFiles) {
             const old = sources.get(source.path);
@@ -553,9 +701,12 @@ export async function stagePrivateSourcemaps({
 
     const existingManifest = await readExistingManifest(manifestPath, normalizedIdentity);
     const existingBundles = manifestBundleMap(existingManifest);
+    const existingUnmappedGeneratedBundles = manifestUnmappedGeneratedBundleMap(existingManifest);
     const stagedBundles = [];
+    const unmappedGeneratedBundles = [];
     const removedMaps = [...(existingManifest?.removedPublicMaps ?? [])];
     const seenOutputRoots = new Set();
+    let generatedBundleNames = null;
 
     for (const outputRoot of outputRoots) {
         const normalizedOutputRoot = normalizeOutputRoot(root, outputRoot);
@@ -577,24 +728,41 @@ export async function stagePrivateSourcemaps({
             .filter(file => file.role !== null)
             .sort((left, right) => compareStrings(left.relativePath, right.relativePath));
 
+        const mappedCandidates = [];
         for (const candidate of candidates) {
             const publicMapPath = path.join(
                 absoluteOutputRoot,
                 mapPathForBundle(candidate.relativePath),
             );
-            if (!(await fileExists(publicMapPath))) {
-                throw new Error(
-                    `Reportable bundle has no external source map: ${slashPath(path.join(normalizedOutputRoot, candidate.relativePath))}`,
-                );
+            if (await fileExists(publicMapPath)) {
+                mappedCandidates.push(candidate);
+                continue;
             }
+            generatedBundleNames ??= await readNuxtGeneratedBrowserBundleNames(root);
+            const generatedBundle = await describeUnmappedGeneratedBrowserBundle({
+                candidate,
+                generatedBundleNames,
+                outputRoot: normalizedOutputRoot,
+                projectRoot: root,
+            });
+            if (generatedBundle) {
+                unmappedGeneratedBundles.push(generatedBundle);
+                continue;
+            }
+            throw new Error(
+                `Reportable bundle has no external source map: ${slashPath(path.join(normalizedOutputRoot, candidate.relativePath))}`,
+            );
         }
 
         // The CLI mutates both files. Run it only after all build transforms
         // have completed and before hashing, staging, receipt computation, or
         // public-map removal.
-        await injectDebugIds([absoluteOutputRoot]);
+        await injectDebugIds(mappedCandidates.flatMap(candidate => [
+            candidate.absolutePath,
+            `${candidate.absolutePath}.map`,
+        ]));
 
-        for (const candidate of candidates) {
+        for (const candidate of mappedCandidates) {
             const mapRelativePath = mapPathForBundle(candidate.relativePath);
             const publicMapPath = path.join(absoluteOutputRoot, mapRelativePath);
             if (!(await fileExists(publicMapPath))) {
@@ -624,15 +792,23 @@ export async function stagePrivateSourcemaps({
     }
 
     const bundles = new Map(existingBundles);
+    const generatedBundles = new Map(existingUnmappedGeneratedBundles);
     for (const bundle of stagedBundles) {
         bundles.set(bundle.bundle, bundle);
+        generatedBundles.delete(bundle.bundle);
+    }
+    for (const bundle of unmappedGeneratedBundles) {
+        generatedBundles.set(bundle.bundle, bundle);
+        bundles.delete(bundle.bundle);
     }
     const manifest = {
         bundles: [...bundles.values()].sort((left, right) => compareStrings(left.bundle, right.bundle)),
         identity: normalizedIdentity,
         removedPublicMaps: [...new Set(removedMaps)].sort(compareStrings),
         schemaVersion: PRIVATE_SOURCEMAP_MANIFEST_SCHEMA_VERSION,
-        sources: mergeSourceEntries(existingManifest, stagedBundles),
+        sources: collectSourceEntries(bundles.values()),
+        unmappedGeneratedBundles: [...generatedBundles.values()]
+            .sort((left, right) => compareStrings(left.bundle, right.bundle)),
     };
     await writeManifest(manifestPath, manifest);
 
@@ -649,6 +825,11 @@ export async function stagePrivateSourcemaps({
     );
     for (const bundle of manifest.bundles) {
         process.stdout.write(`Private Sentry map: ${bundle.bundle} -> ${bundle.stagedMapPath}\n`);
+    }
+    if (manifest.unmappedGeneratedBundles.length > 0) {
+        process.stdout.write(
+            `Recorded ${manifest.unmappedGeneratedBundles.length} generated browser bundle(s) without source maps.\n`,
+        );
     }
     return manifest;
 }
