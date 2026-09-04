@@ -1660,14 +1660,16 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
 export function splitPdfNativeMutationSetIntoBoundedChunks(
     mutations: IPdfNativeMutationSet,
 ): TPdfNativeMutationChunk[] {
-    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
+    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'placedImageGeometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
     let geometryUpdateIndex = 0;
+    let placedImageGeometryUpdateIndex = 0;
     let noteIndex = 0;
     let deleteIndex = 0;
     while (
         updateIndex < (mutations.updates?.length ?? 0)
         || geometryUpdateIndex < (mutations.geometryUpdates?.length ?? 0)
+        || placedImageGeometryUpdateIndex < (mutations.placedImageGeometryUpdates?.length ?? 0)
         || noteIndex < (mutations.freeTextNotes?.length ?? 0)
         || deleteIndex < (mutations.deletes?.length ?? 0)
         || noteChunks.length === 0
@@ -1679,22 +1681,34 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length,
         ));
         geometryUpdateIndex += geometryUpdates.length;
+        const placedImageGeometryUpdates = (mutations.placedImageGeometryUpdates ?? []).slice(
+            placedImageGeometryUpdateIndex,
+            placedImageGeometryUpdateIndex + Math.max(
+                0,
+                PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            ),
+        );
+        placedImageGeometryUpdateIndex += placedImageGeometryUpdates.length;
         const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length,
         ));
         noteIndex += freeTextNotes.length;
         const deletes = (mutations.deletes ?? []).slice(deleteIndex, deleteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length - freeTextNotes.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length - freeTextNotes.length,
         ));
         deleteIndex += deletes.length;
-        if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
+        if (updates.length + geometryUpdates.length + placedImageGeometryUpdates.length
+            + freeTextNotes.length + deletes.length === 0) {
             break;
         }
         noteChunks.push({
             ...(updates.length > 0 ? {updates} : {}),
             ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
+            ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
             ...(deletes.length > 0 ? {deletes} : {}),
         });

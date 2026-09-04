@@ -70,6 +70,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
 import {buildNativeNoteGeometryUpdatesForSave} from '@app/modules/pdf-viewer/runtime/save/buildNativeNoteGeometryUpdatesForSave';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 export type {
     IPdfSaveByteRouteDecision,
@@ -122,7 +123,7 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
         id,
         stableKey: computeSummaryStableKey({
             id,
-            pageIndex: entity.pageIndex,
+            pageIndex: requirePageIndex(entity.pageIndex),
             source,
             annotationId,
         }),
@@ -307,7 +308,9 @@ function addReplayableNativeEntityIds(
         addReplayableAnnotationId(ids, textBox.annotationId);
     });
     input.placedImageGeometryUpdates?.forEach((update) => {
-        addReplayableAnnotationId(ids, update.stableKey);
+        if (update.stableKey) {
+            ids.add(update.stableKey);
+        }
         addReplayableAnnotationId(ids, update.annotationId);
     });
 }
@@ -323,6 +326,7 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     shapes?: readonly IShapeAnnotation[] | null;
     deletedShapeAnnotationIds?: readonly string[];
     deletedShapeStableKeys?: readonly string[];
+    placedImages?: ReadonlyArray<Pick<IPlacedImageEntity, 'identity'>>;
 }) {
     const ids = new Set<string>();
     addReplayableNativeEntityIds(ids, {
@@ -330,6 +334,10 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         deletedShapeAnnotationIds: input.deletedShapeAnnotationIds ?? [],
         deletedShapeStableKeys: input.deletedShapeStableKeys ?? [],
         textBoxes: input.nativeTextBoxes ?? [],
+        placedImageGeometryUpdates: input.placedImages?.map(image => ({
+            stableKey: image.identity.id,
+            annotationId: image.identity.pdfRef,
+        })),
     });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
@@ -453,6 +461,8 @@ function deriveCanonicalSaveInputs(
             shapes: capabilities.shapes,
             deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
             deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
+            placedImages: changedEntities
+                .filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
         }),
         replayableCanonicalStickyNoteStableKeys,
     };

@@ -138,7 +138,9 @@ fn deserialize_placed_image_geometry_updates<'de, D>(
 where
     D: serde::Deserializer<'de>,
 {
-    deserialize_bounded_vec::<D, PlacedImageGeometryUpdate, MAX_PLACED_IMAGE_GEOMETRY_UPDATES>(deserializer)
+    deserialize_bounded_vec::<D, PlacedImageGeometryUpdate, MAX_PLACED_IMAGE_GEOMETRY_UPDATES>(
+        deserializer,
+    )
 }
 
 #[derive(Clone, Deserialize)]

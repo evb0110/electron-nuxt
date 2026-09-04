@@ -696,13 +696,7 @@ pub(crate) fn apply_placed_image_geometry_updates(
             )),
         );
         let stamp = document.get_dictionary_mut(stamp_ref)?;
-        patch_placed_image_stamp_dict(
-            stamp,
-            &geometry,
-            appearance_ref,
-            expected_name,
-            modified_at,
-        );
+        patch_placed_image_stamp_dict(stamp, &geometry, appearance_ref, expected_name, modified_at);
     }
     Ok(())
 }
@@ -849,11 +843,11 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
             page_id,
             &probe,
             expected_name,
-        )?.ok_or("Placed image geometry target was not found")?;
-        let (appearance_ref, image_ref) = placed_image_appearance_refs(
-            &AppendedRevision::new(incremental),
-            stamp_ref,
-        ).ok_or("Placed image appearance resources are unavailable")?;
+        )?
+        .ok_or("Placed image geometry target was not found")?;
+        let (appearance_ref, image_ref) =
+            placed_image_appearance_refs(&AppendedRevision::new(incremental), stamp_ref)
+                .ok_or("Placed image appearance resources are unavailable")?;
         let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
         incremental.new_document.set_object(
             appearance_ref,
@@ -865,13 +859,7 @@ pub(crate) fn apply_placed_image_geometry_updates_incremental(
         );
         incremental.opt_clone_object_to_new_document(stamp_ref)?;
         let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
-        patch_placed_image_stamp_dict(
-            stamp,
-            &geometry,
-            appearance_ref,
-            expected_name,
-            modified_at,
-        );
+        patch_placed_image_stamp_dict(stamp, &geometry, appearance_ref, expected_name, modified_at);
     }
     Ok(())
 }

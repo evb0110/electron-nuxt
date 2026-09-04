@@ -372,6 +372,32 @@ describe('classifyPdfSaveRoute annotation routes', () => {
             .toHaveLength(1);
     });
 
+    it('keeps a placed-image PDF.js alias on the native replay route', () => {
+        const image = changedPlacedImage('placed-image-live');
+        const decision = classifyPdfSaveRoute(
+            planOf([image]),
+            capabilities({liveAnnotationChanges: liveChanges({
+                ids: new Set([
+                    'placed-image-live',
+                    '12R',
+                ]),
+                hasChanges: true,
+                fingerprint: 'placed-image-live-alias',
+            })}),
+        );
+
+        expect([...decision.canonical.replayableEmbeddedAnnotationIds]).toEqual(
+            expect.arrayContaining([
+                'placed-image-live',
+                '12R',
+            ]),
+        );
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.annotationRoute.route).toBe('source-replay');
+        expect(decision.annotationRoute.unreplayableLiveAnnotationIds).toEqual([]);
+    });
+
     it('does not require a native delete for a local shape deleted beside a persisted shape', () => {
         const decision = classifyPdfSaveRoute(
             planOf([
