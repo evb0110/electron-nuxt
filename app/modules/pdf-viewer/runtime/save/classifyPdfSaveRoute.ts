@@ -278,6 +278,27 @@ function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: 
     addReplayableAnnotationId(ids, match?.[1]);
 }
 
+function addReplayableNativeEntityIds(
+    ids: Set<string>,
+    input: {
+        shapes?: readonly IShapeAnnotation[] | null;
+        deletedShapeAnnotationIds?: readonly string[];
+        deletedShapeStableKeys?: readonly string[];
+        textBoxes: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
+    },
+) {
+    input.shapes?.forEach((shape) => {
+        addReplayableAnnotationId(ids, shape.annotationId);
+        addReplayableAnnotationId(ids, shape.stableKey);
+    });
+    input.deletedShapeAnnotationIds?.forEach((id) => addReplayableAnnotationId(ids, id));
+    input.deletedShapeStableKeys?.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
+    input.textBoxes.forEach((textBox) => {
+        addReplayableAnnotationId(ids, textBox.stableKey);
+        addReplayableAnnotationId(ids, textBox.annotationId);
+    });
+}
+
 function collectReplayableEmbeddedAnnotationIds(input: {
     pendingTexts: Map<string, string>;
     pendingDeletes: IAnnotationCommentSummary[];
@@ -291,20 +312,11 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     deletedShapeStableKeys?: readonly string[];
 }) {
     const ids = new Set<string>();
-    input.shapes?.forEach((shape) => {
-        // Managed shapes are written by the structured native shape payload.
-        // Their PDF.js aliases must not force the whole save onto materialization.
-        addReplayableAnnotationId(ids, shape.annotationId);
-        addReplayableAnnotationId(ids, shape.stableKey);
-    });
-    input.deletedShapeAnnotationIds?.forEach((id) => addReplayableAnnotationId(ids, id));
-    input.deletedShapeStableKeys?.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
-    input.nativeTextBoxes?.forEach((textBox) => {
-        // An imported FreeText can appear in PDF.js storage under both the
-        // canonical /NM and its indirect PDF object ref. The native payload
-        // owns both identities, so neither should force materialization.
-        addReplayableAnnotationId(ids, textBox.stableKey);
-        addReplayableAnnotationId(ids, textBox.annotationId);
+    addReplayableNativeEntityIds(ids, {
+        shapes: input.shapes,
+        deletedShapeAnnotationIds: input.deletedShapeAnnotationIds,
+        deletedShapeStableKeys: input.deletedShapeStableKeys,
+        textBoxes: input.nativeTextBoxes ?? [],
     });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
@@ -703,17 +715,7 @@ function collectProjectedNativeAnnotationIds(input: {
         `${update.objectNumber}R${update.generationNumber}`));
     const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
 
-    input.shapes?.forEach((shape) => {
-        addReplayableAnnotationId(ids, shape.annotationId);
-        addReplayableAnnotationId(ids, shape.stableKey);
-    });
-    input.deletedShapeAnnotationIds.forEach((id) => addReplayableAnnotationId(ids, id));
-    input.deletedShapeStableKeys.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
-
-    input.textBoxes.forEach((textBox) => {
-        addReplayableAnnotationId(ids, textBox.stableKey);
-        addReplayableAnnotationId(ids, textBox.annotationId);
-    });
+    addReplayableNativeEntityIds(ids, input);
 
     input.changedComments.forEach((comment) => {
         const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
