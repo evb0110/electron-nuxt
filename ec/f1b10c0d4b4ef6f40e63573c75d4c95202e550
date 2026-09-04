@@ -1,0 +1,24 @@
+tests/windows/fixtures/manifest.json
+  s_c57729f2c66bed::t_ee3e25b92e7c59 1-311
+tests/unit/scripts/stageDesktopRendererSourcemaps.test.ts
+  s_c57729f2c66bed::t_f2cb7d84398a8d 1-60,62-137
+  s_c57729f2c66bed::t_84fca106b976a2 61
+scripts/windows-test/registry/changeSelector.ts
+  s_c57729f2c66bed::t_ee3e25b92e7c59 1-236
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "ecf1b10c0d4b4ef6f40e63573c75d4c95202e550",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
