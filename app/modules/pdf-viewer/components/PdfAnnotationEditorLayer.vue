@@ -172,8 +172,9 @@ const isInteractive = computed(() => (
     || pointerGesture.isActive.value
 ));
 const entities = computed(() => surface.getEntitiesForPage(props.pageIndex));
+const selectedIds = computed(() => surface.selectedIds.value);
 const selectedEntity = computed(() => {
-    const selectedId = [...surface.selectedIds.value][0];
+    const selectedId = [...selectedIds.value][0];
     return entities.value.find(entity => entity.identity.id === selectedId) ?? null;
 });
 const moveDelta = computed(() => {
@@ -198,19 +199,18 @@ const selectedDisplayRect = computed(() => {
     }
     return pointerGesture.previewRect.value ?? undefined;
 });
-const isSelected = (id: AnnotationId) => surface.selectedIds.value.has(id);
+const isSelected = (id: AnnotationId) => selectedIds.value.has(id);
 function handleKeydown(event: KeyboardEvent) {
     keyboardCommands.handleKeydown(event);
 }
 
 const svgEntities = computed(() => {
-    const selectedIds = surface.selectedIds.value;
     return {
         textMarkup: entities.value
             .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
             .map(entity => {
                 const delta = moveDelta.value;
-                return delta && selectedIds.has(entity.identity.id)
+                return delta && selectedIds.value.has(entity.identity.id)
                     ? {
                         ...entity,
                         quadPoints: entity.quadPoints.map(rect => moveAnnotationRect(rect, delta.x, delta.y)),
