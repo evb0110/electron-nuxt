@@ -1,0 +1,21 @@
+tests/unit/app/utils/failureReporter.test.ts
+  s_c57729f2c66bed::t_6d93b3f54e7fa9 182
+tests/unit/electron/mainFailureReporter.test.ts
+  s_c57729f2c66bed::t_6d93b3f54e7fa9 306
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "9814d3e4196ecd810d0c69bbc54672c804310f4c",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
