@@ -35,7 +35,7 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 | New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress |
 | New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
 | Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, and client-suppressed repeats |
-| Quota | Organization usage | 50, 75, and 90 percent of the included event quota | No pay-as-you-go continuation |
+| Quota | Organization usage | 50, 70, and 90 percent of the included event quota | No pay-as-you-go continuation |
 
 Record completion without private links:
 
@@ -178,11 +178,20 @@ behavior matrix still marked pending in the same row.
 
 | Deployment | Served-byte parity | Unknown requests | Denied requests | Granted event count | Revocation requests | CSP origin count | Error ID matched | Symbolicated | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Preview | Pass, protected exact-byte deployment | Pending | Pending | Pending | Pending | Pending | Pending | Pending | 2026-09-04 |
+| Preview | Pass, protected exact-byte deployment | Pending | Pending | 256 private source-map canaries | Pending | One EU ingest origin in built CSP | Pending | Pass, sampled browser frame | 2026-09-05 |
 | Production | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
 
 The CSP origin count must be one for the exact EU ingest origin. Electron CSP
 must remain unchanged.
+
+The Preview source-map run uploaded 473 bundles from separate visible Vercel
+`static` and `functions` roots. It sent 256 canaries for bundles with a usable
+EVB mapping and recorded 217 generated or vendor-only bundles as ineligible.
+The sampled browser canary resolved by Debug ID to
+`app/composables/useRuntimeErrorReports.ts:16`, including source context, with
+`symbolicated_in_app` true. This proves private-map symbolication only. The
+unknown, denied, grant, revocation, and Error ID rows still require the hosted
+browser behavior canary.
 
 ### Viewer Nitro
 

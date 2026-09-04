@@ -29,6 +29,12 @@ const identity: SentryBuildIdentity = {
     dist: 'macos-arm64',
     environment: 'test',
 };
+const webIdentity: SentryBuildIdentity = {
+    target: 'web',
+    release: 'evb-viewer-web@0.1.449',
+    dist: 'preview-fixture',
+    environment: 'preview',
+};
 
 async function createFixture() {
     const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-sentry-upload-'));
@@ -60,6 +66,7 @@ function privateEnvironment() {
     return {
         SENTRY_AUTH_TOKEN: 'private-upload-token',
         SENTRY_DESKTOP_PROJECT: 'private-desktop-project',
+        SENTRY_WEB_PROJECT: 'private-web-project',
         SENTRY_ORG: 'private-organization',
     };
 }
@@ -136,7 +143,7 @@ describe('uploadSentrySourcemaps', () => {
         expect(receipt).toMatchObject({
             bundleCount: 1,
             identity,
-            schemaVersion: 1,
+            schemaVersion: 3,
         });
         const stageRoot = path.dirname(getPrivateSourcemapManifestPath({
             projectRoot,
@@ -147,6 +154,63 @@ describe('uploadSentrySourcemaps', () => {
         expect(receiptText).not.toContain('private-organization');
         expect(receiptText).not.toContain('private-desktop-project');
         expect((await readdir(stageRoot)).some(entry => entry.startsWith('.upload-'))).toBe(false);
+    });
+
+    it('moves web bundles out of the hidden .vercel directory without changing their depth', async () => {
+        const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-sentry-web-upload-'));
+        temporaryRoots.push(projectRoot);
+        const outputRoot = '.vercel/output/static/_nuxt';
+        await mkdir(path.join(projectRoot, outputRoot), {recursive: true});
+        await mkdir(path.join(projectRoot, 'app'), {recursive: true});
+        await writeFile(path.join(projectRoot, 'app/example.ts'), 'throw new Error("fixture");\n');
+        await writeFile(
+            path.join(projectRoot, outputRoot, 'example.js'),
+            'throw new Error("fixture");\n//# sourceMappingURL=example.js.map\n',
+        );
+        await writeFile(path.join(projectRoot, outputRoot, 'example.js.map'), JSON.stringify({
+            file: 'example.js',
+            mappings: 'AAAA',
+            names: [],
+            sources: ['../../../../app/example.ts'],
+            version: 3,
+        }));
+        await stagePrivateSourcemaps({
+            projectRoot,
+            identity: webIdentity,
+            outputRoots: ['.vercel/output'],
+            reset: true,
+        });
+        const runCli = vi.fn(async (args: string[]) => {
+            const staticRoot = args.at(-1)!;
+            expect(await readFile(path.join(
+                staticRoot,
+                '_nuxt/example.js',
+            ), 'utf8')).toContain('_sentryDebugIds');
+            expect(JSON.parse(await readFile(path.join(
+                staticRoot,
+                '_nuxt/example.js.map',
+            ), 'utf8'))).toMatchObject({version: 3});
+            await expect(readFile(path.join(
+                staticRoot,
+                '.vercel/output/static/_nuxt/example.js',
+            ))).rejects.toMatchObject({code: 'ENOENT'});
+            expect(await readFile(path.join(staticRoot, '../../../app/example.ts'), 'utf8'))
+                .toContain('fixture');
+        });
+
+        const receipt = await uploadSentrySourcemaps({
+            identity: webIdentity,
+            projectRoot,
+            environment: privateEnvironment(),
+            runCli,
+        });
+
+        expect(runCli).toHaveBeenCalledOnce();
+        expect(receipt).toMatchObject({
+            bundleCount: 1,
+            identity: webIdentity,
+            schemaVersion: 3,
+        });
     });
 
     it('treats a matching private receipt as an exact-build no-op', async () => {

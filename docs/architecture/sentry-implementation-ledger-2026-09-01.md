@@ -1,6 +1,6 @@
 # Sentry error telemetry implementation ledger
 
-- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-04
+- Status: current implementation ledger, updated from repository and live-control evidence on 2026-09-05
 - Ledger date: 2026-09-01
 - Repository version at planning time: 0.1.445
 - Repository commit inspected: `55e00c7670e2c3b077da63238b3adfba10e34a28` on `main`
@@ -8,10 +8,11 @@
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
 - Implementation snapshot: repository work is implemented. Live account
   hardening, project and credential provisioning, exact-byte web Preview
-  upload, closed-adapter test events, and a full macOS arm64 private-map
-  symbolication pass are verified. The remaining desktop distributions, the
-  hosted-browser Preview canary, legal approval for Nitro, alerts, operations
-  cycles, and production observation periods remain open.
+  upload, closed-adapter test events, a full macOS arm64 private-map
+  symbolication pass, and the web-project Debug ID symbolication canary are
+  verified. The remaining desktop distributions, the hosted-browser consent
+  matrix, legal approval for Nitro, operations cycles, and production
+  observation periods remain open.
 - This ledger is current. It is not deferred or superseded. A blocked item
   remains part of this ledger until its external evidence or observation period
   is complete.
@@ -103,7 +104,7 @@ reporting and does not satisfy a live canary.
 - Browser, Electron, and Nitro production reporting remain disabled without
   their separately scoped credentials and environment gates.
 
-### Live control proof recorded through 2026-09-04
+### Live control proof recorded through 2026-09-05
 
 - The Sentry organization uses the European Union data region. DPA version
   5.1.0 and the BAA are signed. Aggregated identifying service-data use and
@@ -125,10 +126,18 @@ reporting and does not satisfy a live canary.
   Vercel stores separate browser and Nitro DSNs in Preview only. Nitro remains
   disabled because its legal, retention, and objection gates are not complete.
 - A strict upload accepted the web release with 473 mapped bundles, 16
-  manifest-proved mapless generated facades, and 1,373 project sources. The
+  manifest-proved mapless generated facades, and 1,375 project sources. The
   protected Preview deployment is Ready, ships no public maps, and every served
   browser bundle hash matches the private manifest through authenticated Vercel
   access.
+- The first web artifact attempt exposed a Sentry CLI behavior that silently
+  skipped the hidden `.vercel` tree. The uploader now stages that tree under a
+  visible temporary directory and invokes the CLI from the Vercel `static` and
+  `functions` roots. A fresh strict upload accepted all 473 bundles. Sentry
+  accepted 256 deterministic canaries, recorded 217 generated or vendor-only
+  bundles without a usable EVB mapping, and resolved the sampled browser frame
+  by Debug ID to `app/composables/useRuntimeErrorReports.ts:16` with source
+  context and `symbolicated_in_app` true.
 - The hardened Electron and browser adapters each sent one closed test event,
   and post-scrubber repeats confirmed that no URL, request, raw content, user,
   or derived geography survived. The macOS arm64 private upload accepted all
@@ -144,8 +153,8 @@ reporting and does not satisfy a live canary.
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
 - Exact private maps still need live upload and symbolication proof for eight
-  desktop distributions. The hosted viewer upload and exact-byte parity pass,
-  but its own web-project Debug ID symbolication canary remains open.
+  desktop distributions. The hosted viewer upload, exact-byte parity, and
+  web-project Debug ID symbolication canary pass.
 - Packaged desktop and hosted-browser consent canaries, the one-week Nitro canary, alert setup,
   the first weekly operations cycle, production enablement, and the four-week
   production proof remain incomplete.
@@ -1248,7 +1257,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-07 Disable Sentry source fetching after upload
 
-- Status: partially complete; source fetching is disabled in both projects and the desktop-project post-change canary resolves, while the web-project canary remains pending
+- Status: complete; source fetching is disabled in both projects and post-change desktop and web Debug ID canaries resolve
 - Depends on: SEN-MAP-04
 - Difficulty: medium
 - Scope: Sentry account only, plus the credential-free inventory.
@@ -1451,7 +1460,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: partially complete; strict web upload and macOS arm64 desktop upload and symbolication pass, while the web-project canary and eight desktop distributions remain pending
+- Status: partially complete; strict web upload and symbolication and macOS arm64 desktop upload and symbolication pass, while eight desktop distributions remain pending
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1478,6 +1487,13 @@ current repository or external-gate status.
   Nitro output are included in the web manifest and symbolication canary. The
   release tool may spawn only the pinned Sentry CLI and may read only the upload
   token allowed by SEN-GATE-02.
+- Vercel's output directory is hidden. The uploader copies its exact bytes to a
+  visible temporary tree, then uploads from `vercel/output/static` and
+  `vercel/output/functions`. This preserves the browser artifact name
+  `~/_nuxt/...` while retaining the original relative source paths used during
+  Sentry's rewrite. Uploading the temporary tree's parent is invalid because it
+  produces `~/vercel/output/static/...`, which does not match deployed browser
+  URLs even when the Debug ID itself is present.
 - Tests: a workflow policy test that upload precedes any canary step; a secret
   scan on public artifacts; a test that a re-dispatch path performs no upload.
 - Exit evidence: per-project-source-bundle canary events showing original file,
@@ -1645,7 +1661,7 @@ current repository or external-gate status.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: blocked by live preview deployment and map upload
+- Status: partially complete; exact-byte Preview deployment and web Debug ID symbolication pass, while the consent, request-count, CSP, and Error ID checks remain pending
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite
@@ -1666,7 +1682,9 @@ current repository or external-gate status.
 - Behavior: configure exactly four alert classes: a new or regressed high-priority
   fatal production issue, a new or regressed production issue with a diagnostic
   code, a production issue with a diagnostic code that exceeds 20 events in five
-  minutes, and quota at 50, 75, and 90 percent.
+  minutes, and quota at 50, 70, and 90 percent. Sentry exposes quota thresholds
+  in ten-percent steps, so the architecture's original 75-percent point is
+  implemented as the closest earlier threshold.
   Do not alert on preview, tests, cancellation, expected teardown, validation,
   unsupported input, or ordinary offline behavior.
 - Exit evidence: the four alerts exist and the excluded categories are recorded.

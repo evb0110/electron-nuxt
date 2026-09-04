@@ -19,6 +19,7 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const {SourceMapConsumer} = sourceMap;
 const CANARY_RECEIPT_SCHEMA_VERSION = 1;
+const CANARY_EVENT_VERSION = 'sourcemap-v6';
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 
@@ -132,9 +133,18 @@ function readDebugId(mapPayload) {
     return value;
 }
 
+function canaryCodeFile(identity, bundlePath) {
+    const vercelStaticPrefix = '.vercel/output/static/';
+    if (identity.target === 'web' && bundlePath.startsWith(vercelStaticPrefix)) {
+        return `https://evb-viewer.invalid/${bundlePath.slice(vercelStaticPrefix.length)}`;
+    }
+    return bundlePath;
+}
+
 function createCanaryEvent(identity, bundle, mapping, debugId) {
+    const codeFile = canaryCodeFile(identity, bundle.bundle);
     const eventId = createHash('sha256')
-        .update('evb-sourcemap-canary-v1')
+        .update(`evb-${CANARY_EVENT_VERSION}`)
         .update('\0')
         .update(identity.target)
         .update('\0')
@@ -158,7 +168,7 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
             dist: identity.dist,
             environment: identity.environment,
             fingerprint: [
-                'evb-sourcemap-canary-v1',
+                `evb-${CANARY_EVENT_VERSION}`,
                 identity.dist,
                 bundle.bundle,
             ],
@@ -166,8 +176,9 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
                 type: 'EVBViewerSourceMapCanary',
                 value: 'EVB Viewer source-map canary',
                 stacktrace: {frames: [{
-                    filename: bundle.bundle,
-                    module: bundle.bundle,
+                    abs_path: codeFile,
+                    filename: codeFile,
+                    module: codeFile,
                     function: 'evbViewerSourceMapCanary',
                     lineno: mapping.generatedLine,
                     colno: mapping.generatedColumn,
@@ -176,12 +187,12 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
             }]},
             tags: {
                 evb_schema: 'evb-diagnostic-v1',
-                evb_canary: 'sourcemap-v1',
+                evb_canary: CANARY_EVENT_VERSION,
                 bundle_role: bundle.role,
             },
             debug_meta: {images: [{
                 type: 'sourcemap',
-                code_file: bundle.bundle,
+                code_file: codeFile,
                 debug_id: debugId,
             }]},
         },
