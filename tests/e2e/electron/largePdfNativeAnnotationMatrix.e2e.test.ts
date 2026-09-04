@@ -1028,20 +1028,44 @@ async function moveResizeAndEmbedPlacedImage(page: Page) {
         };
     });
     await dragImagePlacementControl(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__surface`, 52, 34);
+    await page.waitForFunction((input: {
+        left: number;
+        top: number;
+    }) => {
+        const current = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement',
+        );
+        const rect = current?.getBoundingClientRect();
+        return rect !== undefined
+            && Math.abs(rect.left - input.left) > 10
+            && Math.abs(rect.top - input.top) > 10;
+    }, {timeout: 10_000}, before);
     await dragImagePlacementControl(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__resizer--se`, 46, 28);
-    const after = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
+    await page.waitForFunction((input: {
+        height: number;
+        width: number;
+    }) => {
+        const current = document.querySelector<HTMLElement>(
+            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement',
+        );
+        const rect = current?.getBoundingClientRect();
+        return rect !== undefined
+            && rect.width > input.width + 10
+            && rect.height > input.height + 5;
+    }, {timeout: 10_000}, before);
+    const final = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
         const rect = element.getBoundingClientRect();
         return {
             height: rect.height,
-            width: rect.width,
             left: rect.left,
             top: rect.top,
+            width: rect.width,
         };
     });
-    expect(Math.abs(after.left - before.left)).toBeGreaterThan(10);
-    expect(Math.abs(after.top - before.top)).toBeGreaterThan(10);
-    expect(after.width).toBeGreaterThan(before.width + 10);
-    expect(after.height).toBeGreaterThan(before.height + 5);
+    expect(Math.abs(final.left - before.left)).toBeGreaterThan(10);
+    expect(Math.abs(final.top - before.top)).toBeGreaterThan(10);
+    expect(final.width).toBeGreaterThan(before.width + 10);
+    expect(final.height).toBeGreaterThan(before.height + 5);
     await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         hidden: true,
@@ -1370,7 +1394,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             'placed-image',
             new Set(beforeImage.map(entity => entity.id)),
         );
-        expect(image.id).toMatch(/^anno_/u);
+        expect(image.id).toMatch(/^placed-image-/u);
 
         const firstSaveToken = await saveCanonicalRevision(
             session.page,
