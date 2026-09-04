@@ -31,17 +31,28 @@ const mocks = vi.hoisted(() => {
 
     class MockBrowserWindow {
         public static emitReadyToShowByDefault = true;
+        public static emitPdfReadyToPrintByDefault = true;
+        public static rejectLoadURLByDefault = false;
 
         private readonly eventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
+        private readonly webContentsEventHandlers = new Map<string, Set<(...args: unknown[]) => void>>();
 
         public autoEmitReadyToShow = MockBrowserWindow.emitReadyToShowByDefault;
+        public autoEmitPdfReadyToPrint = MockBrowserWindow.emitPdfReadyToPrintByDefault;
+        public rejectLoadURL = MockBrowserWindow.rejectLoadURLByDefault;
 
         public readonly close = vi.fn();
         public readonly hide = vi.fn();
         public readonly isDestroyed = vi.fn(() => false);
         public readonly loadURL = vi.fn(async () => {
+            if (this.rejectLoadURL) {
+                throw new Error('PDF load failed');
+            }
             if (this.autoEmitReadyToShow) {
                 this.emit('ready-to-show');
+            }
+            if (this.autoEmitPdfReadyToPrint) {
+                this.emitWebContents('-pdf-ready-to-print');
             }
         });
         public readonly once = vi.fn((event: string, handler: (...args: unknown[]) => void) => {
@@ -67,8 +78,14 @@ const mocks = vi.hoisted(() => {
             on: vi.fn(),
             print: vi.fn(printHandler),
             printToPDF: vi.fn(async () => Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n')),
-            once: vi.fn(),
-            removeListener: vi.fn(),
+            once: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+                const handlers = this.webContentsEventHandlers.get(event) ?? new Set();
+                handlers.add(handler);
+                this.webContentsEventHandlers.set(event, handlers);
+            }),
+            removeListener: vi.fn((event: string, handler: (...args: unknown[]) => void) => {
+                this.webContentsEventHandlers.get(event)?.delete(handler);
+            }),
         };
 
         public constructor(public readonly options: Record<string, unknown>) {
@@ -78,6 +95,14 @@ const mocks = vi.hoisted(() => {
         public emit(event: string, ...args: unknown[]) {
             const handlers = [...(this.eventHandlers.get(event) ?? [])];
             this.eventHandlers.delete(event);
+            for (const handler of handlers) {
+                handler(...args);
+            }
+        }
+
+        public emitWebContents(event: string, ...args: unknown[]) {
+            const handlers = [...(this.webContentsEventHandlers.get(event) ?? [])];
+            this.webContentsEventHandlers.delete(event);
             for (const handler of handlers) {
                 handler(...args);
             }
@@ -259,6 +284,8 @@ describe('documents print', () => {
         mocks.browserWindowInstances.length = 0;
         mocks.runtimePlatform = 'linux';
         mocks.MockBrowserWindow.emitReadyToShowByDefault = true;
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = true;
+        mocks.MockBrowserWindow.rejectLoadURLByDefault = false;
         mocks.printSurfaceBitmap = Buffer.alloc(4 * 4 * 4, 255);
         mocks.appGetPath.mockReturnValue('/tmp');
         mocks.randomUUID.mockReturnValue('print-job-id');
@@ -359,14 +386,18 @@ describe('documents print', () => {
     });
 
     async function settleNativePrint<T>(promise: Promise<T>) {
-        for (let index = 0; index < 40; index += 1) {
-            await Promise.resolve();
-        }
+        await flushPrintPromises();
         if (mocks.browserWindowInstances.length > 0) {
             expect(mocks.browserWindowInstances[0]?.loadURL).toHaveBeenCalled();
             await vi.advanceTimersByTimeAsync(2_000);
         }
         return promise;
+    }
+
+    async function flushPrintPromises() {
+        for (let index = 0; index < 40; index += 1) {
+            await Promise.resolve();
+        }
     }
 
     it('creates the native print window with PDF plugins enabled', async () => {
@@ -407,6 +438,211 @@ describe('documents print', () => {
         await vi.runOnlyPendingTimersAsync();
 
         expect(mocks.browserWindowInstances[0]?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('waits for the PDF viewer ready-to-print signal before dispatching native print', async () => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = false;
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        expect(printWindow?.loadURL).toHaveBeenCalledWith(pathToFileURL(sourcePdfPath).toString());
+        await vi.advanceTimersByTimeAsync(2_000);
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+
+        printWindow?.emitWebContents('-pdf-ready-to-print');
+        await vi.advanceTimersByTimeAsync(2_000);
+        await expect(resultPromise).resolves.toEqual({success: true});
+        expect(printWindow?.webContents.print).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not require ready-to-show after the PDF viewer signals readiness', async () => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitReadyToShowByDefault = false;
+
+        let observedResult: unknown;
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        ).then((result) => {
+            observedResult = result;
+            return result;
+        });
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        await vi.advanceTimersByTimeAsync(2_000);
+        const printCallsBeforeReadyToShow = printWindow?.webContents.print.mock.calls.length ?? 0;
+
+        // Keep the old implementation's unbounded promise from leaking into
+        // the test while asserting that it did not gate dispatch.
+        printWindow?.emit('ready-to-show');
+        await expect(resultPromise).resolves.toEqual({success: true});
+        expect(observedResult).toEqual({success: true});
+        expect(printCallsBeforeReadyToShow).toBe(1);
+    });
+
+    it('fails closed when the PDF viewer never signals readiness', async () => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = false;
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        await vi.advanceTimersByTimeAsync(15_001);
+
+        await expect(resultPromise).resolves.toEqual({
+            success: false,
+            error: 'PDF viewer did not become ready to print within 15000ms',
+        });
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+        expect(printWindow?.close).toHaveBeenCalledTimes(1);
+        expect(printWindow?.webContents.removeListener).toHaveBeenCalledWith(
+            '-pdf-ready-to-print',
+            expect.any(Function),
+        );
+        expect(printWindow?.removeListener).toHaveBeenCalledWith(
+            'ready-to-show',
+            expect.any(Function),
+        );
+    });
+
+    it('keeps the PDF readiness deadline effective when ready-to-show never fires', async () => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitReadyToShowByDefault = false;
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = false;
+
+        let observedResult: unknown;
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        ).then((result) => {
+            observedResult = result;
+            return result;
+        });
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        await vi.advanceTimersByTimeAsync(15_001);
+        await flushPrintPromises();
+        const resultBeforeReadyToShow = observedResult;
+
+        // The old implementation waited on ready-to-show after the PDF
+        // timeout. Emit it only as cleanup for that implementation so this
+        // regression can fail without leaving a pending promise behind.
+        if (resultBeforeReadyToShow === undefined) {
+            printWindow?.emit('ready-to-show');
+        }
+        await expect(resultPromise).resolves.toEqual({
+            success: false,
+            error: 'PDF viewer did not become ready to print within 15000ms',
+        });
+        expect(resultBeforeReadyToShow).toEqual({
+            success: false,
+            error: 'PDF viewer did not become ready to print within 15000ms',
+        });
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+        expect(printWindow?.close).toHaveBeenCalledTimes(1);
+    });
+
+    it('cancels the PDF readiness wait without dispatching native print', async () => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = false;
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        cancelMainOperationsForOwner(senderId, 'Renderer lifecycle ended');
+
+        await expect(resultPromise).resolves.toMatchObject({
+            success: false,
+            canceled: true,
+        });
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+        expect(printWindow?.close).toHaveBeenCalledTimes(1);
+        expect(printWindow?.webContents.removeListener).toHaveBeenCalledWith(
+            '-pdf-ready-to-print',
+            expect.any(Function),
+        );
+    });
+
+    it('cleans the PDF readiness listener when loading the source fails', async () => {
+        mocks.MockBrowserWindow.rejectLoadURLByDefault = true;
+
+        const result = await handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        const printWindow = mocks.browserWindowInstances[0];
+
+        expect(result).toEqual({
+            success: false,
+            error: 'PDF load failed',
+        });
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+        expect(printWindow?.close).toHaveBeenCalledTimes(1);
+        expect(printWindow?.webContents.removeListener).toHaveBeenCalledWith(
+            '-pdf-ready-to-print',
+            expect.any(Function),
+        );
+    });
+
+    it.each([
+        [
+            'render-process-gone',
+            'Print renderer exited before the PDF viewer became ready',
+        ],
+        [
+            'destroyed',
+            'Print web contents destroyed before the PDF viewer became ready',
+        ],
+    ] as const)('fails immediately when PDF readiness ends with %s', async (event, error) => {
+        vi.useFakeTimers();
+        mocks.MockBrowserWindow.emitPdfReadyToPrintByDefault = false;
+
+        const resultPromise = handlePrintPdfPath(
+            windowContext,
+            sourcePdfPath,
+            'source.pdf',
+        );
+        await flushPrintPromises();
+
+        const printWindow = mocks.browserWindowInstances[0];
+        printWindow?.emitWebContents(event);
+
+        await expect(resultPromise).resolves.toEqual({
+            success: false,
+            error,
+        });
+        expect(printWindow?.webContents.print).not.toHaveBeenCalled();
+        expect(printWindow?.close).toHaveBeenCalledTimes(1);
+        expect(printWindow?.webContents.removeListener).toHaveBeenCalledWith(
+            '-pdf-ready-to-print',
+            expect.any(Function),
+        );
+        expect(printWindow?.webContents.removeListener).toHaveBeenCalledWith(
+            event,
+            expect.any(Function),
+        );
     });
 
     it('uses the macOS PDFKit helper without creating a BrowserWindow', async () => {
@@ -1086,9 +1322,7 @@ describe('documents print', () => {
                 orientation: 'auto',
             },
         );
-        for (let index = 0; index < 40; index += 1) {
-            await Promise.resolve();
-        }
+        await flushPrintPromises();
         // The paint probe only runs where the plugin window is compositor-visible (macOS).
         expect(mocks.browserWindowInstances[0]?.webContents.capturePage)
             .toHaveBeenCalledTimes(mocks.runtimePlatform === 'darwin' ? 1 : 0);
@@ -1108,9 +1342,7 @@ describe('documents print', () => {
         vi.useFakeTimers();
         mocks.printSurfaceBitmap = Buffer.alloc(0);
         const resultPromise = handlePrintPdfPath(windowContext, sourcePdfPath, 'source.pdf');
-        for (let index = 0; index < 40; index += 1) {
-            await Promise.resolve();
-        }
+        await flushPrintPromises();
 
         await vi.advanceTimersByTimeAsync(17_000);
 

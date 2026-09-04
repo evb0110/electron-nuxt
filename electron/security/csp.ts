@@ -148,6 +148,14 @@ export function setupContentSecurityPolicy() {
     });
 
     session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+        // The default session also carries Chromium's built-in PDF viewer. Its
+        // chrome-extension:// subframe must receive its own policy; replacing
+        // that response with the app policy blocks the viewer's frame and
+        // leaves Electron's -pdf-ready-to-print event unissued.
+        if (!isTrustedRendererUrl(details.url, config.renderer.trustedOrigin)) {
+            callback(details.responseHeaders ? {responseHeaders: details.responseHeaders} : {});
+            return;
+        }
         callback({responseHeaders: {
             ...details.responseHeaders,
             'Content-Security-Policy': [csp],

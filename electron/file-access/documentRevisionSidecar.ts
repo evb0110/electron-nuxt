@@ -29,6 +29,11 @@ import {
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    getPageIdentitySidecarPath,
+    quarantinePageIdentitySidecar,
+    rebasePageIdentitySidecarRevision,
+} from '@electron/file-access/rebasePageIdentitySidecarRevision';
 
 const log = createLogger('document-revision-sidecar');
 
@@ -406,10 +411,11 @@ async function readWorkingCopyRevisionSidecarFile(workingCopyPath: string) {
     try {
         text = await readFile(sidecarPath, 'utf8');
     } catch (error) {
-        if (!isErrnoException(error) || error.code !== 'ENOENT') {
-            log.warn(`Failed to read revision sidecar ${sidecarPath}`);
+        if (isErrnoException(error) && error.code === 'ENOENT') {
+            return null;
         }
-        return null;
+        log.warn(`Failed to read revision sidecar ${sidecarPath}`);
+        throw error;
     }
     try {
         const sidecar = normalizeWorkingCopyRevisionSidecar(JSON.parse(text));
@@ -422,6 +428,28 @@ async function readWorkingCopyRevisionSidecarFile(workingCopyPath: string) {
     const quarantinePath = await quarantineCorruptFile(sidecarPath).catch(() => null);
     log.warn(`Quarantined corrupt revision sidecar at ${quarantinePath ?? sidecarPath}`);
     return null;
+}
+
+async function rebasePageIdentityBeforeRevisionJournalReplay(
+    workingCopyPath: string,
+    previousRevision: IWorkingCopyRevisionSidecar | null,
+    nextRevision: IWorkingCopyRevisionSidecar,
+) {
+    const pageIdentityPath = getPageIdentitySidecarPath(workingCopyPath);
+    // A staged revision is created only after the first revision exists. If a
+    // recovery journal is found without a current sidecar, an existing page
+    // ledger has no safe identity fence to rebase against.
+    if (!previousRevision) {
+        const quarantinePath = await quarantinePageIdentitySidecar(workingCopyPath);
+        if (quarantinePath !== null) {
+            log.warn(`Quarantined unfenced page identity sidecar at ${quarantinePath}`);
+        }
+        return;
+    }
+    if (!existsSync(pageIdentityPath)) {
+        return;
+    }
+    await rebasePageIdentitySidecarRevision(workingCopyPath, previousRevision, nextRevision);
 }
 
 export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath: string) {
@@ -439,6 +467,11 @@ export async function reconcileWorkingCopyRevisionSidecarJournal(workingCopyPath
         return null;
     }
 
+    await rebasePageIdentityBeforeRevisionJournalReplay(
+        workingCopyPath,
+        current,
+        pendingRevision.sidecar,
+    );
     await writeWorkingCopyRevisionSidecar(workingCopyPath, pendingRevision.sidecar);
     tryClearWorkingCopyRevisionSidecarCommitsThrough(workingCopyPath, pendingRevision.sidecar.contentRevision);
     return pendingRevision.sidecar;
