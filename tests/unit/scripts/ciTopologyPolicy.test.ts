@@ -1312,7 +1312,11 @@ describe('CI topology policy', () => {
         // Electron 22 cannot load the ESM main bundle, so the never-published
         // Windows 7 lane fails its packaged smoke on every run. It must not
         // turn the whole canary red and mask the lanes that do publish.
-        expect(workflowJob(artifactWorkflow, 'build_win7_legacy')).toContain('continue-on-error: true');
+        // A reusable-workflow call job cannot carry continue-on-error itself;
+        // GitHub refuses to parse the caller. The called job holds it.
+        expect(workflowJob(artifactWorkflow, 'build_win7_legacy')).not.toContain('continue-on-error:');
+        const win7Workflow = await readProjectFile('.github/workflows/build-win7-legacy.yml');
+        expect(workflowJob(win7Workflow, 'build_win7_legacy')).toContain('continue-on-error: true');
     });
 
     it('proves the packaged Linux journey on push CI before any release cut', async () => {
