@@ -1137,8 +1137,12 @@ describe('classifyPdfSaveRoute native-append grant', () => {
 
     it('keeps an imported text update replayable beside managed shape editor ids', () => {
         const movedNote = embeddedNote('anno_moved_note', '12R');
+        const movedMarkup = editorMarkupWithPdfAliases('anno_moved_markup', 'pdfjs_markup', 'pdfjs_markup_uid', '44R');
         const decision = classifyPdfSaveRoute(
-            planOf([movedNote]),
+            planOf([
+                movedNote,
+                movedMarkup,
+            ]),
             capabilities({
                 dirtyState: {
                     ...capabilities().dirtyState!,
@@ -1152,6 +1156,8 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                         '12R',
                         '22R',
                         '8933R',
+                        'anno_moved_markup',
+                        '44R',
                     ]),
                     replayableEditorNoteIds: new Set(['12R']),
                     hasChanges: true,

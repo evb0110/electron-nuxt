@@ -343,6 +343,14 @@ function collectReplayableEmbeddedAnnotationIds(input: {
             addCommentIdentityAliases(ids, comment);
         });
     input.changedComments
+        .filter(isTextMarkupComment)
+        .forEach((comment) => {
+            // Changed canonical markups are emitted by the native markup
+            // payload. Count their aliases before route selection so an
+            // imported text update can remain on source replay beside them.
+            addCommentIdentityAliases(ids, comment);
+        });
+    input.changedComments
         .filter(comment => (
             isReplayableCanonicalStickyNote(comment)
             && input.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
