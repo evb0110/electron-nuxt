@@ -120,6 +120,7 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
     const containerStyle = computed(() => ({
         ...options.scaleContainerStyle.value,
         ...(options.selectionMarkupStyle.value ?? {}),
+        '--pdf-virtual-scroll-height': `${virtualization.virtualScrollHeight.value}px`,
     }));
 
     const isActiveSpreadHorizontalScrollLocked = computed(() => {

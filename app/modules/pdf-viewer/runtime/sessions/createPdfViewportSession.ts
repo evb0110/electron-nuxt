@@ -659,7 +659,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             scrollOptions,
         );
         const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber)
-            || singlePageScroll.applyOpeningViewportAnchor(pageNumber)
+            || singlePageScroll.applyOpeningViewportAnchor(pageNumber) === true
             && singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,

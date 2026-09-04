@@ -13,6 +13,8 @@ export interface IPdfTextAnchorNavigationOptions {
     matchIndex?: number;
     searchQuery?: string;
     searchOptions?: ISearchMatchOptions;
+    /** Native count carried only for document-ordered results, authorizing equal-count ordinal identity. */
+    expectedPageMatchCount?: number;
 }
 
 export type TPdfNavigationTarget =

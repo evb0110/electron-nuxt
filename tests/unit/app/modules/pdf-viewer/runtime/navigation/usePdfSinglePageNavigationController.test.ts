@@ -9,6 +9,7 @@ import {
 import { cast } from '@tests/helpers/cast';
 import {
     effectScope,
+    nextTick,
     ref,
     shallowRef,
 } from 'vue';
@@ -208,6 +209,185 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
+    it('keeps a pending text-anchor search through an anchored resize preview', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 900},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
+            const page = document.createElement('div');
+            page.className = 'page_container';
+            page.dataset.page = String(pageNumber);
+            page.innerHTML = pageNumber === 1
+                ? '<div class="page_canvas"><canvas width="600" height="800"></canvas></div>'
+                : '<div class="document-page-skeleton"></div>';
+            viewer.append(page);
+            pageSlots.markMounted(pageNumber);
+        }
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 3}, () => ({
+                width: 600,
+                height: 800,
+            })),
+            totalPages: 3,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const textLayerReady = createDeferred();
+        const freshPages = new Set([1]);
+        const waitForPageTextLayerReady = vi.fn(async (_page: number, signal: AbortSignal) => {
+            await textLayerReady.promise;
+            return !signal.aborted;
+        });
+        const renderVisiblePages = vi.fn(async (range: {
+            start: number;
+            end: number
+        }) => {
+            const target = viewer.querySelector<HTMLElement>(
+                `.page_container[data-page="${String(range.start)}"]`,
+            );
+            if (target) {
+                target.innerHTML = '<div class="page_canvas"><canvas width="600" height="800"></canvas></div><div class="text-layer"><span>The Lezgian language</span></div>';
+                const textLayer = target.querySelector<HTMLElement>('.text-layer');
+                if (textLayer) {
+                    textLayer.dataset.pdfTextLayerReady = 'false';
+                }
+            }
+            freshPages.add(range.start);
+        });
+        const viewportWrites = createTestPdfViewportWritePort();
+        const searchRange = {
+            startOffset: 4,
+            endOffset: 11,
+        };
+        const searchRequest = {
+            target: {
+                kind: 'text-anchor',
+                page: 3,
+                text: 'Lezgian',
+                prefix: 'The ',
+                suffix: ' language',
+                pageMatchIndex: 1,
+                matchIndex: 7,
+                searchQuery: 'Lezgian',
+                searchRange,
+            },
+            alignment: 'rect-center',
+            readiness: 'text-layer',
+            postArrival: 'search-highlight',
+            source: 'search',
+            supersession: 'latest-wins',
+        } as const;
+        const staleResizeAnchor = {
+            page: 1,
+            pageXFraction: 0.5,
+            pageYFraction: 0.2,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+            affinity: 'center' as const,
+        };
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(3),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 3} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages,
+                waitForPageTextLayerReady,
+                isPageFreshlyRenderedForNavigation: pageNumber => freshPages.has(pageNumber),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest(searchRequest)).toBe(true);
+            await vi.waitFor(() => {
+                expect(waitForPageTextLayerReady).toHaveBeenCalledOnce();
+            });
+            expect(controller.viewportAuthority.activeIntent.value?.navigation).toEqual(searchRequest);
+            expect(controller.viewportAuthority.activeIntent.value?.navigation?.readiness).toBe('text-layer');
+            expect(viewportWrites.writes).toHaveLength(0);
+
+            const resize = controller.submitViewportStateIntent('resize', {anchor: staleResizeAnchor});
+            await vi.waitFor(() => {
+                expect(controller.viewportAuthority.activeIntent.value?.kind).toBe('resize');
+            });
+            expect(controller.viewportAuthority.activeIntent.value?.navigation).toEqual(searchRequest);
+            expect(controller.viewportAuthority.activeIntent.value?.anchor?.page).toBe(3);
+            expect(controller.viewportAuthority.getTerminalOutcome('viewport-navigation-1'))
+                .toBe('cancelled');
+
+            // Resize lifecycle calls this before and after Vue patches the new
+            // geometry. The pending text target owns both calls until it is ready.
+            expect(controller.applyResizeAnchorPreview(staleResizeAnchor)).toBeNull();
+            await nextTick();
+            expect(controller.applyResizeAnchorPreview(staleResizeAnchor)).toBeNull();
+            expect(viewportWrites.writes).toHaveLength(0);
+
+            const textLayer = viewer.querySelector<HTMLElement>('.page_container[data-page="3"] .text-layer');
+            expect(textLayer).not.toBeNull();
+            textLayer!.dataset.pdfTextLayerReady = 'true';
+            textLayerReady.resolve();
+
+            await expect(resize).resolves.toMatchObject({
+                outcome: 'settled',
+                positionCommit: {page: 3},
+            });
+            expect(waitForPageTextLayerReady).toHaveBeenCalledTimes(2);
+            expect(controller.viewportAuthority.committedAnchor.value?.page).toBe(3);
+            expect(viewportWrites.writes).toHaveLength(1);
+            expect(viewportWrites.writes[0]).toMatchObject({reason: 'viewport-authority:resize'});
+            expect(viewportWrites.writes[0]?.top).toBeGreaterThanOrEqual(
+                requireLayoutPageTop(layout, 2) - 20,
+            );
+            expect(viewportWrites.writes[0]?.top).toBeLessThanOrEqual(
+                requireLayoutPageTop(layout, 2),
+            );
+        } finally {
+            textLayerReady.resolve();
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
     it('refines a continuous page jump from the mounted page position', async () => {
         const scope = effectScope();
         const viewer = document.createElement('div');
@@ -314,6 +494,134 @@ describe('usePdfSinglePageNavigationController', () => {
             expect(requireLayoutPageTop(layout, 1)).toBeLessThan(1_000);
             expect(viewportWrites.writes.at(-1)?.top).toBe(2_380);
             expect(viewer.scrollTop).toBe(2_380);
+        } finally {
+            pageSlots.dispose();
+            scope.stop();
+        }
+    });
+
+    it('clamps a mounted narrow navigation row despite wider document overflow', async () => {
+        const scope = effectScope();
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientHeight: {value: 700},
+            clientWidth: {value: 1_604},
+            scrollHeight: {value: 4_000},
+            scrollWidth: {value: 2_200},
+            scrollLeft: {
+                value: 0,
+                writable: true,
+            },
+            scrollTop: {
+                value: 0,
+                writable: true,
+            },
+        });
+        viewer.getBoundingClientRect = () => ({
+            bottom: 700,
+            height: 700,
+            left: 0,
+            right: 1_604,
+            top: 0,
+            width: 1_604,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+        const pageSlots = createPdfPageSlotRegistry();
+        const target = document.createElement('div');
+        target.className = 'page_container page_container--rendered';
+        target.dataset.page = '2';
+        target.innerHTML = '<div class="page_canvas"><canvas width="1532" height="800"></canvas></div>';
+        target.getBoundingClientRect = () => ({
+            bottom: 1_700,
+            height: 800,
+            left: 36,
+            right: 1_568,
+            top: 900,
+            width: 1_532,
+            x: 36,
+            y: 900,
+            toJSON: () => ({}),
+        });
+        viewer.append(target);
+        pageSlots.markMounted(2);
+        const layout = buildPageLayoutMetrics({
+            pageMetrics: Array.from({length: 2}, () => ({
+                width: 1_532,
+                height: 800,
+            })),
+            totalPages: 2,
+            viewMode: 'single',
+            scale: 1,
+            gap: 20,
+            paddingTop: 20,
+            paddingBottom: 20,
+        });
+        if (!layout) {
+            throw new Error('Expected PDF layout metrics');
+        }
+        const viewportWrites = createTestPdfViewportWritePort();
+
+        try {
+            const controller = scope.run(() => usePdfSinglePageNavigationController({
+                viewerContainer: ref(viewer),
+                numPages: ref(2),
+                currentPage: ref(1),
+                scaledMargin: ref(20),
+                viewMode: ref('single'),
+                continuousScroll: ref(true),
+                isLoading: ref(false),
+                pdfDocument: shallowRef({numPages: 2} as PDFDocumentProxy),
+                getMostVisiblePage: vi.fn(() => 1),
+                scrollToPageInternal: vi.fn(),
+                updateVisibleRange: vi.fn(),
+                updateCurrentPage: vi.fn(() => 1),
+                renderVisiblePages: vi.fn(async () => undefined),
+                isPageFreshlyRenderedForNavigation: vi.fn(() => true),
+                visibleRange: ref({
+                    start: 1,
+                    end: 1,
+                }),
+                emitCurrentPage: vi.fn(),
+                viewportWritePort: viewportWrites.port,
+                getPageLayoutMetrics: () => layout,
+                requestedCurrentPage: ref(undefined),
+                cancelPendingSearchScroll: vi.fn(),
+                pageSlots,
+                getDocumentRevision: () => 1,
+                getGeometryRevision: () => 1,
+            }));
+            if (!controller) {
+                throw new Error('Expected navigation controller');
+            }
+
+            expect(controller.submitNavigationRequest({
+                target: {
+                    kind: 'rect',
+                    page: 2,
+                    rect: {
+                        left: 0.9,
+                        top: 0.4,
+                        width: 0.05,
+                        height: 0.05,
+                    },
+                },
+                alignment: 'rect-center',
+                readiness: 'page-canvas',
+                source: 'toolbar',
+                supersession: 'latest-wins',
+            })).toBe(true);
+
+            await vi.waitFor(() => {
+                expect(viewportWrites.writes).toHaveLength(1);
+            });
+            expect(viewportWrites.writes[0]).toMatchObject({
+                left: 0,
+                reason: 'viewport-authority:navigate',
+            });
+            expect(viewportWrites.writes[0]?.top).toBe(890);
+            expect(viewer.scrollLeft).toBe(0);
         } finally {
             pageSlots.dispose();
             scope.stop();
@@ -755,7 +1063,10 @@ describe('usePdfSinglePageNavigationController', () => {
         }
     });
 
-    it('keeps a resolved named-destination handoff through immediate fit absorption', async () => {
+    it.each([
+        'fit',
+        'resize',
+    ] as const)('keeps a resolved named-destination handoff through immediate %s absorption', async (kind) => {
         const scope = effectScope();
         const viewer = document.createElement('div');
         Object.defineProperties(viewer, {
@@ -857,9 +1168,16 @@ describe('usePdfSinglePageNavigationController', () => {
             })).toBe(true);
             expect(controller.viewportAuthority.currentPage.value).toBe(1);
 
-            const fit = controller.submitViewportStateIntent('fit');
+            const fit = controller.submitViewportStateIntent(kind, kind === 'resize' ? {anchor: {
+                page: 1,
+                pageXFraction: 0.5,
+                pageYFraction: 0.7,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+                affinity: 'center',
+            }} : {});
             expect(controller.viewportAuthority.activeIntent.value).toMatchObject({
-                kind: 'fit',
+                kind,
                 navigation: {target: {
                     kind: 'named-dest',
                     destination: [1],

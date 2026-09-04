@@ -248,6 +248,7 @@ export function createTextLayerRangeForSearchOccurrence(
         pageMatchIndex?: number | undefined;
         searchQuery?: string | undefined;
         searchOptions?: ISearchMatchOptions | undefined;
+        expectedPageMatchCount?: number | undefined;
     },
 ): Range | null {
     const index = getCachedTextLayerIndex(textLayerDiv);
@@ -270,6 +271,13 @@ export function createTextLayerRangeForSearchOccurrence(
 
     const occurrences = [...assembled.text.matchAll(pattern)]
         .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+    if (
+        Number.isSafeInteger(options.expectedPageMatchCount)
+        && options.expectedPageMatchCount! >= 0
+        && occurrences.length !== options.expectedPageMatchCount
+    ) {
+        return null;
+    }
     const occurrenceIndex = Number.isSafeInteger(options.pageMatchIndex)
         ? options.pageMatchIndex!
         : 0;
