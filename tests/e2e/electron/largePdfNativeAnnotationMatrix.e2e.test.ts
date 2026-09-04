@@ -1490,7 +1490,8 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image update save',
         );
-        const secondIndex = await readAnnotationIndex(session.page, documentPath);
+        const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
+        const secondIndex = await readAnnotationIndex(session.page, secondWorkingCopyPath);
         expect(secondIndex.revisionToken).toBe(secondSaveToken);
         expect(secondIndex.entries.filter(entry => (
             entry.pageIndex === PLACED_IMAGE_PAGE_INDEX
@@ -1513,7 +1514,8 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image delete save',
         );
-        const deletedIndex = await readAnnotationIndex(session.page, documentPath);
+        const deletedWorkingCopyPath = await readWorkingCopyPath(session.page);
+        const deletedIndex = await readAnnotationIndex(session.page, deletedWorkingCopyPath);
         expect(deletedIndex.revisionToken).toBe(deletedSaveToken);
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
         await assertPdfJsStorageEmpty(session.page);

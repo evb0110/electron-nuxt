@@ -6,6 +6,7 @@ import {
 import fc from 'fast-check';
 import {
     classifyPdfSaveRoute,
+    type IPdfSaveNativeRouteDecision,
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
@@ -301,12 +302,12 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
     };
 }
 
-function changedPlacedImage(id = 'placed-image-1'): IPlacedImageEntity {
+function changedPlacedImage(id = 'placed-image-1', pdfRef = '12R0'): IPlacedImageEntity {
     return {
         kind: 'placed-image',
         identity: {
             id: asAnnotationId(id),
-            pdfRef: '12R0',
+            pdfRef,
         },
         pageIndex: 0,
         revision: 2,
@@ -331,13 +332,20 @@ function changedPlacedImage(id = 'placed-image-1'): IPlacedImageEntity {
     };
 }
 
+function nativeDecision(decision: ReturnType<typeof classifyPdfSaveRoute>): IPdfSaveNativeRouteDecision {
+    if (decision.route !== 'native-append') {
+        throw new Error(`expected native route, received ${decision.route}`);
+    }
+    return decision;
+}
+
 describe('classifyPdfSaveRoute annotation routes', () => {
     it('projects changed placed-image geometry into the native image writer', () => {
         const image = changedPlacedImage();
         const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
 
         expect(decision.route).toBe('native-append');
-        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
             .toEqual([{
                 pageIndex: 0,
                 stableKey: 'placed-image-1',
@@ -351,12 +359,11 @@ describe('classifyPdfSaveRoute annotation routes', () => {
     });
 
     it('normalizes a native PDF ref before sending placed-image geometry to Rust', () => {
-        const image = changedPlacedImage();
-        image.identity.pdfRef = '12 0 R';
+        const image = changedPlacedImage('placed-image-1', '12 0 R');
 
         const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
 
-        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
             .toEqual([expect.objectContaining({annotationId: '12R'})]);
     });
 
@@ -378,7 +385,7 @@ describe('classifyPdfSaveRoute annotation routes', () => {
 
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
-        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
             .toHaveLength(1);
     });
 
@@ -405,7 +412,7 @@ describe('classifyPdfSaveRoute annotation routes', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.annotationRoute.route).toBe('source-replay');
-        expect(decision.annotationRoute.unreplayableLiveAnnotationIds).toEqual([]);
+        expect(decision.annotationPlan.unreplayableLiveAnnotationIds).toEqual([]);
     });
 
     it('does not require a native delete for a local shape deleted beside a persisted shape', () => {

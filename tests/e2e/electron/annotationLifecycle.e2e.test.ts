@@ -1137,7 +1137,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             return kinds.join(',') === 'note,placed-image,shape,text-box,text-markup'
                 && document.querySelectorAll(
                     '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
-                    + '.editor-pane.is-active .page_container[data-page="1"] .annotationEditorLayer',
+                    + '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
                 ).length === 0;
         }, {timeout: 20_000});
         await page.waitForFunction(() => {
@@ -1721,7 +1721,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-text-box') ?? []);
             const matchingText = editors
                 .map((editor) => (editor.querySelector<HTMLElement>('[contenteditable], .internal') ?? editor).textContent ?? '')
                 .map(text => text.replace(/\u200B/g, '').trim())
@@ -2275,7 +2275,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const trace = `undo boundary trace: ${JSON.stringify(boundary.samples)}`;
 
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 1,
+            canonicalTextMarkupCount: 1,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 1,
         });
@@ -2283,7 +2283,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // same task: an editor that outlives the annotation is the orphan a
         // later comment sync rescans back into existence.
         expect(boundary.at('synchronous'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 0,
         });
@@ -2299,7 +2299,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             'deferred-task',
         ].forEach((label) => {
             const sample = boundary.at(label);
-            expect(sample.highlightEditorCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.canonicalTextMarkupCount, `${label}: ${trace}`).toBe(0);
             expect(sample.highlightAnnotationCount, `${label}: ${trace}`).toBe(0);
             expect(sample.canonicalHighlightCount, `${label}: ${trace}`).toBe(0);
             expect(sample.addedHighlightNodeIds, `${label}: ${trace}`).toEqual([]);
@@ -2325,7 +2325,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const afterDeferredSync = await readAnnotationUndoBoundaryProbe(page);
         expect(afterDeferredSync.added).toEqual([]);
-        expect(afterDeferredSync.highlightEditorCount).toBe(0);
+        expect(afterDeferredSync.canonicalTextMarkupCount).toBe(0);
         expect(afterDeferredSync.highlightAnnotationCount).toBe(0);
         expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
     });
@@ -2373,7 +2373,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
         const trace = `deferred-delete undo boundary trace: ${JSON.stringify(boundary.samples)}`;
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
         });
 
@@ -2391,7 +2391,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             afterRestore.added.length,
             `expected a restored highlight node: ${JSON.stringify(afterRestore)}`,
         ).toBeGreaterThan(0);
-        expect(afterRestore.highlightEditorCount + afterRestore.highlightAnnotationCount).toBe(1);
+        expect(afterRestore.canonicalTextMarkupCount + afterRestore.highlightAnnotationCount).toBe(1);
 
         const restored = (await readCanonicalHighlightIdentities(page))
             .find(identity => identity.appAnnotationId === persistedIdentity?.appAnnotationId);
@@ -2435,14 +2435,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // attached, the next comment sync rescans it and mints the note back.
         expect(boundary.at('synchronous'), trace).toMatchObject({
             canonicalAnnotationCount: baselineSidebarCount,
-            freeTextEditorCount: baselineFreeTextCount,
+            canonicalTextBoxCount: baselineFreeTextCount,
         });
         [
             'frame-1',
             'frame-2',
             'deferred-task',
         ].forEach((label) => {
-            expect(boundary.at(label).freeTextEditorCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
+            expect(boundary.at(label).canonicalTextBoxCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
         });
 
         await waitForSidebarAnnotationCount(page, baselineSidebarCount);
