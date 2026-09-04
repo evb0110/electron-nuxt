@@ -291,6 +291,9 @@ function addReplayableNativeEntityIds(
         deletedShapeAnnotationIds: readonly string[];
         deletedShapeStableKeys: readonly string[];
         textBoxes: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
+        placedImageGeometryUpdates?: ReadonlyArray<
+            Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
+        >;
     },
 ) {
     input.shapes?.forEach((shape) => {
@@ -302,6 +305,10 @@ function addReplayableNativeEntityIds(
     input.textBoxes.forEach((textBox) => {
         addReplayableAnnotationId(ids, textBox.stableKey);
         addReplayableAnnotationId(ids, textBox.annotationId);
+    });
+    input.placedImageGeometryUpdates?.forEach((update) => {
+        addReplayableAnnotationId(ids, update.stableKey);
+        addReplayableAnnotationId(ids, update.annotationId);
     });
 }
 
@@ -732,6 +739,9 @@ function collectProjectedNativeAnnotationIds(input: {
         overrides: Array<readonly [string, TMarkupSubtype]>;
         hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
     } | null;
+    placedImageGeometryUpdates: ReadonlyArray<
+        Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
+    >;
 }) {
     const ids = new Set<string>();
     const updatedRefs = new Set(input.noteTextUpdates.map(update =>
@@ -924,6 +934,7 @@ function buildClassifiedNativeMutationProjection(
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
             : new Map(),
         markup,
+        placedImageGeometryUpdates,
     });
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length

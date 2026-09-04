@@ -350,6 +350,28 @@ describe('classifyPdfSaveRoute annotation routes', () => {
             }]);
     });
 
+    it('keeps placed-image geometry replayable when the saved PDF.js baseline is dirty', () => {
+        const image = changedPlacedImage();
+        const decision = classifyPdfSaveRoute(
+            planOf([image]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: false,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toHaveLength(1);
+    });
+
     it('does not require a native delete for a local shape deleted beside a persisted shape', () => {
         const decision = classifyPdfSaveRoute(
             planOf([
