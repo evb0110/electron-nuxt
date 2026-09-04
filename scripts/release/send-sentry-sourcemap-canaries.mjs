@@ -22,6 +22,10 @@ const CANARY_RECEIPT_SCHEMA_VERSION = 1;
 const CANARY_EVENT_VERSION = 'sourcemap-v6';
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
+const SENTRY_INGEST_ATTEMPTS = 5;
+const SENTRY_INGEST_RETRY_BASE_MS = 500;
+const SENTRY_INGEST_RETRY_MAX_MS = 30_000;
+const SENTRY_INGEST_TIMEOUT_MS = 30_000;
 
 function readIdentity(environment) {
     return assertSentryBuildIdentity({
@@ -207,17 +211,77 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
     };
 }
 
-async function sendEnvelope(event, dsn) {
+function isRetryableIngestStatus(status) {
+    return status === 408
+        || status === 425
+        || status === 429
+        || status >= 500;
+}
+
+function retryAfterMilliseconds(response) {
+    const rawValue = response.headers?.get?.('retry-after')?.trim() ?? '';
+    if (!rawValue) {
+        return null;
+    }
+    const seconds = Number(rawValue);
+    if (Number.isFinite(seconds) && seconds >= 0) {
+        return Math.min(SENTRY_INGEST_RETRY_MAX_MS, Math.ceil(seconds * 1_000));
+    }
+    const retryAt = Date.parse(rawValue);
+    if (!Number.isFinite(retryAt)) {
+        return null;
+    }
+    return Math.min(
+        SENTRY_INGEST_RETRY_MAX_MS,
+        Math.max(0, retryAt - Date.now()),
+    );
+}
+
+function defaultRetryDelay(milliseconds) {
+    return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
+
+export async function sendEnvelope(event, dsn, {
+    fetchImpl = globalThis.fetch,
+    sleep = defaultRetryDelay,
+} = {}) {
     const endpoint = getEnvelopeEndpointWithUrlEncodedAuth(dsn);
     const body = serializeEnvelope(createEventEnvelope(event, dsn));
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: {'content-type': 'application/x-sentry-envelope'},
-        body,
-        redirect: 'error',
-    });
-    if (!response.ok) {
-        throw new Error(`Sentry canary ingest returned HTTP ${String(response.status)}`);
+    for (let attempt = 1; attempt <= SENTRY_INGEST_ATTEMPTS; attempt += 1) {
+        let response;
+        try {
+            response = await fetchImpl(endpoint, {
+                method: 'POST',
+                headers: {'content-type': 'application/x-sentry-envelope'},
+                body,
+                redirect: 'error',
+                signal: AbortSignal.timeout(SENTRY_INGEST_TIMEOUT_MS),
+            });
+        } catch (error) {
+            if (attempt === SENTRY_INGEST_ATTEMPTS) {
+                throw new Error(
+                    `Sentry canary ingest failed after ${String(attempt)} attempts`,
+                    {cause: error},
+                );
+            }
+            await sleep(Math.min(
+                SENTRY_INGEST_RETRY_MAX_MS,
+                SENTRY_INGEST_RETRY_BASE_MS * (2 ** (attempt - 1)),
+            ));
+            continue;
+        }
+        if (response.ok) {
+            return;
+        }
+        if (!isRetryableIngestStatus(response.status) || attempt === SENTRY_INGEST_ATTEMPTS) {
+            throw new Error(
+                `Sentry canary ingest returned HTTP ${String(response.status)} after ${String(attempt)} attempt(s)`,
+            );
+        }
+        await sleep(retryAfterMilliseconds(response) ?? Math.min(
+            SENTRY_INGEST_RETRY_MAX_MS,
+            SENTRY_INGEST_RETRY_BASE_MS * (2 ** (attempt - 1)),
+        ));
     }
 }
 
