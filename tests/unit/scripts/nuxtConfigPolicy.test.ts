@@ -133,10 +133,8 @@ describe('Nuxt config policy', () => {
 
         for (const localePath of landingLocalePaths) {
             const localeSource = await readProjectFile(localePath);
-            const locale = localePath.slice(localePath.lastIndexOf('/') + 1, -3);
-            const privacyLocale = locale === 'ptBr' ? 'pt-BR' : locale;
-            expect(localeSource, localePath).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\'');
-            expect(localeSource, localePath).toContain(`privacy: PRIVACY_MESSAGES['${privacyLocale}']`);
+            expect(localeSource, localePath).not.toContain('PRIVACY_MESSAGES');
+            expect(localeSource, localePath).not.toMatch(/\bprivacy\s*:/u);
         }
     });
 
