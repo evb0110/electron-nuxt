@@ -126,6 +126,7 @@ import {
 } from '@app/utils/document-viewer/chassis/documentViewportResizeAnchor';
 import type { IDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
 import { observeDocumentViewportWheelInteraction } from '@app/utils/document-viewer/chassis/documentViewportWritePort';
+import { shouldRestoreDocumentViewerHandoffSnapshot } from '@app/modules/workspace-shell/viewers/shouldRestoreDocumentViewerHandoffSnapshot';
 
 defineOptions({ inheritAttrs: false });
 
@@ -651,9 +652,18 @@ watch(() => [
     if (generation !== handoffGeneration || sourceViewerRef.value !== nextViewer) {
         return;
     }
-    if (nextViewer?.restoreScrollSnapshot) {
+    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
+    const shouldRestoreSnapshot = shouldRestoreDocumentViewerHandoffSnapshot({
+        fallbackPage,
+        currentPage: chassisAuthority.currentPage.value,
+        pendingNavigationPage: viewportSession.identity !== null
+                && viewportSession.requestedPage !== viewportSession.committedPage
+            ? viewportSession.requestedPage
+            : null,
+    });
+    if (shouldRestoreSnapshot && nextViewer?.restoreScrollSnapshot) {
         nextViewer.restoreScrollSnapshot(snapshot, {fallbackPage});
-    } else {
+    } else if (shouldRestoreSnapshot) {
         nextViewer?.scrollToPage?.(fallbackPage);
     }
 }, {flush: 'pre'});

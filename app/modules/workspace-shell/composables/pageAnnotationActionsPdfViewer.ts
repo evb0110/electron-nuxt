@@ -8,6 +8,7 @@ export type TPageAnnotationActionsPdfViewer = Pick<WorkspaceOrchestration.IPdfVi
     | 'deleteShapeById'
     | 'focusAnnotationComment'
     | 'getSelectedShape'
+    | 'getCurrentPage'
     | 'getAllShapes'
     | 'getSelectedTextMarkupAnnotationProperties'
     | 'getViewerContainer'
