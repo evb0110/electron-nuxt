@@ -350,13 +350,21 @@ export class AnnotationStore {
         entities.forEach((entity) => {
             let id = entity.identity.id;
             if (!this.#entities.has(id)) {
-                const matches = currentEntities.filter(current => (
-                    (current.persistedRevision >= 0 || current.kind === 'shape')
+                const pdfRefMatches = entity.identity.pdfRef === undefined
+                    ? []
+                    : currentEntities.filter(current => (
+                        current.identity.pdfRef === entity.identity.pdfRef
+                        && !usedCurrentIds.has(current.identity.id)
+                    ));
+                const matches = pdfRefMatches.length === 1
+                    ? pdfRefMatches
+                    : currentEntities.filter(current => (
+                        (current.persistedRevision >= 0 || current.kind === 'shape')
                     && !usedCurrentIds.has(current.identity.id)
                     && current.kind === entity.kind
                     && current.pageIndex === entity.pageIndex
                     && saveReconciliationFingerprint(current) === saveReconciliationFingerprint(entity)
-                ));
+                    ));
                 if (matches.length === 1) {
                     id = matches[0]!.identity.id;
                     fingerprintMatchedIds.add(id);

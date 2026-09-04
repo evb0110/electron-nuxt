@@ -199,6 +199,35 @@ describe('AnnotationStore.replaceFromDocument', () => {
         expect(store.hasChangesSinceSavedBaseline()).toBe(false);
     });
 
+    it('keeps stable ids for identical markups when the parser names change', () => {
+        const store = new AnnotationStore();
+        const ids = [
+            'markup-a',
+            'markup-b',
+            'markup-c',
+            'markup-d',
+        ].map(id => asAnnotationId(id));
+        ids.forEach((id) => {
+            store.createTextMarkup(textMarkup(id, {pageIndex: 25}));
+        });
+        store.markPersisted(store.beginSave(), ids.map((id, index) => ({
+            annotationId: id,
+            pdfRef: `${index + 1} 0 R`,
+        })));
+        store.select([ids[2]!]);
+
+        store.replaceFromDocument(ids.map((_, index) => textMarkup(`parsed-${index}`, {
+            identity: {
+                id: asAnnotationId(`parsed-${index}`),
+                pdfRef: `${index + 1} 0 R`,
+            },
+            pageIndex: 25,
+        })), []);
+
+        expect(store.list().map(entity => entity.identity.id)).toEqual(ids);
+        expect(store.selectedIds).toEqual(new Set([ids[2]! ]));
+    });
+
     it('retains omitted dirty entities, including tombstones, and intersects selection with live ids', () => {
         const store = new AnnotationStore();
         const deleted = store.createNote(note('deleted'));
