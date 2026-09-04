@@ -1401,8 +1401,9 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical annotation update delete recreate save',
         );
-        const secondIndex = await readAnnotationIndex(session.page, documentPath);
-        const secondShapes = await readShapeIndex(session.page, documentPath);
+        const secondWorkingCopyPath = await readWorkingCopyPath(session.page);
+        const secondIndex = await readAnnotationIndex(session.page, secondWorkingCopyPath);
+        const secondShapes = await readShapeIndex(session.page, secondWorkingCopyPath);
         expect(secondIndex.revisionToken).toEqual(secondSaveToken);
         expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
         expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
