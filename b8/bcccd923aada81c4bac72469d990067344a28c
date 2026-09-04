@@ -1,0 +1,23 @@
+.github/workflows/release-artifacts.yml
+  s_cbcef7935f20a3::t_a855075e727115 274-275
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_cbcef7935f20a3::t_a855075e727115 1315-1319
+.github/workflows/build-win7-legacy.yml
+  s_cbcef7935f20a3::t_a855075e727115 47-51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b8bcccd923aada81c4bac72469d990067344a28c",
+  "prompts": {},
+  "sessions": {
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
