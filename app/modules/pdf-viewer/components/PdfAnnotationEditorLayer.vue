@@ -108,6 +108,7 @@ import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnot
 import PdfStampAnnotation from '@app/modules/pdf-viewer/components/PdfStampAnnotation.vue';
 import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationEditorEventTarget';
 import {
     annotationRectsEqual,
     annotationRectContainsPoint,
@@ -345,12 +346,7 @@ function setTextBoxRef(
 }
 
 function entityIdFromEvent(event: MouseEvent | PointerEvent) {
-    const target = event.target;
-    if (!(target instanceof Element)) {
-        return null;
-    }
-    const id = target.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId;
-    return id ? id as AnnotationId : null;
+    return annotationIdFromEditorEvent(event);
 }
 
 function pointFromEvent(event: Pick<PointerEvent, 'clientX' | 'clientY'>): IAnnotationEditorPoint | null {
