@@ -1,0 +1,23 @@
+docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_7f90a6f691adf0 127
+docs/operations/sentry-account-controls.md
+  s_b412fd4cd3f576::t_ea96e33c411732 91,115-128
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_1fa632753fa10d 10-15,104-107,128-130,151-162,170-175,517,1329,1479,1522,1548,1680
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "14fe77953f9de65368664a7b61fb413208f350e9",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
