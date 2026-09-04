@@ -341,13 +341,23 @@ describe('classifyPdfSaveRoute annotation routes', () => {
             .toEqual([{
                 pageIndex: 0,
                 stableKey: 'placed-image-1',
-                annotationId: '12R0',
+                annotationId: '12R',
                 x: 0.2,
                 y: 0.3,
                 width: 0.25,
                 height: 0.15,
                 rotationDegrees: 90,
             }]);
+    });
+
+    it('normalizes a native PDF ref before sending placed-image geometry to Rust', () => {
+        const image = changedPlacedImage();
+        image.identity.pdfRef = '12 0 R';
+
+        const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
+
+        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toEqual([expect.objectContaining({annotationId: '12R'})]);
     });
 
     it('keeps placed-image geometry replayable when the saved PDF.js baseline is dirty', () => {

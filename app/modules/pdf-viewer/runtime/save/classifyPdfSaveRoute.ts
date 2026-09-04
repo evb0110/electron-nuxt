@@ -606,7 +606,9 @@ function buildNativePlacedImageGeometryUpdates(
         .map(entity => ({
             pageIndex: requirePageIndex(entity.pageIndex),
             stableKey: entity.identity.id,
-            annotationId: entity.identity.pdfRef ?? null,
+            annotationId: entity.identity.pdfRef
+                ? normalizePdfJsAnnotationId(entity.identity.pdfRef)
+                : null,
             x: entity.rect.left,
             y: entity.rect.top,
             width: entity.rect.width,
