@@ -50,6 +50,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -499,6 +500,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
             .collect(),
         }),
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     };
 
@@ -587,6 +589,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -787,6 +790,34 @@ fn rewrites_imported_markup_note_text_and_linked_popup_in_memory() {
     .unwrap();
 
     assert_markup_note_and_popup(&document, markup_id, popup_id);
+}
+
+#[test]
+fn rewrites_imported_markup_using_the_canonical_identity_when_id_is_a_pdf_ref() {
+    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("NM", Object::string_literal("canonical-markup-id"));
+
+    let mut mutation = imported_markup_note_mutation(markup_id);
+    let hint = mutation
+        .markup
+        .as_mut()
+        .expect("markup mutation exists")
+        .hints
+        .first_mut()
+        .expect("markup hint exists");
+    hint.app_annotation_id = Some("canonical-markup-id".to_string());
+    hint.id = Some(format_pdfjs_annotation_ref(markup_id));
+
+    apply_native_mutations(&mut document, &mutation, "D:20260829120500+04'00'").unwrap();
+
+    let markup = document.get_dictionary(markup_id).unwrap();
+    assert_eq!(
+        markup.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(),
+        Some("edited imported markup note"),
+    );
 }
 
 #[test]
@@ -1029,6 +1060,7 @@ fn appends_managed_shape_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1094,6 +1126,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1383,6 +1416,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1413,6 +1447,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123500+03'00'",
@@ -1788,6 +1823,7 @@ fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
         }),
         markup: None,
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     }
 }

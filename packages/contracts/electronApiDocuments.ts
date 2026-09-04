@@ -1,3 +1,4 @@
+/* eslint-disable max-lines -- This file is the public desktop document protocol contract. */
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
     IPlatformUnsupportedResult,
@@ -708,6 +709,13 @@ export interface IPdfNativePlacedImage extends IPdfBox {
     source: IManagedTempFileHandle;
 }
 
+export interface IPdfNativePlacedImageGeometryUpdate extends IPdfBox {
+    pageIndex: TPageIndex;
+    stableKey?: string;
+    annotationId?: string | null;
+    rotationDegrees?: number | null;
+}
+
 export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
     textBoxes?: IPdfNativeTextBoxMutation[];
     freeTextEditors?: IPdfNativeFreeTextEditor[];
@@ -716,6 +724,7 @@ export interface IPdfNativeMutationSet extends IPdfNativeNoteChanges {
     shapes?: IPdfNativeShapesMutation;
     markup?: IPdfNativeMarkupMutation;
     placedImages?: IPdfNativePlacedImage[];
+    placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
 }
 
 export interface IPdfNativeNoteTextSaveResult {

@@ -318,6 +318,13 @@ fn apply_native_mutations_internal(
             &mut identity_bindings,
         )?;
     }
+    if !mutations.placed_image_geometry_updates.is_empty() {
+        apply_placed_image_geometry_updates(
+            document,
+            &mutations.placed_image_geometry_updates,
+            modified_at,
+        )?;
+    }
     Ok(())
 }
 
@@ -495,6 +502,13 @@ fn apply_native_mutations_incremental_internal(
             placed_image_chunk_index(mutations),
             modified_at,
             &mut identity_bindings,
+        )?;
+    }
+    if !mutations.placed_image_geometry_updates.is_empty() {
+        apply_placed_image_geometry_updates_incremental(
+            incremental,
+            &mutations.placed_image_geometry_updates,
+            modified_at,
         )?;
     }
     Ok(())

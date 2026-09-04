@@ -4,13 +4,16 @@
         class="pdf-annotation-editor-layer"
         :class="{'is-interactive': isInteractive}"
         data-pdf-annotation-editor-surface
+        tabindex="0"
         @mousedown.stop
         @pointerdown.stop="handleSurfacePointerDown"
         @pointermove="handlePointerMove"
         @pointerup="handlePointerUp"
         @pointercancel="handlePointerCancel"
         @click.stop="handleSurfaceClick"
+        @contextmenu.prevent.stop="handleSurfaceContextMenu"
         @dblclick.stop="handleSurfaceDblClick"
+        @keydown="handleKeydown"
     >
         <svg
             class="pdf-annotation-editor-surface__svg"
@@ -64,6 +67,7 @@
                 :key="entity.identity.id"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
+                :display-rect="displayRectForStamp(entity)"
             />
             <div
                 v-if="isCreating && pointerGesture.previewRect.value"
@@ -104,16 +108,22 @@ import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnot
 import PdfStampAnnotation from '@app/modules/pdf-viewer/components/PdfStampAnnotation.vue';
 import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/engine/annotations/annotationIdFromEditorEvent';
 import {
     annotationRectsEqual,
     annotationRectContainsPoint,
     createDefaultTextBoxRect,
+    moveAnnotationRect,
     type IAnnotationEditorPoint,
     type TAnnotationResizeHandle,
 } from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/annotationEditorGeometry';
 import { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 import { useAnnotationCreationTools } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationCreationTools';
-import { useAnnotationPointerGesture } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
+import {
+    rectForMovableEntity,
+    useAnnotationPointerGesture,
+} from '@app/modules/pdf-viewer/annotations/editor/useAnnotationPointerGesture';
+import { useAnnotationKeyboardCommands } from '@app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands';
 import type {
     IShapeAnnotation,
     TAnnotationTool,
@@ -141,44 +151,83 @@ interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
 let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
+let capturedClickAnnotationId: AnnotationId | null = null;
 
 const pointerGesture = useAnnotationPointerGesture({
     surface,
     pageIndex: props.pageIndex,
 });
 const creationTools = useAnnotationCreationTools({surface});
+const keyboardCommands = useAnnotationKeyboardCommands({
+    surface,
+    pageView: () => surface.getPageGeometry(props.pageIndex)?.pageView ?? null,
+    pageRotation: () => surface.getPageGeometry(props.pageIndex)?.rotation ?? 0,
+});
 const isInteractive = computed(() => (
-    surface.activeTool.value === 'text'
+    surface.activeTool.value === 'select'
+    || surface.activeTool.value === 'none'
+    || surface.activeTool.value === 'text'
     || surface.activeTool.value === 'note'
     || isShapeTool(surface.activeTool.value)
     || pointerGesture.isActive.value
 ));
 const entities = computed(() => surface.getEntitiesForPage(props.pageIndex));
+const selectedIds = computed(() => surface.selectedIds.value);
 const selectedEntity = computed(() => {
-    const selectedId = [...surface.selectedIds.value][0];
+    const selectedId = [...selectedIds.value][0];
     return entities.value.find(entity => entity.identity.id === selectedId) ?? null;
+});
+const moveDelta = computed(() => {
+    const draggedEntity = entities.value.find(entity => entity.identity.id === draggedAnnotationId.value);
+    const anchor = draggedEntity ? rectForMovableEntity(draggedEntity) : null;
+    const preview = pointerGesture.previewRect.value;
+    return anchor && preview && pointerGesture.isActive.value
+        ? {
+            x: preview.left - anchor.left,
+            y: preview.top - anchor.top,
+        }
+        : null;
 });
 const selectedDisplayRect = computed(() => {
     const entity = selectedEntity.value;
     if (
         !entity
         || draggedAnnotationId.value !== entity.identity.id
-        || (entity.kind !== 'text-box' && entity.kind !== 'shape')
+        || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image')
     ) {
         return undefined;
     }
     return pointerGesture.previewRect.value ?? undefined;
 });
-const isSelected = (id: AnnotationId) => surface.selectedIds.value.has(id);
+const isSelected = (id: AnnotationId) => selectedIds.value.has(id);
+function handleKeydown(event: KeyboardEvent) {
+    keyboardCommands.handleKeydown(event);
+}
 
-const svgEntities = computed(() => ({
-    textMarkup: entities.value.filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup'),
-    shapes: entities.value
-        .filter((entity): entity is IShapeEntity => entity.kind === 'shape')
-        .map(shapeForRender),
-}));
+const svgEntities = computed(() => {
+    return {
+        textMarkup: entities.value
+            .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
+            .map(entity => {
+                const delta = moveDelta.value;
+                return delta && selectedIds.value.has(entity.identity.id)
+                    ? {
+                        ...entity,
+                        quadPoints: entity.quadPoints.map(rect => moveAnnotationRect(rect, delta.x, delta.y)),
+                    }
+                    : entity;
+            }),
+        shapes: entities.value
+            .filter((entity): entity is IShapeEntity => entity.kind === 'shape')
+            .map(shapeForRender),
+    };
+});
 
 function shapeForRender(entity: IShapeEntity) {
+    const delta = moveDelta.value;
+    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
+        return toCanonicalShapeEntity(translateLegacyShape(toLegacyShapeAnnotation(entity), delta.x, delta.y), entity.identity.id);
+    }
     if (draggedAnnotationId.value !== entity.identity.id || !pointerGesture.previewRect.value) {
         return entity;
     }
@@ -278,6 +327,13 @@ const htmlEntities = computed(() => ({
     stamps: entities.value.filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
 }));
 
+function displayRectForStamp(entity: IPlacedImageEntity) {
+    const delta = moveDelta.value;
+    return delta && surface.selectedIds.value.has(entity.identity.id)
+        ? moveAnnotationRect(entity.rect, delta.x, delta.y)
+        : undefined;
+}
+
 function setTextBoxRef(
     annotationId: AnnotationId,
     element: Element | ComponentPublicInstance | null,
@@ -294,12 +350,7 @@ function setTextBoxRef(
 }
 
 function entityIdFromEvent(event: MouseEvent | PointerEvent) {
-    const target = event.target;
-    if (!(target instanceof Element)) {
-        return null;
-    }
-    const id = target.closest<HTMLElement>('[data-annotation-id]')?.dataset.annotationId;
-    return id ? id as AnnotationId : null;
+    return annotationIdFromEditorEvent(event);
 }
 
 function pointFromEvent(event: Pick<PointerEvent, 'clientX' | 'clientY'>): IAnnotationEditorPoint | null {
@@ -317,6 +368,10 @@ function capturePointer(event: PointerEvent) {
     if (event.pointerId >= 0) {
         layerRef.value?.setPointerCapture?.(event.pointerId);
     }
+}
+
+function focusLayer() {
+    layerRef.value?.focus({preventScroll: true});
 }
 
 function releasePointer(event: PointerEvent) {
@@ -340,6 +395,10 @@ function rectStyle(rect: {
 }
 
 function displayRectFor(entity: ITextBoxEntity) {
+    const delta = moveDelta.value;
+    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
+        return moveAnnotationRect(entity.rect, delta.x, delta.y);
+    }
     if (draggedAnnotationId.value !== entity.identity.id) {
         return undefined;
     }
@@ -347,6 +406,10 @@ function displayRectFor(entity: ITextBoxEntity) {
 }
 
 function displayRectForNote(entity: INoteEntity) {
+    const delta = moveDelta.value;
+    if (delta && surface.selectedIds.value.has(entity.identity.id)) {
+        return moveAnnotationRect(entity.position, delta.x, delta.y);
+    }
     if (draggedAnnotationId.value !== entity.identity.id) {
         return undefined;
     }
@@ -372,11 +435,15 @@ function handleTextBoxPointerDown(entity: ITextBoxEntity, event: PointerEvent) {
     if (event.button !== 0 || editingId.value === entity.identity.id) {
         return;
     }
+    focusLayer();
     const point = pointFromEvent(event);
     if (!point) {
         return;
     }
-    surface.select([entity.identity.id], {additive: event.shiftKey});
+    const wasSelected = surface.selectedIds.value.has(entity.identity.id);
+    if (!wasSelected || event.shiftKey) {
+        surface.select([entity.identity.id], {additive: event.shiftKey});
+    }
     if (event.shiftKey || (surface.activeTool.value !== 'select' && surface.activeTool.value !== 'none')) {
         return;
     }
@@ -391,11 +458,15 @@ function handleNotePointerDown(entity: INoteEntity, event: PointerEvent) {
     if (event.button !== 0) {
         return;
     }
+    focusLayer();
     const point = pointFromEvent(event);
     if (!point) {
         return;
     }
-    surface.select([entity.identity.id], {additive: event.shiftKey});
+    const wasSelected = surface.selectedIds.value.has(entity.identity.id);
+    if (!wasSelected || event.shiftKey) {
+        surface.select([entity.identity.id], {additive: event.shiftKey});
+    }
     if (event.shiftKey || (surface.activeTool.value !== 'select' && surface.activeTool.value !== 'none')) {
         return;
     }
@@ -414,7 +485,7 @@ function handleNoteDoubleClick(entity: INoteEntity) {
 function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent) {
     const entity = selectedEntity.value;
     if (
-        (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape'))
+        (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image'))
         || editingId.value === entity.identity.id
     ) {
         return;
@@ -435,9 +506,14 @@ function handleSurfacePointerDown(event: PointerEvent) {
     if (event.button !== 0) {
         return;
     }
+    focusLayer();
     const id = entityIdFromEvent(event);
+    capturedClickAnnotationId = id;
     if (id) {
-        surface.select([id], {additive: event.shiftKey});
+        const wasSelected = surface.selectedIds.value.has(id);
+        if (!wasSelected || event.shiftKey) {
+            surface.select([id], {additive: event.shiftKey});
+        }
         if (!event.shiftKey && (surface.activeTool.value === 'select' || surface.activeTool.value === 'none')) {
             const point = pointFromEvent(event);
             if (point && pointerGesture.beginMove(id, point, event)) {
@@ -516,7 +592,9 @@ function handlePointerUp(event: PointerEvent) {
         pointerGesture.cancel();
         return;
     }
-    markClickSuppressed();
+    if (completion.hasMoved) {
+        markClickSuppressed();
+    }
     if (completion.mode === 'create') {
         if (!tool) {
             return;
@@ -528,7 +606,6 @@ function handlePointerUp(event: PointerEvent) {
             const created = completedDraft ? creationTools.finishShape(completedDraft) : null;
             if (created) {
                 surface.createShape(created);
-                surface.select([created.identity.id]);
             }
             return;
         }
@@ -556,13 +633,14 @@ function handlePointerUp(event: PointerEvent) {
     if (!completion.hasMoved || !completion.gesture) {
         return;
     }
-    const originalRect = completion.gesture.entity.kind === 'text-box'
-        ? completion.gesture.entity.rect
-        : completion.gesture.entity.kind === 'note'
-            ? completion.gesture.entity.position
-            : completion.gesture.entity.kind === 'shape'
-                ? completion.gesture.entity.rect
-                : null;
+    if (completion.mode === 'move' && surface.selectedIds.value.size > 1) {
+        const anchor = rectForMovableEntity(completion.gesture.entity);
+        if (anchor) {
+            surface.moveSelection(completion.rect.left - anchor.left, completion.rect.top - anchor.top);
+            return;
+        }
+    }
+    const originalRect = rectForMovableEntity(completion.gesture.entity);
     if (!originalRect || annotationRectsEqual(originalRect, completion.rect)) {
         return;
     }
@@ -588,9 +666,19 @@ function handlePointerUp(event: PointerEvent) {
         });
         return;
     }
-    surface.commitGesture(completion.gesture, completion.gesture.entity.kind === 'note'
-        ? {position: completion.rect}
-        : {rect: completion.rect});
+    if (completion.gesture.entity.kind === 'note') {
+        surface.commitGesture(completion.gesture, {position: completion.rect});
+    } else if (completion.gesture.entity.kind === 'text-markup') {
+        const deltaX = completion.rect.left - originalRect.left;
+        const deltaY = completion.rect.top - originalRect.top;
+        surface.commitGesture(completion.gesture, {quadPoints: completion.gesture.entity.quadPoints.map(rect => ({
+            ...rect,
+            left: rect.left + deltaX,
+            top: rect.top + deltaY,
+        }))});
+    } else {
+        surface.commitGesture(completion.gesture, {rect: completion.rect});
+    }
 }
 
 function handlePointerCancel(event: PointerEvent) {
@@ -608,14 +696,29 @@ function handlePointerCancel(event: PointerEvent) {
 function handleSurfaceClick(event: MouseEvent) {
     if (suppressNextClick) {
         suppressNextClick = false;
+        capturedClickAnnotationId = null;
         return;
     }
-    const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
+    const id = entityIdFromEvent(event) ?? capturedClickAnnotationId ?? textBoxIdAtPoint(event);
+    capturedClickAnnotationId = null;
     if (!id) {
         surface.clearSelection();
         return;
     }
     surface.select([id], {additive: event.shiftKey});
+}
+
+function handleSurfaceContextMenu(event: MouseEvent) {
+    const id = entityIdFromEvent(event);
+    if (!id) {
+        return;
+    }
+    surface.select([id], {additive: event.shiftKey});
+    surface.openShapeContextMenu({
+        shapeId: id,
+        clientX: event.clientX,
+        clientY: event.clientY,
+    });
 }
 
 function handleSurfaceDblClick(event: MouseEvent) {

@@ -17,6 +17,7 @@ import type {
     IPdfNativePageLabelRange,
     IPdfNativePageLabelsMutation,
     IPdfNativePlacedImage,
+    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeShapeAnnotation,
     IPdfNativeShapePoint,
     IPdfNativeShapesMutation,
@@ -66,6 +67,7 @@ export const PDF_NATIVE_MUTATION_LIMITS = {
     placedImages: 16,
     placedImageBytes: 128 * 1024 * 1024,
     placedImagesTotalBytes: 512 * 1024 * 1024,
+    placedImageGeometryUpdates: 256,
 } as const;
 
 export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
@@ -128,6 +130,63 @@ interface IPdfNativeBookmarkState {
 interface IPdfNativeShapePointState {count: number;}
 
 interface IPdfNativePlacedImageByteState {totalBytes: number;}
+
+function normalizePlacedImageGeometryUpdates(
+    value: unknown,
+    label: string,
+    options: IPdfNativeValidationOptions,
+): IPdfNativePlacedImageGeometryUpdate[] {
+    if (value === undefined) {
+        return [];
+    }
+    if (!Array.isArray(value) || value.length > PDF_NATIVE_MUTATION_LIMITS.placedImageGeometryUpdates) {
+        fail(`${label} must be an array with at most ${PDF_NATIVE_MUTATION_LIMITS.placedImageGeometryUpdates} updates`, options);
+    }
+    return value.map((item, index) => {
+        if (!isRecord(item)) {
+            fail(`${label}[${index}] must be an object`, options);
+        }
+        const pageIndex = item.pageIndex;
+        if (typeof pageIndex !== 'number' || !Number.isSafeInteger(pageIndex) || pageIndex < 0) {
+            fail(`${label}[${index}].pageIndex must be a non-negative safe integer`, options);
+        }
+        const annotationId = item.annotationId;
+        if (annotationId !== undefined && annotationId !== null && typeof annotationId !== 'string') {
+            fail(`${label}[${index}].annotationId must be a string or null`, options);
+        }
+        const stableKey = item.stableKey;
+        if (stableKey !== undefined && (typeof stableKey !== 'string' || stableKey.trim().length === 0)) {
+            fail(`${label}[${index}].stableKey must be a non-empty string`, options);
+        }
+        const x = normalizeFiniteUnitNumber(item.x, `${label}[${index}].x`, options);
+        const y = normalizeFiniteUnitNumber(item.y, `${label}[${index}].y`, options);
+        const width = normalizeFiniteUnitNumber(item.width, `${label}[${index}].width`, options);
+        const height = normalizeFiniteUnitNumber(item.height, `${label}[${index}].height`, options);
+        if (!isPdfNativeNormalizedBoxInsidePageBounds({
+            x,
+            y,
+            width,
+            height,
+        })) {
+            fail(`${label}[${index}] must fit inside the normalized page bounds`, options);
+        }
+        const rotationDegrees = item.rotationDegrees;
+        if (rotationDegrees !== undefined && rotationDegrees !== null
+            && (typeof rotationDegrees !== 'number' || !isNativeF32(rotationDegrees))) {
+            fail(`${label}[${index}].rotationDegrees must be a finite number or null`, options);
+        }
+        return {
+            pageIndex: requirePageIndex(pageIndex),
+            ...(stableKey === undefined ? {} : {stableKey: stableKey.trim()}),
+            ...(annotationId === undefined ? {} : {annotationId}),
+            x,
+            y,
+            width,
+            height,
+            ...(rotationDegrees === undefined ? {} : {rotationDegrees}),
+        };
+    });
+}
 
 function createValidationError(message: string, options: IPdfNativeValidationOptions = {}) {
     return options.errorKind === 'error'
@@ -1253,6 +1312,11 @@ export function normalizePdfNativeMutationSet(
         ? null
         : normalizeMarkupMutation(value.markup, `${label}.markup`, options);
     const placedImages = normalizePlacedImages(value.placedImages, `${label}.placedImages`, options);
+    const placedImageGeometryUpdates = normalizePlacedImageGeometryUpdates(
+        value.placedImageGeometryUpdates,
+        `${label}.placedImageGeometryUpdates`,
+        options,
+    );
     if (
         updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length + textBoxes.length === 0
         && !pageLabels
@@ -1260,6 +1324,7 @@ export function normalizePdfNativeMutationSet(
         && !shapes
         && !markup
         && placedImages.length === 0
+        && placedImageGeometryUpdates.length === 0
     ) {
         fail(`${label} must include at least one native PDF mutation`, options);
     }
@@ -1274,6 +1339,7 @@ export function normalizePdfNativeMutationSet(
         ...(shapes ? {shapes} : {}),
         ...(markup ? {markup} : {}),
         ...(placedImages.length > 0 ? {placedImages} : {}),
+        ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
     };
     validateNativeMutationCollectionBudget(normalized, label, options);
     return normalized;
@@ -1404,6 +1470,7 @@ function countNativeMutationItems(mutations: IPdfNativeMutationSet): number {
         }
     }
     add(mutations.placedImages?.length ?? 0);
+    add(mutations.placedImageGeometryUpdates?.length ?? 0);
     return total;
 }
 
@@ -1593,14 +1660,16 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
 export function splitPdfNativeMutationSetIntoBoundedChunks(
     mutations: IPdfNativeMutationSet,
 ): TPdfNativeMutationChunk[] {
-    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
+    const noteChunks: Array<Pick<TPdfNativeMutationChunk, 'updates' | 'geometryUpdates' | 'placedImageGeometryUpdates' | 'freeTextNotes' | 'deletes'>> = [];
     let updateIndex = 0;
     let geometryUpdateIndex = 0;
+    let placedImageGeometryUpdateIndex = 0;
     let noteIndex = 0;
     let deleteIndex = 0;
     while (
         updateIndex < (mutations.updates?.length ?? 0)
         || geometryUpdateIndex < (mutations.geometryUpdates?.length ?? 0)
+        || placedImageGeometryUpdateIndex < (mutations.placedImageGeometryUpdates?.length ?? 0)
         || noteIndex < (mutations.freeTextNotes?.length ?? 0)
         || deleteIndex < (mutations.deletes?.length ?? 0)
         || noteChunks.length === 0
@@ -1612,22 +1681,34 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length,
         ));
         geometryUpdateIndex += geometryUpdates.length;
+        const placedImageGeometryUpdates = (mutations.placedImageGeometryUpdates ?? []).slice(
+            placedImageGeometryUpdateIndex,
+            placedImageGeometryUpdateIndex + Math.max(
+                0,
+                PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            ),
+        );
+        placedImageGeometryUpdateIndex += placedImageGeometryUpdates.length;
         const freeTextNotes = (mutations.freeTextNotes ?? []).slice(noteIndex, noteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length,
         ));
         noteIndex += freeTextNotes.length;
         const deletes = (mutations.deletes ?? []).slice(deleteIndex, deleteIndex + Math.max(
             0,
-            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length - freeTextNotes.length,
+            PDF_NATIVE_MUTATION_LIMITS.noteChanges - updates.length - geometryUpdates.length
+                - placedImageGeometryUpdates.length - freeTextNotes.length,
         ));
         deleteIndex += deletes.length;
-        if (updates.length + geometryUpdates.length + freeTextNotes.length + deletes.length === 0) {
+        if (updates.length + geometryUpdates.length + placedImageGeometryUpdates.length
+            + freeTextNotes.length + deletes.length === 0) {
             break;
         }
         noteChunks.push({
             ...(updates.length > 0 ? {updates} : {}),
             ...(geometryUpdates.length > 0 ? {geometryUpdates} : {}),
+            ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
             ...(freeTextNotes.length > 0 ? {freeTextNotes} : {}),
             ...(deletes.length > 0 ? {deletes} : {}),
         });

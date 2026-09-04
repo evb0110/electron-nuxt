@@ -22,6 +22,9 @@ import type {
     ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {mintAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {nudgeMarkerRectByPdfPoints} from '@app/modules/pdf-viewer/engine/annotation-editor-geometry/nudgeMarkerRectByPdfPoints';
+
+type TAnnotationHistoryAction = () => boolean | Promise<boolean>;
 
 export interface IAnnotationGesture {
     readonly annotationId: AnnotationId;
@@ -61,7 +64,15 @@ export interface IAnnotationEditorSurface {
     discardUnsavedAnnotation(annotationId: AnnotationId): boolean;
     deleteAnnotation(annotationId: AnnotationId): boolean;
     deleteSelection(): void;
+    moveSelection(deltaX: number, deltaY: number): void;
     nudgeSelection(deltaX: number, deltaY: number): void;
+    nudgeSelectionByPdfPoints(deltaX: number, deltaY: number, pageView: number[], pageRotation?: 0 | 90 | 180 | 270): void;
+    undo(): boolean | Promise<boolean>;
+    redo(): boolean | Promise<boolean>;
+    getPageGeometry(pageIndex: number): {
+        pageView: number[];
+        rotation: 0 | 90 | 180 | 270
+    } | null;
     beginMove(annotationId: AnnotationId): IAnnotationGesture | null;
     beginResize(annotationId: AnnotationId): IAnnotationGesture | null;
     commitGesture(
@@ -93,6 +104,11 @@ export interface IAnnotationEditorSurface {
     ): ITextMarkupEntity;
     createShape(entity: IShapeEntity): IShapeEntity;
     openNote(annotationId: AnnotationId): void;
+    openShapeContextMenu(payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }): void;
 }
 
 export const annotationEditorSurfaceKey: InjectionKey<IAnnotationEditorSurface> = Symbol(
@@ -124,6 +140,18 @@ interface IUsePdfAnnotationEditorSurfaceOptions {
     emitOpenNote?: (entity: AnnotationEntity) => void;
     resolveStampImage?: (entity: IPlacedImageEntity) => Promise<string | null>;
     emitAnnotationModified?: () => void;
+    runHistoryTransaction?: <T>(action: () => T) => T;
+    undo?: TAnnotationHistoryAction;
+    redo?: TAnnotationHistoryAction;
+    emitShapeContextMenu?: (payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }) => void;
+    getPageGeometry?: (pageIndex: number) => {
+        pageView: number[];
+        rotation: 0 | 90 | 180 | 270
+    } | null;
 }
 
 function timestamp() {
@@ -277,7 +305,9 @@ export const usePdfAnnotationEditorSurface = (
     }
 
     function deleteSelection() {
-        [...selectedIds.value].forEach(id => deleteAnnotation(id));
+        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => {
+            [...selectedIds.value].forEach(id => deleteAnnotation(id));
+        });
     }
 
     function translateRect(rect: IAnnotationMarkerRect, deltaX: number, deltaY: number) {
@@ -288,9 +318,10 @@ export const usePdfAnnotationEditorSurface = (
         };
     }
 
-    function nudgeSelection(deltaX: number, deltaY: number) {
+    function moveSelection(deltaX: number, deltaY: number) {
         let changed = false;
-        selectedIds.value.forEach((id) => {
+        const ids = [...selectedIds.value];
+        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => ids.forEach((id) => {
             const entity = store().get(id);
             if (!entity) {
                 return;
@@ -342,10 +373,63 @@ export const usePdfAnnotationEditorSurface = (
                     }
                     break;
             }
-        });
+        }));
         if (changed) {
             options.emitAnnotationModified?.();
         }
+    }
+
+    function nudgeSelection(deltaX: number, deltaY: number) {
+        moveSelection(deltaX, deltaY);
+    }
+
+    function nudgeSelectionByPdfPoints(
+        deltaX: number,
+        deltaY: number,
+        pageView: number[],
+        pageRotation: 0 | 90 | 180 | 270 = 0,
+    ) {
+        const ids = [...selectedIds.value];
+        let changed = false;
+        (options.runHistoryTransaction ?? ((action: () => void) => action()))(() => ids.forEach((id) => {
+            const entity = store().get(id);
+            if (!entity) {
+                return;
+            }
+            const geometry = options.getPageGeometry?.(entity.pageIndex);
+            const moveRect = (value: IAnnotationMarkerRect) => nudgeMarkerRectByPdfPoints(
+                value,
+                deltaX,
+                deltaY,
+                geometry?.pageView ?? pageView,
+                geometry?.rotation ?? pageRotation,
+            );
+            switch (entity.kind) {
+                case 'text-box': store().updateTextBox(id, {rect: moveRect(entity.rect)}); break;
+                case 'note': store().updateNote(id, {position: moveRect(entity.position)}); break;
+                case 'text-markup': store().updateTextMarkup(id, {quadPoints: entity.quadPoints.map(moveRect)}); break;
+                case 'placed-image': store().updatePlacedImage(id, {rect: moveRect(entity.rect)}); break;
+                case 'shape': {
+                    const nextRect = moveRect(entity.rect);
+                    const dx = nextRect.left - entity.rect.left;
+                    const dy = nextRect.top - entity.rect.top;
+                    store().updateShape(id, {
+                        rect: nextRect,
+                        ...(entity.points ? {points: entity.points.map(point => ({
+                            x: point.x + dx,
+                            y: point.y + dy,
+                        }))} : {}),
+                        ...(entity.strokes ? {strokes: entity.strokes.map(stroke => stroke.map(point => ({
+                            x: point.x + dx,
+                            y: point.y + dy,
+                        })))} : {}),
+                    });
+                    break;
+                }
+            }
+            changed = true;
+        }));
+        if (changed) options.emitAnnotationModified?.();
     }
 
     function beginGesture(annotationId: AnnotationId, kind: IAnnotationGesture['kind']) {
@@ -490,6 +574,14 @@ export const usePdfAnnotationEditorSurface = (
         }
     }
 
+    function openShapeContextMenu(payload: {
+        shapeId: AnnotationId;
+        clientX: number;
+        clientY: number;
+    }) {
+        options.emitShapeContextMenu?.(payload);
+    }
+
     return {
         entitiesByPage,
         selectedIds,
@@ -503,7 +595,12 @@ export const usePdfAnnotationEditorSurface = (
         discardUnsavedAnnotation,
         deleteAnnotation,
         deleteSelection,
+        moveSelection,
         nudgeSelection,
+        nudgeSelectionByPdfPoints,
+        undo: () => options.undo?.() ?? store().undo(),
+        redo: () => options.redo?.() ?? store().redo(),
+        getPageGeometry: options.getPageGeometry ?? (() => null),
         beginMove: annotationId => beginGesture(annotationId, 'move'),
         beginResize: annotationId => beginGesture(annotationId, 'resize'),
         commitGesture,
@@ -515,5 +612,6 @@ export const usePdfAnnotationEditorSurface = (
         createHighlightFromSelection,
         createShape,
         openNote,
+        openShapeContextMenu,
     };
 };

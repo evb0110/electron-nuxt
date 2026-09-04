@@ -171,7 +171,9 @@ export function resolveAnnotationSnapshotDocumentIdentity(
 ) {
     return input.originalPath
         ? `source:${input.originalPath}`
-        : resolveAnnotationStoreDocumentIdentity(input);
+        : input.workingCopyPath
+            ? `path:${input.workingCopyPath}`
+            : annotationDocumentKey(input.source);
 }
 
 export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionOptions) => {
@@ -335,7 +337,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         }
         const replacesLoadedDocument = lastLoadedPdfDocument !== null;
         lastLoadedPdfDocument = document;
-        if (!replacesLoadedDocument) {
+        if (!replacesLoadedDocument || options.isAnySaving.value) {
             return;
         }
         appAnnotationHistory.clear();
@@ -411,6 +413,32 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         settings: options.annotationSettings,
         resolveStampImage,
         emitAnnotationModified: options.emitAnnotationModified,
+        runHistoryTransaction: action => appAnnotationHistory.runTransaction(action),
+        undo: () => appAnnotationHistory.undoForEditor(),
+        redo: () => appAnnotationHistory.redoForEditor(),
+        emitShapeContextMenu: options.emitShapeContextMenu,
+        getPageGeometry: pageIndex => {
+            const metric = documentSession.pageMetrics.value[pageIndex];
+            if (!metric) {
+                return null;
+            }
+            return {
+                pageView: [
+                    0,
+                    0,
+                    metric.width,
+                    metric.height,
+                ],
+                rotation: ([
+                    0,
+                    90,
+                    180,
+                    270,
+                ] as const).includes(metric.rotation as 0 | 90 | 180 | 270)
+                    ? metric.rotation as 0 | 90 | 180 | 270
+                    : 0,
+            };
+        },
         emitOpenNote: entity => {
             if (entity.kind !== 'note') {
                 return;
@@ -1041,21 +1069,9 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     watch(() => [
         options.src.value,
         options.workingCopyPath.value,
-    ] as const, ([
-        next,
-        nextDocumentKey,
-    ], [
-        previous,
-        previousDocumentKey,
-    ]) => {
+    ] as const, ([next], [previous]) => {
         if (next === previous) {
             return;
-        }
-        if (
-            !options.isAnySaving.value
-            && nextDocumentKey !== previousDocumentKey
-        ) {
-            appAnnotationHistory.clear();
         }
         options.clearPendingImagePlacement();
         handleSourceChanged(next, previous);
@@ -1161,7 +1177,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 ? payload
                 : {
                     ...payload,
-                    stableKey: mintAnnotationId(),
+                    stableKey: payload.stableKey ?? mintAnnotationId(),
                 };
             return await finalizer(canonicalPayload) ?? true;
         },

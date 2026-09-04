@@ -442,6 +442,7 @@ import { createDocumentWorkspaceAutomationHandlers } from '@app/modules/workspac
 import { useDocumentOpenedAutomationEvent } from '@app/modules/workspace-shell/automation/useDocumentOpenedAutomationEvent';
 import { usePendingWorkspaceDocumentOpen } from '@app/modules/workspace-shell/composables/usePendingWorkspaceDocumentOpen';
 import { useDjvuProjectionActions } from '@app/modules/workspace-shell/composables/useDjvuProjectionActions';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import {
     documentOpenSurfaceSessionKey,
     injectDocumentOpenSurfaceSession,
@@ -1039,15 +1040,19 @@ const documentSourceSidebar = useDocumentSourceSidebarSession({onNavigate: pageI
 function handleSourceSidebarGoToPage(pageNumber: number, _event?: MouseEvent) {
     handlePreviewAwareGoToPage(pageNumber);
 }
-function handlePreviewAwareGoToPage(pageNumber: number) {
+function handlePreviewAwareGoToPage(pageNumber: number, options?: IScrollToPageOptions) {
     if (!openingPreviewReady.value) {
-        handleGoToPage(pageNumber);
+        handleGoToPage(pageNumber, options);
         return;
     }
     const boundedPage = Math.min(
         Math.max(1, Math.trunc(pageNumber)),
         Math.max(1, openingPreviewPageCount.value),
     );
+    if (options) {
+        handleGoToPage(boundedPage, options);
+        return;
+    }
     documentOpenSurface.requestNavigation(boundedPage);
 }
 const documentPageSource = shallowRef<IDocumentPageSource | null>(null);

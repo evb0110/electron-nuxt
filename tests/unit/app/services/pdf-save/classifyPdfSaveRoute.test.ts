@@ -6,14 +6,17 @@ import {
 import fc from 'fast-check';
 import {
     classifyPdfSaveRoute,
+    type IPdfSaveNativeRouteDecision,
     type IPdfSaveRouteCapabilities,
 } from '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 import type {
     AnnotationEntity,
+    IShapeEntity,
     ITextBoxEntity,
     INoteEntity,
     ITextMarkupEntity,
+    IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -199,6 +202,36 @@ function nativeShape(): IShapeAnnotation {
     };
 }
 
+function nativeShapeWithRef(annotationId: string): IShapeAnnotation {
+    return {
+        ...nativeShape(),
+        annotationId,
+    };
+}
+
+function deletedShape(id: string, pdfRef?: string): IShapeEntity {
+    return {
+        kind: 'shape',
+        identity: {
+            id: asAnnotationId(id),
+            ...(pdfRef ? {pdfRef} : {}),
+        },
+        pageIndex: 0,
+        revision: 2,
+        persistedRevision: pdfRef ? 1 : -1,
+        deleted: true,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: 1_781_000_000_100,
+        author: null,
+        tool: 'rectangle',
+        rect: MARKER_RECT,
+        strokeColor: '#00aaff',
+        strokeWidth: 2,
+        fill: null,
+        opacity: 1,
+    };
+}
+
 function planOf(
     dirty: readonly AnnotationEntity[],
     entities: readonly AnnotationEntity[] = dirty,
@@ -269,7 +302,142 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
     };
 }
 
+function changedPlacedImage(id = 'placed-image-1', pdfRef = '12R0'): IPlacedImageEntity {
+    return {
+        kind: 'placed-image',
+        identity: {
+            id: asAnnotationId(id),
+            pdfRef,
+        },
+        pageIndex: 0,
+        revision: 2,
+        persistedRevision: 1,
+        deleted: false,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: 1_781_000_000_100,
+        author: null,
+        rect: {
+            left: 0.2,
+            top: 0.3,
+            width: 0.25,
+            height: 0.15,
+        },
+        rotation: 90,
+        image: {
+            objectNumber: 20,
+            generationNumber: 0,
+            byteLength: 317,
+            sha256: 'a'.repeat(64),
+        },
+    };
+}
+
+function nativeDecision(decision: ReturnType<typeof classifyPdfSaveRoute>): IPdfSaveNativeRouteDecision {
+    if (decision.route !== 'native-append') {
+        throw new Error(`expected native route, received ${decision.route}`);
+    }
+    return decision;
+}
+
 describe('classifyPdfSaveRoute annotation routes', () => {
+    it('projects changed placed-image geometry into the native image writer', () => {
+        const image = changedPlacedImage();
+        const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
+
+        expect(decision.route).toBe('native-append');
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toEqual([{
+                pageIndex: 0,
+                stableKey: 'placed-image-1',
+                annotationId: '12R',
+                x: 0.2,
+                y: 0.3,
+                width: 0.25,
+                height: 0.15,
+                rotationDegrees: 90,
+            }]);
+    });
+
+    it('normalizes a native PDF ref before sending placed-image geometry to Rust', () => {
+        const image = changedPlacedImage('placed-image-1', '12 0 R');
+
+        const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
+
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toEqual([expect.objectContaining({annotationId: '12R'})]);
+    });
+
+    it('keeps placed-image geometry replayable when the saved PDF.js baseline is dirty', () => {
+        const image = changedPlacedImage();
+        const decision = classifyPdfSaveRoute(
+            planOf([image]),
+            capabilities({
+                forcePdfjsMaterialize: true,
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: false,
+                    savedPdfjsAnnotationBaselineDirty: true,
+                    shapeStateDirty: false,
+                },
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(nativeDecision(decision).nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toHaveLength(1);
+    });
+
+    it('keeps a placed-image PDF.js alias on the native replay route', () => {
+        const image = changedPlacedImage('placed-image-live');
+        const decision = classifyPdfSaveRoute(
+            planOf([image]),
+            capabilities({liveAnnotationChanges: liveChanges({
+                ids: new Set([
+                    'placed-image-live',
+                    '12R',
+                ]),
+                hasChanges: true,
+                fingerprint: 'placed-image-live-alias',
+            })}),
+        );
+
+        expect([...decision.canonical.replayableEmbeddedAnnotationIds]).toEqual(
+            expect.arrayContaining([
+                'placed-image-live',
+                '12R',
+            ]),
+        );
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.annotationRoute.route).toBe('source-replay');
+        expect(decision.annotationPlan.unreplayableLiveAnnotationIds).toEqual([]);
+    });
+
+    it('does not require a native delete for a local shape deleted beside a persisted shape', () => {
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                deletedShape('local-shape'),
+                deletedShape('persisted-shape', '44R'),
+            ]),
+            capabilities({
+                dirtyState: {
+                    ...capabilities().dirtyState!,
+                    shapeStateDirty: true,
+                },
+                shapes: [nativeShapeWithRef('44R')],
+                deletedEmbeddedShapeAnnotationIds: ['44R'],
+            }),
+        );
+
+        expect(decision.canonical.pendingDeletes).toHaveLength(0);
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.shapes?.deletedAnnotationIds)
+            .toContain('44R');
+    });
+
     it('replays pending embedded annotation operations from source bytes', () => {
         const decision = classifyPdfSaveRoute(planOf([embeddedNote('anno_editor_note', '19R')]), capabilities());
 
@@ -382,7 +550,7 @@ describe('classifyPdfSaveRoute annotation routes', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.nativeMutationProjection.mutations.freeTextNotes).toEqual([expect.objectContaining({
-            stableKey: 'ann:0:editor:anno_point_note',
+            stableKey: 'anno_point_note',
             text: 'text-anno_point_note',
         })]);
     });
@@ -1081,6 +1249,49 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         }]});
     });
 
+    it('keeps an imported text update replayable beside managed shape editor ids', () => {
+        const movedNote = embeddedNote('anno_moved_note', '12R');
+        const movedMarkup = editorMarkupWithPdfAliases('anno_moved_markup', 'pdfjs_markup', 'pdfjs_markup_uid', '44R');
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                movedNote,
+                movedMarkup,
+            ]),
+            capabilities({
+                dirtyState: {
+                    ...capabilities().dirtyState!,
+                    hasLivePdfJsAnnotationChanges: true,
+                    shapeStateDirty: true,
+                },
+                shapes: [nativeShapeWithRef('22R')],
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'anno_moved_note',
+                        '12R',
+                        '22R',
+                        '8933R',
+                        'anno_moved_markup',
+                        '44R',
+                    ]),
+                    replayableEditorNoteIds: new Set(['12R']),
+                    hasChanges: true,
+                    fingerprint: 'reopened-note-with-managed-shape-edit',
+                }),
+                deletedEmbeddedShapeAnnotationIds: ['8933R'],
+            }),
+        );
+
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.annotationRoute.route).toBe('source-replay');
+        expect(decision.nativeMutationProjection.mutations.updates).toEqual([{
+            objectNumber: 12,
+            generationNumber: 0,
+            text: 'text-anno_moved_note',
+        }]);
+        expect(decision.nativeMutationProjection.mutations.shapes).toBeDefined();
+    });
+
     it('projects imported FreeText geometry and style edits through the native editor route', () => {
         const importedEditor: IPdfNativeFreeTextEditor = {
             pageIndex: requirePageIndex(0),
@@ -1203,6 +1414,70 @@ describe('classifyPdfSaveRoute native-append grant', () => {
             },
         ]);
         expect(decision.nativeMutationProjection.phase).toBe('persist-native-text-box-changes');
+    });
+
+    it('keeps native text-box payloads when another canonical edit requires materialization', () => {
+        const textBox: ITextBoxEntity = {
+            ...editorTextBox('materialized-text-box'),
+            identity: {
+                id: asAnnotationId('materialized-text-box'),
+                pdfRef: '10 0 R',
+            },
+            persistedRevision: 0,
+        };
+        const markup = editorMarkupWithRuntimeIdentity('materialized-markup');
+        const nativeTextBox = {
+            pageIndex: requirePageIndex(0),
+            stableKey: 'materialized-text-box',
+            annotationId: '10R',
+            text: 'edited materialized text box',
+            rect: [
+                20,
+                30,
+                180,
+                80,
+            ] as [number, number, number, number],
+            rotation: 0 as const,
+            fontSize: 18,
+            color: [
+                0,
+                0,
+                255,
+            ] as [number, number, number],
+        };
+        const decision = classifyPdfSaveRoute(
+            planOf([
+                textBox,
+                markup,
+            ]),
+            capabilities({
+                nativeTextBoxes: [nativeTextBox],
+                dirtyState: {
+                    annotationDirty: true,
+                    hasAnnotationChanges: true,
+                    hasLivePdfJsAnnotationChanges: true,
+                    savedPdfjsAnnotationBaselineDirty: false,
+                    shapeStateDirty: false,
+                },
+                liveAnnotationChanges: liveChanges({
+                    ids: new Set([
+                        'materialized-text-box',
+                        '10R',
+                        'materialized-markup',
+                    ]),
+                    hasChanges: true,
+                    fingerprint: 'materialized-markup-with-text-box',
+                }),
+            }),
+        );
+
+        expect(decision.annotationPlan).toMatchObject({
+            route: 'pdfjs-materialize',
+            reason: 'live-pdfjs-annotation-storage',
+        });
+        expect(decision.route).toBe('native-append');
+        if (decision.route !== 'native-append') throw new Error('expected the native route');
+        expect(decision.nativeMutationProjection.mutations.textBoxes).toEqual([nativeTextBox]);
     });
 
     it('covers every PDF.js identity alias when a saved sticky note has a native text update', () => {

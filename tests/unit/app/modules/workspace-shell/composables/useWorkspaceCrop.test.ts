@@ -89,6 +89,7 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         clearShapes: vi.fn(),
         clearSelectedShape: vi.fn(),
         deleteSelectedShape: vi.fn(),
+        deleteShapeById: vi.fn(),
         hasShapes: false,
         selectedShapeId: null,
         updateShape: vi.fn(),

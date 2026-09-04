@@ -1362,7 +1362,7 @@ describe('usePdfSerialization embedded shapes', () => {
             annotationId: firstPersistedAnnotationId,
         })!);
         expect(shapes.getDeletedEmbeddedAnnotationIds()).toEqual([]);
-        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
+        expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([`evb-shape:${firstDraw!.id}`]);
         expect(shapes.hasShapes.value).toBe(false);
 
         currentBytes = await saveAndReconcile(currentBytes);
@@ -1394,7 +1394,8 @@ describe('usePdfSerialization embedded shapes', () => {
         expect(shapes.hasShapes.value).toBe(true);
 
         const importedFinal = await importEmbeddedShapeAnnotations(currentBytes);
-        expect(importedFinal).toEqual([]);
+        expect(importedFinal).toHaveLength(1);
+        expect(importedFinal[0]?.stableKey).toBe(`evb-shape:${secondDraw!.id}`);
     });
 });
 

@@ -56,6 +56,7 @@ import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSk
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
+import { shouldClearPdfPageSelection } from '@app/modules/pdf-viewer/engine/annotations/shouldClearPdfPageSelection';
 import { usePdfSkeletonContext } from '@app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets';
 import type {
     IPdfImagePlacementDraft,
@@ -124,7 +125,7 @@ const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
 
 function handlePageClick(event: MouseEvent) {
     const target = event.target;
-    if (target instanceof Element && target.closest('[data-annotation-id]')) {
+    if (!shouldClearPdfPageSelection(target)) {
         return;
     }
     annotationEditorSurface?.clearSelection();

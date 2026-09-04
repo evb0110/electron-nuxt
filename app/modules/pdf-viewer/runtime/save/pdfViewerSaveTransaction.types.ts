@@ -15,6 +15,7 @@ import type {
     IPdfNativeFreeTextEditor,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
+    IPdfNativePlacedImageGeometryUpdate,
     IPdfNativeTextBoxMutation,
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
@@ -140,6 +141,8 @@ export interface IPdfViewerSaveTransactionDirtyState {
 export interface INativePdfMutationProjection {
     canonicalAnnotationProgram: readonly IBackendAnnotationMutation[];
     mutations: IPdfNativeMutationSet;
+    /** Geometry-only updates are carried separately so persistence cannot lose them while adapting the payload. */
+    placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
     noteTextUpdates: IPdfNoteTextUpdate[];
     noteGeometryUpdates?: IPdfNoteGeometryUpdate[];
     freeTextNotes: IPdfNativeFreeTextNote[];

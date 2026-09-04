@@ -67,7 +67,7 @@ const handlesStyle = computed(() => rect.value ? {
 } : undefined);
 
 function handlePointerDown(handle: TAnnotationResizeHandle, event: PointerEvent) {
-    if (props.entity?.kind === 'text-box') {
+    if (props.entity?.kind === 'text-box' || props.entity?.kind === 'placed-image') {
         emit('resize-start', handle, event);
     }
 }

@@ -20,6 +20,7 @@ import type {
     IPdfNativeAnnotationDelete,
     IPdfNativeFreeTextNote,
     IPdfNativeMutationSet,
+    IPdfNativePlacedImageGeometryUpdate,
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
     IPdfOptimizeOptions,
@@ -219,6 +220,7 @@ export interface IWorkspaceSaveDependencies {
                 geometryUpdates?: IPdfNoteGeometryUpdate[];
                 freeTextNotes?: IPdfNativeFreeTextNote[];
                 deletes?: IPdfNativeAnnotationDelete[];
+                placedImageGeometryUpdates?: IPdfNativePlacedImageGeometryUpdate[];
             },
         ) => Promise<IPdfPersistResult | null>;
         getWorkingCopySize?: (path: TDocumentRef) => Promise<number | null>;
@@ -543,10 +545,18 @@ async function persistNativeMutationProjection(
         ...(verifyPathBeforeExpose ? {verifyPathBeforeExpose} : {}),
         ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
     };
+    const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
     if (deps.persistence.trySavePdfNativeMutations) {
+        const mutations = placedImageGeometryUpdates.length > 0
+            && projection.mutations.placedImageGeometryUpdates === undefined
+            ? {
+                ...projection.mutations,
+                placedImageGeometryUpdates,
+            }
+            : projection.mutations;
         return timedSavePhase(
             projection.phase,
-            () => deps.persistence.trySavePdfNativeMutations!(projection.mutations, opts),
+            () => deps.persistence.trySavePdfNativeMutations!(mutations, opts),
         );
     }
     if (
@@ -572,6 +582,9 @@ async function persistNativeMutationProjection(
                     : {}),
                 ...(projection.annotationDeletes.length
                     ? {deletes: projection.annotationDeletes}
+                    : {}),
+                ...(placedImageGeometryUpdates.length
+                    ? {placedImageGeometryUpdates}
                     : {}),
             },
         ),

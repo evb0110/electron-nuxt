@@ -163,6 +163,7 @@ function createHarness() {
 
     const viewer = {
         getViewerContainer: vi.fn(() => viewerContainer.value as HTMLElement | null),
+        getCurrentPage: vi.fn(() => 1),
         commentSelection: vi.fn(async () => false),
         commentAtPoint: vi.fn(async () => true),
         focusAnnotationComment: vi.fn(async () => {}),
@@ -183,6 +184,8 @@ function createHarness() {
         updateShape: vi.fn(),
         getSelectedShape: vi.fn(() => selectedShape.value),
         deleteSelectedShape: vi.fn(),
+        deleteShapeById: vi.fn(),
+        getAllShapes: vi.fn(() => []),
         runSaveTransaction: vi.fn(async () => ({
             source: 'pdfjs-materialize' as const,
             baseBytes: null,
@@ -867,6 +870,27 @@ describe('usePageAnnotationActions', () => {
                 annotationId: '44R',
             },
         );
+    });
+
+    it('uses the viewer current page for clipboard placement when no explicit target is supplied', async () => {
+        const {
+            deps,
+            viewer,
+            actions,
+        } = createHarness();
+        viewer.getCurrentPage.mockReturnValue(31);
+        vi.stubGlobal('navigator', {clipboard: {read: vi.fn(async () => [{
+            types: ['image/jpeg'],
+            getType: vi.fn(async () => new Blob([Uint8Array.of(1, 2, 3)], {type: 'image/jpeg'})),
+        }])}});
+
+        await actions.pasteImageFromClipboardAt();
+
+        expect(viewer.startImagePlacement).toHaveBeenCalledWith(
+            expect.any(File),
+            {pageNumber: 31},
+        );
+        expect(deps.closeAnnotationContextMenu).toHaveBeenCalledOnce();
     });
 
     it('contains image picker read failures without tearing down the document workspace', async () => {

@@ -11,6 +11,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { cast } from '@tests/helpers/cast';
@@ -191,6 +192,64 @@ describe('workspaceSaveService native persistence', () => {
             {expectedDocumentRevisionToken: committedRevision},
         );
         expect(replaceFromDocument).toHaveBeenCalledWith(parsed);
+    });
+
+    it('carries placed-image geometry from the projection into the native request', async () => {
+        const placedImageGeometryUpdates = [{
+            pageIndex: requirePageIndex(24),
+            stableKey: 'placed-image-1',
+            annotationId: '12R0',
+            x: 0.2,
+            y: 0.3,
+            width: 0.25,
+            height: 0.15,
+            rotationDegrees: 90,
+        }];
+        const trySavePdfNativeMutations = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const runSaveTransaction = vi.fn(async () => cast({
+            source: 'native-mutation-projection' as const,
+            baseBytes: null,
+            serializedBytes: null,
+            serializedResult: null,
+            nativeMutationProjection: {
+                canonicalAnnotationProgram: [],
+                mutations: {markup: {
+                    overrides: [],
+                    hints: [],
+                }},
+                placedImageGeometryUpdates,
+                noteTextUpdates: [],
+                freeTextNotes: [],
+                freeTextEditors: [],
+                annotationDeletes: [],
+                hasMetadataMutations: false,
+                hasShapeMutations: false,
+                hasMarkupMutations: true,
+                phase: 'persist-native-placed-image-geometry',
+            },
+            fallbackDecision: {},
+            annotationSavePlan: {},
+        }));
+        const {deps} = createDeps({
+            annotationDirty: ref(true),
+            hasAnnotationChanges: vi.fn(() => true),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            trySavePdfNativeMutations,
+            runSaveTransaction,
+        });
+        const {handleSave} = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(handleSave()).resolves.toBe(true);
+
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            expect.objectContaining({placedImageGeometryUpdates}),
+            expect.objectContaining({saveMode: 'rewrite'}),
+        );
     });
 
     const strictNativeMutationRows: readonly IStrictNativeMutationRow[] = [

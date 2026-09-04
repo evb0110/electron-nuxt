@@ -1137,7 +1137,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             return kinds.join(',') === 'note,placed-image,shape,text-box,text-markup'
                 && document.querySelectorAll(
                     '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
-                    + '.editor-pane.is-active .page_container[data-page="1"] .annotationEditorLayer',
+                    + '.editor-pane.is-active .page_container[data-page="1"] .pdf-annotation-editor-layer',
                 ).length === 0;
         }, {timeout: 20_000});
         await page.waitForFunction(() => {
@@ -1258,6 +1258,281 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(afterInteraction.annotationStorage.modifiedIds).toEqual([]);
         expect(afterInteraction.annotationStorage.serializableEntryKeys).toEqual([]);
     }, 90_000);
+
+    it('supports keyboard editing for every canonical kind and atomic mixed selection history', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const {page} = session;
+        const fixturePath = await createCanonicalAnnotationSurfaceFixturePdf(
+            `annotation-lifecycle-${Date.now()}-keyboard-selection.pdf`,
+        );
+
+        await openPdfInApp(page, fixturePath);
+        await waitForPdfLoaded(page);
+        await waitForViewerInteractive(page);
+        const entitySelector = '.editor-pane.is-active .page_container[data-page="1"] '
+            + '.pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]';
+        await page.waitForFunction((selector: string) => (
+            document.querySelectorAll(selector).length === 5
+        ), {timeout: 20_000}, entitySelector);
+
+        interface ICanonicalEntityGeometry {
+            id: string;
+            kind: string;
+            left: number;
+            top: number;
+            width: number;
+            height: number;
+        }
+        const readGeometry = async () => page.evaluate((selector: string) => (
+            Array.from(document.querySelectorAll<HTMLElement>(selector)).map((element) => {
+                const rect = element.getBoundingClientRect();
+                return {
+                    id: element.dataset.annotationId ?? '',
+                    kind: element.dataset.annotationKind ?? '',
+                    left: rect.left,
+                    top: rect.top,
+                    width: rect.width,
+                    height: rect.height,
+                } satisfies ICanonicalEntityGeometry;
+            })
+        ), entitySelector);
+        const waitForSelectedCount = async (count: number) => {
+            await page.waitForFunction((expected: number) => (
+                document.querySelectorAll(
+                    '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
+                ).length === expected
+            ), {timeout: 10_000}, count);
+        };
+        const focusEditorLayer = async () => {
+            await page.$eval(
+                '.editor-pane.is-active .page_container[data-page="1"] [data-pdf-annotation-editor-surface]',
+                (element) => (element as HTMLElement).focus({preventScroll: true}),
+            );
+            await page.waitForFunction(() => (
+                document.activeElement?.matches('[data-pdf-annotation-editor-surface]') === true
+            ), {timeout: 10_000});
+        };
+        const clickEntity = async (id: string, additive = false) => {
+            const point = await page.evaluate((annotationId: string) => {
+                const entity = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                );
+                if (!entity) {
+                    return null;
+                }
+                const rect = entity.getBoundingClientRect();
+                return {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                };
+            }, id);
+            if (!point) {
+                throw new Error(`Canonical entity was not mounted: ${id}`);
+            }
+            if (additive) {
+                await page.keyboard.down('Shift');
+            }
+            try {
+                await page.mouse.click(point.x, point.y);
+            }
+            finally {
+                if (additive) {
+                    await page.keyboard.up('Shift');
+                }
+            }
+        };
+        const waitForGeometry = async (
+            id: string,
+            predicate: (before: ICanonicalEntityGeometry, after: ICanonicalEntityGeometry) => boolean,
+            before: ICanonicalEntityGeometry,
+        ) => {
+            await page.waitForFunction((input: {
+                annotationId: string;
+                before: ICanonicalEntityGeometry;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                if (!element) {
+                    return false;
+                }
+                const rect = element.getBoundingClientRect();
+                return Math.abs(rect.left - input.before.left) > 0.05
+                    || Math.abs(rect.top - input.before.top) > 0.05
+                    || Math.abs(rect.width - input.before.width) > 0.05
+                    || Math.abs(rect.height - input.before.height) > 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: id,
+                before,
+            });
+            const after = (await readGeometry()).find(entity => entity.id === id);
+            if (!after || !predicate(before, after)) {
+                throw new Error(`Canonical entity geometry did not satisfy the expected change: ${id}`);
+            }
+            return after;
+        };
+        const geometryByKind = new Map((await readGeometry()).map(entity => [
+            entity.kind,
+            entity,
+        ]));
+        for (const kind of [
+            'text-box',
+            'note',
+            'text-markup',
+            'shape',
+            'placed-image',
+        ]) {
+            const entity = geometryByKind.get(kind);
+            if (!entity) {
+                throw new Error(`Canonical fixture did not contain ${kind}`);
+            }
+            await clickEntity(entity.id);
+            await waitForSelectedCount(1);
+            await focusEditorLayer();
+            const before = (await readGeometry()).find(candidate => candidate.id === entity.id);
+            if (!before) {
+                throw new Error(`Canonical entity geometry was not readable: ${entity.id}`);
+            }
+            await page.keyboard.press('ArrowRight');
+            const moved = await waitForGeometry(entity.id, (initial, next) => next.left > initial.left, before);
+            await page.keyboard.down('Control');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((input: {
+                annotationId: string;
+                left: number;
+                top: number;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                const rect = element?.getBoundingClientRect();
+                return rect !== undefined
+                    && Math.abs(rect.left - input.left) < 0.05
+                    && Math.abs(rect.top - input.top) < 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: entity.id,
+                left: before.left,
+                top: before.top,
+            });
+            await page.keyboard.down('Control');
+            await page.keyboard.down('Shift');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Shift');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((input: {
+                annotationId: string;
+                left: number;
+            }) => {
+                const element = document.querySelector<HTMLElement>(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${input.annotationId}"]`,
+                );
+                return (element?.getBoundingClientRect().left ?? 0) > input.left + 0.05;
+            }, {timeout: 10_000}, {
+                annotationId: entity.id,
+                left: before.left,
+            });
+            expect(moved.left).toBeGreaterThan(before.left);
+
+            await page.keyboard.press('Backspace');
+            await page.waitForFunction((annotationId: string) => (
+                !document.querySelector(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                )
+            ), {timeout: 10_000}, entity.id);
+            await page.keyboard.down('Control');
+            await page.keyboard.press('z');
+            await page.keyboard.up('Control');
+            await page.waitForFunction((annotationId: string) => Boolean(
+                document.querySelector(
+                    `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+                ),
+            ), {timeout: 10_000}, entity.id);
+        }
+
+        const restoredGeometry = await readGeometry();
+        const first = restoredGeometry.find(entity => entity.kind === 'text-box');
+        const second = restoredGeometry.find(entity => entity.kind === 'note');
+        if (!first || !second) {
+            throw new Error('Canonical mixed-selection fixture entities are missing');
+        }
+        await clickEntity(first.id);
+        await waitForSelectedCount(1);
+        await clickEntity(second.id, true);
+        await waitForSelectedCount(2);
+        await focusEditorLayer();
+        const mixedBefore = new Map((await readGeometry())
+            .filter(entity => entity.id === first.id || entity.id === second.id)
+            .map(entity => [
+                entity.id,
+                entity,
+            ]));
+        const dragPoint = await page.evaluate((annotationId: string) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            const rect = entity?.getBoundingClientRect();
+            return rect
+                ? {
+                    x: rect.left + rect.width / 2,
+                    y: rect.top + rect.height / 2,
+                }
+                : null;
+        }, first.id);
+        if (!dragPoint) {
+            throw new Error('Canonical mixed-selection drag target is missing');
+        }
+        await page.mouse.move(dragPoint.x, dragPoint.y);
+        await page.mouse.down();
+        await page.mouse.move(dragPoint.x + 28, dragPoint.y + 18, {steps: 6});
+        await page.mouse.up();
+        await focusEditorLayer();
+        await page.waitForFunction((ids: string[]) => ids.every((annotationId) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${annotationId}"]`,
+            );
+            return entity?.classList.contains('is-selected') === true;
+        }), {timeout: 10_000}, [
+            first.id,
+            second.id,
+        ]);
+        const mixedAfter = await readGeometry();
+        [
+            first.id,
+            second.id,
+        ].forEach((id) => {
+            const before = mixedBefore.get(id);
+            const after = mixedAfter.find(entity => entity.id === id);
+            expect(after?.left).toBeGreaterThan(before?.left ?? Number.POSITIVE_INFINITY);
+            expect(after?.top).toBeGreaterThan(before?.top ?? Number.POSITIVE_INFINITY);
+        });
+        await page.keyboard.down('Control');
+        await page.keyboard.press('z');
+        await page.keyboard.up('Control');
+        await page.waitForFunction((input: Array<{
+            id: string;
+            left: number;
+            top: number;
+        }>) => input.every((expected) => {
+            const entity = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${expected.id}"]`,
+            );
+            const rect = entity?.getBoundingClientRect();
+            return rect !== undefined
+                && Math.abs(rect.left - expected.left) < 0.05
+                && Math.abs(rect.top - expected.top) < 0.05;
+        }), {timeout: 10_000}, [
+            first.id,
+            second.id,
+        ].map(id => ({
+            id,
+            left: mixedBefore.get(id)?.left ?? 0,
+            top: mixedBefore.get(id)?.top ?? 0,
+        })));
+    }, 120_000);
 
     it('places a stamp through the editor layer and round-trips its edited geometry', async () => {
         const session = sessionFixture.getSession();
@@ -1446,7 +1721,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             const host = (activeHost && visibleHosts.includes(activeHost))
                 ? activeHost
                 : (visibleHosts.length === 1 ? visibleHosts[0] : null);
-            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.freeTextEditor') ?? []);
+            const editors = Array.from(host?.querySelectorAll<HTMLElement>('.pdf-annotation-editor-text-box') ?? []);
             const matchingText = editors
                 .map((editor) => (editor.querySelector<HTMLElement>('[contenteditable], .internal') ?? editor).textContent ?? '')
                 .map(text => text.replace(/\u200B/g, '').trim())
@@ -2000,7 +2275,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const trace = `undo boundary trace: ${JSON.stringify(boundary.samples)}`;
 
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 1,
+            canonicalTextMarkupCount: 1,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 1,
         });
@@ -2008,7 +2283,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // same task: an editor that outlives the annotation is the orphan a
         // later comment sync rescans back into existence.
         expect(boundary.at('synchronous'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
             canonicalHighlightCount: 0,
         });
@@ -2024,7 +2299,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             'deferred-task',
         ].forEach((label) => {
             const sample = boundary.at(label);
-            expect(sample.highlightEditorCount, `${label}: ${trace}`).toBe(0);
+            expect(sample.canonicalTextMarkupCount, `${label}: ${trace}`).toBe(0);
             expect(sample.highlightAnnotationCount, `${label}: ${trace}`).toBe(0);
             expect(sample.canonicalHighlightCount, `${label}: ${trace}`).toBe(0);
             expect(sample.addedHighlightNodeIds, `${label}: ${trace}`).toEqual([]);
@@ -2050,7 +2325,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
 
         const afterDeferredSync = await readAnnotationUndoBoundaryProbe(page);
         expect(afterDeferredSync.added).toEqual([]);
-        expect(afterDeferredSync.highlightEditorCount).toBe(0);
+        expect(afterDeferredSync.canonicalTextMarkupCount).toBe(0);
         expect(afterDeferredSync.highlightAnnotationCount).toBe(0);
         expect(await readCanonicalHighlightIdentities(page)).toEqual([]);
     });
@@ -2098,7 +2373,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         const boundary = await clickHistoryActionAcrossAnimationBoundaries(page, 'Undo');
         const trace = `deferred-delete undo boundary trace: ${JSON.stringify(boundary.samples)}`;
         expect(boundary.at('before'), trace).toMatchObject({
-            highlightEditorCount: 0,
+            canonicalTextMarkupCount: 0,
             highlightAnnotationCount: 0,
         });
 
@@ -2116,7 +2391,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             afterRestore.added.length,
             `expected a restored highlight node: ${JSON.stringify(afterRestore)}`,
         ).toBeGreaterThan(0);
-        expect(afterRestore.highlightEditorCount + afterRestore.highlightAnnotationCount).toBe(1);
+        expect(afterRestore.canonicalTextMarkupCount + afterRestore.highlightAnnotationCount).toBe(1);
 
         const restored = (await readCanonicalHighlightIdentities(page))
             .find(identity => identity.appAnnotationId === persistedIdentity?.appAnnotationId);
@@ -2160,14 +2435,14 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         // attached, the next comment sync rescans it and mints the note back.
         expect(boundary.at('synchronous'), trace).toMatchObject({
             canonicalAnnotationCount: baselineSidebarCount,
-            freeTextEditorCount: baselineFreeTextCount,
+            canonicalTextBoxCount: baselineFreeTextCount,
         });
         [
             'frame-1',
             'frame-2',
             'deferred-task',
         ].forEach((label) => {
-            expect(boundary.at(label).freeTextEditorCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
+            expect(boundary.at(label).canonicalTextBoxCount, `${label}: ${trace}`).toBe(baselineFreeTextCount);
         });
 
         await waitForSidebarAnnotationCount(page, baselineSidebarCount);

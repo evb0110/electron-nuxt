@@ -74,7 +74,12 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function setWorkspaceCommandSink(sink: IWorkspaceCommandSink | null) {
+        const shouldTransferPendingCommands = sink !== null && workspaceCommandSink === null;
         workspaceCommandSink = sink;
+        if (shouldTransferPendingCommands) {
+            const pendingCommands = [...undoStack];
+            pendingCommands.forEach(pushCommand);
+        }
         undoStack.length = 0;
         redoStack.length = 0;
         syncDepths();
@@ -341,6 +346,14 @@ export const usePdfAppAnnotationHistory = (options: {
         });
     }
 
+    function undoForEditor() {
+        return workspaceCommandSink?.undo?.() ?? undo();
+    }
+
+    function redoForEditor() {
+        return workspaceCommandSink?.redo?.() ?? redo();
+    }
+
     function clear() {
         undoStack.length = 0;
         redoStack.length = 0;
@@ -362,6 +375,8 @@ export const usePdfAppAnnotationHistory = (options: {
         isRoutingPdfjsHistory,
         undo,
         redo,
+        undoForEditor,
+        redoForEditor,
         clear,
         emitCombinedState,
         setBeforeReplayEffect,

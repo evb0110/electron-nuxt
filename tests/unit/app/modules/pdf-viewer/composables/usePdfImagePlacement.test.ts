@@ -660,7 +660,7 @@ describe('usePdfImagePlacement', () => {
 
             const payload = finalized.mock.calls[0]?.[0];
             expect(payload?.bytes[0]).toBe(99);
-            expect(payload?.stableKey).toBeUndefined();
+            expect(payload?.stableKey).toMatch(/^placed-image-/u);
             expect(imagePlacement.pendingImagePlacement.value?.bytes).toEqual(draftBytes);
         } finally {
             scope.stop();

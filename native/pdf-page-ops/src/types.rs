@@ -132,6 +132,17 @@ where
     deserialize_bounded_vec::<D, PlacedImage, MAX_PLACED_IMAGE_MUTATIONS>(deserializer)
 }
 
+fn deserialize_placed_image_geometry_updates<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Vec<PlacedImageGeometryUpdate>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    deserialize_bounded_vec::<D, PlacedImageGeometryUpdate, MAX_PLACED_IMAGE_GEOMETRY_UPDATES>(
+        deserializer,
+    )
+}
+
 #[derive(Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct NativeMutationContinuation {
@@ -157,6 +168,7 @@ pub(crate) enum NativeMutationContinuationFamily {
 
 pub(crate) const MAX_MARKUP_GEOMETRY_ITEMS: usize = 512;
 pub(crate) const MAX_PLACED_IMAGE_MUTATIONS: usize = 16;
+pub(crate) const MAX_PLACED_IMAGE_GEOMETRY_UPDATES: usize = 256;
 pub(crate) const MAX_SHAPE_MUTATION_POINTS: usize = 20_000;
 pub(crate) const MAX_SHAPE_MUTATION_STROKES: usize = 4_096;
 
@@ -853,7 +865,26 @@ pub(crate) struct NativeMutationsFile {
     #[serde(deserialize_with = "deserialize_placed_images")]
     pub(crate) placed_images: Vec<PlacedImage>,
     #[serde(default)]
+    #[serde(deserialize_with = "deserialize_placed_image_geometry_updates")]
+    pub(crate) placed_image_geometry_updates: Vec<PlacedImageGeometryUpdate>,
+    #[serde(default)]
     pub(crate) continuation: Option<NativeMutationContinuation>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct PlacedImageGeometryUpdate {
+    pub(crate) page_index: u32,
+    #[serde(default)]
+    pub(crate) stable_key: Option<String>,
+    #[serde(default)]
+    pub(crate) annotation_id: Option<String>,
+    pub(crate) x: f64,
+    pub(crate) y: f64,
+    pub(crate) width: f64,
+    pub(crate) height: f64,
+    #[serde(default)]
+    pub(crate) rotation_degrees: Option<f64>,
 }
 
 #[derive(Deserialize)]

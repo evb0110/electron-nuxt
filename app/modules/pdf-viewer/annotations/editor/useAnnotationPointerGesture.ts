@@ -4,6 +4,8 @@ import type {
     INoteEntity,
     ITextBoxEntity,
     IShapeEntity,
+    IPlacedImageEntity,
+    ITextMarkupEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IAnnotationGesture,
@@ -74,11 +76,12 @@ interface IUseAnnotationPointerGestureOptions {
 
 function isMovableEntity(
     entity: IAnnotationGesture['entity'],
-): entity is ITextBoxEntity | INoteEntity | IShapeEntity {
-    return entity.kind === 'text-box' || entity.kind === 'note' || entity.kind === 'shape';
+): entity is ITextBoxEntity | INoteEntity | IShapeEntity | IPlacedImageEntity | ITextMarkupEntity {
+    return entity.kind === 'text-box' || entity.kind === 'note' || entity.kind === 'shape'
+        || entity.kind === 'placed-image' || entity.kind === 'text-markup';
 }
 
-function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
+export function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotationMarkerRect | null {
     if (entity.kind === 'text-box') {
         return entity.rect;
     }
@@ -87,6 +90,21 @@ function rectForMovableEntity(entity: IAnnotationGesture['entity']): IAnnotation
     }
     if (entity.kind === 'shape') {
         return entity.rect;
+    }
+    if (entity.kind === 'placed-image') {
+        return entity.rect;
+    }
+    if (entity.kind === 'text-markup') {
+        const left = Math.min(...entity.quadPoints.map(rect => rect.left));
+        const top = Math.min(...entity.quadPoints.map(rect => rect.top));
+        const right = Math.max(...entity.quadPoints.map(rect => rect.left + rect.width));
+        const bottom = Math.max(...entity.quadPoints.map(rect => rect.top + rect.height));
+        return {
+            left,
+            top,
+            width: right - left,
+            height: bottom - top,
+        };
     }
     return null;
 }

@@ -12,6 +12,7 @@ import type {
     TAnnotationTool,
     TDrawableShapeType,
 } from '@app/types/annotations';
+import {DEFAULT_ANNOTATION_SETTINGS} from '@app/constants/annotationDefaults';
 import {
     createDrawingShape,
     isDrawableFinishedShape,
@@ -64,22 +65,20 @@ export const useAnnotationCreationTools = (
         return null;
     },
     beginShape(pageIndex, tool, point) {
-        const settings = options.surface.settings.value;
-        if (!settings) {
-            return null;
-        }
+        const settings = options.surface.settings.value ?? DEFAULT_ANNOTATION_SETTINGS;
         return createDrawingShape(pageIndex, tool, point.x, point.y, settings);
     },
     updateShape(draft, point) {
-        return updateDrawingShapeForPoint(draft, {
-            x: draft.x,
-            y: draft.y,
+        const rawDraft = toRaw(draft);
+        return updateDrawingShapeForPoint(rawDraft, {
+            x: rawDraft.x,
+            y: rawDraft.y,
         }, point.x, point.y);
     },
     finishShape(draft) {
         if (!isDrawableFinishedShape(draft)) {
             return null;
         }
-        return toCanonicalShapeEntity(draft, asAnnotationId(draft.id));
+        return toCanonicalShapeEntity(toRaw(draft), asAnnotationId(draft.id));
     },
 });

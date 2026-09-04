@@ -3,7 +3,10 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    AnnotationEntity,
+    IPlacedImageEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     assertAnnotationBackendSemanticConformance,
@@ -52,7 +55,10 @@ import {
     isReplayableCanonicalStickyNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import {isReplayableCanonicalTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
-import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
+import type {
+    IPdfNativePlacedImageGeometryUpdate,
+    IPdfNativeTextBoxMutation,
+} from '@contracts/electronApiDocuments';
 import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import {
     buildNativeBookmarksMutationForSave,
@@ -64,6 +70,7 @@ import {
 } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
 import {buildNativeNoteGeometryUpdatesForSave} from '@app/modules/pdf-viewer/runtime/save/buildNativeNoteGeometryUpdatesForSave';
 import {buildNativeShapesMutationForSave} from '@app/modules/pdf-viewer/runtime/save/nativeShapeMutations';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 export type {
     IPdfSaveByteRouteDecision,
@@ -116,7 +123,7 @@ function entitySummary(entity: AnnotationEntity): IAnnotationCommentSummary {
         id,
         stableKey: computeSummaryStableKey({
             id,
-            pageIndex: entity.pageIndex,
+            pageIndex: requirePageIndex(entity.pageIndex),
             source,
             annotationId,
         }),
@@ -278,6 +285,36 @@ function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: 
     addReplayableAnnotationId(ids, match?.[1]);
 }
 
+function addReplayableNativeEntityIds(
+    ids: Set<string>,
+    input: {
+        shapes: readonly IShapeAnnotation[] | null;
+        deletedShapeAnnotationIds: readonly string[];
+        deletedShapeStableKeys: readonly string[];
+        textBoxes: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
+        placedImageGeometryUpdates?: ReadonlyArray<
+            Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
+        >;
+    },
+) {
+    input.shapes?.forEach((shape) => {
+        addReplayableAnnotationId(ids, shape.annotationId);
+        addReplayableAnnotationId(ids, shape.stableKey);
+    });
+    input.deletedShapeAnnotationIds.forEach((id) => addReplayableAnnotationId(ids, id));
+    input.deletedShapeStableKeys.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
+    input.textBoxes.forEach((textBox) => {
+        addReplayableAnnotationId(ids, textBox.stableKey);
+        addReplayableAnnotationId(ids, textBox.annotationId);
+    });
+    input.placedImageGeometryUpdates?.forEach((update) => {
+        if (update.stableKey) {
+            ids.add(update.stableKey);
+        }
+        addReplayableAnnotationId(ids, update.annotationId);
+    });
+}
+
 function collectReplayableEmbeddedAnnotationIds(input: {
     pendingTexts: Map<string, string>;
     pendingDeletes: IAnnotationCommentSummary[];
@@ -286,14 +323,22 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     replayableCanonicalStickyNoteStableKeys: ReadonlySet<string>;
     liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     nativeTextBoxes?: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
+    shapes?: readonly IShapeAnnotation[] | null;
+    deletedShapeAnnotationIds?: readonly string[];
+    deletedShapeStableKeys?: readonly string[];
+    placedImages?: ReadonlyArray<Pick<IPlacedImageEntity, 'identity'>>;
 }) {
     const ids = new Set<string>();
-    input.nativeTextBoxes?.forEach((textBox) => {
-        // An imported FreeText can appear in PDF.js storage under both the
-        // canonical /NM and its indirect PDF object ref. The native payload
-        // owns both identities, so neither should force materialization.
-        addReplayableAnnotationId(ids, textBox.stableKey);
-        addReplayableAnnotationId(ids, textBox.annotationId);
+    const placedImageGeometryUpdates = input.placedImages?.map(image => ({
+        stableKey: image.identity.id,
+        ...(image.identity.pdfRef === undefined ? {} : {annotationId: image.identity.pdfRef}),
+    }));
+    addReplayableNativeEntityIds(ids, {
+        shapes: input.shapes ?? null,
+        deletedShapeAnnotationIds: input.deletedShapeAnnotationIds ?? [],
+        deletedShapeStableKeys: input.deletedShapeStableKeys ?? [],
+        textBoxes: input.nativeTextBoxes ?? [],
+        ...(placedImageGeometryUpdates === undefined ? {} : {placedImageGeometryUpdates}),
     });
     input.pendingTexts.forEach((_text, stableKey) => {
         addEmbeddedAnnotationIdFromStableKey(ids, stableKey);
@@ -322,6 +367,22 @@ function collectReplayableEmbeddedAnnotationIds(input: {
                 comment.id,
             ].forEach(id => addReplayableAnnotationId(ids, id));
             addEditorRuntimeAnnotationIdFromStableKey(ids, comment.stableKey);
+        });
+    input.changedComments
+        .filter(comment => comment.source === 'shape')
+        .forEach((comment) => {
+            // Canonical shapes are projected by the native shape mutation
+            // payload. Their canonical aliases must not make that payload look
+            // like unrelated PDF.js work.
+            addCommentIdentityAliases(ids, comment);
+        });
+    input.changedComments
+        .filter(isTextMarkupComment)
+        .forEach((comment) => {
+            // Changed canonical markups are emitted by the native markup
+            // payload. Count their aliases before route selection so an
+            // imported text update can remain on source replay beside them.
+            addCommentIdentityAliases(ids, comment);
         });
     input.changedComments
         .filter(comment => (
@@ -362,7 +423,7 @@ function deriveCanonicalSaveInputs(
     const pendingDeletes: IAnnotationCommentSummary[] = [];
     plan.expected.filter(isActuallyChangedEntity).forEach((entity) => {
         const summary = entitySummary(entity);
-        if (entity.deleted) {
+        if (entity.deleted && entity.kind !== 'shape') {
             pendingDeletes.push(summary);
             return;
         }
@@ -398,6 +459,11 @@ function deriveCanonicalSaveInputs(
             ...(capabilities.nativeTextBoxes === undefined
                 ? {}
                 : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
+            shapes: capabilities.shapes,
+            deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
+            deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
+            placedImages: changedEntities
+                .filter((entity): entity is IPlacedImageEntity => entity.kind === 'placed-image'),
         }),
         replayableCanonicalStickyNoteStableKeys,
     };
@@ -530,6 +596,27 @@ function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
     return plan.expected.some(entity => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
 }
 
+function buildNativePlacedImageGeometryUpdates(
+    plan: ISerializationPlan,
+): IPdfNativePlacedImageGeometryUpdate[] {
+    return plan.entities
+        .filter((entity): entity is IPlacedImageEntity => (
+            entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
+        ))
+        .map(entity => ({
+            pageIndex: requirePageIndex(entity.pageIndex),
+            stableKey: entity.identity.id,
+            annotationId: entity.identity.pdfRef
+                ? normalizePdfJsAnnotationId(entity.identity.pdfRef)
+                : null,
+            x: entity.rect.left,
+            y: entity.rect.top,
+            width: entity.rect.width,
+            height: entity.rect.height,
+            rotationDegrees: entity.rotation,
+        }));
+}
+
 function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationCommentSummary) {
     [
         comment.appAnnotationId,
@@ -658,10 +745,16 @@ function collectProjectedNativeAnnotationIds(input: {
         stableKey: string;
         annotationId?: string | null
     }>;
+    shapes: readonly IShapeAnnotation[] | null;
+    deletedShapeAnnotationIds: readonly string[];
+    deletedShapeStableKeys: readonly string[];
     markup: {
         overrides: Array<readonly [string, TMarkupSubtype]>;
         hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
     } | null;
+    placedImageGeometryUpdates: ReadonlyArray<
+        Pick<IPdfNativePlacedImageGeometryUpdate, 'stableKey' | 'annotationId'>
+    >;
 }) {
     const ids = new Set<string>();
     const updatedRefs = new Set(input.noteTextUpdates.map(update =>
@@ -670,10 +763,7 @@ function collectProjectedNativeAnnotationIds(input: {
         `${update.objectNumber}R${update.generationNumber}`));
     const freeTextStableKeys = new Set(input.freeTextNotes.map(note => note.stableKey));
 
-    input.textBoxes.forEach((textBox) => {
-        addReplayableAnnotationId(ids, textBox.stableKey);
-        addReplayableAnnotationId(ids, textBox.annotationId);
-    });
+    addReplayableNativeEntityIds(ids, input);
 
     input.changedComments.forEach((comment) => {
         const targetRef = parsePdfAnnotationStableKeyRef(comment.stableKey)?.ref
@@ -682,7 +772,22 @@ function collectProjectedNativeAnnotationIds(input: {
             && updatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
         const hasProjectedGeometryUpdate = targetRef !== null
             && geometryUpdatedRefs.has(`${targetRef.objectNumber}R${targetRef.generationNumber}`);
-        if (hasProjectedTextUpdate || hasProjectedGeometryUpdate || freeTextStableKeys.has(comment.stableKey)) {
+        const hasProjectedFreeTextNote = input.freeTextNotes.some(note => [
+            comment.appAnnotationId,
+            comment.annotationId,
+            comment.id,
+            comment.uid,
+            comment.stableKey,
+        ].some(identity => (
+            identity === note.stableKey
+            || areAnnotationIdentityAliasesEqual(identity, note.stableKey)
+        )));
+        if (
+            hasProjectedTextUpdate
+            || hasProjectedGeometryUpdate
+            || freeTextStableKeys.has(comment.stableKey)
+            || hasProjectedFreeTextNote
+        ) {
             addCommentIdentityAliases(ids, comment);
         }
     });
@@ -750,14 +855,20 @@ function buildClassifiedNativeMutationProjection(
             canonicalComments: canonical.comments,
         })
         : null;
-    const freeTextNotesResult = replayAllowed
-        ? buildNativeFreeTextNotesForSave({
-            canonicalComments: capabilities.nativeTextBoxes === undefined
+    const canonicalStickyNotesForNativeAppend = changedComments.filter(comment => (
+        isReplayableCanonicalStickyNote(comment)
+        && canonical.replayableCanonicalStickyNoteStableKeys.has(comment.stableKey)
+    ));
+    const freeTextNotesResult = buildNativeFreeTextNotesForSave({
+        // EVB-owned sticky notes remain safe native payloads when another
+        // canonical annotation makes the PDF.js fallback plan materialize.
+        canonicalComments: replayAllowed
+            ? capabilities.nativeTextBoxes === undefined
                 ? changedComments
-                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment)),
-            replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
-        })
-        : null;
+                : changedComments.filter(comment => !isCanonicalTextBoxComment(comment))
+            : canonicalStickyNotesForNativeAppend,
+        replayableCanonicalStickyNoteStableKeys: canonical.replayableCanonicalStickyNoteStableKeys,
+    });
     const annotationDeletesResult = replayAllowed
         ? buildNativeAnnotationDeletesForSave({pendingDeletes: canonical.pendingDeletes})
         : null;
@@ -769,6 +880,7 @@ function buildClassifiedNativeMutationProjection(
         return 'annotation-work-not-covered-by-native-mutations';
     }
     const noteGeometryUpdates = noteGeometryUpdatesResult?.value ?? [];
+    const placedImageGeometryUpdates = buildNativePlacedImageGeometryUpdates(plan);
     const freeTextNotes = freeTextNotesResult?.value ?? [];
     const freeTextEditors = replayAllowed
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
@@ -776,7 +888,9 @@ function buildClassifiedNativeMutationProjection(
     const textBoxes = capabilities.nativeTextBoxes === undefined
         ? []
         : [
-            ...(replayAllowed ? capabilities.nativeTextBoxes ?? [] : []),
+            // Native text-box mutations are already a bounded projection. They
+            // remain valid when unrelated live PDF.js work selects materialization.
+            ...(capabilities.nativeTextBoxes ?? []),
             ...freeTextEditors,
         ];
     if (
@@ -826,10 +940,14 @@ function buildClassifiedNativeMutationProjection(
         noteGeometryUpdates,
         freeTextNotes,
         textBoxes,
+        shapes: capabilities.shapes,
+        deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
+        deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
         nativeFreeTextEditors: replayAllowed
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
             : new Map(),
         markup,
+        placedImageGeometryUpdates,
     });
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
@@ -857,7 +975,8 @@ function buildClassifiedNativeMutationProjection(
         return 'saved-pdfjs-baseline-dirty-requires-materialization';
     }
 
-    if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+    if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'pdfjs-materialize-required';
     }
     if (!arePendingTextsCoveredByNativeChanges({
@@ -876,7 +995,8 @@ function buildClassifiedNativeMutationProjection(
     ) {
         return 'live-pdfjs-annotation-work-not-covered-by-native-mutations';
     }
-    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
@@ -916,7 +1036,8 @@ function buildClassifiedNativeMutationProjection(
     ) {
         return 'native-structured-save-capability-unavailable';
     }
-    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations) {
+    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'no-native-mutations-projected';
     }
 
@@ -934,7 +1055,9 @@ function buildClassifiedNativeMutationProjection(
             ...(bookmarks ? {bookmarks} : {}),
             ...(shapes ? {shapes} : {}),
             ...(markup ? {markup} : {}),
+            ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
         },
+        placedImageGeometryUpdates,
         noteTextUpdates,
         noteGeometryUpdates,
         freeTextNotes,
