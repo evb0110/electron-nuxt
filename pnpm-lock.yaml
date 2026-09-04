@@ -107,6 +107,9 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 0.3.183
         version: 0.3.183(@anthropic-ai/sdk@0.122.0(zod@4.3.6))(@modelcontextprotocol/sdk@1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(zod@4.3.6)
+      '@anthropic-ai/sdk':
+        specifier: 0.122.0
+        version: 0.122.0(zod@4.3.6)
       '@cfworker/json-schema':
         specifier: 4.1.1
         version: 4.1.1
@@ -261,9 +264,6 @@ importers:
         specifier: ^5.2.0
         version: 5.2.0(@vue/compiler-sfc@3.5.41)(esbuild@0.28.2)(rolldown@1.2.4)(rollup@4.62.4)(vite@8.2.1(@types/node@24.13.3)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.102.0)(sass@1.102.0)(terser@5.50.0)(tsx@4.23.12)(yaml@2.9.0))(vue@3.5.41(typescript@6.0.3))
     devDependencies:
-      '@anthropic-ai/sdk':
-        specifier: 0.122.0
-        version: 0.122.0(zod@4.3.6)
       '@aws-sdk/client-s3':
         specifier: ^3.1113.0
         version: 3.1113.0
