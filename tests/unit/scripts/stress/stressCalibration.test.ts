@@ -1,7 +1,11 @@
+import type { Page } from 'puppeteer-core';
+import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import {
+    afterEach,
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     buildStressCalibrationRecord,
@@ -10,6 +14,7 @@ import {
     evaluateStressCalibration,
     parseCgroupLimits,
     readOwnCgroupConstraint,
+    probeStressCalibration,
 } from '@scripts/stress/stressCalibration';
 import { STRESS_HOST_PROFILES } from '@scripts/stress/stressHostProfiles';
 import type {
@@ -17,6 +22,8 @@ import type {
     IStressCalibrationRecord,
     IStressHostProfile,
 } from '@scripts/stress/stressTypes';
+
+vi.mock('@tests/e2e/electron/helpers/pageRuntime', () => ({ evaluateInPage: vi.fn() }));
 
 function probe(overrides: Partial<IStressCalibrationProbe> = {}): IStressCalibrationProbe {
     return {
@@ -198,5 +205,25 @@ describe('calibrationBlocksStressRun', () => {
             verdict: 'constraint-excessive',
             detail: 'ratio 9',
         }]))).toContain('constraint-excessive');
+    });
+});
+
+describe('stress calibration app tier', () => {
+    afterEach(() => vi.mocked(evaluateInPage).mockReset());
+    it.each([
+        'low',
+        null,
+    ] as const)('uses effective app tier %s rather than inferred hardware hints', async tier => {
+        vi.mocked(evaluateInPage).mockResolvedValue({
+            mainThreadLoopMs: 10,
+            workerLoopMs: 10,
+            rafGapsMs: [16],
+            jsHeapSizeLimitBytes: null,
+            logicalCpus: 32,
+            deviceMemoryGiB: 64,
+            detectedTier: tier,
+        });
+        const result = await probeStressCalibration({} as Page, { diskReadPath: null });
+        expect(result.detectedTier).toBe(tier);
     });
 });

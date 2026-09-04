@@ -66,6 +66,8 @@ export interface IStressOperatorDriverOptions {
     enableThinking: boolean;
     log: (line: string) => void;
     client?: Anthropic;
+    signal?: AbortSignal;
+    deadlineAt?: number;
 }
 
 export interface IStressOperatorDriverResult {
@@ -232,6 +234,7 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
 
     const runTurns = async () => {
         while (true) {
+            options.signal?.throwIfAborted();
             const halt = decideStressHalt({
                 turn,
                 maxTurns: budgets.maxTurns,
@@ -262,7 +265,7 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
                     tools,
                     messages,
                     ...(options.enableThinking ? {thinking: {type: 'adaptive' as const}} : {}),
-                });
+                }, {signal: options.signal});
             } catch (error) {
                 const status = readApiErrorStatus(error);
                 stopReason = `api error${status ? ` ${status}` : ''}: ${error instanceof Error ? error.message : String(error)}`;
@@ -315,6 +318,7 @@ export async function runStressOperatorScenario(options: IStressOperatorDriverOp
                 batchIndex,
                 planned,
             ] of planToolCallBatch(toolUses).entries()) {
+                options.signal?.throwIfAborted();
                 const call = planned.call;
                 const toolsetName = call.toolset_name ?? null;
                 seq += 1;

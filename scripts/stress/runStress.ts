@@ -40,6 +40,7 @@ import {
 } from '@scripts/stress/stressHostProfiles';
 import { startStressMetricsSampler } from '@scripts/stress/stressMetricsSampler';
 import { MODELS_WITHOUT_COMPUTER_USE } from '@scripts/stress/stressOperatorCost';
+import { runExternalStressOperator } from '@scripts/stress/runExternalStressOperator';
 import { runStressOperatorScenario } from '@scripts/stress/runStressOperatorScenario';
 import type { IStressOperatorToolContext } from '@scripts/stress/stressOperatorToolExecutor';
 import {
@@ -213,6 +214,7 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
     const scenarioDir = join(context.runDir, scenario.id);
     await mkdir(scenarioDir, {recursive: true});
     const thresholds = resolveStressThresholds(scenario);
+    const deadlineAt = Math.min(startedAt.getTime() + scenario.budgets.deadlineMs, context.runStartedAt + DEFAULT_STRESS_RUN_BUDGET.deadlineMs);
     const result: IStressScenarioResult = {
         id: scenario.id,
         kind: scenario.kind,
@@ -232,7 +234,7 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
         scenarioId: scenario.id,
         kind: scenario.kind,
         profile: context.profile.id,
-        model: scenario.kind === 'operator' ? context.options.model : null,
+        model: scenario.kind === 'operator' ? (context.options.operatorProfile === 'external' ? 'external-agent' : context.options.model) : null,
         operatorProfile: scenario.kind === 'operator' ? context.options.operatorProfile : null,
         startedAt: result.startedAt,
         thresholds,
@@ -252,7 +254,7 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
     let frozenScreenshotStreak = 0;
     const integrity: IStressIntegrityCheck[] = [];
     try {
-        handle = await startStressSession(scenario.id, context.profile, log);
+        handle = await startStressSession(scenario.id, context.profile, log, scenario.kind === 'operator' && context.options.operatorProfile === 'external');
         context.activeSession = handle;
         const {
             scenarioFixtures,
@@ -269,12 +271,21 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
         });
         const scenarioStartedEpoch = Date.now();
         try {
+            const remainingMs = deadlineAt - Date.now();
+            if (remainingMs <= 0) {
+                throw new Error('Stress scenario deadline expired during session setup');
+            }
+            const budgets = {
+                ...scenario.budgets,
+                deadlineMs: remainingMs,
+            };
             if (scenario.kind === 'deterministic') {
                 const session = handle.session;
-                result.steps = await runWithElectronE2EDeadline(`stress scenario ${scenario.id}`, scenario.budgets.deadlineMs, () => runStressDeterministicSteps(scenario.steps, {
+                result.steps = await runWithElectronE2EDeadline(`stress scenario ${scenario.id}`, budgets.deadlineMs, signal => runStressDeterministicSteps(scenario.steps, {
+                    signal,
                     session,
                     fixtures: scenarioFixtures,
-                    stepTimeoutMs: DETERMINISTIC_STEP_TIMEOUT_MS,
+                    stepTimeoutMs: Math.min(DETERMINISTIC_STEP_TIMEOUT_MS, remainingMs),
                     log,
                 }));
             } else {
@@ -289,15 +300,19 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
                         width: context.profile.deviceMetrics.width,
                         height: context.profile.deviceMetrics.height,
                     },
-                    stepTimeoutMs: DETERMINISTIC_STEP_TIMEOUT_MS,
+                    stepTimeoutMs: Math.min(DETERMINISTIC_STEP_TIMEOUT_MS, remainingMs),
                     log,
                 };
-                const operator = await runStressOperatorScenario({
+                const external = context.options.operatorProfile === 'external';
+                const driveOperator = external ? runExternalStressOperator : runStressOperatorScenario;
+                const operator = await runWithElectronE2EDeadline(`stress operator ${scenario.id}`, Math.max(1, deadlineAt - Date.now()), signal => driveOperator({
+                    signal,
+                    deadlineAt,
                     scenario,
                     runId: context.runId,
-                    model: context.options.model,
+                    model: external ? 'external-agent' : context.options.model,
                     operatorProfile: context.options.operatorProfile,
-                    budgets: scenario.budgets,
+                    budgets,
                     runCost: {
                         totalUsd: () => context.runCostUsd,
                         maxUsd: context.maxRunCostUsd,
@@ -308,12 +323,12 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
                     scenarioDir,
                     enableThinking: context.options.thinking,
                     log,
-                });
+                }));
                 context.runCostUsd += operator.costUsd ?? 0;
                 frozenScreenshotStreak = operator.frozenScreenshotStreak;
                 Object.assign(result.artifacts, operator.artifacts);
                 result.operator = {
-                    model: context.options.model,
+                    model: external ? 'external-agent' : context.options.model,
                     operatorProfile: context.options.operatorProfile,
                     turns: operator.turns,
                     actions: operator.actions,
@@ -328,7 +343,12 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
         } finally {
             result.metrics = await sampler.stop();
         }
-        const finalAppState = await collectStressAppState(handle.session.page).catch(() => null);
+        const finalStatePage = handle.session.page;
+        const finalAppState = await runWithElectronE2EDeadline(
+            `stress final state ${scenario.id}`,
+            Math.min(5_000, Math.max(1, deadlineAt - Date.now())),
+            () => collectStressAppState(finalStatePage),
+        ).catch(() => null);
         for (const copy of copies) {
             if (copy.toLowerCase().endsWith('.pdf')) {
                 integrity.push(await runQpdfIntegrityCheck(copy));
@@ -362,11 +382,12 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
                 oracle: 'operator-report',
                 message: `operator reported app_broken: ${result.operator.report.problem ?? 'no detail'}`,
             });
-        } else if (result.operator && result.operator.report === null) {
+        } else if (result.operator && !result.metrics?.rendererCrashed && result.operator.report?.outcome !== 'completed') {
+            result.infraError = `operator did not complete: ${result.operator.report?.problem ?? result.operator.stopReason}`;
             result.findings.push({
                 severity: 'info',
                 oracle: 'operator-report',
-                message: `operator ended without a report (${result.operator.stopReason})`,
+                message: result.infraError,
             });
         }
         result.findings = sortStressFindings(result.findings);
@@ -441,7 +462,7 @@ export async function runStress(argv: readonly string[]) {
         throw new Error('no scenarios matched; use --list to see ids and tags');
     }
     const operatorScenarios = scenarios.filter(scenario => scenario.kind === 'operator');
-    if (operatorScenarios.length > 0) {
+    if (operatorScenarios.length > 0 && options.operatorProfile !== 'external') {
         if (options.operatorProfile === 'pixel' && MODELS_WITHOUT_COMPUTER_USE.has(options.model)) {
             throw new Error(`${options.model} has no computer-use support; pass --operator semantic or choose another model`);
         }
@@ -471,7 +492,11 @@ export async function runStress(argv: readonly string[]) {
             log(`  ${scenario.id} [${scenario.kind}]${missing.length > 0 ? ` would be skipped (missing ${missing.join(', ')})` : ''}`);
         }
         if (operatorScenarios.length > 0) {
-            log(`  operator model ${options.model} (${options.operatorProfile}), per-scenario cap $${operatorScenarios[0]?.budgets.maxCostUsd.toFixed(2)}, run cap $${(options.maxRunCostUsd ?? DEFAULT_STRESS_RUN_BUDGET.maxCostUsd).toFixed(2)}`);
+            if (options.operatorProfile === 'external') {
+                log('  external operator: the current agent drives the visible app; no model API calls or API spend');
+            } else {
+                log(`  operator model ${options.model} (${options.operatorProfile}), per-scenario cap $${operatorScenarios[0]?.budgets.maxCostUsd.toFixed(2)}, run cap $${(options.maxRunCostUsd ?? DEFAULT_STRESS_RUN_BUDGET.maxCostUsd).toFixed(2)}`);
+            }
         }
         return 0;
     }
@@ -512,81 +537,86 @@ export async function runStress(argv: readonly string[]) {
     process.once('SIGTERM', onInterrupt);
 
     try {
-        context.activeSession = await startStressSession('calibration', profile, log);
-        run.calibration = await calibrate(context.activeSession, fixtures, log);
-    } catch (error) {
-        log(`calibration failed: ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-        await context.activeSession?.stop();
-        context.activeSession = null;
-    }
-    await writeStressRunJson(runDir, run);
-    const calibrationBlocker = calibrationBlocksStressRun(run.calibration);
-    if (options.calibrateOnly || calibrationBlocker) {
+        try {
+            context.activeSession = await startStressSession('calibration', profile, log);
+            run.calibration = await calibrate(context.activeSession, fixtures, log);
+        } catch (error) {
+            log(`calibration failed: ${error instanceof Error ? error.message : String(error)}`);
+        } finally {
+            await context.activeSession?.stop();
+            context.activeSession = null;
+        }
+        await writeStressRunJson(runDir, run);
+        const calibrationBlocker = calibrationBlocksStressRun(run.calibration);
+        if (options.calibrateOnly || calibrationBlocker) {
+            run.finishedAt = new Date().toISOString();
+            run.verdict = calibrationBlocker ? 'failed' : 'passed';
+            await writeStressRunJson(runDir, run);
+            await writeFile(join(runDir, 'summary.md'), renderStressSummaryMarkdown(run), 'utf8');
+            if (calibrationBlocker) {
+                log(`host profile ${profile.id} not honoured; scenarios not run: ${calibrationBlocker}`);
+            }
+            return calibrationBlocker ? 1 : 0;
+        }
+
+        const baselinePath = stressBaselinePath(profile.id);
+        const baseline = await readStressBaseline(baselinePath);
+        if (!baseline) {
+            log(`no baseline at ${baselinePath}; regression comparison skipped`);
+        }
+
+        for (const scenario of scenarios) {
+            const elapsed = Date.now() - context.runStartedAt;
+            if (elapsed > DEFAULT_STRESS_RUN_BUDGET.deadlineMs || (options.operatorProfile !== 'external' && context.runCostUsd >= context.maxRunCostUsd)) {
+                run.scenarios.push({
+                    id: scenario.id,
+                    kind: scenario.kind,
+                    status: 'skipped',
+                    startedAt: new Date().toISOString(),
+                    durationMs: 0,
+                    profileId: profile.id,
+                    findings: [],
+                    metrics: null,
+                    steps: [],
+                    operator: null,
+                    artifacts: {},
+                    infraError: elapsed > DEFAULT_STRESS_RUN_BUDGET.deadlineMs ? 'run deadline passed' : 'run cost cap reached',
+                });
+                continue;
+            }
+            const result = await runScenario(context, scenario);
+            if (baseline) {
+                applyBaselineFindings(result, compareStressResultWithBaseline(baseline, result));
+            }
+            run.scenarios.push(result);
+            run.totals = computeStressRunTotals(run.scenarios);
+            await writeStressRunJson(runDir, run);
+        }
+
         run.finishedAt = new Date().toISOString();
-        run.verdict = calibrationBlocker ? 'failed' : 'passed';
-        await writeStressRunJson(runDir, run);
-        await writeFile(join(runDir, 'summary.md'), renderStressSummaryMarkdown(run), 'utf8');
-        if (calibrationBlocker) {
-            log(`host profile ${profile.id} not honoured; scenarios not run: ${calibrationBlocker}`);
-        }
-        return calibrationBlocker ? 1 : 0;
-    }
-
-    const baselinePath = stressBaselinePath(profile.id);
-    const baseline = await readStressBaseline(baselinePath);
-    if (!baseline) {
-        log(`no baseline at ${baselinePath}; regression comparison skipped`);
-    }
-
-    for (const scenario of scenarios) {
-        const elapsed = Date.now() - context.runStartedAt;
-        if (elapsed > DEFAULT_STRESS_RUN_BUDGET.deadlineMs || context.runCostUsd >= context.maxRunCostUsd) {
-            run.scenarios.push({
-                id: scenario.id,
-                kind: scenario.kind,
-                status: 'skipped',
-                startedAt: new Date().toISOString(),
-                durationMs: 0,
-                profileId: profile.id,
-                findings: [],
-                metrics: null,
-                steps: [],
-                operator: null,
-                artifacts: {},
-                infraError: elapsed > DEFAULT_STRESS_RUN_BUDGET.deadlineMs ? 'run deadline passed' : 'run cost cap reached',
-            });
-            continue;
-        }
-        const result = await runScenario(context, scenario);
-        if (baseline) {
-            applyBaselineFindings(result, compareStressResultWithBaseline(baseline, result));
-        }
-        run.scenarios.push(result);
         run.totals = computeStressRunTotals(run.scenarios);
-        await writeStressRunJson(runDir, run);
-    }
+        run.verdict = resolveStressRunVerdict(run);
+        const runJsonPath = await writeStressRunJson(runDir, run);
+        const summaryPath = join(runDir, 'summary.md');
+        await writeFile(summaryPath, renderStressSummaryMarkdown(run), 'utf8');
+        log(`verdict ${run.verdict}: ${run.totals.passed} passed, ${run.totals.failed} failed, ${run.totals.infraFailed} infra-failed, ${run.totals.skipped} skipped, operator spend $${run.totals.costUsd.toFixed(2)}`);
+        log(`run.json: ${runJsonPath}`);
+        log(`summary: ${summaryPath}`);
 
-    run.finishedAt = new Date().toISOString();
-    run.totals = computeStressRunTotals(run.scenarios);
-    run.verdict = resolveStressRunVerdict(run);
-    const runJsonPath = await writeStressRunJson(runDir, run);
-    const summaryPath = join(runDir, 'summary.md');
-    await writeFile(summaryPath, renderStressSummaryMarkdown(run), 'utf8');
-    log(`verdict ${run.verdict}: ${run.totals.passed} passed, ${run.totals.failed} failed, ${run.totals.infraFailed} infra-failed, ${run.totals.skipped} skipped, operator spend $${run.totals.costUsd.toFixed(2)}`);
-    log(`run.json: ${runJsonPath}`);
-    log(`summary: ${summaryPath}`);
-
-    if (options.updateBaseline) {
-        if (run.verdict !== 'passed') {
-            log(`baseline not updated: run verdict ${run.verdict}`);
-            return 1;
+        if (options.updateBaseline) {
+            if (run.verdict !== 'passed') {
+                log(`baseline not updated: run verdict ${run.verdict}`);
+                return 1;
+            }
+            const next = updateStressBaseline(baseline ?? createEmptyStressBaseline(profile.id), run);
+            await writeStressBaseline(baselinePath, next);
+            log(`baseline updated: ${baselinePath}`);
         }
-        const next = updateStressBaseline(baseline ?? createEmptyStressBaseline(profile.id), run);
-        await writeStressBaseline(baselinePath, next);
-        log(`baseline updated: ${baselinePath}`);
+        return run.verdict === 'passed' ? 0 : 1;
+    } finally {
+        process.off('SIGINT', onInterrupt);
+        process.off('SIGTERM', onInterrupt);
     }
-    return run.verdict === 'passed' ? 0 : 1;
 }
 
 if (isStressCliEntrypoint(import.meta.url)) {

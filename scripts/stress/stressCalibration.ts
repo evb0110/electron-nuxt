@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { Page } from 'puppeteer-core';
-import { resolveDetectedHostResourceTier } from '@contracts';
+import type {
+    IElectronAPI,
+    THostResourceTier,
+} from '@contracts';
 import { evaluateInPage } from '@tests/e2e/electron/helpers/pageRuntime';
 import { percentile } from '@scripts/stress/percentile';
 import type {
@@ -19,13 +22,14 @@ const MAIN_LOOP_ITERATIONS = 6_000_000;
 const RAF_SAMPLE_COUNT = 60;
 const DISK_READ_BYTES = 64 * 1024 * 1024;
 
+interface ICalibrationWindow extends Window { electronAPI?: Pick<IElectronAPI, 'host'>; }
+
 interface IInPageCalibration {
     mainThreadLoopMs: number;
     workerLoopMs: number | null;
     rafGapsMs: number[];
     jsHeapSizeLimitBytes: number | null;
-    logicalCpus: number;
-    deviceMemoryGiB: number | null;
+    detectedTier: THostResourceTier | null;
 }
 
 /**
@@ -104,7 +108,7 @@ export function evaluateStressCalibration(
         checks.push({
             check: 'host-tier',
             verdict: throttled.detectedTier === expectation.expectedTier ? 'met' : 'constraint-not-effective',
-            detail: `detected tier '${throttled.detectedTier ?? 'unknown'}', expected '${expectation.expectedTier}'`,
+            detail: `effective app tier '${throttled.detectedTier ?? 'unknown'}', expected '${expectation.expectedTier}'`,
         });
     }
 
@@ -170,14 +174,12 @@ async function probeInPage(page: Page) {
         });
 
         const memory = (performance as Performance & {memory?: {jsHeapSizeLimit?: number}}).memory;
-        const navigatorWithMemory = navigator as Navigator & {deviceMemory?: number};
         return {
             mainThreadLoopMs,
             workerLoopMs,
             rafGapsMs,
             jsHeapSizeLimitBytes: typeof memory?.jsHeapSizeLimit === 'number' ? memory.jsHeapSizeLimit : null,
-            logicalCpus: navigator.hardwareConcurrency,
-            deviceMemoryGiB: typeof navigatorWithMemory.deviceMemory === 'number' ? navigatorWithMemory.deviceMemory : null,
+            detectedTier: (window as ICalibrationWindow).electronAPI?.host.getResourceProfile()?.tier ?? null,
         };
     }, MAIN_LOOP_ITERATIONS, RAF_SAMPLE_COUNT);
 }
@@ -209,12 +211,6 @@ async function measureDiskRead(path: string | null) {
 export async function probeStressCalibration(page: Page, options: {diskReadPath: string | null}): Promise<IStressCalibrationProbe> {
     const inPage = await probeInPage(page);
     const diskRead64MiBMs = await measureDiskRead(options.diskReadPath);
-    const detectedTier = inPage.deviceMemoryGiB === null
-        ? null
-        : resolveDetectedHostResourceTier({
-            logicalCpus: inPage.logicalCpus,
-            totalRamBytes: inPage.deviceMemoryGiB * 1024 * 1024 * 1024,
-        });
     return {
         mainThreadLoopMs: inPage.mainThreadLoopMs,
         workerLoopMs: inPage.workerLoopMs,
@@ -222,7 +218,7 @@ export async function probeStressCalibration(page: Page, options: {diskReadPath:
         rafP95Ms: percentile(inPage.rafGapsMs, 95),
         jsHeapSizeLimitBytes: inPage.jsHeapSizeLimitBytes,
         diskRead64MiBMs,
-        detectedTier,
+        detectedTier: inPage.detectedTier,
     };
 }
 

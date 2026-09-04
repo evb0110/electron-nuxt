@@ -117,7 +117,11 @@ export function renderStressSummaryMarkdown(run: IStressRun) {
         }
         if (scenario.operator) {
             const report = scenario.operator.report;
-            lines.push(`Operator ${scenario.operator.model} (${scenario.operator.operatorProfile}): ${scenario.operator.turns} turns, ${scenario.operator.actions} actions, cost $${(scenario.operator.costUsd ?? 0).toFixed(3)}, stop reason ${scenario.operator.stopReason}.`);
+            if (scenario.operator.operatorProfile === 'external') {
+                lines.push(`External operator: ${scenario.operator.stopReason}. Agent turns, actions and subscription usage are not measured by this runner. No model API calls were made by the runner. See the task card and operator report for evidence.`);
+            } else {
+                lines.push(`Operator ${scenario.operator.model} (${scenario.operator.operatorProfile}): ${scenario.operator.turns} turns, ${scenario.operator.actions} actions, cost $${(scenario.operator.costUsd ?? 0).toFixed(3)}, stop reason ${scenario.operator.stopReason}.`);
+            }
             if (report) {
                 lines.push(`Reported outcome: ${report.outcome}${report.problem ? `. Problem: ${report.problem}` : ''}${report.slowestAction ? `. Slowest: ${report.slowestAction}` : ''}`);
             }

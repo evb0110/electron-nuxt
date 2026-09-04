@@ -310,6 +310,17 @@ describe('runStressOperatorScenario', () => {
         expect(result.stopReason).toBe('model hit max_tokens without a tool call');
     });
 
+    it('makes no API request when the scenario deadline has already cancelled the driver', async () => {
+        const {
+            client,
+            create,
+        } = createClient([]);
+        const controller = new AbortController();
+        controller.abort(new Error('run deadline'));
+        await expect(runStressOperatorScenario(buildOptions(client, { signal: controller.signal }))).rejects.toThrow('run deadline');
+        expect(create).not.toHaveBeenCalled();
+    });
+
     it('halts before the first request when the turn budget is already spent', async () => {
         const {
             client,
