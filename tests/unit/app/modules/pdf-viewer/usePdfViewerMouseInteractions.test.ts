@@ -102,4 +102,33 @@ describe('usePdfViewerMouseInteractions', () => {
 
         expect(stopDrag).toHaveBeenCalledOnce();
     });
+
+    it('does not start viewer drag from a canonical annotation layer target', () => {
+        class ElementStub {
+            closest(selector: string) {
+                return selector.includes('.pdf-annotation-editor-layer') ? {} : null;
+            }
+        }
+        class HTMLElementStub extends ElementStub {}
+        vi.stubGlobal('Element', ElementStub);
+        vi.stubGlobal('HTMLElement', HTMLElementStub);
+        const handleDragStart = vi.fn();
+        const interactions = usePdfViewerMouseInteractions({
+            isSnipActive: () => false,
+            isViewerPanDragModeActive: computed(() => true),
+            cancelPendingSearchScroll: vi.fn(),
+            handleDragStart,
+            handleDragMove: vi.fn(),
+            stopDrag: vi.fn(),
+            handleViewerClickAnnotation: vi.fn(),
+            handleViewerDblClickAnnotation: vi.fn(),
+            handleViewerContextMenuAnnotation: vi.fn(),
+        });
+
+        const event = createMouseEvent(new ElementStub());
+        interactions.handleViewerMouseDown(event);
+
+        expect(event.preventDefault).toHaveBeenCalledOnce();
+        expect(handleDragStart).not.toHaveBeenCalled();
+    });
 });

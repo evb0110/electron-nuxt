@@ -545,6 +545,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     );
     if (annotationNavigation.called) {
         await waitForToolbarCurrentPage(page, pageNumber, 5_000);
+        await waitForViewerInteractive(page, 10_000);
     }
     const kind = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
