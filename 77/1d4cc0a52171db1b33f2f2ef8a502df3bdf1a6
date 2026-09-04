@@ -1,0 +1,106 @@
+tests/unit/scripts/stagePrivateSourcemaps.test.ts
+  s_b412fd4cd3f576::t_8048a7f468ad8d 157
+  s_b412fd4cd3f576::t_0da8b824309606 77-80
+  s_b412fd4cd3f576::t_d15b2c2d73028e 92,335
+  s_b412fd4cd3f576::t_7cbf22c9b59142 131-139,151-156,158-162,167-171,173-175,181-186,188-193,233,275-276
+  s_b412fd4cd3f576::t_14f56e008aef47 69-76,81-84,150,163-166,178,187,234-274
+  s_b412fd4cd3f576::t_df948ea84e1dad 172,194-232
+  s_b412fd4cd3f576::t_fda7e8aa145a49 176-177,179-180
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_8078fcf3bbde08 3,9-13,103,108-127,134-135,440,444-448,462,1218,1238,1369,1391,1418,1441,1474,1500,1778
+  s_b412fd4cd3f576::t_e63fece6d3e10d 242,691
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_f69e0aa22df89a 413-417,442,448-449,454-460,462,466,468,471-472
+  s_b412fd4cd3f576::t_80266ea65a7201 443-444
+  s_b412fd4cd3f576::t_4e4f6523ed17d8 497-499
+  s_b412fd4cd3f576::t_e6add0318b9197 393
+  s_b412fd4cd3f576::t_2c1205f8f158e5 487,493,500-502
+  s_b412fd4cd3f576::t_99ccdeae50ddd4 477-479,481-486
+  s_b412fd4cd3f576::t_3bdd970dc99755 445-447,461
+  s_b412fd4cd3f576::t_a4da7b833dc72e 387,394-396,470,476,480
+tests/unit/e2e/electronE2ETeardown.test.ts
+  s_b412fd4cd3f576::t_d8d48a6a289e4c 63-68
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_b412fd4cd3f576::t_e63fece6d3e10d 19
+tests/unit/app/plugins/runtimeErrorLogStream.test.ts
+  s_c57729f2c66bed::t_7924b49e70f0ef 150
+  s_b412fd4cd3f576::t_32e0259893acba 10,145
+tests/unit/scripts/nuxtCompatibilityPolicy.test.ts
+  s_b412fd4cd3f576::t_caad2381983881 37
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_62a035fa49e92d 175
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_f69e0aa22df89a 312-313,318-321,327-342,356-371
+  s_b412fd4cd3f576::t_3bdd970dc99755 372
+  s_b412fd4cd3f576::t_a4da7b833dc72e 31-33,303,307,350-354,619,631,635
+  s_b412fd4cd3f576::t_7cbf22c9b59142 478-481
+  s_b412fd4cd3f576::t_2c1205f8f158e5 387-462,468,496-510,515
+  s_b412fd4cd3f576::t_d7e413449c52a5 355
+  s_b412fd4cd3f576::t_9d26b6f97cd3ea 314-317,322-326
+  s_b412fd4cd3f576::t_927c64ccb6417f 30
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_636095428750a6 1
+  s_c57729f2c66bed::t_554409a8a7cba1 31
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_b7d1f4d81fc55b 254-255
+  s_b412fd4cd3f576::t_7cbf22c9b59142 222,250-253
+nuxt.config.ts
+  s_b412fd4cd3f576::t_a7f52a4a1e964a 574-579
+tests/unit/app/utils/runtimeErrorFilter.test.ts
+  s_b412fd4cd3f576::t_32e0259893acba 7,16,21,50,57,62,70-71,75,118,125-126,131,136,147,152,163
+  s_c57729f2c66bed::t_2303adbe6029f0 26
+tests/unit/scripts/nuxtConfigPolicy.test.ts
+  s_b412fd4cd3f576::t_a7f52a4a1e964a 183-185,195-196
+  s_b412fd4cd3f576::t_a4da7b833dc72e 173
+scripts/release/stage-private-sourcemaps.mjs
+  s_b412fd4cd3f576::t_7cbf22c9b59142 42,411-414,584-585,587-601,615-621,623,704,706,731,737-739,742-743,745-750,752-754,765,800-801,810-811,829-832
+  s_b412fd4cd3f576::t_d15b2c2d73028e 237
+  s_b412fd4cd3f576::t_df948ea84e1dad 426-451,469-473,484-488,492,605-608,610
+  s_b412fd4cd3f576::t_28ce87eb7c4393 740
+  s_b412fd4cd3f576::t_14f56e008aef47 43-48,418-425,452-466,468,474-483,489-491,493-500,586,602-604,609,611-614,622,744,795,798,802
+  s_b412fd4cd3f576::t_43c6c385128231 467,636-637,809
+  s_b412fd4cd3f576::t_42382aaa9eed24 760-763
+  s_b412fd4cd3f576::t_8048a7f468ad8d 523,529-542
+  s_b412fd4cd3f576::t_b257532594b0b3 709,741
+  s_b412fd4cd3f576::t_b98220f861a5db 624-626,799,833
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_7224871df7d15f 662-664
+docs/operations/sentry-account-controls.md
+  s_b412fd4cd3f576::t_b73adf0d3fbf91 17,19-27,33-40,44-48,54-58,61,63-76,85-92,98,101
+docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_e2a53a240a82d0 119-120,126,130-139,141-142,145-148,997-1001,1218
+  s_b412fd4cd3f576::t_19aef8c9967504 981
+  s_b412fd4cd3f576::t_62a035fa49e92d 945,972-980
+tests/e2e/electron/helpers/workspaceExpose.ts
+  s_b412fd4cd3f576::t_ff31c375e43473 377-380,395-398
+  s_b412fd4cd3f576::t_25344e7ec4fb07 366,369-376,381,383-384,390-391,394,399-412
+tests/unit/electron/rendererDiagnosticBridge.test.ts
+  s_b412fd4cd3f576::t_e63fece6d3e10d 10
+tests/unit/architecture/sentryBoundaryPolicy.test.ts
+  s_b412fd4cd3f576::t_2e8325c46afc4b 69
+tests/e2e/electron/nativeSaveReopen.e2e.test.ts
+  s_b412fd4cd3f576::t_5f79d460aba1a9 20,100-102
+  s_b412fd4cd3f576::t_7b893417e43d0b 1205,1209-1210,1213-1216
+  s_b412fd4cd3f576::t_3cee3dd4215e54 1217
+  s_b412fd4cd3f576::t_6a7a3cabdad0cc 77
+  s_b412fd4cd3f576::t_f4b3e64e7b23ed 78,1211-1212
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_b412fd4cd3f576::t_ff31c375e43473 787,798,1179-1182
+  s_b412fd4cd3f576::t_095dcb632fca72 96,796
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "771d4cc0a52171db1b33f2f2ef8a502df3bdf1a6",
+  "prompts": {},
+  "sessions": {
+    "s_c57729f2c66bed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a059e2-483b-7ec3-b9c1-b73072eca505",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
