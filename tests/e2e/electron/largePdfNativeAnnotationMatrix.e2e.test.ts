@@ -514,8 +514,9 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     };
     await clickAnnotationTool(page, 'Select');
     await scrollViewerToPage(page, pageNumber);
+    const pageSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"]`;
     const markerRect = await page.$eval(
-        `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
+        `${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         (element) => {
             const entityRect = element.getBoundingClientRect();
             const pageRect = element.closest<HTMLElement>('.page_container')?.getBoundingClientRect();
@@ -549,7 +550,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         await waitForViewerInteractive(page, 10_000);
     }
     const kind = await page.$eval(
-        `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
+        `${pageSelector} .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         element => element.getAttribute('data-annotation-kind'),
     );
     if (kind === 'note') {
@@ -700,10 +701,9 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         pageNumber: number
     }) => {
         const entity = Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
+            `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"] .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]`,
         )).find(candidate => (
             candidate.dataset.annotationId === selection.id
-            && Number(candidate.closest<HTMLElement>('.page_container')?.dataset.page ?? 0) === selection.pageNumber
         ));
         if (!entity) {
             return null;
