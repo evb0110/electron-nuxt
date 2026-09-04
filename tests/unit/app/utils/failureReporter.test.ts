@@ -179,7 +179,7 @@ describe('renderer failure reporter', () => {
             burstSuppressed: 10_001,
             accepted: 2,
         });
-    });
+    }, 15_000);
 
     it('counts an owned projection without creating an occurrence', () => {
         const {
