@@ -513,7 +513,6 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         pageNumber,
     };
     await clickAnnotationTool(page, 'Select');
-    await scrollViewerToPage(page, pageNumber);
     const markerRect = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         (element) => {
@@ -973,10 +972,20 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
     });
 }
 
-async function pasteImageFromVisibleMenu(page: Page) {
+async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
+    await page.waitForFunction((targetPage: number) => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active .page_container[data-page="${targetPage}"]`,
+        );
+        const rect = pageContainer?.getBoundingClientRect();
+        return Boolean(rect && rect.width > 0 && rect.height > 0);
+    }, {timeout: 5_000}, pageNumber);
     const command = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
     if (!command.called) {
         throw new Error('Electron paste-image menu command was not available');
+    }
+    if (command.value !== true) {
+        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify(command)}`);
     }
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         timeout: 30_000,
@@ -1344,7 +1353,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         await installManagedJpegClipboard(session.page, imagePath);
 
         const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await pasteImageFromVisibleMenu(session.page);
+        await pasteImageFromVisibleMenu(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await moveResizeAndEmbedPlacedImage(session.page);
         const image = await waitForNewCanonicalEntity(
             session.page,

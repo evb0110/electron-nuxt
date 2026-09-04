@@ -842,10 +842,10 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             stableKey: string;
             annotationId: string;
         } | null,
-    ) {
+    ): Promise<boolean> {
         const viewer = pdfViewerRef.value;
         if (!viewer) {
-            return;
+            return false;
         }
 
         closeAnnotationContextMenu();
@@ -853,9 +853,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         try {
             const file = await readPageAnnotationImageFileFromClipboard();
             if (!file) {
-                return;
+                return false;
             }
-            await viewer.startImagePlacement(file, {
+            return await viewer.startImagePlacement(file, {
                 ...(pageNumber !== undefined ? { pageNumber } : {}),
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
@@ -863,6 +863,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             });
         } catch (error) {
             BrowserLogger.warn('annotations', 'Failed to paste image from clipboard', error);
+            return false;
         }
     }
 

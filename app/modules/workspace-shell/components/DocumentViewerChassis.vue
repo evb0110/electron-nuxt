@@ -115,6 +115,7 @@ import {
     resolveDocumentOpeningPageShellId,
 } from '@app/utils/document-viewer/chassis/documentOpeningPageFrameAuthority';
 import { readPrevalidatedTrustedPdfOpenGeometry } from '@app/modules/pdf-viewer/public';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import { readPrevalidatedTrustedDjvuOpenGeometry } from '@app/modules/djvu-viewer/public';
 import { resolveDocumentPageSourceOpeningFrame } from '@app/modules/workspace-shell/viewers/resolveDocumentPageSourceOpeningFrame';
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
@@ -644,7 +645,7 @@ watch(() => [
     const nextViewer = sourceViewerRef.value as {
         waitForViewerLoadSettled?: () => Promise<void>;
         restoreScrollSnapshot?: (snapshot: unknown, options: {fallbackPage: number}) => void;
-        scrollToPage?: (pageNumber: number) => void;
+        scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
     } | null;
     await nextViewer?.waitForViewerLoadSettled?.();
     if (generation !== handoffGeneration || sourceViewerRef.value !== nextViewer) {
@@ -669,10 +670,10 @@ defineExpose(createDocumentViewerExposeForwarder(sourceViewerRef, {
             ? session.requestedPage
             : null;
     },
-    scrollToPage: (pageNumber: number) => {
+    scrollToPage: (pageNumber: number, options?: IScrollToPageOptions) => {
         const normalizedPage = chassisAuthority.navigate(pageNumber);
-        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number) => void;} | null;
-        viewer?.scrollToPage?.(normalizedPage);
+        const viewer = sourceViewerRef.value as {scrollToPage?: (page: number, options?: IScrollToPageOptions) => void;} | null;
+        viewer?.scrollToPage?.(normalizedPage, options);
     },
 }));
 </script>
