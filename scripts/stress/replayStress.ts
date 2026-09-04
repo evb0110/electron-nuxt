@@ -2,7 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
     STRESS_REPLAY_USAGE,
+    isStressCliEntrypoint,
     parseStressReplayCliOptions,
+    runStressCliMain,
 } from '@scripts/stress/stressCliOptions';
 import {
     ensureStressFixtures,
@@ -20,8 +22,8 @@ import { startStressSession } from '@scripts/stress/stressSessionLifecycle';
 
 const STEP_TIMEOUT_MS = 120_000;
 
-async function main() {
-    const options = parseStressReplayCliOptions(process.argv.slice(2));
+export async function replayStress(argv: readonly string[]) {
+    const options = parseStressReplayCliOptions(argv);
     if (options.help || !options.actionsPath) {
         console.log(STRESS_REPLAY_USAGE);
         return options.help ? 0 : 2;
@@ -71,9 +73,6 @@ async function main() {
     }
 }
 
-main().then((code) => {
-    process.exitCode = code;
-}, (error: unknown) => {
-    console.error(error instanceof Error ? error.message : String(error));
-    process.exitCode = 2;
-});
+if (isStressCliEntrypoint(import.meta.url)) {
+    void runStressCliMain(replayStress);
+}
