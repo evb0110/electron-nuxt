@@ -10,17 +10,23 @@ import {
 import {
     computed,
     createApp,
+    effectScope,
     h,
     nextTick,
     provide,
     ref,
+    shallowRef,
 } from 'vue';
+import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
+import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
 import {
     annotationEditorSurfaceKey,
     type IAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {TAnnotationTool} from '@app/types/annotations';
 
 const annotationId = 'reopened-markup' as ITextMarkupEntity['identity']['id'];
 
@@ -214,5 +220,94 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(harness.selectedIds.value.size).toBe(0);
         expect(harness.surface.clearSelection).toHaveBeenCalled();
         app.unmount();
+    });
+
+    it('projects store selection through a root-retargeted no-move click without a remount', async () => {
+        const annotationApplication = shallowRef(new AnnotationApplication('layer-store-events'));
+        const scope = effectScope();
+        const surface = scope.run(() => usePdfAnnotationEditorSurface({
+            annotationApplication,
+            activeTool: computed<TAnnotationTool>(() => 'select'),
+            settings: computed(() => DEFAULT_ANNOTATION_SETTINGS),
+        }))!;
+        annotationApplication.value.store.createTextMarkup({
+            ...entity,
+            revision: 0,
+            persistedRevision: -1,
+        });
+
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
+        }});
+        app.mount(host);
+        await nextTick();
+
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        const rect = host.querySelector<SVGRectElement>('[data-annotation-id="reopened-markup"] rect');
+        expect(layer).not.toBeNull();
+        expect(rect).not.toBeNull();
+        vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
+            bottom: 100,
+            height: 100,
+            left: 0,
+            right: 100,
+            top: 0,
+            width: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        rect!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 11,
+        }));
+        expect(host.querySelector<HTMLElement>('.pdf-annotation-editor-layer')).toBe(layer);
+        expect(annotationApplication.value.store.selectedIds).toEqual(new Set([annotationId]));
+        expect(surface.selectedIds.value).toEqual(new Set([annotationId]));
+
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 11,
+        }));
+        layer!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await nextTick();
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+
+        expect(annotationApplication.value.store.selectedIds).toEqual(new Set([annotationId]));
+        expect(surface.selectedIds.value).toEqual(new Set([annotationId]));
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+
+        layer!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 80,
+            clientY: 80,
+            pointerId: 12,
+        }));
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 80,
+            clientY: 80,
+            pointerId: 12,
+        }));
+        layer!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await nextTick();
+
+        expect(annotationApplication.value.store.selectedIds).toEqual(new Set());
+        expect(surface.selectedIds.value).toEqual(new Set());
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBeNull();
+        app.unmount();
+        scope.stop();
     });
 });
