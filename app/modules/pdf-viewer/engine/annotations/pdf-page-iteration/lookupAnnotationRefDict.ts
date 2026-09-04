@@ -1,6 +1,6 @@
 import { PDFRef } from 'pdf-lib';
 import type { PDFDocument } from 'pdf-lib';
-import type { IPdfAnnotationRefDict } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/pdfAnnotationRefDict';
+import type { IPdfAnnotationRefDict } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-iteration/pdfAnnotationRefDict';
 import { safePdfContextLookupDict } from '@pdf-core';
 
 export function lookupAnnotationRefDict(

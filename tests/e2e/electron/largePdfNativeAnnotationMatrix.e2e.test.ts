@@ -456,7 +456,7 @@ async function resolveEditorLayerPoints(
         });
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-        const scrollViewport = layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport], .pdfViewer');
+        const scrollViewport = layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
         if (scrollViewport) {
             const layerRect = layer.getBoundingClientRect();
             const hostRect = host.getBoundingClientRect();
@@ -620,13 +620,13 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                 return false;
             }
             const layer = entity.closest<HTMLElement>('.pdf-annotation-editor-layer');
-            const viewer = layer?.closest<HTMLElement>('.pdfViewer');
+            const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
             const rect = entity.getBoundingClientRect();
             return rect.width > 0
                 && rect.height > 0
                 && rect.top >= 0
                 && rect.bottom <= window.innerHeight
-                && viewer?.classList.contains('pdfViewer--resize-transition') !== true
+                && viewer !== null
                 && layer !== null
                 && getComputedStyle(layer).pointerEvents !== 'none';
         }, {timeout: 10_000}, input);
@@ -676,7 +676,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
             const hit = point ? document.elementFromPoint(point.x, point.y) : null;
             const scrollContainers = Array.from(new Set([
                 ...activeLayers.map(layer => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
-                ...activeLayers.map(layer => layer.closest<HTMLElement>('.pdfViewer')),
+                ...activeLayers.map(layer => layer.closest<HTMLElement>('[data-document-viewer-chassis-viewport]')),
             ].filter((element): element is HTMLElement => element !== null)));
             const describeContainer = (element: HTMLElement | null) => {
                 if (!element) {
@@ -793,7 +793,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                     .find(candidate => candidate.dataset.annotationId === selection.id)
                 : null;
             const actualPageContainer = entity?.closest<HTMLElement>('.page_container');
-            const viewer = layer?.closest<HTMLElement>('.pdfViewer');
+            const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]');
             const rect = entity?.getBoundingClientRect();
             const hit = document.elementFromPoint(selection.point.x, selection.point.y);
             return {

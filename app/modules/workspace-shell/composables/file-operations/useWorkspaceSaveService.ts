@@ -609,7 +609,25 @@ async function executeNativeMutationSave(
         return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
-    if (Object.keys(projection.mutations).length === 0) {
+    // The projection keeps placed-image geometry beside the generic mutation
+    // map. Persistence owns the final payload, including the empty-payload
+    // guard below.
+    const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
+    const nativeMutations = placedImageGeometryUpdates.length > 0
+        && projection.mutations.placedImageGeometryUpdates === undefined
+        ? {
+            ...projection.mutations,
+            placedImageGeometryUpdates,
+        }
+        : projection.mutations;
+    const effectiveProjection = nativeMutations === projection.mutations
+        ? projection
+        : {
+            ...projection,
+            mutations: nativeMutations,
+        };
+
+    if (Object.keys(nativeMutations).length === 0) {
         saveTransaction.commitAnnotationSave?.();
         return {
             status: 'saved',
@@ -636,7 +654,7 @@ async function executeNativeMutationSave(
     try {
         persisted = await persistNativeMutationProjection(
             plan,
-            projection,
+            effectiveProjection,
             deps,
             saveTransaction.verifyAnnotationSavePath,
             saveTransaction.assertAnnotationSaveCurrent,

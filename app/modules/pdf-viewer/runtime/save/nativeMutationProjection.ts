@@ -15,7 +15,7 @@ import {
 import {
     getPdfAnnotationIdFromStableKey,
     parsePdfAnnotationStableKeyRef,
-} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type {
     ISerializationPlan,

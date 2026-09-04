@@ -2,7 +2,7 @@ import type {
     IShapeAnnotation,
     TAnnotationStableKey,
 } from '@app/types/annotations';
-import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/normalizeManagedShapeStableKey';
+import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/normalizeManagedShapeStableKey';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
 type TShapeIdentityInput = Pick<IShapeAnnotation, 'annotationId' | 'id' | 'pageIndex' | 'stableKey'>;

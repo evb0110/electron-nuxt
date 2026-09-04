@@ -14,12 +14,12 @@ import type {
     PDFRef,
 } from 'pdf-lib';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/annotations/pdf-refs/resolveCommentPdfRefInDocument';
+import { resolveCommentPdfRefInDocument } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/resolveCommentPdfRefInDocument';
 import {
     getPdfAnnotationIdFromStableKey,
     parsePdfAnnotationStableKey,
     parsePdfAnnotationStableKeyRef,
-} from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
+} from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 
 interface ILiteralObject { [key: string]: PDFObject | string | number | boolean | null | undefined | ILiteralObject | TLiteralArray; }

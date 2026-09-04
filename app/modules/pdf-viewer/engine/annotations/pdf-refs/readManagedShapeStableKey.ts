@@ -1,7 +1,7 @@
 import type {PDFDict} from 'pdf-lib';
 import {PDFName} from 'pdf-lib';
 import { getPdfStringValue } from '@app/utils/pdfDict';
-import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/annotations/pdf-refs/normalizeManagedShapeStableKey';
+import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/normalizeManagedShapeStableKey';
 
 const MANAGED_SHAPE_KEY_NAME = PDFName.of('EVBShapeKey');
 const ANNOTATION_NAME = PDFName.of('NM');

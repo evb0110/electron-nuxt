@@ -59,8 +59,8 @@ async function waitForAnnotationEditorLayerInteractive(page: Page, timeoutMs = D
             return false;
         }
 
-        const viewer = host.querySelector('.pdfViewer');
-        if (!viewer || viewer.classList.contains('pdfViewer--resize-transition')) {
+        const viewer = host.querySelector('[data-document-viewer-chassis-viewport]');
+        if (!viewer) {
             return false;
         }
 
@@ -242,7 +242,7 @@ export async function selectTextFromRenderedSpans(
             const page = document.querySelector<HTMLElement>(
                 `.page_container[data-page="${pageNumber}"]`,
             );
-            return Array.from(page?.querySelectorAll<HTMLElement>('.text-layer span, .textLayer span') ?? [])
+            return Array.from(page?.querySelectorAll<HTMLElement>('.text-layer span') ?? [])
                 .filter(span => (span.textContent ?? '').trim().length > 0);
         };
         const startSpan = textSpansForPage(selectionOptions.startPage)[selectionOptions.startSpan];
@@ -489,7 +489,7 @@ export async function createHighlightWithPdfjsManager(page: Page) {
             }
 
             const textNodes = Array.from(host.querySelectorAll<HTMLElement>(
-                '.page_container--rendered .text-layer span, .page_container--rendered .textLayer span',
+                '.page_container--rendered .text-layer span',
             ))
                 .map((span) => {
                     const node = Array.from(span.childNodes)
@@ -1052,7 +1052,7 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
         const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
         const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
         const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer, .annotation-editor-layer') ?? null;
-        const viewer = layer?.closest<HTMLElement>('.pdfViewer') ?? null;
+        const viewer = layer?.closest<HTMLElement>('[data-document-viewer-chassis-viewport]') ?? null;
         const uiManager = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({ requiredMethods: ['getLayer'] }) as Record<string, unknown> | null | undefined;
         const pageAttribute = Number(pageContainer?.dataset.page ?? '1');
         const resolvedPageNumber = Number.isFinite(pageAttribute) && pageAttribute > 0
@@ -1074,7 +1074,7 @@ async function collectFreeTextCreationDebugState(page: Page, pageNumber?: number
         return {
             activeTool: host?.querySelector('.notes-panel .tool-button.is-active')?.getAttribute('data-tool') ?? '',
             pageCount: host?.querySelectorAll('.page_container').length ?? 0,
-            textLayerCount: host?.querySelectorAll('.text-layer, .textLayer').length ?? 0,
+            textLayerCount: host?.querySelectorAll('.text-layer').length ?? 0,
             freeTextCount: host?.querySelectorAll('.pdf-annotation-editor-text-box').length ?? 0,
             freeTextEditingLayerCount: host?.querySelectorAll('.pdf-annotation-editor-layer.freetextEditing, .annotation-editor-layer.freetextEditing').length ?? 0,
             waitingLayerCount: host?.querySelectorAll('.pdf-annotation-editor-layer.waiting, .annotation-editor-layer.waiting').length ?? 0,
@@ -1226,6 +1226,16 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
         } catch {
             await waitForViewerInteractive(page, Math.min(timeoutMs, 8_000));
         }
+        await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
+            '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
+            + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',
+        )).some(layer => {
+            const rect = layer.getBoundingClientRect();
+            const style = window.getComputedStyle(layer);
+            return rect.width > 0 && rect.height > 0
+                && style.display !== 'none'
+                && style.visibility !== 'hidden';
+        }), {timeout: timeoutMs});
         await waitForAnnotationEditorMode(page, 'freetextEditing', timeoutMs, pageNumber);
     };
 
@@ -1671,6 +1681,13 @@ export async function createStickyNoteWithPointer(
     }
 
     await placeNoteButton.click();
+    await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
+        '.pdf-annotation-editor-layer[data-pdf-annotation-editor-ready="true"], '
+        + '.annotation-editor-layer[data-pdf-annotation-editor-ready="true"]',
+    )).some(layer => {
+        const rect = layer.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0;
+    }), {timeout: 10_000});
     await page.waitForFunction(() => {
         const workspace = (window as IWorkspaceExposeProbeWindow)
             .__evbFindWorkspaceExpose?.({requiredMethods: ['getToolbarSnapshot']}) as {getToolbarSnapshot?: () => {isPlacingPageNote?: boolean};} | null;
