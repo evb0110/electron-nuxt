@@ -997,21 +997,12 @@ async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
         const rect = pageContainer?.getBoundingClientRect();
         return Boolean(rect && rect.width > 0 && rect.height > 0);
     }, {timeout: 5_000}, pageNumber);
-    await page.evaluate(() => {
-        (window as Window & {__pdfRenderTrace?: boolean}).__pdfRenderTrace = true;
-    });
     const command = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
     if (!command.called) {
         throw new Error('Electron paste-image menu command was not available');
     }
     if (command.value !== true) {
-        const trace = await page.evaluate(() => (
-            (window as Window & {__getPdfRenderTrace?: () => unknown[]}).__getPdfRenderTrace?.().slice(-20) ?? []
-        ));
-        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify({
-            command,
-            trace,
-        })}`);
+        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify(command)}`);
     }
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         timeout: 30_000,
