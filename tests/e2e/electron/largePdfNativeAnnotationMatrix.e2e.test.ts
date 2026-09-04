@@ -719,9 +719,20 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     }
     await page.mouse.click(point.x, point.y);
     try {
-        await page.waitForFunction((annotationId: string) => Array.from(document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id].is-selected',
-        )).some(entity => entity.dataset.annotationId === annotationId), {timeout: 10_000}, id);
+        await page.waitForFunction((selection: {
+            id: string;
+            pageNumber: number
+        }) => {
+            const pageContainer = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
+            );
+            return Array.from(pageContainer?.querySelectorAll<HTMLElement>(
+                '.pdf-annotation-editor-layer [data-annotation-id].is-selected',
+            ) ?? []).some(entity => entity.dataset.annotationId === selection.id);
+        }, {timeout: 10_000}, {
+            id,
+            pageNumber,
+        });
     } catch (error) {
         const diagnostics = await page.evaluate((selection: {
             id: string;
@@ -731,11 +742,15 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                 y: number
             }
         }) => {
-            const entity = Array.from(document.querySelectorAll<HTMLElement>(
-                '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id][data-annotation-kind]',
-            )).find(candidate => candidate.dataset.annotationId === selection.id);
-            const pageContainer = entity?.closest<HTMLElement>('.page_container');
-            const layer = entity?.closest<HTMLElement>('.pdf-annotation-editor-layer');
+            const pageContainer = document.querySelector<HTMLElement>(
+                `.editor-pane.is-active .page_container[data-page="${selection.pageNumber}"]`,
+            );
+            const layer = pageContainer?.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+            const entity = layer
+                ? Array.from(layer.querySelectorAll<HTMLElement>('[data-annotation-id][data-annotation-kind]'))
+                    .find(candidate => candidate.dataset.annotationId === selection.id)
+                : null;
+            const actualPageContainer = entity?.closest<HTMLElement>('.page_container');
             const viewer = layer?.closest<HTMLElement>('.pdfViewer');
             const rect = entity?.getBoundingClientRect();
             const hit = document.elementFromPoint(selection.point.x, selection.point.y);
@@ -764,7 +779,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
                     }
                     : null,
                 page: {
-                    bounds: pageContainer?.getBoundingClientRect().toJSON() ?? null,
+                    bounds: actualPageContainer?.getBoundingClientRect().toJSON() ?? null,
                     expectedPage: selection.pageNumber,
                     reportedPage: pageContainer?.dataset.page ?? null,
                 },
