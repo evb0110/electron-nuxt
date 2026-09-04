@@ -1,0 +1,14 @@
+scripts/windows-test/guest/appLaunch.ts
+  h_a4eefd76973911 268
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "49c5edb87b7593eed62ececbdc909b3525f2519a",
+  "prompts": {},
+  "humans": {
+    "h_a4eefd76973911": {
+      "author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
