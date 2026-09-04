@@ -192,7 +192,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         // The host-owned viewport session exists before the async viewer ref.
         // Persist intent there so chassis mounting cannot replace it with a
         // stale page prop while the document is still opening.
-        deps.requestPageNavigation?.(targetPage);
+        if (!options) {
+            deps.requestPageNavigation?.(targetPage);
+        }
         queuedPageNavigation = {
             page: targetPage,
             ...(options ? {options} : {}),

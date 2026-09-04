@@ -225,12 +225,14 @@ describe('useWorkspaceViewState', () => {
     });
 
     it('scrolls to an explicit bookmark target even when the page is already current', () => {
+        const requestPageNavigation = vi.fn();
         const scrollToPage = vi.fn();
         const state = createState({overrides: {
             showSidebar: ref(true),
             sidebarTab: ref('bookmarks'),
             currentPage: ref(3),
             totalPages: ref(10),
+            requestPageNavigation,
             documentViewerRef: ref({
                 getViewerContainer: () => null,
                 scrollToPage,
@@ -241,6 +243,7 @@ describe('useWorkspaceViewState', () => {
         state.handleGoToPage(3, scrollOptions);
 
         expect(scrollToPage).toHaveBeenCalledWith(3, scrollOptions);
+        expect(requestPageNavigation).not.toHaveBeenCalled();
     });
 
     it('forwards a same-page command so an evicted current canvas can recover', () => {
