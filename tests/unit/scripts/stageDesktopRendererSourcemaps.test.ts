@@ -51,25 +51,12 @@ describe('desktop renderer source-map staging', () => {
             EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
             EVB_SENTRY_TARGET: 'desktop',
         };
-        const manifest = {
-            bundles: [],
-            identity: {
-                target: 'desktop',
-                release: 'evb-viewer-desktop@1.2.3',
-                dist: 'macos-arm64',
-                environment: 'test',
-            } as const,
-            removedPublicMaps: [],
-            schemaVersion: 1,
-            sources: [],
-            unmappedGeneratedBundles: [],
-        };
-        const stageDesktop = vi.fn(async () => manifest);
+        const stageDesktop = vi.fn(async () => null);
 
         await expect(stageDesktopRendererSourcemapsIfEnabled({
             environment,
             loadStager: async () => ({stageDesktopRendererSourcemaps: stageDesktop}),
-        })).resolves.toEqual(manifest);
+        })).resolves.toBeNull();
 
         expect(stageDesktop).toHaveBeenCalledWith({environment});
     });

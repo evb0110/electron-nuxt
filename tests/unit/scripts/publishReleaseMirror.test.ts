@@ -7,11 +7,15 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+    AbortMultipartUploadCommand,
+    CompleteMultipartUploadCommand,
+    CreateMultipartUploadCommand,
     DeleteObjectsCommand,
     GetObjectCommand,
     HeadObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
+    UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import {
     describe,
@@ -173,8 +177,6 @@ describe('release mirror publisher', () => {
                 return {Body: objectBody(bytes)};
             }
             if (command instanceof PutObjectCommand) {
-                // Consume the body before failing so a reused stream would
-                // arrive empty on the next attempt.
                 const bytes = await commandBodyBytes(command.input.Body);
                 if (command.input.Key!.endsWith('/asset.zip')) {
                     putBodies.push(bytes);
@@ -214,7 +216,7 @@ describe('release mirror publisher', () => {
         };
     }
 
-    it('retries a timed-out artifact upload with a fresh body stream', async () => {
+    it('retries a timed-out artifact upload with the whole body', async () => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const {
             publish,
@@ -255,6 +257,217 @@ describe('release mirror publisher', () => {
 
         expect(putBodies).toHaveLength(3);
         warn.mockRestore();
+    });
+
+    function createMultipartFixture({
+        failPart = () => undefined,
+        partDelayMs = 0,
+    }: {
+        failPart?: (partNumber: number, uploadId: string) => Error | undefined;
+        partDelayMs?: number;
+    } = {}) {
+        const stored = new Map<string, Buffer>();
+        const openUploads = new Map<string, {
+            key: string;
+            parts: Map<number, Buffer>
+        }>();
+        const commands: unknown[] = [];
+        let createdUploads = 0;
+        let inFlight = 0;
+        let maxInFlight = 0;
+        const client = {send: vi.fn(async (command: unknown) => {
+            commands.push(command);
+            if (command instanceof HeadObjectCommand) {
+                const bytes = stored.get(command.input.Key!);
+                return bytes
+                    ? {ContentLength: bytes.byteLength}
+                    : {$metadata: {httpStatusCode: 404}};
+            }
+            if (command instanceof GetObjectCommand) {
+                const bytes = stored.get(command.input.Key!);
+                if (!bytes) {
+                    throw Object.assign(new Error('missing'), {$metadata: {httpStatusCode: 404}});
+                }
+                return {Body: objectBody(bytes)};
+            }
+            if (command instanceof PutObjectCommand) {
+                stored.set(command.input.Key!, await commandBodyBytes(command.input.Body));
+                return {};
+            }
+            if (command instanceof CreateMultipartUploadCommand) {
+                createdUploads += 1;
+                const uploadId = `upload-${createdUploads}`;
+                openUploads.set(uploadId, {
+                    key: command.input.Key!,
+                    parts: new Map(),
+                });
+                return {UploadId: uploadId};
+            }
+            if (command instanceof UploadPartCommand) {
+                inFlight += 1;
+                maxInFlight = Math.max(maxInFlight, inFlight);
+                try {
+                    await new Promise(resolve => setTimeout(resolve, partDelayMs));
+                    const upload = openUploads.get(command.input.UploadId!);
+                    if (!upload) {
+                        throw new Error(`Part for unknown upload ${command.input.UploadId}`);
+                    }
+                    const error = failPart(command.input.PartNumber!, command.input.UploadId!);
+                    if (error) {
+                        throw error;
+                    }
+                    const bytes = await commandBodyBytes(command.input.Body);
+                    if (bytes.byteLength !== command.input.ContentLength) {
+                        throw new Error(`Part ${command.input.PartNumber} declared ${command.input.ContentLength} bytes but carried ${bytes.byteLength}`);
+                    }
+                    upload.parts.set(command.input.PartNumber!, bytes);
+                    return {ETag: `"${command.input.UploadId}-${command.input.PartNumber}"`};
+                } finally {
+                    inFlight -= 1;
+                }
+            }
+            if (command instanceof CompleteMultipartUploadCommand) {
+                const upload = openUploads.get(command.input.UploadId!);
+                if (!upload) {
+                    throw new Error(`Completion for unknown upload ${command.input.UploadId}`);
+                }
+                const listed = command.input.MultipartUpload?.Parts ?? [];
+                if (listed.length !== upload.parts.size) {
+                    throw new Error(`Completion listed ${listed.length} of ${upload.parts.size} parts`);
+                }
+                const assembled = listed.map((part, index) => {
+                    if (part.PartNumber !== index + 1 || part.ETag !== `"${command.input.UploadId}-${index + 1}"`) {
+                        throw new Error(`Completion part ${index + 1} is out of order or mislabelled`);
+                    }
+                    return upload.parts.get(index + 1) ?? Buffer.alloc(0);
+                });
+                stored.set(upload.key, Buffer.concat(assembled));
+                openUploads.delete(command.input.UploadId!);
+                return {};
+            }
+            if (command instanceof AbortMultipartUploadCommand) {
+                openUploads.delete(command.input.UploadId!);
+                return {};
+            }
+            if (command instanceof ListObjectsV2Command) {
+                return {Contents: []};
+            }
+            throw new Error(`Unexpected command: ${String(command)}`);
+        })};
+
+        return {
+            client,
+            commands,
+            maxInFlight: () => maxInFlight,
+            openUploads,
+            stored,
+            publish: async (artifact: Buffer, partBytes: number) => {
+                const artifactDirectory = await mkdtemp(join(tmpdir(), 'evb-mirror-multipart-'));
+                await writeFile(join(artifactDirectory, 'asset.zip'), artifact);
+                return await publishReleaseMirror({
+                    artifactDirectory,
+                    client,
+                    drill: true,
+                    environment: {
+                        ...environment,
+                        MIRROR_CHANNEL_KEY: 'evb-viewer/drill/123/channels/stable.json',
+                        MIRROR_RELEASE_PREFIX: 'evb-viewer/drill/123/releases/',
+                    },
+                    partBytes,
+                    releaseTag: 'v0.0.0-drill.123',
+                    uploadRetryDelayMs: 0,
+                });
+            },
+        };
+    }
+
+    const multipartAssetKey = 'evb-viewer/drill/123/releases/v0.0.0-drill.123/asset.zip';
+
+    it('uploads a large artifact as ordered parts and completes it immutably', async () => {
+        const artifact = Buffer.from('multipart drill payload');
+        const fixture = createMultipartFixture();
+
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{
+            name: 'asset.zip',
+            size: artifact.byteLength,
+        }]});
+
+        const creates = fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand);
+        expect(creates).toHaveLength(1);
+        expect(creates[0]?.input).toMatchObject({
+            Bucket: 'releases',
+            CacheControl: 'public, max-age=31536000, immutable',
+            ContentType: 'application/zip',
+            Key: multipartAssetKey,
+            Metadata: {sha256: createHash('sha256').update(artifact).digest('hex')},
+        });
+        const parts = fixture.commands
+            .filter(command => command instanceof UploadPartCommand)
+            .map(command => [
+                command.input.PartNumber,
+                command.input.ContentLength,
+            ])
+            .sort((left, right) => (left[0] ?? 0) - (right[0] ?? 0));
+        expect(parts).toEqual([
+            [
+                1,
+                8,
+            ],
+            [
+                2,
+                8,
+            ],
+            [
+                3,
+                7,
+            ],
+        ]);
+        const completes = fixture.commands.filter(command => command instanceof CompleteMultipartUploadCommand);
+        expect(completes).toHaveLength(1);
+        expect(completes[0]?.input.IfNoneMatch).toBe('*');
+        expect(fixture.commands.some(command => command instanceof PutObjectCommand
+            && command.input.Key === multipartAssetKey)).toBe(false);
+        expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
+        expect(fixture.openUploads.size).toBe(0);
+    });
+
+    it('keeps at most four parts in flight', async () => {
+        const fixture = createMultipartFixture({partDelayMs: 20});
+
+        await expect(fixture.publish(Buffer.from('0123456789'), 1)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        expect(fixture.commands.filter(command => command instanceof UploadPartCommand)).toHaveLength(10);
+        expect(fixture.maxInFlight()).toBeLessThanOrEqual(4);
+        expect(fixture.maxInFlight()).toBeGreaterThan(1);
+    });
+
+    it('aborts a failed multipart upload and retries the artifact from scratch', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const artifact = Buffer.from('multipart drill payload');
+        const fixture = createMultipartFixture({failPart: (partNumber, uploadId) => (uploadId === 'upload-1' && partNumber === 2
+            ? Object.assign(new Error('a request has exceeded the configured 120000 ms requestTimeout'), {name: 'TimeoutError'})
+            : undefined)});
+
+        await expect(fixture.publish(artifact, 8)).resolves.toMatchObject({assets: [{name: 'asset.zip'}]});
+
+        const aborts = fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand);
+        expect(aborts.map(command => command.input.UploadId)).toEqual(['upload-1']);
+        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(2);
+        expect(fixture.stored.get(multipartAssetKey)?.equals(artifact)).toBe(true);
+        expect(fixture.openUploads.size).toBe(0);
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('retrying (2/3)'));
+        warn.mockRestore();
+    });
+
+    it('does not retry a multipart upload the mirror rejected', async () => {
+        const fixture = createMultipartFixture({failPart: () => Object.assign(new Error('AccessDenied'), {$metadata: {httpStatusCode: 403}})});
+
+        await expect(fixture.publish(Buffer.from('multipart drill payload'), 8)).rejects.toThrow('AccessDenied');
+
+        expect(fixture.commands.filter(command => command instanceof CreateMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.commands.filter(command => command instanceof AbortMultipartUploadCommand)).toHaveLength(1);
+        expect(fixture.stored.has(multipartAssetKey)).toBe(false);
+        expect(fixture.openUploads.size).toBe(0);
     });
 
     it('deletes only drill mirror prefixes', async () => {
