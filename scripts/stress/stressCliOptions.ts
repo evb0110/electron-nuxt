@@ -53,6 +53,40 @@ function readValue(argv: readonly string[], index: number, flag: string) {
     return value;
 }
 
+function parseOptionToken(arg: string) {
+    const separatorIndex = arg.indexOf('=');
+    if (separatorIndex === -1) {
+        return {
+            flag: arg,
+            inlineValue: undefined,
+        };
+    }
+    return {
+        flag: arg.slice(0, separatorIndex),
+        inlineValue: arg.slice(separatorIndex + 1),
+    };
+}
+
+function readOption(argv: readonly string[], cursor: {index: number}) {
+    const arg = argv[cursor.index] ?? '';
+    const {
+        flag,
+        inlineValue,
+    } = parseOptionToken(arg);
+    return {
+        arg,
+        flag,
+        takeValue: () => {
+            if (inlineValue !== undefined) {
+                return inlineValue;
+            }
+            const value = readValue(argv, cursor.index, flag);
+            cursor.index += 1;
+            return value;
+        },
+    };
+}
+
 /** Pure argv parser; throws on unknown flags so typos never silently run the default plan. */
 export function parseStressCliOptions(argv: readonly string[]): IStressCliOptions {
     const options: IStressCliOptions = {
@@ -72,26 +106,12 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
         maxRunCostUsd: null,
         help: false,
     };
-    for (let index = 0; index < argv.length; index += 1) {
-        const arg = argv[index] ?? '';
-        const [
-            flag,
-            inlineValue,
-        ] = arg.includes('=') ? [
-            arg.slice(0, arg.indexOf('=')),
-            arg.slice(arg.indexOf('=') + 1),
-        ] : [
+    for (const cursor = {index: 0}; cursor.index < argv.length; cursor.index += 1) {
+        const {
             arg,
-            undefined,
-        ];
-        const takeValue = () => {
-            if (inlineValue !== undefined) {
-                return inlineValue;
-            }
-            const value = readValue(argv, index, flag);
-            index += 1;
-            return value;
-        };
+            flag,
+            takeValue,
+        } = readOption(argv, cursor);
         switch (flag) {
             case '--list':
                 options.list = true;
@@ -185,26 +205,12 @@ export function parseStressReplayCliOptions(argv: readonly string[]): IStressRep
         scenarioId: null,
         help: false,
     };
-    for (let index = 0; index < argv.length; index += 1) {
-        const arg = argv[index] ?? '';
-        const [
-            flag,
-            inlineValue,
-        ] = arg.includes('=') ? [
-            arg.slice(0, arg.indexOf('=')),
-            arg.slice(arg.indexOf('=') + 1),
-        ] : [
+    for (const cursor = {index: 0}; cursor.index < argv.length; cursor.index += 1) {
+        const {
             arg,
-            undefined,
-        ];
-        const takeValue = () => {
-            if (inlineValue !== undefined) {
-                return inlineValue;
-            }
-            const value = readValue(argv, index, flag);
-            index += 1;
-            return value;
-        };
+            flag,
+            takeValue,
+        } = readOption(argv, cursor);
         switch (flag) {
             case '--actions':
                 options.actionsPath = takeValue();
