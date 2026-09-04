@@ -317,15 +317,12 @@ export async function createCanonicalTextBoxWithPointer(
     await page.mouse.click(point.x, point.y);
 
     const editorSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] `
-        + '.pdf-annotation-editor-text-box [contenteditable="true"]';
+        + '.pdf-annotation-editor-text-box.is-selected [contenteditable="true"]';
     await page.waitForSelector(editorSelector, {
         timeout: 30_000,
         visible: true,
     });
-    await page.waitForFunction((selector: string) => {
-        const activeElement = document.activeElement;
-        return activeElement instanceof HTMLElement && activeElement.matches(selector);
-    }, {timeout: 30_000}, editorSelector);
+    await page.focus(editorSelector);
     await page.keyboard.type(text, {delay: 10});
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
