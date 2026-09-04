@@ -9,6 +9,7 @@ import {
     computed,
     effectScope,
     shallowRef,
+    watch,
 } from 'vue';
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
@@ -213,6 +214,49 @@ describe('usePdfAnnotationEditorSurface', () => {
         harness.annotationApplication.value.store.delete(entity.identity.id);
 
         expect(harness.surface.getEntitiesForPage(0)).toEqual([]);
+        harness.stop();
+    });
+
+    it('publishes page entities and selection from one store snapshot', () => {
+        const harness = createSurfaceHarness();
+        const entity = {
+            kind: 'text-markup' as const,
+            ...baseEntity('snapshot-markup', 25),
+            subtype: 'Highlight' as const,
+            contents: '',
+            quadPoints: [rect],
+            color: '#facc15',
+            opacity: 0.5,
+        };
+        const snapshots: Array<{
+            entity: AnnotationEntity | undefined;
+            selected: boolean;
+        }> = [];
+        const stop = watch(
+            [
+                () => harness.surface.getEntitiesForPage(25),
+                harness.surface.selectedIds,
+            ],
+            ([
+                pageEntities,
+                selectedIds,
+            ]) => {
+                snapshots.push({
+                    entity: pageEntities.find(candidate => candidate.identity.id === entity.identity.id),
+                    selected: selectedIds.has(entity.identity.id),
+                });
+            },
+            {flush: 'sync'},
+        );
+
+        harness.annotationApplication.value.store.createTextMarkup(entity);
+        harness.surface.select([entity.identity.id]);
+
+        expect(snapshots.at(-1)).toMatchObject({
+            entity: {identity: {id: entity.identity.id}},
+            selected: true,
+        });
+        stop();
         harness.stop();
     });
 

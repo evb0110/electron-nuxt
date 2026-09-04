@@ -211,8 +211,15 @@ function textMarkupStyle(
 export const usePdfAnnotationEditorSurface = (
     options: IUsePdfAnnotationEditorSurfaceOptions,
 ): IAnnotationEditorSurface => {
-    const entitiesByPage = shallowRef<ReadonlyMap<number, readonly AnnotationEntity[]>>(new Map());
-    const selectedIds = shallowRef<ReadonlySet<AnnotationId>>(new Set());
+    const projection = shallowRef<{
+        entitiesByPage: ReadonlyMap<number, readonly AnnotationEntity[]>;
+        selectedIds: ReadonlySet<AnnotationId>;
+    }>({
+        entitiesByPage: new Map(),
+        selectedIds: new Set(),
+    });
+    const entitiesByPage = computed(() => projection.value.entitiesByPage);
+    const selectedIds = computed(() => projection.value.selectedIds);
     let stopSubscription: (() => void) | null = null;
 
     function subscribeToApplication(application: AnnotationApplication) {
@@ -220,8 +227,10 @@ export const usePdfAnnotationEditorSurface = (
         stopSubscription = application.store.subscribe((entities) => {
             // The store emission is the only retained projection. Group it in
             // one pass so each page component reads the same stable snapshot.
-            entitiesByPage.value = groupAnnotationEntitiesByPage(entities);
-            selectedIds.value = new Set(application.store.selectedIds);
+            projection.value = {
+                entitiesByPage: groupAnnotationEntitiesByPage(entities),
+                selectedIds: new Set(application.store.selectedIds),
+            };
         });
     }
 
