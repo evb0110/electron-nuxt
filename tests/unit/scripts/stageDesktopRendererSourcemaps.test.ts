@@ -13,6 +13,7 @@ import {
     vi,
 } from 'vitest';
 import {stageDesktopRendererSourcemaps} from '@scripts/release/stage-desktop-renderer-sourcemaps.mjs';
+import {stageDesktopRendererSourcemapsIfEnabled} from '@scripts/stageDesktopRendererSourcemaps.mjs';
 
 const roots: string[] = [];
 
@@ -31,6 +32,35 @@ afterEach(async () => {
 });
 
 describe('desktop renderer source-map staging', () => {
+    it('does not load release-only helpers in a Vercel web build', async () => {
+        const loadStager = vi.fn();
+
+        await expect(stageDesktopRendererSourcemapsIfEnabled({
+            environment: {
+                EVB_SENTRY_TARGET: 'web',
+                VERCEL: '1',
+            },
+            loadStager,
+        })).resolves.toBeNull();
+
+        expect(loadStager).not.toHaveBeenCalled();
+    });
+
+    it('loads the release helper for a desktop diagnostics build', async () => {
+        const environment = {
+            EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
+            EVB_SENTRY_TARGET: 'desktop',
+        };
+        const stageDesktop = vi.fn(async () => ({bundleCount: 1}));
+
+        await expect(stageDesktopRendererSourcemapsIfEnabled({
+            environment,
+            loadStager: async () => ({stageDesktopRendererSourcemaps: stageDesktop}),
+        })).resolves.toEqual({bundleCount: 1});
+
+        expect(stageDesktop).toHaveBeenCalledWith({environment});
+    });
+
     it('stages Nuxt output before generic build pruning', async () => {
         const root = await projectRoot();
         const identity = {

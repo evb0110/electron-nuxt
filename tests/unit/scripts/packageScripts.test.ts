@@ -248,7 +248,7 @@ describe('package scripts', () => {
         expect(scriptCommands(scripts, 'build')).toEqual([
             'pnpm run generate:build-artifacts',
             'pnpm exec nuxi build',
-            'node scripts/release/stage-desktop-renderer-sourcemaps.mjs',
+            'node scripts/stageDesktopRendererSourcemaps.mjs',
             'node scripts/prune-build-artifacts.mjs',
             'node scripts/check-web-deploy-assets.mjs',
         ]);

@@ -74,6 +74,7 @@ function createProjectFixture() {
     mkdirSync(path.join(projectRoot, 'native'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'packages', 'contracts'), {recursive: true});
     mkdirSync(path.join(projectRoot, 'scripts', 'lib'), {recursive: true});
+    mkdirSync(path.join(projectRoot, 'scripts', 'release'), {recursive: true});
     writeFileSync(
         path.join(projectRoot, '.gitignore'),
         '.vercel/\n.tmp/\n.env.local\n.devkit/\nMEMORIES.md\n',
@@ -104,6 +105,14 @@ function createProjectFixture() {
     writeFileSync(
         path.join(projectRoot, 'scripts', 'lib', 'cli-error.mjs'),
         'export const getCliErrorMessage = String;\n',
+    );
+    writeFileSync(
+        path.join(projectRoot, 'scripts', 'stageDesktopRendererSourcemaps.mjs'),
+        'export const stageDesktopRendererSourcemapsIfEnabled = () => null;\n',
+    );
+    writeFileSync(
+        path.join(projectRoot, 'scripts', 'release', 'stage-desktop-renderer-sourcemaps.mjs'),
+        'export const stageDesktopRendererSourcemaps = () => null;\n',
     );
     writeFileSync(
         path.join(projectRoot, 'pnpm-workspace.yaml'),
@@ -197,6 +206,17 @@ describe('private Vercel deployment source', () => {
                 'lib',
                 'cli-error.mjs',
             ))).toBe(true);
+            expect(existsSync(path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'stageDesktopRendererSourcemaps.mjs',
+            ))).toBe(true);
+            expect(existsSync(path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'release',
+                'stage-desktop-renderer-sourcemaps.mjs',
+            ))).toBe(false);
             expect(readFileSync(
                 path.join(prepared.sourceRoot, 'pnpm-workspace.yaml'),
                 'utf8',
