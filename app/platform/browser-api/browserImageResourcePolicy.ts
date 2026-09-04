@@ -303,30 +303,6 @@ async function probeWithImageDecoder(bytes: Uint8Array, mimeType: string, signal
     }
 }
 
-async function probeWithImageBitmap(bytes: Uint8Array, mimeType: string, signal?: AbortSignal) {
-    const createImageBitmap = Reflect.get(globalThis, 'createImageBitmap') as
-        ((image: Blob) => Promise<{
-            width: number;
-            height: number;
-            close: () => void;
-        }>) | undefined;
-    if (!createImageBitmap) {
-        return null;
-    }
-    throwIfAborted(signal);
-    const bitmap = await createImageBitmap(new Blob([bytes as BlobPart], {type: mimeType}));
-    try {
-        throwIfAborted(signal);
-        return {
-            width: bitmap.width,
-            height: bitmap.height,
-            frameCount: 1,
-        };
-    } finally {
-        bitmap.close();
-    }
-}
-
 function assertImageResourceLimits(
     metadata: {
         width: number;
@@ -398,20 +374,7 @@ export async function probeBrowserImageFile(
             };
         }
     }
-    if (!metadata) {
-        try {
-            metadata = await probeWithImageDecoder(bytes, file.type.toLowerCase(), signal);
-            if (metadata) {
-                assertImageResourceLimits(metadata, limits);
-            }
-        } catch (error) {
-            if (signal?.aborted) {
-                throw error;
-            }
-            metadata = null;
-        }
-    }
-    metadata ??= await probeWithImageBitmap(bytes, file.type.toLowerCase(), signal);
+    metadata ??= await probeWithImageDecoder(bytes, file.type.toLowerCase(), signal);
     if (!metadata) {
         throw new Error('ERR_BROWSER_IMAGE_DIMENSIONS_UNAVAILABLE');
     }
@@ -439,16 +402,11 @@ export async function createStaticBrowserImagePreview(
     throwIfAborted(signal);
     const target = resolvePreviewDimensions(image.width, image.height, maxEdge);
     const sourceBlob = new Blob([image.bytes as BlobPart], {type: image.mimeType});
-    let bitmap: Awaited<ReturnType<typeof createImageBitmap>>;
-    try {
-        bitmap = await createImageBitmap(sourceBlob, {
-            resizeWidth: target.width,
-            resizeHeight: target.height,
-            resizeQuality: 'high',
-        });
-    } catch {
-        bitmap = await createImageBitmap(sourceBlob);
-    }
+    const bitmap = await createImageBitmap(sourceBlob, {
+        resizeWidth: target.width,
+        resizeHeight: target.height,
+        resizeQuality: 'high',
+    });
     try {
         throwIfAborted(signal);
         const canvas = document.createElement('canvas');

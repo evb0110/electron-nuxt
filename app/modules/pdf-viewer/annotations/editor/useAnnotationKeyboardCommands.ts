@@ -96,16 +96,15 @@ export const useAnnotationKeyboardCommands = (
     }
     const amount = event.shiftKey ? 10 : 1;
     const pageView = options.pageView?.() ?? null;
-    if (pageView) {
-        options.surface.nudgeSelectionByPdfPoints(
-            direction[0] * amount,
-            direction[1] * amount,
-            pageView,
-            options.pageRotation?.() ?? 0,
-        );
-    } else {
-        options.surface.nudgeSelection(direction[0] * amount / 612, direction[1] * amount / 792);
+    if (!pageView) {
+        return false;
     }
+    options.surface.nudgeSelectionByPdfPoints(
+        direction[0] * amount,
+        direction[1] * amount,
+        pageView,
+        options.pageRotation?.() ?? 0,
+    );
     event.preventDefault();
     event.stopPropagation();
     return true;

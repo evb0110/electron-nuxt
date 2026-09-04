@@ -108,4 +108,24 @@ describe('useAnnotationKeyboardCommands', () => {
         expect(commands.handleKeydown(event)).toBe(true);
         expect(surface.undo).toHaveBeenCalledOnce();
     });
+
+    it('does not nudge when page geometry is unavailable', () => {
+        const surface = harness();
+        const commands = useAnnotationKeyboardCommands({surface});
+        const event = {
+            key: 'ArrowRight',
+            target: null,
+            altKey: false,
+            ctrlKey: false,
+            metaKey: false,
+            shiftKey: false,
+            preventDefault: vi.fn(),
+            stopPropagation: vi.fn(),
+        };
+
+        expect(commands.handleKeydown(event)).toBe(false);
+        expect(surface.nudgeSelection).not.toHaveBeenCalled();
+        expect(surface.nudgeSelectionByPdfPoints).not.toHaveBeenCalled();
+        expect(event.preventDefault).not.toHaveBeenCalled();
+    });
 });

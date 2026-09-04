@@ -193,7 +193,7 @@ const selectedDisplayRect = computed(() => {
     if (
         !entity
         || draggedAnnotationId.value !== entity.identity.id
-        || (entity.kind !== 'text-box' && entity.kind !== 'shape')
+        || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image')
     ) {
         return undefined;
     }
@@ -485,7 +485,7 @@ function handleNoteDoubleClick(entity: INoteEntity) {
 function handleResizeStart(handle: TAnnotationResizeHandle, event: PointerEvent) {
     const entity = selectedEntity.value;
     if (
-        (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape'))
+        (!entity || (entity.kind !== 'text-box' && entity.kind !== 'shape' && entity.kind !== 'placed-image'))
         || editingId.value === entity.identity.id
     ) {
         return;

@@ -1052,8 +1052,37 @@ async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
     });
 }
 
-async function dragImagePlacementControl(page: Page, selector: string, deltaX: number, deltaY: number) {
-    const point = await page.$eval(selector, element => {
+async function finalizeImagePlacement(page: Page) {
+    await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
+    await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
+        hidden: true,
+        timeout: 60_000,
+    });
+}
+
+async function resizeCanonicalEntity(
+    page: Page,
+    entity: ICanonicalEntitySnapshot,
+    delta: {
+        x: number;
+        y: number
+    },
+) {
+    await clickCanonicalEntity(page, entity.id, entity.pageNumber);
+    const before = await page.$eval(
+        `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] `
+        + `.pdf-annotation-editor-layer [data-annotation-id="${entity.id}"]`,
+        element => {
+            const rect = element.getBoundingClientRect();
+            return {
+                height: rect.height,
+                width: rect.width,
+            };
+        },
+    );
+    const handleSelector = `.editor-pane.is-active .page_container[data-page="${entity.pageNumber}"] `
+        + '.pdf-annotation-selection-handle--se';
+    const point = await page.$eval(handleSelector, element => {
         const rect = element.getBoundingClientRect();
         return {
             x: rect.left + rect.width / 2,
@@ -1062,64 +1091,21 @@ async function dragImagePlacementControl(page: Page, selector: string, deltaX: n
     });
     await page.mouse.move(point.x, point.y);
     await page.mouse.down();
-    await page.mouse.move(point.x + deltaX, point.y + deltaY, {steps: 8});
+    await page.mouse.move(point.x + delta.x, point.y + delta.y, {steps: 8});
     await page.mouse.up();
-}
-
-async function moveResizeAndEmbedPlacedImage(page: Page) {
-    await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => element.scrollIntoView({block: 'center'}));
-    const before = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
-        const rect = element.getBoundingClientRect();
-        return {
-            height: rect.height,
-            width: rect.width,
-            left: rect.left,
-            top: rect.top,
-        };
-    });
-    await dragImagePlacementControl(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__surface`, 52, 34);
     await page.waitForFunction((input: {
-        left: number;
-        top: number;
-    }) => {
-        const current = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement',
-        );
-        const rect = current?.getBoundingClientRect();
-        return rect !== undefined
-            && Math.abs(rect.left - input.left) > 10
-            && Math.abs(rect.top - input.top) > 10;
-    }, {timeout: 10_000}, before);
-    await dragImagePlacementControl(page, `${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__resizer--se`, 46, 28);
-    await page.waitForFunction((input: {
-        height: number;
+        id: string;
+        pageNumber: number;
         width: number;
+        height: number
     }) => {
-        const current = document.querySelector<HTMLElement>(
-            '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement',
-        );
-        const rect = current?.getBoundingClientRect();
-        return rect !== undefined
-            && rect.width > input.width + 10
-            && rect.height > input.height + 5;
-    }, {timeout: 10_000}, before);
-    const final = await page.$eval(ACTIVE_IMAGE_PLACEMENT_SELECTOR, element => {
-        const rect = element.getBoundingClientRect();
-        return {
-            height: rect.height,
-            left: rect.left,
-            top: rect.top,
-            width: rect.width,
-        };
-    });
-    expect(Math.abs(final.left - before.left)).toBeGreaterThan(10);
-    expect(Math.abs(final.top - before.top)).toBeGreaterThan(10);
-    expect(final.width).toBeGreaterThan(before.width + 10);
-    expect(final.height).toBeGreaterThan(before.height + 5);
-    await page.click(`${ACTIVE_IMAGE_PLACEMENT_SELECTOR} .pdf-image-placement__action--primary`);
-    await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
-        hidden: true,
-        timeout: 60_000,
+        const selector = `.editor-pane.is-active .page_container[data-page="${input.pageNumber}"] `
+            + `.pdf-annotation-editor-layer [data-annotation-id="${input.id}"]`;
+        const rect = document.querySelector<HTMLElement>(selector)?.getBoundingClientRect();
+        return rect !== undefined && rect.width > input.width + 10 && rect.height > input.height + 5;
+    }, {timeout: 10_000}, {
+        ...entity,
+        ...before,
     });
 }
 
@@ -1449,7 +1435,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
 
         const beforeImage = await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await pasteImageFromVisibleMenu(session.page, PLACED_IMAGE_PAGE_NUMBER);
-        await moveResizeAndEmbedPlacedImage(session.page);
+        await finalizeImagePlacement(session.page);
         const image = await waitForNewCanonicalEntity(
             session.page,
             PLACED_IMAGE_PAGE_NUMBER,
@@ -1457,6 +1443,14 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             new Set(beforeImage.map(entity => entity.id)),
         );
         expect(image.id).toMatch(/^placed-image-/u);
+        await dragCanonicalEntity(session.page, image, {
+            x: 52,
+            y: 34,
+        });
+        await resizeCanonicalEntity(session.page, image, {
+            x: 46,
+            y: 28,
+        });
 
         const firstSaveToken = await saveCanonicalRevision(
             session.page,

@@ -131,31 +131,6 @@ describe('browser image resource policy', () => {
         )).rejects.toThrow('ERR_BROWSER_IMAGE_FRAME_COUNT_TOO_LARGE');
     });
 
-    it('uses the browser decoder when a raster metadata parser cannot read a JPEG', async () => {
-        const close = vi.fn();
-        const createImageBitmap = vi.fn(async () => ({
-            width: 64,
-            height: 40,
-            close,
-        }));
-        vi.stubGlobal('createImageBitmap', createImageBitmap);
-
-        await expect(probeBrowserImageFile(
-            fileLike(new Uint8Array([
-                0xff,
-                0xd8,
-                0xff,
-            ]), 'clipboard-image.jpg', 'image/jpeg'),
-            PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
-        )).resolves.toMatchObject({
-            width: 64,
-            height: 40,
-            frameCount: 1,
-        });
-        expect(createImageBitmap).toHaveBeenCalledOnce();
-        expect(close).toHaveBeenCalledOnce();
-    });
-
     it('caps SVG structure before rasterization', async () => {
         const source = `<svg width="10" height="10">${'<path d="M0 0"/>'.repeat(10)}</svg>`;
         const limits = {

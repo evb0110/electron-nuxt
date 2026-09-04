@@ -20,11 +20,15 @@ import {
 import { DEFAULT_ANNOTATION_SETTINGS } from '@app/constants/annotationDefaults';
 import {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
+import PdfAnnotationSelectionHandles from '@app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue';
 import {
     annotationEditorSurfaceKey,
     type IAnnotationEditorSurface,
 } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
-import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    IPlacedImageEntity,
+    ITextMarkupEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {usePdfAnnotationEditorSurface} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 import type {TAnnotationTool} from '@app/types/annotations';
 
@@ -313,5 +317,55 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBeNull();
         app.unmount();
         scope.stop();
+    });
+
+    it('starts a canonical resize gesture for a placed image', async () => {
+        const image: IPlacedImageEntity = {
+            kind: 'placed-image',
+            identity: {id: 'placed-image-test' as IPlacedImageEntity['identity']['id']},
+            pageIndex: 25,
+            revision: 1,
+            persistedRevision: 1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            rect: {
+                left: 0.2,
+                top: 0.2,
+                width: 0.3,
+                height: 0.2,
+            },
+            rotation: 0,
+            image: {
+                objectNumber: 10,
+                generationNumber: 0,
+                byteLength: 4,
+                sha256: 'a'.repeat(64),
+            },
+        };
+        const resizeStart = vi.fn();
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({setup() {
+            return () => h(PdfAnnotationSelectionHandles, {
+                entity: image,
+                onResizeStart: resizeStart,
+            });
+        }});
+        app.mount(host);
+        await nextTick();
+
+        const handle = host.querySelector<HTMLElement>('[data-pdf-annotation-resize-handle="se"]');
+        expect(handle).not.toBeNull();
+        handle!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            cancelable: true,
+            pointerId: 1,
+        }));
+
+        expect(resizeStart).toHaveBeenCalledOnce();
+        expect(resizeStart.mock.calls[0]?.[0]).toBe('se');
+        app.unmount();
     });
 });
