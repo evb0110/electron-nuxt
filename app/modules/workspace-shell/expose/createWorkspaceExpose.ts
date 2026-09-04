@@ -33,6 +33,7 @@ import type {
 } from '@app/types/workspaceExpose';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { clampPdfManualZoom } from '@app/modules/pdf-viewer/public';
+import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/public';
 import type { IAnnotationNoteWindowViewModel } from '@app/types/annotationNoteWindow';
 import {
     createWorkspaceExposeCommandHandlers,
@@ -95,7 +96,7 @@ export interface ICreateWorkspaceExposeDeps extends
     pdfAutomationViewerRef?: Ref<IWorkspacePdfViewerExposeAutomationPort | null>;
     documentViewerRef?: Ref<IWorkspaceDocumentViewerNavigationPort | null>;
     handleFitMode: (mode: TFitMode) => void;
-    handleGoToPage: (page: number) => void;
+    handleGoToPage: (page: number, options?: IScrollToPageOptions) => void;
     handleToggleSidebar: () => void;
     handleToggleContinuousScroll: () => void;
     handleEnableDragMode: () => void;
