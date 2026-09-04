@@ -365,7 +365,7 @@ async function readTopmostCanonicalTextMarkupId(page: Page, pageNumber: number) 
             rect.left + rect.width / 2,
             rect.top + rect.height / 2,
         ).map(candidate => candidate.closest<HTMLElement>('[data-annotation-id]'))
-            .find(candidate => candidate?.closest<HTMLElement>('.page_container') === pageContainer)
+            .find(candidate => candidate?.closest<HTMLElement>('.page_container')?.dataset.page === String(targetPageNumber))
             ?.dataset.annotationId ?? null;
     }, pageNumber);
 }
@@ -1340,6 +1340,15 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             if (kind === 'text-markup') {
                 const topmostId = await readTopmostCanonicalTextMarkupId(session.page, MATRIX_PAGE_NUMBER);
                 entity = reopenedEntities.find(candidate => candidate.id === topmostId);
+                if (!entity) {
+                    throw new Error(`Reopened canonical text-markup identity trace [DEBUG-192-inventory]: ${JSON.stringify({
+                        domTopmostId: topmostId,
+                        inventory: reopenedInventoryTrace,
+                        reopenedEntities,
+                        state: reopenedState,
+                        workingCopyPath: reopenedWorkingCopyPath,
+                    })}`);
+                }
             } else {
                 entity = reopenedEntities.find(candidate => candidate.kind === kind);
             }
