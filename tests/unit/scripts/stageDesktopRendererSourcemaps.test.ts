@@ -51,12 +51,12 @@ describe('desktop renderer source-map staging', () => {
             EVB_SENTRY_DIAGNOSTICS_BUILD: '1',
             EVB_SENTRY_TARGET: 'desktop',
         };
-        const stageDesktop = vi.fn(async () => ({bundleCount: 1}));
+        const stageDesktop = vi.fn(async () => null);
 
         await expect(stageDesktopRendererSourcemapsIfEnabled({
             environment,
             loadStager: async () => ({stageDesktopRendererSourcemaps: stageDesktop}),
-        })).resolves.toEqual({bundleCount: 1});
+        })).resolves.toBeNull();
 
         expect(stageDesktop).toHaveBeenCalledWith({environment});
     });
