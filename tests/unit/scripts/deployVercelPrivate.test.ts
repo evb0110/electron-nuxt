@@ -124,6 +124,13 @@ function createProjectFixture() {
         'export const stageDesktopRendererSourcemapsIfEnabled = () => null;\n',
     );
     writeFileSync(
+        path.join(projectRoot, 'scripts', 'promoteLandingVercelOutput.mjs'),
+        readFileSync(
+            path.resolve(process.cwd(), 'scripts', 'promoteLandingVercelOutput.mjs'),
+            'utf8',
+        ),
+    );
+    writeFileSync(
         path.join(projectRoot, 'scripts', 'release', 'stage-desktop-renderer-sourcemaps.mjs'),
         'export const stageDesktopRendererSourcemaps = () => null;\n',
     );
@@ -223,6 +230,11 @@ describe('private Vercel deployment source', () => {
                 prepared.sourceRoot,
                 'scripts',
                 'stageDesktopRendererSourcemaps.mjs',
+            ))).toBe(true);
+            expect(existsSync(path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'promoteLandingVercelOutput.mjs',
             ))).toBe(true);
             expect(existsSync(path.join(
                 prepared.sourceRoot,
@@ -874,7 +886,7 @@ describe('private Vercel deployment source', () => {
                 'utf8',
             )).scripts.build).toBe(
                 'pnpm --dir landing run build'
-                + ' && node scripts/deployVercelPrivate.mjs --promote-landing-output',
+                + ' && node scripts/promoteLandingVercelOutput.mjs',
             );
         } finally {
             prepared?.cleanup();
@@ -921,6 +933,47 @@ describe('private Vercel deployment source', () => {
                 path.join(projectRoot, '.vercel', 'output', 'functions', 'index-isr.func'),
             )).toBe('./__fallback.func');
         } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('runs the landing promotion inside the sanitized deploy source', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+
+        try {
+            prepared = preparePrivateDeploySource({
+                deployTarget: 'landing',
+                projectRoot,
+            });
+            const landingOutputRoot = path.join(
+                prepared.sourceRoot,
+                'landing',
+                '.vercel',
+                'output',
+            );
+            mkdirSync(path.join(landingOutputRoot, 'static'), {recursive: true});
+            writeFileSync(path.join(landingOutputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(path.join(landingOutputRoot, 'static', 'index.html'), 'landing\n');
+
+            execFileSync(
+                process.execPath,
+                ['scripts/promoteLandingVercelOutput.mjs'],
+                {cwd: prepared.sourceRoot},
+            );
+
+            expect(existsSync(path.join(prepared.sourceRoot, 'scripts', 'release'))).toBe(false);
+            expect(readFileSync(
+                path.join(prepared.sourceRoot, '.vercel', 'output', 'static', 'index.html'),
+                'utf8',
+            )).toBe('landing\n');
+        } finally {
+            prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
                 maxRetries: 5,

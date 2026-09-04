@@ -44,6 +44,7 @@ import {
     assertSentryUploadReceipt,
     uploadSentrySourcemaps,
 } from './release/upload-sentry-sourcemaps.mjs';
+export {promoteLandingVercelOutput} from './promoteLandingVercelOutput.mjs';
 
 const defaultProjectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const supportedDeployTargets = new Set([
@@ -52,7 +53,7 @@ const supportedDeployTargets = new Set([
 ]);
 const landingBuildCommand = [
     'pnpm --dir landing run build',
-    'node scripts/deployVercelPrivate.mjs --promote-landing-output',
+    'node scripts/promoteLandingVercelOutput.mjs',
 ].join(' && ');
 const PRODUCTION_DEPLOY_LOCK_WAIT_MS = 15 * 60_000;
 const PRODUCTION_DEPLOY_LOCK_POLL_MS = 250;
@@ -178,27 +179,6 @@ function copyTrackedDeploySource(projectRoot, sourceRoot, deployTarget) {
         mkdirSync(path.dirname(destinationPath), {recursive: true});
         cpSync(sourcePath, destinationPath, {force: true});
     }
-}
-
-export function promoteLandingVercelOutput(projectRoot = defaultProjectRoot) {
-    const landingOutputRoot = path.join(projectRoot, 'landing', '.vercel', 'output');
-    const landingConfigPath = path.join(landingOutputRoot, 'config.json');
-    const rootOutputRoot = path.join(projectRoot, '.vercel', 'output');
-
-    if (!existsSync(landingConfigPath)) {
-        throw new Error(`Landing build did not produce ${landingConfigPath}.`);
-    }
-
-    rmSync(rootOutputRoot, {
-        force: true,
-        recursive: true,
-    });
-    mkdirSync(path.dirname(rootOutputRoot), {recursive: true});
-    cpSync(landingOutputRoot, rootOutputRoot, {
-        force: true,
-        recursive: true,
-        verbatimSymlinks: true,
-    });
 }
 
 export function preparePrivateDeploySource({
@@ -977,9 +957,5 @@ const isMain = process.argv[1]
     && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 
 if (isMain) {
-    if (process.argv.includes('--promote-landing-output')) {
-        promoteLandingVercelOutput();
-    } else {
-        process.exitCode = await runPrivateVercelDeploy();
-    }
+    process.exitCode = await runPrivateVercelDeploy();
 }
