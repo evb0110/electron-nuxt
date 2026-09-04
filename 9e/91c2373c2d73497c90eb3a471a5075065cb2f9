@@ -1,0 +1,101 @@
+scripts/stress/stressCliOptions.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 36-37,64-66,115,154-155
+scripts/stress/README.md
+  s_bc2aa2f16622bc::t_cef5acbf7ac0a2 47-49
+  s_bc2aa2f16622bc::t_bb67579341a1ee 20,32-46,50-57,84-85,93,97-100,122-125,154
+docs/stress-operator-runbook.md
+  s_bc2aa2f16622bc::t_cef5acbf7ac0a2 1-74
+scripts/stress/stressTypes.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 349
+  s_bc2aa2f16622bc::t_bb67579341a1ee 11
+tests/unit/scripts/stress/stressSessionLifecycle.test.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 21,31-34,105,110-113
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 106-109,114-115
+  s_bc2aa2f16622bc::t_d146ef266b1c2b 116-117
+tests/unit/scripts/stress/runExternalStressOperator.test.ts
+  s_bc2aa2f16622bc::t_cef5acbf7ac0a2 29-70,72-111
+  s_bc2aa2f16622bc::t_11f15f6a1752c7 1-28,71,112-125
+tests/unit/scripts/stress/stressCliOptions.test.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 23,29-43
+  s_bc2aa2f16622bc::t_273e9e51969343 44-45
+tests/unit/scripts/stress/runStressOperatorScenario.test.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 313-315,317-323
+  s_bc2aa2f16622bc::t_02314175ee866b 316
+scripts/stress/stressCalibration.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 32,111,221
+  s_cbcef7935f20a3::t_527622b90264db 4-7
+  s_dce5cb16f63961::t_5885e9a096a320 25-26,182
+scripts/stress/runStressOperatorScenario.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 69-70,237,268,321
+tests/unit/scripts/stress/stressCalibration.test.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 1-2,8,17,26-27,210-211,213-214,216-227
+  s_bc2aa2f16622bc::t_a7a7a96a37dc24 4,212
+  s_bc2aa2f16622bc::t_2ccae2802d3496 215,228-229
+scripts/stress/stressDeterministicDriver.ts
+  s_bc2aa2f16622bc::t_4da11a6b709393 1,86,131,133,137,180,187,192,197,205,207,240,287,357,359
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 7-8,10,44,221,226,265,276,286,302,323,325,343,397,399,408-409,411,416
+  s_bc2aa2f16622bc::t_88641b24524021 9,410
+scripts/stress/stressSessionLifecycle.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 9-12,45,48-49
+scripts/stress/runStress.ts
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 217,274-279,281,284-285,288,303,308-310,315,326
+  s_bc2aa2f16622bc::t_2b0429e94ab5b0 346-351
+  s_bc2aa2f16622bc::t_bb67579341a1ee 43,237,257,306-307,313,331,385-386,390,465,495-499,540-548,550-559,562-565,567-593,596-604,606-613,615-618
+  s_bc2aa2f16622bc::t_d9ca9376929458 280
+tests/unit/scripts/stress/runStress.test.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 48,74,294-295,303-304,318-319,340,343-344,358-420
+  s_bc2aa2f16622bc::t_1a9d012bdfa45b 457
+  s_dce5cb16f63961::t_f7f6823228335b 222-223
+  s_bc2aa2f16622bc::t_62956a9db6d3b2 447,449-456,458-464,466-471
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 24-25,27,237,421-430,432-438,440-446
+  s_bc2aa2f16622bc::t_b8fb83d5fa6327 26,431,439,448,465
+docs/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_bc2aa2f16622bc::t_bb67579341a1ee 196-217,224-228
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 218-223
+  s_bc2aa2f16622bc::t_534e71deef88cd 235-242
+scripts/stress/stressReport.ts
+  s_bc2aa2f16622bc::t_bb67579341a1ee 120-124
+scripts/stress/runExternalStressOperator.ts
+  s_bc2aa2f16622bc::t_1a9d012bdfa45b 28,79
+  s_bc2aa2f16622bc::t_cef5acbf7ac0a2 2-12,14-27,29-78,80-122,124-166,168-194,198
+  s_bc2aa2f16622bc::t_6460e78d7c5fee 1,13,123,167,195-197,199-200
+tests/unit/scripts/stress/stressDeterministicDriver.test.ts
+  s_bc2aa2f16622bc::t_a7a7a96a37dc24 108-110
+  s_dce5cb16f63961::t_5885e9a096a320 85
+  s_bc2aa2f16622bc::t_1a9d012bdfa45b 59,63
+  s_bc2aa2f16622bc::t_4da11a6b709393 52-58,60-62,65-75,77-80,112
+  s_bc2aa2f16622bc::t_cdcc6f3f4b68ba 1-2,7,12,15-21,50-51,81-84,86-89,91-93,95-99,101-103,105-107,111
+  s_bc2aa2f16622bc::t_f7e57bc3478815 64,76,90,94,100,104,113
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "9e91c2373c2d73497c90eb3a471a5075065cb2f9",
+  "prompts": {},
+  "sessions": {
+    "s_bc2aa2f16622bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e50-172a-7fa0-84f6-7eff6b90222a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    },
+    "s_cbcef7935f20a3": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "3f3b3696-c2b0-4de2-b605-d5b514803070",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    },
+    "s_dce5cb16f63961": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e51-7a49-77b2-8efa-6de7e66c342c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
