@@ -1,0 +1,21 @@
+docs/research/utm-windows-autotest-plan-2026-09-04.md
+  s_de4eb7ea9d9bbe::t_c00f04ff5533e1 497-505
+docs/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
+  s_de4eb7ea9d9bbe::t_c00f04ff5533e1 159-161
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f39a0e2d6fcb3610f96fcde81496a9dc5108483d",
+  "prompts": {},
+  "sessions": {
+    "s_de4eb7ea9d9bbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1ffbedc-c4e5-4af2-95f0-de71e7942a7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
