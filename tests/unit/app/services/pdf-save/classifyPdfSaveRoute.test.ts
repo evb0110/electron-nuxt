@@ -334,7 +334,7 @@ function changedPlacedImage(id = 'placed-image-1'): IPlacedImageEntity {
 describe('classifyPdfSaveRoute annotation routes', () => {
     it('projects changed placed-image geometry into the native image writer', () => {
         const image = changedPlacedImage();
-        const decision = classifyPdfSaveRoute(planOf([image]), capabilities());
+        const decision = classifyPdfSaveRoute(planOf([image]), capabilities({forcePdfjsMaterialize: true}));
 
         expect(decision.route).toBe('native-append');
         expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)

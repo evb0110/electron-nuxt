@@ -951,7 +951,8 @@ function buildClassifiedNativeMutationProjection(
         return 'saved-pdfjs-baseline-dirty-requires-materialization';
     }
 
-    if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+    if (capabilities.forcePdfjsMaterialize && nativeNoteMutationCount === 0 && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'pdfjs-materialize-required';
     }
     if (!arePendingTextsCoveredByNativeChanges({
