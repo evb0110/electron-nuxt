@@ -112,6 +112,15 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(workspace.handleSave).toHaveBeenCalledOnce();
     });
 
+    it('preserves the image placement result through the deferred workspace command', async () => {
+        const workspace = createWorkspace({handlePasteImageFromClipboard: cast<IWorkspaceExpose['handlePasteImageFromClipboard']>(vi.fn(async () => true))});
+        const deps = createDeps(workspace);
+        const proxy = createDeferredWorkspaceExposeProxy(deps);
+
+        await expect(proxy.handlePasteImageFromClipboard()).resolves.toBe(true);
+        expect(workspace.handlePasteImageFromClipboard).toHaveBeenCalledOnce();
+    });
+
     it('returns safe defaults when mount-wait methods have no workspace', async () => {
         const deps = createDeps(null);
         const proxy = createDeferredWorkspaceExposeProxy(deps);
