@@ -1,0 +1,33 @@
+tests/unit/scripts/electronE2eSmokeConfig.test.ts
+  s_bf7e2dac62aefb::t_6d50b297c994b7 411
+  s_bf7e2dac62aefb::t_02d1c6b36b70b0 410,412
+tests/e2e/electron/xlargeDocumentAcceptance.e2e.test.ts
+  s_bf7e2dac62aefb::t_d1277c40463dca 1932
+  s_bf7e2dac62aefb::t_898ce4a305c9d6 1951-1956
+  s_bf7e2dac62aefb::t_91d94aad0c40da 1908,1960
+  s_bf7e2dac62aefb::t_a8246474019ecd 10-13
+  s_bf7e2dac62aefb::t_c6d9d30e891341 1617-1624,1947,1957-1959
+  s_bf7e2dac62aefb::t_553ce727f023f3 1918,1927-1928
+  s_bf7e2dac62aefb::t_510dd096605557 1916-1917,1919-1926,1929-1931,1933
+tests/e2e/electron/largePdfAnnotationSave.e2e.test.ts
+  s_bf7e2dac62aefb::t_a62b2fc0244b74 875-883
+  s_bf7e2dac62aefb::t_0f93bdaca8eb02 884-901
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_bf7e2dac62aefb::t_a472c41c024f1c 232-235
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6dd1a330e931f907e6e4f17c1aede7a9b3da51d0",
+  "prompts": {},
+  "sessions": {
+    "s_bf7e2dac62aefb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06d96-e4be-7000-aecf-516bbcec1026",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
