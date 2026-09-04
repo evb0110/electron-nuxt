@@ -131,6 +131,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         await nextTick();
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
         const rect = host.querySelector<SVGRectElement>('[data-annotation-id="reopened-markup"] rect');
+        const entityRoot = host.querySelector('[data-annotation-id="reopened-markup"]');
         expect(layer).not.toBeNull();
         expect(rect).not.toBeNull();
         vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
@@ -155,7 +156,7 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         await nextTick();
         expect(harness.select).toHaveBeenCalledWith([annotationId], {additive: false});
         expect(harness.selectedIds.value.has(annotationId)).toBe(true);
-        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBe(entityRoot);
 
         layer!.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true,
