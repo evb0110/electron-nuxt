@@ -1,0 +1,31 @@
+tests/e2e/electron/annotationLifecycle.e2e.test.ts
+  s_a82182afd52c56::t_41ac9fc33f4ca9 1140,1724
+  s_a82182afd52c56::t_a807e1289d62e9 2278,2286,2302,2328,2376,2394,2438,2445
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_a82182afd52c56::t_34ce4888865265 9,305,310,335-341,348,362,366,388,415
+tests/unit/e2e/annotationUndoBoundaryProbe.test.ts
+  s_a82182afd52c56::t_d81e3a91e825f4 208,210-211,234
+  s_a82182afd52c56::t_4794874c6f4fe9 134-135,141-142
+  s_a82182afd52c56::t_e02907b1edaa93 199,201,227,229
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_a82182afd52c56::t_a807e1289d62e9 1759,1763,1888,1893,1970,1987
+  s_a82182afd52c56::t_41ac9fc33f4ca9 57,67,104,305-306,312,383,405,439,483,649,660-661,828,877,1000,1014,1054,1078-1081,1113,1181,1188-1189,1204,1206-1207,1283,1286-1287,1310,1321-1322,1360,1371-1372,1410,1417-1418,1445,1452-1453,1599,1605-1606,1617,1620-1621,1831,1833,1840,1894
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_a82182afd52c56::t_a9ed491d6492c8 1493-1494,1517-1518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f91a45c50427a2f826c2bd520aadf1b1ae020a20",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
