@@ -663,6 +663,8 @@ describe('CI topology policy', () => {
         const packageJson = JSON.parse(await readProjectFile('package.json')) as IPackageJson;
         const catastropheOracle = shellFunction(oracleScript, 'run_catastrophe_oracle');
         const exportOracles = shellFunction(oracleScript, 'run_export_oracles');
+        const resolveScanCleanupTool = shellFunction(oracleScript, 'resolve_scan_cleanup_tool');
+        const strokeWeightOracle = shellFunction(oracleScript, 'run_stroke_weight_oracle');
         const affectedOracles = shellFunction(oracleScript, 'run_affected_oracles');
         const nativeJob = workflowJob(workflow, 'pr_native_build_safety');
         const arm64Job = workflowJob(workflow, 'pr_rust_tests_arm64');
@@ -675,6 +677,10 @@ describe('CI topology policy', () => {
         expect(exportOracles).toContain('--check');
         expect(exportOracles).toContain('scan-cleanup-word-loss-audit.mjs');
         expect(exportOracles).toContain('--fail-on text-loss');
+        expect(resolveScanCleanupTool).toContain('getRequestedNativeRustTarget');
+        expect(resolveScanCleanupTool).toContain('".tmp"');
+        expect(strokeWeightOracle).toContain('scan_cleanup_tool=$(resolve_scan_cleanup_tool)');
+        expect(strokeWeightOracle).not.toContain('native/target/release/evb-scan-cleanup');
         expect(arm64Job).toContain('runs-on: ubuntu-24.04-arm');
         expect(arm64Job).toContain('run: scripts/ci/apt-install.sh poppler-utils');
         expect(prePush).not.toContain('scripts/ci/scan-cleanup-oracles.sh');
