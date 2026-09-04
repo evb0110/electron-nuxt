@@ -1,0 +1,61 @@
+app/modules/pdf-viewer/engine/annotations/pdf-refs/writeManagedShapeStableKey.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 7
+app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 6
+app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 18
+app/modules/pdf-viewer/engine/annotations/pdf-page-iteration/lookupAnnotationRefDict.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 3
+app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 9
+app/modules/pdf-viewer/engine/annotations/pdf-refs/resolveCommentPdfRefInDocument.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 27-28
+tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveFailureSurfacing.test.ts
+  s_cd2cd85e158afe::t_3e9c265e50d33d 18,24,51,58,70
+  s_cd2cd85e158afe::t_fccd20506b95f0 12,21
+  s_cd2cd85e158afe::t_498a6c59f6dc0c 52-56
+  s_cd2cd85e158afe::t_915905e36944e7 97
+  s_cd2cd85e158afe::t_f7de848c3b33f4 47-50,57,59-69,71-96,98-101
+app/modules/pdf-viewer/tools/annotationShapeDrawing.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 8
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_cd2cd85e158afe::t_0486734a62411c 459,623,629,679,796
+app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 3
+tests/unit/app/composables/pdfSerializationRefs.test.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 17,22
+app/modules/pdf-viewer/engine/annotations/pdf-page-iteration/iterateAnnotationRefDicts.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 5-6
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 23-24,29-31
+app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection.ts
+  s_cd2cd85e158afe::t_42b1df2684ff8e 3
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_cd2cd85e158afe::t_51a5b0fe576f69 7,145,158-160
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_cd2cd85e158afe::t_51a5b0fe576f69 1229-1238,1684-1690
+  s_cd2cd85e158afe::t_0486734a62411c 62-63,245,492,1055,1077
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_cd2cd85e158afe::t_c3f10ca4ef57eb 625-628
+  s_cd2cd85e158afe::t_3fa231d45c8e45 612-624,629-630,657
+app/modules/pdf-viewer/engine/annotations/pdf-refs/readManagedShapeStableKey.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 4
+app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity.ts
+  s_cd2cd85e158afe::t_c5e80aaa8fa8c4 5
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "6241f3c1666b3804f9411e4422f17d8ed3cb4574",
+  "prompts": {},
+  "sessions": {
+    "s_cd2cd85e158afe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e20-785d-78f1-b406-9aca772ab43b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
