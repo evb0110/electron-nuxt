@@ -129,7 +129,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         }});
         app.mount(host);
         await nextTick();
-
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
         const rect = host.querySelector<SVGRectElement>('[data-annotation-id="reopened-markup"] rect');
         expect(layer).not.toBeNull();
@@ -244,6 +243,9 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         }});
         app.mount(host);
         await nextTick();
+        annotationApplication.value.store.select([annotationId]);
+        await nextTick();
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
 
         const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
         const rect = host.querySelector<SVGRectElement>('[data-annotation-id="reopened-markup"] rect');

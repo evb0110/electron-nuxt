@@ -24,6 +24,7 @@
             <PdfTextMarkupAnnotation
                 v-for="entity in svgEntities.textMarkup"
                 :key="entity.identity.id"
+                v-memo="[isSelected(entity.identity.id)]"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
             />
