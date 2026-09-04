@@ -513,6 +513,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         pageNumber,
     };
     await clickAnnotationTool(page, 'Select');
+    await scrollViewerToPage(page, pageNumber);
     const markerRect = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         (element) => {
