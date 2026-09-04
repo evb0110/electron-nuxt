@@ -220,6 +220,299 @@ describe('PDF navigation request resolver', () => {
                 width: 0.2,
                 height: 0.05,
             });
+
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
+    it('prefers the page-local occurrence over a drifted identical canonical range', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'first needle ';
+        const second = document.createElement('span');
+        second.textContent = 'second needle';
+        textLayer.append(first, second);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                pageMatchIndex: 1,
+                searchQuery: 'needle',
+                expectedPageMatchCount: 2,
+                searchOptions: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                // This canonical range has drifted to the first duplicate.
+                searchRange: {
+                    startOffset: 'first '.length,
+                    endOffset: 'first needle'.length,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
+
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
+    it('uses the case-sensitive indexed occurrence when the canonical range has the wrong case', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'needle first';
+        const second = document.createElement('span');
+        second.textContent = 'Needle second';
+        textLayer.append(first, second);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'Needle',
+                pageMatchIndex: 1,
+                searchQuery: '[nN]eedle',
+                searchOptions: {
+                    matchCase: true,
+                    wholeWord: false,
+                    useRegex: true,
+                },
+                expectedPageMatchCount: 2,
+                // The native range drifted onto the lowercase duplicate.
+                searchRange: {
+                    startOffset: 0,
+                    endOffset: 'needle'.length,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
+    it('falls back to a matching canonical range when the page-local index is unmappable', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'first needle ';
+        const second = document.createElement('span');
+        second.textContent = 'second needle';
+        textLayer.append(first, second);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                pageMatchIndex: 2,
+                searchQuery: 'needle',
+                searchOptions: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                searchRange: {
+                    startOffset: 'first '.length,
+                    endOffset: 'first needle'.length,
+                },
+            })).toEqual({
+                left: 0.2,
+                top: 0.2,
+                width: 0.2,
+                height: 0.05,
+            });
+        } finally {
+            Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
+        }
+    });
+
+    it('keeps the canonical range when the rendered occurrence count mismatches', () => {
+        const page = document.createElement('div');
+        page.className = 'page_container';
+        page.dataset.page = '2';
+        page.getBoundingClientRect = () => cast<DOMRect>({
+            left: 10,
+            top: 10,
+            width: 100,
+            height: 200,
+        });
+
+        const textLayer = document.createElement('div');
+        textLayer.className = 'text-layer';
+        const first = document.createElement('span');
+        first.textContent = 'needle first';
+        const second = document.createElement('span');
+        second.textContent = 'needle second';
+        const third = document.createElement('span');
+        third.textContent = 'needle third';
+        textLayer.append(first, second, third);
+        page.append(textLayer);
+        const container = document.createElement('div');
+        container.append(page);
+
+        const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
+        Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
+            return cast<DOMRect>(this.startContainer === second.firstChild
+                ? {
+                    left: 50,
+                    top: 110,
+                    width: 20,
+                    height: 10,
+                }
+                : {
+                    left: 30,
+                    top: 50,
+                    width: 20,
+                    height: 10,
+                });
+        });
+
+        try {
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                pageMatchIndex: 0,
+                searchQuery: 'needle',
+                searchOptions: {
+                    matchCase: false,
+                    wholeWord: false,
+                    useRegex: false,
+                },
+                expectedPageMatchCount: 2,
+                searchRange: {
+                    startOffset: 'needle first '.length,
+                    endOffset: 'needle first '.length + 'needle'.length,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
+
+            // Count mismatch must not disable the legacy occurrence fallback
+            // when the native range cannot map at all.
+            expect(resolveTextAnchorRect(container, {
+                kind: 'text-anchor',
+                page: 2,
+                text: 'needle',
+                pageMatchIndex: 1,
+                searchQuery: 'needle',
+                expectedPageMatchCount: 2,
+                searchRange: {
+                    startOffset: 500,
+                    endOffset: 506,
+                },
+            })).toEqual({
+                left: 0.4,
+                top: 0.5,
+                width: 0.2,
+                height: 0.05,
+            });
         } finally {
             Range.prototype.getBoundingClientRect = originalGetBoundingClientRect;
         }

@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createCanvas,
@@ -143,7 +144,6 @@ const searchMatchScrollConfig = {
 };
 
 const sessionFixture = createElectronE2ESessionFixture({
-    restartBeforeEach: false,
     sessionName: () => `e2e-search-match-scroll-${Date.now()}`,
     timeoutMs: 300_000,
 });
@@ -652,6 +652,7 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 && highlight.bottom <= viewerRect.bottom + 2;
         }, {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, searchMatchScrollConfig.targetViewerPage);
 
+        await new Promise(resolve => setTimeout(resolve, 500));
         finalState = await readFinalState();
         expect(finalState.appliedCount).toBe(1);
         expect(finalState.cancelledCount).toBe(0);
@@ -687,5 +688,215 @@ describe('Electron E2E - PDF search match scrolling', () => {
             finalState.highlight!,
             finalState.viewportSize,
         )).toBeGreaterThan(4);
+    }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+
+    it('keeps repeated match selections visible after navigation settles', async () => {
+        const session = sessionFixture.getSession();
+        if (!session) {
+            return;
+        }
+        const fixturePath = searchMatchScrollConfig.fixturePath
+            ?? await createSearchMatchScrollFixturePdf(`search-repeat-${Date.now()}.pdf`);
+        await session.page.setViewport({
+            deviceScaleFactor: 1,
+            height: 1080,
+            width: 1884,
+        });
+        await openPdfInApp(session.page, fixturePath, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+        await waitForPdfLoaded(session.page, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
+        await enablePdfDiagnosticSession(session.page, {
+            navigation: true,
+            render: true,
+        });
+        await ensureSidebarOpen(session.page);
+        await openDocumentSidebarTab(session.page, 'Search');
+        const searchInput = await session.page.$('.editor-pane.is-active .document-search-bar input');
+        await searchInput!.type(searchMatchScrollConfig.query);
+        await session.page.click('.editor-pane.is-active .search-run-button');
+        await waitForFunctionInPage(session.page, (count: number) => {
+            const summary = document.querySelector('.editor-pane.is-active .document-search-results-header-summary');
+            return summary?.textContent?.trim().startsWith(`${count} results`)
+                && !document.querySelector('.editor-pane.is-active .document-search-results-spinner');
+        }, {timeout: SEARCH_MATCH_SCROLL_TIMEOUT_MS}, searchMatchScrollConfig.expectedResultCount);
+        await callWorkspaceCommand(session.page, 'setCustomZoomFromDisplay', [3.8]);
+        await waitForWorkspaceToolbarSnapshot(session.page, {
+            hasPdf: true,
+            minEffectiveZoom: 3.7,
+        });
+        const targets = suppliedSearchMatchScrollPdf
+            ? [
+                {
+                    page: 23,
+                    match: 1,
+                },
+                {
+                    page: 83,
+                    match: 1,
+                },
+                {
+                    page: 23,
+                    match: 2,
+                },
+                {
+                    page: 82,
+                    match: 1,
+                },
+                {
+                    page: 23,
+                    match: 1,
+                },
+                {
+                    page: 81,
+                    match: 1,
+                },
+                {
+                    page: 23,
+                    match: 2,
+                },
+            ]
+            : [
+                {
+                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                    match: 1,
+                },
+                {
+                    page: 1,
+                    match: 1,
+                },
+                {
+                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                    match: 2,
+                },
+                {
+                    page: 1,
+                    match: 1,
+                },
+                {
+                    page: SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE,
+                    match: 3,
+                },
+            ];
+        for (const {
+            page: targetPage,
+            match: targetMatch,
+        } of targets) {
+            const selector = `.editor-pane.is-active .document-search-result[data-page-number="${targetPage}"][data-page-match-number="${targetMatch}"]`;
+            await session.page.evaluate(async (target: string) => {
+                const list = document.querySelector<HTMLElement>('.editor-pane.is-active .document-search-results-list')!;
+                const step = Math.max(1, Math.floor(list.clientHeight / 2));
+                const maxScrollTop = list.scrollHeight;
+                for (let top = 0; top <= maxScrollTop; top += step) {
+                    list.scrollTop = top;
+                    list.dispatchEvent(new Event('scroll'));
+                    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+                    const row = document.querySelector<HTMLElement>(target);
+                    if (row) {
+                        row.scrollIntoView({block: 'center'});
+                        return;
+                    }
+                }
+                throw new Error(`Missing result ${target}`);
+            }, selector);
+            const clicked = await session.page.evaluate((target: string) => {
+                const row = document.querySelector<HTMLElement>(target)!;
+                const box = row.getBoundingClientRect();
+                const x = box.left + box.width / 2;
+                const y = box.top + box.height / 2;
+                const diagnosticWindow = window as Window & {__clearPdfRenderTrace?: () => void};
+                diagnosticWindow.__clearPdfRenderTrace?.();
+                return {
+                    x,
+                    y,
+                    hit: row.contains(document.elementFromPoint(x, y)),
+                    text: row.querySelector('.document-search-result-highlight')?.textContent ?? '',
+                };
+            }, selector);
+            expect(clicked.hit).toBe(true);
+            await session.page.mouse.click(clicked.x, clicked.y);
+            await waitForFunctionInPage(session.page, (target: string) =>
+                document.querySelector(target)?.getAttribute('aria-current') === 'true',
+            {timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS}, selector);
+            const readState = () => session.page.evaluate((pageNumber: number) => {
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const bounds = viewer.getBoundingClientRect();
+                const page = viewer.querySelector<HTMLElement>(`.page_container[data-page="${pageNumber}"]`);
+                const highlights = Array.from(page?.querySelectorAll<HTMLElement>(
+                    '.pdf-search-highlight--current, .pdf-word-box--current',
+                ) ?? []);
+                const rects = highlights.map(element => element.getBoundingClientRect())
+                    .filter(rect => rect.width > 0 && rect.height > 0);
+                const rect = rects.length ? {
+                    left: Math.min(...rects.map(value => value.left)),
+                    right: Math.max(...rects.map(value => value.right)),
+                    top: Math.min(...rects.map(value => value.top)),
+                    bottom: Math.max(...rects.map(value => value.bottom)),
+                } : null;
+                const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{
+                    event: string;
+                    payload?: Record<string, unknown>;
+                }>}).__getPdfRenderTrace?.() ?? [];
+                const applied = trace.filter(entry => entry.event === 'navigation-viewport-authority-applied');
+                const navigationApplies = applied.filter(entry => entry.payload?.kind === 'search'
+                    || trace.some(refinement => refinement.event === 'navigation-text-anchor-refined'
+                        && refinement.payload?.intentId === entry.payload?.intentId
+                        && refinement.payload?.searchRange));
+                return {
+                    visible: !!rect && rect.top >= bounds.top - 2
+                        && rect.bottom <= bounds.bottom + 2 && rect.left >= bounds.left - 2 && rect.right <= bounds.right + 2,
+                    centerDelta: rect ? (rect.top + rect.bottom - bounds.top - bounds.bottom) / 2 : null,
+                    scrollTop: viewer.scrollTop,
+                    scrollLeft: viewer.scrollLeft,
+                    scrollHeight: viewer.scrollHeight,
+                    clientHeight: viewer.clientHeight,
+                    appliedLeft: Number(applied.at(-1)?.payload?.actualLeft),
+                    appliedPositions: applied.map(entry => ({
+                        left: Number(entry.payload?.actualLeft),
+                        top: Number(entry.payload?.actualTop),
+                    })),
+                    appliedTop: Number(applied.at(-1)?.payload?.actualTop),
+                    appliedCount: navigationApplies.length,
+                    navigationTrace: trace.filter(entry => entry.event.startsWith('navigation-')),
+                    text: highlights.map(element => element.textContent || element.dataset.word || '').join(''),
+                    rect,
+                    viewportSize: {
+                        width: window.innerWidth,
+                        height: window.innerHeight,
+                    },
+                };
+            }, targetPage);
+            await vi.waitFor(async () => {
+                const state = await readState();
+                expect(state.visible, `page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+                expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+            }, {
+                timeout: SEARCH_MATCH_PAINT_TIMEOUT_MS,
+                interval: 50,
+            });
+            // Catch a delayed resize or outgoing-anchor replay after the match
+            // first appears, rather than accepting a transient correct frame.
+            await new Promise(resolve => setTimeout(resolve, 500));
+            const state = await readState();
+            expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+            expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
+            expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
+            expect(state.appliedCount, JSON.stringify({
+                targetPage,
+                targetMatch,
+                ...state,
+            })).toBe(1);
+            expect(state.scrollTop).toBeCloseTo(state.appliedTop, 0);
+            expect(state.scrollLeft).toBeCloseTo(state.appliedLeft, 0);
+            // A scrollbar resize may reassert the settled position. It must
+            // never introduce another destination or sideways correction.
+            for (const position of state.appliedPositions) {
+                expect(position).toEqual({
+                    left: state.appliedLeft,
+                    top: state.appliedTop,
+                });
+            }
+            expect(await countWarmHighlightPixels(
+                await session.page.screenshot({type: 'png'}), state.rect!, state.viewportSize,
+            )).toBeGreaterThan(4);
+        }
     }, SEARCH_MATCH_SCROLL_TIMEOUT_MS);
 });

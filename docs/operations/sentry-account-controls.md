@@ -88,7 +88,7 @@ names and their runtime purpose here, never their values.
 | Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
 | Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
-| Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview | Owner verified 2026-09-04 |
+| Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview and Production | Owner verified by exact production deployment 2026-09-05 |
 | Browser canary secret | `SENTRY_BROWSER_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
 | Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
@@ -112,3 +112,17 @@ is required and must survive account-control reviews.
 The alert definitions, weekly deletion procedure, privacy incident response,
 credential rotation, emergency disablement, canary evidence tables, and package
 removal rehearsal are in `sentry-runbook.md`.
+
+## Production activation record
+
+Release `v0.1.452` is the first production viewer release with consent-gated
+client diagnostics. The exact prebuilt output is deployed at the canonical
+viewer alias. Its public JavaScript matches the private manifest and contains
+no source maps. Sentry accepted all 256 mapped production canaries for the web
+release and resolved the sampled browser and Nitro-build frames to their EVB
+source files. Nitro runtime reporting remains disabled.
+
+The live browser check on 2026-09-05 recorded no Sentry request before consent,
+one event after the user granted the still-live report, no later event after
+revocation, and no event after first-time denial. The viewer CSP contains one
+EU Sentry ingest origin. The landing CSP contains none.

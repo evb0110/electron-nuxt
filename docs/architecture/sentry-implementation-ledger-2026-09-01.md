@@ -7,12 +7,12 @@
 - Architecture source of truth: `docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md`
 - Legal and privacy source of truth: `docs/research/sentry-opt-out-diagnostics-2026-09-01.md`
 - Implementation snapshot: repository work is implemented. Live account
-  hardening, project and credential provisioning, exact-byte web Preview
-  upload, closed-adapter test events, a full macOS arm64 private-map
-  symbolication pass, and the web-project Debug ID symbolication canary are
-  verified. The remaining desktop distributions, the hosted-browser consent
-  matrix, legal approval for Nitro, operations cycles, and production
-  observation periods remain open.
+  hardening, project and credential provisioning, closed-adapter test events,
+  exact-byte Preview and production web deployments, web private-map upload,
+  the production hosted-browser consent matrix, and a full macOS arm64
+  private-map symbolication pass are verified. The remaining desktop
+  distributions, the packaged desktop consent matrix, legal approval for
+  Nitro, operations cycles, and production observation periods remain open.
 - This ledger is current. It is not deferred or superseded. A blocked item
   remains part of this ledger until its external evidence or observation period
   is complete.
@@ -101,8 +101,10 @@ reporting and does not satisfy a live canary.
   that cannot prove an EVB source mapping. The final Nuxt and Electron public
   roots contained zero maps. The count is build-output evidence, not a fixed
   acceptance number.
-- Browser, Electron, and Nitro production reporting remain disabled without
-  their separately scoped credentials and environment gates.
+- Hosted-browser reporting is enabled in the exact production viewer build and
+  remains consent-gated. Desktop artifacts receive their separately scoped
+  build credential, but each distribution remains subject to its packaged
+  canary. Nitro production reporting remains disabled.
 
 ### Live control proof recorded through 2026-09-05
 
@@ -123,8 +125,9 @@ reporting and does not satisfy a live canary.
   Repeated desktop and browser events contained no geography.
 - Exactly two projects and three purpose-specific keys exist. One source-map
   token has only `org:ci`. GitHub Actions stores the desktop and upload settings.
-  Vercel stores separate browser and Nitro DSNs in Preview only. Nitro remains
-  disabled because its legal, retention, and objection gates are not complete.
+  Vercel stores the browser DSN in Production and keeps the separate Nitro DSN
+  in Preview only. Nitro remains disabled because its legal, retention, and
+  objection gates are not complete.
 - A strict upload accepted the web release with 473 mapped bundles, 16
   manifest-proved mapless generated facades, and 1,375 project sources. The
   protected Preview deployment is Ready, ships no public maps, and every served
@@ -145,6 +148,18 @@ reporting and does not satisfy a live canary.
   and sampled Electron main, renderer, and browser-worker events resolved to
   the expected EVB TypeScript or Vue file and line with the exact release and
   dist.
+- Release `v0.1.452` is public at commit
+  `02dfb20d0a32f65ed86162283ab9231725c17bcf`. Its exact prebuilt viewer output
+  is the production deployment at `web.evb-viewer.com`. The production upload
+  accepted 473 mapped bundles. Sentry accepted all 256 deterministic mapped
+  canaries and recorded 217 generated or vendor-only bundles as intentional
+  skips. A real consent-gated runtime event resolved to the original
+  `app/utils/failureReporter.ts` and
+  `app/plugins/rendererErrorGuard.client.ts` lines.
+- The production browser matrix proved zero ingest requests in unknown and
+  denied states, one successful envelope after granting the still-live error,
+  and no additional envelope after immediate revocation. The public CSP adds
+  one EU Sentry ingest origin only. The landing CSP adds none.
 - The repository-linked public GitHub project is the live status view. Ticket
   status follows verified exit evidence rather than the original planning count.
 
@@ -152,11 +167,12 @@ reporting and does not satisfy a live canary.
 
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
-- Exact private maps still need live upload and symbolication proof for eight
-  desktop distributions. The hosted viewer upload, exact-byte parity, and
-  web-project Debug ID symbolication canary pass.
-- Packaged desktop and hosted-browser consent canaries, the one-week Nitro canary, alert setup,
-  the first weekly operations cycle, production enablement, and the four-week
+- Exact private maps still need live upload and symbolication proof for the
+  desktop distributions not yet completed by the release artifact matrix. The
+  hosted viewer upload, exact-byte production parity, production consent
+  matrix, and web-project Debug ID symbolication canaries pass.
+- The packaged desktop consent canary, the one-week Nitro canary, quota
+  notifications, the first weekly operations cycle, and the four-week
   production proof remain incomplete.
 
 ## Current repository baseline
@@ -498,7 +514,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-03 Legal instruments and notice
 
-- Status: partially complete; DPA verified, public deployment verification pending
+- Status: partially complete; DPA and public notice verified, qualified legal review record pending
 - Depends on: SEN-EXT-02, SEN-EXT-05
 - Difficulty: hard
 - Scope: legal, notice, and translation publication after SEN-EXT-05 completes
@@ -1310,7 +1326,7 @@ current repository or external-gate status.
 
 #### SEN-SDK-03 Hosted browser adapter and CSP
 
-- Status: implemented and locally verified
+- Status: complete; captured-envelope tests and production consent/CSP acceptance verified 2026-09-05
 - Depends on: SEN-SDK-01
 - Difficulty: hard
 - Paths: `app/utils/browserDiagnosticsTransport.ts` (new), `nuxt.config.ts`,
@@ -1460,7 +1476,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: partially complete; strict web upload and symbolication and macOS arm64 desktop upload and symbolication pass, while eight desktop distributions remain pending
+- Status: partially complete; strict production web upload and symbolication and macOS arm64 desktop upload and symbolication pass, while the release artifact matrix finishes the remaining desktop distributions
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1503,7 +1519,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-05 Prebuilt viewer deployment
 
-- Status: complete; protected Preview deployment and full served-byte parity verified 2026-09-04
+- Status: complete; protected Preview and public production deployments and full served-byte parity verified through 2026-09-05
 - Depends on: SEN-MAP-03
 - Difficulty: x-hard
 - Paths: `scripts/deployVercelPrivate.mjs`, the `deploy:web` and
@@ -1529,7 +1545,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-06 Public artifact scans
 
-- Status: partially complete; local and exact-byte web Preview scans pass, while shipping desktop scans remain pending
+- Status: partially complete; local and exact-byte web Preview and production scans pass, while shipping desktop scans remain pending
 - Depends on: SEN-EXT-07
 - Difficulty: medium
 - Paths: `scripts/check-web-deploy-assets.mjs`,
@@ -1661,7 +1677,7 @@ current repository or external-gate status.
 
 #### SEN-CAN-02 Hosted browser consent canary
 
-- Status: partially complete; exact-byte Preview deployment and web Debug ID symbolication pass, while the consent, request-count, CSP, and Error ID checks remain pending
+- Status: complete; production request counts, grant, denial, revocation, CSP, closed Error ID, and original-source symbolication verified 2026-09-05
 - Depends on: SEN-CON-05, SEN-MIG-04, SEN-SDK-03, SEN-MAP-04, SEN-CON-07
 - Difficulty: hard
 - Paths: a preview deployment and the browser integration suite

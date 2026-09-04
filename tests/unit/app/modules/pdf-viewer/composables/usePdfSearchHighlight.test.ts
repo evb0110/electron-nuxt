@@ -205,6 +205,50 @@ describe('usePdfSearchHighlight', () => {
         }]);
     });
 
+    it('keeps the page-local current occurrence when equal-count native offsets drift', () => {
+        const pageMatches: IPdfPageMatches = {
+            pageIndex: requirePageIndex(0),
+            pageText: '',
+            searchQuery: 'needle',
+            matches: [
+                {
+                    matchIndex: 0,
+                    start: 8,
+                    end: 14,
+                },
+                {
+                    matchIndex: 1,
+                    start: 15,
+                    end: 21,
+                },
+            ],
+        };
+        const currentMatch: IPdfSearchMatch = {
+            pageIndex: requirePageIndex(0),
+            pageMatchIndex: 0,
+            matchIndex: 0,
+            startOffset: 8,
+            endOffset: 14,
+        };
+
+        expect(buildVisualMatchesWithCurrent(
+            pageMatches,
+            currentMatch,
+            'needle prefix needle extra',
+        )).toEqual([
+            {
+                start: 0,
+                end: 6,
+                isCurrent: true,
+            },
+            {
+                start: 14,
+                end: 20,
+                isCurrent: false,
+            },
+        ]);
+    });
+
     it('does not preserve backend identity after falling back from shifted reversed ranges', () => {
         const pageMatches: IPdfPageMatches = {
             pageIndex: requirePageIndex(0),

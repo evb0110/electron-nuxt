@@ -126,12 +126,32 @@ function getCurrentMatchOffsetDistance(
         + Math.abs(match.end - currentMatch.endOffset);
 }
 
+function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
+    return pageMatches.matches.every((match, index) => (
+        index === 0
+        || match.start >= pageMatches.matches[index - 1]!.start
+    ));
+}
+
 function getFallbackCurrentMatchIndex(
     matches: IVisualSearchMatch[],
+    pageMatches: IPdfPageMatches,
     currentMatch: IPdfSearchMatch | null,
 ) {
     if (!currentMatch || matches.length === 0) {
         return -1;
+    }
+
+    const requestedPageMatchIndex = currentMatch.pageMatchIndex;
+    // Equal counts preserve the page-local ordinal across extraction drift,
+    // provided the native result order is still document order.
+    if (
+        matches.length === pageMatches.matches.length
+        && arePageMatchesInSearchOrder(pageMatches)
+        && typeof requestedPageMatchIndex === 'number'
+        && Number.isSafeInteger(requestedPageMatchIndex)
+    ) {
+        return Math.min(matches.length - 1, Math.max(0, requestedPageMatchIndex));
     }
 
     const shouldUseBackendIdentity = matches.every(match => match.canUseBackendIdentity);
@@ -152,11 +172,6 @@ function getFallbackCurrentMatchIndex(
         }, -1);
     }
 
-    const requestedPageMatchIndex = currentMatch.pageMatchIndex;
-    if (typeof requestedPageMatchIndex === 'number' && Number.isFinite(requestedPageMatchIndex)) {
-        return Math.min(matches.length - 1, Math.max(0, requestedPageMatchIndex));
-    }
-
     return 0;
 }
 
@@ -173,7 +188,7 @@ function markVisualMatchesWithCurrent(
 
     const shouldHaveCurrent = currentMatch?.pageIndex === pageMatches.pageIndex;
     if (shouldHaveCurrent && ranges.length > 0 && !ranges.some(match => match.isCurrent)) {
-        const fallbackIndex = getFallbackCurrentMatchIndex(matches, currentMatch);
+        const fallbackIndex = getFallbackCurrentMatchIndex(matches, pageMatches, currentMatch);
         if (fallbackIndex >= 0) {
             ranges[fallbackIndex] = {
                 ...ranges[fallbackIndex]!,
