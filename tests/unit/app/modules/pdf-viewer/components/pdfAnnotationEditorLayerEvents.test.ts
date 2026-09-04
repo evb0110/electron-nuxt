@@ -1,0 +1,179 @@
+// @vitest-environment happy-dom
+
+import {
+    afterEach,
+    describe,
+    expect,
+    it,
+    vi,
+} from 'vitest';
+import {
+    computed,
+    createApp,
+    h,
+    nextTick,
+    provide,
+    ref,
+} from 'vue';
+import PdfAnnotationEditorLayer from '@app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue';
+import {
+    annotationEditorSurfaceKey,
+    type IAnnotationEditorSurface,
+} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
+import type {ITextMarkupEntity} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+
+const annotationId = 'reopened-markup' as ITextMarkupEntity['identity']['id'];
+
+const entity: ITextMarkupEntity = {
+    kind: 'text-markup',
+    identity: {id: annotationId},
+    pageIndex: 25,
+    revision: 2,
+    persistedRevision: 2,
+    deleted: false,
+    createdAt: null,
+    modifiedAt: null,
+    author: null,
+    subtype: 'highlight',
+    contents: '',
+    quadPoints: [{left: 0.2, top: 0.2, width: 0.3, height: 0.05}],
+    color: '#facc15',
+    opacity: 0.5,
+};
+
+function createSurface() {
+    const selectedIds = ref<ReadonlySet<ITextMarkupEntity['identity']['id']>>(new Set());
+    const activeTool = computed(() => 'select' as const);
+    const select = vi.fn((ids: readonly ITextMarkupEntity['identity']['id'][]) => {
+        selectedIds.value = new Set(ids);
+    });
+    const gesture = {
+        annotationId,
+        entity,
+        kind: 'move' as const,
+    };
+    const commitGesture = vi.fn(() => entity);
+    const surface = {
+        activeTool,
+        entitiesByPage: ref(new Map([[25, [entity]]])),
+        selectedIds,
+        settings: computed(() => null),
+        getEntitiesForPage: (pageIndex: number) => pageIndex === 25 ? [entity] : [],
+        select,
+        clearSelection: vi.fn(() => { selectedIds.value = new Set(); }),
+        getSelectedTextBox: vi.fn(() => null),
+        updateSelectedTextBoxProperties: vi.fn(() => true),
+        discardUnsavedAnnotation: vi.fn(() => true),
+        deleteAnnotation: vi.fn(() => true),
+        deleteSelection: vi.fn(),
+        moveSelection: vi.fn(),
+        nudgeSelection: vi.fn(),
+        nudgeSelectionByPdfPoints: vi.fn(),
+        undo: vi.fn(() => true),
+        redo: vi.fn(() => true),
+        getPageGeometry: vi.fn(() => ({pageView: [0, 0, 100, 100], rotation: 0 as const})),
+        beginMove: vi.fn(() => gesture),
+        beginResize: vi.fn(() => null),
+        commitGesture,
+        cancelGesture: vi.fn(),
+        createTextBoxAt: vi.fn(),
+        createNoteAt: vi.fn(),
+        createStampAt: vi.fn(),
+        createHighlightFromSelection: vi.fn(),
+        createShape: vi.fn(),
+        openNote: vi.fn(),
+        openShapeContextMenu: vi.fn(),
+    } as unknown as IAnnotationEditorSurface;
+    return {surface, selectedIds, select, commitGesture};
+}
+
+describe('PdfAnnotationEditorLayer SVG events', () => {
+    afterEach(() => {
+        document.body.replaceChildren();
+    });
+
+    it('selects an SVG markup entity on pointerdown and retains selection through a moved gesture and click', async () => {
+        const harness = createSurface();
+        const host = document.createElement('div');
+        document.body.append(host);
+        const app = createApp({
+            setup() {
+                provide(annotationEditorSurfaceKey, harness.surface);
+                return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
+            },
+        });
+        app.mount(host);
+        await nextTick();
+
+        const layer = host.querySelector<HTMLElement>('.pdf-annotation-editor-layer');
+        const rect = host.querySelector<SVGRectElement>('[data-annotation-id="reopened-markup"] rect');
+        expect(layer).not.toBeNull();
+        expect(rect).not.toBeNull();
+        vi.spyOn(layer!, 'getBoundingClientRect').mockReturnValue({
+            bottom: 100,
+            height: 100,
+            left: 0,
+            right: 100,
+            top: 0,
+            width: 100,
+            x: 0,
+            y: 0,
+            toJSON: () => ({}),
+        });
+
+        rect!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 1,
+        }));
+        await nextTick();
+        expect(harness.select).toHaveBeenCalledWith([annotationId], {additive: false});
+        expect(harness.selectedIds.value.has(annotationId)).toBe(true);
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+
+        rect!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 1,
+        }));
+        rect!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await nextTick();
+        await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+        expect(harness.select).toHaveBeenCalledTimes(2);
+        expect(harness.selectedIds.value.has(annotationId)).toBe(true);
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+
+        rect!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 20,
+            clientY: 20,
+            pointerId: 2,
+        }));
+        rect!.dispatchEvent(new PointerEvent('pointermove', {
+            bubbles: true,
+            button: 0,
+            clientX: 32,
+            clientY: 20,
+            pointerId: 2,
+        }));
+        rect!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 32,
+            clientY: 20,
+            pointerId: 2,
+        }));
+        rect!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await nextTick();
+
+        expect(harness.commitGesture).toHaveBeenCalledOnce();
+        expect(harness.selectedIds.value.has(annotationId)).toBe(true);
+        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+        app.unmount();
+    });
+});

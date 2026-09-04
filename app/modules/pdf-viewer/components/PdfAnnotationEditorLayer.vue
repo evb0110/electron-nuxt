@@ -505,6 +505,8 @@ function handleSurfacePointerDown(event: PointerEvent) {
     focusLayer();
     const id = entityIdFromEvent(event);
     if (id) {
+    }
+    if (id) {
         const wasSelected = surface.selectedIds.value.has(id);
         if (!wasSelected || event.shiftKey) {
             surface.select([id], {additive: event.shiftKey});
@@ -587,7 +589,9 @@ function handlePointerUp(event: PointerEvent) {
         pointerGesture.cancel();
         return;
     }
-    markClickSuppressed();
+    if (completion.hasMoved) {
+        markClickSuppressed();
+    }
     if (completion.mode === 'create') {
         if (!tool) {
             return;
@@ -692,6 +696,8 @@ function handleSurfaceClick(event: MouseEvent) {
         return;
     }
     const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
+    if (id) {
+    }
     if (!id) {
         surface.clearSelection();
         return;
