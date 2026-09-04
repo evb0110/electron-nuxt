@@ -149,6 +149,45 @@ describe('Sentry source-map canaries', () => {
         }]);
     });
 
+    it('records a project-source map with no usable mappings instead of aborting later canaries', async () => {
+        const root = await setup();
+        const manifestPath = getPrivateSourcemapManifestPath({
+            projectRoot: root,
+            identity,
+        });
+        const stageRoot = path.dirname(manifestPath);
+        await writeFile(path.join(stageRoot, 'maps/dist-electron/empty.js.map'), JSON.stringify({
+            version: 3,
+            file: 'empty.js',
+            sources: ['../../electron/empty.ts'],
+            names: [],
+            mappings: '',
+            debug_id: '87654321-4321-6789-abcd-987654321abc',
+        }));
+        const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as {bundles: Array<Record<string, unknown>>};
+        manifest.bundles.unshift({
+            bundle: 'dist-electron/empty.js',
+            role: 'electron-main',
+            sources: ['electron/empty.ts'],
+            stagedMapPath: 'maps/dist-electron/empty.js.map',
+        });
+        await writeFile(manifestPath, JSON.stringify(manifest));
+        const sendEvent = vi.fn();
+
+        const receipt = await sendSentrySourcemapCanaries({
+            environment: environment(),
+            projectRoot: root,
+            sendEvent,
+        });
+
+        expect(sendEvent).toHaveBeenCalledOnce();
+        expect(receipt.skippedBundles).toEqual([{
+            bundle: 'dist-electron/empty.js',
+            reason: 'no-project-mapping',
+            role: 'electron-main',
+        }]);
+    });
+
     it('rejects production without the explicit one-run override', async () => {
         const root = await setup();
         await expect(sendSentrySourcemapCanaries({

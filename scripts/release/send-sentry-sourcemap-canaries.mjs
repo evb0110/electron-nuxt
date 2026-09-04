@@ -121,11 +121,7 @@ function findCanaryMapping(mapPayload, manifestSources) {
             named ??= candidate;
         }
     });
-    const selected = named ?? first;
-    if (selected === null) {
-        throw new Error('Private source map has no project-source mapping for a canary');
-    }
-    return selected;
+    return named ?? first;
 }
 
 function readDebugId(mapPayload) {
@@ -253,8 +249,17 @@ export async function sendSentrySourcemapCanaries({
             resolveInside(stageRoot, bundle.stagedMapPath, 'Canary source-map path'),
             'utf8',
         ));
+        const debugId = readDebugId(mapPayload);
         const mapping = findCanaryMapping(mapPayload, bundle.sources);
-        const canary = createCanaryEvent(identity, bundle, mapping, readDebugId(mapPayload));
+        if (mapping === null) {
+            skippedBundles.push({
+                bundle: bundle.bundle,
+                reason: 'no-project-mapping',
+                role: bundle.role,
+            });
+            continue;
+        }
+        const canary = createCanaryEvent(identity, bundle, mapping, debugId);
         await sendEvent(canary.event, dsn);
         evidence.push(canary.evidence);
         const expectedFunction = canary.evidence.expectedFunction ?? '<anonymous>';
