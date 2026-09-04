@@ -1,0 +1,22 @@
+scripts/release/send-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_254ba44d1892b0 124,254-261
+  s_b412fd4cd3f576::t_da4390616c4938 252,262
+tests/unit/scripts/sendSentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_254ba44d1892b0 152-190
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "f3d686b959ce686c86e72e17a2dab27cd5445e99",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
