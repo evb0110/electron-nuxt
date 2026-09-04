@@ -790,6 +790,34 @@ fn rewrites_imported_markup_note_text_and_linked_popup_in_memory() {
 }
 
 #[test]
+fn rewrites_imported_markup_using_the_canonical_identity_when_id_is_a_pdf_ref() {
+    let (mut document, _page_id, markup_id) = create_test_markup_pdf("Highlight");
+    document
+        .get_dictionary_mut(markup_id)
+        .unwrap()
+        .set("NM", Object::string_literal("canonical-markup-id"));
+
+    let mut mutation = imported_markup_note_mutation(markup_id);
+    let hint = mutation
+        .markup
+        .as_mut()
+        .expect("markup mutation exists")
+        .hints
+        .first_mut()
+        .expect("markup hint exists");
+    hint.app_annotation_id = Some("canonical-markup-id".to_string());
+    hint.id = Some(format_pdfjs_annotation_ref(markup_id));
+
+    apply_native_mutations(&mut document, &mutation, "D:20260829120500+04'00'").unwrap();
+
+    let markup = document.get_dictionary(markup_id).unwrap();
+    assert_eq!(
+        markup.get(b"Contents").ok().and_then(pdf_string_to_text).as_deref(),
+        Some("edited imported markup note"),
+    );
+}
+
+#[test]
 fn appends_imported_markup_note_text_without_materializing_the_document() {
     let (mut document, page_id, markup_id) = create_test_markup_pdf("Highlight");
     let popup_id = attach_markup_popup(&mut document, page_id, markup_id);

@@ -260,10 +260,16 @@ pub(crate) fn quad_points_object(values: &[f64]) -> Object {
 /// `/NM` gives the next save a bounded page-local upsert key.
 pub(crate) fn markup_annotation_name(hint: &MarkupSubtypeHint) -> Option<String> {
     let identity = hint
-        .id
+        .app_annotation_id
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
+        .or_else(|| {
+            hint.id
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
         .or_else(|| {
             hint.annotation_id
                 .as_deref()
