@@ -1151,11 +1151,13 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                         'anno_moved_note',
                         '12R',
                         '22R',
+                        '8933R',
                     ]),
                     replayableEditorNoteIds: new Set(['12R']),
                     hasChanges: true,
                     fingerprint: 'reopened-note-with-managed-shape-edit',
                 }),
+                deletedEmbeddedShapeAnnotationIds: ['8933R'],
             }),
         );
 

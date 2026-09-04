@@ -287,6 +287,8 @@ function collectReplayableEmbeddedAnnotationIds(input: {
     liveAnnotationChanges: IPdfLiveAnnotationChangeSummary;
     nativeTextBoxes?: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
     shapes?: readonly IShapeAnnotation[] | null;
+    deletedShapeAnnotationIds?: readonly string[];
+    deletedShapeStableKeys?: readonly string[];
 }) {
     const ids = new Set<string>();
     input.shapes?.forEach((shape) => {
@@ -295,6 +297,8 @@ function collectReplayableEmbeddedAnnotationIds(input: {
         addReplayableAnnotationId(ids, shape.annotationId);
         addReplayableAnnotationId(ids, shape.stableKey);
     });
+    input.deletedShapeAnnotationIds?.forEach((id) => addReplayableAnnotationId(ids, id));
+    input.deletedShapeStableKeys?.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
     input.nativeTextBoxes?.forEach((textBox) => {
         // An imported FreeText can appear in PDF.js storage under both the
         // canonical /NM and its indirect PDF object ref. The native payload
@@ -414,6 +418,8 @@ function deriveCanonicalSaveInputs(
                 ? {}
                 : {nativeTextBoxes: capabilities.nativeTextBoxes ?? []}),
             shapes: capabilities.shapes,
+            deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
+            deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
         }),
         replayableCanonicalStickyNoteStableKeys,
     };
@@ -675,6 +681,8 @@ function collectProjectedNativeAnnotationIds(input: {
         annotationId?: string | null
     }>;
     shapes: readonly IShapeAnnotation[] | null;
+    deletedShapeAnnotationIds: readonly string[];
+    deletedShapeStableKeys: readonly string[];
     markup: {
         overrides: Array<readonly [string, TMarkupSubtype]>;
         hints: Array<Pick<IMarkupSubtypeHint, 'id' | 'annotationId' | 'subtype'>>;
@@ -691,6 +699,8 @@ function collectProjectedNativeAnnotationIds(input: {
         addReplayableAnnotationId(ids, shape.annotationId);
         addReplayableAnnotationId(ids, shape.stableKey);
     });
+    input.deletedShapeAnnotationIds.forEach((id) => addReplayableAnnotationId(ids, id));
+    input.deletedShapeStableKeys.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
 
     input.textBoxes.forEach((textBox) => {
         addReplayableAnnotationId(ids, textBox.stableKey);
@@ -872,6 +882,8 @@ function buildClassifiedNativeMutationProjection(
         freeTextNotes,
         textBoxes,
         shapes: capabilities.shapes,
+        deletedShapeAnnotationIds: capabilities.deletedEmbeddedShapeAnnotationIds,
+        deletedShapeStableKeys: capabilities.deletedEmbeddedShapeStableKeys,
         nativeFreeTextEditors: replayAllowed
             ? canonical.liveAnnotationChanges.nativeFreeTextEditors
             : new Map(),
