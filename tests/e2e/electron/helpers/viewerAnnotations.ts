@@ -322,7 +322,10 @@ export async function createCanonicalTextBoxWithPointer(
         timeout: 30_000,
         visible: true,
     });
-    await page.focus(editorSelector);
+    await page.waitForFunction((selector: string) => {
+        const activeElement = document.activeElement;
+        return activeElement instanceof HTMLElement && activeElement.matches(selector);
+    }, {timeout: 30_000}, editorSelector);
     await page.keyboard.type(text, {delay: 10});
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
