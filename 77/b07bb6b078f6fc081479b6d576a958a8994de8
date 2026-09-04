@@ -1,0 +1,25 @@
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_d016d04f5c20a0::t_c2a102b86d6ec8 36,99
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_d016d04f5c20a0::t_c2a102b86d6ec8 445,1043,1045
+app/types/workspaceExpose.ts
+  s_d016d04f5c20a0::t_c2a102b86d6ec8 22,187
+tests/unit/app/modules/workspace-shell/components/documentWorkspaceNavigationCommand.test.ts
+  s_d016d04f5c20a0::t_0d75f16a6a3b64 27,283-292,296
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "77b07bb6b078f6fc081479b6d576a958a8994de8",
+  "prompts": {},
+  "sessions": {
+    "s_d016d04f5c20a0": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a069ad-570d-77a3-9656-e26c0ad247f7",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
