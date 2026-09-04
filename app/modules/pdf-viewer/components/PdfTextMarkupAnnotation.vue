@@ -1,7 +1,7 @@
 <template>
     <g
         class="pdf-annotation-editor-entity pdf-annotation-editor-text-markup"
-        :class="{'is-selected': selected}"
+        :class="{'is-selected': isSelected}"
         :data-annotation-id="entity.identity.id"
         data-annotation-kind="text-markup"
         :data-markup-subtype="entity.subtype"
@@ -22,11 +22,16 @@
 
 <script setup lang="ts">
 import type { ITextMarkupEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { annotationEditorSurfaceKey } from '@app/modules/pdf-viewer/runtime/annotations/usePdfAnnotationEditorSurface';
 
 const props = defineProps<{
     entity: ITextMarkupEntity;
     selected: boolean;
 }>();
+const annotationEditorSurface = inject(annotationEditorSurfaceKey, null);
+const isSelected = computed(() => annotationEditorSurface
+    ? annotationEditorSurface.selectedIds.value.has(props.entity.identity.id)
+    : props.selected);
 
 const markupStyle = computed(() => ({
     '--annotation-color': props.entity.color ?? 'var(--app-pdf-highlight-bg)',
