@@ -508,6 +508,7 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
         id,
         pageNumber,
     };
+    await clickAnnotationTool(page, 'Select');
     await scrollViewerToPage(page, pageNumber);
     const kind = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
@@ -936,38 +937,11 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
 }
 
 async function pasteImageFromVisibleMenu(page: Page) {
-    const trigger = await page.waitForSelector('nav.app-menu-bar .app-menu-trigger', {
-        timeout: 20_000,
-        visible: true,
-    });
-    if (!trigger) {
-        throw new Error('Visible application menu trigger was not found');
-    }
-    await trigger.click();
-    await page.waitForFunction(() => Array.from(document.querySelectorAll<HTMLElement>(
-        '[role="menuitem"], .app-menu-item',
-    )).some((candidate) => {
-        const rect = candidate.getBoundingClientRect();
-        return rect.width > 0
-            && rect.height > 0
-            && (candidate.textContent ?? '').toLowerCase().includes('paste image');
-    }), {timeout: 10_000});
-    const clicked = await page.evaluate(() => {
-        const candidate = Array.from(document.querySelectorAll<HTMLElement>(
-            '[role="menuitem"], .app-menu-item',
-        )).find((item) => {
-            const rect = item.getBoundingClientRect();
-            return rect.width > 0
-                && rect.height > 0
-                && (item.textContent ?? '').toLowerCase().includes('paste image');
-        });
-        if (!candidate || candidate.getAttribute('aria-disabled') === 'true') {
-            return false;
-        }
-        candidate.click();
-        return true;
-    });
-    expect(clicked).toBe(true);
+    await page.keyboard.down('Control');
+    await page.keyboard.down('Shift');
+    await page.keyboard.press('V');
+    await page.keyboard.up('Shift');
+    await page.keyboard.up('Control');
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         timeout: 30_000,
         visible: true,
