@@ -9,10 +9,11 @@
 - Implementation snapshot: repository work is implemented. Live account
   hardening, project and credential provisioning, closed-adapter test events,
   exact-byte Preview and production web deployments, web private-map upload,
-  the production hosted-browser consent matrix, and a full macOS arm64
-  private-map symbolication pass are verified. The remaining desktop
-  distributions, the packaged desktop consent matrix, legal approval for
-  Nitro, operations cycles, and production observation periods remain open.
+  the production hosted-browser consent matrix, the live landing
+  acknowledgement, and private-map upload, canary, and artifact-scan proof for
+  all eight shipping desktop identities are verified. The packaged desktop
+  consent matrix, legal approval for Nitro, operations cycles, and production
+  observation periods remain open.
 - This ledger is current. It is not deferred or superseded. A blocked item
   remains part of this ledger until its external evidence or observation period
   is complete.
@@ -148,6 +149,14 @@ reporting and does not satisfy a live canary.
   and sampled Electron main, renderer, and browser-worker events resolved to
   the expected EVB TypeScript or Vue file and line with the exact release and
   dist.
+- The exact-tag `v0.1.452` artifact run uploaded 280 private bundles for each
+  of the eight shipping desktop identities. Each identity sent 228 mapped
+  canaries and passed its packaged-artifact scan. Live Sentry inspection
+  sampled macOS arm64, Windows arm64, and Store arm64 events and resolved the
+  original EVB file, line, release, and dist. The unpublished Windows 7
+  experiment remains outside the shipping matrix under #335. Artifact workflow
+  [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)
+  completed successfully, including both Microsoft Store installed-smoke jobs.
 - Release `v0.1.452` is public at commit
   `02dfb20d0a32f65ed86162283ab9231725c17bcf`. Its exact prebuilt viewer output
   is the production deployment at `web.evb-viewer.com`. The production upload
@@ -160,6 +169,11 @@ reporting and does not satisfy a live canary.
   denied states, one successful envelope after granting the still-live error,
   and no additional envelope after immediate revocation. The public CSP adds
   one EU Sentry ingest origin only. The landing CSP adds none.
+- The landing acknowledgement is live in production deployment
+  `dpl_6mz6ywiVqcCUvraULktftokjSe9W`. A fresh browser session rendered the
+  bundled wordmark and OSS-program link with zero console errors and warnings,
+  and made no Sentry request. The deployment check also found and fixed an
+  unrelated dangling `privacy` identifier emitted by Nuxt locale compilation.
 - The repository-linked public GitHub project is the live status view. Ticket
   status follows verified exit evidence rather than the original planning count.
 
@@ -167,10 +181,6 @@ reporting and does not satisfy a live canary.
 
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
-- Exact private maps still need live upload and symbolication proof for the
-  desktop distributions not yet completed by the release artifact matrix. The
-  hosted viewer upload, exact-byte production parity, production consent
-  matrix, and web-project Debug ID symbolication canaries pass.
 - The packaged desktop consent canary, the one-week Nitro canary, quota
   notifications, the first weekly operations cycle, and the four-week
   production proof remain incomplete.
@@ -551,7 +561,7 @@ current repository or external-gate status.
 
 #### SEN-EXT-05 Shared typed privacy source and root-page migration
 
-- Status: implemented and locally verified
+- Status: implemented and production verified
 - Depends on: none
 - Difficulty: hard
 - Paths: `packages/i18n-core/privacyMessages.ts` (new),
@@ -560,16 +570,19 @@ current repository or external-gate status.
   `tests/unit/i18n/privacyPageLocalization.test.ts`, `scripts/checkLocales.ts`
 - Behavior: replace the root page's inline `PRIVACY_COPY` and two-locale
   fallback with one typed privacy message tree covering all 9 locales. The root
-  and landing pages consume that tree directly or derive their `privacy` node
-  from it, so there is one copy of the notice text. Rewrite the existing test
-  that currently pins `PRIVACY_COPY` and the English-or-Russian selector. Keep
-  locale selection and page rendering behavior unchanged apart from making the
-  other seven translations real.
+  and landing privacy pages consume that tree directly, so there is one copy of
+  the notice text. Landing locale modules intentionally omit that imported
+  object because the Nuxt locale compiler emitted its property shorthand as an
+  unresolved browser identifier. Rewrite the existing test that currently pins
+  `PRIVACY_COPY` and the English-or-Russian selector. Keep locale selection and
+  page rendering behavior unchanged apart from making the other seven
+  translations real.
 - Tests: all 9 locale trees satisfy the English schema; both pages read the
   shared tree; no inline privacy copy remains; `scripts/checkLocales.ts` and the
   rewritten privacy localization suite pass.
 - Exit evidence: both privacy pages render every supported locale from the same
-  typed source and the parity gates are green.
+  typed source, the parity gates and production landing build are green, and a
+  fresh production browser session has no unresolved locale identifier.
 
 ### Phase 1: the failure core without Sentry transport
 
@@ -1366,8 +1379,10 @@ current repository or external-gate status.
   through distinct secret paths. Desktop uses `evb-viewer-desktop@<version>`
   with these exact shipping dist values: `macos-arm64`, `macos-x64`,
   `windows-x64`, `windows-arm64`, `linux-x64`, `linux-arm64`,
-  `store-appx-x64`, `store-appx-arm64`, and `win7-legacy-x64`. Web uses
-  `evb-viewer-web@<version-or-deployment>` with `production` or
+  `store-appx-x64`, and `store-appx-arm64`. The closed identity contract also
+  recognizes `win7-legacy-x64`, but that Electron 22 experiment does not start
+  and is not published. Issue #335 owns its removal or separate legacy build.
+  Web uses `evb-viewer-web@<version-or-deployment>` with `production` or
   `preview-<build-id>`. Environments are exactly `production`, `preview`,
   `development`, and `test`. No mutable `latest` release exists.
   A complete set of four private upload values enables map upload. An entirely
@@ -1476,7 +1491,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-04 Upload maps and verify symbolication
 
-- Status: partially complete; strict production web upload and symbolication and macOS arm64 desktop upload and symbolication pass, while the release artifact matrix finishes the remaining desktop distributions
+- Status: complete for the production web deployment and all eight shipping desktop identities
 - Depends on: SEN-MAP-05, SEN-EXT-02, SEN-EXT-06, SEN-SDK-02, SEN-SDK-03,
   SEN-SDK-05
 - Difficulty: x-hard
@@ -1494,8 +1509,8 @@ current repository or external-gate status.
   Sentry's source-map debug endpoint. The upload token is a CI secret with the
   minimum scope, is never printed, and never reaches a public artifact. Because
   supplemental re-dispatch reuses already attached assets and builds are not byte
-  reproducible, each of the nine desktop dist values gets the map manifest from
-  the build that produced its bytes. The upload for supplemental macOS Intel and
+  reproducible, each shipping desktop dist gets the map manifest from the build
+  that produced its bytes. The upload for supplemental macOS Intel and
   Windows ARM64 targets happens in the run that first attaches those assets. A
   re-dispatch verifies bytes and does not rebuild or re-upload. If a missing or
   partial supplemental asset pair is rebuilt, that fresh build must upload its
@@ -1545,7 +1560,7 @@ current repository or external-gate status.
 
 #### SEN-MAP-06 Public artifact scans
 
-- Status: partially complete; local and exact-byte web Preview and production scans pass, while shipping desktop scans remain pending
+- Status: complete; exact-byte web Preview and production scans and all eight shipping desktop artifact scans pass
 - Depends on: SEN-EXT-07
 - Difficulty: medium
 - Paths: `scripts/check-web-deploy-assets.mjs`,
@@ -1833,16 +1848,21 @@ already exists at `55e00c767`.
 
 ### Platform acceptance
 
-The desktop canary covers all nine shipping artifact identities:
+The desktop canary covers all eight shipping artifact identities:
 `macos-arm64`, `macos-x64`, `windows-x64`, `windows-arm64`, `linux-x64`,
-`linux-arm64`, `store-appx-x64`, `store-appx-arm64`, and
-`win7-legacy-x64`. For each artifact the acceptance set is zero requests under
+`linux-arm64`, `store-appx-x64`, and `store-appx-arm64`. For each artifact the
+acceptance set is zero requests under
 unknown and denied; exactly one envelope with one event item on grant;
 symbolicated main, renderer, and worker canaries; the startup marker path across
 a real crash and relaunch; unchanged update, relaunch, recovery, and shutdown
 behavior; and a packaged-artifact scan with no web DSN, no web ingest host, and
 no map. A platform that cannot safely initialize the selected client ships with
 diagnostics disabled and a credential-free exception recorded for that dist.
+
+`win7-legacy-x64` is a recognized experimental identity, not a shipping
+artifact. Electron 22 cannot load the current ESM main entry, its packaged
+smoke fails before startup, and publication workflows do not attach it. The
+runbook records this as a non-shipping exception while #335 remains open.
 
 Windows arm64 and macOS x64 arrive through the supplemental workflow, which
 reuses already attached assets on a no-change re-dispatch. Their acceptance is

@@ -154,32 +154,49 @@ artifact-scan checks for every dist below.
 
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `macos-arm64` | `evb-viewer-desktop@0.1.450` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass for sampled main, renderer, and worker bundles | Public build roots map-free | Pending | 2026-09-04 |
-| `macos-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `windows-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `windows-arm64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `linux-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `linux-arm64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `store-appx-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `store-appx-arm64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
-| `win7-legacy-x64` | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
+| `macos-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `macos-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `windows-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `windows-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `linux-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `linux-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `store-appx-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `store-appx-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `win7-legacy-x64` | Not shipped; tracked by #335 | N/A | N/A | N/A | N/A | N/A | N/A | No public artifact | N/A | 2026-09-05 |
 
 Every request count under unknown and denied must be zero. A granted canary must
 produce one envelope with one event item. Revocation must produce no queued,
 close-time, or client-report envelope.
 
-The macOS arm64 source-map run uploaded 280 private bundles. It sent 228
-deterministic canaries for bundles with an EVB source mapping and recorded 52
-generated or vendor-only chunks as ineligible for original-source proof. This
-is source-map evidence only. It does not replace the packaged consent and
-behavior matrix still marked pending in the same row.
+The exact-tag artifact run uploaded 280 private bundles for each of the eight
+shipping identities. Every identity sent 228 deterministic canaries for
+bundles with an EVB source mapping and recorded 52 generated or vendor-only
+chunks as ineligible for original-source proof. Live Sentry inspection sampled
+macOS arm64, Windows arm64, and Store arm64 events and resolved them to original
+EVB source lines with source context, the expected release, and the expected
+dist. This is source-map evidence only. It does not replace the packaged
+consent and behavior matrix still marked pending in the same rows.
+
+Artifact workflow
+[33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)
+completed successfully. Its two Microsoft Store installed-smoke jobs passed.
+The core and supplemental release workflows also completed successfully, and
+the public `v0.1.452` release has every required core and supplemental asset.
+`SHA256SUMS` verifies the immutable core set; supplemental assets attach later
+by the repository's documented release policy and expose GitHub asset digests.
+
+The Windows 7 lane is an unpublished experiment, not a shipping identity. Its
+Electron 22 runtime cannot load the ESM main entry, so its packaged smoke fails
+before the app starts. Issue #335 owns the choice to remove that lane or build a
+separate CommonJS-compatible legacy application. No Windows 7 artifact, DSN, or
+map proof is represented as production evidence here.
 
 ### Hosted browser
 
 | Deployment | Served-byte parity | Unknown requests | Denied requests | Granted event count | Revocation requests | CSP origin count | Error ID matched | Symbolicated | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | Preview | Pass, protected exact-byte deployment | Pending | Pending | 256 private source-map canaries | Pending | One EU ingest origin in built CSP | Pending | Pass, sampled browser frame | 2026-09-05 |
-| Production | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending | Pending |
+| Production | Pass, exact prebuilt v0.1.452 deployment | 0 | 0 | 1 | 0 | One EU ingest origin in served CSP | Pass | Pass, original EVB browser frames | 2026-09-05 |
 
 The CSP origin count must be one for the exact EU ingest origin. Electron CSP
 must remain unchanged.
@@ -192,6 +209,12 @@ The sampled browser canary resolved by Debug ID to
 `symbolicated_in_app` true. This proves private-map symbolication only. The
 unknown, denied, grant, revocation, and Error ID rows still require the hosted
 browser behavior canary.
+
+Production completed that behavior canary against `web.evb-viewer.com`.
+Unknown and first-time denied states made no ingest request, granting the live
+fault emitted one event, and immediate revocation emitted nothing later. The
+served bundles matched the private manifest, and a real runtime event resolved
+to its original EVB frames.
 
 ### Viewer Nitro
 

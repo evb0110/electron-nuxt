@@ -125,4 +125,7 @@ source files. Nitro runtime reporting remains disabled.
 The live browser check on 2026-09-05 recorded no Sentry request before consent,
 one event after the user granted the still-live report, no later event after
 revocation, and no event after first-time denial. The viewer CSP contains one
-EU Sentry ingest origin. The landing CSP contains none.
+EU Sentry ingest origin. The landing CSP contains none. Production deployment
+`dpl_6mz6ywiVqcCUvraULktftokjSe9W` serves the bundled acknowledgement and
+wordmark at `evb-viewer.com`; a fresh browser session made no Sentry request and
+reported zero console errors or warnings.
