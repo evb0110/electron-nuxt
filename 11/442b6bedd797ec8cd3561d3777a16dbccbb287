@@ -1,0 +1,19 @@
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_a82182afd52c56::t_70d4c764bdf908 516
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "11442b6bedd797ec8cd3561d3777a16dbccbb287",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
