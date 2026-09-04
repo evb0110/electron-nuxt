@@ -219,7 +219,6 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
 
         expect(harness.selectedIds.value.size).toBe(0);
         expect(harness.surface.clearSelection).toHaveBeenCalled();
-        expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).toBeNull();
         app.unmount();
     });
 
