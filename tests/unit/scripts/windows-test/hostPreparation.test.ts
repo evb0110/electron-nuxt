@@ -13,7 +13,9 @@ import {
     afterEach,
     expect,
     it,
+    vi,
 } from 'vitest';
+import { runWindowsTestPrepareCli } from '@scripts/windows-test/cli/runWindowsTestPrepareCli';
 import { windowsTestHostLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
 import {
     loadFixtureManifest,
@@ -23,6 +25,7 @@ import { prepareWindowsTestHost } from '@scripts/windows-test/host/prepareWindow
 
 const roots: string[] = [];
 afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(roots.splice(0).map(root => rm(root, {
         recursive: true,
         force: true,
@@ -95,4 +98,38 @@ it('rejects a declared generated fixture that the generator did not produce', as
         repositoryRoot,
     })).rejects.toThrow('F01-missing was not generated');
     await expect(readFile(path.join(options.layout.fixturesCacheDir, 'manifest.json'))).rejects.toThrow();
+});
+
+it('preparation CLI writes verified inputs into the requested host root', async () => {
+    const { layout } = await preparation();
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root })).toBe(0);
+    const manifest = await loadFixtureManifest(path.join(layout.fixturesCacheDir, 'manifest.json'));
+    expect(manifest.packs.flatMap(pack => pack.files)).toHaveLength(11);
+    expect((await verifyFixturePack(layout.fixturesCacheDir, manifest)).problems).toEqual([]);
+    expect(output.mock.calls.map(call => String(call[0])).join('')).toContain('"fixtureCount": 11');
+}, 30_000);
+
+it('preparation CLI reports usage without creating inputs for unknown arguments', async () => {
+    const { layout } = await preparation();
+    const output = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    const error = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    const env = { EVB_WINDOWS_TESTS_ROOT: layout.root };
+    expect(await runWindowsTestPrepareCli([
+        '--',
+        '--help',
+    ], env)).toBe(0);
+    expect(output).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
+    expect(await runWindowsTestPrepareCli(['--unknown'], env)).toBe(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('Unknown preparation argument'));
+    await expect(readFile(path.join(layout.fixturesCacheDir, 'manifest.json'))).rejects.toThrow();
+});
+
+it('preparation CLI returns infrastructure failure and preserves an active lease', async () => {
+    const { layout } = await preparation();
+    await writeFile(layout.leaseFile, 'existing-run');
+    const error = vi.spyOn(process.stderr, 'write').mockReturnValue(true);
+    expect(await runWindowsTestPrepareCli([], { EVB_WINDOWS_TESTS_ROOT: layout.root })).toBe(3);
+    expect(await readFile(layout.leaseFile, 'utf8')).toBe('existing-run');
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('lease exists'));
 });
