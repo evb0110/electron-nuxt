@@ -840,7 +840,7 @@ describe('dependency graph', () => {
         }]);
 
         expect(checkArchitectureBoundarySource(
-            'app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts',
+            'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
             'const storage = document.annotationStorage;\nreturn storage?.serializable;',
         )).toEqual([]);
 
@@ -890,13 +890,13 @@ describe('dependency graph', () => {
 
         expect(checkAnnotationDependencyEdge({
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
         })).toEqual([{
             rule: 'annotation-save-public-entrypoint',
             source: 'app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts',
-            target: 'app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts',
-            specifier: '@app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute',
+            target: 'app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts',
+            specifier: '@app/modules/pdf-viewer/runtime/save/nativeMutationProjection',
             message: 'Annotation save internals must be consumed through app/modules/pdf-viewer/public.',
         }]);
     });

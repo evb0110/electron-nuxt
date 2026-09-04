@@ -140,7 +140,7 @@ describe('workspaceSavePlan', () => {
         });
     });
 
-    it('keeps dirty Save As and native-disabled Save on the serialized route', () => {
+    it('routes dirty Save As through the same native writer path', () => {
         expect(buildPlan({
             request: {
                 kind: 'save-as',
@@ -148,25 +148,18 @@ describe('workspaceSavePlan', () => {
             },
             dirtyState: dirtyState({annotationChanges: true}),
             canPersistNativeMutations: true,
-        }).kind).toBe('serialized');
+        }).kind).toBe('native-mutation');
         expect(buildPlan({dirtyState: dirtyState({annotationChanges: true})}).kind).toBe('serialized');
     });
 
-    it('requires serialized materialization when managed shapes need the live source', () => {
+    it('keeps managed shape writes on the native writer path', () => {
         const plan = buildPlan({
             dirtyState: dirtyState({preservedAnnotationSource: true}),
             hasManagedShapes: true,
             canPersistNativeMutations: true,
         });
 
-        expect(plan).toMatchObject({
-            kind: 'serialized',
-            body: {
-                source: 'live-pdfjs',
-                includeManagedShapes: true,
-                preserveLoadedSource: true,
-            },
-        });
+        expect(plan).toMatchObject({kind: 'native-mutation'});
     });
 
     it('lets the classifier decide whether saved PDF.js baseline changes are natively replayable', () => {

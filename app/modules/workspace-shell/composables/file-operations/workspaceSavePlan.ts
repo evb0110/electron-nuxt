@@ -69,7 +69,7 @@ export type TWorkspaceSavePlan =
     }
     | IWorkspaceSavePlanCommon & {
         kind: 'native-mutation';
-        request: Extract<TWorkspaceSaveRequest, {kind: 'save'}>;
+        request: Extract<TWorkspaceSaveRequest, {kind: 'save' | 'save-as'}>;
         serializedFallback: IWorkspaceSerializedSaveBody;
     }
     | IWorkspaceSavePlanCommon & {
@@ -146,10 +146,9 @@ export function createWorkspaceSavePlan(input: {
     }
 
     if (
-        request.kind === 'save'
+        (request.kind === 'save' || request.kind === 'save-as')
         && forcedByDirtyState
         && input.canPersistNativeMutations
-        && !includeManagedShapes
     ) {
         return {
             ...common,

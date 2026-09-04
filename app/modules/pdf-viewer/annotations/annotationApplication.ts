@@ -29,7 +29,7 @@ import {
     buildSerializationPlan,
     type IAnnotationReopenReader,
     verifyAnnotationSave,
-} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {
     configurePdfjsWorkerSrc,
     createPdfjsDocumentOptions,

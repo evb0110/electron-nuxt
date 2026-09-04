@@ -50,7 +50,6 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
     >,
     Pick<IPdfViewerSaveExpose,
         'runSaveTransaction'
-        | 'saveDocument'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
         'collectLiveAnnotationChanges'

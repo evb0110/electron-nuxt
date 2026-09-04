@@ -42,15 +42,10 @@ vi.mock(
 );
 vi.mock('@app/utils/platformDocuments', () => ({getDocumentFilesCapability: () => ({statFile: platformMocks.statFile})}));
 vi.mock(
-    '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization',
-    () => ({usePdfSerialization: () => ({
+    '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence',
+    () => ({usePdfPlacedImagePersistence: () => ({
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
-        serializePdfForSave: vi.fn(async (data: Uint8Array) => data),
-        rewriteMarkupSubtypes: vi.fn(),
         embedPlacedImageToPage: vi.fn(),
-        updateEmbeddedAnnotationByRef: vi.fn(),
-        deleteEmbeddedAnnotationByRef: vi.fn(),
-        rewritePageLabels: vi.fn(),
     })}),
 );
 

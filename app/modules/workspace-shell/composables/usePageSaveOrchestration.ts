@@ -13,7 +13,7 @@ import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
 import {
-    usePdfSerialization,
+    usePdfPlacedImagePersistence,
     resolvePdfReloadPage,
     createPdfReloadWaiter,
     resolvePdfViewerSaveTransactionFinalBytes,
@@ -153,30 +153,11 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
     const {
         getSourcePdfData,
-        serializePdfForSave,
-        rewriteMarkupSubtypes,
         embedPlacedImageToPage,
-        updateEmbeddedAnnotationByRef: updateEmbeddedByRef,
-        deleteEmbeddedAnnotationByRef: deleteEmbeddedByRef,
-        rewritePageLabels,
-    } = usePdfSerialization({
+    } = usePdfPlacedImagePersistence({
         pdfData,
         workingCopyPath,
         documentRevisionToken,
-        totalPages,
-        pageLabelsDirty,
-        pageLabelRanges,
-        bookmarksDirty,
-        bookmarkItems,
-        untitledBookmarkLabel: t('bookmarks.untitled'),
-        getMarkupSubtypeOverrides: () => pdfViewerRef.value?.getMarkupSubtypeOverrides(),
-        getMarkupSubtypeHints: () => pdfViewerRef.value?.getMarkupSubtypeHints?.(),
-        getAllShapes: () => pdfViewerRef.value?.getAllShapes() ?? [],
-        getDeletedEmbeddedShapeAnnotationIds: () => pdfViewerRef.value?.getDeletedEmbeddedShapeAnnotationIds() ?? [],
-        getDeletedEmbeddedShapeStableKeys: () => pdfViewerRef.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
-        ensureManagedShapeBaselineReady: () => (
-            pdfViewerRef.value?.ensureManagedShapeBaselineReady?.() ?? Promise.resolve(true)
-        ),
     });
 
     const saveDependencies: IWorkspaceSaveDependencies = {
@@ -235,7 +216,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             runSaveTransaction: request => pdfViewerRef.value?.runSaveTransaction(request)
                 ?? Promise.reject(new Error('Missing PDF viewer save transaction')),
             getSourceData: getSourcePdfData,
-            serializeForSave: serializePdfForSave,
+            serializeForSave: undefined,
         },
         persistence: {
             validatePdfPath,
@@ -395,7 +376,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             && typeof documentFiles.replaceWorkingCopyFromStagedPdfNativeMutation === 'function'
         );
         return {
-            forcePdfjsMaterialize: (
+            forceWriterSave: (
                 (hasPreservedAnnotationSourceChanges?.() ?? false)
                 || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false)
             ),
@@ -452,7 +433,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
             mode: 'snapshot',
             saveMode: 'rewrite',
             saveFlowMode: 'save',
-            forcePdfjsMaterialize: (hasPreservedAnnotationSourceChanges?.() ?? false)
+            forceWriterSave: (hasPreservedAnnotationSourceChanges?.() ?? false)
                 || (hasSavedPdfJsAnnotationBaselineChanges?.() ?? false),
             includeManagedShapes: shapeStateDirty,
             rewriteShapeState: shapeStateDirty,
@@ -475,10 +456,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
                     ? totalPages.value
                     : (pdfDocument.value?.numPages ?? 0),
             },
-            source: {
-                getSourcePdfData,
-                serializePdfForSave,
-            },
+            source: {getSourcePdfData},
         });
         const bytes = resolvePdfViewerSaveTransactionFinalBytes(result);
         if (!bytes || !ownsCapturedDocument()) {
@@ -508,7 +486,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
 
         const result = await pdfViewerRef.value?.runSaveTransaction({
             mode: 'embedded-mutation',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: false,
         });
         return resolvePdfViewerSaveTransactionFinalBytes(result);
@@ -517,12 +495,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
     return {
         getSourcePdfData,
         getEmbeddedMutationBaseData,
-        serializePdfForSave,
-        rewriteMarkupSubtypes,
         embedPlacedImageToPage,
-        updateEmbeddedByRef,
-        deleteEmbeddedByRef,
-        rewritePageLabels,
         handleSave,
         handleRepairSave,
         handleOptimizePdfForInteraction,

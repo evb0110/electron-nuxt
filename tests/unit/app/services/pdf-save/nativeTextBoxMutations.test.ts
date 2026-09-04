@@ -9,7 +9,7 @@ import {
     asAnnotationId,
     type ITextBoxEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {collectNativeTextBoxMutationsForSave} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
 import {requireDocumentRevisionToken} from '@contracts';
 

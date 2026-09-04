@@ -83,12 +83,12 @@ describe('canonical annotation serialization architecture', () => {
     });
 
     it('keeps workspace annotation projections out of the PDF serializer', () => {
-        const contents = source('app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts');
+        const contents = source('app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts');
         expect(contents).not.toContain('annotationComments: Ref<');
         expect(contents).not.toContain('getAnnotationCommentsSnapshot');
         expect(contents).not.toContain('mergeAnnotationCommentSaveSnapshot');
         expect(contents).not.toContain('applyAnnotationPayload');
-        expect(contents).toContain('projectAnnotationBackendMutations(options.annotationSerializationPlan, \'pdf-lib-rewrite\')');
+        expect(contents).toContain('consumeNativePdfMutationProjection');
     });
 
     it('routes print serialization through the canonical viewer transaction', () => {

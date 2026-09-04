@@ -21,7 +21,7 @@ import {
     deriveAnnotationId,
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { cast } from '@tests/helpers/cast';
 
 export const toastAddMock = vi.fn();
@@ -73,7 +73,6 @@ type TFileOperationsSaveControllerTestDeps =
         pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
-        saveDocument: () => Promise<Uint8Array | null>;
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
         serializePdfForSave: IWorkspaceSaveDependencies['pdf']['serializeForSave'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
@@ -388,7 +387,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         totalPages: ref(1),
         untitledBookmarkLabel: 'Untitled',
         pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
-        saveDocument: vi.fn(async () => new Uint8Array([1])),
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         validatePdfPath: vi.fn(async () => ({
             isValid: true,
@@ -436,7 +434,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
             || overrides.captureCanonicalPendingTextUpdates !== undefined
             || overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
         const transaction = usePdfViewerSaveTransaction({
-            materializePdfJsDocumentForInternalUse: deps.saveDocument,
             getPdfDocument: () => deps.pdfDocument.value,
             ...(hasCanonicalAnnotationPlan
                 ? {prepareAnnotationSave: () => ({

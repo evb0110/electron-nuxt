@@ -9,7 +9,7 @@ import {
     normalizeLivePdfJsAnnotationChangesAgainstSavedFingerprint,
     resetLivePdfJsAnnotationStorageModifiedIds,
     resetLivePdfJsAnnotationStorageModifiedState,
-} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import { AnnotationStore } from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';

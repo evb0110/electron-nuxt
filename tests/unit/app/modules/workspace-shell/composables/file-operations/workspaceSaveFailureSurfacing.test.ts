@@ -457,7 +457,6 @@ describe('workspace save failure surfacing', () => {
     it('reports a serialization that produced no bytes to write', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            saveDocument: vi.fn(async () => null),
             getSourcePdfData: vi.fn(async () => null),
         });
         const service = useWorkspaceSaveServiceForTest(deps);

@@ -5,7 +5,7 @@ import {
 } from 'vitest';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import {requireDocumentRevisionToken} from '@contracts';
 import {
     ANNOTATION_PERSISTENCE_BACKENDS,
@@ -82,8 +82,6 @@ describe('annotation persistence backend conformance', () => {
         }) => mutation));
 
         const expectedSemantics = semantics[0]!;
-        expect(semantics[1]).toEqual(expectedSemantics);
-        expect(semantics[2]).toEqual(expectedSemantics);
         expect(assertAnnotationBackendSemanticConformance(plan)).toEqual(expectedSemantics);
         expect(expectedSemantics.map(mutation => mutation.operation)).toEqual([
             'prepare-free-text-appearance',
@@ -100,7 +98,7 @@ describe('annotation persistence backend conformance', () => {
         });
     });
 
-    it('executes and reopens all three backend adapters against canonical entities', async () => {
+    it('executes and reopens the native writer adapter against canonical entities', async () => {
         const store = new AnnotationStore();
         const noteId = asAnnotationId('backend-note');
         store.createNote({
@@ -126,17 +124,17 @@ describe('annotation persistence backend conformance', () => {
         const frontier = store.beginSave();
         const plan = buildSerializationPlan(frontier, store.dirtyEntities());
         const calls: string[] = [];
-        const adapters = ANNOTATION_PERSISTENCE_BACKENDS.map((backend, index) => ({
-            backend,
+        const adapters = [{
+            backend: 'native-append' as const,
             apply: async (mutations: ReturnType<typeof projectAnnotationBackendMutations>) => {
-                calls.push(`${backend}:${mutations.map(mutation => mutation.operation).join(',')}`);
-                return new Uint8Array([index + 1]);
+                calls.push(`native-append:${mutations.map(mutation => mutation.operation).join(',')}`);
+                return new Uint8Array([1]);
             },
             reopen: async () => plan.expected,
-        }));
+        }];
         const results = await verifyAllAnnotationPersistenceBackends(plan, adapters);
         expect(results.map(result => result.backend)).toEqual(ANNOTATION_PERSISTENCE_BACKENDS);
-        expect(calls).toHaveLength(3);
+        expect(calls).toHaveLength(1);
         expect(calls.every(call => call.endsWith('prepare-free-text-appearance,write-free-text-contents,bind-identities'))).toBe(true);
     });
 
@@ -167,7 +165,7 @@ describe('annotation persistence backend conformance', () => {
                 payloadHash: 'ocr-hash',
             }],
             routeConstraints: {
-                allowedBackends: ['pdf-lib-rewrite'],
+                allowedBackends: ['native-append'],
                 forceRewrite: true,
             },
             postconditions: {

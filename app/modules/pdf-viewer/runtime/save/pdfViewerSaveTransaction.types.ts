@@ -7,8 +7,8 @@ import type {
     IPdfPageLabelRange,
     TPdfSaveMode,
 } from '@app/types/pdfContracts';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type {ISerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type {ISerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/annotations/persistence/annotationBackendConformance';
 import type {
     IPdfNativeAnnotationDelete,
@@ -20,29 +20,32 @@ import type {
     IPdfNoteGeometryUpdate,
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
-import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import type {TDocumentRef} from '@contracts/documentRef';
-import type {ICanonicalAnnotationIdentityBinding} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings';
+export interface ICanonicalAnnotationIdentityBinding {
+    readonly annotationId: string;
+    readonly pdfRef: string;
+}
 
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
     | 'print'
     | 'snapshot'
     | 'embedded-mutation'
-    | 'pdfjs-materialize';
+    | 'writer-save';
 
 export type TPdfViewerSaveTransactionSource =
     | 'source-clean'
-    | 'source-replay'
-    | 'pdfjs-materialize'
+    | 'loaded-source'
+    | 'writer-save'
     | 'serialized-rewrite'
     | 'native-mutation-projection'
     | 'native-required-failure';
 
 export type TPdfViewerAnnotationSaveRoute =
     | 'source-clean'
-    | 'source-replay'
-    | 'pdfjs-materialize';
+    | 'loaded-source'
+    | 'writer-save';
 
 export type TPdfViewerAnnotationSaveReason =
     | 'pending-embedded-annotation-operations'
@@ -79,7 +82,7 @@ export type TNativeSaveRouteRejection =
     | 'native-save-capability-unavailable'
     | 'managed-shapes-require-materialization'
     | 'saved-pdfjs-baseline-dirty-requires-materialization'
-    | 'pdfjs-materialize-required'
+    | 'writer-save-required'
     | 'pending-texts-not-covered-by-native-mutations'
     | 'pending-deletes-not-covered-by-native-mutations'
     | 'live-pdfjs-annotation-work-not-covered-by-native-mutations'
@@ -110,8 +113,8 @@ export interface IPdfSaveByteRouteDecision {
     readonly route: TPdfViewerAnnotationSaveRoute;
     readonly annotationPlan: IPdfViewerAnnotationSavePlan;
     readonly canonical: IPdfSaveCanonicalInputs;
-    readonly baseBytes: 'loaded-source' | 'pdfjs-materialize';
-    /** Precondition: source bytes may only replace a failed materialization on the source-replay route. */
+    readonly baseBytes: 'loaded-source' | 'writer-save';
+    /** Precondition: source bytes may only replace a failed materialization on the loaded-source route. */
     readonly sourceFallbackAllowed: boolean;
     readonly nativeRejection: TNativeSaveRouteRejection;
 }
@@ -165,10 +168,8 @@ export interface IPdfViewerSaveTransactionSerializationOptions {
 
 export interface IPdfViewerSaveTransactionSource {
     getSourcePdfData: () => Promise<Uint8Array | null>;
-    serializePdfForSave?: (
-        data: Uint8Array,
-        options?: IPdfViewerSaveTransactionSerializationOptions,
-    ) => Promise<Uint8Array>;
+    /** Compatibility index for snapshot-only callers while they migrate to source reads. */
+    readonly [key: string]: unknown;
 }
 
 export interface IPdfViewerSaveTransactionRequest {
@@ -177,7 +178,7 @@ export interface IPdfViewerSaveTransactionRequest {
     saveMode?: TPdfSaveMode;
     saveFlowMode?: 'save' | 'save_as';
     forceRewrite?: boolean;
-    forcePdfjsMaterialize?: boolean;
+    forceWriterSave?: boolean;
     /** Exact saved fingerprint for a preserved live PDF.js session. */
     savedPdfjsAnnotationFingerprint?: string | null;
     includeManagedShapes?: boolean;

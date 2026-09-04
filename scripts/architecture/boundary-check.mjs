@@ -219,7 +219,7 @@ const APP_PRODUCTION_SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
-const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges.ts']);
+const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/liveAnnotationChanges.ts']);
 
 const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
     'serializable',
