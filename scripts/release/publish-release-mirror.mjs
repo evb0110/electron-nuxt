@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
 import {
+    open,
     readdir,
+    readFile,
     stat,
 } from 'node:fs/promises';
 import {
@@ -11,12 +12,16 @@ import {
 import {setTimeout as delay} from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import {
+    AbortMultipartUploadCommand,
+    CompleteMultipartUploadCommand,
+    CreateMultipartUploadCommand,
     DeleteObjectsCommand,
     GetObjectCommand,
     HeadObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
     S3Client,
+    UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import {isSupplementalReleaseAsset} from './policy.mjs';
 import {hashFile} from './release-hash.mjs';
@@ -32,11 +37,18 @@ const MIRROR_PREFIX_PATTERN = /^evb-viewer\/[a-z0-9./-]+\/$/u;
 const MIRROR_CHANNEL_KEY_PATTERN = /^evb-viewer\/[a-z0-9./-]+$/u;
 const RETAINED_RELEASE_COUNT = 4;
 
+// Every upload request now carries at most one part, so a single request
+// never has more than a few seconds of legitimate work; the total bound only
+// has to outlast a slow part, not a whole installer.
 export const MIRROR_TRANSFER_TIMEOUTS = Object.freeze({
     connectionTimeout: 10_000,
     socketTimeout: 60_000,
-    requestTimeout: 10 * 60_000,
+    requestTimeout: 2 * 60_000,
 });
+// Yandex Object Storage rejects multipart parts below 5 MiB except the last.
+export const MULTIPART_PART_BYTES = 8 * 1024 * 1024;
+const MULTIPART_CONCURRENCY = 4;
+const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 const UPLOAD_ATTEMPTS = 3;
 const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
     'ECONNRESET',
@@ -55,6 +67,7 @@ export async function publishReleaseMirror({
     environment = process.env,
     client: providedClient,
     uploadRetryDelayMs = 5_000,
+    partBytes = MULTIPART_PART_BYTES,
 }) {
     if (!artifactDirectory || !releaseTag) {
         throw new Error('Usage: publish-release-mirror.mjs <artifact-directory> <release-tag>');
@@ -105,7 +118,10 @@ export async function publishReleaseMirror({
                 name,
                 sha256,
                 size: fileStat.size,
-            }, uploadRetryDelayMs);
+            }, {
+                partBytes,
+                retryDelayMs: uploadRetryDelayMs,
+            });
         }
         assets.push({
             name,
@@ -128,7 +144,7 @@ export async function publishReleaseMirror({
         bucket,
         `${mirrorPaths.releasePrefix}${releaseTag}/manifest.json`,
         manifest,
-        'public, max-age=31536000, immutable',
+        IMMUTABLE_CACHE_CONTROL,
     );
 
     let prunedTags = [];
@@ -355,9 +371,9 @@ async function immutableUploadState(client, bucket, key, expectedSize, expectedS
     }
 }
 
-async function putImmutableObject(client, bucket, key, command, expectedSize, expectedSha256) {
+async function putImmutableObject(client, bucket, key, upload, expectedSize, expectedSha256) {
     try {
-        await client.send(command);
+        await upload();
     } catch (error) {
         if (!isConditionalWriteConflict(error)) {
             throw error;
@@ -375,23 +391,32 @@ async function putImmutableFile(client, bucket, key, {
     name,
     sha256,
     size,
-}, retryDelayMs) {
+}, {
+    partBytes,
+    retryDelayMs,
+}) {
+    const partCount = Math.ceil(size / partBytes);
     for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
         const startedAt = Date.now();
         try {
-            // The SDK cannot rewind a partially consumed body, so every
-            // attempt opens its own stream.
-            await putImmutableObject(client, bucket, key, new PutObjectCommand({
-                Bucket: bucket,
-                Key: key,
-                Body: createReadStream(filePath),
-                ContentLength: size,
-                ContentType: contentTypeFor(name),
-                CacheControl: 'public, max-age=31536000, immutable',
-                Metadata: { sha256 },
-                IfNoneMatch: '*',
-            }), size, sha256);
-            console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s`);
+            await putImmutableObject(client, bucket, key, () => (partCount > 1
+                ? uploadMultipart(client, bucket, key, {
+                    filePath,
+                    name,
+                    partBytes,
+                    partCount,
+                    sha256,
+                    size,
+                })
+                : uploadWhole(client, bucket, key, {
+                    filePath,
+                    name,
+                    sha256,
+                    size,
+                })), size, sha256);
+            console.log(`Uploaded ${name} in ${elapsedSeconds(startedAt)}s${
+                partCount > 1 ? ` (${partCount} parts)` : ''
+            }`);
             return;
         } catch (error) {
             if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
@@ -404,6 +429,131 @@ async function putImmutableFile(client, bucket, key, {
             );
             await delay(retryDelayMs * attempt);
         }
+    }
+}
+
+async function uploadWhole(client, bucket, key, {
+    filePath,
+    name,
+    sha256,
+    size,
+}) {
+    await client.send(new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: await readFile(filePath),
+        ContentLength: size,
+        ContentType: contentTypeFor(name),
+        CacheControl: IMMUTABLE_CACHE_CONTROL,
+        Metadata: { sha256 },
+        IfNoneMatch: '*',
+    }));
+}
+
+// One HTTP request per part keeps a stalled connection from costing more
+// than one part's timeout, and the conditional completion keeps the object
+// immutable exactly like the single-request path.
+async function uploadMultipart(client, bucket, key, {
+    filePath,
+    name,
+    partBytes,
+    partCount,
+    sha256,
+    size,
+}) {
+    const {UploadId: uploadId} = await client.send(new CreateMultipartUploadCommand({
+        Bucket: bucket,
+        Key: key,
+        ContentType: contentTypeFor(name),
+        CacheControl: IMMUTABLE_CACHE_CONTROL,
+        Metadata: { sha256 },
+    }));
+    if (!uploadId) {
+        throw new Error(`Mirror returned no multipart upload id for ${key}`);
+    }
+    const file = await open(filePath, 'r');
+    try {
+        const parts = await uploadParts(client, bucket, key, uploadId, {
+            file,
+            partBytes,
+            partCount,
+            size,
+        });
+        await client.send(new CompleteMultipartUploadCommand({
+            Bucket: bucket,
+            Key: key,
+            UploadId: uploadId,
+            MultipartUpload: {Parts: parts},
+            IfNoneMatch: '*',
+        }));
+    } catch (error) {
+        await abortMultipartUpload(client, bucket, key, uploadId);
+        throw error;
+    } finally {
+        await file.close();
+    }
+}
+
+async function uploadParts(client, bucket, key, uploadId, {
+    file,
+    partBytes,
+    partCount,
+    size,
+}) {
+    const parts = new Array(partCount);
+    let nextIndex = 0;
+    let failed = false;
+    const worker = async () => {
+        while (!failed && nextIndex < partCount) {
+            const index = nextIndex;
+            nextIndex += 1;
+            const offset = index * partBytes;
+            const length = Math.min(partBytes, size - offset);
+            const body = Buffer.alloc(length);
+            const {bytesRead} = await file.read(body, 0, length, offset);
+            if (bytesRead !== length) {
+                throw new Error(`Short read of ${key} at byte ${offset}: expected ${length}, got ${bytesRead}`);
+            }
+            const {ETag} = await client.send(new UploadPartCommand({
+                Bucket: bucket,
+                Key: key,
+                UploadId: uploadId,
+                PartNumber: index + 1,
+                Body: body,
+                ContentLength: length,
+            }));
+            if (!ETag) {
+                throw new Error(`Mirror returned no ETag for part ${index + 1} of ${key}`);
+            }
+            parts[index] = {
+                ETag,
+                PartNumber: index + 1,
+            };
+        }
+    };
+    const outcomes = await Promise.allSettled(
+        Array.from({length: Math.min(MULTIPART_CONCURRENCY, partCount)}, () => worker().catch((error) => {
+            failed = true;
+            throw error;
+        })),
+    );
+    const failure = outcomes.find(outcome => outcome.status === 'rejected');
+    if (failure) {
+        throw failure.reason;
+    }
+    return parts;
+}
+
+async function abortMultipartUpload(client, bucket, key, uploadId) {
+    try {
+        await client.send(new AbortMultipartUploadCommand({
+            Bucket: bucket,
+            Key: key,
+            UploadId: uploadId,
+        }));
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        console.warn(`Could not abort multipart upload ${uploadId} for ${key} (${reason}); the bucket lifecycle rule reclaims it.`);
     }
 }
 
@@ -435,7 +585,7 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
     if (existingState === 'mismatch') {
         throw new Error(`Immutable mirror object mismatch for ${key}`);
     }
-    await putImmutableObject(client, bucket, key, new PutObjectCommand({
+    await putImmutableObject(client, bucket, key, () => client.send(new PutObjectCommand({
         Bucket: bucket,
         Key: key,
         Body: body,
@@ -444,7 +594,7 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
         CacheControl: cacheControl,
         Metadata: { sha256 },
         IfNoneMatch: '*',
-    }), size, sha256);
+    })), size, sha256);
 }
 
 async function publishStableChannel(

@@ -328,6 +328,7 @@ SigLevel = Required DatabaseOptional
 
 [clangarm64]
 Server = https://mirror.msys2.org/mingw/clangarm64/
+Server = https://repo.msys2.org/mingw/clangarm64/
 PACMAN_CONF
 
   local pacman_opts=(
@@ -343,13 +344,18 @@ PACMAN_CONF
     mingw-w64-clang-aarch64-djvulibre
   )
 
+  # The redirector hands out volunteer mirrors, and a slow one aborts the whole
+  # transaction. Downloaded packages stay in the cache directory, so a retry
+  # only fetches what the previous attempt left behind.
   echo "  Syncing clangarm64 package database..."
-  "$pacman" "${pacman_opts[@]}" -Sy
+  "$SCRIPT_DIR/release/run-with-retries.sh" 3 15 "clangarm64 package database sync" \
+    "$pacman" "${pacman_opts[@]}" -Sy
   echo "  Resolving clangarm64 package source..."
   "$pacman" "${pacman_opts[@]}" -Sp --noconfirm "${packages[@]}" >/dev/null
 
   echo "  Downloading packages and dependencies..."
-  "$pacman" "${pacman_opts[@]}" -Sw --noconfirm "${packages[@]}"
+  "$SCRIPT_DIR/release/run-with-retries.sh" 3 15 "clangarm64 package download" \
+    "$pacman" "${pacman_opts[@]}" -Sw --noconfirm "${packages[@]}"
 
   echo "  Extracting packages..."
   for pkg in "$iso_root/var/cache/pacman/pkg"/mingw-w64-clang-aarch64-*.pkg.tar.zst; do

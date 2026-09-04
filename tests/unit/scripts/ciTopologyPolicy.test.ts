@@ -1309,6 +1309,10 @@ describe('CI topology policy', () => {
         // target_ref and the daily packaging proof never ran.
         expect(workflowJob(artifactWorkflow, 'prepare')).toContain('[ -z "$DISPATCH_TARGET_REF" ] && [ "$EVENT_NAME" = \'schedule\' ]');
         expect(workflowJob(artifactWorkflow, 'prepare')).toContain('DISPATCH_TARGET_REF="$(git rev-parse refs/remotes/origin/main)"');
+        // Electron 22 cannot load the ESM main bundle, so the never-published
+        // Windows 7 lane fails its packaged smoke on every run. It must not
+        // turn the whole canary red and mask the lanes that do publish.
+        expect(workflowJob(artifactWorkflow, 'build_win7_legacy')).toContain('continue-on-error: true');
     });
 
     it('proves the packaged Linux journey on push CI before any release cut', async () => {
