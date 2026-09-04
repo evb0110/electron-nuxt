@@ -14,7 +14,6 @@ import type {
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
-import type { IPdfSerializedPlacedImagePayload } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/runtime/save/pdfViewerSaveTransaction.types';
 import { collectMarkupSubtypeHints } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/collectMarkupSubtypeHints';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
@@ -65,8 +64,9 @@ interface ISerializePdfForSaveOptions {
     forceRewrite?: boolean;
     includeShapes?: boolean;
     rewriteShapeState?: boolean;
-    placedImage?: IPdfPlacedImageFinalizePayload | null;
 }
+
+interface ISerializedPlacedImagePayload extends Omit<IPdfPlacedImageFinalizePayload, 'mimeType'> {mimeType: 'image/png' | 'image/jpeg';}
 
 export interface IPdfPlacedImageNativePathResult {
     readonly kind: 'native-path';
@@ -210,7 +210,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function toSerializedPlacedImagePayload(
         payload: IPdfPlacedImageFinalizePayload | null | undefined,
-    ): Promise<IPdfSerializedPlacedImagePayload | null> {
+    ): Promise<ISerializedPlacedImagePayload | null> {
         if (!payload || payload.bytes.length === 0) {
             return null;
         }
@@ -244,7 +244,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         };
     }
 
-    function toNativePlacedImagePayload(payload: IPdfSerializedPlacedImagePayload) {
+    function toNativePlacedImagePayload(payload: ISerializedPlacedImagePayload) {
         const nativeSourceHandle = decodeManagedTempFileHandle(payload.nativeSourceHandle);
         if (
             payload.mimeType !== 'image/jpeg'
@@ -277,7 +277,7 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
 
     async function tryEmbedPlacedImageNative(
         baseData: Uint8Array | null,
-        payload: IPdfSerializedPlacedImagePayload,
+        payload: ISerializedPlacedImagePayload,
     ) {
         const workingPath = workingCopyPath.value;
         const nativeImage = toNativePlacedImagePayload(payload);
@@ -432,7 +432,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
             bookmarksDirty: false,
             bookmarkItems: [],
             untitledBookmarkLabel,
-            placedImage: null,
         };
     }
 
@@ -511,7 +510,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                 pendingEmbeddedTextUpdates: payload.pendingEmbeddedTextUpdates.length,
                 pageLabelsDirty: payload.pageLabelsDirty,
                 bookmarksDirty: payload.bookmarksDirty,
-                hasPlacedImage: Boolean(payload.placedImage),
                 forceRewrite: Boolean(payload.forceRewrite),
             },
         });
@@ -535,7 +533,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         applyShapePayload(payload, options, shapeBaselineReady);
         applyDocumentStructurePayload(payload);
         payload.forceRewrite = options?.forceRewrite === true;
-        payload.placedImage = await toSerializedPlacedImagePayload(options?.placedImage);
         return payload;
     }
 
@@ -577,17 +574,14 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
         if (!serializedPlacement) {
             throw new Error('Failed to prepare placed image for PDF embedding');
         }
-        if (!data) {
-            throw new NativePdfSaveRequiredError({
-                code: 'native-save-required',
-                phase: 'pre-write',
-                reason: 'missing-native-capability',
-                detail: 'Native placed-image persistence did not return a path result',
-            });
-        }
-        const payload = createEmptySavePayload();
-        payload.placedImage = serializedPlacement;
-        return runSerializedEdit(data, payload);
+        throw new NativePdfSaveRequiredError({
+            code: 'native-save-required',
+            phase: 'pre-write',
+            reason: 'native-decline',
+            detail: data
+                ? 'The Rust writer declined placed-image persistence'
+                : 'Placed-image persistence requires the Rust writer',
+        });
     }
 
     async function updateEmbeddedAnnotationByRef(comment: IAnnotationCommentSummary, text: string) {

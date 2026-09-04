@@ -8,10 +8,11 @@ import type {
     IPdfPageLabelRange,
 } from '@app/types/pdfContracts';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
-import type { IPdfSerializedPlacedImagePayload } from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/pdfSerializedPlacedImagePayload';
 import type {IBackendAnnotationMutation} from '@app/modules/pdf-viewer/engine/annotations/persistence/backendAnnotationMutation';
 
 export interface IPdfSerializationSavePayload {
+    /** Kept as a null-only compatibility field for callers that build the old payload shape. */
+    placedImage?: null;
     canonicalAnnotationProgram?: readonly IBackendAnnotationMutation[];
     forceRewrite?: boolean;
     markupSubtypeOverrides: Array<readonly [string, TMarkupSubtype]>;
@@ -29,5 +30,4 @@ export interface IPdfSerializationSavePayload {
     bookmarksDirty: boolean;
     bookmarkItems: IPdfBookmarkEntry[];
     untitledBookmarkLabel: string;
-    placedImage: IPdfSerializedPlacedImagePayload | null;
 }
