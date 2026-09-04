@@ -102,6 +102,8 @@ describe('external stress operator handoff', () => {
         expect(task).toContain('http://127.0.0.1:4321');
         expect(task).toContain('/working/doc.pdf');
         expect(task).toContain('--session=external-test');
+        expect(task).toContain('Use the native Open dialog');
+        expect(task).not.toContain('Do not use File > Open');
         expect(JSON.parse(await readFile(join(directory, 'operator-request.json'), 'utf8'))).toMatchObject({ status: 'closed' });
     });
     it.each([

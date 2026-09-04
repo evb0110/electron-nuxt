@@ -41,11 +41,20 @@ For each `EXTERNAL OPERATOR READY` line:
    or PID through computer use. Do not target an app merely named Electron.
 3. Perform the task card with your computer-use tools. Open only its listed
    fixtures and save only its working copies. Use screenshots to verify results.
-   If native targeting fails, the card includes the session's CDP endpoint.
+   If native targeting resolves another Electron instance, use the card's exact
+   CDP endpoint. For file setup, use `openPdfInApp` or `triggerOpenPathInApp` from
+   `tests/e2e/electron/helpers/viewerCore` on that page. Record the fallback, then
+   use visible mouse and keyboard controls for the requested interactions. Do
+   not send native input to an unverified window. CUA key names include `Return`
+   and `Tab`, with combinations such as `super+o`. Puppeteer instead uses
+   `keyboard.press('Enter')`; send chords with `keyboard.down('Meta')`, the key
+   press and `keyboard.up('Meta')`, not `keyboard.press('Meta+A')`.
 4. Save screenshots and a chronological action log in the scenario directory.
    Record bugs and incomplete steps honestly. Do not dismiss error dialogs to
    make the scenario look successful.
-5. Before the deadline, write the report using the card's exact request ID and
+5. Reserve the final two minutes for verification and reporting. Do not wait for
+   the runner to exit; it is waiting for the report. Before the deadline, write
+   the report using the card's exact request ID and
    report path. Include screenshot and action-log paths in its `evidence` list.
    All evidence must be nonempty regular files within that scenario directory.
    Write to a temporary file and rename it atomically. Use

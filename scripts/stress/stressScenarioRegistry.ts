@@ -57,7 +57,6 @@ const operator = (
 const COMMON_DO_NOT = [
     'Do not open Settings or Preferences.',
     'Do not dismiss error dialogs; describe them in your report instead.',
-    'Do not use File > Open, Save As, or Print dialogs; use only the tools you are given.',
     'Do not open any file that is not listed in the task card.',
 ];
 
