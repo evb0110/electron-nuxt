@@ -1,0 +1,30 @@
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_de4eb7ea9d9bbe::t_9d50c6bdaf143d 98,165-174
+  s_b412fd4cd3f576::t_34b3cc2f558181 1-97,99-164,175-230
+scripts/windows-test/host/capabilityRegistry.ts
+  s_b412fd4cd3f576::t_34b3cc2f558181 3-4,6-9,11,23-26,28,32-36,38-40,46,48,51
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5bad019b684eb4a83515e8cdf9831efc55d9f096",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    },
+    "s_de4eb7ea9d9bbe": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "a1ffbedc-c4e5-4af2-95f0-de71e7942a7b",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
