@@ -270,6 +270,35 @@ export async function clearTextSelection(page: Page) {
     await page.evaluate(() => document.getSelection()?.removeAllRanges());
 }
 
+/** Creates a text markup through the canonical selection command and layer. */
+export async function createCanonicalTextMarkup(
+    page: Page,
+    tool: 'Highlight' | 'Underline' | 'Strikethrough' | 'Squiggly',
+    options: {
+        startPage: number;
+        startSpan: number;
+        endPage: number;
+        endSpan: number;
+    },
+) {
+    const before = readEvbTextMarkupVisuals(page);
+    await clickAnnotationTool(page, tool);
+    const selectedText = await selectTextFromRenderedSpans(page, options);
+    const commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
+    await clearTextSelection(page);
+    if (!commandResult.called || commandResult.value !== true) {
+        throw new Error(`Canonical ${tool} creation failed for ${JSON.stringify({
+            selectedText,
+            commandResult,
+        })}`);
+    }
+    const previous = await before;
+    await page.waitForFunction((minimumCount: number) => (
+        document.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]').length > minimumCount
+    ), {timeout: 20_000}, previous.length);
+    return selectedText;
+}
+
 
 export async function getFreeTextEditorCount(page: Page) {
     return page.evaluate(() => {
@@ -1597,129 +1626,6 @@ export async function createFreeTextAnnotationWithPointer(
     await page.keyboard.press('Escape');
 
     return getOrdinaryFreeTextEditorCount(page);
-}
-
-async function resolveCanonicalEditorPagePoint(
-    page: Page,
-    position: {
-        x: number;
-        y: number;
-    },
-    pageNumber: number,
-) {
-    return page.evaluate(async ({
-        targetPageNumber,
-        xRatio,
-        yRatio,
-    }) => {
-        const pageSelector = `.page_container[data-page="${targetPageNumber}"]`;
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
-        const pageContainer = host?.querySelector<HTMLElement>(pageSelector) ?? null;
-        if (!host || !pageContainer) {
-            return null;
-        }
-        pageContainer.scrollIntoView({
-            block: 'center',
-            inline: 'center',
-        });
-        await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        const rect = pageContainer.getBoundingClientRect();
-        const hostRect = host.getBoundingClientRect();
-        const left = Math.max(rect.left, hostRect.left, 0) + 24;
-        const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
-        const top = Math.max(rect.top, hostRect.top, 0) + 24;
-        const bottom = Math.min(rect.bottom, hostRect.bottom, window.innerHeight) - 24;
-        if (right <= left || bottom <= top) {
-            return null;
-        }
-        const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
-        return {
-            x: clamp(rect.left + rect.width * xRatio, left, right),
-            y: clamp(rect.top + rect.height * yRatio, top, bottom),
-        };
-    }, {
-        targetPageNumber: pageNumber,
-        xRatio: position.x,
-        yRatio: position.y,
-    });
-}
-
-/**
- * Creates a text box through the canonical EVB editor layer. The helper does
- * not touch PDF.js editor nodes or the native mutation bridge.
- */
-export async function createCanonicalTextBoxWithPointer(
-    page: Page,
-    text: string,
-    position: {
-        x: number;
-        y: number;
-    },
-    pageNumber = 1,
-) {
-    await clickAnnotationTool(page, 'Text', 30_000);
-    const point = await resolveCanonicalEditorPagePoint(page, position, pageNumber);
-    if (!point) {
-        throw new Error(`Canonical text-box creation could not resolve page ${pageNumber}`);
-    }
-    await page.mouse.click(point.x, point.y);
-
-    const editorSelector = `.editor-pane.is-active .page_container[data-page="${pageNumber}"] `
-        + '.pdf-annotation-editor-text-box [contenteditable="true"]';
-    await page.waitForSelector(editorSelector, {
-        timeout: 20_000,
-        visible: true,
-    });
-    await page.focus(editorSelector);
-    await page.keyboard.type(text, {delay: 10});
-    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
-    await page.keyboard.down(modifier);
-    await page.keyboard.press('Enter');
-    await page.keyboard.up(modifier);
-    await page.waitForFunction((expectedText: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-        ),
-    ).some(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText), {timeout: 20_000}, text);
-
-    const annotationId = await page.evaluate((expectedText: string) => Array.from(
-        document.querySelectorAll<HTMLElement>(
-            '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
-        ),
-    ).find(entity => entity.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText)?.dataset.annotationId ?? null, text);
-    if (!annotationId) {
-        throw new Error(`Canonical text box did not expose an identity: ${text}`);
-    }
-    return annotationId;
-}
-
-/** Creates a text markup through the canonical selection command and layer. */
-export async function createCanonicalTextMarkup(
-    page: Page,
-    tool: 'Highlight' | 'Underline' | 'Strikethrough' | 'Squiggly',
-    options: {
-        startPage: number;
-        startSpan: number;
-        endPage: number;
-        endSpan: number;
-    },
-) {
-    const before = readEvbTextMarkupVisuals(page);
-    await clickAnnotationTool(page, tool);
-    const selectedText = await selectTextFromRenderedSpans(page, options);
-    const commandResult = await callWorkspaceCommand<boolean>(page, 'highlightSelection');
-    await clearTextSelection(page);
-    if (!commandResult.called || commandResult.value !== true) {
-        throw new Error(`Canonical ${tool} creation failed for ${JSON.stringify({
-            selectedText,
-            commandResult,
-        })}`);
-    }
-    const previous = await before;
-    await page.waitForFunction((minimumCount: number) => (
-        document.querySelectorAll('.pdf-annotation-editor-layer g[data-annotation-kind="text-markup"]').length > minimumCount
-    ), {timeout: 20_000}, previous.length);
-    return selectedText;
 }
 
 /**
