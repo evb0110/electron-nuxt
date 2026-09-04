@@ -613,6 +613,7 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
         && parsed.shapes.is_none()
         && parsed.markup.is_none()
         && parsed.placed_images.is_empty()
+        && parsed.placed_image_geometry_updates.is_empty()
     {
         return Err("At least one native PDF mutation is required".into());
     }
@@ -650,6 +651,12 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
         validate_markup_mutation(markup)?;
     }
     validate_placed_images(&parsed.placed_images)?;
+    if parsed.placed_image_geometry_updates.len() > MAX_PLACED_IMAGE_GEOMETRY_UPDATES {
+        return Err(domain_error(
+            NativeErrorCode::TooLarge,
+            "Too many placed image geometry updates",
+        ));
+    }
     validate_mutation_collection_budget(&[
         parsed.updates.len(),
         parsed.geometry_updates.len(),
@@ -658,6 +665,7 @@ fn validate_native_mutations(parsed: NativeMutationsFile) -> Result<NativeMutati
         parsed.text_boxes.len(),
         parsed.deletes.len(),
         parsed.placed_images.len(),
+        parsed.placed_image_geometry_updates.len(),
     ])?;
     validate_native_mutation_collection_budget(&parsed)?;
     validate_native_mutation_text_budget(&parsed)?;
@@ -720,6 +728,7 @@ fn count_native_mutation_items(mutations: &NativeMutationsFile) -> usize {
         }
     }
     add(mutations.placed_images.len());
+    add(mutations.placed_image_geometry_updates.len());
     total
 }
 

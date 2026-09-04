@@ -15,6 +15,7 @@ import type {
     ITextBoxEntity,
     INoteEntity,
     ITextMarkupEntity,
+    IPlacedImageEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {IShapeAnnotation} from '@app/types/annotations';
 import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -300,7 +301,55 @@ function capabilities(overrides: Partial<IPdfSaveRouteCapabilities> = {}): IPdfS
     };
 }
 
+function changedPlacedImage(id = 'placed-image-1'): IPlacedImageEntity {
+    return {
+        kind: 'placed-image',
+        identity: {
+            id: asAnnotationId(id),
+            pdfRef: '12R0',
+        },
+        pageIndex: 0,
+        revision: 2,
+        persistedRevision: 1,
+        deleted: false,
+        createdAt: 1_781_000_000_000,
+        modifiedAt: 1_781_000_000_100,
+        author: null,
+        rect: {
+            left: 0.2,
+            top: 0.3,
+            width: 0.25,
+            height: 0.15,
+        },
+        rotation: 90,
+        image: {
+            objectNumber: 20,
+            generationNumber: 0,
+            byteLength: 317,
+            sha256: 'a'.repeat(64),
+        },
+    };
+}
+
 describe('classifyPdfSaveRoute annotation routes', () => {
+    it('projects changed placed-image geometry into the native image writer', () => {
+        const image = changedPlacedImage();
+        const decision = classifyPdfSaveRoute(planOf([image]), capabilities());
+
+        expect(decision.route).toBe('native-append');
+        expect(decision.nativeMutationProjection.mutations.placedImageGeometryUpdates)
+            .toEqual([{
+                pageIndex: 0,
+                stableKey: 'placed-image-1',
+                annotationId: '12R0',
+                x: 0.2,
+                y: 0.3,
+                width: 0.25,
+                height: 0.15,
+                rotationDegrees: 90,
+            }]);
+    });
+
     it('does not require a native delete for a local shape deleted beside a persisted shape', () => {
         const decision = classifyPdfSaveRoute(
             planOf([

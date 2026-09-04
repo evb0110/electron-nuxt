@@ -50,6 +50,7 @@ fn appends_markup_subtype_rewrite_as_incremental_revision() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -499,6 +500,7 @@ fn appends_and_upserts_all_new_text_markup_subtypes() {
             .collect(),
         }),
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     };
 
@@ -587,6 +589,7 @@ fn appends_highlight_color_rewrite_as_display_rgb() {
                 }],
             }),
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1057,6 +1060,7 @@ fn appends_managed_shape_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1122,6 +1126,7 @@ fn appends_ink_with_a_preview_compatible_normal_appearance() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1411,6 +1416,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123456+03'00'",
@@ -1441,6 +1447,7 @@ fn updates_and_deletes_managed_shapes_as_incremental_revision() {
             }),
             markup: None,
             placed_images: Vec::new(),
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         },
         "D:20260609123500+03'00'",
@@ -1816,6 +1823,7 @@ fn shapes_mutation(shapes: Vec<ShapeAnnotation>) -> NativeMutationsFile {
         }),
         markup: None,
         placed_images: Vec::new(),
+        placed_image_geometry_updates: Vec::new(),
         continuation: None,
     }
 }

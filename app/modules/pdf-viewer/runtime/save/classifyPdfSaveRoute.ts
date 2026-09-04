@@ -3,7 +3,10 @@ import type {
     IShapeAnnotation,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { AnnotationEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {
+    AnnotationEntity,
+    IPlacedImageEntity,
+} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import {
     assertAnnotationBackendSemanticConformance,
@@ -52,7 +55,10 @@ import {
     isReplayableCanonicalStickyNote,
 } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import {isReplayableCanonicalTextBox} from '@app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations';
-import type {IPdfNativeTextBoxMutation} from '@contracts/electronApiDocuments';
+import type {
+    IPdfNativePlacedImageGeometryUpdate,
+    IPdfNativeTextBoxMutation,
+} from '@contracts/electronApiDocuments';
 import { buildNativeMarkupMutationForSave } from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
 import {
     buildNativeBookmarksMutationForSave,
@@ -572,6 +578,25 @@ function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
     return plan.expected.some(entity => isActuallyChangedEntity(entity) && entity.kind !== 'shape');
 }
 
+function buildNativePlacedImageGeometryUpdates(
+    plan: ISerializationPlan,
+): IPdfNativePlacedImageGeometryUpdate[] {
+    return plan.expected
+        .filter((entity): entity is IPlacedImageEntity => (
+            entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
+        ))
+        .map(entity => ({
+            pageIndex: entity.pageIndex,
+            stableKey: entity.identity.id,
+            annotationId: entity.identity.pdfRef ?? null,
+            x: entity.rect.left,
+            y: entity.rect.top,
+            width: entity.rect.width,
+            height: entity.rect.height,
+            rotationDegrees: entity.rotation,
+        }));
+}
+
 function addCommentIdentityAliases(ids: Set<string>, comment: IAnnotationCommentSummary) {
     [
         comment.appAnnotationId,
@@ -832,6 +857,7 @@ function buildClassifiedNativeMutationProjection(
         return 'annotation-work-not-covered-by-native-mutations';
     }
     const noteGeometryUpdates = noteGeometryUpdatesResult?.value ?? [];
+    const placedImageGeometryUpdates = buildNativePlacedImageGeometryUpdates(plan);
     const freeTextNotes = freeTextNotesResult?.value ?? [];
     const freeTextEditors = replayAllowed
         ? Array.from(canonical.liveAnnotationChanges.nativeFreeTextEditors.values())
@@ -944,7 +970,8 @@ function buildClassifiedNativeMutationProjection(
     ) {
         return 'live-pdfjs-annotation-work-not-covered-by-native-mutations';
     }
-    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations) {
+    if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'annotation-work-not-covered-by-native-mutations';
     }
 
@@ -984,7 +1011,8 @@ function buildClassifiedNativeMutationProjection(
     ) {
         return 'native-structured-save-capability-unavailable';
     }
-    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations) {
+    if (nativeNoteMutationCount === 0 && !hasMetadataMutations && !hasShapeMutations && !hasMarkupMutations
+        && placedImageGeometryUpdates.length === 0) {
         return 'no-native-mutations-projected';
     }
 
@@ -1002,6 +1030,7 @@ function buildClassifiedNativeMutationProjection(
             ...(bookmarks ? {bookmarks} : {}),
             ...(shapes ? {shapes} : {}),
             ...(markup ? {markup} : {}),
+            ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
         },
         noteTextUpdates,
         noteGeometryUpdates,

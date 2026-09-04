@@ -652,6 +652,61 @@ pub(crate) fn apply_placed_images(
     Ok(())
 }
 
+pub(crate) fn apply_placed_image_geometry_updates(
+    document: &mut Document,
+    updates: &[PlacedImageGeometryUpdate],
+    modified_at: &str,
+) -> Result<()> {
+    let page_map = document.get_pages();
+    for update in updates {
+        let page_number = update
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid placed image page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_view = resolve_page_view(document, page_id)?;
+        let page_rotation = resolve_page_rotation(document, page_id)?;
+        let probe = PlacedImage {
+            page_index: update.page_index,
+            stable_key: update.stable_key.clone(),
+            annotation_id: update.annotation_id.clone(),
+            x: update.x,
+            y: update.y,
+            width: update.width,
+            height: update.height,
+            rotation_degrees: update.rotation_degrees,
+            mime_type: "image/jpeg".to_string(),
+            bytes_path: PathBuf::new(),
+            byte_length: 0,
+            sha256: String::new(),
+            validated_bytes: std::cell::RefCell::new(None),
+        };
+        let expected_name = update.stable_key.as_deref().unwrap_or_default();
+        let stamp_ref = resolve_placed_image_target(document, page_id, &probe, expected_name)?
+            .ok_or("Placed image geometry target was not found")?;
+        let (appearance_ref, image_ref) = placed_image_appearance_refs(document, stamp_ref)
+            .ok_or("Placed image appearance resources are unavailable")?;
+        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
+        document.set_object(
+            appearance_ref,
+            Object::Stream(build_placed_image_appearance_stream(
+                image_ref,
+                &geometry,
+                &format!("Im{}", image_ref.0),
+            )),
+        );
+        let stamp = document.get_dictionary_mut(stamp_ref)?;
+        patch_placed_image_stamp_dict(
+            stamp,
+            &geometry,
+            appearance_ref,
+            expected_name,
+            modified_at,
+        );
+    }
+    Ok(())
+}
+
 pub(crate) fn apply_placed_images_incremental(
     incremental: &mut IncrementalDocument,
     images: &[PlacedImage],
@@ -755,6 +810,68 @@ pub(crate) fn apply_placed_images_incremental(
     }
     for (page_id, index) in annotation_indexes {
         write_page_annotation_index_incremental(incremental, page_id, index)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn apply_placed_image_geometry_updates_incremental(
+    incremental: &mut IncrementalDocument,
+    updates: &[PlacedImageGeometryUpdate],
+    modified_at: &str,
+) -> Result<()> {
+    let page_map = incremental.get_prev_documents().get_pages();
+    for update in updates {
+        let page_number = update
+            .page_index
+            .checked_add(1)
+            .ok_or("Invalid placed image page index")?;
+        let page_id = resolve_page_id(&page_map, page_number)?;
+        let page_view = resolve_page_view(incremental.get_prev_documents(), page_id)?;
+        let page_rotation = resolve_page_rotation(incremental.get_prev_documents(), page_id)?;
+        let probe = PlacedImage {
+            page_index: update.page_index,
+            stable_key: update.stable_key.clone(),
+            annotation_id: update.annotation_id.clone(),
+            x: update.x,
+            y: update.y,
+            width: update.width,
+            height: update.height,
+            rotation_degrees: update.rotation_degrees,
+            mime_type: "image/jpeg".to_string(),
+            bytes_path: PathBuf::new(),
+            byte_length: 0,
+            sha256: String::new(),
+            validated_bytes: std::cell::RefCell::new(None),
+        };
+        let expected_name = update.stable_key.as_deref().unwrap_or_default();
+        let stamp_ref = resolve_placed_image_target(
+            &AppendedRevision::new(incremental),
+            page_id,
+            &probe,
+            expected_name,
+        )?.ok_or("Placed image geometry target was not found")?;
+        let (appearance_ref, image_ref) = placed_image_appearance_refs(
+            &AppendedRevision::new(incremental),
+            stamp_ref,
+        ).ok_or("Placed image appearance resources are unavailable")?;
+        let geometry = placed_image_geometry(&probe, page_view, page_rotation)?;
+        incremental.new_document.set_object(
+            appearance_ref,
+            Object::Stream(build_placed_image_appearance_stream(
+                image_ref,
+                &geometry,
+                &format!("Im{}", image_ref.0),
+            )),
+        );
+        incremental.opt_clone_object_to_new_document(stamp_ref)?;
+        let stamp = incremental.new_document.get_dictionary_mut(stamp_ref)?;
+        patch_placed_image_stamp_dict(
+            stamp,
+            &geometry,
+            appearance_ref,
+            expected_name,
+            modified_at,
+        );
     }
     Ok(())
 }

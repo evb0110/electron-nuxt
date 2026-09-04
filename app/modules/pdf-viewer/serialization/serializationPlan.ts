@@ -250,7 +250,9 @@ export function buildSerializationPlan(
                 fields: allowedFields(entity),
             });
         } else if (entity.kind === 'placed-image') {
-            throw new Error('Placed-image writes require the dedicated image placement transaction');
+            // Existing placed-image appearances are owned by the dedicated native
+            // image writer. Geometry-only edits are projected into that writer
+            // after this plan is frozen.
         } else {
             steps.push({
                 id: `${prefix}:write`,

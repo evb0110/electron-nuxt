@@ -310,6 +310,7 @@
             shapes: None,
             markup: None,
             placed_images: vec![placed_image],
+            placed_image_geometry_updates: Vec::new(),
             continuation: None,
         };
         append_native_mutations(
