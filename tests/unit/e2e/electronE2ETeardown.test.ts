@@ -55,20 +55,19 @@ describe('Electron E2E deadline policy', () => {
     });
 
     it('cancels a visible large-save wait and reports its save phase', async () => {
-        let resolveEvent: (event: null) => void = () => {};
-        const eventWait = new Promise<null>((resolve) => {
-            resolveEvent = resolve;
-        });
         const button = {
             click: vi.fn(async () => undefined),
             evaluate: vi.fn(async () => true),
         };
         const pageEvaluate = vi.fn(async (expression: string) => {
+            if (expression.includes('getAutomationEvents().find')) {
+                return {
+                    available: true,
+                    event: null,
+                };
+            }
             if (expression.includes('getAutomationEvents')) {
                 return 0;
-            }
-            if (expression.includes('waitForAutomationEvent')) {
-                return eventWait;
             }
             return undefined;
         });
@@ -92,7 +91,6 @@ describe('Electron E2E deadline policy', () => {
             },
         ).catch((error: unknown) => error);
 
-        resolveEvent(null);
         expect(failure).toBeInstanceOf(ElectronE2ETimeoutError);
         expect(timeoutCleanupCalled).toBe(true);
         expect(button.click).toHaveBeenCalledOnce();

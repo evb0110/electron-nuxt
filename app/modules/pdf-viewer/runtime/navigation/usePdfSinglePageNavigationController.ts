@@ -93,7 +93,7 @@ export function shouldSubmitRequestedCurrentPage(
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     let intentSequence = 0;
     let navigationIntentSequence = 0;
-    let resizePreviewWriteSequence = 0;
+    let viewportPreviewWriteSequence = 0;
     let activeNavigationSequence: number | null = null;
     const retainedNavigationAnchorPage = ref<number | null>(null);
     const navigationVisualHandoff = createPdfNavigationVisualHandoff();
@@ -784,7 +784,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             : viewportAuthority.committedAnchor.value;
     }
 
-    function applyResizeAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
+    function applyViewportAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         if (!anchor || !container || !snapshot) {
@@ -793,9 +793,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const scroll = resolveScrollForViewport(snapshot, anchor);
         const applied = options.viewportWritePort.apply(container, {
             intent: options.viewportWritePort.beginIntent(
-                `pdf-resize-preview-${String(++resizePreviewWriteSequence)}`,
+                `pdf-viewport-preview-${String(++viewportPreviewWriteSequence)}`,
             ),
-            reason: 'resize-anchor-preview',
+            reason: 'viewport-anchor-preview',
             ...scroll,
         });
         options.updateVisibleRange(container, options.numPages.value);
@@ -1176,7 +1176,10 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         submitNavigationRequest,
         submitViewportStateIntent,
         captureCurrentSemanticAnchor,
-        applyResizeAnchorPreview,
+        applyOpeningViewportAnchor: (pageNumber: number) => applyViewportAnchorPreview(
+            getRequestAnchor(undefined, pageNumber),
+        ),
+        applyResizeAnchorPreview: applyViewportAnchorPreview,
         commitCurrentViewportPosition,
         commitCurrentViewportIfSettled,
         captureViewportCommitDiagnostics,

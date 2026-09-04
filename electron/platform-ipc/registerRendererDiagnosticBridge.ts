@@ -4,15 +4,11 @@ import { decodeDiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord'
 import { decodeDiagnosticsSuppressedCount } from '@contracts/diagnostics/diagnosticsCapability';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 
-// fallow-ignore-next-line unused-export -- Public bridge limits are consumed by external diagnostics probes.
-export const RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES = 16 * 1024;
-// fallow-ignore-next-line unused-export -- Public bridge limits are consumed by external diagnostics probes.
-export const RENDERER_DIAGNOSTIC_RATE_PER_SECOND = 20;
-// fallow-ignore-next-line unused-export -- Public bridge limits are consumed by external diagnostics probes.
-export const RENDERER_DIAGNOSTIC_RATE_BURST = 40;
+const RENDERER_DIAGNOSTIC_MAX_PAYLOAD_BYTES = 16 * 1024;
+const RENDERER_DIAGNOSTIC_RATE_PER_SECOND = 20;
+const RENDERER_DIAGNOSTIC_RATE_BURST = 40;
 
-// fallow-ignore-next-line unused-type -- Health snapshots are part of the diagnostics probe contract.
-export interface IRendererDiagnosticBridgeHealthSnapshot {
+interface IRendererDiagnosticBridgeHealthSnapshot {
     accepted: number;
     rateDropped: number;
     schemaDropped: number;

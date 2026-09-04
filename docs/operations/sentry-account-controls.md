@@ -14,53 +14,66 @@ error, message, path, URL, request, document value, or arbitrary object.
 | Control | Required value | Verification |
 | --- | --- | --- |
 | Data storage region | European Union | Owner verified 2026-09-03 |
-| Generative AI features | Disabled | Pending |
+| Generative AI features | Disabled | Owner verified 2026-09-04 |
 | Seer | Unconfigured | Owner verified 2026-09-03 |
-| Shared issues | Disabled | Pending |
-| Join requests | Disabled | Pending |
-| Open team membership | Disabled | Pending |
-| Member invitations | Disabled | Pending |
-| Member project creation | Disabled | Pending |
-| Member event deletion | Disabled | Pending |
-| Member monitor and alert editing | Disabled | Pending |
-| Attachment access | Owner | Pending |
-| Debug-file access | Owner | Pending |
+| Shared issues | Disabled | Owner verified 2026-09-04 |
+| Join requests | Disabled | Owner verified 2026-09-04 |
+| Open team membership | Disabled | Owner verified 2026-09-04 |
+| Member invitations | Disabled | Owner verified 2026-09-04 |
+| Member project creation | Disabled | Owner verified 2026-09-04 |
+| Member event deletion | Disabled | Owner verified 2026-09-04 |
+| Member monitor and alert editing | Disabled | Owner verified 2026-09-04 |
+| Attachment access | Owner | Owner verified 2026-09-04 |
+| Debug-file access | Owner | Owner verified 2026-09-04 |
 | Pay-as-you-go spending limit | Zero | Owner verified 2026-09-03 |
 | Payment method | None required | Owner verified 2026-09-03 |
 
 ## Authentication and recovery
 
-Google organization OAuth and Sentry-native two-factor authentication are
-separate controls. The owner must verify the recovery path and the membership
-scope before organization-wide enforcement changes. The preferred result is
-Google OAuth backed by strong Google account recovery, without retaining a
-second routine Sentry login path. If Sentry cannot safely restrict a personal
-Google account, use a Sentry passkey and recovery codes instead.
+Google organization SSO and a connected Google login are separate Sentry
+controls. The personal Google account works as the routine connected login, but
+Sentry's Security page still exposes a password-change path and offers no
+remove-password control. The organization SSO setup does not accept the
+personal Gmail account. EVB therefore uses Google for routine login and treats
+the Google account's recovery controls as the operative recovery boundary.
+This is a recorded Sentry limitation, not a claim that the Sentry account is
+passwordless.
 
 | Control | Required value | Verification |
 | --- | --- | --- |
-| Sole owner access | Retained throughout migration | Owner verified 2026-09-03 |
-| Google OAuth membership scope | Restricted to the owner account | Pending provider validation |
-| Independent recovery methods | Two verified methods | Pending owner verification |
-| Organization 2FA requirement | Enable only if required after OAuth decision | Pending provider validation |
+| Sole owner access | Retained throughout migration | Owner verified 2026-09-04 |
+| Connected Google login | Owner account only; routine sign-in path | Owner verified 2026-09-04 |
+| Sentry password removal | Remove if the platform exposes a supported control | No removal control available, owner verified 2026-09-04 |
+| Organization Google SSO | Configure only if the provider accepts the owner identity | Personal Gmail not accepted, owner verified 2026-09-04 |
+| Sentry-native and organization 2FA | Disabled by explicit owner decision for the Google-login route | Owner verified 2026-09-04 |
 
 ## Privacy and scrubbing
 
 | Control | Required value | Verification |
 | --- | --- | --- |
-| Enhanced Privacy | Enabled | Pending |
-| Required Data Scrubber | Enabled | Pending |
-| Required default scrubbers | Enabled | Pending |
-| IP address storage | Prevented | Pending |
-| JavaScript source fetching | Disabled before production events | Pending |
+| Enhanced Privacy | Enabled | Owner verified 2026-09-04 |
+| Required Data Scrubber | Enabled | Owner verified 2026-09-04 |
+| Required default scrubbers | Enabled | Owner verified 2026-09-04 |
+| IP address storage | Prevented | Owner verified 2026-09-04 |
+| JavaScript source fetching | Disabled in both projects | Owner verified 2026-09-04 |
 | Minidump attachment storage | Disabled | Owner verified 2026-09-03 |
 | Aggregated identifying service data use | Disabled | Owner verified 2026-09-03 |
-| Global safe fields | Empty | Pending |
+| Global safe fields | Empty | Owner verified 2026-09-04 |
 
-The global sensitive-field list must cover the forbidden transport categories
-without matching canonical frame fields or Debug ID metadata. Record the final
-list here after the closed diagnostic contract lands and the Sentry setting is
-verified.
+The verified global sensitive-field list is:
+
+```text
+message,error,stack,rawError,raw_error,rawMessage,raw_message,rawStack,raw_stack,
+consoleArguments,console_arguments,uiCopy,ui_copy,filePath,file_path,documentName,
+document_name,documentContent,document_content,documentText,document_text,aiText,
+ai_text,request,user,identity,url,query,headers,cookies,body,referrer,prompt,
+completion,breadcrumbs,attachments,minidump
+```
+
+It deliberately does not match these canonical diagnostic and symbolication
+fields: `filename`, `module`, `function`, `lineno`, `colno`, `stacktrace`,
+`frames`, `exception`, `value`, `release`, `dist`, `environment`, `fingerprint`,
+`tags`, `contexts`, and `extra`.
 
 ## Projects and credentials
 
@@ -69,22 +82,23 @@ names and their runtime purpose here, never their values.
 
 | Item | Required state | Verification |
 | --- | --- | --- |
-| `evb-viewer-desktop` project | One restricted desktop client key | Pending |
-| `evb-viewer-web` project | Separate restricted browser and Nitro client keys | Pending |
-| Browser allowed origins | Exact production and preview viewer origins | Pending |
-| Source-map upload token | Created just in time with least privilege | Pending |
-| Desktop runtime secret | Name and distribution target recorded | Pending |
-| Browser runtime secret | Name and Vercel target recorded | Pending |
-| Nitro runtime secret | Name and Vercel target recorded | Pending |
+| `evb-viewer-desktop` project | One key named `desktop-runtime` | Owner verified 2026-09-04 |
+| `evb-viewer-web` project | Keys named `web-browser` and `web-nitro` | Owner verified 2026-09-04 |
+| Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
+| Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
+| Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
+| Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview | Owner verified 2026-09-04 |
+| Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
+| Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
 
 ## Retention and operations
 
 | Control | Required value | Verification |
 | --- | --- | --- |
-| Platform event retention | 90 days | Pending live verification |
+| Platform event retention | Business-plan platform period is 90 days | Documented platform value; no shorter account control found 2026-09-04 |
 | Resolved-issue deletion | Weekly operator procedure | Pending |
 | Quota alerts | Enabled with pay-as-you-go still disabled | Pending |
-| Source-map access review | Owner-only and verified after upload | Pending |
+| Source-map access review | Debug-file access Owner; source fetching disabled after upload | Owner verified 2026-09-04 |
 | Removal procedure | Tested without sending a production event | Pending |
 
 The alert definitions, weekly deletion procedure, privacy incident response,

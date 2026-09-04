@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
+import {cast} from '@tests/helpers/cast';
 import {
     createDebugLogRuntimeErrorReport,
     createDebugLogRuntimeErrorPresentation,
@@ -12,17 +13,17 @@ import {
     isUiReportableDebugLog,
 } from '@app/utils/runtimeErrorFilter';
 
-function debugLogEntry(
+function legacyDebugLogEntry(
     source: string,
     level: IDebugLogEntry['level'],
     message: string,
 ): IDebugLogEntry {
-    return {
+    return cast<IDebugLogEntry>({
         source,
         message: level === undefined ? message : `[${level}] ${message}`,
         timestamp: '2026-08-23T08:57:36.046Z',
         ...(level === undefined ? {} : {level}),
-    } as IDebugLogEntry;
+    });
 }
 
 describe('runtime error filter', () => {
@@ -46,19 +47,19 @@ describe('runtime error filter', () => {
     });
 
     it('promotes only error-level main-process logs to runtime reports', () => {
-        expect(isUiReportableDebugLog(debugLogEntry(
+        expect(isUiReportableDebugLog(legacyDebugLogEntry(
             'worker-task',
             'ERROR',
             'Worker reported failure: path=scan-cleanup-worker.js message=pdftoppm failed',
         ))).toBe(true);
         // The wrapper that re-throws the same rejection logs its context below
         // error level so one fault cannot become two reports.
-        expect(isUiReportableDebugLog(debugLogEntry(
+        expect(isUiReportableDebugLog(legacyDebugLogEntry(
             'scan-cleanup-worker-task',
             'WARN',
             'Scan cleanup worker task rejected (already reported): Error: pdftoppm failed',
         ))).toBe(false);
-        expect(isUiReportableDebugLog(debugLogEntry(
+        expect(isUiReportableDebugLog(legacyDebugLogEntry(
             'scan-cleanup-worker-task',
             'INFO',
             'Scan cleanup worker task canceled',
@@ -66,12 +67,12 @@ describe('runtime error filter', () => {
     });
 
     it('falls back to the printed level prefix when an entry carries no level', () => {
-        expect(isUiReportableDebugLog(debugLogEntry('working-copy', undefined, '[ERROR] Boom'))).toBe(true);
-        expect(isUiReportableDebugLog(debugLogEntry('working-copy', undefined, '[WARN] Retained the working copy'))).toBe(false);
+        expect(isUiReportableDebugLog(legacyDebugLogEntry('working-copy', undefined, '[ERROR] Boom'))).toBe(true);
+        expect(isUiReportableDebugLog(legacyDebugLogEntry('working-copy', undefined, '[WARN] Retained the working copy'))).toBe(false);
     });
 
     it('shows the entry verbatim while deduplicating one fault across repetitions', () => {
-        const entry = debugLogEntry(
+        const entry = legacyDebugLogEntry(
             'worker-task',
             'ERROR',
             'Worker reported failure: path=scan-cleanup-worker.js elapsedMs=1873 message=pdftoppm failed',
@@ -114,25 +115,25 @@ describe('runtime error filter', () => {
             description: expect.stringContaining(`Error ID: ${'c'.repeat(32)}`),
         });
         expect(createDebugLogRuntimeErrorPresentation(
-            debugLogEntry('legacy-main', 'ERROR', '[ERROR] Legacy failure'),
+            legacyDebugLogEntry('legacy-main', 'ERROR', '[ERROR] Legacy failure'),
             'Application error',
         )).toBeNull();
     });
 
     it('keys the same fault together across elapsed time, process id and stack frames', () => {
         const sameFault = [
-            debugLogEntry('worker-task', 'ERROR', 'Worker reported failure: path=w.js elapsedMs=1873 message=boom'),
-            debugLogEntry('worker-task', 'ERROR', 'Worker reported failure: path=w.js elapsedMs=42 message=boom'),
+            legacyDebugLogEntry('worker-task', 'ERROR', 'Worker reported failure: path=w.js elapsedMs=1873 message=boom'),
+            legacyDebugLogEntry('worker-task', 'ERROR', 'Worker reported failure: path=w.js elapsedMs=42 message=boom'),
         ].map(entry => createDebugLogRuntimeErrorReport(entry, 'Runtime error').dedupeKey);
         expect(new Set(sameFault).size).toBe(1);
 
         const sameTermination = [
-            debugLogEntry(
+            legacyDebugLogEntry(
                 'native-tools',
                 'ERROR',
                 'evb-scan-cleanup process tree (pid=4242) was not proven dead within 8000ms of termination',
             ),
-            debugLogEntry(
+            legacyDebugLogEntry(
                 'native-tools',
                 'ERROR',
                 'evb-scan-cleanup process tree (pid=9137) was not proven dead within 8000ms of termination',
@@ -143,12 +144,12 @@ describe('runtime error filter', () => {
         // The same throw reported twice: only the frames below the message
         // differ, and they carry build-dependent line and column numbers.
         const sameStack = [
-            debugLogEntry(
+            legacyDebugLogEntry(
                 'scan-cleanup-worker-task',
                 'ERROR',
                 'Scan cleanup worker task rejected: Error: boom\n    at run (/app/a.js:10:3)\n    at go (/app/b.js:4:1)',
             ),
-            debugLogEntry(
+            legacyDebugLogEntry(
                 'scan-cleanup-worker-task',
                 'ERROR',
                 'Scan cleanup worker task rejected: Error: boom\n    at run (/app/a.js:11:9)',
@@ -159,7 +160,7 @@ describe('runtime error filter', () => {
 
     it('keeps distinct faults apart, including the digits that name them', () => {
         const keyFor = (source: string, message: string) => createDebugLogRuntimeErrorReport(
-            debugLogEntry(source, 'ERROR', message),
+            legacyDebugLogEntry(source, 'ERROR', message),
             'Runtime error',
         ).dedupeKey;
 

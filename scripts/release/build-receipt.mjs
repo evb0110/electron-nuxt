@@ -219,6 +219,7 @@ export function assertSentryPrivateManifestParity(
         || !Array.isArray(manifest.bundles)
         || manifest.bundles.length === 0
         || !Array.isArray(manifest.sources)
+        || !Array.isArray(manifest.unmappedGeneratedBundles ?? [])
     ) {
         throw new Error(`Invalid private source-map manifest: ${manifestPath}`);
     }
@@ -244,6 +245,12 @@ export function assertSentryPrivateManifestParity(
         const privateSourcePath = resolvePrivateStagePath(stageRoot, source.stagedPath, 'staged source');
         if (sha256File(privateSourcePath) !== source.sha256) {
             throw new Error(`Private source does not match its manifest: ${source.stagedPath}`);
+        }
+    }
+    for (const bundle of manifest.unmappedGeneratedBundles ?? []) {
+        const publicBundlePath = resolvePrivateStagePath(projectRoot, bundle.bundle, 'generated public bundle');
+        if (sha256File(publicBundlePath) !== bundle.bundleSha256) {
+            throw new Error(`Generated bundle does not match private manifest: ${bundle.bundle}`);
         }
     }
     return true;
