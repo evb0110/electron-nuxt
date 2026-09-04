@@ -326,8 +326,11 @@ export async function createCanonicalTextBoxWithPointer(
     await page.keyboard.type(text, {delay: 10});
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
-    await page.keyboard.press('Enter');
-    await page.keyboard.up(modifier);
+    try {
+        await page.keyboard.press('Enter');
+    } finally {
+        await page.keyboard.up(modifier);
+    }
     await page.waitForFunction((expectedText: string) => Array.from(
         document.querySelectorAll<HTMLElement>(
             '.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-kind="text-box"]',
