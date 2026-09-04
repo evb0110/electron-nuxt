@@ -1,0 +1,47 @@
+app/modules/pdf-viewer/annotations/pdf-refs/resolveCommentPdfRefInDocument.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 27-28
+app/modules/pdf-viewer/annotations/persistence/nativeNoteGeometryProjection.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 3
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 23-24,29-31
+app/modules/pdf-viewer/annotations/pdf-refs/writeManagedShapeStableKey.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 7
+scripts/architecture/boundary-check.mjs
+  s_cd2cd85e158afe::t_48d9722f17cb38 530-544
+app/modules/pdf-viewer/annotations/pdf-refs/readManagedShapeStableKey.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 4
+app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 3
+app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 6
+app/modules/pdf-viewer/tools/annotationShapeDrawing.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 8
+app/modules/pdf-viewer/engine/annotations/shape-annotation-identity/shapeAnnotationIdentity.ts
+  s_cd2cd85e158afe::t_926acf3499365c 9-12
+app/modules/pdf-viewer/annotations/pdf-page-iteration/iterateAnnotationRefDicts.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 5-6
+app/modules/pdf-viewer/runtime/save/nativeMutationProjection.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 18
+app/modules/pdf-viewer/annotations/pdf-page-iteration/lookupAnnotationRefDict.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 3
+tests/unit/app/composables/pdfSerializationRefs.test.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 17,22
+app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts
+  s_cd2cd85e158afe::t_333b0d729f23d8 9
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "91c25c9bb5fcb364c6b786180de94918918993b6",
+  "prompts": {},
+  "sessions": {
+    "s_cd2cd85e158afe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e20-785d-78f1-b406-9aca772ab43b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
