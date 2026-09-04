@@ -2,12 +2,14 @@ import {execFile} from 'node:child_process';
 import {
     createHash,
     createHmac,
+    randomUUID,
 } from 'node:crypto';
 import {
     copyFile,
     mkdir,
     mkdtemp,
     readFile,
+    rename,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -24,8 +26,20 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const execFileAsync = promisify(execFile);
 const SENTRY_EU_API_ORIGIN = 'https://de.sentry.io/';
-export const UPLOAD_RECEIPT_SCHEMA_VERSION = 1;
+export const UPLOAD_RECEIPT_SCHEMA_VERSION = 3;
 const SAFE_CONFIGURATION_VALUE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const UPLOAD_EXTENSIONS = [
+    'js',
+    'cjs',
+    'mjs',
+    'map',
+    'jsbundle',
+    'bundle',
+    'ts',
+    'tsx',
+    'vue',
+    'json',
+];
 
 function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
@@ -100,7 +114,32 @@ async function copyIntoUploadRoot(sourcePath, uploadRoot, relativePath, label) {
     await copyFile(sourcePath, destination);
 }
 
+function uploadRelativePath(target, relativePath) {
+    if (target === 'web' && relativePath.startsWith('.vercel/')) {
+        return `vercel/${relativePath.slice('.vercel/'.length)}`;
+    }
+    return relativePath;
+}
+
+function cliUploadRoots(identity, uploadRoot, manifest) {
+    if (identity.target !== 'web') {
+        return [uploadRoot];
+    }
+    const roots = new Set();
+    for (const bundle of manifest.bundles) {
+        if (bundle.bundle.startsWith('.vercel/output/static/')) {
+            roots.add(path.join(uploadRoot, 'vercel/output/static'));
+        } else if (bundle.bundle.startsWith('.vercel/output/functions/')) {
+            roots.add(path.join(uploadRoot, 'vercel/output/functions'));
+        } else {
+            throw new Error(`Unsupported web source-map output path: ${bundle.bundle}`);
+        }
+    }
+    return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
+}
+
 async function prepareUploadTree({
+    identity,
     projectRoot,
     stageRoot,
     uploadRoot,
@@ -110,13 +149,13 @@ async function prepareUploadTree({
         await copyIntoUploadRoot(
             resolveInside(projectRoot, bundle.bundle, 'public bundle'),
             uploadRoot,
-            bundle.bundle,
+            uploadRelativePath(identity.target, bundle.bundle),
             'upload bundle',
         );
         await copyIntoUploadRoot(
             resolveInside(stageRoot, bundle.stagedMapPath, 'staged map'),
             uploadRoot,
-            bundle.map,
+            uploadRelativePath(identity.target, bundle.map),
             'upload map',
         );
     }
@@ -177,6 +216,10 @@ async function readExistingUploadReceipt(receiptPath, expected) {
             return null;
         }
         throw new Error('Invalid private Sentry upload receipt');
+    }
+    if (Number.isSafeInteger(receipt?.schemaVersion)
+        && receipt.schemaVersion < UPLOAD_RECEIPT_SCHEMA_VERSION) {
+        return null;
     }
     if (
         receipt?.schemaVersion !== UPLOAD_RECEIPT_SCHEMA_VERSION
@@ -257,29 +300,36 @@ export async function uploadSentrySourcemaps({
     const uploadRoot = await mkdtemp(path.join(stageRoot, '.upload-'));
     try {
         await prepareUploadTree({
+            identity: normalizedIdentity,
             projectRoot: root,
             stageRoot,
             uploadRoot,
             manifest,
         });
         try {
-            await runCli([
-                'sourcemaps',
-                'upload',
-                '--org',
-                organization,
-                '--project',
-                project,
-                '--release',
-                normalizedIdentity.release,
-                '--dist',
-                normalizedIdentity.dist,
-                '--validate',
-                '--strict',
-                '--wait',
-                '--quiet',
-                uploadRoot,
-            ], {token});
+            for (const cliRoot of cliUploadRoots(normalizedIdentity, uploadRoot, manifest)) {
+                await runCli([
+                    'sourcemaps',
+                    'upload',
+                    '--org',
+                    organization,
+                    '--project',
+                    project,
+                    '--release',
+                    normalizedIdentity.release,
+                    '--dist',
+                    normalizedIdentity.dist,
+                    '--validate',
+                    '--strict',
+                    '--wait',
+                    '--quiet',
+                    ...UPLOAD_EXTENSIONS.flatMap(extension => [
+                        '--ext',
+                        extension,
+                    ]),
+                    cliRoot,
+                ], {token});
+            }
         } catch {
             throw new Error('Private Sentry source-map upload failed');
         }
@@ -290,11 +340,16 @@ export async function uploadSentrySourcemaps({
         });
     }
 
+    const temporaryReceiptPath = `${receiptPath}.${process.pid}.${randomUUID()}.tmp`;
     await writeFile(
-        receiptPath,
+        temporaryReceiptPath,
         `${JSON.stringify(expectedReceipt, null, 2)}\n`,
-        {flag: 'wx'},
+        {
+            flag: 'wx',
+            mode: 0o600,
+        },
     );
+    await rename(temporaryReceiptPath, receiptPath);
     process.stdout.write(
         `Uploaded ${expectedReceipt.bundleCount} private source-map bundle(s) for `
         + `${normalizedIdentity.release}, ${normalizedIdentity.dist}.\n`,

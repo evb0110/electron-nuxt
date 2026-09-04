@@ -1,0 +1,754 @@
+import { createHash } from 'node:crypto';
+import {
+    mkdir,
+    readFile,
+    stat,
+    writeFile,
+} from 'node:fs/promises';
+import path from 'node:path';
+import {
+    WINDOWS_TEST_RUNNER_VERSION,
+    WINDOWS_TEST_SCHEMA_VERSION,
+    combineOutcomes,
+    exitCodeForOutcome,
+    windowsTestDefaultDeadlines,
+    windowsTestExitCodes,
+} from '@scripts/windows-test/contracts/windowsTestContracts';
+import type {
+    IWindowsTestEvidenceEntry,
+    IWindowsTestFailureRecord,
+    IWindowsTestJob,
+    IWindowsTestResult,
+    IWindowsTestRunSummary,
+    IWindowsTestWorkerHeartbeat,
+    TWindowsTestExitCode,
+    TWindowsTestOutcome,
+    TWindowsTestRunState,
+    TWindowsTestSuite,
+} from '@scripts/windows-test/contracts/windowsTestContracts';
+import {
+    windowsTestGuestLayout,
+    windowsTestGuestRunPaths,
+    windowsTestRunLayout,
+} from '@scripts/windows-test/contracts/windowsTestPaths';
+import type { IWindowsTestHostLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
+import type {
+    IFixtureManifestSource,
+    IWindowsTestSuiteResolver,
+} from '@scripts/windows-test/host/capabilityRegistry';
+import type { IWindowsTestClock } from '@scripts/windows-test/host/hostClock';
+import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import {
+    acquireHostLease,
+    bindLeaseToVm,
+    releaseHostLease,
+} from '@scripts/windows-test/host/hostLease';
+import type { IHostLockDependencies } from '@scripts/windows-test/host/hostLock';
+import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
+import type { IWindowsTestGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import {
+    outcomeForRejections,
+    validateWindowsTestResultBundle,
+} from '@scripts/windows-test/host/resultValidation';
+import type { IWindowsTestObservedEvidenceFile } from '@scripts/windows-test/host/resultValidation';
+import { createTransitionRecorder } from '@scripts/windows-test/host/runTransitions';
+import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
+import type { IWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
+import { utmBundlePathForName } from '@scripts/windows-test/images/vmBundleLocator';
+import {
+    WindowsTestIdentityGuardError,
+    assertDestructiveTarget,
+    destructivePolicyFromConfig,
+    selectClonedVmId,
+    withOwnedCloneAllowlisted,
+} from '@scripts/windows-test/images/vmIdentityGuard';
+import type { IWindowsTestIdentityGuardDependencies } from '@scripts/windows-test/images/vmIdentityGuard';
+
+export const WINDOWS_TEST_CLONE_NAME_PREFIX = 'evb-win-test-';
+
+export interface IWindowsTestRunDeadlines {
+    bootToGuestReadyMs: number;
+    guestReadyToDesktopReadyMs: number;
+    jobMs: number;
+    pollIntervalMs: number;
+    cancelGraceMs: number;
+    heartbeatStaleAfterMs: number;
+    commandTimeoutMs: number;
+    stageFileMs: number;
+}
+
+export function defaultWindowsTestRunDeadlines(): IWindowsTestRunDeadlines {
+    return {
+        bootToGuestReadyMs: windowsTestDefaultDeadlines.bootToGuestReadySeconds * 1_000,
+        guestReadyToDesktopReadyMs: windowsTestDefaultDeadlines.guestReadyToDesktopReadySeconds * 1_000,
+        jobMs: windowsTestDefaultDeadlines.jobSeconds * 1_000,
+        pollIntervalMs: 2_000,
+        cancelGraceMs: windowsTestDefaultDeadlines.uiStepSeconds * 1_000,
+        heartbeatStaleAfterMs: windowsTestDefaultDeadlines.guestReadyToDesktopReadySeconds * 1_000,
+        commandTimeoutMs: windowsTestDefaultDeadlines.uiStepSeconds * 1_000,
+        stageFileMs: windowsTestDefaultDeadlines.jobSeconds * 1_000,
+    };
+}
+
+export interface IWindowsTestStagedInput {
+    hostPath: string;
+    guestPath: string;
+    sha256: string;
+}
+
+export interface IWindowsTestRunRequest {
+    suite: TWindowsTestSuite;
+    environment: string;
+    tests: string[] | null;
+}
+
+export interface IWindowsTestRunDependencies {
+    config: IWindowsTestHostConfig;
+    layout: IWindowsTestHostLayout;
+    utmctl: IUtmctlClient;
+    guest: IWindowsTestGuestChannel;
+    clock: IWindowsTestClock;
+    suiteResolver: IWindowsTestSuiteResolver;
+    fixtureManifest: IFixtureManifestSource;
+    imageManifest: IWindowsTestImageManifest;
+    lock: IHostLockDependencies;
+    probe: IHostProcessIdentityProbe;
+    hostId: string;
+    randomRunSuffix(): string;
+    stagedInputs?: readonly IWindowsTestStagedInput[];
+    identityGuard?: IWindowsTestIdentityGuardDependencies;
+    deadlines?: Partial<IWindowsTestRunDeadlines>;
+    hashFile?(filePath: string): Promise<string>;
+}
+
+export interface IWindowsTestRunReport {
+    exitCode: TWindowsTestExitCode;
+    outcome: TWindowsTestOutcome | null;
+    runId: string | null;
+    activeRunId: string | null;
+    summary: IWindowsTestRunSummary | null;
+    messages: string[];
+}
+
+export function createWindowsTestRunId(nowIso: string, randomSuffix: string) {
+    const stamp = nowIso
+        .replace(/[-:]/gu, '')
+        .replace(/\.\d+Z$/u, 'Z');
+    return `${stamp}-${randomSuffix}`;
+}
+
+async function sha256OfFile(filePath: string) {
+    return createHash('sha256').update(await readFile(filePath)).digest('hex');
+}
+
+class WindowsTestRunAbort extends Error {
+    readonly record: IWindowsTestFailureRecord;
+
+    constructor(record: IWindowsTestFailureRecord) {
+        super(record.reason);
+        this.name = 'WindowsTestRunAbort';
+        this.record = record;
+    }
+}
+
+function abort(
+    outcome: Exclude<TWindowsTestOutcome, 'passed'>,
+    phase: TWindowsTestRunState,
+    reason: string,
+): never {
+    throw new WindowsTestRunAbort({
+        outcome,
+        phase,
+        reason,
+    });
+}
+
+function isSafeEvidencePath(relativePath: string) {
+    if (relativePath.length === 0 || path.isAbsolute(relativePath) || /^[a-zA-Z]:/u.test(relativePath)) {
+        return false;
+    }
+    return !relativePath
+        .split(/[\\/]/u)
+        .some(segment => segment === '..' || segment === '');
+}
+
+function readEvidenceEntries(manifestText: string | null): IWindowsTestEvidenceEntry[] {
+    if (manifestText === null) {
+        return [];
+    }
+    let parsed: unknown;
+    try {
+        parsed = JSON.parse(manifestText);
+    } catch {
+        return [];
+    }
+    if (typeof parsed !== 'object' || parsed === null || !('entries' in parsed)) {
+        return [];
+    }
+    const entries = (parsed).entries;
+    if (!Array.isArray(entries)) {
+        return [];
+    }
+    return entries.filter((entry): entry is IWindowsTestEvidenceEntry => typeof entry === 'object'
+        && entry !== null
+        && typeof (entry as IWindowsTestEvidenceEntry).relativePath === 'string'
+        && isSafeEvidencePath((entry as IWindowsTestEvidenceEntry).relativePath));
+}
+
+function classifyTests(result: IWindowsTestResult | null) {
+    const passedTests: string[] = [];
+    const failedTests: string[] = [];
+    const unsupportedTests: string[] = [];
+    for (const caseResult of result?.cases ?? []) {
+        if (caseResult.outcome === 'passed') {
+            passedTests.push(caseResult.testId);
+            continue;
+        }
+        if (caseResult.outcome === 'unsupported') {
+            unsupportedTests.push(caseResult.testId);
+            continue;
+        }
+        failedTests.push(caseResult.testId);
+    }
+    return {
+        passedTests,
+        failedTests,
+        unsupportedTests,
+    };
+}
+
+async function pollUntil<T>(
+    clock: IWindowsTestClock,
+    budgetMs: number,
+    intervalMs: number,
+    attempt: () => Promise<T | null>,
+): Promise<T | null> {
+    const deadlineMs = clock.monotonicMs() + budgetMs;
+    for (;;) {
+        const value = await attempt();
+        if (value !== null) {
+            return value;
+        }
+        if (clock.monotonicMs() >= deadlineMs) {
+            return null;
+        }
+        await clock.sleep(intervalMs);
+    }
+}
+
+async function pathExists(target: string) {
+    return (await stat(target).catch(() => null)) !== null;
+}
+
+async function collectEvidence(options: {
+    guest: IWindowsTestGuestChannel;
+    vmId: string;
+    runId: string;
+    evidenceDir: string;
+    manifestFile: string;
+    timeoutMs: number;
+    hashFile(filePath: string): Promise<string>;
+}) {
+    const guestPaths = windowsTestGuestRunPaths(options.runId);
+    await mkdir(options.evidenceDir, {recursive: true});
+    const manifestPulled = await options.guest.pullGuestFile(
+        options.vmId,
+        guestPaths.evidenceManifestFile,
+        options.manifestFile,
+        options.timeoutMs,
+    );
+    const manifestText = manifestPulled
+        ? await readFile(options.manifestFile, 'utf8').catch(() => null)
+        : null;
+    const manifestSha256 = manifestText === null ? null : await options.hashFile(options.manifestFile);
+
+    const observed: IWindowsTestObservedEvidenceFile[] = [];
+    for (const entry of readEvidenceEntries(manifestText)) {
+        const segments = entry.relativePath.split(/[\\/]/u);
+        const hostFile = path.join(options.evidenceDir, ...segments);
+        await mkdir(path.dirname(hostFile), {recursive: true});
+        const pulled = await options.guest.pullGuestFile(
+            options.vmId,
+            `${guestPaths.evidenceDir}\\${segments.join('\\')}`,
+            hostFile,
+            options.timeoutMs,
+        );
+        if (!pulled) {
+            continue;
+        }
+        const fileStat = await stat(hostFile).catch(() => null);
+        if (fileStat === null) {
+            continue;
+        }
+        observed.push({
+            relativePath: entry.relativePath,
+            sha256: await options.hashFile(hostFile),
+            bytes: fileStat.size,
+        });
+    }
+
+    return {
+        manifestText,
+        manifestSha256,
+        observed,
+    };
+}
+
+export async function executeWindowsTestRun(
+    request: IWindowsTestRunRequest,
+    dependencies: IWindowsTestRunDependencies,
+): Promise<IWindowsTestRunReport> {
+    const deadlines: IWindowsTestRunDeadlines = {
+        ...defaultWindowsTestRunDeadlines(),
+        ...dependencies.deadlines,
+    };
+    const hashFile = dependencies.hashFile ?? sha256OfFile;
+    const {
+        clock,
+        config,
+        guest,
+        layout,
+        utmctl,
+    } = dependencies;
+    const runId = createWindowsTestRunId(clock.nowIso(), dependencies.randomRunSuffix());
+    const runLayout = windowsTestRunLayout(layout.runsDir, runId);
+    const guestPaths = windowsTestGuestRunPaths(runId);
+    const messages: string[] = [];
+
+    const acquisition = await acquireHostLease({
+        leaseFile: layout.leaseFile,
+        lockDirectory: layout.lockFile,
+        runId,
+        hostId: dependencies.hostId,
+        lock: dependencies.lock,
+        probe: dependencies.probe,
+        nowIso: () => clock.nowIso(),
+    });
+    if (!acquisition.acquired) {
+        return {
+            exitCode: windowsTestExitCodes.busyLease,
+            outcome: null,
+            runId: null,
+            activeRunId: acquisition.activeRunId,
+            summary: null,
+            messages: [`Another Windows test run (${acquisition.activeRunId ?? 'unknown'}) already holds the host lease; refusing to share the single test VM.`],
+        };
+    }
+    if (acquisition.recoveredLease !== null) {
+        messages.push(`Recovered a stale lease from run ${acquisition.recoveredLease.runId}; its incomplete run directory was preserved.`);
+    }
+
+    let summary: IWindowsTestRunSummary;
+    try {
+        await mkdir(runLayout.runDir, {recursive: true});
+        const recorder = createTransitionRecorder({
+            transitionsFile: runLayout.transitionsFile,
+            clock,
+        });
+        const startedAt = clock.nowIso();
+        await recorder.record('leased', `Run ${runId} holds the host lease on ${dependencies.hostId}.`);
+
+        let outcome: TWindowsTestOutcome = 'passed';
+        const failures: IWindowsTestFailureRecord[] = [];
+        let policy = destructivePolicyFromConfig(config);
+        const cloneName = `${WINDOWS_TEST_CLONE_NAME_PREFIX}${runId}`;
+        let clonedVmId: string | null = null;
+        let cloneBundlePath: string | null = null;
+        let job: IWindowsTestJob | null = null;
+        let result: IWindowsTestResult | null = null;
+        let uncoveredObligations: string[] = [];
+        let humanReviewRequired = false;
+        let expectedTests: string[] = [];
+
+        try {
+            const candidate = config.candidate;
+            if (candidate === null) {
+                abort(
+                    'infrastructure-failed',
+                    'queued',
+                    `No candidate artifact is recorded in ${layout.configFile}; pass --artifact <absolute path> to stage one.`,
+                );
+            }
+            const artifactStat = await stat(candidate.artifactPath).catch(() => null);
+            if (artifactStat === null || !artifactStat.isFile()) {
+                abort(
+                    'infrastructure-failed',
+                    'queued',
+                    `The candidate artifact ${candidate.artifactPath} is missing; re-stage it with --artifact.`,
+                );
+            }
+            const observedArtifactSha = await hashFile(candidate.artifactPath);
+            if (observedArtifactSha !== candidate.sha256) {
+                abort(
+                    'infrastructure-failed',
+                    'queued',
+                    `The candidate artifact hashes to ${observedArtifactSha} but the configuration records ${candidate.sha256}.`,
+                );
+            }
+
+            const selection = await dependencies.suiteResolver.resolveSuite(request.suite, request.environment);
+            uncoveredObligations = [...selection.uncoveredObligations];
+            humanReviewRequired = selection.humanReviewObligations.length > 0;
+            if (request.tests === null) {
+                expectedTests = [...selection.tests];
+            } else {
+                expectedTests = request.tests.filter(testId => selection.tests.includes(testId));
+                const unknown = request.tests.filter(testId => !selection.tests.includes(testId));
+                uncoveredObligations = [
+                    ...uncoveredObligations,
+                    ...unknown,
+                ];
+            }
+            if (expectedTests.length === 0) {
+                abort(
+                    'unsupported',
+                    'queued',
+                    `No implemented Windows test cases match suite "${request.suite}" in environment "${request.environment}".`,
+                );
+            }
+            const fixtureManifestSha256 = await dependencies.fixtureManifest.sha256();
+
+            const goldenStatus = await utmctl.status(config.goldenVmId);
+            if (goldenStatus !== 'stopped') {
+                abort(
+                    'infrastructure-failed',
+                    'queued',
+                    `The golden image ${config.goldenVmId} reports status "${goldenStatus}"; it must be stopped so every run clones an identical baseline.`,
+                );
+            }
+
+            const before = await utmctl.list();
+            // Set before cloning so teardown looks for the clone even when the
+            // clone command or the UUID diff fails part-way.
+            cloneBundlePath = utmBundlePathForName(config.testImageRoot, cloneName);
+            await utmctl.clone(config.goldenVmId, cloneName);
+            const after = await utmctl.list();
+            clonedVmId = selectClonedVmId(before, after);
+            policy = withOwnedCloneAllowlisted(policy, clonedVmId);
+            await assertDestructiveTarget(
+                {
+                    vmId: clonedVmId,
+                    bundlePath: cloneBundlePath,
+                },
+                policy,
+                dependencies.identityGuard,
+            );
+            await bindLeaseToVm(layout.leaseFile, runId, clonedVmId);
+
+            await recorder.record('booting', `Starting owned clone ${clonedVmId} cloned from the stopped golden image.`);
+            await utmctl.start(clonedVmId);
+
+            const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
+                const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                return alive ? true : null;
+            });
+            if (guestReady === null) {
+                abort(
+                    'infrastructure-failed',
+                    'booting',
+                    `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
+                );
+            }
+            await recorder.record('guest-ready', 'The guest agent answered a supervised ping.');
+
+            const bootIdText = await guest.readGuestText(
+                clonedVmId,
+                windowsTestGuestLayout.bootIdFile,
+                deadlines.commandTimeoutMs,
+            );
+            const bootId = bootIdText === null ? '' : bootIdText.trim();
+            if (bootId.length === 0) {
+                abort(
+                    'infrastructure-failed',
+                    'guest-ready',
+                    'The guest never published a boot ID, so no result could be tied to this boot.',
+                );
+            }
+
+            const heartbeat = await pollUntil(
+                clock,
+                deadlines.guestReadyToDesktopReadyMs,
+                deadlines.pollIntervalMs,
+                async () => {
+                    const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                    if (observed === null) {
+                        return null;
+                    }
+                    const usable = observed.bootId === bootId
+                        && observed.worker.interactive
+                        && observed.worker.sessionId !== 0
+                        && !observed.locked;
+                    return usable ? observed : null;
+                },
+            );
+            if (heartbeat === null) {
+                abort(
+                    'infrastructure-failed',
+                    'guest-ready',
+                    'The guest worker never reported an interactive unlocked desktop for this boot; a Session 0 or locked session cannot execute a user journey.',
+                );
+            }
+            if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
+                abort(
+                    'infrastructure-failed',
+                    'guest-ready',
+                    `The guest test marker "${heartbeat.guestTestMarker}" does not match image ${dependencies.imageManifest.imageId}; refusing to drive an unknown machine.`,
+                );
+            }
+            await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
+
+            const artifactGuestPath = `${windowsTestGuestLayout.stagingDir}\\${candidate.fileName}`;
+            await guest.stageFile(clonedVmId, candidate.artifactPath, artifactGuestPath, deadlines.stageFileMs);
+            const artifactVerified = await guest.verifyStagedFileHash(
+                clonedVmId,
+                artifactGuestPath,
+                candidate.sha256,
+                deadlines.commandTimeoutMs,
+            );
+            if (!artifactVerified) {
+                abort(
+                    'infrastructure-failed',
+                    'desktop-ready',
+                    `The staged artifact did not hash to ${candidate.sha256} inside the guest.`,
+                );
+            }
+            for (const input of dependencies.stagedInputs ?? []) {
+                await guest.stageFile(clonedVmId, input.hostPath, input.guestPath, deadlines.stageFileMs);
+                const verified = await guest.verifyStagedFileHash(
+                    clonedVmId,
+                    input.guestPath,
+                    input.sha256,
+                    deadlines.commandTimeoutMs,
+                );
+                if (!verified) {
+                    abort(
+                        'infrastructure-failed',
+                        'desktop-ready',
+                        `The staged input ${input.guestPath} did not hash to ${input.sha256} inside the guest.`,
+                    );
+                }
+            }
+            await recorder.record('staged', 'The candidate artifact and fixtures were staged and hash-verified inside the guest.');
+
+            job = {
+                schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
+                runId,
+                sourceSha: candidate.sourceSha,
+                artifactSha256: candidate.sha256,
+                artifactFileName: candidate.fileName,
+                imageId: dependencies.imageManifest.imageId,
+                vmId: clonedVmId,
+                bootId,
+                guestTestMarker: dependencies.imageManifest.guestTestMarker,
+                runnerVersion: WINDOWS_TEST_RUNNER_VERSION,
+                suite: request.suite,
+                tests: expectedTests,
+                fixtureManifestSha256,
+                expectedOsArch: dependencies.imageManifest.osArch,
+                expectedAppArch: candidate.appArch,
+                deadlineSeconds: Math.round(deadlines.jobMs / 1_000),
+            };
+            await writeFile(runLayout.jobFile, `${JSON.stringify(job, null, 4)}\n`, 'utf8');
+            await guest.writeJob(clonedVmId, job, deadlines.commandTimeoutMs);
+            await guest.publishReadyMarker(clonedVmId, runId, deadlines.commandTimeoutMs);
+            await recorder.record('testing', `Published job ${runId} to the guest inbox.`);
+
+            let latestHeartbeat: IWindowsTestWorkerHeartbeat = heartbeat;
+            let lastHeartbeatStamp = heartbeat.updatedAt;
+            let lastHeartbeatChangeMs = clock.monotonicMs();
+            let resultText: string | null = null;
+            let canceled = false;
+            const jobDeadlineMs = clock.monotonicMs() + deadlines.jobMs;
+            for (;;) {
+                if (await pathExists(runLayout.cancelRequestFile)) {
+                    canceled = true;
+                    break;
+                }
+                const text = await guest.readGuestText(clonedVmId, guestPaths.resultFile, deadlines.commandTimeoutMs);
+                if (text !== null && text.trim().length > 0) {
+                    resultText = text;
+                    break;
+                }
+                const observed = await guest.readHeartbeat(clonedVmId, deadlines.commandTimeoutMs);
+                if (observed !== null) {
+                    latestHeartbeat = observed;
+                    if (observed.updatedAt !== lastHeartbeatStamp) {
+                        lastHeartbeatStamp = observed.updatedAt;
+                        lastHeartbeatChangeMs = clock.monotonicMs();
+                    }
+                }
+                if (clock.monotonicMs() >= jobDeadlineMs) {
+                    break;
+                }
+                await clock.sleep(deadlines.pollIntervalMs);
+            }
+
+            if (canceled) {
+                await guest.requestGuestCancel(clonedVmId, runId, deadlines.commandTimeoutMs);
+                await pollUntil(clock, deadlines.cancelGraceMs, deadlines.pollIntervalMs, async () => {
+                    const text = await guest.readGuestText(clonedVmId ?? '', guestPaths.resultFile, deadlines.commandTimeoutMs);
+                    return text !== null && text.trim().length > 0 ? text : null;
+                });
+                abort(
+                    'canceled',
+                    'testing',
+                    `Run ${runId} was canceled on request; the guest was told to stop and the owned clone is being recovered.`,
+                );
+            }
+
+            await recorder.record('collecting', 'Collecting the guest completion record and evidence.');
+            if (resultText !== null) {
+                await writeFile(runLayout.guestResultFile, resultText, 'utf8');
+            }
+            const evidence = await collectEvidence({
+                guest,
+                vmId: clonedVmId,
+                runId,
+                evidenceDir: runLayout.evidenceDir,
+                manifestFile: runLayout.evidenceManifestFile,
+                timeoutMs: deadlines.commandTimeoutMs,
+                hashFile,
+            });
+
+            const validation = validateWindowsTestResultBundle({
+                job,
+                resultText,
+                evidenceManifestText: evidence.manifestText,
+                evidenceManifestSha256: evidence.manifestSha256,
+                observedEvidenceFiles: evidence.observed,
+                heartbeat: latestHeartbeat,
+                heartbeatAgeMs: clock.monotonicMs() - lastHeartbeatChangeMs,
+                heartbeatStaleAfterMs: deadlines.heartbeatStaleAfterMs,
+            });
+            if (validation.ok) {
+                result = validation.result;
+                outcome = combineOutcomes(outcome, result.outcome);
+                humanReviewRequired = humanReviewRequired || result.humanReviewRequired;
+                if (result.outcome !== 'passed') {
+                    failures.push({
+                        outcome: result.outcome,
+                        phase: 'testing',
+                        reason: result.failureReason ?? `The guest reported ${result.outcome}.`,
+                    });
+                }
+            } else {
+                for (const rejection of validation.rejections) {
+                    failures.push({
+                        outcome: rejection.outcome,
+                        phase: 'collecting',
+                        reason: `${rejection.reason}: ${rejection.detail}`,
+                    });
+                }
+                outcome = combineOutcomes(outcome, outcomeForRejections(validation.rejections));
+            }
+        } catch (error) {
+            if (error instanceof WindowsTestRunAbort) {
+                failures.push(error.record);
+                outcome = combineOutcomes(outcome, error.record.outcome);
+            } else {
+                failures.push({
+                    outcome: 'infrastructure-failed',
+                    phase: recorder.currentState(),
+                    reason: error instanceof WindowsTestIdentityGuardError
+                        ? `${error.refusal}: ${error.message}`
+                        : (error instanceof Error ? error.message : String(error)),
+                });
+                outcome = combineOutcomes(outcome, 'infrastructure-failed');
+            }
+        }
+
+        let retainedClone = false;
+        await recorder.record('tearing-down', `Tearing down after outcome ${outcome}.`);
+        if (cloneBundlePath !== null) {
+            try {
+                const registered = await utmctl.list();
+                const ownedVmId = clonedVmId ?? registered.find(entry => entry.name === cloneName)?.uuid.toLowerCase() ?? null;
+                if (ownedVmId === null) {
+                    // The clone command failed before UTM registered anything.
+                    cloneBundlePath = null;
+                } else {
+                    if (clonedVmId === null) {
+                        policy = withOwnedCloneAllowlisted(policy, ownedVmId);
+                    }
+                    await utmctl.stop(ownedVmId, 'request');
+                    const status = await utmctl.status(ownedVmId);
+                    if (status !== 'stopped') {
+                        await utmctl.stop(ownedVmId, 'force');
+                    }
+                    const alreadyRetained = registered.filter(entry => entry.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)
+                        && entry.uuid.toLowerCase() !== ownedVmId).length;
+                    retainedClone = outcome !== 'passed' && alreadyRetained < config.retention.maxFailedClones;
+                    if (!retainedClone) {
+                        await assertDestructiveTarget(
+                            {
+                                vmId: ownedVmId,
+                                bundlePath: cloneBundlePath,
+                            },
+                            policy,
+                            dependencies.identityGuard,
+                        );
+                        await utmctl.deleteVm(ownedVmId);
+                    } else {
+                        messages.push(`Retained the failed clone ${ownedVmId} for inspection.`);
+                    }
+                }
+            } catch (error) {
+                // A teardown failure is recorded alongside, never instead of, an
+                // earlier product failure.
+                failures.push({
+                    outcome: 'infrastructure-failed',
+                    phase: 'tearing-down',
+                    reason: error instanceof Error ? error.message : String(error),
+                });
+                outcome = combineOutcomes(outcome, 'infrastructure-failed');
+            }
+        }
+        await recorder.record('complete', `Run ${runId} finished with outcome ${outcome}.`);
+
+        const {
+            passedTests,
+            failedTests,
+            unsupportedTests,
+        } = classifyTests(result);
+        summary = {
+            schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
+            runId,
+            suite: request.suite,
+            environment: request.environment,
+            sourceSha: config.candidate?.sourceSha ?? '',
+            artifactSha256: config.candidate?.sha256 ?? '',
+            artifactFileName: config.candidate?.fileName ?? '',
+            imageId: dependencies.imageManifest.imageId,
+            vmId: clonedVmId ?? '',
+            runnerVersion: WINDOWS_TEST_RUNNER_VERSION,
+            outcome,
+            exitCode: exitCodeForOutcome(outcome),
+            startedAt,
+            endedAt: clock.nowIso(),
+            transitions: recorder.transitions(),
+            failures,
+            expectedTests,
+            executedTests: result?.executedTests ?? [],
+            passedTests,
+            failedTests,
+            unsupportedTests,
+            uncoveredObligations,
+            humanReviewRequired,
+            evidenceDirectory: runLayout.evidenceDir,
+            retainedClone,
+        };
+        await writeFile(runLayout.summaryFile, `${JSON.stringify(summary, null, 4)}\n`, 'utf8');
+    } finally {
+        // Whatever happened above, the next run must be able to take the lease.
+        await releaseHostLease(layout.leaseFile, runId);
+    }
+
+    return {
+        exitCode: summary.exitCode,
+        outcome: summary.outcome,
+        runId,
+        activeRunId: null,
+        summary,
+        messages,
+    };
+}

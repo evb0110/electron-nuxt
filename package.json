@@ -1,7 +1,7 @@
 {
   "name": "evb-viewer",
   "productName": "EVB Viewer",
-  "version": "0.1.450",
+  "version": "0.1.451",
   "author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>",
   "description": "EVB Viewer - a PDF and DjVu document viewer",
   "homepage": "https://github.com/evb0110/evb-viewer",
@@ -25,7 +25,7 @@
     "deploy:web:prod": "node scripts/deployVercelPrivate.mjs --prod --logs",
     "deploy:landing": "node scripts/deployVercelPrivate.mjs --target=landing",
     "deploy:landing:prod": "node scripts/deployVercelPrivate.mjs --target=landing --prod --logs",
-    "build": "pnpm run generate:build-artifacts && pnpm exec nuxi build && node scripts/prune-build-artifacts.mjs && node scripts/check-web-deploy-assets.mjs",
+    "build": "pnpm run generate:build-artifacts && pnpm exec nuxi build && node scripts/stageDesktopRendererSourcemaps.mjs && node scripts/prune-build-artifacts.mjs && node scripts/check-web-deploy-assets.mjs",
     "build:desktop": "pnpm run check:wasm:strict && pnpm run build:desktop:no-wasm-check",
     "build:desktop:no-wasm-check": "pnpm run build && pnpm run build:electron && pnpm run build:native",
     "build:strict": "node scripts/validation-gates.mjs heavy --id=build-strict --weight=1 -- node scripts/run-build-strict.mjs",
@@ -101,6 +101,9 @@
     "diag:scan-cleanup-rendered-metrics": "python3 scripts/diagnostics/scan-cleanup-rendered-metrics.py",
     "diag:verify-generated-pdf": "python3 scripts/diagnostics/verify-generated-pdf.py",
     "diag:pdf-tabs:ci": "sh -c 'pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; pnpm run build:electron && pnpm electron:run startd --session=pdf-tabs-ci && pnpm diag:pdf-tabs --session pdf-tabs-ci --tabs 4 --cycles 3 --gc --sample-heap --max-inactive-canvases 0 --max-inactive-rendered-pages 0 --max-inactive-djvu-images 0 --max-inactive-canvas-pixels 0; status=$?; pnpm electron:run stop --session=pdf-tabs-ci >/dev/null 2>&1 || true; exit $status'",
+    "stress": "pnpm run build:electron && pnpm exec tsx scripts/stress/runStress.ts",
+    "stress:fixtures": "pnpm exec tsx scripts/stress/runStress.ts --fixtures-only",
+    "stress:replay": "pnpm run build:electron && pnpm exec tsx scripts/stress/replayStress.ts",
     "benchmark:save-pipeline": "node scripts/benchmark-save-pipeline.mjs",
     "dist": "node scripts/check-dev-environment.mjs --strict && pnpm run build:desktop && electron-builder",
     "release:verify:checks": "node scripts/release/verify-local-checks.mjs",
@@ -126,6 +129,10 @@
     "check:wasm:portable": "node scripts/check-wasm-freshness.mjs --mode=portable",
     "check:wasm:strict": "node scripts/check-wasm-freshness.mjs --mode=strict",
     "check:architecture": "node scripts/architecture/boundary-check.mjs --scope=all && pnpm exec eslint app electron packages scripts server tests eslint-plugin-custom.mjs vitest.config.ts vitest.shared.config.ts --max-warnings=0 --report-unused-disable-directives",
+    "windows:test": "node --import tsx scripts/windows-test/cli/runWindowsTestCli.ts",
+    "windows:test:doctor": "node --import tsx scripts/windows-test/cli/runWindowsTestDoctorCli.ts",
+    "windows:test:report": "node --import tsx scripts/windows-test/cli/runWindowsTestReportCli.ts",
+    "windows:test:stop": "node --import tsx scripts/windows-test/cli/runWindowsTestStopCli.ts",
     "preversion": "pnpm run check:resources:matrix",
     "prepare": "pnpm run generate:build-artifacts && husky"
   },
@@ -134,6 +141,7 @@
     "app/**/*.{vue,scss,css}": "stylelint --fix"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.122.0",
     "@anthropic-ai/claude-agent-sdk": "0.3.183",
     "@cfworker/json-schema": "4.1.1",
     "@iconify/utils": "3.1.4",

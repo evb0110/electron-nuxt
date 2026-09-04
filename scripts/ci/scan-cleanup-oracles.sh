@@ -16,12 +16,28 @@ build_scan_cleanup_tool() {
   pnpm run build:scan-cleanup
 }
 
+resolve_scan_cleanup_tool() {
+  node --input-type=module -e '
+    import path from "node:path";
+    import { getRequestedNativeRustTarget } from "./scripts/native-rust-targets.mjs";
+    const target = getRequestedNativeRustTarget();
+    process.stdout.write(path.join(
+      ".tmp",
+      "scan-cleanup",
+      target.platformArch,
+      "bin",
+      `evb-scan-cleanup${target.binaryExtension}`,
+    ));
+  '
+}
+
 run_stroke_weight_oracle() {
   stroke_output="$output_root/stroke-weight"
+  scan_cleanup_tool=$(resolve_scan_cleanup_tool)
   mkdir -p "$stroke_output"
   mkdir -p .devkit/tmp/stroke-weight-oracle
   node --test scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.test.mjs
-  native/target/release/evb-scan-cleanup \
+  "$scan_cleanup_tool" \
     --manifest scripts/diagnostics/stroke-weight-oracle/calibration/render-manifest.json
   node scripts/diagnostics/stroke-weight-oracle/stroke-weight-oracle.mjs \
     --image .devkit/tmp/stroke-weight-oracle/diyarbakir-clean.png \

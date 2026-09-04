@@ -82,6 +82,28 @@ export function shouldDisableMacOSAutomationGpu(
     return platform === 'darwin' && env.EVB_AUTOMATION_HIDE_WINDOW === '1';
 }
 
+export const AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV = 'EVB_AUTOMATION_EXTRA_CHROMIUM_SWITCHES';
+
+/**
+ * Stress-test host profiles need Chromium switches (`--js-flags`,
+ * `--renderer-process-limit`, `--evb-safe-mode`, ...) that no other automation
+ * caller sets. The value is whitespace-separated; every token must start with
+ * `--` so a stray file path can never become a positional argument.
+ */
+export function parseExtraChromiumSwitches(rawValue: string | undefined) {
+    if (!rawValue) {
+        return [];
+    }
+    const switches = rawValue.split(/\s+/).filter(token => token.length > 0);
+    const invalid = switches.filter(token => !token.startsWith('--'));
+    if (invalid.length > 0) {
+        throw new Error(
+            `${AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV} accepts only \`--switch\` tokens; rejected: ${invalid.join(' ')}`,
+        );
+    }
+    return switches;
+}
+
 export function buildElectronAutomationArgs(options: {
     cdpPort: number;
     automationUserDataDir: string;
@@ -92,6 +114,7 @@ export function buildElectronAutomationArgs(options: {
 }) {
     const initialOpenPaths = options.initialOpenPaths ?? [];
     const forceNoReducedMotion = options.env?.EVB_E2E_FORCE_NO_REDUCED_MOTION === '1';
+    const extraSwitches = parseExtraChromiumSwitches(options.env?.[AUTOMATION_EXTRA_CHROMIUM_SWITCHES_ENV]);
     const args = [
         `--remote-debugging-port=${options.cdpPort}`,
         `--user-data-dir=${options.automationUserDataDir}`,
@@ -116,6 +139,9 @@ export function buildElectronAutomationArgs(options: {
     }
     if (forceNoReducedMotion) {
         args.unshift('--force-prefers-no-reduced-motion');
+    }
+    if (extraSwitches.length > 0) {
+        args.unshift(...extraSwitches);
     }
 
     return args;

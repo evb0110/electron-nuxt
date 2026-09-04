@@ -1,24 +1,30 @@
 import {
     createEventEnvelope,
     getEnvelopeEndpointWithUrlEncodedAuth,
+    getFilenameToDebugIdMap,
     makeDsn,
     type Event,
     type Transport,
 } from '@sentry/core/browser';
-import {makeFetchTransport} from '@sentry/browser';
-import {DIAGNOSTIC_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
+import {
+    defaultStackParser,
+    makeFetchTransport,
+} from '@sentry/browser';
 import {
     decodeDiagnosticRecord,
     type DiagnosticRecord,
 } from '@contracts/diagnostics/diagnosticRecord';
 import {decodeDiagnosticsSuppressedCount} from '@contracts/diagnostics/diagnosticsCapability';
 import {
+    buildSentryClosedEvent,
+    EVB_DIAGNOSTIC_SCHEMA_MARKER,
+} from '@contracts/diagnostics/sentryClosedEvent';
+import {
     assertSentryBuildIdentity,
     type SentryBuildIdentity,
 } from '@contracts/diagnostics/releaseIdentity.js';
 import type {IHostedDiagnosticsTransport} from '@app/utils/failureReporter';
 
-const EVB_DIAGNOSTIC_SCHEMA_MARKER = 'evb-diagnostic-v1';
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 
 type TSentryTransportFactory = (options: Parameters<typeof makeFetchTransport>[0]) => Transport;
@@ -27,6 +33,7 @@ export interface IBrowserDiagnosticsTransportOptions {
     dsn: string;
     identity: SentryBuildIdentity;
     makeTransport?: TSentryTransportFactory;
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
 }
 
 function requireEuDsn(value: string) {
@@ -61,54 +68,6 @@ function requireEuDsn(value: string) {
     return dsn;
 }
 
-function buildClosedEvent(
-    record: DiagnosticRecord,
-    suppressedCount: number,
-    identity: SentryBuildIdentity,
-): Event {
-    const definition = DIAGNOSTIC_DEFINITIONS[record.code];
-    const topFrame = record.frames[0];
-    return {
-        event_id: record.eventId,
-        timestamp: record.occurredAt / 1_000,
-        level: record.severity,
-        platform: 'javascript',
-        logger: 'evb-viewer.diagnostics',
-        release: identity.release,
-        dist: identity.dist,
-        environment: identity.environment,
-        fingerprint: [
-            record.runtime,
-            record.code,
-            topFrame?.module ?? 'no-application-frame',
-        ],
-        exception: {values: [{
-            type: definition.exceptionType,
-            value: definition.exceptionValue,
-            stacktrace: {frames: [...record.frames].reverse().map(frame => ({
-                filename: frame.module,
-                module: frame.module,
-                ...(frame.function === undefined ? {} : {function: frame.function}),
-                ...(frame.line === undefined ? {} : {lineno: frame.line}),
-                ...(frame.column === undefined ? {} : {colno: frame.column}),
-                in_app: true,
-            }))},
-        }]},
-        tags: {
-            evb_schema: EVB_DIAGNOSTIC_SCHEMA_MARKER,
-            diagnostic_code: record.code,
-            diagnostic_runtime: record.runtime,
-            ...(record.operation === undefined ? {} : {diagnostic_operation: record.operation}),
-        },
-        contexts: {evb_runtime: {target: 'hosted-browser'}},
-        extra: {
-            schemaVersion: record.schemaVersion,
-            context: Object.fromEntries(Object.entries(record.context)),
-            ...(suppressedCount === 0 ? {} : {suppressedCount}),
-        },
-    };
-}
-
 function isSuccessfulResponse(value: Awaited<ReturnType<Transport['send']>>) {
     return value.statusCode === undefined
         || value.statusCode >= 200 && value.statusCode < 300;
@@ -123,6 +82,8 @@ export function createBrowserDiagnosticsTransport(
     }
     const dsn = requireEuDsn(options.dsn);
     const makeTransport = options.makeTransport ?? makeFetchTransport;
+    const resolveFilenameDebugIds = options.resolveFilenameDebugIds
+        ?? (() => getFilenameToDebugIdMap(defaultStackParser));
     const transport = makeTransport({
         url: getEnvelopeEndpointWithUrlEncodedAuth(dsn),
         recordDroppedEvent: () => undefined,
@@ -134,9 +95,21 @@ export function createBrowserDiagnosticsTransport(
         if (record === null || suppressedCount === null) {
             return false;
         }
-        const event = buildClosedEvent(record, suppressedCount, identity);
+        const event: Event = buildSentryClosedEvent(
+            record,
+            suppressedCount,
+            identity,
+            {target: 'hosted-browser'},
+            resolveFilenameDebugIds(),
+        );
         const markedEvent = event.tags?.evb_schema === EVB_DIAGNOSTIC_SCHEMA_MARKER
-            ? buildClosedEvent(record, suppressedCount, identity)
+            ? buildSentryClosedEvent(
+                record,
+                suppressedCount,
+                identity,
+                {target: 'hosted-browser'},
+                resolveFilenameDebugIds(),
+            )
             : null;
         if (markedEvent === null) {
             return false;

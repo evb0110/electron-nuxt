@@ -330,6 +330,8 @@ export const SENTRY_RELEASE_TOOL_ROOTS = new Set([
     'scripts/release/upload-sentry-sourcemaps.mjs',
 ]);
 
+export const SENTRY_CANARY_TOOL_ROOTS = new Set(['scripts/release/send-sentry-sourcemap-canaries.mjs']);
+
 export const SENTRY_BUILD_CONFIG_ROOTS = new Set([
     'scripts/build-electron.mjs',
     'nuxt.config.ts',
@@ -1159,6 +1161,7 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
 
     const isRuntimeAdapter = SENTRY_RUNTIME_ADAPTER_ROOTS.has(filePath);
     const isReleaseTool = SENTRY_RELEASE_TOOL_ROOTS.has(filePath);
+    const isCanaryTool = SENTRY_CANARY_TOOL_ROOTS.has(filePath);
     const isBuildConfig = SENTRY_BUILD_CONFIG_ROOTS.has(filePath);
     const violations = [];
     const seen = new Set();
@@ -1189,7 +1192,7 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
             const importSpecifier = getImportLikeSpecifier(node);
             if (importSpecifier && isSentryPackageSpecifier(importSpecifier)) {
                 const packageName = getSentryPackageName(importSpecifier);
-                const allowedRuntimeImport = isRuntimeAdapter
+                const allowedRuntimeImport = (isRuntimeAdapter || isCanaryTool)
                     && APPROVED_SENTRY_RUNTIME_PACKAGES.has(packageName);
                 const allowedCliImport = isReleaseTool && packageName === '@sentry/cli';
                 if (!allowedRuntimeImport && !allowedCliImport) {
@@ -1203,12 +1206,12 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
             }
 
             if (ts.isIdentifier(node)) {
-                if (isDsnName(node.text) && !isRuntimeAdapter && !isBuildConfig) {
+                if (isDsnName(node.text) && !isRuntimeAdapter && !isBuildConfig && !isCanaryTool) {
                     addViolation({
                         rule: 'sentry-dsn-boundary',
                         target: filePath,
                         specifier: 'dsn-read',
-                        message: 'Sentry DSNs may be read only by the three exact runtime adapters or two exact build configuration roots.',
+                        message: 'Sentry DSNs may be read only by the exact runtime adapters, build configuration roots, or canary tool.',
                     });
                 }
                 if (isSentryUploadTokenName(node.text) && !isReleaseTool) {
@@ -1225,12 +1228,13 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
             if (staticString
                 && !isRuntimeAdapter
                 && !isBuildConfig
+                && !isCanaryTool
                 && (isDsnName(staticString) || isDsnLiteral(staticString))) {
                 addViolation({
                     rule: 'sentry-dsn-boundary',
                     target: filePath,
                     specifier: 'dsn-literal',
-                    message: 'Sentry DSNs may be read only by the three exact runtime adapters or two exact build configuration roots.',
+                    message: 'Sentry DSNs may be read only by the exact runtime adapters, build configuration roots, or canary tool.',
                 });
             }
             if (staticString && !isReleaseTool && isSentryUploadTokenName(staticString)) {

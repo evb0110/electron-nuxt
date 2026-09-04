@@ -1,5 +1,8 @@
 import * as Sentry from '@sentry/node';
-import type {Transport} from '@sentry/core';
+import {
+    getFilenameToDebugIdMap,
+    type Transport,
+} from '@sentry/core';
 import {
     assertSentryBuildIdentity,
     type SentryBuildIdentity,
@@ -11,6 +14,7 @@ import {
 } from '@contracts/diagnostics/diagnosticRecord';
 import {DIAGNOSTIC_DEFINITIONS} from '@contracts/diagnostics/diagnosticCodes';
 import {decodeDiagnosticsSuppressedCount} from '@contracts/diagnostics/diagnosticsCapability';
+import {buildSentrySourceMapDebugImages} from '@contracts/diagnostics/sentryDebugImages';
 
 export const SENTRY_NITRO_POLICY_GATE_ENV_KEYS = Object.freeze({
     enabled: 'EVB_SENTRY_NITRO_ENABLED',
@@ -70,6 +74,7 @@ export interface ISentryNitroAdapterOptions {
     /** Test seam for the build constant replaced by Nitro. */
     readonly buildConfiguration?: unknown;
     readonly clientFactory?: TSentryNitroClientFactory;
+    readonly resolveFilenameDebugIds?: () => Readonly<Record<string, string>>;
 }
 
 export interface ISentryNitroAdapter {
@@ -361,10 +366,15 @@ function buildSentryEventInternal(
     identity: SentryBuildIdentity,
     suppressedCount = 0,
     includeMarker = true,
+    resolveFilenameDebugIds = () => getFilenameToDebugIdMap(Sentry.defaultStackParser),
 ): Sentry.Event {
     const definition = DIAGNOSTIC_DEFINITIONS[record.code];
     const topFrame = record.frames[0];
     const boundedSuppressedCount = decodeDiagnosticsSuppressedCount(suppressedCount) ?? 0;
+    const debugImages = buildSentrySourceMapDebugImages(
+        record.frames,
+        resolveFilenameDebugIds(),
+    );
     const event: Sentry.Event = {
         event_id: record.eventId,
         timestamp: Math.floor(record.occurredAt / 1_000),
@@ -401,6 +411,7 @@ function buildSentryEventInternal(
                 ? {}
                 : {stacktrace: {frames: [...record.frames].reverse().map(toSentryStackFrame)}}),
         }]},
+        ...(debugImages.length === 0 ? {} : {debug_meta: {images: debugImages}}),
     };
     if (includeMarker) {
         event.extra = {
@@ -417,8 +428,15 @@ export function buildSentryEvent(
     record: DiagnosticRecord,
     identity: SentryBuildIdentity,
     suppressedCount = 0,
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>,
 ): Sentry.Event {
-    return buildSentryEventInternal(record, identity, suppressedCount);
+    return buildSentryEventInternal(
+        record,
+        identity,
+        suppressedCount,
+        true,
+        resolveFilenameDebugIds,
+    );
 }
 
 function readMarkedRecord(event: unknown): {
@@ -444,6 +462,7 @@ function readMarkedRecord(event: unknown): {
 export function sanitizeSentryEvent(
     event: unknown,
     identity: SentryBuildIdentity,
+    resolveFilenameDebugIds?: () => Readonly<Record<string, string>>,
 ): Sentry.ErrorEvent | null {
     try {
         assertSentryBuildIdentity(identity);
@@ -459,6 +478,7 @@ export function sanitizeSentryEvent(
         identity,
         marked.suppressedCount,
         false,
+        resolveFilenameDebugIds,
     ) as Sentry.ErrorEvent;
 }
 
@@ -480,6 +500,7 @@ function createClientOptions(
     dsn: string,
     identity: SentryBuildIdentity,
     accepting: () => boolean,
+    resolveFilenameDebugIds: () => Readonly<Record<string, string>>,
 ): Sentry.NodeOptions {
     return {
         dsn,
@@ -534,7 +555,7 @@ function createClientOptions(
             frameContextLines: 0,
         },
         beforeSend: event => accepting()
-            ? sanitizeSentryEvent(event, identity)
+            ? sanitizeSentryEvent(event, identity, resolveFilenameDebugIds)
             : null,
     };
 }
@@ -548,13 +569,20 @@ export function createSentryNitroAdapter(
 ): ISentryNitroAdapter {
     const resolved = resolveConfiguration(options);
     const clientFactory = options.clientFactory ?? defaultClientFactory;
+    const resolveFilenameDebugIds = options.resolveFilenameDebugIds
+        ?? (() => getFilenameToDebugIdMap(Sentry.defaultStackParser));
     let accepting = true;
     let disposed = false;
     let client: ISentryNitroClient | null = null;
 
     if (resolved.snapshot.ready && resolved.identity !== null) {
         try {
-            client = clientFactory(createClientOptions(resolved.dsn, resolved.identity, () => accepting)) ?? null;
+            client = clientFactory(createClientOptions(
+                resolved.dsn,
+                resolved.identity,
+                () => accepting,
+                resolveFilenameDebugIds,
+            )) ?? null;
         } catch {
             client = null;
         }
@@ -578,6 +606,7 @@ export function createSentryNitroAdapter(
                     decodedRecord,
                     resolved.identity,
                     boundedSuppressedCount,
+                    resolveFilenameDebugIds,
                 );
                 const eventId = client.captureEvent(
                     event,
@@ -591,7 +620,7 @@ export function createSentryNitroAdapter(
         },
         sanitizeEvent: event => resolved.identity === null
             ? null
-            : sanitizeSentryEvent(event, resolved.identity),
+            : sanitizeSentryEvent(event, resolved.identity, resolveFilenameDebugIds),
         getConfiguration: () => resolved.snapshot,
         dispose: () => {
             if (disposed) {

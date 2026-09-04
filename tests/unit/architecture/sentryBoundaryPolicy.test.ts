@@ -12,6 +12,7 @@ const {buildDependencyGraph} = await import(pathToFileURL(resolve(projectRoot, '
 const {
     checkArchitectureBoundarySource,
     SENTRY_BUILD_CONFIG_ROOTS,
+    SENTRY_CANARY_TOOL_ROOTS,
     SENTRY_RELEASE_TOOL_ROOTS,
     SENTRY_RUNTIME_ADAPTER_ROOTS,
 } = await import(
@@ -178,6 +179,21 @@ describe('Sentry SDK and CLI architecture policy', () => {
             'scripts/build-electron.mjs',
             'nuxt.config.ts',
         ]));
+    });
+
+    it('allows the exact canary tool to send closed envelopes without capture APIs', () => {
+        const source = 'import { createEventEnvelope } from \'@sentry/core\';\n'
+            + 'const dsn = process.env.SENTRY_DESKTOP_DSN;\n'
+            + 'createEventEnvelope(event, dsn);\n';
+        expect(sentryViolations(
+            'scripts/release/send-sentry-sourcemap-canaries.mjs',
+            source,
+        )).toEqual([]);
+        expect(sentryViolations(
+            'scripts/release/send-sentry-sourcemap-canaries.mjs',
+            `${source}Sentry.captureEvent(event);\n`,
+        )).toEqual([expect.objectContaining({rule: 'sentry-capture-boundary'})]);
+        expect(SENTRY_CANARY_TOOL_ROOTS).toEqual(new Set(['scripts/release/send-sentry-sourcemap-canaries.mjs']));
     });
 
     it('allows only the exact release tools to spawn the CLI and read its token', () => {

@@ -29,7 +29,7 @@ const RECORD = requireDiagnosticRecord({
     context: {},
 });
 
-function setup() {
+function setup(resolveFilenameDebugIds?: () => Readonly<Record<string, string>>) {
     const envelopes: unknown[] = [];
     const send = vi.fn((envelope: unknown) => {
         envelopes.push(envelope);
@@ -57,6 +57,7 @@ function setup() {
             node: '22.21.1',
         },
         makeTransport,
+        ...(resolveFilenameDebugIds === undefined ? {} : {resolveFilenameDebugIds}),
     });
     return {
         adapter,
@@ -102,6 +103,33 @@ describe('Sentry Node diagnostics adapter', () => {
         const envelope = envelopes[0] as [unknown, unknown[]];
         expect(envelope[1]).toHaveLength(1);
         expect((envelope[1][0] as [{type: string}, unknown])[0]).toEqual({type: 'event'});
+    });
+
+    it('attaches only validated Debug IDs for packaged application bundles', async () => {
+        const packagedRecord = requireDiagnosticRecord({
+            ...RECORD,
+            frames: [{
+                module: 'dist-electron/main.js',
+                function: 'start',
+                line: 42,
+                column: 7,
+            }],
+        });
+        const {
+            adapter,
+            envelopes,
+        } = setup(() => ({
+            'file:///Applications/EVB Viewer.app/Contents/Resources/app.asar/dist-electron/main.js':
+                '12345678-1234-5678-9abc-123456789abc',
+            'file:///Applications/EVB Viewer.app/Contents/Resources/app.asar/electron/private.ts':
+                'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+        }));
+
+        await expect(adapter.send?.(packagedRecord)).resolves.toBe(true);
+        const serialized = JSON.stringify(envelopes[0]);
+        expect(serialized).toContain('"debug_meta":{"images":[{"type":"sourcemap","code_file":"dist-electron/main.js","debug_id":"12345678-1234-5678-9abc-123456789abc"}]}');
+        expect(serialized).not.toContain('electron/private.ts');
+        expect(serialized).not.toContain('/Applications/');
     });
 
     it('fails closed for non-EU, secret-bearing, and malformed DSNs', () => {

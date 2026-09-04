@@ -34,6 +34,7 @@ const logger = createLogger('documents-print');
 const PRINT_LOAD_SETTLE_DELAY_MS = 2_000;
 const PRINT_SURFACE_PROBE_INTERVAL_MS = parseIntegerEnv('EVB_PRINT_SURFACE_PROBE_INTERVAL_MS', 250, 50, 2_000);
 const PRINT_SURFACE_READY_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_SURFACE_READY_TIMEOUT_MS', 15_000, 1_000, 120_000);
+const PRINT_PDF_READY_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_PDF_READY_TIMEOUT_MS', 15_000, 1_000, 120_000);
 const PRINT_SURFACE_PROBE_SIZE_PX = 480;
 const PRINT_JOB_RESOURCE_RETENTION_MS = 30_000;
 const PRINT_DIALOG_TIMEOUT_MS = parseIntegerEnv('EVB_PRINT_DIALOG_TIMEOUT_MS', 5 * 60 * 1000, 5_000);
@@ -73,6 +74,16 @@ interface IPrintHandoffOptions {
     onNativeDialogOpened?: () => void;
     signal?: AbortSignal;
     surface?: 'pdf-plugin' | 'rasterized-html';
+}
+
+interface IPrintWebContentsPrivateEvents {
+    once: (event: string, listener: (...args: unknown[]) => void) => unknown;
+    removeListener: (event: string, listener: (...args: unknown[]) => void) => unknown;
+}
+
+interface IPdfPluginReadyWait {
+    promise: Promise<void>;
+    armTimeout: () => void;
 }
 
 interface IPdfPageSize {
@@ -657,27 +668,95 @@ function revealPrintWindowForNativeDialog(printWindow: BrowserWindow, painted: b
     printWindow.showInactive();
 }
 
-function waitForPrintWindowReady(printWindow: BrowserWindow) {
-    // Electron emits this only after a hidden window has rendered a frame. The
-    // settle delay below still gives Chromium's PDF plugin time to finish its
-    // own load, but it must not be the first visibility guarantee.
-    return new Promise<void>((resolve, reject) => {
+function observePrintWindowReady(printWindow: BrowserWindow) {
+    const handleReady = () => {
+        logger.debug('Print handoff phase: ready-to-show');
+    };
+    printWindow.once('ready-to-show', handleReady);
+    return () => {
+        printWindow.removeListener('ready-to-show', handleReady);
+    };
+}
+
+function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: AbortSignal): IPdfPluginReadyWait {
+    // `ready-to-show` and `did-finish-load` can precede the PDF plugin's
+    // removal of its print restriction. Electron exposes that transition as
+    // this internal event for its own PDF printing test, and printing before
+    // it fires can produce a structurally valid but empty PDF.
+    const webContents = printWindow.webContents as IPrintWebContentsPrivateEvents;
+    let armTimeout = () => undefined;
+    const promise = new Promise<void>((resolve, reject) => {
+        let timeout: ReturnType<typeof setTimeout> | undefined;
+        let settled = false;
         const cleanup = () => {
-            printWindow.removeListener('ready-to-show', handleReady);
+            if (timeout) {
+                clearTimeout(timeout);
+            }
+            webContents.removeListener('-pdf-ready-to-print', handleReady);
+            webContents.removeListener('render-process-gone', handleRendererGone);
+            webContents.removeListener('destroyed', handleDestroyed);
             printWindow.removeListener('closed', handleClosed);
+            signal?.removeEventListener('abort', handleAbort);
         };
-        const handleReady = () => {
+        const finish = (error?: Error) => {
+            if (settled) {
+                return;
+            }
+            settled = true;
             cleanup();
+            if (error) {
+                reject(error);
+                return;
+            }
             resolve();
         };
+        const handleReady = () => {
+            logger.debug('Print handoff phase: pdf-ready-to-print');
+            finish();
+        };
         const handleClosed = () => {
-            cleanup();
-            reject(new Error('Print window closed before its surface became ready'));
+            logger.debug('Print handoff phase: closed-before-pdf-ready');
+            finish(new Error('Print window closed before the PDF viewer became ready'));
+        };
+        const handleRendererGone = () => {
+            logger.debug('Print handoff phase: renderer-gone-before-pdf-ready');
+            finish(new Error('Print renderer exited before the PDF viewer became ready'));
+        };
+        const handleDestroyed = () => {
+            logger.debug('Print handoff phase: destroyed-before-pdf-ready');
+            finish(new Error('Print web contents destroyed before the PDF viewer became ready'));
+        };
+        const handleAbort = () => {
+            const error = new Error('Print handoff canceled');
+            error.name = 'AbortError';
+            finish(error);
         };
 
-        printWindow.once('ready-to-show', handleReady);
+        armTimeout = () => {
+            if (settled || timeout) {
+                return;
+            }
+            logger.debug('Print handoff phase: pdf-readiness-timeout-armed');
+            timeout = setTimeout(() => {
+                logger.debug('Print handoff phase: pdf-readiness-timeout');
+                finish(new Error(`PDF viewer did not become ready to print within ${PRINT_PDF_READY_TIMEOUT_MS}ms`));
+            }, PRINT_PDF_READY_TIMEOUT_MS);
+            timeout.unref?.();
+        };
+
+        webContents.once('-pdf-ready-to-print', handleReady);
+        webContents.once('render-process-gone', handleRendererGone);
+        webContents.once('destroyed', handleDestroyed);
         printWindow.once('closed', handleClosed);
+        signal?.addEventListener('abort', handleAbort, {once: true});
+        if (signal?.aborted) {
+            handleAbort();
+        }
     });
+    return {
+        promise,
+        armTimeout,
+    };
 }
 
 function hideRevealedPrintWindow(printWindow: BrowserWindow) {
@@ -864,11 +943,21 @@ export async function openNativePrintDialogForPath(
     let rasterSurface: Awaited<ReturnType<typeof createRasterPrintHtmlPath>> | null = null;
     const printWindow = createPrintWindow(ownerWindow, documentTitle);
     const releasePrintWindowTitle = lockPrintWindowTitle(printWindow, documentTitle);
-    const printWindowReady = !shouldUseRasterSurface
-        ? waitForPrintWindowReady(printWindow)
+    const printWindowLifecycleAbortController = new AbortController();
+    const printWindowSignal = handoffOptions.signal
+        ? AbortSignal.any([
+            handoffOptions.signal,
+            printWindowLifecycleAbortController.signal,
+        ])
+        : printWindowLifecycleAbortController.signal;
+    const releasePrintWindowReadyObserver = !shouldUseRasterSurface
+        ? observePrintWindowReady(printWindow)
         : null;
-    if (printWindowReady) {
-        void printWindowReady.catch(() => undefined);
+    const pdfPluginReady = !shouldUseRasterSurface
+        ? waitForPdfPluginReadyToPrint(printWindow, printWindowSignal)
+        : null;
+    if (pdfPluginReady) {
+        void pdfPluginReady.promise.catch(() => undefined);
     }
     let shouldRetainPrintWindow = false;
     let closedForAbort = false;
@@ -884,12 +973,15 @@ export async function openNativePrintDialogForPath(
             ? await createRasterPrintHtmlPath(path, documentTitle, handoffOptions.signal)
             : null;
         throwIfPrintHandoffAborted(handoffOptions.signal);
+        logger.debug('Print handoff phase: load-start');
         await printWindow.loadURL(rasterSurface ? pathToFileURL(rasterSurface.htmlPath).toString() : pathToFileURL(path).toString());
+        logger.debug('Print handoff phase: load-resolved');
+        pdfPluginReady?.armTimeout();
         throwIfPrintHandoffAborted(handoffOptions.signal);
         if (rasterSurface) {
             await waitForRasterPrintSurfaceReady(printWindow);
-        } else if (printWindowReady) {
-            await printWindowReady;
+        } else if (pdfPluginReady) {
+            await pdfPluginReady.promise;
         }
         throwIfPrintHandoffAborted(handoffOptions.signal);
         const printSurfacePainted = rasterSurface || shouldRunPrintToPdfSmoke() || getPrintRuntimePlatform() !== 'darwin'
@@ -900,6 +992,7 @@ export async function openNativePrintDialogForPath(
         if (!rasterSurface) {
             revealPrintWindowForNativeDialog(printWindow, printSurfacePainted);
         }
+        logger.debug('Print handoff phase: native-print-dispatch');
         const result = await runNativePrintDialog(
             printWindow,
             printOptions,
@@ -934,7 +1027,9 @@ export async function openNativePrintDialogForPath(
             error: error instanceof Error ? error.message : 'Failed to open native print dialog',
         };
     } finally {
+        printWindowLifecycleAbortController.abort();
         handoffOptions.signal?.removeEventListener('abort', closeForAbort);
+        releasePrintWindowReadyObserver?.();
         releasePrintWindowTitle();
         if (!shouldRetainPrintWindow && !closedForAbort) {
             closePrintWindow(printWindow);

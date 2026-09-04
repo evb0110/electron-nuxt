@@ -12,6 +12,11 @@ on:
         required: false
         default: test
         type: string
+      send_sentry_canaries:
+        description: Send one test source-map canary for every private bundle after upload.
+        required: false
+        default: false
+        type: boolean
     secrets:
       SENTRY_AUTH_TOKEN:
         required: false
@@ -233,6 +238,11 @@ jobs:
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         run: node scripts/release/upload-sentry-sourcemaps.mjs
+
+      - name: Send private Sentry source-map canaries
+        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
+        shell: bash
+        run: node scripts/release/send-sentry-sourcemap-canaries.mjs
 
       - name: Upload Microsoft Store AppX
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

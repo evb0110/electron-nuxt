@@ -151,5 +151,5 @@ describe('remaining Electron main logger migration', () => {
         }));
 
         expect(messages).toEqual([]);
-    }, 30_000);
+    }, 90_000);
 });

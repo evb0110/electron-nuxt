@@ -34,6 +34,7 @@ import {
     forgetPageIdentityStoreInitialization,
     schedulePageIdentityStoreInitialization,
 } from '@electron/file-access/pageIdentityStore';
+import {rebasePageIdentitySidecarRevision} from '@electron/file-access/rebasePageIdentitySidecarRevision';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
@@ -59,7 +60,7 @@ const fsGuards = vi.hoisted(() => ({
 vi.mock('node:fs/promises', async importActual => {
     const actual = await importActual<typeof FsPromises>();
     const readFile = ((...args: Parameters<typeof actual.readFile>) => {
-        if (fsGuards.forbidRead) {
+        if (fsGuards.forbidRead && !String(args[0]).endsWith('.evb-revision.json')) {
             return Promise.reject(new Error('whole-manifest read is forbidden'));
         }
         return actual.readFile(...args);
@@ -843,6 +844,182 @@ describe('page identity deltas', () => {
             createIdentityDelta(3),
             nextRevisionInfo(path),
         )).rejects.toThrow('Page identity state belongs to a stale document revision');
+    });
+
+    it('fails closed when a content-only rebase sees a malformed identity sidecar', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-rebase-corrupt-'));
+        const path = join(root, 'working.pdf');
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 2,
+                storage: 'ranges',
+                documentRevisionToken: OLD_TOKEN,
+                pageCount: 3,
+                identitySeed: 'rebase-corrupt-fixture',
+                pageIds: ['page-a'],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+
+        await expect(rebasePageIdentitySidecarRevision(
+            path,
+            {
+                version: 1,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                token: OLD_TOKEN,
+                contentRevision: 1,
+                mintedAt: 1,
+            },
+            nextRevisionInfo(path),
+        )).rejects.toMatchObject({code: 'PAGE_IDENTITY_SIDECAR_CORRUPT'});
+    });
+
+    it('rejects a rebase whose previous revision does not fence the identity sidecar', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-rebase-stale-'));
+        const path = join(root, 'working.pdf');
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 2,
+                storage: 'ranges',
+                documentRevisionToken: OLD_TOKEN,
+                pageCount: 3,
+                identitySeed: 'rebase-stale-fixture',
+                pageIds: [
+                    'page-a',
+                    'page-b',
+                    'page-c',
+                ],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+
+        await expect(rebasePageIdentitySidecarRevision(
+            path,
+            {
+                version: 1,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                token: NEW_TOKEN,
+                contentRevision: 2,
+                mintedAt: 2,
+            },
+            nextRevisionInfo(path),
+        )).rejects.toThrow('Page identity state belongs to a stale document revision');
+    });
+
+    it('rejects a rebase of an existing identity sidecar without a previous revision', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-rebase-unfenced-'));
+        const path = join(root, 'working.pdf');
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 2,
+                storage: 'ranges',
+                documentRevisionToken: OLD_TOKEN,
+                pageCount: 3,
+                identitySeed: 'rebase-unfenced-fixture',
+                pageIds: [
+                    'page-a',
+                    'page-b',
+                    'page-c',
+                ],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+
+        await expect(rebasePageIdentitySidecarRevision(
+            path,
+            null,
+            nextRevisionInfo(path),
+        )).rejects.toThrow('without a current document revision');
+    });
+
+    it('rebases a legacy identity sidecar without changing its page IDs', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-rebase-v1-'));
+        const path = join(root, 'working.pdf');
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 1,
+                documentRevisionToken: OLD_TOKEN,
+                pageIds: [
+                    'page-a',
+                    'page-b',
+                    'page-c',
+                ],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+
+        await rebasePageIdentitySidecarRevision(
+            path,
+            {
+                version: 1,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                token: OLD_TOKEN,
+                contentRevision: 1,
+                mintedAt: 1,
+            },
+            nextRevisionInfo(path),
+        );
+
+        const sidecar = JSON.parse(await readFile(`${path}.evb-pages.json`, 'utf8')) as {
+            version: number;
+            documentRevisionToken: string;
+            pageIds?: string[];
+            ranges?: Array<{pageIds?: string[]}>
+        };
+        expect(sidecar.version).toBe(1);
+        expect(sidecar.documentRevisionToken).toBe(NEW_TOKEN);
+        expect(sidecar.pageIds ?? sidecar.ranges?.flatMap(range => range.pageIds ?? [])).toEqual([
+            'page-a',
+            'page-b',
+            'page-c',
+        ]);
+    });
+
+    it('rebases an empty range sidecar without inventing a page identity', async () => {
+        root = await mkdtemp(join(tmpdir(), 'evb-page-identity-rebase-empty-'));
+        const path = join(root, 'working.pdf');
+        await Promise.all([
+            writeFile(path, '%PDF fixture'),
+            writeFile(`${path}.evb-pages.json`, JSON.stringify({
+                version: 2,
+                storage: 'ranges',
+                documentRevisionToken: OLD_TOKEN,
+                pageCount: 0,
+                identitySeed: 'rebase-empty-fixture',
+                ranges: [],
+            })),
+            publishRevisionSidecar(path, OLD_TOKEN),
+        ]);
+
+        await rebasePageIdentitySidecarRevision(
+            path,
+            {
+                version: 1,
+                documentRef: path,
+                authority: 'electron-working-copy',
+                token: OLD_TOKEN,
+                contentRevision: 1,
+                mintedAt: 1,
+            },
+            nextRevisionInfo(path),
+        );
+
+        await expect(readFile(`${path}.evb-pages.json`, 'utf8'))
+            .resolves
+            .toContain(`"documentRevisionToken":"${NEW_TOKEN}"`);
+        const sidecar = JSON.parse(await readFile(`${path}.evb-pages.json`, 'utf8')) as {
+            pageCount: number;
+            ranges: unknown[];
+        };
+        expect(sidecar.pageCount).toBe(0);
+        expect(sidecar.ranges).toEqual([]);
     });
 
     it('does not recreate a removed working-copy directory after background initialization is cancelled', async () => {

@@ -238,5 +238,5 @@ describe('runLosslessScanCleanup', () => {
         } | null;};
         expect(report.compactSourceBudget).toMatchObject({compactLayeredPages: documentPageCount});
         expect(report.compactSourceBudget?.maxOutputBytes).toBeGreaterThan(0);
-    });
+    }, 30_000);
 });

@@ -17,6 +17,11 @@ on:
         required: false
         default: test
         type: string
+      send_sentry_canaries:
+        description: Send one test source-map canary for every private bundle after upload.
+        required: false
+        default: false
+        type: boolean
     secrets:
       CSC_LINK:
         required: false
@@ -74,6 +79,7 @@ jobs:
       ref: ${{ inputs.ref }}
       release_environment: ${{ inputs.release_environment }}
       sentry_environment: ${{ inputs.sentry_environment }}
+      send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
       os: ${{ matrix.os }}
       platform: ${{ matrix.platform }}
       arch: ${{ matrix.arch }}

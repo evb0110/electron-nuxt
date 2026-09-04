@@ -175,7 +175,7 @@ describe('package scripts', () => {
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
         // OCR-quality, and xlarge-PDF gates.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(112);
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(119);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);
@@ -248,6 +248,7 @@ describe('package scripts', () => {
         expect(scriptCommands(scripts, 'build')).toEqual([
             'pnpm run generate:build-artifacts',
             'pnpm exec nuxi build',
+            'node scripts/stageDesktopRendererSourcemaps.mjs',
             'node scripts/prune-build-artifacts.mjs',
             'node scripts/check-web-deploy-assets.mjs',
         ]);

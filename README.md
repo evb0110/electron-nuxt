@@ -355,6 +355,7 @@ Architecture boundaries are enforced in CI and local validation:
 - [Web build notes](docs/web-build.md)
 - [Vercel deploy notes](docs/vercel-deploy.md)
 - [Release process](docs/releasing.md)
+- [Windows test lane setup and repair](docs/windows-tests/setup-and-repair.md)
 - [OCR notes](docs/ocr.md)
 - [PDF viewer architecture](docs/pdf-viewer-architecture.md)
 - [PDF viewer DOM contracts](docs/css-load-bearing-classes.md)

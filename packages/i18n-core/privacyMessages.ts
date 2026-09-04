@@ -38,7 +38,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Privacy Policy',
             subtitle: 'How EVB Viewer handles documents, settings, analytics, and optional assistant features.',
-            effectiveDate: 'Effective August 19, 2026',
+            effectiveDate: 'Effective September 4, 2026',
         },
         documents: {
             heading: 'Documents and local processing',
@@ -49,8 +49,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Assistant features are optional. When you use an assistant backed by Codex, OpenAI, or Anthropic Claude, prompts and any content or attachments you choose to include are sent to that provider under your account and are governed by that provider’s terms and privacy policy. EVB Viewer does not sell this information.',
         },
         diagnostics: {
-            heading: 'Optional error reports',
-            body: 'If you grant permission, EVB Viewer sends privacy-sanitized error reports only. Reports contain limited technical diagnostics needed to understand an error. They do not contain document contents, text, file paths, attachments, local logs, account information, or user identity. Turning reporting off stops future sends; it cannot recall reports already received or already in flight. The browser app offers a separate server-diagnostics opt-out. It stores the typed diagnosticsServerOptOut choice in a first-party cookie for up to 365 days, with SameSite=Lax and Secure in production, and no identifier. This choice is separate from client error-report consent.',
+            heading: 'Optional Sentry error reports',
+            body: 'EVB Viewer is the controller and uses Functional Software, Inc. d/b/a Sentry as its processor for optional client error reports. Desktop and browser reports are sent only with your consent. A report may contain a random Error ID, time, severity, closed diagnostic code, runtime and operation, app release and distribution, platform and runtime major versions, canonical application file, function, line and column, bounded non-content context, and a suppressed-error count. It never contains document contents or text, raw error messages or stacks, local paths or logs, URLs or request data, console arguments, attachments, account data, IP address, or identity. Reports are used only to diagnose crashes and product errors, never for analytics, advertising, profiling, AI, or training. Sentry stores events in the EU region for up to 90 days and may use its published subprocessors and the DPA and Standard Contractual Clauses for limited onward transfers. You can withdraw consent at any time to stop future reports. Use the issue tracker below and an Error ID, if available, to request access or deletion; you may also complain to your data-protection authority. Server-side Nitro reporting is disabled pending separate legal approval. Its objection control does not authorize processing while it is disabled.',
         },
         analytics: {
             heading: 'Analytics and technical information',
@@ -82,7 +82,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Datenschutzerklärung',
             subtitle: 'Wie EVB Viewer Dokumente, Einstellungen, Analysedaten und optionale Assistentenfunktionen behandelt.',
-            effectiveDate: 'Gültig ab 19. August 2026',
+            effectiveDate: 'Gültig ab 4. September 2026',
         },
         documents: {
             heading: 'Dokumente und lokale Verarbeitung',
@@ -93,8 +93,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Assistentenfunktionen sind optional. Wenn du einen auf Codex, OpenAI oder Anthropic Claude basierenden Assistenten verwendest, werden Eingaben sowie von dir ausgewählte Inhalte oder Anhänge über dein Konto an den jeweiligen Anbieter gesendet und unterliegen dessen Bedingungen und Datenschutzerklärung. EVB Viewer verkauft diese Informationen nicht.',
         },
         diagnostics: {
-            heading: 'Optionale Fehlerberichte',
-            body: 'Wenn du die Erlaubnis erteilst, sendet EVB Viewer ausschließlich datenschutzbereinigte Fehlerberichte. Die Berichte enthalten nur die begrenzten technischen Diagnosedaten, die zum Verständnis eines Fehlers erforderlich sind. Sie enthalten keine Dokumentinhalte, Texte, Dateipfade, Anhänge, lokalen Protokolle, Kontoinformationen oder Angaben zu deiner Identität. Wenn du die Berichte deaktivierst, werden künftig keine weiteren gesendet; bereits empfangene oder bereits laufende Berichte können nicht zurückgerufen werden. Die Browser-App bietet eine separate Ablehnung der Serverdiagnose. Die typisierte Auswahl diagnosticsServerOptOut wird bis zu 365 Tage in einem eigenen Cookie gespeichert, mit SameSite=Lax und in der Produktion mit Secure, ohne Identifikator. Diese Auswahl ist von der Einwilligung zu Client-Fehlerberichten getrennt.',
+            heading: 'Optionale Sentry-Fehlerberichte',
+            body: 'EVB Viewer ist der Verantwortliche und nutzt Functional Software, Inc. d/b/a Sentry als Auftragsverarbeiter für optionale Fehlerberichte des Clients. Desktop- und Browserberichte werden nur mit deiner Einwilligung gesendet. Ein Bericht kann eine zufällige Fehler-ID, Zeitpunkt, Schweregrad, geschlossenen Diagnosecode, Laufzeit und Vorgang, App-Version und Distribution, Plattform- und Laufzeit-Hauptversionen, kanonische App-Datei, Funktion, Zeile und Spalte, begrenzten inhaltsfreien Kontext und die Zahl unterdrückter Fehler enthalten. Er enthält niemals Dokumentinhalte oder Text, rohe Fehlermeldungen oder Stacks, lokale Pfade oder Protokolle, URLs oder Anfragedaten, Konsolenargumente, Anhänge, Kontodaten, IP-Adresse oder Identität. Die Berichte dienen nur der Diagnose von Abstürzen und Produktfehlern, nie Analyse, Werbung, Profiling, KI oder Training. Sentry speichert Ereignisse bis zu 90 Tage in der EU-Region und kann veröffentlichte Unterauftragsverarbeiter sowie den DPA und Standardvertragsklauseln für begrenzte Weiterübermittlungen nutzen. Du kannst die Einwilligung jederzeit widerrufen und damit künftige Berichte stoppen. Über den Issue-Tracker unten und, falls vorhanden, die Fehler-ID kannst du Auskunft oder Löschung verlangen; außerdem kannst du dich bei deiner Datenschutzaufsicht beschweren. Serverseitige Nitro-Berichte bleiben bis zu einer gesonderten rechtlichen Freigabe deaktiviert. Die Widerspruchseinstellung erlaubt keine Verarbeitung, solange diese Berichte deaktiviert sind.',
         },
         analytics: {
             heading: 'Analyse- und technische Informationen',
@@ -126,7 +126,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidad',
             subtitle: 'Cómo gestiona EVB Viewer los documentos, la configuración, los datos analíticos y las funciones opcionales de asistente.',
-            effectiveDate: 'En vigor desde el 19 de agosto de 2026',
+            effectiveDate: 'En vigor desde el 4 de septiembre de 2026',
         },
         documents: {
             heading: 'Documentos y procesamiento local',
@@ -137,8 +137,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Las funciones de asistente son opcionales. Cuando utilizas un asistente basado en Codex, OpenAI o Anthropic Claude, las instrucciones y el contenido o los archivos adjuntos que decidas incluir se envían a ese proveedor mediante tu cuenta y se rigen por sus condiciones y política de privacidad. EVB Viewer no vende esta información.',
         },
         diagnostics: {
-            heading: 'Informes de errores opcionales',
-            body: 'Si das tu permiso, EVB Viewer envía únicamente informes de errores protegidos por privacidad. Los informes contienen los datos técnicos limitados necesarios para entender un error. No contienen contenido de documentos, texto, rutas de archivos, archivos adjuntos, registros locales, información de la cuenta ni tu identidad. Desactivar los informes detiene los envíos futuros; no puede retirar los informes ya recibidos o que ya estén en curso. La aplicación web ofrece una exclusión independiente de los diagnósticos del servidor. Guarda la elección tipada diagnosticsServerOptOut en una cookie propia durante un máximo de 365 días, con SameSite=Lax y Secure en producción, sin identificador. Esta elección es independiente del consentimiento para los informes de errores del cliente.',
+            heading: 'Informes de errores opcionales de Sentry',
+            body: 'EVB Viewer es el responsable del tratamiento y utiliza Functional Software, Inc. d/b/a Sentry como encargado para los informes opcionales de errores del cliente. Los informes del escritorio y del navegador se envían solo con tu consentimiento. Un informe puede incluir un Error ID aleatorio, fecha y hora, gravedad, código de diagnóstico cerrado, entorno y operación, versión y distribución de la aplicación, versiones principales de la plataforma y del entorno, archivo, función, línea y columna canónicos de la aplicación, contexto limitado sin contenido y número de errores suprimidos. Nunca incluye documentos o texto, mensajes o pilas sin filtrar, rutas o registros locales, URL o datos de solicitudes, argumentos de consola, adjuntos, datos de cuenta, dirección IP ni identidad. Se usa solo para diagnosticar fallos y errores del producto, nunca para análisis, publicidad, perfiles, IA o entrenamiento. Sentry conserva los eventos hasta 90 días en la región de la UE y puede usar sus subencargados publicados y el DPA y las Cláusulas Contractuales Tipo para transferencias ulteriores limitadas. Puedes retirar el consentimiento en cualquier momento para detener futuros informes. Usa el seguimiento de incidencias de abajo y, si lo tienes, el Error ID para solicitar acceso o eliminación; también puedes reclamar ante tu autoridad de protección de datos. Los informes Nitro del servidor están desactivados hasta una aprobación jurídica independiente. El control de oposición no autoriza el tratamiento mientras estén desactivados.',
         },
         analytics: {
             heading: 'Datos analíticos e información técnica',
@@ -170,7 +170,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Politique de confidentialité',
             subtitle: 'Comment EVB Viewer traite les documents, les réglages, les données analytiques et les fonctions d’assistant optionnelles.',
-            effectiveDate: 'En vigueur le 19 août 2026',
+            effectiveDate: 'En vigueur le 4 septembre 2026',
         },
         documents: {
             heading: 'Documents et traitement local',
@@ -181,8 +181,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Les fonctions d’assistant sont optionnelles. Lorsque vous utilisez un assistant reposant sur Codex, OpenAI ou Anthropic Claude, les requêtes ainsi que le contenu ou les pièces jointes que vous choisissez d’inclure sont envoyés à ce fournisseur avec votre compte et relèvent de ses conditions et de sa politique de confidentialité. EVB Viewer ne vend pas ces informations.',
         },
         diagnostics: {
-            heading: 'Rapports d’erreur facultatifs',
-            body: 'Si vous donnez votre autorisation, EVB Viewer envoie uniquement des rapports d’erreur nettoyés pour protéger la vie privée. Ces rapports contiennent les données techniques limitées nécessaires à la compréhension d’une erreur. Ils ne contiennent ni contenu de document, ni texte, ni chemins de fichiers, ni pièces jointes, ni journaux locaux, ni informations de compte, ni identité utilisateur. Désactiver les rapports arrête les envois futurs ; cela ne peut pas rappeler les rapports déjà reçus ou déjà en cours d’envoi. L’application web propose une opposition distincte aux diagnostics du serveur. Elle enregistre le choix typé diagnosticsServerOptOut dans un cookie interne pendant 365 jours au maximum, avec SameSite=Lax et Secure en production, sans identifiant. Ce choix reste distinct du consentement aux rapports d’erreur du client.',
+            heading: 'Rapports d’erreur Sentry facultatifs',
+            body: 'EVB Viewer est le responsable du traitement et utilise Functional Software, Inc. d/b/a Sentry comme sous-traitant pour les rapports d’erreur facultatifs du client. Les rapports de l’application de bureau et du navigateur ne sont envoyés qu’avec votre consentement. Un rapport peut contenir un Error ID aléatoire, la date, la gravité, un code de diagnostic fermé, l’environnement et l’opération, la version et la distribution de l’application, les versions majeures de la plateforme et des moteurs, le fichier, la fonction, la ligne et la colonne canoniques de l’application, un contexte limité sans contenu et le nombre d’erreurs supprimées. Il ne contient jamais de document ou de texte, de message ou pile brute, de chemin ou journal local, d’URL ou donnée de requête, d’argument de console, de pièce jointe, de donnée de compte, d’adresse IP ou d’identité. Il sert uniquement à diagnostiquer les plantages et erreurs du produit, jamais à l’analyse, la publicité, au profilage, à l’IA ou à l’entraînement. Sentry conserve les événements jusqu’à 90 jours dans la région UE et peut recourir à ses sous-traitants publiés ainsi qu’au DPA et aux clauses contractuelles types pour des transferts ultérieurs limités. Vous pouvez retirer votre consentement à tout moment. Utilisez le suivi ci-dessous et, si disponible, l’Error ID pour demander accès ou suppression; vous pouvez aussi saisir votre autorité de protection des données. Les rapports Nitro côté serveur restent désactivés dans l’attente d’une approbation juridique distincte. Le contrôle d’opposition n’autorise aucun traitement tant qu’ils restent désactivés.',
         },
         analytics: {
             heading: 'Données analytiques et techniques',
@@ -214,7 +214,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Informativa sulla privacy',
             subtitle: 'Come EVB Viewer gestisce documenti, impostazioni, dati analitici e funzionalità opzionali dell’assistente.',
-            effectiveDate: 'In vigore dal 19 agosto 2026',
+            effectiveDate: 'In vigore dal 4 settembre 2026',
         },
         documents: {
             heading: 'Documenti ed elaborazione locale',
@@ -225,8 +225,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Le funzionalità dell’assistente sono opzionali. Quando utilizzi un assistente basato su Codex, OpenAI o Anthropic Claude, le richieste e gli eventuali contenuti o allegati che scegli di includere vengono inviati a quel fornitore tramite il tuo account e sono regolati dai suoi termini e dalla sua informativa sulla privacy. EVB Viewer non vende queste informazioni.',
         },
         diagnostics: {
-            heading: 'Report di errore opzionali',
-            body: 'Se concedi il permesso, EVB Viewer invia solo report di errore protetti per la privacy. I report contengono i dati tecnici limitati necessari per comprendere un errore. Non contengono contenuti dei documenti, testo, percorsi dei file, allegati, registri locali, informazioni sull’account o la tua identità. Disattivare i report interrompe gli invii futuri; non può richiamare i report già ricevuti o già in corso di invio. L’app browser offre un’opposizione separata alla diagnostica del server. Salva la scelta tipizzata diagnosticsServerOptOut in un cookie proprietario per un massimo di 365 giorni, con SameSite=Lax e Secure in produzione, senza identificatore. Questa scelta è separata dal consenso ai report di errore del client.',
+            heading: 'Report di errore Sentry opzionali',
+            body: 'EVB Viewer è il titolare del trattamento e usa Functional Software, Inc. d/b/a Sentry come responsabile per i report di errore opzionali del client. I report desktop e browser vengono inviati solo con il tuo consenso. Un report può contenere un Error ID casuale, data e ora, gravità, codice diagnostico chiuso, runtime e operazione, versione e distribuzione dell’app, versioni principali della piattaforma e dei runtime, file, funzione, riga e colonna canonici dell’applicazione, contesto limitato privo di contenuti e numero di errori soppressi. Non contiene mai documenti o testo, messaggi o stack grezzi, percorsi o registri locali, URL o dati della richiesta, argomenti della console, allegati, dati dell’account, indirizzo IP o identità. Serve solo a diagnosticare arresti anomali ed errori del prodotto, mai per analisi, pubblicità, profilazione, IA o addestramento. Sentry conserva gli eventi per un massimo di 90 giorni nella regione UE e può usare i sub-responsabili pubblicati e il DPA e le Clausole Contrattuali Standard per trasferimenti successivi limitati. Puoi revocare il consenso in qualsiasi momento. Usa il tracker qui sotto e, se disponibile, l’Error ID per chiedere accesso o eliminazione; puoi anche presentare reclamo all’autorità di protezione dei dati. I report Nitro lato server restano disattivati in attesa di un’approvazione legale separata. Il controllo di opposizione non autorizza il trattamento mentre sono disattivati.',
         },
         analytics: {
             heading: 'Dati analitici e informazioni tecniche',
@@ -258,7 +258,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Privacybeleid',
             subtitle: 'Hoe EVB Viewer omgaat met documenten, instellingen, analysegegevens en optionele assistentfuncties.',
-            effectiveDate: 'Van kracht vanaf 19 augustus 2026',
+            effectiveDate: 'Van kracht vanaf 4 september 2026',
         },
         documents: {
             heading: 'Documenten en lokale verwerking',
@@ -269,8 +269,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Assistentfuncties zijn optioneel. Wanneer je een assistent gebruikt die is gebaseerd op Codex, OpenAI of Anthropic Claude, worden prompts en alle inhoud of bijlagen die je kiest via je account naar die aanbieder gestuurd en vallen ze onder de voorwaarden en het privacybeleid van die aanbieder. EVB Viewer verkoopt deze informatie niet.',
         },
         diagnostics: {
-            heading: 'Optionele foutrapporten',
-            body: 'Als je toestemming geeft, verzendt EVB Viewer alleen privacyvriendelijke foutrapporten. De rapporten bevatten de beperkte technische diagnostiek die nodig is om een fout te begrijpen. Ze bevatten geen documentinhoud, tekst, bestandspaden, bijlagen, lokale logboeken, accountgegevens of je identiteit. Als je rapporten uitschakelt, worden toekomstige rapporten niet meer verzonden; rapporten die al zijn ontvangen of worden verzonden, kunnen niet worden ingetrokken. De browser-app biedt een aparte afmelding voor serverdiagnostiek. De getypeerde keuze diagnosticsServerOptOut wordt maximaal 365 dagen opgeslagen in een eigen cookie, met SameSite=Lax en Secure in productie, zonder identifier. Deze keuze staat los van toestemming voor foutmeldingen van de client.',
+            heading: 'Optionele Sentry-foutrapporten',
+            body: 'EVB Viewer is de verwerkingsverantwoordelijke en gebruikt Functional Software, Inc. d/b/a Sentry als verwerker voor optionele foutrapporten van de client. Desktop- en browserrapporten worden alleen met je toestemming verzonden. Een rapport kan een willekeurige Error ID, tijd, ernst, gesloten diagnostische code, runtime en bewerking, appversie en distributie, hoofdversies van platform en runtimes, canoniek appbestand, functie, regel en kolom, beperkte inhoudsvrije context en het aantal onderdrukte fouten bevatten. Het bevat nooit documenten of tekst, ruwe foutmeldingen of stacks, lokale paden of logboeken, URL’s of aanvraaggegevens, consoleargumenten, bijlagen, accountgegevens, IP-adres of identiteit. Rapporten worden alleen gebruikt om crashes en productfouten op te lossen, nooit voor analyse, advertenties, profilering, AI of training. Sentry bewaart gebeurtenissen maximaal 90 dagen in de EU-regio en kan zijn gepubliceerde subverwerkers en de DPA en standaardcontractbepalingen gebruiken voor beperkte doorgiften. Je kunt je toestemming altijd intrekken. Gebruik de issue-tracker hieronder en, indien beschikbaar, de Error ID om inzage of verwijdering te vragen; je kunt ook een klacht indienen bij je privacytoezichthouder. Server-side Nitro-rapportage blijft uitgeschakeld tot afzonderlijke juridische goedkeuring. De bezwaarinstelling geeft geen toestemming voor verwerking zolang deze rapportage is uitgeschakeld.',
         },
         analytics: {
             heading: 'Analyse- en technische gegevens',
@@ -302,7 +302,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidade',
             subtitle: 'Como o EVB Viewer trata documentos, definições, dados analíticos e funcionalidades opcionais do assistente.',
-            effectiveDate: 'Em vigor desde 19 de agosto de 2026',
+            effectiveDate: 'Em vigor desde 4 de setembro de 2026',
         },
         documents: {
             heading: 'Documentos e processamento local',
@@ -313,8 +313,8 @@ export const PRIVACY_MESSAGES = {
             body: 'As funcionalidades do assistente são opcionais. Quando utiliza um assistente baseado no Codex, OpenAI ou Anthropic Claude, os pedidos e qualquer conteúdo ou anexo que decida incluir são enviados a esse fornecedor através da sua conta e regem-se pelos respetivos termos e política de privacidade. O EVB Viewer não vende estas informações.',
         },
         diagnostics: {
-            heading: 'Relatórios de erros opcionais',
-            body: 'Se der autorização, o EVB Viewer envia apenas relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para compreender um erro. Não contêm conteúdo de documentos, texto, caminhos de ficheiros, anexos, registos locais, informações da conta nem a sua identidade. Desativar os relatórios interrompe os envios futuros; não é possível recolher relatórios já recebidos ou já em envio. A aplicação no navegador oferece uma oposição separada aos diagnósticos do servidor. Guarda a escolha tipada diagnosticsServerOptOut num cookie próprio por um máximo de 365 dias, com SameSite=Lax e Secure em produção, sem identificador. Esta escolha é separada do consentimento para relatórios de erros do cliente.',
+            heading: 'Relatórios de erros opcionais do Sentry',
+            body: 'O EVB Viewer é o responsável pelo tratamento e utiliza a Functional Software, Inc. d/b/a Sentry como subcontratante para relatórios opcionais de erros do cliente. Os relatórios da aplicação desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição da aplicação, versões principais da plataforma e dos ambientes, ficheiro, função, linha e coluna canónicos da aplicação, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registos locais, URLs ou dados do pedido, argumentos da consola, anexos, dados da conta, endereço IP ou identidade. Serve apenas para diagnosticar falhas e erros do produto, nunca para análise, publicidade, definição de perfis, IA ou treino. O Sentry conserva eventos por até 90 dias na região da UE e pode utilizar os subcontratantes publicados e o DPA e as Cláusulas Contratuais-Tipo para transferências ulteriores limitadas. Pode retirar o consentimento a qualquer momento. Utilize o sistema abaixo e, se disponível, o Error ID para pedir acesso ou eliminação; também pode reclamar junto da autoridade de proteção de dados. Os relatórios Nitro do servidor permanecem desativados até aprovação jurídica separada. O controlo de oposição não autoriza o tratamento enquanto estiverem desativados.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -346,7 +346,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Política de privacidade',
             subtitle: 'Como o EVB Viewer trata documentos, configurações, dados analíticos e recursos opcionais do assistente.',
-            effectiveDate: 'Em vigor desde 19 de agosto de 2026',
+            effectiveDate: 'Em vigor desde 4 de setembro de 2026',
         },
         documents: {
             heading: 'Documentos e processamento local',
@@ -357,8 +357,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Os recursos do assistente são opcionais. Quando você usa um assistente baseado no Codex, OpenAI ou Anthropic Claude, as solicitações e qualquer conteúdo ou anexo que você decidir incluir são enviados a esse provedor por meio da sua conta e seguem os termos e a política de privacidade dele. O EVB Viewer não vende essas informações.',
         },
         diagnostics: {
-            heading: 'Relatórios de erros opcionais',
-            body: 'Se você der permissão, o EVB Viewer enviará somente relatórios de erros protegidos por privacidade. Os relatórios contêm os dados técnicos limitados necessários para entender um erro. Eles não contêm conteúdo de documentos, texto, caminhos de arquivos, anexos, registros locais, informações da conta nem sua identidade. Desativar os relatórios interrompe os próximos envios; não é possível recolher relatórios já recebidos ou já em trânsito. O aplicativo web oferece uma recusa separada aos diagnósticos do servidor. A escolha tipada diagnosticsServerOptOut fica armazenada em um cookie próprio por até 365 dias, com SameSite=Lax e Secure em produção, sem identificador. Essa escolha é separada do consentimento para relatórios de erros do cliente.',
+            heading: 'Relatórios de erros opcionais do Sentry',
+            body: 'O EVB Viewer é o controlador e usa a Functional Software, Inc. d/b/a Sentry como operadora para relatórios opcionais de erros do cliente. Os relatórios do aplicativo desktop e do navegador só são enviados com o seu consentimento. Um relatório pode conter um Error ID aleatório, data e hora, gravidade, código de diagnóstico fechado, ambiente e operação, versão e distribuição do aplicativo, versões principais da plataforma e dos ambientes, arquivo, função, linha e coluna canônicos do aplicativo, contexto limitado sem conteúdo e número de erros suprimidos. Nunca contém documentos ou texto, mensagens ou pilhas brutas, caminhos ou registros locais, URLs ou dados da solicitação, argumentos do console, anexos, dados da conta, endereço IP nem identidade. É usado somente para diagnosticar falhas e erros do produto, nunca para análise, publicidade, criação de perfil, IA ou treinamento. O Sentry mantém os eventos por até 90 dias na região da UE e pode usar seus suboperadores publicados e o DPA e as Cláusulas Contratuais Padrão para transferências posteriores limitadas. Você pode retirar o consentimento a qualquer momento. Use o rastreador abaixo e, se disponível, o Error ID para pedir acesso ou exclusão; você também pode reclamar à autoridade de proteção de dados. Os relatórios Nitro do servidor permanecem desativados até uma aprovação jurídica separada. O controle de oposição não autoriza o tratamento enquanto estiverem desativados.',
         },
         analytics: {
             heading: 'Dados analíticos e informações técnicas',
@@ -390,7 +390,7 @@ export const PRIVACY_MESSAGES = {
         hero: {
             title: 'Политика конфиденциальности',
             subtitle: 'Как EVB Viewer обрабатывает документы, настройки, аналитику и данные опциональных функций ассистента.',
-            effectiveDate: 'Действует с 19 августа 2026 года',
+            effectiveDate: 'Действует с 4 сентября 2026 года',
         },
         documents: {
             heading: 'Документы и локальная обработка',
@@ -401,8 +401,8 @@ export const PRIVACY_MESSAGES = {
             body: 'Функции ассистента необязательны. При использовании ассистента на базе Codex, OpenAI или Anthropic Claude запросы, а также выбранные вами материалы и вложения отправляются соответствующему провайдеру через вашу учётную запись и регулируются его условиями и политикой конфиденциальности. EVB Viewer не продаёт эту информацию.',
         },
         diagnostics: {
-            heading: 'Необязательные отчёты об ошибках',
-            body: 'Если вы дадите разрешение, EVB Viewer будет отправлять только защищённые от раскрытия личных данных отчёты об ошибках. Отчёты содержат ограниченные технические диагностические данные, необходимые для понимания ошибки. В них нет содержимого документов, текста, путей к файлам, вложений, локальных журналов, сведений об учётной записи или данных о вашей личности. Отключение отчётов прекращает будущие отправки; уже полученные или уже отправляемые отчёты отозвать нельзя. Браузерная версия предлагает отдельный отказ от серверной диагностики. Типизированный выбор diagnosticsServerOptOut хранится в собственном cookie не более 365 дней, с атрибутом SameSite=Lax и Secure в production, без идентификатора. Этот выбор не связан с согласием на отчёты об ошибках клиента.',
+            heading: 'Необязательные отчёты об ошибках через Sentry',
+            body: 'EVB Viewer является контролёром и использует Functional Software, Inc. d/b/a Sentry как обработчика необязательных клиентских отчётов об ошибках. Десктопное приложение и браузер отправляют отчёты только с вашего согласия. Отчёт может содержать случайный Error ID, время, уровень серьёзности, закрытый код диагностики, среду и операцию, версию и дистрибутив приложения, основные версии платформы и сред выполнения, канонические имя файла приложения, функцию, строку и столбец, ограниченный контекст без пользовательского содержимого и число подавленных ошибок. В нём никогда нет документов или текста, исходных сообщений или стеков, локальных путей или журналов, URL или данных запроса, аргументов консоли, вложений, данных учётной записи, IP-адреса или личности. Отчёты используются только для диагностики сбоев и ошибок продукта, а не для аналитики, рекламы, профилирования, ИИ или обучения. Sentry хранит события до 90 дней в регионе ЕС и может использовать опубликованных субобработчиков, DPA и Стандартные договорные положения для ограниченной дальнейшей передачи. Вы можете в любой момент отозвать согласие и остановить будущие отчёты. Через трекер ниже и Error ID, если он есть, можно запросить доступ или удаление; также можно пожаловаться в орган по защите данных. Серверные отчёты Nitro отключены до отдельного юридического одобрения. Настройка возражения не разрешает обработку, пока эти отчёты отключены.',
         },
         analytics: {
             heading: 'Аналитика и техническая информация',

@@ -1,0 +1,323 @@
+import { createHash } from 'node:crypto';
+import {
+    mkdir,
+    mkdtemp,
+    writeFile,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import {
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import { windowsTestHostLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
+import {
+    WindowsTestConfigError,
+    type IWindowsTestHostConfig,
+} from '@scripts/windows-test/host/hostConfig';
+import {
+    createLaunchctlSessionProbe,
+    parseUtmctlVersion,
+    runWindowsTestDoctor,
+} from '@scripts/windows-test/host/doctor';
+import type {
+    IWindowsTestDoctorDependencies,
+    IWindowsTestDoctorReport,
+} from '@scripts/windows-test/host/doctor';
+import type {
+    ICommandRunner,
+    IUtmctlClient,
+} from '@scripts/windows-test/host/utmctlClient';
+
+const GOLDEN_VM_ID = '11111111-2222-4333-8444-555555555555';
+const TEST_VM_ID = '22222222-3333-4444-8555-666666666666';
+const PERSONAL_VM_ID = '99999999-8888-4777-8666-555555555555';
+const LAUNCHER = '/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal';
+const ARTIFACT_BYTES = 'installer-bytes';
+
+function sha256(value: string) {
+    return createHash('sha256').update(value).digest('hex');
+}
+
+function createFakeUtmctl(options: {
+    goldenStatus?: string;
+    listError?: Error;
+    versionError?: Error;
+    versionText?: string;
+} = {}) {
+    const calls: string[] = [];
+    const client: IUtmctlClient & {calls: string[]} = {
+        calls,
+        version: () => {
+            calls.push('version');
+            return options.versionError === undefined
+                ? Promise.resolve(options.versionText ?? 'utmctl version 4.7.5 (118)')
+                : Promise.reject(options.versionError);
+        },
+        list: () => {
+            calls.push('list');
+            return options.listError === undefined
+                ? Promise.resolve([{
+                    uuid: GOLDEN_VM_ID,
+                    status: 'stopped',
+                    name: 'windows-golden',
+                }])
+                : Promise.reject(options.listError);
+        },
+        status: (vmId) => {
+            calls.push(`status ${vmId}`);
+            return Promise.resolve(options.goldenStatus ?? 'stopped');
+        },
+        start: (vmId) => {
+            calls.push(`start ${vmId}`);
+            return Promise.resolve();
+        },
+        stop: (vmId) => {
+            calls.push(`stop ${vmId}`);
+            return Promise.resolve();
+        },
+        clone: (vmId) => {
+            calls.push(`clone ${vmId}`);
+            return Promise.resolve();
+        },
+        deleteVm: (vmId) => {
+            calls.push(`delete ${vmId}`);
+            return Promise.resolve();
+        },
+        ipAddress: () => Promise.resolve([]),
+        exec: () => Promise.resolve({
+            exitCode: 0,
+            stdout: '',
+            stderr: '',
+            timedOut: false,
+            signal: null,
+            transportFailure: null,
+        }),
+        pushFile: () => Promise.resolve(),
+        pullFile: () => Promise.resolve(),
+    };
+    return client;
+}
+
+interface IHarnessOptions {
+    config?: Partial<IWindowsTestHostConfig>;
+    configError?: Error;
+    env?: NodeJS.ProcessEnv;
+    managerName?: string | null;
+    utmctl?: ReturnType<typeof createFakeUtmctl>;
+    freeBytes?: number | null;
+    launcherPath?: string;
+    artifactBytes?: string | null;
+}
+
+async function createDoctorHarness(options: IHarnessOptions = {}) {
+    const root = await mkdtemp(path.join(tmpdir(), 'evb-windows-doctor-'));
+    const layout = windowsTestHostLayout(root);
+    for (const directory of [
+        layout.artifactsCacheDir,
+        layout.fixturesCacheDir,
+        layout.toolsCacheDir,
+        layout.imagesDir,
+    ]) {
+        await mkdir(directory, {recursive: true});
+    }
+    const artifactPath = path.join(layout.artifactsCacheDir, 'EVBViewer-Setup.exe');
+    if (options.artifactBytes !== null) {
+        await writeFile(artifactPath, options.artifactBytes ?? ARTIFACT_BYTES, 'utf8');
+    }
+
+    const config: IWindowsTestHostConfig = {
+        schemaVersion: 1,
+        testImageRoot: layout.imagesDir,
+        allowedTestVmIds: [TEST_VM_ID],
+        goldenImageId: 'win11-arm64-2026-09',
+        goldenVmId: GOLDEN_VM_ID,
+        personalVmIdsDenied: [PERSONAL_VM_ID],
+        candidate: {
+            artifactPath,
+            sha256: sha256(ARTIFACT_BYTES),
+            fileName: 'EVBViewer-Setup.exe',
+            version: '3.4.5',
+            sourceSha: 'b'.repeat(40),
+            appArch: 'arm64',
+        },
+        environment: 'win11-arm64',
+        qualifiedLaunchers: [LAUNCHER],
+        retention: {
+            passDays: 3,
+            failureDays: 14,
+            maxFailedClones: 2,
+            minFreeBytes: 1_024,
+        },
+        ...options.config,
+    };
+
+    const utmctl = options.utmctl ?? createFakeUtmctl();
+    const dependencies: IWindowsTestDoctorDependencies = {
+        layout,
+        utmctl,
+        sessionProbe: {managerName: () => Promise.resolve(options.managerName === undefined ? 'Aqua' : options.managerName)},
+        env: options.env ?? {},
+        launcherPath: options.launcherPath ?? LAUNCHER,
+        hashFile: filePath => Promise.resolve(sha256(filePath === artifactPath ? ARTIFACT_BYTES : 'other')),
+        freeBytes: () => Promise.resolve(options.freeBytes === undefined ? 1_000_000 : options.freeBytes),
+        loadConfig: () => (options.configError === undefined
+            ? Promise.resolve(config)
+            : Promise.reject(options.configError)),
+    };
+
+    return {
+        layout,
+        utmctl,
+        config,
+        artifactPath,
+        run: () => runWindowsTestDoctor(dependencies),
+    };
+}
+
+function checkById(report: IWindowsTestDoctorReport, id: string) {
+    return report.checks.find(entry => entry.id === id) ?? null;
+}
+
+describe('windows test doctor', () => {
+    it('reports every check green on a healthy host and never touches a VM', async () => {
+        const harness = await createDoctorHarness();
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(true);
+        expect(report.checks.map(entry => entry.id)).toEqual([
+            'gui-session',
+            'utmctl-present',
+            'automation-consent',
+            'config-present',
+            'cache-directory-artifacts',
+            'cache-directory-fixtures',
+            'cache-directory-tools',
+            'golden-image-stopped',
+            'allowlist-sane',
+            'test-image-root',
+            'free-disk-space',
+            'candidate-artifact',
+            'launcher-qualified',
+        ]);
+        expect(harness.utmctl.calls).toEqual([
+            'version',
+            'list',
+            `status ${GOLDEN_VM_ID}`,
+        ]);
+    });
+
+    it('fails the session check from an SSH shell without asking launchctl', async () => {
+        const harness = await createDoctorHarness({
+            env: {SSH_CONNECTION: '10.0.0.2 51000 10.0.0.3 22'},
+            managerName: 'Aqua',
+        });
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'gui-session')?.detail).toContain('SSH_CONNECTION');
+        expect(checkById(report, 'gui-session')?.remedy).toContain('Aqua session');
+    });
+
+    it('fails the session check outside an Aqua login session', async () => {
+        const harness = await createDoctorHarness({managerName: 'Background'});
+
+        const report = await harness.run();
+
+        expect(checkById(report, 'gui-session')?.ok).toBe(false);
+        expect(checkById(report, 'gui-session')?.detail).toContain('Background');
+    });
+
+    it('blames missing Automation consent when utmctl list fails', async () => {
+        const harness = await createDoctorHarness({utmctl: createFakeUtmctl({listError: new Error('automation-consent-missing: OSStatus -1743')})});
+
+        const report = await harness.run();
+
+        expect(checkById(report, 'utmctl-present')?.ok).toBe(true);
+        expect(checkById(report, 'automation-consent')?.ok).toBe(false);
+        expect(checkById(report, 'automation-consent')?.remedy).toContain('Automation');
+    });
+
+    it('stops after the cache checks when the configuration cannot be loaded', async () => {
+        const harness = await createDoctorHarness({configError: new WindowsTestConfigError({
+            kind: 'config-missing',
+            configFile: '/tmp/config.json',
+            message: 'Windows test host config /tmp/config.json does not exist.',
+        })});
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'config-present')?.detail).toContain('config-missing');
+        expect(checkById(report, 'golden-image-stopped')).toBeNull();
+        expect(harness.utmctl.calls).not.toContain(`status ${GOLDEN_VM_ID}`);
+    });
+
+    it('fails when the golden image is not stopped', async () => {
+        const harness = await createDoctorHarness({utmctl: createFakeUtmctl({goldenStatus: 'started'})});
+
+        const report = await harness.run();
+
+        expect(checkById(report, 'golden-image-stopped')?.ok).toBe(false);
+        expect(harness.utmctl.calls).not.toContain(`stop ${GOLDEN_VM_ID}`);
+    });
+
+    it('fails when the allowlist overlaps the golden or a denied personal VM', async () => {
+        const goldenOverlap = await createDoctorHarness({config: {allowedTestVmIds: [
+            TEST_VM_ID,
+            GOLDEN_VM_ID,
+        ]}});
+        const personalOverlap = await createDoctorHarness({config: {allowedTestVmIds: [
+            TEST_VM_ID,
+            PERSONAL_VM_ID,
+        ]}});
+
+        expect(checkById(await goldenOverlap.run(), 'allowlist-sane')?.ok).toBe(false);
+        expect(checkById(await personalOverlap.run(), 'allowlist-sane')?.ok).toBe(false);
+    });
+
+    it('fails when the candidate artifact is absent or hashes differently', async () => {
+        const missing = await createDoctorHarness({artifactBytes: null});
+        const mismatched = await createDoctorHarness({config: {candidate: {
+            artifactPath: path.join(tmpdir(), 'never-read.exe'),
+            sha256: 'a'.repeat(64),
+            fileName: 'never-read.exe',
+            version: '3.4.5',
+            sourceSha: 'b'.repeat(40),
+            appArch: 'arm64',
+        }}});
+
+        expect(checkById(await missing.run(), 'candidate-artifact')?.detail).toContain('missing');
+        expect(checkById(await mismatched.run(), 'candidate-artifact')?.ok).toBe(false);
+    });
+
+    it('fails on low free space and on an unqualified launcher', async () => {
+        const lowSpace = await createDoctorHarness({freeBytes: 512});
+        const strangeLauncher = await createDoctorHarness({launcherPath: '/usr/bin/ssh'});
+
+        expect(checkById(await lowSpace.run(), 'free-disk-space')?.ok).toBe(false);
+        expect(checkById(await strangeLauncher.run(), 'launcher-qualified')?.ok).toBe(false);
+    });
+
+    it('parses a utmctl version banner and rejects one without digits', () => {
+        expect(parseUtmctlVersion('utmctl version 4.7.5 (118)')).toBe('4.7.5');
+        expect(parseUtmctlVersion('unknown build')).toBeNull();
+    });
+
+    it('reads the session manager name from launchctl and tolerates failure', async () => {
+        const runner: ICommandRunner = {run: (command, args) => Promise.resolve({
+            exitCode: command.endsWith('launchctl') && args[0] === 'managername' ? 0 : 1,
+            stdout: 'Aqua\n',
+            stderr: '',
+            timedOut: false,
+            signal: null,
+        })};
+        const failing: ICommandRunner = {run: () => Promise.reject(new Error('launchctl is missing'))};
+
+        expect(await createLaunchctlSessionProbe(runner).managerName()).toBe('Aqua');
+        expect(await createLaunchctlSessionProbe(failing).managerName()).toBeNull();
+    });
+});

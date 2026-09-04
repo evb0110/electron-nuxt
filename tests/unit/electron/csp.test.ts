@@ -29,6 +29,7 @@ vi.mock('@electron/config', () => ({config: {
     isDev: false,
     renderer: {
         staticRoot: '/missing/nuxt-output/public',
+        trustedOrigin: 'evb-viewer://app',
         trustedUrl: 'evb-viewer://app/electron',
     },
 }}));
@@ -238,7 +239,7 @@ describe('buildContentSecurityPolicy', () => {
 
         const listener = mocks.onHeadersReceived.mock.calls[0]?.[0];
         const callback = vi.fn();
-        listener?.({}, callback);
+        listener?.({url: 'evb-viewer://app/electron'}, callback);
         const policy = callback.mock.calls[0]?.[0]?.responseHeaders?.['Content-Security-Policy']?.[0] as string;
         const directives = parseCsp(policy);
         const cleanupHash = createInlineScriptCspHash(
@@ -247,5 +248,30 @@ describe('buildContentSecurityPolicy', () => {
 
         expect(directives['script-src']).toContain(cleanupHash);
         expect(directives['script-src']).not.toContain('\'unsafe-inline\'');
+    });
+
+    it('leaves PDF and extension responses under their own security policies', () => {
+        setupContentSecurityPolicy();
+
+        const listener = mocks.onHeadersReceived.mock.calls[0]?.[0];
+        const pdfHeaders = {'Content-Type': ['application/pdf']};
+        const pdfCallback = vi.fn();
+        listener?.({
+            url: 'file:///tmp/document.pdf',
+            responseHeaders: pdfHeaders,
+        }, pdfCallback);
+        expect(pdfCallback).toHaveBeenCalledWith({responseHeaders: pdfHeaders});
+
+        const noHeadersCallback = vi.fn();
+        listener?.({url: 'file:///tmp/document-without-headers.pdf'}, noHeadersCallback);
+        expect(noHeadersCallback).toHaveBeenCalledWith({});
+
+        const extensionHeaders = {'Content-Security-Policy': ['script-src \'self\'; object-src *']};
+        const extensionCallback = vi.fn();
+        listener?.({
+            url: 'chrome-extension://mhjfbmdgcfjbbpaeojofohoefgiehjai/index.html',
+            responseHeaders: extensionHeaders,
+        }, extensionCallback);
+        expect(extensionCallback).toHaveBeenCalledWith({responseHeaders: extensionHeaders});
     });
 });
