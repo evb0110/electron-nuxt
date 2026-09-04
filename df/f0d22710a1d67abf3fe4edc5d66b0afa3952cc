@@ -1,0 +1,19 @@
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_29f6a44c639066::t_3ac72d3641d254 320,325
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "dff0d22710a1d67abf3fe4edc5d66b0afa3952cc",
+  "prompts": {},
+  "sessions": {
+    "s_29f6a44c639066": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06a83-ddfa-7621-9f8f-b01b1f8197c8",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
