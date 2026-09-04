@@ -1,0 +1,24 @@
+scripts/architecture/boundary-check.mjs
+  s_cd2cd85e158afe::t_1ad586a0d69ad5 222-225
+scripts/windows-test/registry/changeSelector.ts
+  s_cd2cd85e158afe::t_7729c8c8eb22d6 98
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_cd2cd85e158afe::t_9190dc4a59ea7e 188
+  s_cd2cd85e158afe::t_3f12d849102142 172
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f6b9c9220f267eaf1c9a7390da696746ebe3cc6a",
+  "prompts": {},
+  "sessions": {
+    "s_cd2cd85e158afe": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e20-785d-78f1-b406-9aca772ab43b",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
