@@ -152,14 +152,14 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(harness.selectedIds.value.has(annotationId)).toBe(true);
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
 
-        rect!.dispatchEvent(new PointerEvent('pointerup', {
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
             bubbles: true,
             button: 0,
             clientX: 20,
             clientY: 20,
             pointerId: 1,
         }));
-        rect!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        layer!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         await nextTick();
         await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
         expect(harness.select).toHaveBeenCalledTimes(2);
@@ -193,6 +193,26 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         expect(harness.commitGesture).toHaveBeenCalledOnce();
         expect(harness.selectedIds.value.has(annotationId)).toBe(true);
         expect(host.querySelector('[data-annotation-id="reopened-markup"].is-selected')).not.toBeNull();
+
+        layer!.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+            clientX: 80,
+            clientY: 80,
+            pointerId: 3,
+        }));
+        layer!.dispatchEvent(new PointerEvent('pointerup', {
+            bubbles: true,
+            button: 0,
+            clientX: 80,
+            clientY: 80,
+            pointerId: 3,
+        }));
+        layer!.dispatchEvent(new MouseEvent('click', {bubbles: true}));
+        await nextTick();
+
+        expect(harness.selectedIds.value.size).toBe(0);
+        expect(harness.surface.clearSelection).toHaveBeenCalled();
         app.unmount();
     });
 });

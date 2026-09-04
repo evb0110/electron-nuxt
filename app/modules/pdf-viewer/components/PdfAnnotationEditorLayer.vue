@@ -151,6 +151,7 @@ interface IPdfTextBoxAnnotationExpose {commitDraft: () => void;}
 const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
 let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
+let capturedClickAnnotationId: AnnotationId | null = null;
 
 const pointerGesture = useAnnotationPointerGesture({
     surface,
@@ -504,6 +505,7 @@ function handleSurfacePointerDown(event: PointerEvent) {
     }
     focusLayer();
     const id = entityIdFromEvent(event);
+    capturedClickAnnotationId = id;
     if (id) {
         const wasSelected = surface.selectedIds.value.has(id);
         if (!wasSelected || event.shiftKey) {
@@ -691,9 +693,11 @@ function handlePointerCancel(event: PointerEvent) {
 function handleSurfaceClick(event: MouseEvent) {
     if (suppressNextClick) {
         suppressNextClick = false;
+        capturedClickAnnotationId = null;
         return;
     }
-    const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
+    const id = entityIdFromEvent(event) ?? capturedClickAnnotationId ?? textBoxIdAtPoint(event);
+    capturedClickAnnotationId = null;
     if (!id) {
         surface.clearSelection();
         return;
