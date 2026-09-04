@@ -281,9 +281,9 @@ function addEditorRuntimeAnnotationIdFromStableKey(ids: Set<string>, stableKey: 
 function addReplayableNativeEntityIds(
     ids: Set<string>,
     input: {
-        shapes?: readonly IShapeAnnotation[] | null;
-        deletedShapeAnnotationIds?: readonly string[];
-        deletedShapeStableKeys?: readonly string[];
+        shapes: readonly IShapeAnnotation[] | null;
+        deletedShapeAnnotationIds: readonly string[];
+        deletedShapeStableKeys: readonly string[];
         textBoxes: ReadonlyArray<Pick<IPdfNativeTextBoxMutation, 'stableKey' | 'annotationId'>>;
     },
 ) {
@@ -291,8 +291,8 @@ function addReplayableNativeEntityIds(
         addReplayableAnnotationId(ids, shape.annotationId);
         addReplayableAnnotationId(ids, shape.stableKey);
     });
-    input.deletedShapeAnnotationIds?.forEach((id) => addReplayableAnnotationId(ids, id));
-    input.deletedShapeStableKeys?.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
+    input.deletedShapeAnnotationIds.forEach((id) => addReplayableAnnotationId(ids, id));
+    input.deletedShapeStableKeys.forEach((stableKey) => addReplayableAnnotationId(ids, stableKey));
     input.textBoxes.forEach((textBox) => {
         addReplayableAnnotationId(ids, textBox.stableKey);
         addReplayableAnnotationId(ids, textBox.annotationId);
@@ -313,9 +313,9 @@ function collectReplayableEmbeddedAnnotationIds(input: {
 }) {
     const ids = new Set<string>();
     addReplayableNativeEntityIds(ids, {
-        shapes: input.shapes,
-        deletedShapeAnnotationIds: input.deletedShapeAnnotationIds,
-        deletedShapeStableKeys: input.deletedShapeStableKeys,
+        shapes: input.shapes ?? null,
+        deletedShapeAnnotationIds: input.deletedShapeAnnotationIds ?? [],
+        deletedShapeStableKeys: input.deletedShapeStableKeys ?? [],
         textBoxes: input.nativeTextBoxes ?? [],
     });
     input.pendingTexts.forEach((_text, stableKey) => {
