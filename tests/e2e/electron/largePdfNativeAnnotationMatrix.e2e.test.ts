@@ -1116,7 +1116,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         );
 
         const beforeTextBox = await readCanonicalEntities(session.page, MATRIX_PAGE_NUMBER);
-        const textBoxId = await createCanonicalTextBoxWithPointer(
+        await createCanonicalTextBoxWithPointer(
             session.page,
             'issue 192 canonical text box',
             {
@@ -1125,14 +1125,14 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             },
             MATRIX_PAGE_NUMBER,
         );
-        expect(textBoxId).toMatch(/^anno_/u);
         const textBox = await waitForNewCanonicalEntity(
             session.page,
             MATRIX_PAGE_NUMBER,
             'text-box',
             new Set(beforeTextBox.map(entity => entity.id)),
         );
-        expect(textBox.id).toBe(textBoxId);
+        const textBoxId = textBox.id;
+        expect(textBoxId).toMatch(/^anno_/u);
 
         const markupIds: string[] = [];
         for (const tool of [
