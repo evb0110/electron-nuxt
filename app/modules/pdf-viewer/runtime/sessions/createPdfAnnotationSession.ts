@@ -1177,7 +1177,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 ? payload
                 : {
                     ...payload,
-                    stableKey: mintAnnotationId(),
+                    stableKey: payload.stableKey ?? mintAnnotationId(),
                 };
             return await finalizer(canonicalPayload) ?? true;
         },

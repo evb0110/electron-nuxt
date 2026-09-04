@@ -351,9 +351,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
         let result: void | boolean | Promise<boolean>;
         try {
             result = finalizePlacement({
-                ...(placement.annotationId && placement.stableKey
-                    ? {stableKey: placement.stableKey}
-                    : {}),
+                ...(placement.stableKey ? {stableKey: placement.stableKey} : {}),
                 ...(placement.annotationId ? {annotationId: placement.annotationId} : {}),
                 pageNumber: placement.pageNumber,
                 x: placement.x,

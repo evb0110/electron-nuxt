@@ -1377,7 +1377,9 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             documentPath,
             'issue 192 canonical placed-image create save',
         );
-        const firstIndex = await readAnnotationIndex(session.page, documentPath);
+        const firstSavedPath = await readWorkingCopyPath(session.page);
+        expect(firstSavedPath).toBe(initialWorkingCopyPath);
+        const firstIndex = await readAnnotationIndex(session.page, firstSavedPath);
         expect(firstIndex.revisionToken).toBe(firstSaveToken);
         const addedStamps = diffAnnotationEntries(initialIndex.entries, firstIndex.entries)
             .filter(entry => entry.pageIndex === PLACED_IMAGE_PAGE_INDEX && entry.subtype === 'Stamp');
