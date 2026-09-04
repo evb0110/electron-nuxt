@@ -158,7 +158,7 @@ async function runPlan(
             oracleId: string;
             status: string;
             side: string;
-            provenance: string 
+            provenance: string
         }>;
         errors: string[];
     };

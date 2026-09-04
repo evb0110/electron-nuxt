@@ -28,7 +28,7 @@ const roots: string[] = [];
 afterEach(async () => {
     await Promise.all(roots.splice(0).map(root => rm(root, {
         recursive: true,
-        force: true, 
+        force: true,
     })));
 });
 
@@ -55,7 +55,7 @@ async function fixture() {
             passDays: 7,
             failureDays: 30,
             maxFailedClones: 1,
-            minFreeBytes: 0, 
+            minFreeBytes: 0,
         },
     };
     const manifest: IWindowsTestImageManifest = {
@@ -72,7 +72,7 @@ async function fixture() {
         disks: [{
             diskId: 'system',
             purpose: 'system',
-            resetPolicy: 'restore-from-baseline', 
+            resetPolicy: 'restore-from-baseline',
         }],
         guestTestMarker: 'lab-marker',
         qualifiedAt: null,
@@ -86,7 +86,7 @@ async function fixture() {
         Backend: 'QEMU',
         Information: {
             UUID: goldenId,
-            Name: 'EVB Lab Golden', 
+            Name: 'EVB Lab Golden',
         },
         Network: [{ MacAddress: '02:00:00:00:00:01' }],
         Drive: [{ ImageName: 'disk.qcow2' }],
@@ -94,20 +94,20 @@ async function fixture() {
     const runner: ICommandRunner = { run: async (command, args) => {
         commands.push({
             command,
-            args, 
+            args,
         });
         return {
             exitCode: 0,
             stdout: JSON.stringify(decoded),
             stderr: '',
             timedOut: false,
-            signal: null, 
+            signal: null,
         };
     } };
     const registration = {
         uuid: goldenId,
         name: 'EVB Lab Golden',
-        status: 'stopped', 
+        status: 'stopped',
     };
     const utmctl: IUtmctlClient = {
         list: async () => {
@@ -145,8 +145,8 @@ async function fixture() {
             manifest,
             runner,
             utmctl,
-            cloneName, 
-        }, 
+            cloneName,
+        },
     };
 }
 
