@@ -205,16 +205,12 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 const svgEntities = computed(() => {
-    // Read the selection snapshot before the no-move projection branch. The
-    // page layer must invalidate when selection changes even if no gesture is
-    // translating an entity.
-    const selected = selectedIds.value;
     return {
         textMarkup: entities.value
             .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
             .map(entity => {
                 const delta = moveDelta.value;
-                return delta && selected.has(entity.identity.id)
+                return delta && selectedIds.value.has(entity.identity.id)
                     ? {
                         ...entity,
                         quadPoints: entity.quadPoints.map(rect => moveAnnotationRect(rect, delta.x, delta.y)),
