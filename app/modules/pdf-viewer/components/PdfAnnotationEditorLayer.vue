@@ -203,22 +203,25 @@ function handleKeydown(event: KeyboardEvent) {
     keyboardCommands.handleKeydown(event);
 }
 
-const svgEntities = computed(() => ({
-    textMarkup: entities.value
-        .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
-        .map(entity => {
-            const delta = moveDelta.value;
-            return delta && surface.selectedIds.value.has(entity.identity.id)
-                ? {
-                    ...entity,
-                    quadPoints: entity.quadPoints.map(rect => moveAnnotationRect(rect, delta.x, delta.y)),
-                }
-                : entity;
-        }),
-    shapes: entities.value
-        .filter((entity): entity is IShapeEntity => entity.kind === 'shape')
-        .map(shapeForRender),
-}));
+const svgEntities = computed(() => {
+    const selectedIds = surface.selectedIds.value;
+    return {
+        textMarkup: entities.value
+            .filter((entity): entity is ITextMarkupEntity => entity.kind === 'text-markup')
+            .map(entity => {
+                const delta = moveDelta.value;
+                return delta && selectedIds.has(entity.identity.id)
+                    ? {
+                        ...entity,
+                        quadPoints: entity.quadPoints.map(rect => moveAnnotationRect(rect, delta.x, delta.y)),
+                    }
+                    : entity;
+            }),
+        shapes: entities.value
+            .filter((entity): entity is IShapeEntity => entity.kind === 'shape')
+            .map(shapeForRender),
+    };
+});
 
 function shapeForRender(entity: IShapeEntity) {
     const delta = moveDelta.value;
