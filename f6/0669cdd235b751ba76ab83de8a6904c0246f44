@@ -1,0 +1,32 @@
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_a82182afd52c56::t_54d7be6ef53457 196,488
+tests/e2e/electron/largePdfNativeAnnotationMatrix.e2e.test.ts
+  s_a82182afd52c56::t_48d5a836232f3e 1055-1065,1070-1076,1081-1085,1094,1102-1105,1438
+  s_a82182afd52c56::t_7ed1dfaf3042dc 1066-1069,1077-1080,1097-1098,1100,1106-1108,1446-1453
+tests/unit/app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.test.ts
+  s_a82182afd52c56::t_5b12247eb36c44 111-130
+tests/unit/app/modules/pdf-viewer/components/pdfAnnotationEditorLayerEvents.test.ts
+  s_a82182afd52c56::t_23783ca42cd976 23,28-31,321-369
+app/modules/pdf-viewer/annotations/editor/useAnnotationKeyboardCommands.ts
+  s_a82182afd52c56::t_5b12247eb36c44 99-100,102-107
+app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue
+  s_a82182afd52c56::t_54d7be6ef53457 70
+app/platform/browser-api/browserImageResourcePolicy.ts
+  s_a82182afd52c56::t_bff3addb6968e7 377,405-409
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "f60669cdd235b751ba76ab83de8a6904c0246f44",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

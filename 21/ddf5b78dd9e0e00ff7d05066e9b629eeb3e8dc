@@ -1,0 +1,51 @@
+native/pdf-page-ops/src/incremental.rs
+  s_a82182afd52c56::t_f5a1249f570ff2 321-327,507-511
+packages/contracts/electronApiDocuments.ts
+  s_a82182afd52c56::t_862536edb4f811 1
+  s_a82182afd52c56::t_c99e9bdada8184 712-718,727
+native/pdf-page-ops/src/tests/catalog.rs
+  s_a82182afd52c56::t_4ddbe1d9794c4a 47,185,224,332
+native/pdf-page-ops/src/input.rs
+  s_a82182afd52c56::t_59b4f041e23a43 616,654-659
+  s_a82182afd52c56::t_de37ec726bacd0 668,731
+native/pdf-page-ops/src/types.rs
+  s_a82182afd52c56::t_53dc1ffa398002 135-143,169,866-868,872-885
+packages/contracts/nativePdfMutations.ts
+  s_a82182afd52c56::t_16107d7892fbbd 1473
+  s_a82182afd52c56::t_4bbaa1f25c1155 20,70,134-164,171-180,182-185,187-190,1315-1319,1327,1342
+  s_a82182afd52c56::t_5f0b4f7a7b9ba5 165-170,181,186
+native/pdf-page-ops/src/tests/placed_images.rs
+  s_a82182afd52c56::t_59821146fd3cc5 313
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_a82182afd52c56::t_2101931b5073b0 58-61,581-584,588-599,860,973-974,1014-1015,1033
+  s_a82182afd52c56::t_74cfab521e8ec5 6-9
+  s_a82182afd52c56::t_39f0f9debd4588 585-587
+native/pdf-page-ops/src/tests/markup_shapes.rs
+  s_a82182afd52c56::t_4ddbe1d9794c4a 53,503,592,1063,1129,1419,1450,1826
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_a82182afd52c56::t_5f0b4f7a7b9ba5 307-310
+  s_a82182afd52c56::t_7758a76f3d442d 18,304-306,311-330
+  s_a82182afd52c56::t_54417a4e3311ad 335-352
+native/pdf-page-ops/src/placed_images.rs
+  s_a82182afd52c56::t_0adcec309550ea 866
+  s_a82182afd52c56::t_bdefe7b84094ff 655-709
+  s_a82182afd52c56::t_723f6cc8cc6a20 817-865,867-878
+app/modules/pdf-viewer/serialization/serializationPlan.ts
+  s_a82182afd52c56::t_3a4942188a40ca 253-255
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "21ddf5b78dd9e0e00ff7d05066e9b629eeb3e8dc",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

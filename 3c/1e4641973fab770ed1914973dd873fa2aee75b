@@ -1,0 +1,19 @@
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_a82182afd52c56::t_419ec3305b0152 281-301,315-319,718
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "3c1e4641973fab770ed1914973dd873fa2aee75b",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
