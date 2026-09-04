@@ -44,9 +44,13 @@ import {
     saveViaVisibleToolbarWithDeadline,
     scrollViewerToPage,
     waitForPdfLoaded,
+    waitForToolbarCurrentPage,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {readWorkspaceStateValues} from '@tests/e2e/electron/helpers/workspaceExpose';
+import {
+    callWorkspaceCommand,
+    readWorkspaceStateValues,
+} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {workspaceCrashCheckpointPath} from '@scripts/electron-run/electronRunWorkspaceCheckpoint';
 import {
     readExactPdfFixtureIdentity,
@@ -510,6 +514,39 @@ async function clickCanonicalEntity(page: Page, id: string, pageNumber: number) 
     };
     await clickAnnotationTool(page, 'Select');
     await scrollViewerToPage(page, pageNumber);
+    const markerRect = await page.$eval(
+        `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
+        (element) => {
+            const entityRect = element.getBoundingClientRect();
+            const pageRect = element.closest<HTMLElement>('.page_container')?.getBoundingClientRect();
+            if (!pageRect || pageRect.width <= 0 || pageRect.height <= 0) {
+                return null;
+            }
+            return {
+                left: (entityRect.left - pageRect.left) / pageRect.width,
+                top: (entityRect.top - pageRect.top) / pageRect.height,
+                width: entityRect.width / pageRect.width,
+                height: entityRect.height / pageRect.height,
+            };
+        },
+    );
+    if (!markerRect) {
+        throw new Error(`Canonical entity page geometry was unavailable: ${id}`);
+    }
+    const annotationNavigation = await callWorkspaceCommand(
+        page,
+        'handleGoToPage',
+        [
+            pageNumber,
+            {
+                navigationSource: 'annotation',
+                markerRect,
+            },
+        ],
+    );
+    if (annotationNavigation.called) {
+        await waitForToolbarCurrentPage(page, pageNumber, 5_000);
+    }
     const kind = await page.$eval(
         `.editor-pane.is-active .pdf-annotation-editor-layer [data-annotation-id="${id}"]`,
         element => element.getAttribute('data-annotation-kind'),
@@ -937,11 +974,10 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
 }
 
 async function pasteImageFromVisibleMenu(page: Page) {
-    await page.keyboard.down('Control');
-    await page.keyboard.down('Shift');
-    await page.keyboard.press('V');
-    await page.keyboard.up('Shift');
-    await page.keyboard.up('Control');
+    const command = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
+    if (!command.called) {
+        throw new Error('Electron paste-image menu command was not available');
+    }
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         timeout: 30_000,
         visible: true,
