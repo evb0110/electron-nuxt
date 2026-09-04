@@ -259,25 +259,38 @@ pub(crate) fn quad_points_object(values: &[f64]) -> Object {
 /// used to find an annotation after a native append. Keeping the editor id in
 /// `/NM` gives the next save a bounded page-local upsert key.
 pub(crate) fn markup_annotation_name(hint: &MarkupSubtypeHint) -> Option<String> {
-    let identity = hint
-        .app_annotation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .or_else(|| {
-            hint.id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| !value.is_empty())
-        })
-        .or_else(|| {
-            hint.annotation_id
-                .as_deref()
-                .map(str::trim)
-                .filter(|value| {
-                    !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none()
-                })
-        })?;
+    let identity = (if hint.source.as_deref() == Some("pdf") {
+        // Imported PDF annotations carry the PDF object reference in `id` and
+        // the editor's canonical identity in `app_annotation_id`. Newly
+        // authored editor annotations use `id` as their intended PDF name.
+        hint.app_annotation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                hint.id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
+    } else {
+        hint.id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                hint.app_annotation_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty())
+            })
+    })
+    .or_else(|| {
+        hint.annotation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty() && parse_pdfjs_annotation_object_id(value).is_none())
+    })?;
     Some(identity.to_string())
 }
 
