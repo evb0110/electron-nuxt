@@ -1,0 +1,22 @@
+app/modules/pdf-viewer/runtime/save/classifyPdfSaveRoute.ts
+  s_a82182afd52c56::t_24e45ae2b53efb 609-611
+tests/unit/app/services/pdf-save/classifyPdfSaveRoute.test.ts
+  s_a82182afd52c56::t_24e45ae2b53efb 353-362
+  s_a82182afd52c56::t_b7564c6099f765 344
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cbe20969c8a1e9796e778310fb4c9b75b470efc9",
+  "prompts": {},
+  "sessions": {
+    "s_a82182afd52c56": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06abe-cf36-7a22-9d74-aca19ea7ea2d",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
