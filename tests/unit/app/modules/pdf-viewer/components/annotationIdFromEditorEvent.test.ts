@@ -6,7 +6,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationIdFromEditorEvent';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/engine/annotations/annotationIdFromEditorEvent';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 

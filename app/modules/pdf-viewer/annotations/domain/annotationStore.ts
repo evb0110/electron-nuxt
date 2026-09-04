@@ -354,12 +354,14 @@ export class AnnotationStore {
                     ? []
                     : currentEntities.filter(current => (
                         current.identity.pdfRef === entity.identity.pdfRef
+                        && !current.deleted
                         && !usedCurrentIds.has(current.identity.id)
                     ));
                 const matches = pdfRefMatches.length === 1
                     ? pdfRefMatches
                     : currentEntities.filter(current => (
-                        (current.persistedRevision >= 0 || current.kind === 'shape')
+                        !current.deleted
+                    && (current.persistedRevision >= 0 || current.kind === 'shape')
                     && !usedCurrentIds.has(current.identity.id)
                     && current.kind === entity.kind
                     && current.pageIndex === entity.pageIndex

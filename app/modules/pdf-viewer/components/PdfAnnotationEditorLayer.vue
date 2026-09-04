@@ -108,7 +108,7 @@ import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnot
 import PdfStampAnnotation from '@app/modules/pdf-viewer/components/PdfStampAnnotation.vue';
 import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
-import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationIdFromEditorEvent';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/engine/annotations/annotationIdFromEditorEvent';
 import {
     annotationRectsEqual,
     annotationRectContainsPoint,
