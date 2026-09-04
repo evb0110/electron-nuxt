@@ -1,5 +1,8 @@
 docs/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
   s_de4eb7ea9d9bbe::t_a127e722e66b99 67,109-121,125,156-167,171,182,184-185,195,197-198,203-205,207-212,216,230,232-235,237-238,241-247,299-307
+  s_de4eb7ea9d9bbe::t_1b0dfb30329363 67,109-121,125,156-167,171,182,184-185,195,197-198,203-205,207-212,216,230,232-235,237-238,241-247,299-307
+scripts/windows-test/guest/appLaunch.ts
+  s_de4eb7ea9d9bbe::t_4ffd98dfc70fb7 268
 ---
 {
   "schema_version": "authorship/3.0.0",
