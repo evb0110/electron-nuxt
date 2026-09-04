@@ -22,7 +22,7 @@ const MAIN_LOOP_ITERATIONS = 6_000_000;
 const RAF_SAMPLE_COUNT = 60;
 const DISK_READ_BYTES = 64 * 1024 * 1024;
 
-interface ICalibrationWindow extends Window { electronAPI?: Pick<IElectronAPI, 'host'>; }
+interface ICalibrationWindow extends Omit<Window, 'electronAPI'> { electronAPI?: Pick<IElectronAPI, 'host'>; }
 
 interface IInPageCalibration {
     mainThreadLoopMs: number;

@@ -10,8 +10,9 @@ import {
     waitForFileToSettle,
 } from '@scripts/windows-test/guest/cases/printSupport';
 import {
+    captureArtifactIfPresent,
     checkpoint,
-    numberedFixtureId,
+    fontsFixtureId,
     stageFixtureCopy,
     writeJsonEvidence,
 } from '@scripts/windows-test/guest/cases/caseSupport';
@@ -31,10 +32,11 @@ const BUNDLED_TOOL_PROBES = [
 ] as const;
 
 export async function runWinUi02(context: ICaseContext) {
-    const source = await stageFixtureCopy(context, numberedFixtureId, UNICODE_SOURCE_NAME);
+    const source = await stageFixtureCopy(context, fontsFixtureId, UNICODE_SOURCE_NAME);
     const targetName = `${UNICODE_TARGET_PREFIX}${UNICODE_SOURCE_NAME}`;
     const target = joinGuestPath(context.separator, context.paths.outputsDir, targetName);
     await context.fs.makeDirectory(context.paths.outputsDir);
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-UI-02/source.pdf');
     const acceptance = await context.viewer.launchAcceptance();
     try {
         const mainWindow = await waitForDialogWindow(
@@ -94,7 +96,11 @@ export async function runWinUi02(context: ICaseContext) {
             outputNames,
         });
     } finally {
-        await acceptance.close();
+        try {
+            await acceptance.close();
+        } finally {
+            await captureArtifactIfPresent(context, target, 'artifacts/WIN-UI-02/target.pdf');
+        }
     }
 }
 

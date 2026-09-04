@@ -12,6 +12,7 @@ is only Qualified when every gate links to evidence.
 ## Commands
 
 ```sh
+pnpm windows:test:prepare
 pnpm windows:test:doctor
 pnpm windows:test
 pnpm windows:test -- --suite critical --artifact /absolute/path/to/candidate.exe
@@ -20,6 +21,8 @@ pnpm windows:test:report -- --run RUN_ID
 pnpm windows:test:stop -- --run RUN_ID
 ```
 
+Run `prepare` once after updating the runner to build its worker and fixtures.
+It preserves VM images and configuration and refuses to run while a lease exists.
 Run `doctor` first in every new terminal. It reads the host configuration,
 probes UTM and its Automation consent, checks the golden image and caches,
 and never starts, stops, or modifies a VM.

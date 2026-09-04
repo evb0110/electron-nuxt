@@ -218,6 +218,21 @@ describe('sourceIsolationOracle', () => {
         expect(result.detail).toContain('residue source.pdf.tmp survived');
     });
 
+    it('can require a save operation to change the source hash', async () => {
+        const directory = await createTemporaryDirectory();
+        const sourcePath = path.join(directory, 'source.pdf');
+        await writeFile(sourcePath, 'rewritten bytes');
+        const result = await evaluateSourceIsolation({
+            sourcePath,
+            workingDirectory: directory,
+        }, {
+            expectedSourceSha256: createHash('sha256').update('original bytes').digest('hex'),
+            sourceMustChange: true,
+        });
+        expect(result.status).toBe('passed');
+        expect(result.observations.sourceChanged).toBe(true);
+    });
+
     it('fails when the source cannot be read at all', async () => {
         const directory = await createTemporaryDirectory();
         const result = await evaluateSourceIsolation({
@@ -322,7 +337,7 @@ describe('verifyGeneratedPdfWrapper', () => {
         expect(missingInterpreter.detail).toContain('could not be started');
     });
 
-    it('treats unparsable output as inconclusive on success and failed on error', async () => {
+    it('treats unparsable output as inconclusive on success and verifier error', async () => {
         const quiet = await runVerifyGeneratedPdf({
             ...options,
             runner: runnerReturning({ stdout: 'no json here' }),
@@ -336,7 +351,7 @@ describe('verifyGeneratedPdfWrapper', () => {
                 stderr: 'traceback',
             }),
         });
-        expect(noisy.status).toBe('failed');
+        expect(noisy.status).toBe('inconclusive');
     });
 
     it('reads the report even when the script prints progress lines first', async () => {

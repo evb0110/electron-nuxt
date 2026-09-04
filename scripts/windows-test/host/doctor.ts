@@ -2,6 +2,8 @@ import {
     stat,
     statfs,
 } from 'node:fs/promises';
+import path from 'node:path';
+import { detectsAutomationConsentFailure } from '@scripts/windows-test/host/utmctlClient';
 import type {
     ICommandRunner,
     IUtmctlClient,
@@ -12,6 +14,10 @@ import {
     loadWindowsTestHostConfig,
 } from '@scripts/windows-test/host/hostConfig';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import {
+    isQualifiedWindowsTestImage,
+    loadWindowsTestImageManifest,
+} from '@scripts/windows-test/images/imageManifest';
 
 export interface IWindowsTestDoctorCheck {
     id: string;
@@ -26,6 +32,41 @@ export interface IWindowsTestDoctorReport {
 }
 
 export interface IWindowsTestSessionProbe {managerName(): Promise<string | null>;}
+
+export async function resolveWindowsTestLauncher(
+    env: NodeJS.ProcessEnv,
+    runner: ICommandRunner,
+    processId = process.pid,
+) {
+    if (env.EVB_WINDOWS_TESTS_LAUNCHER) {
+        return env.EVB_WINDOWS_TESTS_LAUNCHER;
+    }
+    let pid = processId;
+    const visited = new Set<number>();
+    for (let depth = 0; depth < 12 && pid > 1 && !visited.has(pid); depth += 1) {
+        visited.add(pid);
+        const result = await runner.run('/bin/ps', [
+            '-p',
+            String(pid),
+            '-o',
+            'ppid=,comm=',
+        ], { timeoutMs: 5_000 }).catch(() => null);
+        const match = result?.exitCode === 0 ? /^\s*(\d+)\s+(.+)$/u.exec(result.stdout.trim()) : null;
+        if (match === null) {
+            break;
+        }
+        const application = /^(.*?\.app)(?:\/|$)/u.exec(match[2] ?? '');
+        if (application?.[1]) {
+            return application[1];
+        }
+        pid = Number(match[1]);
+    }
+    return env.TERM_PROGRAM === 'Apple_Terminal'
+        ? '/System/Applications/Utilities/Terminal.app'
+        : env.TERM_PROGRAM === 'iTerm.app'
+            ? '/Applications/iTerm.app'
+            : process.execPath;
+}
 
 // `utmctl` drives UTM through ScriptingBridge, which only works from a real Aqua
 // session. `launchctl managername` is the cheapest way to tell an Aqua login
@@ -113,11 +154,15 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
     try {
         version = parseUtmctlVersion(await dependencies.utmctl.version());
     } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        const consentMissing = detectsAutomationConsentFailure(detail);
         checks.push(check(
-            'utmctl-present',
+            consentMissing ? 'automation-consent' : 'utmctl-present',
             false,
-            `utmctl version failed: ${error instanceof Error ? error.message : String(error)}.`,
-            'Install UTM and confirm /Applications/UTM.app/Contents/MacOS/utmctl is executable.',
+            `utmctl version failed for launcher ${dependencies.launcherPath}: ${detail}`,
+            consentMissing
+                ? 'Grant this launcher Automation access to UTM in System Settings > Privacy & Security > Automation, then retry. If no UTM entry or consent prompt appears, check the launcher Apple Events entitlement and usage description; see docs/windows-tests/setup-and-repair.md.'
+                : 'Install UTM and confirm /Applications/UTM.app/Contents/MacOS/utmctl is executable.',
         ));
         return checks;
     }
@@ -176,7 +221,7 @@ function checkAllowlist(config: IWindowsTestHostConfig) {
     const overlapsDenied = allowlisted.some(vmId => config.personalVmIdsDenied.includes(vmId));
     return check(
         'allowlist-sane',
-        allowlisted.length > 0 && !overlapsGolden && !overlapsDenied,
+        !overlapsGolden && !overlapsDenied,
         `allowedTestVmIds holds ${allowlisted.length} UUIDs, golden overlap: ${String(overlapsGolden)}, denied overlap: ${String(overlapsDenied)}.`,
         'List only disposable test VM UUIDs in allowedTestVmIds and keep the golden and personal UUIDs out of it.',
     );
@@ -191,7 +236,7 @@ async function checkCandidate(
             'candidate-artifact',
             false,
             'No candidate artifact is recorded in the host configuration.',
-            'Run the lane with --artifact <absolute path> to record a candidate build.',
+            'Record the candidate build in config.json. --artifact overrides it for one run and requires a matching build metadata sidecar.',
         );
     }
     const stats = await stat(config.candidate.artifactPath).catch(() => null);
@@ -273,7 +318,57 @@ export async function runWindowsTestDoctor(
         };
     }
 
-    checks.push(await checkGoldenImage(dependencies, config));
+    const manifestPath = path.join(dependencies.layout.baselinesDir, `${config.goldenImageId}.json`);
+    const manifest = await loadWindowsTestImageManifest(manifestPath).catch(() => null);
+    checks.push(check(
+        'golden-image-manifest',
+        manifest !== null && manifest.imageId === config.goldenImageId
+            && manifest.vmId.toLowerCase() === config.goldenVmId.toLowerCase(),
+        manifest === null
+            ? `The image manifest ${manifestPath} is missing or malformed.`
+            : `Manifest image ID matches configuration: ${manifest.imageId === config.goldenImageId}; VM ID matches: ${manifest.vmId.toLowerCase() === config.goldenVmId.toLowerCase()}.`,
+        'Record the observed lab image in its manifest; do not copy identities from another VM.',
+    ));
+    checks.push(check(
+        'golden-image-qualified',
+        manifest !== null && isQualifiedWindowsTestImage(manifest),
+        manifest !== null && isQualifiedWindowsTestImage(manifest)
+            ? 'The lab image has recorded guest setup and cold-reset qualification.'
+            : 'The lab image needs recorded guest setup and cold-reset qualification.',
+        'Complete the image qualification in docs/windows-tests/setup-and-repair.md and record its evidence before running suites.',
+    ));
+
+    for (const {
+        id,
+        file,
+    } of [
+            {
+                id: 'fixture-manifest',
+                file: path.join(dependencies.layout.fixturesCacheDir, 'manifest.json'),
+            },
+            {
+                id: 'guest-worker-bundle',
+                file: path.join(dependencies.layout.toolsCacheDir, 'worker', 'guestWorker.cjs'),
+            },
+        ]) {
+        const fileStat = await stat(file).catch(() => null);
+        checks.push(check(
+            id,
+            fileStat !== null && fileStat.isFile() && fileStat.size > 0,
+            `Prepared input ${file}.`,
+            'Run pnpm windows:test:prepare to build the worker and generate fixtures.',
+        ));
+    }
+
+    const automationAvailable = checks.some(entry => entry.id === 'automation-consent' && entry.ok);
+    checks.push(automationAvailable
+        ? await checkGoldenImage(dependencies, config)
+        : check(
+            'golden-image-stopped',
+            false,
+            'The VM state cannot be checked until this launcher can control UTM.',
+            'Resolve the Automation failure first; a denied VM query does not prove that the registered lab image is missing.',
+        ));
     checks.push(checkAllowlist(config));
     checks.push(check(
         'test-image-root',

@@ -80,6 +80,8 @@ export interface ICaseContext extends ICaseEnvironment {
     outputPath(fileName: string): string;
     evidencePath(fileName: string): string;
     attachEvidence(fileName: string): string;
+    /** Copy a binary artifact into the manifest-covered evidence tree. */
+    captureArtifact(sourcePath: string, fileName: string): Promise<string>;
     assertions(): IWindowsTestAssertionResult[];
     collectedEvidence(): string[];
 }
@@ -104,6 +106,22 @@ export function createCaseContext(testId: string, environment: ICaseEnvironment)
             detail,
         });
     };
+    const normalizeEvidencePath = (fileName: string) => {
+        const normalized = fileName.replaceAll('\\', '/');
+        const segments = normalized.split('/');
+        if (normalized.length === 0
+            || normalized.startsWith('/')
+            || /^[A-Za-z]:/u.test(normalized)
+            || segments.some(segment => segment.length === 0 || segment === '.' || segment === '..')) {
+            throw new Error(`Evidence path must be a safe relative file name: ${fileName}`);
+        }
+        return segments.join('/');
+    };
+    const absoluteEvidencePath = (fileName: string) => joinGuestPath(
+        environment.separator,
+        environment.paths.evidenceDir,
+        ...normalizeEvidencePath(fileName).split('/'),
+    );
 
     return {
         ...environment,
@@ -116,12 +134,31 @@ export function createCaseContext(testId: string, environment: ICaseEnvironment)
             }
         },
         outputPath: fileName => joinGuestPath(environment.separator, environment.paths.outputsDir, fileName),
-        evidencePath: fileName => joinGuestPath(environment.separator, environment.paths.evidenceDir, fileName),
+        evidencePath: absoluteEvidencePath,
         attachEvidence: (fileName) => {
-            if (!evidenceFiles.includes(fileName)) {
-                evidenceFiles.push(fileName);
+            const relativePath = normalizeEvidencePath(fileName);
+            if (!evidenceFiles.includes(relativePath)) {
+                evidenceFiles.push(relativePath);
             }
-            return joinGuestPath(environment.separator, environment.paths.evidenceDir, fileName);
+            return absoluteEvidencePath(relativePath);
+        },
+        captureArtifact: async (sourcePath, fileName) => {
+            const relativePath = normalizeEvidencePath(fileName);
+            const targetPath = absoluteEvidencePath(relativePath);
+            await environment.fs.makeDirectory(environment.paths.evidenceDir);
+            const parentSegments = relativePath.split('/').slice(0, -1);
+            if (parentSegments.length > 0) {
+                await environment.fs.makeDirectory(joinGuestPath(
+                    environment.separator,
+                    environment.paths.evidenceDir,
+                    ...parentSegments,
+                ));
+            }
+            await environment.fs.copyFile(sourcePath, targetPath);
+            if (!evidenceFiles.includes(relativePath)) {
+                evidenceFiles.push(relativePath);
+            }
+            return targetPath;
         },
         assertions: () => [...assertions],
         collectedEvidence: () => [...evidenceFiles],

@@ -2,7 +2,9 @@ import { realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { isVmUuid } from '@scripts/windows-test/contracts/windowsTestContracts';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
+import { createProcessCommandRunner } from '@scripts/windows-test/host/utmctlClient';
 import type { IUtmVmListEntry } from '@scripts/windows-test/host/utmctlClient';
+import { createPlutilBundleIdentityReader } from '@scripts/windows-test/images/vmBundleLocator';
 
 export interface IWindowsTestDestructiveTarget {
     vmId: string;
@@ -23,6 +25,10 @@ export const windowsTestIdentityRefusals = [
     'vm-id-denied',
     'bundle-path-unresolved',
     'bundle-path-outside-test-image-root',
+    'bundle-identity-unreadable',
+    'bundle-vm-id-mismatch',
+    'bundle-display-name-denied',
+    'registered-vm-mismatch',
     'clone-diff-ambiguous',
 ] as const;
 
@@ -38,9 +44,19 @@ export class WindowsTestIdentityGuardError extends Error {
     }
 }
 
-export interface IWindowsTestIdentityGuardDependencies {resolvePath(target: string): Promise<string>;}
+export interface IWindowsTestIdentityGuardDependencies {
+    resolvePath(target: string): Promise<string>;
+    readVmId(bundlePath: string): Promise<string | null>;
+    readVmName(bundlePath: string): Promise<string | null>;
+}
 
-export const nodeIdentityGuardDependencies: IWindowsTestIdentityGuardDependencies = {resolvePath: target => realpath(target)};
+const nodeBundleIdentityReader = createPlutilBundleIdentityReader(createProcessCommandRunner());
+
+export const nodeIdentityGuardDependencies: IWindowsTestIdentityGuardDependencies = {
+    resolvePath: target => realpath(target),
+    readVmId: bundlePath => nodeBundleIdentityReader.readVmId(bundlePath),
+    readVmName: bundlePath => nodeBundleIdentityReader.readVmName(bundlePath),
+};
 
 export function destructivePolicyFromConfig(config: IWindowsTestHostConfig): IWindowsTestDestructivePolicy {
     return {
@@ -137,6 +153,52 @@ export async function assertDestructiveTarget(
         throw new WindowsTestIdentityGuardError(
             'bundle-path-outside-test-image-root',
             'Refusing a destructive operation: the resolved VM bundle path is outside the configured test image root.',
+        );
+    }
+
+    if (typeof dependencies.readVmId !== 'function' || typeof dependencies.readVmName !== 'function') {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-identity-unreadable',
+            'Refusing a destructive operation: the bundle identity reader is incomplete.',
+        );
+    }
+
+    let bundleVmId: string | null;
+    let bundleName: string | null;
+    try {
+        [
+            bundleVmId,
+            bundleName,
+        ] = await Promise.all([
+            dependencies.readVmId(resolvedTarget),
+            dependencies.readVmName(resolvedTarget),
+        ]);
+    } catch (error) {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-identity-unreadable',
+            `Refusing a destructive operation: the VM bundle identity could not be read (${String(error)}).`,
+        );
+    }
+    if (bundleVmId === null
+        || !isVmUuid(bundleVmId)
+        || bundleName === null
+        || typeof bundleName !== 'string'
+        || bundleName.trim().length === 0) {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-identity-unreadable',
+            'Refusing a destructive operation: the VM bundle configuration has no usable UUID and display name.',
+        );
+    }
+    if (bundleName.trim().toLowerCase() === 'windows') {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-display-name-denied',
+            'Refusing a destructive operation on the personal VM display name "Windows".',
+        );
+    }
+    if (bundleVmId.toLowerCase() !== vmId) {
+        throw new WindowsTestIdentityGuardError(
+            'bundle-vm-id-mismatch',
+            'Refusing a destructive operation: bundle config UUID does not match the requested VM UUID.',
         );
     }
 

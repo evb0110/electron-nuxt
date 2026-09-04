@@ -5,8 +5,9 @@ import type { TWindowsTestSuite } from '@scripts/windows-test/contracts/windowsT
 import {
     loadCapabilityRegistry,
     resolveSuite,
+    type IWindowsCapabilityEnvironment,
+    type IWindowsCapabilityRegistry,
 } from '@scripts/windows-test/registry/capabilityRegistry';
-import type { IWindowsCapabilityRegistry } from '@scripts/windows-test/registry/capabilityRegistry';
 
 export const HUMAN_REVIEW_ORACLE_ID = 'human-review';
 
@@ -16,7 +17,10 @@ export interface IWindowsTestSuiteSelection {
     humanReviewObligations: string[];
 }
 
-export interface IWindowsTestSuiteResolver {resolveSuite(suite: TWindowsTestSuite, environment: string): Promise<IWindowsTestSuiteSelection>;}
+export interface IWindowsTestSuiteResolver {
+    resolveSuite(suite: TWindowsTestSuite, environment: string): Promise<IWindowsTestSuiteSelection>;
+    resolveEnvironment?(environment: string): Promise<IWindowsCapabilityEnvironment | null>;
+}
 
 export interface IFixtureManifestSource {sha256(): Promise<string>;}
 
@@ -42,7 +46,7 @@ export function selectWindowsTestSuite(
 }
 
 export function createCapabilityFileSuiteResolver(registryPath: string): IWindowsTestSuiteResolver {
-    return {resolveSuite: async (suite, environment) => {
+    const load = async () => {
         let registry: IWindowsCapabilityRegistry;
         try {
             registry = await loadCapabilityRegistry(registryPath);
@@ -52,8 +56,18 @@ export function createCapabilityFileSuiteResolver(registryPath: string): IWindow
             }
             throw error;
         }
-        return selectWindowsTestSuite(registry, suite, environment);
-    }};
+        return registry;
+    };
+    return {
+        resolveSuite: async (suite, environment) => {
+            const registry = await load();
+            return selectWindowsTestSuite(registry, suite, environment);
+        },
+        resolveEnvironment: async environment => {
+            const registry = await load();
+            return registry.environments.find(entry => entry.id === environment) ?? null;
+        },
+    };
 }
 
 export function createFileFixtureManifestSource(manifestPath: string): IFixtureManifestSource {

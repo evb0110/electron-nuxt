@@ -59,9 +59,14 @@ export function guestWorkerAliasPlugin(repoRoot: string): Plugin {
     return {
         name: 'evb-guest-worker-aliases',
         setup: (buildContext) => {
-            buildContext.onResolve({ filter: /^@(app|contracts|electron|scripts|tests)(\/|$)/u }, (args) => {
+            buildContext.onResolve({ filter: /^@(app|contracts|electron|scripts|tests)(\/|$)/ }, (args) => {
                 const resolved = resolveGuestWorkerAlias(repoRoot, args.path);
-                return resolved === null ? null : { path: resolved };
+                return resolved === null ? null : {
+                    path: resolved,
+                    // Fixture-generation imports belong to the host. The guest
+                    // uses UI helpers whose unused fixture readers can be pruned.
+                    ...(args.path === '@tests/e2e/electron/helpers/fixtures' ? { sideEffects: false } : {}),
+                };
             });
         },
     };
@@ -89,7 +94,10 @@ export function guestWorkerBuildOptions({
         format: 'cjs',
         sourcemap: 'linked',
         minify,
-        external: [...external],
+        external: [
+            '@napi-rs/canvas',
+            ...external,
+        ],
         legalComments: 'none',
         logLevel: 'warning',
         define: { 'import.meta.url': GUEST_WORKER_IMPORT_META_IDENTIFIER },

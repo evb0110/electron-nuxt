@@ -7,6 +7,7 @@ import {
     type IWindowsTestGuestPlatform,
     type IWindowsTestJob,
     type IWindowsTestResult,
+    type IWindowsTestWorkerHeartbeat,
     type IWindowsTestWorkerIdentity,
     type TWindowsTestArchitecture,
     type TWindowsTestOutcome,
@@ -35,7 +36,10 @@ import {
     describeNonInteractiveSession,
     probeGuestEnvironment,
 } from '@scripts/windows-test/guest/guestIdentity';
-import { validateGuestJob } from '@scripts/windows-test/guest/guestJobValidation';
+import {
+    isGuestTestMarkerRecord,
+    validateGuestJob,
+} from '@scripts/windows-test/guest/guestJobValidation';
 import {
     buildEvidenceManifest,
     createBoundedLog,
@@ -77,14 +81,10 @@ export type TGuestWorkerState =
     | 'collecting'
     | 'complete';
 
-export interface IGuestHeartbeat {
-    pid: number;
-    startTime: string;
-    bootId: string;
-    runId: string;
-    lastState: TGuestWorkerState;
-    updatedAt: string;
-}
+// Keep the on-disk heartbeat identical to the host contract. The coordinator
+// reads this file before it publishes a job, so a guest-only shape here would
+// make every real worker look absent.
+export type IGuestHeartbeat = IWindowsTestWorkerHeartbeat & {lastState: TGuestWorkerState;};
 
 export interface IGuestWorkerAdapterOptions {
     exec: IGuestCommandRunner;
@@ -276,8 +276,73 @@ export async function runGuestWorker({
         log.append(`${clock.nowIso()} ${message}`);
     };
 
-    const markerRunId = await waitForReadyMarker(fs, layout, clock, waitForJobMs, pollIntervalMs);
+    const powerShell = createGuestPowerShellRunner({
+        exec,
+        scriptsDirectory: powerShellScriptsDirectory,
+        separator: layout.separator,
+    });
+    let executablePath: string | null = null;
+    try {
+        executablePath = resolveInstalledExecutablePath(env, layout.separator);
+    } catch (error) {
+        appendLog(`installed executable path could not be resolved before the run: ${describe(error)}`);
+    }
+
+    const markerRecord = await readGuestTestMarker(fs, layout.markerFile);
+    // Publish an idle heartbeat before invoking PowerShell or waiting for a job.
+    // A broken probe must still leave the host a live, fail-closed signal instead
+    // of making it guess whether the worker ever started.
+    const heartbeat = createHeartbeatWriter({
+        fs,
+        clock,
+        layout,
+        worker: sentinelWorkerIdentity(workerPid, startedAt),
+        guestTestMarker: markerRecord?.guestTestMarker ?? 'unknown',
+        locked: true,
+        intervalMs: heartbeatIntervalMs,
+    });
+    await heartbeat.write('idle');
+
+    // Probe the logged-on session while idle. Once it succeeds, replace the
+    // sentinel identity in the heartbeat so the host can certify the desktop.
+    let initialProbe: Awaited<ReturnType<typeof probeGuestEnvironment>> | null = null;
+    try {
+        initialProbe = await probeGuestEnvironment(powerShell, executablePath ?? '');
+        heartbeat.updateIdentity(initialProbe.identity, initialProbe.logonUiPresent);
+        await heartbeat.write('idle');
+    } catch (error) {
+        appendLog(`initial identity probe failed: ${describe(error)}`);
+    }
+
+    let lastIdleProbeAt = clock.now();
+    const refreshIdleHeartbeat = async () => {
+        const now = clock.now();
+        if (heartbeatIntervalMs > 0 && now - lastIdleProbeAt < heartbeatIntervalMs) {
+            return;
+        }
+        lastIdleProbeAt = now;
+        try {
+            const refreshedProbe = await probeGuestEnvironment(powerShell, executablePath ?? '');
+            heartbeat.updateIdentity(refreshedProbe.identity, refreshedProbe.logonUiPresent);
+            await heartbeat.write('idle');
+        } catch (error) {
+            // A failed probe cannot certify the desktop. Clear a previously
+            // usable identity until a later retry succeeds.
+            heartbeat.updateIdentity(sentinelWorkerIdentity(workerPid, startedAt), true);
+            await heartbeat.write('idle').catch(() => undefined);
+            appendLog(`idle identity probe failed: ${describe(error)}`);
+        }
+    };
+    const markerRunId = await waitForReadyMarker(
+        fs,
+        layout,
+        clock,
+        waitForJobMs,
+        pollIntervalMs,
+        refreshIdleHeartbeat,
+    );
     if (markerRunId === null) {
+        heartbeat.stop();
         return {
             result: null,
             resultFile: null,
@@ -286,15 +351,6 @@ export async function runGuestWorker({
     }
 
     const runPaths = guestRunPaths(layout, markerRunId);
-    const heartbeat = createHeartbeatWriter({
-        fs,
-        clock,
-        layout,
-        workerPid,
-        startedAt,
-        runId: markerRunId,
-        intervalMs: heartbeatIntervalMs,
-    });
     await heartbeat.write('validating');
 
     const finish = async (
@@ -370,17 +426,70 @@ export async function runGuestWorker({
         await fs.makeDirectory(directory);
     }
 
-    const powerShell = createGuestPowerShellRunner({
-        exec,
-        scriptsDirectory: powerShellScriptsDirectory,
-        separator: layout.separator,
-    });
-    const executablePath = resolveInstalledExecutablePath(env, layout.separator);
+    if (executablePath === null) {
+        return finish('infrastructure-failed', 'the installed executable path could not be resolved', {job});
+    }
+
+    // Installing the candidate changes guest state, so certify the session
+    // immediately before invoking the installer. A worker launched by the
+    // logon task can briefly observe Session 0, LogonUI, or another desktop;
+    // fail closed instead of installing into a session that cannot run a user
+    // journey.
+    await heartbeat.write('probing');
+    let preInstallProbe;
+    try {
+        preInstallProbe = await probeGuestEnvironment(powerShell, executablePath);
+        heartbeat.updateIdentity(preInstallProbe.identity, preInstallProbe.logonUiPresent);
+        await heartbeat.write('probing');
+    } catch (error) {
+        appendLog(`pre-install identity probe failed: ${describe(error)}`);
+        return finish('infrastructure-failed', `the pre-install identity probe failed: ${describe(error)}`, {job});
+    }
+    const preInstallNonInteractive = describeNonInteractiveSession(preInstallProbe);
+    if (preInstallNonInteractive !== null || preInstallProbe.osArch === null) {
+        const reason = preInstallNonInteractive
+            ?? `the guest reported an unsupported OS architecture for run ${job.runId}`;
+        appendLog(`refusing to install the candidate: ${reason}`);
+        return finish('infrastructure-failed', reason, {
+            job,
+            worker: preInstallProbe.identity,
+        });
+    }
+
+    const installerPath = joinGuestPath(
+        layout.separator,
+        runPaths.stagingDir,
+        job.artifactFileName,
+    );
+    let installResult;
+    try {
+        installResult = await powerShell.run('install-nsis-per-user.ps1', [
+            '-InstallerPath',
+            installerPath,
+            '-ExpectedSha256',
+            job.artifactSha256,
+            '-ExecutablePath',
+            executablePath,
+        ]);
+    } catch (error) {
+        appendLog(`candidate installer could not be started: ${describe(error)}`);
+        return finish('infrastructure-failed', `the candidate installer could not be started: ${describe(error)}`, {job});
+    }
+    if (installResult.exitCode !== 0) {
+        appendLog(`candidate installer failed with exit code ${installResult.exitCode}: ${installResult.stderr.trim()}`);
+        return finish(
+            'infrastructure-failed',
+            `the candidate installer exited with ${installResult.exitCode}: ${installResult.stderr.trim()}`,
+            {job},
+        );
+    }
 
     await heartbeat.write('probing');
     let probe;
     try {
         probe = await probeGuestEnvironment(powerShell, executablePath);
+        heartbeat.updateIdentity(probe.identity, probe.logonUiPresent);
+        await heartbeat.write('probing');
     } catch (error) {
         appendLog(`identity probe failed: ${describe(error)}`);
         return finish('infrastructure-failed', `the identity probe failed: ${describe(error)}`, { job });
@@ -566,12 +675,23 @@ function defaultArchitecture(env: NodeJS.ProcessEnv): TWindowsTestArchitecture {
     return declared === 'arm64' ? 'arm64' : 'x64';
 }
 
+async function readGuestTestMarker(fs: IGuestFileSystem, markerFile: string) {
+    const text = await fs.readText(markerFile).catch(() => '');
+    try {
+        const parsed: unknown = text.length === 0 ? null : JSON.parse(text);
+        return isGuestTestMarkerRecord(parsed) ? parsed : null;
+    } catch {
+        return null;
+    }
+}
+
 async function waitForReadyMarker(
     fs: IGuestFileSystem,
     layout: IGuestLayout,
     clock: IGuestClock,
     waitForJobMs: number,
     pollIntervalMs: number,
+    onPoll?: () => Promise<void>,
 ) {
     const deadline = clock.now() + waitForJobMs;
     for (;;) {
@@ -579,6 +699,10 @@ async function waitForReadyMarker(
         if (marker !== null) {
             return marker;
         }
+        if (clock.now() >= deadline) {
+            return null;
+        }
+        await onPoll?.();
         if (clock.now() >= deadline) {
             return null;
         }
@@ -590,9 +714,9 @@ interface ICreateHeartbeatOptions {
     fs: IGuestFileSystem;
     clock: IGuestClock;
     layout: IGuestLayout;
-    workerPid: number;
-    startedAt: string;
-    runId: string;
+    worker: IWindowsTestWorkerIdentity;
+    guestTestMarker: string;
+    locked: boolean;
     intervalMs: number;
 }
 
@@ -600,13 +724,15 @@ export function createHeartbeatWriter({
     fs,
     clock,
     layout,
-    workerPid,
-    startedAt,
-    runId,
+    worker,
+    guestTestMarker,
+    locked,
     intervalMs,
 }: ICreateHeartbeatOptions) {
     let lastState: TGuestWorkerState = 'idle';
     let bootId = '';
+    let currentWorker = worker;
+    let currentLocked = locked;
     let timer: ReturnType<typeof setInterval> | null = null;
 
     const writeNow = async (state: TGuestWorkerState) => {
@@ -614,12 +740,13 @@ export function createHeartbeatWriter({
             bootId = (await fs.readText(layout.bootIdFile).catch(() => '')).trim();
         }
         const payload: IGuestHeartbeat = {
-            pid: workerPid,
-            startTime: startedAt,
+            schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
             bootId,
-            runId,
-            lastState: state,
+            guestTestMarker,
             updatedAt: clock.nowIso(),
+            locked: currentLocked,
+            worker: currentWorker,
+            lastState: state,
         };
         await fs.writeText(layout.heartbeatFile, `${JSON.stringify(payload, null, 4)}\n`);
     };
@@ -654,6 +781,10 @@ export function createHeartbeatWriter({
 
     return {
         write,
+        updateIdentity: (nextWorker: IWindowsTestWorkerIdentity, nextLocked: boolean) => {
+            currentWorker = nextWorker;
+            currentLocked = nextLocked;
+        },
         stop: () => {
             if (timer !== null) {
                 clearInterval(timer);

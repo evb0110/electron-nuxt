@@ -10,7 +10,8 @@ Repository baseline: `ce8e95c082abc752446e507f13ed7affe28f66b6`.
 
 This ledger turns the plan into bounded packages with closure gates and records
 their state. It is a plan and closure record, not proof that any package has
-run. Every package below is open. The plan stays the design reference; status
+run. Every package below remains unqualified. M0a through M2 have code;
+M3 and M4 remain planned. The plan stays the design reference; status
 changes belong here, and the plan's own status line changes only when M1
 closes.
 
@@ -28,8 +29,8 @@ proposals that reviews already declined so nobody re-proposes them by accident.
   `utmctl` probes that failed with OSStatus -1743 before reaching UTM, one
   `plutil` read of the personal VM configuration, and version reads from the
   installed UTM bundle.
-- The personal VM's UUID and bundle path belong in the host config allowlist
-  under the proposed data root, never in this repository.
+- The personal VM must never enter the test allowlist. Any private denylist
+  belongs only in host configuration, never in this repository or published logs.
 - Implement each package directly on `main` under the repository rules. Ship
   runner code, registry entries, documentation and tests together per package.
   Do not combine independent packages to save commits.
@@ -291,8 +292,9 @@ Evidence: none.
 
 ## Initial critical suite registry
 
-Every row is Planned. Negative controls must reject the named bad output
-before the case can become required.
+Every row below has implementation code but lacks on-image acceptance.
+Negative controls must reject the named bad output before the case can become
+required.
 
 | ID | Family | Driver | Negative control | Package | State |
 | --- | --- | --- | --- | --- | --- |
@@ -391,6 +393,56 @@ Corrections applied to the plan:
 The `utmctl` probes ran from a session without Automation consent and failed
 with OSStatus -1743 on `version` and `list`. That is evidence for the
 launcher-consent gate in M0a, not a UTM fault.
+
+## Takeover audit
+
+The prior green CI proved the unit suite passed. It did not prove that the
+host and guest could execute one Windows run. The takeover found these gaps:
+
+- The worker waited for a job before writing its first heartbeat, while the
+  host waited for that heartbeat before publishing the job.
+- Host and guest default roots and artifact staging paths disagreed. The
+  production host did not supply fixtures to the guest.
+- The guest checked an installed executable without installing the candidate.
+- The documented worker bundle did not build. Its esbuild filter used an
+  unsupported regex flag, and unused host fixture imports pulled in macOS
+  native canvas code.
+- The native adapter used command names that differ from the pinned
+  [WinApp CLI v0.6.0 interface](https://github.com/microsoft/winappCli/blob/v0.6.0/docs/ui-automation.md).
+- UTM's [clone implementation](https://github.com/utmapp/UTM/blob/v4.7.5/Platform/UTMData.swift#L498)
+  writes into its default Documents directory. The coordinator assumed a
+  bundle under the configured test root instead.
+- Destructive-target checks did not compare the bundle UUID with the target
+  UUID, and teardown could stop a VM before checking ownership.
+- PDF outputs stayed in guest input/output directories. The host accepted
+  guest assertions without pulling those PDFs or invoking the independent
+  PDF oracles.
+
+The host preparation command now builds the worker and prepares eleven fixtures under
+`~/Library/Application Support/EVBViewerWindowsTests/`. The numbered 12-page
+fixture passed the compatibility classifier with zero failures, and every
+page of its contact sheet was inspected. Evidence is under
+`caches/fixtures/verification/f01/`. This is fixture verification, not a
+Windows application acceptance run.
+
+The live host now has `config.json` and an unqualified lab image manifest.
+Doctor identifies T3 Code Nightly as the launcher whose UTM Automation request
+fails with OSStatus -1743. The installed hardened-runtime T3 build lacks the
+Apple Events entitlement and usage description, and its Automation settings
+show no UTM entry. ChatGPT's separate UTM permission does not authorize T3.
+The user subsequently selected the existing `Windows` VM as the source of the
+lab environment and confirmed there was no unsaved work. After shutdown, UTM
+created a separate `EVB Windows Lab Golden` copy. Its personal shared directory
+and clipboard sharing were removed, its MAC address was regenerated, and its
+empty optical drive definitions were removed. The complete copied bundle is
+at `images/baselines/EVB-Lab-Golden.utm` under the host data root. The original
+VM is denylisted locally and remains outside the automated reset targets.
+
+The lab manifest does not claim a verified Windows build or qualification.
+No launchers are marked qualified. Guest provisioning, candidate registration,
+native-dialog acceptance, cold resets and repeated-run closure gates remain open.
+The combined Windows suite passed 417 tests with two workers. These checks prove
+the runner code and protocol, not a completed Windows application journey.
 
 ## Closure rule
 

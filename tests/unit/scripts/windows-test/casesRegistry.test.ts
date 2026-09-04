@@ -217,4 +217,25 @@ describe('windows guest case registry', () => {
         } }), stubEnvironment(root));
         expect(result.evidenceFiles).toEqual(['win-save-01/summary.json']);
     });
+
+    it('captures binary artifacts into the manifest-covered evidence tree even when the case fails later', async () => {
+        const source = `${root}/source.pdf`;
+        const bytes = new Uint8Array([
+            0,
+            1,
+            2,
+            255,
+        ]);
+        await fs.writeBytes(source, bytes);
+        const result = await runRegisteredCase(definition({ run: async (context) => {
+            await context.captureArtifact(source, 'artifacts\\WIN-SAVE-01\\source.pdf');
+            context.assert('captured', true, 'the source artifact was copied');
+            throw new Error('the later case step failed');
+        } }), stubEnvironment(root));
+
+        expect(result.outcome).toBe('infrastructure-failed');
+        expect(result.evidenceFiles).toEqual(['artifacts/WIN-SAVE-01/source.pdf']);
+        expect(await fs.readBytes(`${root}/work/${runId}/evidence/artifacts/WIN-SAVE-01/source.pdf`))
+            .toEqual(bytes);
+    });
 });

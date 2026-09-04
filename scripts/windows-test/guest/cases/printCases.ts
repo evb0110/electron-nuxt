@@ -21,6 +21,7 @@ import {
 } from '@scripts/windows-test/guest/cases/printSupport';
 import {
     checkpoint,
+    captureArtifactIfPresent,
     fileSha256,
     numberedFixtureId,
     stageFixtureCopy,
@@ -98,6 +99,7 @@ function assertPrintOutput(
 
 export async function runWinPrint01(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-print-01-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-PRINT-01/source.pdf');
     await context.fs.makeDirectory(context.paths.outputsDir);
     const coldOutput = joinGuestPath(context.separator, context.paths.outputsDir, 'win-print-01-cold.pdf');
     const warmOutput = joinGuestPath(context.separator, context.paths.outputsDir, 'win-print-01-warm.pdf');
@@ -129,12 +131,18 @@ export async function runWinPrint01(context: ICaseContext) {
             warm,
         });
     } finally {
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, coldOutput, 'artifacts/WIN-PRINT-01/cold.pdf');
+            await captureArtifactIfPresent(context, warmOutput, 'artifacts/WIN-PRINT-01/warm.pdf');
+        }
     }
 }
 
 export async function runWinPrint02(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-print-02-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-PRINT-02/source-before.pdf');
     await context.fs.makeDirectory(context.paths.outputsDir);
     const output = joinGuestPath(context.separator, context.paths.outputsDir, 'win-print-02-after-edits.pdf');
     const session = await context.viewer.openInstrumented(source);
@@ -179,7 +187,12 @@ export async function runWinPrint02(context: ICaseContext) {
             printed,
         });
     } finally {
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, source, 'artifacts/WIN-PRINT-02/source-after.pdf');
+            await captureArtifactIfPresent(context, output, 'artifacts/WIN-PRINT-02/printed.pdf');
+        }
     }
 
     await checkpoint(context, 'reopen after printing');
@@ -204,6 +217,7 @@ export async function runWinPrint02(context: ICaseContext) {
 
 export async function runWinPrint07(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-print-07-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-PRINT-07/source.pdf');
     await context.fs.makeDirectory(context.paths.outputsDir);
     const strayOutput = joinGuestPath(context.separator, context.paths.outputsDir, 'win-print-07-stray.pdf');
     const protectedOutput = joinGuestPath(context.separator, context.paths.outputsDir, 'win-print-07-existing.pdf');
@@ -320,7 +334,12 @@ export async function runWinPrint07(context: ICaseContext) {
         // A failure mid-flow can leave the native output dialog open, which
         // would block the next case; dismissing it is best effort.
         await cancelFileDialogIfPresent(context, viewerDefaultTimeouts.uiStepMs).catch(() => false);
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, source, 'artifacts/WIN-PRINT-07/source-after.pdf');
+            await captureArtifactIfPresent(context, protectedOutput, 'artifacts/WIN-PRINT-07/protected.pdf');
+        }
     }
 
     const orphanWindow = await context.nativeUi.findWindow({ processId: ownedPid });

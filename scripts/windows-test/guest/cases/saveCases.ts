@@ -6,7 +6,9 @@ import {
 } from '@scripts/windows-test/guest/cases/printSupport';
 import {
     checkpoint,
+    captureArtifactIfPresent,
     fileSha256,
+    metadataFixtureId,
     numberedFixtureId,
     numberedFixtureMarker,
     originalPageAfterDeletion,
@@ -17,7 +19,10 @@ import {
 } from '@scripts/windows-test/guest/cases/caseSupport';
 import type { ICaseContext } from '@scripts/windows-test/guest/cases/caseContext';
 import type { IGuestCommandResult } from '@scripts/windows-test/guest/guestRuntime';
-import { viewerDefaultTimeouts } from '@scripts/windows-test/guest/viewer/viewerDriver';
+import {
+    viewerDefaultTimeouts,
+    type IViewerSession,
+} from '@scripts/windows-test/guest/viewer/viewerDriver';
 
 const FIRST_DELETED_PAGE = 3;
 
@@ -27,6 +32,7 @@ const SAVE_08_MAX_RECOVERY_ATTEMPTS = 3;
 
 export async function runWinSave01(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-save-01-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-01/source-before.pdf');
     const session = await context.viewer.openInstrumented(source);
     let initialPages = 0;
     try {
@@ -84,7 +90,11 @@ export async function runWinSave01(context: ICaseContext) {
             session.driver.rendererFailures().join(' | ') || 'The renderer logged no errors',
         );
     } finally {
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-01/source-after.pdf');
+        }
     }
 
     await checkpoint(context, 'reopen in a fresh process');
@@ -134,9 +144,10 @@ export async function runWinSave01(context: ICaseContext) {
 }
 
 export async function runWinSave02(context: ICaseContext) {
-    const source = await stageFixtureCopy(context, numberedFixtureId, 'win-save-02-source.pdf');
+    const source = await stageFixtureCopy(context, metadataFixtureId, 'win-save-02-source.pdf');
     const target = joinGuestPath(context.separator, context.paths.outputsDir, 'win-save-02-copy.pdf');
     await context.fs.makeDirectory(context.paths.outputsDir);
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-02/source-before.pdf');
     const session = await context.viewer.openInstrumented(source);
     try {
         const firstAnnotation = await session.driver.createAnnotation('EVB-WIN-SAVE-02-A');
@@ -199,12 +210,18 @@ export async function runWinSave02(context: ICaseContext) {
             targetPages,
         });
     } finally {
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-02/source-after.pdf');
+            await captureArtifactIfPresent(context, target, 'artifacts/WIN-SAVE-02/target.pdf');
+        }
     }
 }
 
 export async function runWinSave04(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-save-04-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-04/source-before.pdf');
     const readyFile = joinGuestPath(context.separator, context.paths.outputsDir, 'win-save-04-handle-ready.txt');
     await context.fs.makeDirectory(context.paths.outputsDir);
     await context.fs.remove(readyFile);
@@ -226,8 +243,9 @@ export async function runWinSave04(context: ICaseContext) {
         stdout: '',
         stderr: error instanceof Error ? error.message : String(error),
     }));
-    const session = await context.viewer.openInstrumented(source);
+    let session: IViewerSession | null = null;
     try {
+        session = await context.viewer.openInstrumented(source);
         const handleReady = await waitForFileToSettle(context, readyFile, viewerDefaultTimeouts.uiStepMs);
         context.requireAssertion(
             'save04.exclusive-handle-held',
@@ -281,18 +299,30 @@ export async function runWinSave04(context: ICaseContext) {
             blockedSaveError: blockedSave.errorCode,
         });
     } finally {
-        await session.close();
-        await holdRun;
+        try {
+            if (session !== null) {
+                await session.close();
+            }
+        } finally {
+            try {
+                await holdRun;
+            } finally {
+                await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-04/source-after.pdf');
+            }
+        }
     }
 }
 
 export async function runWinSave08(context: ICaseContext) {
     const source = await stageFixtureCopy(context, numberedFixtureId, 'win-save-08-source.pdf');
+    await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-08/source-before.pdf');
+    let sidecarPath: string | null = null;
+    let journalPath: string | null = null;
     const session = await context.viewer.openInstrumented(source);
     try {
         const workingCopyPath = await session.driver.workingCopyPath();
-        const sidecarPath = `${workingCopyPath}${revisionSidecarSuffix}`;
-        const journalPath = `${workingCopyPath}${revisionJournalSuffix}`;
+        sidecarPath = `${workingCopyPath}${revisionSidecarSuffix}`;
+        journalPath = `${workingCopyPath}${revisionJournalSuffix}`;
 
         const seedDelete = await session.driver.deletePage(2);
         context.requireAssertion(
@@ -348,7 +378,17 @@ export async function runWinSave08(context: ICaseContext) {
             missingRecovery,
         });
     } finally {
-        await session.close();
+        try {
+            await session.close();
+        } finally {
+            await captureArtifactIfPresent(context, source, 'artifacts/WIN-SAVE-08/source-after.pdf');
+            if (sidecarPath !== null) {
+                await captureArtifactIfPresent(context, sidecarPath, 'artifacts/WIN-SAVE-08/revision-sidecar.json');
+            }
+            if (journalPath !== null) {
+                await captureArtifactIfPresent(context, journalPath, 'artifacts/WIN-SAVE-08/revision-journal.json');
+            }
+        }
     }
 }
 

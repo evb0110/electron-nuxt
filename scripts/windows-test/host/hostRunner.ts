@@ -19,6 +19,7 @@ import {
     windowsTestExitCodes,
 } from '@scripts/windows-test/contracts/windowsTestContracts';
 import type { TWindowsTestSuite } from '@scripts/windows-test/contracts/windowsTestContracts';
+import {loadFixtureManifest} from '@scripts/windows-test/fixtures/fixtureManifest';
 import {
     resolveWindowsTestDataRoot,
     windowsTestHostLayout,
@@ -45,7 +46,10 @@ import {
 import type { IWindowsTestDoctorReport } from '@scripts/windows-test/host/doctor';
 import { createProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
 import { executeWindowsTestRun } from '@scripts/windows-test/host/runCoordinator';
-import type { IWindowsTestRunReport } from '@scripts/windows-test/host/runCoordinator';
+import type {
+    IWindowsTestRunReport,
+    IWindowsTestStagedInput,
+} from '@scripts/windows-test/host/runCoordinator';
 import { requestWindowsTestStop } from '@scripts/windows-test/host/stopRun';
 import type { IWindowsTestStopResult } from '@scripts/windows-test/host/stopRun';
 import {
@@ -53,12 +57,79 @@ import {
     createUtmctlClient,
 } from '@scripts/windows-test/host/utmctlClient';
 import { loadWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
+import { createTestClone } from '@scripts/windows-test/images/createTestClone';
+import { runWindowsHostOracles } from '@scripts/windows-test/oracles/windowsHostOracleDispatcher';
 
 export const WINDOWS_TEST_CAPABILITY_REGISTRY_RELATIVE_PATH = path.join('tests', 'windows', 'capabilities.json');
 
 export const WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME = 'manifest.json';
 
 export const WINDOWS_TEST_CANDIDATE_METADATA_SUFFIX = '.meta.json';
+
+function fixtureFileName(relativePath: string) {
+    const segments = relativePath.split(/[\\/]/u);
+    const fileName = segments.at(-1);
+    if (fileName === undefined || fileName.length === 0 || fileName === '.' || fileName === '..') {
+        throw new Error(`Fixture path ${relativePath} does not name a file.`);
+    }
+    return fileName;
+}
+
+function resolveFixtureCachePath(manifestPath: string, relativePath: string) {
+    const cacheRoot = path.dirname(manifestPath);
+    const normalized = relativePath.split(/[\\/]/u).join(path.sep);
+    const candidate = path.resolve(cacheRoot, normalized);
+    const relative = path.relative(cacheRoot, candidate);
+    if (relative.length === 0 || relative.startsWith('..') || path.isAbsolute(relative)) {
+        throw new Error(`Fixture path ${relativePath} escapes the prepared fixture cache ${cacheRoot}.`);
+    }
+    return candidate;
+}
+
+/**
+ * Reads the prepared manifest and returns every byte that the worker validates.
+ * The guest protocol uses the raw manifest-file hash, so this list deliberately
+ * carries that exact file before the fixture PDFs.
+ */
+export async function resolveWindowsTestFixtureInputs(manifestPath: string): Promise<IWindowsTestStagedInput[]> {
+    const manifest = await loadFixtureManifest(manifestPath);
+    const manifestBytes = await readFile(manifestPath);
+    const inputs: IWindowsTestStagedInput[] = [{
+        hostPath: manifestPath,
+        guestRelativePath: 'fixtures/manifest.json',
+        sha256: createHash('sha256').update(manifestBytes).digest('hex'),
+    }];
+    const guestNames = new Set(['fixtures/manifest.json']);
+    for (const pack of manifest.packs) {
+        for (const file of pack.files) {
+            if (file.sha256 === null) {
+                throw new Error(`Prepared fixture ${file.id} has no sha256; planned fixtures cannot enter a run.`);
+            }
+            const hostPath = resolveFixtureCachePath(manifestPath, file.path);
+            const bytes = await readFile(hostPath).catch((error: unknown) => {
+                throw new Error(`Prepared fixture ${file.id} at ${hostPath} could not be read: ${String(error)}.`);
+            });
+            if (bytes.byteLength !== file.bytes) {
+                throw new Error(`Prepared fixture ${file.id} is ${bytes.byteLength} bytes, expected ${file.bytes}.`);
+            }
+            const actualSha256 = createHash('sha256').update(bytes).digest('hex');
+            if (actualSha256 !== file.sha256) {
+                throw new Error(`Prepared fixture ${file.id} hashes to ${actualSha256}, expected ${file.sha256}.`);
+            }
+            const guestRelativePath = `fixtures/${fixtureFileName(file.path)}`;
+            if (guestNames.has(guestRelativePath)) {
+                throw new Error(`Prepared fixtures contain duplicate staged file name ${guestRelativePath}.`);
+            }
+            guestNames.add(guestRelativePath);
+            inputs.push({
+                hostPath,
+                guestRelativePath,
+                sha256: file.sha256,
+            });
+        }
+    }
+    return inputs;
+}
 
 export function defaultRepositoryRoot() {
     return path.resolve(fileURLToPath(new URL('../../..', import.meta.url)));
@@ -90,11 +161,13 @@ export async function resolveWindowsTestCandidate(
         throw new Error(`The candidate artifact ${artifactPath} could not be read.`);
     }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
-    if (config.candidate !== null && config.candidate.artifactPath === artifactPath) {
-        return {
-            ...config.candidate,
-            sha256,
-        };
+    if (config.candidate !== null && path.resolve(config.candidate.artifactPath) === path.resolve(artifactPath)) {
+        if (config.candidate.sha256 !== sha256) {
+            throw new Error(
+                `The configured candidate ${artifactPath} hashes to ${sha256}, but config.json records ${config.candidate.sha256}; re-register the build before running it.`,
+            );
+        }
+        return config.candidate;
     }
     const metadataPath = `${artifactPath}${WINDOWS_TEST_CANDIDATE_METADATA_SUFFIX}`;
     const metadataText = await readFile(metadataPath, 'utf8').catch(() => null);
@@ -168,6 +241,14 @@ export async function executeWindowsTestRunOnHost(
     if (imageManifest === null) {
         return infrastructureReport(`The golden image manifest ${manifestPath} is missing or malformed; qualify the image before running the lane.`);
     }
+    let stagedInputs: IWindowsTestStagedInput[];
+    try {
+        stagedInputs = await resolveWindowsTestFixtureInputs(
+            path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
+        );
+    } catch (error) {
+        return infrastructureReport(error instanceof Error ? error.message : String(error));
+    }
 
     options.onIdentity?.({
         runnerVersion: WINDOWS_TEST_RUNNER_VERSION,
@@ -211,6 +292,20 @@ export async function executeWindowsTestRunOnHost(
                 path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
             ),
             imageManifest,
+            stagedInputs,
+            evaluateHostOracles: input => runWindowsHostOracles({
+                ...input,
+                repositoryRoot,
+            }),
+            cloneVm: async cloneName => {
+                await createTestClone({
+                    config,
+                    manifest: imageManifest,
+                    cloneName,
+                    runner,
+                    utmctl,
+                });
+            },
             lock: {
                 hostId: hostname(),
                 pid: process.pid,

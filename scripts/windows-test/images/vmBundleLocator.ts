@@ -10,11 +10,14 @@ export function utmBundlePathForName(testImageRoot: string, vmName: string) {
     return path.join(testImageRoot, `${vmName}${UTM_BUNDLE_EXTENSION}`);
 }
 
-export interface IVmBundleIdentityReader {readVmId(bundlePath: string): Promise<string | null>;}
+export interface IVmBundleIdentityReader {
+    readVmId(bundlePath: string): Promise<string | null>;
+    readVmName(bundlePath: string): Promise<string | null>;
+}
 
-// `utmctl` never prints a bundle path, so the coordinator reads the UUID out of
-// the bundle it located by name and cross-checks it against the UUID observed
-// in the registration diff before any destructive call.
+// `utmctl` never prints a bundle path, so the host reads the UUID and display
+// name out of the bundle it located by name and cross-checks both before any
+// destructive call.
 export function createPlutilBundleIdentityReader(
     runner: ICommandRunner,
     options: {
@@ -24,10 +27,10 @@ export function createPlutilBundleIdentityReader(
 ): IVmBundleIdentityReader {
     const plutilPath = options.plutilPath ?? '/usr/bin/plutil';
     const timeoutMs = options.timeoutMs ?? 10_000;
-    return {readVmId: async (bundlePath) => {
+    const readRawValue = async (bundlePath: string, keyPath: string) => {
         const result = await runner.run(plutilPath, [
             '-extract',
-            'Information.UUID',
+            keyPath,
             'raw',
             '-o',
             '-',
@@ -36,7 +39,15 @@ export function createPlutilBundleIdentityReader(
         if (result.exitCode !== 0) {
             return null;
         }
-        const uuid = result.stdout.trim().toLowerCase();
-        return isVmUuid(uuid) ? uuid : null;
-    }};
+        const value = result.stdout.trim();
+        return value.length > 0 ? value : null;
+    };
+
+    return {
+        readVmId: async (bundlePath) => {
+            const uuid = (await readRawValue(bundlePath, 'Information.UUID'))?.toLowerCase() ?? null;
+            return uuid !== null && isVmUuid(uuid) ? uuid : null;
+        },
+        readVmName: bundlePath => readRawValue(bundlePath, 'Information.Name'),
+    };
 }

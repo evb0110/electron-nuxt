@@ -12,6 +12,8 @@ import {
 } from 'vitest';
 import { isWindowsTestCaseResult } from '@scripts/windows-test/contracts/windowsTestContracts';
 import { formatPageMarker } from '@scripts/windows-test/fixtures/fixtureDocumentBuilders';
+import { generateFontsFixture } from '@scripts/windows-test/fixtures/generateFontsFixture';
+import { generateMetadataFixture } from '@scripts/windows-test/fixtures/generateMetadataFixture';
 import {
     guestLayoutForRoot,
     guestRunPaths,
@@ -53,6 +55,8 @@ import {
     windowsTestCaseDefinitions,
 } from '@scripts/windows-test/guest/cases/caseRegistry';
 import {
+    fontsFixtureId,
+    metadataFixtureId,
     numberedFixtureId,
     numberedFixturePackId,
     revisionSidecarSuffix,
@@ -199,6 +203,8 @@ async function createFakeWorld({
     const installDirectory = joinGuestPath('/', root, 'app');
     const fixtureDirectory = joinGuestPath('/', paths.stagingDir, 'fixtures');
     const fixtureFile = joinGuestPath('/', fixtureDirectory, `${numberedFixtureId}.pdf`);
+    const metadataFixtureFile = joinGuestPath('/', fixtureDirectory, `${metadataFixtureId}.pdf`);
+    const fontsFixtureFile = joinGuestPath('/', fixtureDirectory, `${fontsFixtureId}.pdf`);
     const documentMarkers = new Map<string, number[]>();
     const windows: IFakeWindow[] = [];
     const sessions = new Map<number, IFakeSession>();
@@ -220,6 +226,8 @@ async function createFakeWorld({
         fixtureFile,
         Array.from({ length: fixturePageCount }, (unused, index) => index + 1),
     );
+    await fs.writeBytes(metadataFixtureFile, await generateMetadataFixture());
+    await fs.writeBytes(fontsFixtureFile, await generateFontsFixture());
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'bin', 'pdftool.exe'), 'MZ fake image');
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'helper.exe'), 'MZ fake image');
     await fs.writeText(joinGuestPath('/', installDirectory, 'resources', 'notes.txt'), 'not an executable');
@@ -753,6 +761,34 @@ describe('windows guest cases under a fake guest world', () => {
         expect(result.outcome).toBe('infrastructure-failed');
         expect(result.failureReason).toContain('did not appear');
         expect(result.assertions.every(assertion => assertion.passed)).toBe(true);
+    });
+
+    it('waits for the Save 04 handle helper when viewer startup rejects', async () => {
+        const world = await createFakeWorld({root: await mkdtemp(path.join(tmpdir(), 'evb-guest-save04-startup-'))});
+        let holdSettled = false;
+        world.environment.powerShell = {
+            ...world.environment.powerShell,
+            run: () => new Promise<IGuestCommandResult>(resolve => {
+                setTimeout(() => {
+                    holdSettled = true;
+                    resolve({
+                        exitCode: 0,
+                        stdout: 'released',
+                        stderr: '',
+                    });
+                }, 10);
+            }),
+        };
+        world.environment.viewer = {
+            ...world.environment.viewer,
+            openInstrumented: () => Promise.reject(new Error('viewer startup failed')),
+        };
+
+        const result = await runRegisteredCase(requireCaseDefinition('WIN-SAVE-04'), world.environment);
+
+        expect(result.outcome).toBe('infrastructure-failed');
+        expect(result.failureReason).toContain('viewer startup failed');
+        expect(holdSettled).toBe(true);
     });
 
     it('reports canceled when the run is canceled between case steps', async () => {

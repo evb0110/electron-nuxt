@@ -254,6 +254,16 @@ describe('windows test result negative controls', () => {
         }]})))).toContain('evidence-file-hash-mismatch');
     });
 
+    it('rejects a case evidence claim that the manifest does not cover', () => {
+        const guestResult = result();
+        guestResult.cases[0]!.evidenceFiles.push('artifacts/WIN-SAVE-01/source.pdf');
+        const validation = validateWindowsTestResultBundle(input({resultText: JSON.stringify(guestResult)}));
+
+        expect(validation.ok).toBe(false);
+        expect(reasons(validation)).toContain('case-evidence-missing');
+        expect(outcomeForRejections(validation.rejections)).toBe('infrastructure-failed');
+    });
+
     it('reports an absent heartbeat on its own', () => {
         expect(evaluateWorkerHeartbeat(job, null, null, 60_000).map(rejection => rejection.reason))
             .toEqual(['heartbeat-missing']);

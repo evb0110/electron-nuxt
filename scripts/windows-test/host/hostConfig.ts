@@ -195,17 +195,17 @@ export function parseWindowsTestHostConfig(value: unknown, configFile: string): 
     }
     const testImageRoot = requireAbsolutePath(value, configFile, 'testImageRoot');
     const allowedTestVmIds = requireVmUuidArray(value, configFile, 'allowedTestVmIds');
-    if (allowedTestVmIds.length === 0) {
-        fail(configFile, 'allowedTestVmIds', 'must list at least one allowlisted test VM UUID');
-    }
     const goldenVmId = requireNonEmptyString(value, configFile, 'goldenVmId');
     if (!isVmUuid(goldenVmId)) {
         fail(configFile, 'goldenVmId', 'must be a VM UUID');
     }
+    if (allowedTestVmIds.includes(goldenVmId.toLowerCase())) {
+        fail(configFile, 'allowedTestVmIds', 'must not include the golden image');
+    }
     const personalVmIdsDenied = requireOptionalVmUuidArray(value, configFile, 'personalVmIdsDenied');
     const qualifiedLaunchers = value.qualifiedLaunchers;
-    if (!isStringArray(qualifiedLaunchers) || qualifiedLaunchers.length === 0) {
-        fail(configFile, 'qualifiedLaunchers', 'must list at least one qualified launcher path');
+    if (!isStringArray(qualifiedLaunchers)) {
+        fail(configFile, 'qualifiedLaunchers', 'must be an array of qualified launcher paths; leave it empty until consent is verified');
     }
     const deniedGolden = personalVmIdsDenied.includes(goldenVmId.toLowerCase());
     if (deniedGolden) {
@@ -213,7 +213,7 @@ export function parseWindowsTestHostConfig(value: unknown, configFile: string): 
     }
     const deniedAllowlisted = allowedTestVmIds.filter(vmId => personalVmIdsDenied.includes(vmId));
     if (deniedAllowlisted.length > 0) {
-        fail(configFile, 'allowedTestVmIds', `must not list denied personal VM UUIDs: ${deniedAllowlisted.join(', ')}`);
+        fail(configFile, 'allowedTestVmIds', 'must not list denied personal VM UUIDs');
     }
 
     return {
@@ -233,7 +233,7 @@ export function parseWindowsTestHostConfig(value: unknown, configFile: string): 
 export function describeMissingWindowsTestConfig(configFile: string) {
     return [
         `Windows test host config not found at ${configFile}.`,
-        'Create it during setup, or pass an explicit candidate with --artifact <absolute path>.',
+        'Follow docs/windows-tests/setup-and-repair.md to configure a separate lab image. --artifact supplies an installer only and cannot replace host setup.',
     ].join(' ');
 }
 

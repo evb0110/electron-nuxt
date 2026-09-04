@@ -253,6 +253,10 @@ function createFakeGuest(script: IGuestScript) {
             calls.push('ping');
             return Promise.resolve(true);
         },
+        ensureDirectory: (_vmId, guestPath) => {
+            calls.push(`mkdir ${guestPath}`);
+            return Promise.resolve();
+        },
         readHeartbeat: () => Promise.resolve(script.heartbeat),
         stageFile: (_vmId, hostPath, guestPath) => {
             calls.push(`stage ${path.basename(hostPath)} -> ${guestPath}`);
@@ -347,6 +351,8 @@ interface IHarnessOptions {
     selection?: Partial<IWindowsTestSuiteSelection>;
     maxFailedClones?: number;
     tests?: string[] | null;
+    environment?: string;
+    evaluateHostOracles?: IWindowsTestRunDependencies['evaluateHostOracles'];
 }
 
 async function createHarness(options: IHarnessOptions = {}) {
@@ -356,6 +362,9 @@ async function createHarness(options: IHarnessOptions = {}) {
     const artifactPath = path.join(root, 'caches', 'artifacts', 'EVBViewer-Setup.exe');
     await mkdir(path.dirname(artifactPath), {recursive: true});
     await writeFile(artifactPath, ARTIFACT_BYTES, 'utf8');
+    const fixtureManifestPath = path.join(layout.fixturesCacheDir, 'manifest.json');
+    await mkdir(path.dirname(fixtureManifestPath), {recursive: true});
+    await writeFile(fixtureManifestPath, 'prepared-fixture-manifest', 'utf8');
 
     const config: IWindowsTestHostConfig = {
         schemaVersion: 1,
@@ -372,7 +381,7 @@ async function createHarness(options: IHarnessOptions = {}) {
             sourceSha: 'b'.repeat(40),
             appArch: 'arm64',
         },
-        environment: 'win11-arm64',
+        environment: 'utm-win11-arm64-app-arm64',
         qualifiedLaunchers: ['installed-exe'],
         retention: {
             passDays: 3,
@@ -406,6 +415,11 @@ async function createHarness(options: IHarnessOptions = {}) {
         suiteResolver: {resolveSuite: () => Promise.resolve(selection)},
         fixtureManifest: {sha256: () => Promise.resolve('d'.repeat(64))},
         imageManifest,
+        stagedInputs: [{
+            hostPath: fixtureManifestPath,
+            guestRelativePath: 'fixtures/manifest.json',
+            sha256: 'd'.repeat(64),
+        }],
         lock: {
             hostId: 'test-host',
             pid: OWNER_PID,
@@ -416,7 +430,12 @@ async function createHarness(options: IHarnessOptions = {}) {
         probe,
         hostId: 'test-host',
         randomRunSuffix: () => RUN_SUFFIX,
-        identityGuard: {resolvePath: target => Promise.resolve(target)},
+        ...(options.evaluateHostOracles === undefined ? {} : {evaluateHostOracles: options.evaluateHostOracles}),
+        identityGuard: {
+            resolvePath: target => Promise.resolve(target),
+            readVmId: () => Promise.resolve(CLONE_VM_ID),
+            readVmName: () => Promise.resolve(`evb-win-test-${RUN_ID}`),
+        },
         deadlines: {
             bootToGuestReadyMs: 1_000,
             guestReadyToDesktopReadyMs: 1_000,
@@ -439,7 +458,7 @@ async function createHarness(options: IHarnessOptions = {}) {
         script,
         run: () => executeWindowsTestRun({
             suite: 'smoke',
-            environment: 'win11-arm64',
+            environment: options.environment ?? 'utm-win11-arm64-app-arm64',
             tests: options.tests ?? null,
         }, dependencies),
     };
@@ -466,6 +485,38 @@ describe('windows test run coordinator', () => {
         expect(harness.utmctl.calls).toContain(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`);
         expect(harness.utmctl.calls).toContain(`delete ${CLONE_VM_ID}`);
         expect(harness.guest.calls).toContain(`job ${RUN_ID} WIN-SAVE-01`);
+        expect(harness.guest.calls).toContain(`stage manifest.json -> ${guestPaths.stagingDir}\\fixtures\\manifest.json`);
+    });
+
+    it('combines a host oracle product failure after guest evidence validates', async () => {
+        type TOracleInput = Parameters<NonNullable<IWindowsTestRunDependencies['evaluateHostOracles']>>[0];
+        const oracleInputs: TOracleInput[] = [];
+        const harness = await createHarness({evaluateHostOracles: async input => {
+            oracleInputs.push(input);
+            return {
+                outcome: 'product-failed',
+                humanReviewRequired: false,
+                errors: ['the independent PDF oracle found a blank output'],
+            };
+        }});
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('product-failed');
+        expect(report.exitCode).toBe(2);
+        expect(oracleInputs).toHaveLength(1);
+        const oracleInput = oracleInputs[0];
+        expect(oracleInput?.runId).toBe(RUN_ID);
+        expect(oracleInput?.environmentId).toBe('utm-win11-arm64-app-arm64');
+        expect(oracleInput?.result.outcome).toBe('passed');
+        expect(oracleInput?.evidenceDirectory).toBe(
+            windowsTestRunLayout(harness.layout.runsDir, RUN_ID).evidenceDir,
+        );
+        expect(report.summary?.failures).toContainEqual({
+            outcome: 'product-failed',
+            phase: 'collecting',
+            reason: 'the independent PDF oracle found a blank output',
+        });
     });
 
     it('records a forward-only transition ledger and an immutable summary on disk', async () => {
@@ -587,6 +638,22 @@ describe('windows test run coordinator', () => {
         expect(report.summary?.passedTests).toEqual([]);
     });
 
+    it('normalizes clone UUID casing before retention accounting', async () => {
+        const uppercaseCloneId = CLONE_VM_ID.toUpperCase();
+        const utmctl = createFakeUtmctl({cloneVmId: uppercaseCloneId});
+        const harness = await createHarness({
+            utmctl,
+            maxFailedClones: 1,
+            script: {resultText: JSON.stringify({error: 'the worker could not launch the installer'})},
+        });
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.retainedClone).toBe(true);
+        expect(harness.utmctl.calls.filter(call => call.startsWith('delete '))).toEqual([]);
+    });
+
     it('deletes a failed clone once the retention budget is already full', async () => {
         const utmctl = createFakeUtmctl({extraClones: [
             '44444444-5555-4666-8777-888888888888',
@@ -645,6 +712,17 @@ describe('windows test run coordinator', () => {
 
         expect(report.exitCode).toBe(3);
         expect(report.summary?.failures[0]?.reason).toContain('must be stopped');
+        expect(harness.utmctl.calls).not.toContain(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`);
+    });
+
+    it('refuses an environment whose app architecture does not match the candidate', async () => {
+        const harness = await createHarness({environment: 'utm-win11-arm64-app-x64'});
+
+        const report = await harness.run();
+
+        expect(report.exitCode).toBe(4);
+        expect(report.outcome).toBe('unsupported');
+        expect(report.summary?.failures[0]?.reason).toContain('expects an x64 app');
         expect(harness.utmctl.calls).not.toContain(`clone ${GOLDEN_VM_ID} evb-win-test-${RUN_ID}`);
     });
 
