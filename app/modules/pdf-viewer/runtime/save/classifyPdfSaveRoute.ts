@@ -598,7 +598,7 @@ function hasNonShapeAnnotationWork(plan: ISerializationPlan) {
 function buildNativePlacedImageGeometryUpdates(
     plan: ISerializationPlan,
 ): IPdfNativePlacedImageGeometryUpdate[] {
-    return plan.expected
+    return plan.entities
         .filter((entity): entity is IPlacedImageEntity => (
             entity.kind === 'placed-image' && !entity.deleted && isActuallyChangedEntity(entity)
         ))
