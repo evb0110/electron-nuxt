@@ -855,8 +855,9 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             if (!file) {
                 return false;
             }
+            const targetPage = pageNumber ?? viewer.getCurrentPage?.() ?? deps.currentPage.value;
             return await viewer.startImagePlacement(file, {
-                ...(pageNumber !== undefined ? { pageNumber } : {}),
+                pageNumber: targetPage,
                 ...(pageX !== undefined ? { pageX } : {}),
                 ...(pageY !== undefined ? { pageY } : {}),
                 ...(existingImage ?? {}),

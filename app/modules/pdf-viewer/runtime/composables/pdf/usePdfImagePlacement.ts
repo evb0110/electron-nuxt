@@ -16,6 +16,7 @@ import {
     PDF_IMAGE_PLACEMENT_RESOURCE_LIMITS,
     probeBrowserImageFile,
 } from '@app/platform/browser-api/public';
+import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 
 interface IUsePdfImagePlacementOptions {
     viewerContainer: Ref<HTMLElement | null>;
@@ -288,7 +289,15 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
             nativeSourceHandleOwner = null;
             isPendingImagePlacementFinalizing.value = false;
             return true;
-        } catch {
+        } catch (error) {
+            logPdfRenderTrace('pdf-image-placement-start-failed', {
+                error: error instanceof Error ? error.message : String(error),
+                fileName: file.name,
+                fileType: file.type,
+                hasNativeSourceHandle: Boolean(nativeSourceHandle),
+                pageNumber: target.pageNumber,
+                requestId,
+            });
             return false;
         } finally {
             if (imagePlacementAbortController === abortController) {

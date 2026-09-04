@@ -101,6 +101,25 @@ describe('createDeferredWorkspaceExposeProxy', () => {
         expect(deps.withLoadedWorkspace).not.toHaveBeenCalled();
     });
 
+    it('forwards targeted navigation options through a mounted deferred workspace', () => {
+        const handleGoToPage = vi.fn();
+        const workspace = createWorkspace({handleGoToPage});
+        const proxy = createDeferredWorkspaceExposeProxy(createDeps(workspace));
+        const options = {
+            navigationSource: 'annotation' as const,
+            markerRect: {
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.4,
+            },
+        };
+
+        proxy.handleGoToPage(25, options);
+
+        expect(handleGoToPage).toHaveBeenCalledWith(25, options);
+    });
+
     it('forwards mount-wait methods and returns their result', async () => {
         const workspace = createWorkspace({handleSave: vi.fn(async () => true)});
         const deps = createDeps(workspace);

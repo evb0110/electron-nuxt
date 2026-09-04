@@ -72,7 +72,7 @@ const exactFixtureExpectation = resolveExactPdfFixtureExpectation();
 const largePdfDescribe = selectFixtureDescribe(describe, fixture);
 const execFileAsync = promisify(execFile);
 const PLACED_IMAGE_JPEG = Buffer.from(
-    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/2wBDAQMDAwQDBAgEBAgQCwkLEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBD/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAf/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8Al7UCSAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAP//Z',
+    '/9j/4AAQSkZJRgABAQAAAAAAAAD/2wBDAAMCAgMCAgMDAwMEAwMEBQgFBQQEBQoHBwYIDAoMDAsKCwsNDhIQDQ4RDgsLEBYQERMUFRUVDA8XGBYUGBIUFRT/2wBDAQMEBAUEBQkFBQkUDQsNFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBT/wAARCAAoAEADAREAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAX/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFgEBAQEAAAAAAAAAAAAAAAAAAAcI/8QAFBEBAAAAAAAAAAAAAAAAAAAAAP/aAAwDAQACEQMRAD8AntWpOAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA/9k=',
     'base64',
 );
 
@@ -980,12 +980,21 @@ async function pasteImageFromVisibleMenu(page: Page, pageNumber: number) {
         const rect = pageContainer?.getBoundingClientRect();
         return Boolean(rect && rect.width > 0 && rect.height > 0);
     }, {timeout: 5_000}, pageNumber);
+    await page.evaluate(() => {
+        (window as Window & {__pdfRenderTrace?: boolean}).__pdfRenderTrace = true;
+    });
     const command = await callWorkspaceCommand(page, 'handlePasteImageFromClipboard');
     if (!command.called) {
         throw new Error('Electron paste-image menu command was not available');
     }
     if (command.value !== true) {
-        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify(command)}`);
+        const trace = await page.evaluate(() => (
+            (window as Window & {__getPdfRenderTrace?: () => unknown[]}).__getPdfRenderTrace?.().slice(-20) ?? []
+        ));
+        throw new Error(`Electron paste-image command did not start placement: ${JSON.stringify({
+            command,
+            trace,
+        })}`);
     }
     await page.waitForSelector(ACTIVE_IMAGE_PLACEMENT_SELECTOR, {
         timeout: 30_000,
