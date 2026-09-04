@@ -1,0 +1,19 @@
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_b412fd4cd3f576::t_cc5d1e143294f7 164
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5a7b09d1bec6c4982166798aaf5d860bf42ee4db",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
