@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';

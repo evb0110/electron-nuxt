@@ -2,10 +2,14 @@ import type {
     IShapeAnnotation,
     TAnnotationStableKey,
 } from '@app/types/annotations';
-import { normalizeManagedShapeStableKey } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/normalizeManagedShapeStableKey';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 
 type TShapeIdentityInput = Pick<IShapeAnnotation, 'annotationId' | 'id' | 'pageIndex' | 'stableKey'>;
+
+function normalizeManagedShapeStableKey(stableKey: string | null | undefined) {
+    const trimmed = stableKey?.trim();
+    return trimmed && trimmed.startsWith('evb-shape:') ? trimmed : null;
+}
 
 export function getNormalizedShapeAnnotationId(shape: Pick<IShapeAnnotation, 'annotationId'>) {
     return normalizePdfJsAnnotationId(shape.annotationId);

@@ -1,6 +1,6 @@
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {parsePdfAnnotationRef} from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import type { IPdfNoteGeometryUpdate } from '@contracts/electronApiDocuments';
 import {requirePageIndex} from '@contracts/pageNumbers';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';

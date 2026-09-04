@@ -2,8 +2,8 @@ import type {
     PDFArray,
     PDFDocument,
 } from 'pdf-lib';
-import { lookupAnnotationRefDict } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-iteration/lookupAnnotationRefDict';
-import type { IPdfAnnotationRefDict } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-iteration/pdfAnnotationRefDict';
+import { lookupAnnotationRefDict } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/lookupAnnotationRefDict';
+import type { IPdfAnnotationRefDict } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/pdfAnnotationRefDict';
 
 export function iterateAnnotationRefDicts(
     doc: PDFDocument,

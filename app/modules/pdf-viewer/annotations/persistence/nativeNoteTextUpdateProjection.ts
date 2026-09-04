@@ -3,7 +3,7 @@ import {
     normalizePdfJsAnnotationId,
     parsePdfAnnotationRef,
 } from '@app/utils/pdfAnnotationRefs';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 import { normalizeAnnotationSubtypeToken } from '@app/utils/textNormalization';
 import type {
     IPdfNativeFreeTextNote,

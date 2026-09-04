@@ -527,6 +527,21 @@ function checkPdfViewerEngineLayer(edge) {
         return null;
     }
 
+    // These two compatibility readers are the ticket's retained pdf-lib
+    // exceptions. Their small pure helpers stay with the annotation owner.
+    const retainedPdfLibConsumers = new Set([
+        `${PDF_VIEWER_ENGINE_ROOT}/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts`,
+        `${PDF_VIEWER_ENGINE_ROOT}/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts`,
+    ]);
+    const retainedHelperRoots = [
+        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-page-iteration`,
+        `${PDF_VIEWER_MODULE_ROOT}/annotations/pdf-refs`,
+    ];
+    if (retainedPdfLibConsumers.has(edge.source)
+        && retainedHelperRoots.some(root => matchesRoot(edge.target, root))) {
+        return null;
+    }
+
     return createViolation({
         rule: 'pdf-viewer-engine-layer-back-edge',
         source: edge.source,

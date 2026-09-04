@@ -24,8 +24,8 @@ import {
     tryResolvePdfLibPageView,
 } from '@pdf-core';
 import { parsePdfAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { getPdfPopupDict } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/getPdfPopupDict';
-import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/annotations/pdf-refs/parsePdfAnnotationStableKey';
+import { getPdfPopupDict } from '@app/modules/pdf-viewer/annotations/pdf-refs/getPdfPopupDict';
+import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/annotations/pdf-refs/parsePdfAnnotationStableKey';
 
 function toPdfLibRef(ref: ReturnType<typeof parsePdfAnnotationRef>) {
     return ref ? PDFRef.of(ref.objectNumber, ref.generationNumber) : null;
