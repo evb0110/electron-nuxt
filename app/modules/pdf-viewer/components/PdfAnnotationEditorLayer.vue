@@ -26,7 +26,6 @@
                 :key="entity.identity.id"
                 :entity="entity"
                 :selected="isSelected(entity.identity.id)"
-                :class="{'is-selected': isSelected(entity.identity.id)}"
             />
             <PdfShapeAnnotation
                 v-for="entity in svgEntities.shapes"
