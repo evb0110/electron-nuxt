@@ -1,0 +1,38 @@
+docs/operations/sentry-account-controls.md
+  s_b412fd4cd3f576::t_51d548d8487780 128-131
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_6cf0430a22108e 180-187
+  s_b412fd4cd3f576::t_e4f445dbce8a87 157-164,171-178
+  s_b412fd4cd3f576::t_ad5d2c5a395c52 165,188-192,199,213-217
+  s_bc2aa2f16622bc::t_1ba2dfe3ab4c62 179,218
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_3df932ccbd07ae 1382-1385,1512-1513,1851,1853-1854,1862-1865
+  s_b412fd4cd3f576::t_9a09dc779a7132 13-16,152-156,1494,1563
+  s_b412fd4cd3f576::t_6cf0430a22108e 157-159
+  s_b412fd4cd3f576::t_51d548d8487780 12,172-176,564,573-579,584-585
+  s_bc2aa2f16622bc::t_de28e969e4a39f 1866
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "0563887d119604200bd83f7adaddb56fd7fb5abc",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bc2aa2f16622bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e50-172a-7fa0-84f6-7eff6b90222a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
