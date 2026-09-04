@@ -872,15 +872,33 @@ async function expectCleanAnnotationHydration(page: Page) {
             } | null;
         };}>(page, ['dirtyState']);
         const dirty = state.dirtyState;
-        return Boolean(dirty)
-            && dirty?.annotationDirty === false
-            && dirty.fileDirty === false
-            && dirty.hasAnnotationChanges === false
-            && dirty.hasLivePdfJsAnnotationChanges === false
-            && dirty.hasPendingUnsavedChanges === false
-            && dirty.hasSavedPdfJsAnnotationBaselineChanges === false
-            && dirty.pdfJsAnnotationStorage === null;
-    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toBe(true);
+        return {
+            annotationDirty: dirty?.annotationDirty ?? null,
+            fileDirty: dirty?.fileDirty ?? null,
+            hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
+            hasLivePdfJsAnnotationChanges: dirty?.hasLivePdfJsAnnotationChanges ?? null,
+            hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
+            hasSavedPdfJsAnnotationBaselineChanges: dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
+            pdfJsAnnotationStorage: dirty?.pdfJsAnnotationStorage ?? null,
+        };
+    }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toSatisfy((state) => (
+        state.annotationDirty === false
+        && state.fileDirty === false
+        && state.hasAnnotationChanges === false
+        && state.hasLivePdfJsAnnotationChanges === false
+        && state.hasPendingUnsavedChanges === false
+        && state.hasSavedPdfJsAnnotationBaselineChanges === false
+        && (
+            state.pdfJsAnnotationStorage === null
+            || (
+                state.pdfJsAnnotationStorage.fingerprint === 'empty'
+                && state.pdfJsAnnotationStorage.hasChanges === false
+                && state.pdfJsAnnotationStorage.ids.length === 0
+                && state.pdfJsAnnotationStorage.modifiedIds.length === 0
+                && state.pdfJsAnnotationStorage.serializableEntryKeys.length === 0
+            )
+        )
+    ));
 }
 
 async function readVisibleStickyNoteSession(page: Page, expectedText: string) {
