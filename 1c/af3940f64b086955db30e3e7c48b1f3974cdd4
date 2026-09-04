@@ -1,0 +1,27 @@
+tests/unit/app/utils/failureReporter.test.ts
+  s_b412fd4cd3f576::t_c89b88adc33c77 182
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_c89b88adc33c77 306
+tests/unit/electron/runLosslessScanCleanup.test.ts
+  s_b412fd4cd3f576::t_c89b88adc33c77 241
+package.json
+  s_b412fd4cd3f576::t_c89b88adc33c77 143
+pnpm-lock.yaml
+  s_b412fd4cd3f576::t_c09163f97cbb31 110-112
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "1caf3940f64b086955db30e3e7c48b1f3974cdd4",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

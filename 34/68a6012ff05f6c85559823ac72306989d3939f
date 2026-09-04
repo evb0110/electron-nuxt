@@ -1,0 +1,43 @@
+docs/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_b412fd4cd3f576::t_9a78e3d00d6612 185,195
+scripts/stress/README.md
+  s_b412fd4cd3f576::t_e5b3a83e56f36a 26-30
+scripts/stress/replayStress.ts
+  s_b412fd4cd3f576::t_8c3f68e4801bd1 5,7,25-26,76-78
+scripts/stress/runStress.ts
+  s_b412fd4cd3f576::t_802a5e5332e931 23,25,412-414,592-594
+scripts/stress/stressCliOptions.ts
+  s_b412fd4cd3f576::t_d61deeee05e996 1-2,58,60-67,71-72,74-99,121,143-144,187,210,215-216,228
+tests/unit/architecture/sentryMainLoggerMigration.test.ts
+  s_b412fd4cd3f576::t_73dffb25815fbf 154
+tests/unit/architecture/sentryPresentationPolicy.test.ts
+  s_b412fd4cd3f576::t_e69524d8e05f71 21-27,29-30,75-99,136-146,148,164
+tests/unit/scripts/stress/applyStressHostProfile.test.ts
+  s_b412fd4cd3f576::t_2f60afed2dd6d1 1-107
+tests/unit/scripts/stress/replayStress.test.ts
+  s_b412fd4cd3f576::t_0fed375e5ceb69 1-178
+tests/unit/scripts/stress/runStress.test.ts
+  s_b412fd4cd3f576::t_1d9968b1f2f52e 1-382
+tests/unit/scripts/stress/runStressOperatorScenario.test.ts
+  s_b412fd4cd3f576::t_33ee082f245a0c 1-328
+tests/unit/scripts/stress/stressCliOptions.test.ts
+  s_b412fd4cd3f576::t_00120ee5188bf9 1-2,4,8,11,14,126-175
+tests/unit/scripts/stress/stressSessionLifecycle.test.ts
+  s_b412fd4cd3f576::t_b222756fbe82a2 1-162
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "3468a6012ff05f6c85559823ac72306989d3939f",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+scripts/stress/stressCliOptions.ts
+  s_b412fd4cd3f576::t_da18a270a74c99 56-69
+  s_b412fd4cd3f576::t_3c1414cb3b5b75 70-71,76-89,109,208
+  s_b412fd4cd3f576::t_ea877d388b8cb3 72-75,110,112-114,209,211-213
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "db9d79962e9e4fca1033d3c8b6bea3e8b31e037e",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

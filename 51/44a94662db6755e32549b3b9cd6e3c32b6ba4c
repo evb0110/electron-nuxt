@@ -1,0 +1,21 @@
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b412fd4cd3f576::t_e022cd8e0756e9 666-667,680-683
+scripts/ci/scan-cleanup-oracles.sh
+  s_b412fd4cd3f576::t_e022cd8e0756e9 19-33,36,40
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "5144a94662db6755e32549b3b9cd6e3c32b6ba4c",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

@@ -1,0 +1,48 @@
+docs/research/stress-test-automation-implementation-ledger-2026-09-04.md
+  s_fb59294db79c60::t_19ff6e215f208c 185,195
+scripts/stress/README.md
+  s_fb59294db79c60::t_19ff6e215f208c 26-30
+scripts/stress/runStress.ts
+  s_fb59294db79c60::t_2fd2c627699f32 23,25,412,414,592,594
+  s_fb59294db79c60::t_ece7d6df14dca7 413,593
+tests/unit/scripts/stress/runStress.test.ts
+  s_fb59294db79c60::t_6c2a9ffad46d3d 1-17,19-29,31-76,83,86-238,241-247,249-260,262-265,267-278,280-282,284-289,291-296,298-327,329-343,345-358,360-367,369-382
+  s_fb59294db79c60::t_ece7d6df14dca7 18,239-240,248,261,266,279,283,290,297,328,344,359,368
+  s_fb59294db79c60::t_bb70bbb6962e01 30,77-82,84-85
+tests/unit/scripts/stress/stressCliOptions.test.ts
+  s_fb59294db79c60::t_e62dcd08f72eb4 1-2,4,8,11,14,126-175
+tests/unit/scripts/stress/runStressOperatorScenario.test.ts
+  s_fb59294db79c60::t_c47f2840542cb9 1-9,15-44,51,54-55,57-71,73-74,76,78-80,82-85,87-96,98-104,106-113,115-214,217-258,260-328
+  s_fb59294db79c60::t_bb70bbb6962e01 10-14,45-50,52-53,75,77,81,86,215-216,259
+  s_fb59294db79c60::t_ece7d6df14dca7 56,72,97,105,114
+scripts/stress/stressCliOptions.ts
+  s_fb59294db79c60::t_b1dbb24c483922 1-2,58-101,121,143-144,187,210,215-216,228
+tests/unit/scripts/stress/stressSessionLifecycle.test.ts
+  s_fb59294db79c60::t_e62dcd08f72eb4 1-162
+tests/unit/scripts/stress/replayStress.test.ts
+  s_fb59294db79c60::t_ece7d6df14dca7 16,115-116,122,126,136,171
+  s_fb59294db79c60::t_bb70bbb6962e01 20-23,41-46,48-49
+  s_fb59294db79c60::t_91d1117c167d5f 1-15,17-19,24-40,47,50-114,117-121,123-125,127-135,137-170,172-178
+tests/unit/scripts/stress/applyStressHostProfile.test.ts
+  s_fb59294db79c60::t_e62dcd08f72eb4 1-22,24-25,27-107
+  s_fb59294db79c60::t_ece7d6df14dca7 23,26
+scripts/stress/replayStress.ts
+  s_fb59294db79c60::t_2fd2c627699f32 5,7,26,76,78
+  s_fb59294db79c60::t_ece7d6df14dca7 25,77
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "73512aec8e8cc99a1ebf7fb4c4511e199cf55af8",
+  "prompts": {},
+  "sessions": {
+    "s_fb59294db79c60": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "2fd7ec2a-6b64-47ad-ac68-f16b72409645",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}

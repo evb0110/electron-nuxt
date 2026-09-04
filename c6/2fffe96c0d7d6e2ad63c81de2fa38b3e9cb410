@@ -1,0 +1,40 @@
+tests/unit/scripts/uploadSentrySourcemaps.test.ts
+  s_b412fd4cd3f576::t_46cd27f7f57413 197
+  s_b412fd4cd3f576::t_c8595dce746048 32-37,69,158-183,185,188-189,192-193,195-196,198-211,213
+  s_b412fd4cd3f576::t_47d73fec44d73a 146,184,186-187,190-191,194,212
+  s_b412fd4cd3f576::t_6b4fcc2d30cd5e 214
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_1244771b3213d2 3,11-15,107,129,133-140,156-157,1260,1463,1490-1496,1664,1685-1687
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_1244771b3213d2 38,181,187-194
+  s_b412fd4cd3f576::t_dbf4f2820b9f32 195
+scripts/release/send-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_47d73fec44d73a 22,136-143,145,179-181,195
+  s_b412fd4cd3f576::t_859ceb12832247 147,171,190
+tests/unit/scripts/sendSentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_bb982deab0e92a 156-189,192-201,203-209,211-213
+  s_b412fd4cd3f576::t_46cd27f7f57413 110
+  s_b412fd4cd3f576::t_748ac4b1f49044 190-191,202
+  s_b412fd4cd3f576::t_5979de7a7029e6 210
+  s_b412fd4cd3f576::t_47d73fec44d73a 96
+  s_b412fd4cd3f576::t_a6807b5fcef6bd 98-101
+scripts/release/upload-sentry-sourcemaps.mjs
+  s_b412fd4cd3f576::t_c8595dce746048 5,12,117-123,142,152,158,220-223,303,343,345,352
+  s_b412fd4cd3f576::t_47d73fec44d73a 29,124-140,310-332,347-350
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c62fffe96c0d7d6e2ad63c81de2fa38b3e9cb410",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Deploy Test <deploy-test@example.test>"
+    }
+  }
+}
