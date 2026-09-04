@@ -105,6 +105,9 @@ describe('usePdfViewerMouseInteractions', () => {
 
     it('does not start viewer drag from a canonical annotation layer target', () => {
         class ElementStub {
+            addEventListener() {}
+            dispatchEvent() { return true; }
+            removeEventListener() {}
             closest(selector: string) {
                 return selector.includes('.pdf-annotation-editor-layer') ? {} : null;
             }

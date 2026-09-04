@@ -40,7 +40,7 @@ const entity: ITextMarkupEntity = {
     createdAt: null,
     modifiedAt: null,
     author: null,
-    subtype: 'highlight',
+    subtype: 'Highlight',
     contents: '',
     quadPoints: [{
         left: 0.2,
