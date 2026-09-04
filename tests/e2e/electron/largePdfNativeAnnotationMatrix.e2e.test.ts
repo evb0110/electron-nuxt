@@ -349,6 +349,27 @@ async function readCanonicalEntities(page: Page, pageNumber: number) {
     ), pageNumber) as Promise<ICanonicalEntitySnapshot[]>;
 }
 
+async function readTopmostCanonicalTextMarkupId(page: Page, pageNumber: number) {
+    return page.evaluate((targetPageNumber: number) => {
+        const pageContainer = document.querySelector<HTMLElement>(
+            `.editor-pane.is-active .page_container[data-page="${targetPageNumber}"]`,
+        );
+        const entity = pageContainer?.querySelector<HTMLElement>(
+            '[data-annotation-id][data-annotation-kind="text-markup"]',
+        );
+        if (!entity) {
+            return null;
+        }
+        const rect = entity.getBoundingClientRect();
+        return document.elementsFromPoint(
+            rect.left + rect.width / 2,
+            rect.top + rect.height / 2,
+        ).map(candidate => candidate.closest<HTMLElement>('[data-annotation-id]'))
+            .find(candidate => candidate?.closest<HTMLElement>('.page_container') === pageContainer)
+            ?.dataset.annotationId ?? null;
+    }, pageNumber);
+}
+
 async function waitForNewCanonicalEntity(
     page: Page,
     pageNumber: number,
@@ -1315,7 +1336,13 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             'text-markup',
             'shape',
         ] as const) {
-            const entity = reopenedEntities.find(candidate => candidate.kind === kind);
+            let entity: ICanonicalEntitySnapshot | undefined;
+            if (kind === 'text-markup') {
+                const topmostId = await readTopmostCanonicalTextMarkupId(session.page, MATRIX_PAGE_NUMBER);
+                entity = reopenedEntities.find(candidate => candidate.id === topmostId);
+            } else {
+                entity = reopenedEntities.find(candidate => candidate.kind === kind);
+            }
             if (!entity) {
                 throw new Error(`Reopened canonical ${kind} is missing`);
             }
