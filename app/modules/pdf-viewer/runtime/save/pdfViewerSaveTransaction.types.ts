@@ -159,13 +159,6 @@ export interface INativePdfMutationProjection {
     phase: string;
 }
 
-export interface IPdfViewerSaveTransactionSerializationOptions {
-    annotationSerializationPlan?: ISerializationPlan;
-    forceRewrite?: boolean;
-    includeShapes?: boolean;
-    rewriteShapeState?: boolean;
-}
-
 export interface IPdfViewerSaveTransactionSource {
     getSourcePdfData: () => Promise<Uint8Array | null>;
     /** Compatibility index for snapshot-only callers while they migrate to source reads. */

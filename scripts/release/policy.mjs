@@ -46,7 +46,6 @@ export const NATIVE_PDF_SAVE_DEPENDENCY_PATHS = Object.freeze([
     'app/modules/pdf-viewer/engine/**',
     'app/modules/pdf-viewer/public.ts',
     'app/modules/pdf-viewer/runtime/save/**',
-    'app/modules/pdf-viewer/serialization/**',
     'app/modules/workspace-shell/automation/automationReadinessEvents.ts',
     'app/modules/workspace-shell/composables/document-session/**',
     'app/modules/workspace-shell/composables/document-session/createDocumentPersistResults.ts',

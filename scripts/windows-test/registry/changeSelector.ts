@@ -95,7 +95,7 @@ export const windowsTestChangeAreas: readonly IWindowsTestChangeArea[] = [
             'electron/file-access/**',
             'packages/pdf-core/**',
             'native/pdf-page-ops/**',
-            'app/modules/pdf-viewer/serialization/**',
+            'app/modules/pdf-viewer/runtime/save/**',
         ],
     },
     {
