@@ -108,7 +108,7 @@ import PdfShapeAnnotation from '@app/modules/pdf-viewer/components/PdfShapeAnnot
 import PdfStampAnnotation from '@app/modules/pdf-viewer/components/PdfStampAnnotation.vue';
 import PdfTextBoxAnnotation from '@app/modules/pdf-viewer/components/PdfTextBoxAnnotation.vue';
 import PdfTextMarkupAnnotation from '@app/modules/pdf-viewer/components/PdfTextMarkupAnnotation.vue';
-import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationEditorEventTarget';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationIdFromEditorEvent';
 import {
     annotationRectsEqual,
     annotationRectContainsPoint,
@@ -505,8 +505,6 @@ function handleSurfacePointerDown(event: PointerEvent) {
     focusLayer();
     const id = entityIdFromEvent(event);
     if (id) {
-    }
-    if (id) {
         const wasSelected = surface.selectedIds.value.has(id);
         if (!wasSelected || event.shiftKey) {
             surface.select([id], {additive: event.shiftKey});
@@ -696,8 +694,6 @@ function handleSurfaceClick(event: MouseEvent) {
         return;
     }
     const id = entityIdFromEvent(event) ?? textBoxIdAtPoint(event);
-    if (id) {
-    }
     if (!id) {
         surface.clearSelection();
         return;

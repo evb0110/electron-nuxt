@@ -36,7 +36,12 @@ const entity: ITextMarkupEntity = {
     author: null,
     subtype: 'highlight',
     contents: '',
-    quadPoints: [{left: 0.2, top: 0.2, width: 0.3, height: 0.05}],
+    quadPoints: [{
+        left: 0.2,
+        top: 0.2,
+        width: 0.3,
+        height: 0.05,
+    }],
     color: '#facc15',
     opacity: 0.5,
 };
@@ -44,7 +49,7 @@ const entity: ITextMarkupEntity = {
 function createSurface() {
     const selectedIds = ref<ReadonlySet<ITextMarkupEntity['identity']['id']>>(new Set());
     const activeTool = computed(() => 'select' as const);
-    const select = vi.fn((ids: readonly ITextMarkupEntity['identity']['id'][]) => {
+    const select = vi.fn((ids: ReadonlyArray<ITextMarkupEntity['identity']['id']>) => {
         selectedIds.value = new Set(ids);
     });
     const gesture = {
@@ -53,9 +58,12 @@ function createSurface() {
         kind: 'move' as const,
     };
     const commitGesture = vi.fn(() => entity);
-    const surface = {
+    const surface: IAnnotationEditorSurface = {
         activeTool,
-        entitiesByPage: ref(new Map([[25, [entity]]])),
+        entitiesByPage: ref(new Map([[
+            25,
+            [entity],
+        ]])),
         selectedIds,
         settings: computed(() => null),
         getEntitiesForPage: (pageIndex: number) => pageIndex === 25 ? [entity] : [],
@@ -71,7 +79,15 @@ function createSurface() {
         nudgeSelectionByPdfPoints: vi.fn(),
         undo: vi.fn(() => true),
         redo: vi.fn(() => true),
-        getPageGeometry: vi.fn(() => ({pageView: [0, 0, 100, 100], rotation: 0 as const})),
+        getPageGeometry: vi.fn(() => ({
+            pageView: [
+                0,
+                0,
+                100,
+                100,
+            ],
+            rotation: 0 as const,
+        })),
         beginMove: vi.fn(() => gesture),
         beginResize: vi.fn(() => null),
         commitGesture,
@@ -83,8 +99,13 @@ function createSurface() {
         createShape: vi.fn(),
         openNote: vi.fn(),
         openShapeContextMenu: vi.fn(),
-    } as unknown as IAnnotationEditorSurface;
-    return {surface, selectedIds, select, commitGesture};
+    };
+    return {
+        surface,
+        selectedIds,
+        select,
+        commitGesture,
+    };
 }
 
 describe('PdfAnnotationEditorLayer SVG events', () => {
@@ -96,12 +117,10 @@ describe('PdfAnnotationEditorLayer SVG events', () => {
         const harness = createSurface();
         const host = document.createElement('div');
         document.body.append(host);
-        const app = createApp({
-            setup() {
-                provide(annotationEditorSurfaceKey, harness.surface);
-                return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
-            },
-        });
+        const app = createApp({setup() {
+            provide(annotationEditorSurfaceKey, harness.surface);
+            return () => h(PdfAnnotationEditorLayer, {pageIndex: 25});
+        }});
         app.mount(host);
         await nextTick();
 

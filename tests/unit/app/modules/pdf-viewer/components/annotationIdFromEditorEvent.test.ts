@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
-import {afterEach, describe, expect, it} from 'vitest';
-import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationEditorEventTarget';
+import {
+    afterEach,
+    describe,
+    expect,
+    it,
+} from 'vitest';
+import {annotationIdFromEditorEvent} from '@app/modules/pdf-viewer/components/annotationIdFromEditorEvent';
 
 const SVG_NAMESPACE = 'http://www.w3.org/2000/svg';
 
@@ -34,7 +39,10 @@ describe('annotation editor SVG event ownership', () => {
             received.push('viewer-mouseup');
         });
 
-        rect.dispatchEvent(new PointerEvent('pointerdown', {bubbles: true, button: 0}));
+        rect.dispatchEvent(new PointerEvent('pointerdown', {
+            bubbles: true,
+            button: 0,
+        }));
         rect.dispatchEvent(new MouseEvent('click', {bubbles: true}));
         rect.dispatchEvent(new MouseEvent('mouseup', {bubbles: true}));
 
