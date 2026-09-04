@@ -1055,6 +1055,7 @@ function buildClassifiedNativeMutationProjection(
             ...(markup ? {markup} : {}),
             ...(placedImageGeometryUpdates.length > 0 ? {placedImageGeometryUpdates} : {}),
         },
+        placedImageGeometryUpdates,
         noteTextUpdates,
         noteGeometryUpdates,
         freeTextNotes,
