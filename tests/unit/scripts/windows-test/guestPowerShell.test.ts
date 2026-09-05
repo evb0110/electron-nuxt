@@ -177,6 +177,90 @@ describe('guest PowerShell script files', () => {
         expect(source).toContain('no credentials');
     });
 
+    it('registers a hidden PowerShell startup action with the worker paths and account', () => {
+        const source = sources.get('register-worker-logon-task.ps1') ?? '';
+        expect(source).toContain('\'start-worker-logon.ps1\'');
+        expect(source).toContain('\'disable-test-audio.ps1\'');
+        expect(source).toContain('\'configure-test-printer.ps1\'');
+        expect(source).toContain('WindowsPowerShell\\v1.0\\powershell.exe');
+        expect(source).toContain('\'-WindowStyle\'');
+        expect(source).toContain('\'-ExpectedUserName\'');
+        expect(source).toContain('$disableArguments');
+        expect(source).toContain('$audioPolicyProcess.ExitCode');
+        expect(source).toContain('-Execute $powerShellExecutable');
+        expect(source).not.toContain('-Execute $NodeExecutable');
+    });
+
+    it('guards startup with the exact lab marker and interactive standard-user checks', () => {
+        const source = sources.get('start-worker-logon.ps1') ?? '';
+        const helper = sources.get('test-lab-helpers.ps1') ?? '';
+        expect(source).toContain('ChildPath \'test-lab-helpers.ps1\'');
+        expect(source).toContain('Get-LabMarker -StateDirectory $stateDirectory');
+        expect(helper).toContain('ChildPath \'test-marker.json\'');
+        expect(helper).toContain('exactly imageId and guestTestMarker');
+        expect(source).toContain('$stateDirectory = Join-Path -Path $GuestRoot -ChildPath \'state\'');
+        expect(source).toContain('$ExpectedUserName');
+        expect(source).toContain('[Environment]::UserInteractive');
+        expect(source).toContain('$process.SessionId -eq 0');
+        expect(source).toContain('[EvbInputDesktop]::Name()');
+        expect(source).toContain('WindowsBuiltInRole]::Administrator');
+        expect(source).toContain('audio-mute.json');
+        expect(source).toContain('printer-policy.json');
+    });
+
+    it('provisions a permanent disabled and stopped Audiosrv policy from an admin context', () => {
+        const source = sources.get('disable-test-audio.ps1') ?? '';
+        const helper = sources.get('test-lab-helpers.ps1') ?? '';
+        expect(source).toContain('$serviceName = \'Audiosrv\'');
+        expect(source).toContain('ChildPath \'test-lab-helpers.ps1\'');
+        expect(source).toContain('Get-LabMarker -StateDirectory $stateDirectory');
+        expect(source).toContain('Set-Service -Name $serviceName -StartupType Disabled');
+        expect(source).toContain('Stop-Service -Name $serviceName -Force');
+        expect(source).toContain('Get-CimInstance -ClassName Win32_Service');
+        expect(source).toContain('serviceStartMode');
+        expect(source).toContain('serviceState');
+        expect(source).toContain('audio-service-policy.json');
+        expect(source).toContain('WindowsBuiltInRole]::Administrator');
+        expect(helper).toContain('exactly imageId and guestTestMarker');
+        expect(source).not.toContain('SetMute');
+        expect(source).not.toContain('IMMDeviceEnumerator');
+    });
+
+    it('fails closed unless Audiosrv remains disabled and stopped at logon', () => {
+        const source = sources.get('mute-test-audio.ps1') ?? '';
+        expect(source).toContain('Get-CimInstance -ClassName Win32_Service -Filter "Name = \'Audiosrv\'"');
+        expect(source).toContain('$serviceStartMode -ceq \'Disabled\'');
+        expect(source).toContain('$serviceState -ceq \'Stopped\'');
+        expect(source).toContain('audio-mute.json');
+        expect(source).toContain('standard');
+        expect(source).not.toContain('EvbCoreAudio');
+        expect(source).not.toContain('IAudioEndpointVolume');
+        expect(source).not.toContain('SetMute');
+    });
+
+    it('configures and verifies A4 printer output before the worker starts', () => {
+        const source = sources.get('configure-test-printer.ps1') ?? '';
+        expect(source).toContain('Microsoft Print to PDF');
+        expect(source).toContain('Set-PrintConfiguration');
+        expect(source).toContain('-PaperSize A4');
+        expect(source).toContain('printer-policy.json');
+        expect(source).toContain('printer-policy-ok');
+        expect(source).toContain('WindowsBuiltInRole]::Administrator');
+    });
+
+    it('supervises both helper and worker processes without showing consoles', () => {
+        const source = sources.get('start-worker-logon.ps1') ?? '';
+        expect(source).toContain('audio-mute.stdout.log');
+        expect(source).toContain('audio-mute.stderr.log');
+        expect(source).toContain('printer-policy.stdout.log');
+        expect(source).toContain('printer-policy.stderr.log');
+        expect(source).toContain('worker.stdout.log');
+        expect(source).toContain('worker.stderr.log');
+        expect(source).toContain('-WindowStyle Hidden');
+        expect(source).toContain('-PassThru -Wait');
+        expect(source).toContain('exit $workerExitCode');
+    });
+
     it('reports a missing interactive desktop in words the adapters recognize', () => {
         for (const fileName of [
             'uia-query.ps1',

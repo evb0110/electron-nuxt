@@ -19,11 +19,18 @@ import { runWindowsFixtureGeneration } from '@scripts/windows-test/fixtures/gene
 import { bundleGuestWorker } from '@scripts/windows-test/guest/bundleGuestWorker';
 import { withHostLock } from '@scripts/windows-test/host/hostLock';
 import type { IHostLockDependencies } from '@scripts/windows-test/host/hostLock';
+import {prepareStandaloneUtmctl} from '@scripts/windows-test/host/standaloneUtmctl';
+import type {
+    IStandaloneUtmctlPreparationOptions,
+    TStandaloneUtmctlSignatureVerifier,
+} from '@scripts/windows-test/host/standaloneUtmctl';
 
 export async function prepareWindowsTestHost(options: {
     layout: IWindowsTestHostLayout;
     repositoryRoot: string;
     lock: IHostLockDependencies;
+    standaloneUtmctlSourcePath?: string;
+    verifyStandaloneUtmctlSignature?: TStandaloneUtmctlSignatureVerifier;
 }) {
     const {
         layout,
@@ -48,6 +55,16 @@ export async function prepareWindowsTestHost(options: {
         ]) {
             await mkdir(directory, { recursive: true });
         }
+        const standaloneUtmctlOptions: IStandaloneUtmctlPreparationOptions = {
+            layout,
+            ...(options.standaloneUtmctlSourcePath === undefined
+                ? {}
+                : {sourcePath: options.standaloneUtmctlSourcePath}),
+            ...(options.verifyStandaloneUtmctlSignature === undefined
+                ? {}
+                : {verifyCodeSignature: options.verifyStandaloneUtmctlSignature}),
+        };
+        const standaloneUtmctl = await prepareStandaloneUtmctl(standaloneUtmctlOptions);
         const generated = await runWindowsFixtureGeneration({
             outputDirectory: layout.fixturesCacheDir,
             relativeTo: layout.fixturesCacheDir,
@@ -126,6 +143,7 @@ export async function prepareWindowsTestHost(options: {
             workerFile,
             fixtureManifestFile,
             fixtureCount: declaredFiles.length,
+            standaloneUtmctl,
             configPresent: await readFile(layout.configFile).then(() => true, () => false),
         };
     });

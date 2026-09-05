@@ -18,6 +18,7 @@ import {
 import {
     escapeSendKeysText,
     nativeDialogRecordIds,
+    modernNativeDialogRecordIds,
 } from '@scripts/windows-test/guest/cases/nativeDialogs';
 
 const records = loadSelectorRecords();
@@ -47,11 +48,22 @@ describe('native UI selector records', () => {
         expect(new Set(ids).size).toBe(ids.length);
     });
 
-    it('marks every selector unverified until a real image confirms it', () => {
-        expect(unverifiedSelectorIds(records)).toEqual(records.records.map(record => record.id));
+    it('records only the modern print mappings proven on the named image', () => {
+        expect(records.records.filter(record => record.verified).map(record => record.id)).toEqual([
+            modernNativeDialogRecordIds.printDialog,
+            modernNativeDialogRecordIds.printerList,
+            modernNativeDialogRecordIds.printButton,
+        ]);
         for (const record of records.records) {
-            expect(record.verifiedOnImage, record.id).toBeNull();
+            if (record.verified) {
+                expect(record.verifiedOnImage, record.id).toBe('evb-win11-arm64-lab-20260905');
+            } else {
+                expect(record.verifiedOnImage, record.id).toBeNull();
+            }
         }
+        expect(unverifiedSelectorIds(records)).toEqual(records.records
+            .filter(record => !record.verified)
+            .map(record => record.id));
     });
 
     it('carries localized fallbacks on the dialog buttons a Russian or German guest renames', () => {
@@ -65,6 +77,30 @@ describe('native UI selector records', () => {
         for (const recordId of Object.values(nativeDialogRecordIds)) {
             expect(() => findSelectorRecord(records, recordId), recordId).not.toThrow();
         }
+        for (const recordId of Object.values(modernNativeDialogRecordIds)) {
+            expect(() => findSelectorRecord(records, recordId), recordId).not.toThrow();
+        }
+    });
+
+    it('matches the captured modern print tree without weakening legacy selectors', () => {
+        expect(requireWindowQuery(records, modernNativeDialogRecordIds.printDialog)).toEqual({
+            className: 'ApplicationFrameWindow',
+            titleContains: 'EVB Viewer - Print',
+        });
+        expect(requireControlSelector(records, modernNativeDialogRecordIds.printerList)).toEqual({
+            automationId: 'printerSelector',
+            controlType: 'ComboBox',
+            name: { exact: 'Printer' },
+        });
+        expect(requireControlSelector(records, modernNativeDialogRecordIds.printButton)).toEqual({
+            automationId: 'PrintButton',
+            controlType: 'Button',
+            name: { exact: 'Print' },
+        });
+        expect(requireWindowQuery(records, nativeDialogRecordIds.printDialog)).toEqual({
+            className: '#32770',
+            titleContains: 'Print',
+        });
     });
 
     it('refuses an unknown id and a payload of the wrong kind', () => {

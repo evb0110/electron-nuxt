@@ -8,6 +8,8 @@ import {
     isPdfjsRuntimeUnavailable,
     loadPdfjsDocument,
 } from '@scripts/windows-test/oracles/pdfjsNodeRuntime';
+import {evaluateOcrPageMarkers} from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
+import type { TOcrProcessRunner } from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
 
 export const PAGE_MARKER_ORACLE_ID = 'page-markers';
 
@@ -18,6 +20,10 @@ export interface IPageMarkerExpectation {
     expectedMarkers: readonly string[];
     /** Additional markers that must not appear anywhere in the document. */
     forbiddenMarkers?: readonly string[];
+    /** OCR is reserved for rasterized print artifacts. Text extraction remains the default. */
+    mode?: 'text' | 'ocr';
+    tesseractPath?: string;
+    processRunner?: TOcrProcessRunner;
 }
 
 export interface IPageTextObservation {
@@ -58,6 +64,9 @@ export async function evaluatePageMarkers(
     bytes: Uint8Array,
     expectation: IPageMarkerExpectation,
 ): Promise<IOracleResult> {
+    if (expectation.mode === 'ocr') {
+        return evaluateOcrPageMarkers(bytes, expectation);
+    }
     let observations: IPageTextObservation[];
     try {
         observations = await extractPageTexts(bytes, expectation.repositoryRoot);

@@ -1,4 +1,5 @@
 import type { Page } from 'puppeteer-core';
+import { delay } from 'es-toolkit/promise';
 import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
@@ -28,6 +29,7 @@ import {
 } from '@scripts/windows-test/guest/viewer/viewerDriver';
 
 const SAVE_POLL_INTERVAL_MS = 250;
+const PRINT_POLL_INTERVAL_MS = 50;
 
 function describeError(error: unknown) {
     if (error instanceof Error) {
@@ -138,6 +140,74 @@ async function waitUntilSaveSettled(page: Page, timeoutMs: number) {
     }
 }
 
+type TRendererPrintSubmitState = 'clicked' | 'disabled' | 'not-found' | 'ambiguous';
+
+async function inspectAndClickRendererPrintSubmit(page: Page): Promise<TRendererPrintSubmitState> {
+    return evaluateInPage(page, () => {
+        const isVisible = (element: HTMLElement) => {
+            const rect = element.getBoundingClientRect();
+            const style = globalThis.getComputedStyle(element);
+            return rect.width > 8
+                && rect.height > 8
+                && style.display !== 'none'
+                && style.visibility !== 'hidden'
+                && (style.opacity.length === 0 || Number(style.opacity) > 0);
+        };
+
+        const candidates = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]'))
+            .filter(isVisible)
+            .flatMap(dialog => Array.from(dialog.querySelectorAll<HTMLButtonElement>('button')))
+            .filter(button => (
+                isVisible(button)
+                && Boolean(
+                    button.querySelector('[class~="i-ph:printer"]')
+                    ?? button.querySelector('.i-ph-printer')
+                    ?? button.querySelector('.iconify.i-ph-printer'),
+                )
+            ));
+
+        if (candidates.length > 1) {
+            return 'ambiguous';
+        }
+        const target = candidates[0];
+        if (!target) {
+            return 'not-found';
+        }
+        if (target.disabled || target.getAttribute('aria-disabled') === 'true') {
+            return 'disabled';
+        }
+
+        target.click();
+        return 'clicked';
+    });
+}
+
+export async function clickRendererPrintSubmit(
+    page: Page,
+    timeoutMs: number = viewerDefaultTimeouts.uiStepMs,
+) {
+    const deadline = Date.now() + timeoutMs;
+    let lastState: TRendererPrintSubmitState = 'not-found';
+    for (;;) {
+        lastState = await inspectAndClickRendererPrintSubmit(page);
+        if (lastState === 'clicked') {
+            return;
+        }
+        if (lastState === 'ambiguous') {
+            throw new Error('The renderer print dialog has multiple visible submit buttons');
+        }
+        if (Date.now() >= deadline) {
+            break;
+        }
+        await delay(Math.min(PRINT_POLL_INTERVAL_MS, Math.max(1, deadline - Date.now())));
+    }
+
+    if (lastState === 'disabled') {
+        throw new Error('The renderer print dialog submit button stayed disabled');
+    }
+    throw new Error('Timed out waiting for the renderer print dialog submit button');
+}
+
 export function createPuppeteerViewerDriver(page: Page): IViewerDriver {
     const rendererFailures: string[] = [];
     page.on('pageerror', (error: unknown) => {
@@ -185,7 +255,10 @@ export function createPuppeteerViewerDriver(page: Page): IViewerDriver {
             }
         },
         requestSaveAsCommand: () => runWorkspaceCommand(page, 'handleSaveAs'),
-        printDocumentCommand: () => runWorkspaceCommand(page, 'handlePrint'),
+        printDocumentCommand: async () => {
+            await runWorkspaceCommand(page, 'handlePrint');
+            await clickRendererPrintSubmit(page);
+        },
         isPreparingPrint: async () => {
             const snapshot = await getWorkspaceToolbarSnapshot(page);
             return snapshot?.isPreparingPrint === true;

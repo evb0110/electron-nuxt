@@ -17,6 +17,7 @@ import {
     WINDOWS_TEST_RUNNER_VERSION,
     windowsTestArchitectures,
     windowsTestExitCodes,
+    isWindowsTestRunId,
 } from '@scripts/windows-test/contracts/windowsTestContracts';
 import type { TWindowsTestSuite } from '@scripts/windows-test/contracts/windowsTestContracts';
 import {loadFixtureManifest} from '@scripts/windows-test/fixtures/fixtureManifest';
@@ -29,6 +30,8 @@ import {
     createFileFixtureManifestSource,
 } from '@scripts/windows-test/host/capabilityRegistry';
 import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import { buildWindowsTestInputMedia } from '@scripts/windows-test/host/inputMedia';
+import type { IWindowsTestInputMedia } from '@scripts/windows-test/host/inputMedia';
 import { createSystemClock } from '@scripts/windows-test/host/hostClock';
 import {
     WindowsTestConfigError,
@@ -41,11 +44,22 @@ import type {
 } from '@scripts/windows-test/host/hostConfig';
 import {
     createLaunchctlSessionProbe,
+    isUtmScreenshotPreferenceRequired,
+    parseUtmctlVersion,
+    readUtmScreenshotPreference,
     runWindowsTestDoctor,
 } from '@scripts/windows-test/host/doctor';
-import type { IWindowsTestDoctorReport } from '@scripts/windows-test/host/doctor';
+import type {
+    IWindowsTestDoctorCheck,
+    IWindowsTestDoctorReport,
+} from '@scripts/windows-test/host/doctor';
 import { createProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
-import { executeWindowsTestRun } from '@scripts/windows-test/host/runCoordinator';
+import {createUtmAppleEventRunner} from '@scripts/windows-test/host/utmProcessGuard';
+import type { IUtmAppleEventRunner } from '@scripts/windows-test/host/utmProcessGuard';
+import {
+    executeWindowsTestRun,
+    WINDOWS_TEST_CLONE_NAME_PREFIX,
+} from '@scripts/windows-test/host/runCoordinator';
 import type {
     IWindowsTestRunReport,
     IWindowsTestStagedInput,
@@ -56,9 +70,20 @@ import {
     createProcessCommandRunner,
     createUtmctlClient,
 } from '@scripts/windows-test/host/utmctlClient';
+import type { ICommandRunner } from '@scripts/windows-test/host/utmctlClient';
+import {
+    resolvePreparedStandaloneUtmctl,
+    standaloneUtmctlPaths,
+} from '@scripts/windows-test/host/standaloneUtmctl';
 import { loadWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 import { createTestClone } from '@scripts/windows-test/images/createTestClone';
 import { runWindowsHostOracles } from '@scripts/windows-test/oracles/windowsHostOracleDispatcher';
+
+interface IProductionUtmTransport {
+    runner: IUtmAppleEventRunner;
+    processProbe: ReturnType<typeof createProcessIdentityProbe>;
+    utmctl: ReturnType<typeof createUtmctlClient>;
+}
 
 export const WINDOWS_TEST_CAPABILITY_REGISTRY_RELATIVE_PATH = path.join('tests', 'windows', 'capabilities.json');
 
@@ -143,6 +168,65 @@ function infrastructureReport(message: string): IWindowsTestRunReport {
         activeRunId: null,
         summary: null,
         messages: [message],
+    };
+}
+
+function standaloneUtmctlDoctorFailure(error: unknown): IWindowsTestDoctorReport {
+    const detail = error instanceof Error ? error.message : String(error);
+    const check: IWindowsTestDoctorCheck = {
+        id: 'utmctl-standalone',
+        ok: false,
+        detail,
+        remedy: 'Run pnpm windows:test:prepare from the logged-in host session, then run doctor again.',
+    };
+    return {
+        ok: false,
+        checks: [check],
+    };
+}
+
+function utmProcessDoctorFailure(error: unknown): IWindowsTestDoctorReport {
+    const detail = error instanceof Error ? error.message : String(error);
+    const check: IWindowsTestDoctorCheck = {
+        id: 'utm-app-running',
+        ok: false,
+        detail,
+        remedy: 'Start exactly one UTM.app yourself, wait for its window to appear, then run doctor again.',
+    };
+    return {
+        ok: false,
+        checks: [check],
+    };
+}
+
+function createProductionUtmTransport(
+    utmctlPath: string,
+    options: {validateUtmctlPath?: () => Promise<string>;} = {},
+): IProductionUtmTransport {
+    const rawRunner = createProcessCommandRunner();
+    const validatedRunner: ICommandRunner = {run: async (command, args, runOptions) => {
+        if (options.validateUtmctlPath !== undefined
+                && path.resolve(command) === path.resolve(utmctlPath)) {
+            const preparedPath = await options.validateUtmctlPath();
+            if (path.resolve(preparedPath) !== path.resolve(utmctlPath)) {
+                throw new Error(`The prepared standalone utmctl path changed from ${utmctlPath} to ${preparedPath}.`);
+            }
+        }
+        return rawRunner.run(command, args, runOptions);
+    }};
+    const processProbe = createProcessIdentityProbe(rawRunner);
+    const runner = createUtmAppleEventRunner({
+        runner: validatedRunner,
+        processProbe,
+        utmctlPath,
+    });
+    return {
+        runner,
+        processProbe,
+        utmctl: createUtmctlClient({
+            runner,
+            utmctlPath,
+        }),
     };
 }
 
@@ -235,6 +319,9 @@ export async function executeWindowsTestRunOnHost(
     } catch (error) {
         return infrastructureReport(error instanceof Error ? error.message : String(error));
     }
+    if (candidate === null) {
+        return infrastructureReport('A verified candidate installer is required before starting a Windows test run. Register the candidate artifact and its provenance, then retry.');
+    }
 
     const manifestPath = path.join(layout.baselinesDir, `${config.goldenImageId}.json`);
     const imageManifest = await loadWindowsTestImageManifest(manifestPath).catch(() => null);
@@ -250,6 +337,30 @@ export async function executeWindowsTestRunOnHost(
         return infrastructureReport(error instanceof Error ? error.message : String(error));
     }
 
+    let utmctlPath: string;
+    try {
+        utmctlPath = await resolvePreparedStandaloneUtmctl({layout});
+    } catch (error) {
+        return infrastructureReport(error instanceof Error ? error.message : String(error));
+    }
+    const transport = createProductionUtmTransport(utmctlPath);
+    try {
+        await transport.runner.assertUtmProcess();
+    } catch (error) {
+        return infrastructureReport(error instanceof Error ? error.message : String(error));
+    }
+    let installedUtmVersion: string;
+    try {
+        installedUtmVersion = parseUtmctlVersion(await transport.utmctl.version()) ?? '';
+    } catch (error) {
+        return infrastructureReport(error instanceof Error ? error.message : String(error));
+    }
+    if (isUtmScreenshotPreferenceRequired(installedUtmVersion)) {
+        const screenshotPreference = await readUtmScreenshotPreference(transport.runner);
+        if (!screenshotPreference.enabled) {
+            return infrastructureReport(`${screenshotPreference.detail} Remedy: ${screenshotPreference.remedy}`);
+        }
+    }
     options.onIdentity?.({
         runnerVersion: WINDOWS_TEST_RUNNER_VERSION,
         appVersion: candidate?.version ?? 'unknown',
@@ -260,14 +371,16 @@ export async function executeWindowsTestRunOnHost(
         environment: options.environment ?? config.environment,
     });
 
-    const runner = createProcessCommandRunner();
-    const utmctl = createUtmctlClient({runner});
+    const runner = transport.runner;
+    const utmctl = transport.utmctl;
+    let inputMedia: IWindowsTestInputMedia | undefined;
     const guest = createUtmctlGuestChannel({
+        get inputMedia() { return inputMedia; },
         client: utmctl,
         temporaryFilePath: label => path.join(tmpdir(), `evb-windows-test-${label}-${randomBytes(8).toString('hex')}`),
     });
     const clock = createSystemClock();
-    const probe = createProcessIdentityProbe(runner);
+    const probe = transport.processProbe;
     const repositoryRoot = options.repositoryRoot ?? defaultRepositoryRoot();
 
     return executeWindowsTestRun(
@@ -298,10 +411,32 @@ export async function executeWindowsTestRunOnHost(
                 repositoryRoot,
             }),
             cloneVm: async cloneName => {
+                if (!cloneName.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)) {
+                    throw new Error(`The disposable clone name ${cloneName} does not use the expected prefix.`);
+                }
+                const runId = cloneName.slice(WINDOWS_TEST_CLONE_NAME_PREFIX.length);
+                if (!isWindowsTestRunId(runId)) {
+                    throw new Error(`The disposable clone name ${cloneName} does not contain a valid run identifier.`);
+                }
+                inputMedia = await buildWindowsTestInputMedia({
+                    outputPath: path.join(layout.runsDir, runId, 'input-media.iso'),
+                    sources: [
+                        {
+                            hostPath: candidate.artifactPath,
+                            sha256: candidate.sha256,
+                        },
+                        ...stagedInputs.map(input => ({
+                            hostPath: input.hostPath,
+                            sha256: input.sha256,
+                        })),
+                    ],
+                    runner,
+                });
                 await createTestClone({
                     config,
                     manifest: imageManifest,
                     cloneName,
+                    inputMediaPath: inputMedia.isoPath,
                     runner,
                     utmctl,
                 });
@@ -330,15 +465,37 @@ export async function runWindowsTestDoctorOnHost(
     options: IWindowsTestDoctorHostOptions,
 ): Promise<IWindowsTestDoctorReport> {
     const layout = windowsTestHostLayout(options.dataRoot ?? resolveWindowsTestDataRoot(options.env));
-    const runner = createProcessCommandRunner();
-    return runWindowsTestDoctor({
+    let utmctlPath: string;
+    try {
+        utmctlPath = await resolvePreparedStandaloneUtmctl({layout});
+    } catch (error) {
+        return standaloneUtmctlDoctorFailure(error);
+    }
+    const transport = createProductionUtmTransport(utmctlPath);
+    try {
+        await transport.runner.assertUtmProcess();
+    } catch (error) {
+        return utmProcessDoctorFailure(error);
+    }
+    const runner = transport.runner;
+    const report = await runWindowsTestDoctor({
         layout,
-        utmctl: createUtmctlClient({runner}),
+        utmctl: transport.utmctl,
         sessionProbe: createLaunchctlSessionProbe(runner),
+        readUtmScreenshotPreference: () => readUtmScreenshotPreference(runner),
         env: options.env,
         launcherPath: options.launcherPath,
         hashFile: async filePath => createHash('sha256').update(await readFile(filePath)).digest('hex'),
     });
+    return {
+        ...report,
+        checks: report.checks.map(check => check.id === 'utmctl-present'
+            ? {
+                ...check,
+                detail: `${check.detail} Transport: ${utmctlPath}.`,
+            }
+            : check),
+    };
 }
 
 export interface IWindowsTestStopHostOptions {
@@ -364,9 +521,10 @@ export async function requestWindowsTestStopOnHost(
             recovered: false,
         };
     }
-    const runner = createProcessCommandRunner();
+    const utmctlPath = standaloneUtmctlPaths(layout).executable;
+    const transport = createProductionUtmTransport(utmctlPath, {validateUtmctlPath: async () => resolvePreparedStandaloneUtmctl({layout})});
     const clock = createSystemClock();
-    const probe = createProcessIdentityProbe(runner);
+    const probe = transport.processProbe;
     return requestWindowsTestStop(
         {
             runId: options.runId,
@@ -375,7 +533,7 @@ export async function requestWindowsTestStopOnHost(
         {
             layout,
             config,
-            utmctl: createUtmctlClient({runner}),
+            utmctl: transport.utmctl,
             probe,
             lock: {
                 hostId: hostname(),

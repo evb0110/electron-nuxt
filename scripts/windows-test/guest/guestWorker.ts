@@ -94,9 +94,11 @@ export interface IGuestWorkerAdapterOptions {
     executable: IInstalledExecutableIdentity;
 }
 
+export interface IGuestWorkerViewerFactoryOptions extends IGuestWorkerAdapterOptions {nativeUi: INativeUiAdapter;}
+
 export interface IGuestWorkerAdapters {
     createNativeUiAdapter(options: IGuestWorkerAdapterOptions): INativeUiAdapter;
-    createViewerFactory(options: IGuestWorkerAdapterOptions): IViewerFactory;
+    createViewerFactory(options: IGuestWorkerViewerFactoryOptions): IViewerFactory;
 }
 
 export interface IRunGuestWorkerOptions {
@@ -307,7 +309,7 @@ export async function runGuestWorker({
     // sentinel identity in the heartbeat so the host can certify the desktop.
     let initialProbe: Awaited<ReturnType<typeof probeGuestEnvironment>> | null = null;
     try {
-        initialProbe = await probeGuestEnvironment(powerShell, executablePath ?? '');
+        initialProbe = await probeGuestEnvironment(powerShell, executablePath ?? '', workerPid);
         heartbeat.updateIdentity(initialProbe.identity, initialProbe.logonUiPresent);
         await heartbeat.write('idle');
     } catch (error) {
@@ -322,7 +324,7 @@ export async function runGuestWorker({
         }
         lastIdleProbeAt = now;
         try {
-            const refreshedProbe = await probeGuestEnvironment(powerShell, executablePath ?? '');
+            const refreshedProbe = await probeGuestEnvironment(powerShell, executablePath ?? '', workerPid);
             heartbeat.updateIdentity(refreshedProbe.identity, refreshedProbe.logonUiPresent);
             await heartbeat.write('idle');
         } catch (error) {
@@ -351,6 +353,14 @@ export async function runGuestWorker({
     }
 
     const runPaths = guestRunPaths(layout, markerRunId);
+    if (await fs.exists(runPaths.startedMarkerFile) || await fs.exists(runPaths.resultFile)) {
+        heartbeat.stop();
+        return {
+            result: null,
+            resultFile: null,
+            reason: `run ${markerRunId} already has prior output; duplicate execution refused`,
+        };
+    }
     await heartbeat.write('validating');
 
     const finish = async (
@@ -438,7 +448,7 @@ export async function runGuestWorker({
     await heartbeat.write('probing');
     let preInstallProbe;
     try {
-        preInstallProbe = await probeGuestEnvironment(powerShell, executablePath);
+        preInstallProbe = await probeGuestEnvironment(powerShell, executablePath, workerPid);
         heartbeat.updateIdentity(preInstallProbe.identity, preInstallProbe.logonUiPresent);
         await heartbeat.write('probing');
     } catch (error) {
@@ -487,7 +497,7 @@ export async function runGuestWorker({
     await heartbeat.write('probing');
     let probe;
     try {
-        probe = await probeGuestEnvironment(powerShell, executablePath);
+        probe = await probeGuestEnvironment(powerShell, executablePath, workerPid);
         heartbeat.updateIdentity(probe.identity, probe.logonUiPresent);
         await heartbeat.write('probing');
     } catch (error) {
@@ -560,13 +570,17 @@ export async function runGuestWorker({
     let environment: ICaseEnvironment;
     try {
         selectors = loadSelectorRecords();
+        const nativeUi = adapters.createNativeUiAdapter(adapterOptions);
         environment = {
             clock,
             fs,
             exec,
             powerShell,
-            nativeUi: adapters.createNativeUiAdapter(adapterOptions),
-            viewer: adapters.createViewerFactory(adapterOptions),
+            nativeUi,
+            viewer: adapters.createViewerFactory({
+                ...adapterOptions,
+                nativeUi,
+            }),
             selectors,
             paths: runPaths,
             separator: layout.separator,

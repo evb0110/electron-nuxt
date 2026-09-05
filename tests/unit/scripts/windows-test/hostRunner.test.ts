@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 import {
+    mkdir,
     mkdtemp,
+    readFile,
     rm,
     writeFile,
 } from 'node:fs/promises';
@@ -13,7 +15,17 @@ import {
     it,
 } from 'vitest';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
-import { resolveWindowsTestCandidate } from '@scripts/windows-test/host/hostRunner';
+import {
+    resolveWindowsTestCandidate,
+    requestWindowsTestStopOnHost,
+    runWindowsTestDoctorOnHost,
+} from '@scripts/windows-test/host/hostRunner';
+import { createProcessCommandRunner } from '@scripts/windows-test/host/utmctlClient';
+import { createProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
+import {
+    windowsTestHostLayout,
+    windowsTestRunLayout,
+} from '@scripts/windows-test/contracts/windowsTestPaths';
 
 const ARTIFACT = 'candidate-installer-bytes';
 const ARTIFACT_SHA256 = createHash('sha256').update(ARTIFACT).digest('hex');
@@ -95,5 +107,101 @@ describe('windows test candidate resolution', () => {
                 version: '3.4.6',
                 sourceSha: 'c'.repeat(40),
             });
+    });
+});
+
+describe('windows test host utmctl selection', () => {
+    let root = '';
+
+    afterEach(async () => {
+        if (root !== '') {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+            root = '';
+        }
+    });
+
+    it('reports a missing prepared cache without falling back to the bundled UTM path', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-host-runner-'));
+
+        const report = await runWindowsTestDoctorOnHost({
+            dataRoot: root,
+            env: {},
+            launcherPath: '/Applications/Utilities/Terminal.app',
+        });
+
+        expect(report.ok).toBe(false);
+        expect(report.checks).toEqual([expect.objectContaining({
+            id: 'utmctl-standalone',
+            ok: false,
+            remedy: expect.stringContaining('windows:test:prepare'),
+        })]);
+    });
+});
+
+describe('windows test host stop', () => {
+    let root = '';
+
+    afterEach(async () => {
+        if (root !== '') {
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+            root = '';
+        }
+    });
+
+    it('writes a live-owner cancel request without UTM or a prepared standalone cache', async () => {
+        root = await mkdtemp(path.join(tmpdir(), 'evb-windows-host-stop-'));
+        const layout = windowsTestHostLayout(root);
+        const runId = '20260905T120000Z-0123456789ab';
+        const runLayout = windowsTestRunLayout(layout.runsDir, runId);
+        await mkdir(runLayout.runDir, {recursive: true});
+        const probe = createProcessIdentityProbe(createProcessCommandRunner());
+        const ownerStartTime = await probe.startTime(process.pid);
+        expect(ownerStartTime).not.toBeNull();
+        await writeFile(layout.configFile, JSON.stringify({
+            schemaVersion: 1,
+            testImageRoot: layout.imagesDir,
+            allowedTestVmIds: [],
+            goldenImageId: 'win11-arm64-2026-09',
+            goldenVmId: '11111111-2222-4333-8444-555555555555',
+            personalVmIdsDenied: [],
+            candidate: null,
+            environment: 'utm-win11-arm64-app-arm64',
+            qualifiedLaunchers: ['/bin/zsh'],
+            retention: {
+                passDays: 3,
+                failureDays: 14,
+                maxFailedClones: 1,
+                minFreeBytes: 1_024,
+            },
+        }), 'utf8');
+        await writeFile(layout.leaseFile, JSON.stringify({
+            schemaVersion: 1,
+            hostId: 'test-host',
+            vmId: null,
+            runId,
+            ownerPid: process.pid,
+            ownerStartTime,
+            createdAt: '2026-09-05T12:00:00.000Z',
+        }), 'utf8');
+
+        const result = await requestWindowsTestStopOnHost({
+            runId,
+            reason: 'operator asked for a stop',
+            dataRoot: root,
+            env: {},
+        });
+
+        expect(result.exitCode).toBe(0);
+        expect(result.recovered).toBe(false);
+        expect(JSON.parse(await readFile(runLayout.cancelRequestFile, 'utf8'))).toMatchObject({
+            runId,
+            reason: 'operator asked for a stop',
+        });
     });
 });

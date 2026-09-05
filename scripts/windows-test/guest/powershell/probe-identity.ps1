@@ -9,7 +9,9 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [string]$ExecutablePath = ''
+    [string]$ExecutablePath = '',
+
+    [int]$WorkerPid = $PID
 )
 
 Set-StrictMode -Version Latest
@@ -100,7 +102,13 @@ function Get-AppVersion([string]$path) {
     return $info.ProductVersion.Trim()
 }
 
-$worker = Get-Process -Id $PID
+$worker = Get-Process -Id $WorkerPid
+if ($WorkerPid -ne $PID) {
+    $probeProcess = Get-CimInstance Win32_Process -Filter "ProcessId=$PID"
+    if ($probeProcess.ParentProcessId -ne $WorkerPid) {
+        throw 'The requested worker is not the parent of the identity probe.'
+    }
+}
 $operatingSystem = Get-CimInstance -ClassName Win32_OperatingSystem
 $logonUi = @(Get-Process -Name 'LogonUI' -ErrorAction SilentlyContinue)
 

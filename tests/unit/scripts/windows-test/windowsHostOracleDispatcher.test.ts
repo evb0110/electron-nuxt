@@ -18,6 +18,7 @@ import {
 import {loadCapabilityRegistry} from '@scripts/windows-test/registry/capabilityRegistry';
 import {generateNegativeControls} from '@scripts/windows-test/fixtures/generateNegativeControls';
 import {generateNumberedFixture} from '@scripts/windows-test/fixtures/generateNumberedFixture';
+import {extractPageTexts} from '@scripts/windows-test/oracles/pageMarkerOracle';
 import type {
     IWindowsTestCaseResult,
     IWindowsTestResult,
@@ -142,6 +143,19 @@ async function runPlan(
     }
     const resultsFile = path.join(root, 'oracle-results.json');
     const evidenceFiles = Object.keys(artifacts);
+    const ocrOutputs: string[] = [];
+    for (const target of plan.pdfTargets.filter(candidate => candidate.pageMarkerMode === 'ocr')) {
+        const bytes = artifacts[target.artifactPath];
+        if (bytes === undefined) {
+            continue;
+        }
+        const observations = await extractPageTexts(bytes, repositoryRoot);
+        ocrOutputs.push(...observations.map(observation => {
+            const marker = /EVB-[A-Z0-9-]+/u.exec(observation.text);
+            return marker?.[0] ?? '';
+        }));
+    }
+    let ocrCall = 0;
     const dispatch = await runWindowsHostOracles({
         runId,
         environmentId: 'utm-win11-arm64-app-arm64',
@@ -150,6 +164,12 @@ async function runPlan(
         resultsFile,
         result: guestResult(testId, evidenceFiles),
         verifyProcessRunner: verifierRunner(),
+        ocrProcessRunner: async () => ({
+            exitCode: 0,
+            stdout: `${ocrOutputs[ocrCall++] ?? ''}\n`,
+            stderr: '',
+            timedOut: false,
+        }),
     });
     const report = JSON.parse(await readFile(resultsFile, 'utf8')) as {
         outcome: string;
@@ -296,6 +316,33 @@ describe('windows host oracle dispatcher', () => {
         for (const plan of windowsHostOraclePlans) {
             expect(validateWindowsHostOraclePlan(plan), plan.caseId).toEqual([]);
         }
+    });
+
+    it('reserves OCR for WIN-PRINT-01 cold and warm artifacts and keeps text extraction as the default', () => {
+        const printPlan = findWindowsHostOraclePlan('WIN-PRINT-01');
+        expect(printPlan?.pdfTargets.map(target => target.pageMarkerMode)).toEqual([
+            'ocr',
+            'ocr',
+        ]);
+
+        const textPlan = windowsHostOraclePlans.find(plan => plan.caseId === 'WIN-PRINT-02');
+        expect(textPlan).toBeDefined();
+        expect(textPlan!.pdfTargets.every(target => target.pageMarkerMode === undefined)).toBe(true);
+    });
+
+    it('rejects OCR on a lookalike artifact path outside the exact print targets', () => {
+        const basePlan = windowsHostOraclePlans.find(plan => plan.caseId === 'WIN-PRINT-01');
+        expect(basePlan).toBeDefined();
+        const errors = validateWindowsHostOraclePlan({
+            ...basePlan!,
+            pdfTargets: [{
+                ...basePlan!.pdfTargets[0]!,
+                artifactPath: 'staged/WIN-PRINT-01/cold.pdf',
+                pageMarkerMode: 'ocr',
+            }],
+        });
+
+        expect(errors).toContain('Case WIN-PRINT-01 uses OCR page markers outside the WIN-PRINT-01 cold and warm print targets.');
     });
 
     it('fails closed when a target carries an expectation without its oracle', () => {

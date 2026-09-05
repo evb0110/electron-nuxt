@@ -146,10 +146,12 @@ interface IFakeUtmctl extends IUtmctlClient {
 function createFakeUtmctl(options: {
     goldenStatus?: string;
     cloneVmId?: string;
+    cloneStatusSequence?: readonly string[];
     extraClones?: readonly string[];
     onDelete?: () => void;
 } = {}) {
     const cloneVmId = options.cloneVmId ?? CLONE_VM_ID;
+    const cloneStatusSequence = [...(options.cloneStatusSequence ?? [])];
     const registered: IUtmVmListEntry[] = [
         {
             uuid: GOLDEN_VM_ID,
@@ -183,6 +185,9 @@ function createFakeUtmctl(options: {
         },
         status: (vmId) => {
             calls.push(`status ${vmId}`);
+            if (vmId.toLowerCase() === cloneVmId.toLowerCase() && cloneStatusSequence.length > 0) {
+                return Promise.resolve(cloneStatusSequence.shift() ?? 'unknown');
+            }
             return Promise.resolve(statuses.get(vmId) ?? 'stopped');
         },
         start: (vmId) => {
@@ -227,6 +232,7 @@ function createFakeUtmctl(options: {
 
 interface IGuestScript {
     resultText: string | null;
+    resultTextAfterReads?: number;
     heartbeat: IWindowsTestWorkerHeartbeat | null;
     bootId: string | null;
     evidenceManifestText: string | null;
@@ -248,6 +254,7 @@ function defaultGuestScript(): IGuestScript {
 
 function createFakeGuest(script: IGuestScript) {
     const calls: string[] = [];
+    let resultReads = 0;
     const channel: IWindowsTestGuestChannel = {
         ping: () => {
             calls.push('ping');
@@ -281,6 +288,10 @@ function createFakeGuest(script: IGuestScript) {
                 return Promise.resolve(script.bootId);
             }
             if (guestPath === guestPaths.resultFile) {
+                resultReads += 1;
+                if (script.resultTextAfterReads !== undefined && resultReads <= script.resultTextAfterReads) {
+                    return Promise.resolve(null);
+                }
                 return Promise.resolve(script.resultText);
             }
             return Promise.resolve(null);
@@ -488,6 +499,55 @@ describe('windows test run coordinator', () => {
         expect(harness.guest.calls).toContain(`stage manifest.json -> ${guestPaths.stagingDir}\\fixtures\\manifest.json`);
     });
 
+    it('uses the optional batch staging hook before publishing the guest job', async () => {
+        const harness = await createHarness();
+        harness.guest.channel.stageAndVerifyFiles = async (_vmId, files) => {
+            harness.guest.calls.push(`batch ${files.length}`);
+            return true;
+        };
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('passed');
+        expect(harness.guest.calls).toContain('batch 2');
+        expect(harness.guest.calls.filter(call => call.startsWith('stage '))).toEqual([]);
+        expect(harness.guest.calls).toContain(`job ${RUN_ID} WIN-SAVE-01`);
+    });
+
+    it('fails promptly when the owned clone stops before publishing a guest result', async () => {
+        const harness = await createHarness({
+            script: {resultText: null},
+            utmctl: createFakeUtmctl({cloneStatusSequence: ['stopped']}),
+        });
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('infrastructure-failed');
+        expect(report.summary?.failures).toContainEqual(expect.objectContaining({
+            outcome: 'infrastructure-failed',
+            phase: 'testing',
+            reason: expect.stringContaining(`The owned clone ${CLONE_VM_ID} is no longer running`),
+        }));
+        expect(harness.utmctl.calls.filter(call => call === `status ${CLONE_VM_ID}`)).toHaveLength(2);
+    });
+
+    it('keeps polling through transient UTM clone states', async () => {
+        const harness = await createHarness({
+            script: {resultTextAfterReads: 4},
+            utmctl: createFakeUtmctl({cloneStatusSequence: [
+                'starting',
+                'pausing',
+                'resuming',
+                'started',
+            ]}),
+        });
+
+        const report = await harness.run();
+
+        expect(report.outcome).toBe('passed');
+        expect(harness.utmctl.calls.filter(call => call === `status ${CLONE_VM_ID}`)).toHaveLength(5);
+    });
+
     it('combines a host oracle product failure after guest evidence validates', async () => {
         type TOracleInput = Parameters<NonNullable<IWindowsTestRunDependencies['evaluateHostOracles']>>[0];
         const oracleInputs: TOracleInput[] = [];
@@ -579,8 +639,36 @@ describe('windows test run coordinator', () => {
 
         expect(report.exitCode).toBe(5);
         expect(report.outcome).toBe('canceled');
+        expect(report.summary?.failures[0]?.reason).toContain('cancellation was requested');
+        expect(report.summary?.failures[0]?.reason).not.toContain('guest was told to stop');
         expect(harness.guest.calls).toContain(`cancel ${RUN_ID}`);
         expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
+    });
+
+    it.each([
+        'boot',
+        'staging',
+    ] as const)('honors cancellation during %s before publishing a job', async (phase) => {
+        const harness = await createHarness();
+        const runLayout = windowsTestRunLayout(harness.layout.runsDir, RUN_ID);
+        const cancel = async () => {
+            await writeFile(runLayout.cancelRequestFile, JSON.stringify({runId: RUN_ID}), 'utf8');
+        };
+        if (phase === 'boot') {
+            harness.guest.channel.ping = async () => {
+                await cancel();
+                return false;
+            };
+        } else {
+            harness.guest.channel.stageFile = cancel;
+        }
+        const report = await harness.run();
+        expect(report.outcome).toBe('canceled');
+        expect(report.exitCode).toBe(5);
+        expect(harness.utmctl.calls).toContain(`stop request ${CLONE_VM_ID}`);
+        expect(harness.guest.calls).not.toContain(`job ${RUN_ID} WIN-SAVE-01`);
+        expect(harness.guest.calls).not.toContain(`ready ${RUN_ID}`);
+        expect(await exists(runLayout.jobFile)).toBe(false);
     });
 
     it('keeps a product failure when teardown also fails', async () => {

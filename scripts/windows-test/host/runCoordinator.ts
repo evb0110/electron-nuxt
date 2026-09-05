@@ -46,7 +46,10 @@ import {
 } from '@scripts/windows-test/host/hostLease';
 import type { IHostLockDependencies } from '@scripts/windows-test/host/hostLock';
 import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
-import type { IWindowsTestGuestChannel } from '@scripts/windows-test/host/guestChannel';
+import type {
+    IWindowsTestGuestChannel,
+    IWindowsTestGuestStageFile,
+} from '@scripts/windows-test/host/guestChannel';
 import {
     outcomeForRejections,
     validateWindowsTestResultBundle,
@@ -87,7 +90,9 @@ export function defaultWindowsTestRunDeadlines(): IWindowsTestRunDeadlines {
         pollIntervalMs: 2_000,
         cancelGraceMs: windowsTestDefaultDeadlines.uiStepSeconds * 1_000,
         heartbeatStaleAfterMs: windowsTestDefaultDeadlines.guestReadyToDesktopReadySeconds * 1_000,
-        commandTimeoutMs: windowsTestDefaultDeadlines.uiStepSeconds * 1_000,
+        // Cold PowerShell transport took 57 seconds on the live Windows
+        // probe. Keep its deadline separate from native UI interaction limits.
+        commandTimeoutMs: windowsTestDefaultDeadlines.guestTransportSeconds * 1_000,
         stageFileMs: windowsTestDefaultDeadlines.jobSeconds * 1_000,
     };
 }
@@ -292,6 +297,22 @@ async function pathExists(target: string) {
     return (await stat(target).catch(() => null)) !== null;
 }
 
+const transientUtmVmStatuses = new Set([
+    'starting',
+    'pausing',
+    'resuming',
+    'stopping',
+]);
+
+function ownedCloneCanStillProduceResult(status: string) {
+    const normalized = status.trim().toLowerCase();
+    return normalized === 'started' || transientUtmVmStatuses.has(normalized);
+}
+
+function statusDetail(error: unknown) {
+    return error instanceof Error ? error.message : String(error);
+}
+
 async function collectEvidence(options: {
     guest: IWindowsTestGuestChannel;
     vmId: string;
@@ -411,6 +432,14 @@ export async function executeWindowsTestRun(
         let uncoveredObligations: string[] = [];
         let humanReviewRequired = false;
         let expectedTests: string[] = [];
+        const throwIfCanceled = async (
+            phase: TWindowsTestRunState,
+            checkpoint = 'before publishing a guest job',
+        ) => {
+            if (await pathExists(runLayout.cancelRequestFile)) {
+                abort('canceled', phase, `Run ${runId} was canceled ${checkpoint}; the owned clone is being recovered.`);
+            }
+        };
 
         try {
             const candidate = config.candidate;
@@ -501,6 +530,7 @@ export async function executeWindowsTestRun(
                 );
             }
 
+            await throwIfCanceled('leased');
             const before = await utmctl.list();
             // Set before cloning so teardown looks for the clone even when the
             // clone command or the UUID diff fails part-way.
@@ -522,12 +552,15 @@ export async function executeWindowsTestRun(
                 dependencies.identityGuard,
             );
             await bindLeaseToVm(layout.leaseFile, runId, clonedVmId);
+            await throwIfCanceled('leased');
 
             await recorder.record('booting', `Starting owned clone ${clonedVmId} cloned from the stopped golden image.`);
             await utmctl.start(clonedVmId);
 
             const guestReady = await pollUntil(clock, deadlines.bootToGuestReadyMs, deadlines.pollIntervalMs, async () => {
+                await throwIfCanceled('booting');
                 const alive = await guest.ping(clonedVmId ?? '', deadlines.commandTimeoutMs);
+                await throwIfCanceled('booting');
                 return alive ? true : null;
             });
             if (guestReady === null) {
@@ -537,7 +570,7 @@ export async function executeWindowsTestRun(
                     `The guest agent never answered within ${deadlines.bootToGuestReadyMs} ms of boot.`,
                 );
             }
-            await recorder.record('guest-ready', 'The guest agent answered a supervised ping.');
+            await recorder.record('guest-ready', 'The guest agent answered a read-only file-transfer probe.');
 
             let bootId = '';
             const startedAtMs = Date.parse(startedAt);
@@ -546,6 +579,7 @@ export async function executeWindowsTestRun(
                 deadlines.guestReadyToDesktopReadyMs,
                 deadlines.pollIntervalMs,
                 async () => {
+                    await throwIfCanceled('guest-ready');
                     // Read the boot token on every poll. The worker replaces a
                     // copied golden-image token when its logon task starts, and
                     // retaining the first QGA read would make the fresh
@@ -592,6 +626,7 @@ export async function executeWindowsTestRun(
                 );
             }
             await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
+            await throwIfCanceled('desktop-ready');
 
             // UTM's file-push operation opens the destination directly. Create
             // the run-scoped tree first because the golden image only contains
@@ -601,21 +636,8 @@ export async function executeWindowsTestRun(
                 `${guestPaths.stagingDir}\\fixtures`,
                 deadlines.commandTimeoutMs,
             );
+            await throwIfCanceled('desktop-ready');
             const artifactGuestPath = guestStagingPath(guestPaths.stagingDir, candidate.fileName);
-            await guest.stageFile(clonedVmId, candidate.artifactPath, artifactGuestPath, deadlines.stageFileMs);
-            const artifactVerified = await guest.verifyStagedFileHash(
-                clonedVmId,
-                artifactGuestPath,
-                candidate.sha256,
-                deadlines.commandTimeoutMs,
-            );
-            if (!artifactVerified) {
-                abort(
-                    'infrastructure-failed',
-                    'desktop-ready',
-                    `The staged artifact did not hash to ${candidate.sha256} inside the guest.`,
-                );
-            }
             const stagedInputs = dependencies.stagedInputs ?? [];
             if (!stagedInputs.some(input => input.guestRelativePath === 'fixtures/manifest.json')) {
                 abort(
@@ -624,24 +646,48 @@ export async function executeWindowsTestRun(
                     'The prepared fixture manifest was not supplied for staging; run windows:test:prepare before the suite.',
                 );
             }
-            for (const input of stagedInputs) {
-                const guestPath = guestStagingPath(guestPaths.stagingDir, input.guestRelativePath);
-                await guest.stageFile(clonedVmId, input.hostPath, guestPath, deadlines.stageFileMs);
-                const verified = await guest.verifyStagedFileHash(
+            const filesToStage: IWindowsTestGuestStageFile[] = [
+                {
+                    hostPath: candidate.artifactPath,
+                    guestPath: artifactGuestPath,
+                    expectedSha256: candidate.sha256,
+                },
+                ...stagedInputs.map(input => ({
+                    hostPath: input.hostPath,
+                    guestPath: guestStagingPath(guestPaths.stagingDir, input.guestRelativePath),
+                    expectedSha256: input.sha256,
+                })),
+            ];
+            const batchHandled = guest.stageAndVerifyFiles === undefined
+                ? false
+                : await guest.stageAndVerifyFiles(
                     clonedVmId,
-                    guestPath,
-                    input.sha256,
+                    filesToStage,
                     deadlines.commandTimeoutMs,
                 );
-                if (!verified) {
-                    abort(
-                        'infrastructure-failed',
-                        'desktop-ready',
-                        `The staged input ${input.guestRelativePath} did not hash to ${input.sha256} inside the guest.`,
+            await throwIfCanceled('desktop-ready');
+            if (!batchHandled) {
+                for (const file of filesToStage) {
+                    await throwIfCanceled('desktop-ready');
+                    await guest.stageFile(clonedVmId, file.hostPath, file.guestPath, deadlines.stageFileMs);
+                    await throwIfCanceled('desktop-ready');
+                    const verified = await guest.verifyStagedFileHash(
+                        clonedVmId,
+                        file.guestPath,
+                        file.expectedSha256,
+                        deadlines.commandTimeoutMs,
                     );
+                    if (!verified) {
+                        abort(
+                            'infrastructure-failed',
+                            'desktop-ready',
+                            `The staged input ${file.guestPath} did not hash to ${file.expectedSha256} inside the guest.`,
+                        );
+                    }
                 }
             }
             await recorder.record('staged', 'The candidate artifact and fixtures were staged and hash-verified inside the guest.');
+            await throwIfCanceled('staged');
 
             job = {
                 schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
@@ -663,6 +709,7 @@ export async function executeWindowsTestRun(
             };
             await writeFile(runLayout.jobFile, `${JSON.stringify(job, null, 4)}\n`, 'utf8');
             await guest.writeJob(clonedVmId, job, deadlines.commandTimeoutMs);
+            await throwIfCanceled('staged', 'after the guest job was published');
             await guest.publishReadyMarker(clonedVmId, runId, deadlines.commandTimeoutMs);
             await recorder.record('testing', `Published job ${runId} to the guest inbox.`);
 
@@ -681,6 +728,38 @@ export async function executeWindowsTestRun(
                 if (text !== null && text.trim().length > 0) {
                     resultText = text;
                     break;
+                }
+                // A stopped or paused clone cannot publish a future guest
+                // result. Check cancellation first so an explicit user
+                // request wins if it arrives at the same time as a VM loss.
+                if (await pathExists(runLayout.cancelRequestFile)) {
+                    canceled = true;
+                    break;
+                }
+                let vmStatus: string;
+                try {
+                    vmStatus = await utmctl.status(clonedVmId);
+                } catch (error) {
+                    if (await pathExists(runLayout.cancelRequestFile)) {
+                        canceled = true;
+                        break;
+                    }
+                    abort(
+                        'infrastructure-failed',
+                        'testing',
+                        `Could not inspect the owned clone ${clonedVmId} while waiting for its guest result: ${statusDetail(error)}.`,
+                    );
+                }
+                if (await pathExists(runLayout.cancelRequestFile)) {
+                    canceled = true;
+                    break;
+                }
+                if (!ownedCloneCanStillProduceResult(vmStatus)) {
+                    abort(
+                        'infrastructure-failed',
+                        'testing',
+                        `The owned clone ${clonedVmId} is no longer running (UTM status "${vmStatus}") while waiting for its guest result; stopping the wait early.`,
+                    );
                 }
                 const observed = await guest.readHeartbeat(clonedVmId, deadlines.commandTimeoutMs);
                 if (observed !== null) {
@@ -705,7 +784,7 @@ export async function executeWindowsTestRun(
                 abort(
                     'canceled',
                     'testing',
-                    `Run ${runId} was canceled on request; the guest was told to stop and the owned clone is being recovered.`,
+                    `Run ${runId} was canceled on request; cancellation was requested and the owned clone is being recovered.`,
                 );
             }
 

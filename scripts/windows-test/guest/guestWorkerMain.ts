@@ -1,7 +1,15 @@
-import { randomUUID } from 'node:crypto';
-import { realpathSync } from 'node:fs';
+import {
+    createHash,
+    randomUUID,
+} from 'node:crypto';
+import {
+    createServer,
+    type Server,
+} from 'node:net';
+import {realpathSync} from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {isRecord} from '@contracts/runtimeGuards';
 import {
     createNodeProcessSpawner,
     createOwnedProcessRegistry,
@@ -28,6 +36,80 @@ import { createPuppeteerViewerFactory } from '@scripts/windows-test/guest/viewer
 const DEFAULT_GUEST_ROOT = 'C:\\EVBViewerTests';
 
 const DEFAULT_WAIT_FOR_JOB_MS = 15 * 60 * 1_000;
+
+export interface IGuestWorkerPipeLock {
+    pipePath: string;
+    release(): Promise<void>;
+}
+
+export class GuestWorkerLockBusyError extends Error {
+    constructor(pipePath: string) {
+        super(`Guest worker pipe ${pipePath} is already held by another process.`);
+        this.name = 'GuestWorkerLockBusyError';
+    }
+}
+
+export function guestWorkerPipePath(guestRoot: string) {
+    const canonicalRoot = process.platform === 'win32'
+        ? path.win32.resolve(guestRoot).toLowerCase()
+        : path.resolve(guestRoot);
+    const digest = createHash('sha256').update(canonicalRoot, 'utf8').digest('hex').slice(0, 32);
+    return process.platform === 'win32'
+        ? `\\\\.\\pipe\\evb-viewer-guest-worker-${digest}`
+        : path.join('/tmp', `evb-viewer-guest-worker-${digest}.sock`);
+}
+
+function listenOnGuestWorkerPipe(pipePath: string): Promise<Server> {
+    return new Promise((resolve, reject) => {
+        const server = createServer(socket => socket.destroy());
+        const onError = (error: Error) => {
+            server.removeListener('listening', onListening);
+            reject(error);
+        };
+        const onListening = () => {
+            server.removeListener('error', onError);
+            resolve(server);
+        };
+        server.once('error', onError);
+        server.once('listening', onListening);
+        try {
+            server.listen(pipePath);
+        } catch (error) {
+            server.removeListener('error', onError);
+            server.removeListener('listening', onListening);
+            reject(error);
+        }
+    });
+}
+
+function closeGuestWorkerPipe(server: Server): Promise<void> {
+    return new Promise((resolve, reject) => {
+        server.close(error => {
+            if (error) {
+                reject(error);
+                return;
+            }
+            resolve();
+        });
+    });
+}
+
+export async function acquireGuestWorkerPipeLock(guestRoot: string): Promise<IGuestWorkerPipeLock> {
+    const pipePath = guestWorkerPipePath(guestRoot);
+    let server: Server;
+    try {
+        server = await listenOnGuestWorkerPipe(pipePath);
+    } catch (error) {
+        if (isRecord(error) && error.code === 'EADDRINUSE') {
+            throw new GuestWorkerLockBusyError(pipePath);
+        }
+        throw new Error(`Cannot acquire guest worker pipe ${pipePath}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    return {
+        pipePath,
+        release: () => closeGuestWorkerPipe(server),
+    };
+}
 
 function parseWaitForJobMs(raw: string) {
     const parsed = Number(raw);
@@ -57,6 +139,7 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv): IGuestWorkerAdapters {
             })),
         createViewerFactory: ({
             clock,
+            nativeUi,
             paths,
             executable,
         }) => createPuppeteerViewerFactory({
@@ -67,6 +150,8 @@ function nodeGuestWorkerAdapters(env: NodeJS.ProcessEnv): IGuestWorkerAdapters {
                 executable,
             }),
             profileDirectory: paths.profileDir,
+            nativeUi,
+            clock,
         }),
     };
 }
@@ -78,35 +163,40 @@ export async function guestWorkerMain(argv: readonly string[], env: NodeJS.Proce
         : rootArgument.slice('--root='.length);
     const waitArgument = argv.find(argument => argument.startsWith('--wait-ms='));
     const layout = guestLayoutForRoot(root, WINDOWS_GUEST_PATH_SEPARATOR);
-    // A cloned image may contain the golden image's last boot-id file. Replace
-    // the boot identity and heartbeat at worker startup so the host can never
-    // accept a copied heartbeat from before this VM boot.
+    const workerLock = await acquireGuestWorkerPipeLock(root);
     const fs = createNodeGuestFileSystem();
-    await fs.remove(layout.heartbeatFile);
-    await fs.writeTextDurable(layout.bootIdFile, `boot-${randomUUID()}\n`);
-    const summary = await runGuestWorker({
-        fs,
-        exec: createNodeGuestCommandRunner(),
-        clock: nodeGuestClock,
-        paths: layout,
-        adapters: nodeGuestWorkerAdapters(env),
-        env,
-        powerShellScriptsDirectory: joinGuestPath(
-            WINDOWS_GUEST_PATH_SEPARATOR,
-            layout.root,
-            'worker',
-            'powershell',
-        ),
-        waitForJobMs: waitArgument === undefined
-            ? DEFAULT_WAIT_FOR_JOB_MS
-            : parseWaitForJobMs(waitArgument.slice('--wait-ms='.length)),
-    });
-    process.stdout.write(`${JSON.stringify({
-        resultFile: summary.resultFile,
-        outcome: summary.result?.outcome ?? null,
-        reason: summary.reason,
-    }, null, 4)}\n`);
-    return summary;
+    try {
+        // A cloned image may contain the golden image's last boot-id file. Replace
+        // the boot identity and heartbeat at worker startup so the host can never
+        // accept a copied heartbeat from before this VM boot.
+        await fs.remove(layout.heartbeatFile);
+        await fs.writeTextDurable(layout.bootIdFile, `boot-${randomUUID()}\n`);
+        const summary = await runGuestWorker({
+            fs,
+            exec: createNodeGuestCommandRunner(),
+            clock: nodeGuestClock,
+            paths: layout,
+            adapters: nodeGuestWorkerAdapters(env),
+            env,
+            powerShellScriptsDirectory: joinGuestPath(
+                WINDOWS_GUEST_PATH_SEPARATOR,
+                layout.root,
+                'worker',
+                'powershell',
+            ),
+            waitForJobMs: waitArgument === undefined
+                ? DEFAULT_WAIT_FOR_JOB_MS
+                : parseWaitForJobMs(waitArgument.slice('--wait-ms='.length)),
+        });
+        process.stdout.write(`${JSON.stringify({
+            resultFile: summary.resultFile,
+            outcome: summary.result?.outcome ?? null,
+            reason: summary.reason,
+        }, null, 4)}\n`);
+        return summary;
+    } finally {
+        await workerLock.release();
+    }
 }
 
 function canonicalPath(candidate: string) {

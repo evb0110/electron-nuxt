@@ -21,12 +21,14 @@ import {
 import {
     createLaunchctlSessionProbe,
     parseUtmctlVersion,
+    readUtmScreenshotPreference,
     resolveWindowsTestLauncher,
     runWindowsTestDoctor,
 } from '@scripts/windows-test/host/doctor';
 import type {
     IWindowsTestDoctorDependencies,
     IWindowsTestDoctorReport,
+    IUtmScreenshotPreferenceStatus,
 } from '@scripts/windows-test/host/doctor';
 import type {
     ICommandRunner,
@@ -112,6 +114,7 @@ interface IHarnessOptions {
     freeBytes?: number | null;
     launcherPath?: string;
     artifactBytes?: string | null;
+    screenshotPreference?: Partial<IUtmScreenshotPreferenceStatus>;
 }
 
 async function createDoctorHarness(options: IHarnessOptions = {}) {
@@ -187,6 +190,12 @@ async function createDoctorHarness(options: IHarnessOptions = {}) {
     }));
 
     const utmctl = options.utmctl ?? createFakeUtmctl();
+    const screenshotPreference: IUtmScreenshotPreferenceStatus = {
+        enabled: true,
+        detail: 'com.utmapp.UTM NoScreenshot is 1; periodic screenshot capture is disabled.',
+        remedy: 'No action needed.',
+        ...options.screenshotPreference,
+    };
     const dependencies: IWindowsTestDoctorDependencies = {
         layout,
         utmctl,
@@ -194,6 +203,7 @@ async function createDoctorHarness(options: IHarnessOptions = {}) {
         env: options.env ?? {},
         launcherPath: options.launcherPath ?? LAUNCHER,
         hashFile: filePath => Promise.resolve(sha256(filePath === artifactPath ? ARTIFACT_BYTES : 'other')),
+        readUtmScreenshotPreference: () => Promise.resolve(screenshotPreference),
         freeBytes: () => Promise.resolve(options.freeBytes === undefined ? 1_000_000 : options.freeBytes),
         loadConfig: () => (options.configError === undefined
             ? Promise.resolve(config)
@@ -234,6 +244,7 @@ describe('windows test doctor', () => {
         expect(report.checks.map(entry => entry.id)).toEqual([
             'gui-session',
             'utmctl-present',
+            'utm-screenshot-preference',
             'automation-consent',
             'config-present',
             'cache-directory-artifacts',
@@ -312,6 +323,55 @@ describe('windows test doctor', () => {
         expect(checkById(report, 'utmctl-present')?.ok).toBe(true);
         expect(checkById(report, 'automation-consent')?.ok).toBe(false);
         expect(checkById(report, 'automation-consent')?.remedy).toContain('Automation');
+    });
+
+    it('fails readiness when UTM 4.7.5 screenshot capture is enabled', async () => {
+        const harness = await createDoctorHarness({screenshotPreference: {
+            enabled: false,
+            detail: 'com.utmapp.UTM NoScreenshot is 0; periodic screenshot capture remains enabled.',
+            remedy: 'Enable NoScreenshot before the next run.',
+        }});
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'utm-screenshot-preference')).toMatchObject({
+            ok: false,
+            detail: expect.stringContaining('remains enabled'),
+            remedy: expect.stringContaining('NoScreenshot'),
+        });
+    });
+
+    it('keeps the screenshot workaround for newer or unknown UTM versions', async () => {
+        const harness = await createDoctorHarness({
+            utmctl: createFakeUtmctl({versionText: 'utmctl version 4.8.0 (120)'}),
+            screenshotPreference: {
+                enabled: false,
+                detail: 'fixture preference is disabled',
+                remedy: 'fixture remedy',
+            },
+        });
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'utm-screenshot-preference')?.ok).toBe(false);
+    });
+
+    it('does not require the workaround for a version before the affected build', async () => {
+        const harness = await createDoctorHarness({
+            utmctl: createFakeUtmctl({versionText: 'utmctl version 4.7.4 (117)'}),
+            screenshotPreference: {
+                enabled: false,
+                detail: 'fixture preference is disabled',
+                remedy: 'fixture remedy',
+            },
+        });
+
+        const report = await harness.run();
+
+        expect(report.ok).toBe(true);
+        expect(checkById(report, 'utm-screenshot-preference')).toBeNull();
     });
 
     it('reports version-probe consent denial without suggesting UTM installation', async () => {
@@ -405,5 +465,51 @@ describe('windows test doctor', () => {
 
         expect(await createLaunchctlSessionProbe(runner).managerName()).toBe('Aqua');
         expect(await createLaunchctlSessionProbe(failing).managerName()).toBeNull();
+    });
+
+    it('reads NoScreenshot with defaults without writing preferences', async () => {
+        const calls: Array<{
+            command: string;
+            args: string[]
+        }> = [];
+        const runner: ICommandRunner = {run: async (command, args) => {
+            calls.push({
+                command,
+                args,
+            });
+            return {
+                exitCode: 0,
+                stdout: '1\n',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            };
+        }};
+
+        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({enabled: true});
+        expect(calls).toEqual([{
+            command: '/usr/bin/defaults',
+            args: [
+                'read',
+                'com.utmapp.UTM',
+                'NoScreenshot',
+            ],
+        }]);
+    });
+
+    it('fails closed when NoScreenshot is unset', async () => {
+        const runner: ICommandRunner = {run: async () => ({
+            exitCode: 1,
+            stdout: '',
+            stderr: 'The domain/default pair of (com.utmapp.UTM, NoScreenshot) does not exist',
+            timedOut: false,
+            signal: null,
+        })};
+
+        await expect(readUtmScreenshotPreference(runner)).resolves.toMatchObject({
+            enabled: false,
+            detail: expect.stringContaining('unset'),
+            remedy: expect.stringContaining('NoScreenshot'),
+        });
     });
 });
