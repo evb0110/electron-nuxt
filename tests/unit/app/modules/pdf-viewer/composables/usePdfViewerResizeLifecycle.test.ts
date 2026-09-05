@@ -35,6 +35,7 @@ type TResizeLifecycleOptions = Parameters<typeof usePdfViewerResizeLifecycle>[0]
 function createResizeLifecycle(
     isActive = ref(true),
     options?: {
+        numPages?: number;
         computeFitWidthScale?: () => boolean;
         settlePreviewFitScale?: (commit?: boolean) => boolean;
         isLoading?: Ref<boolean>;
@@ -71,7 +72,7 @@ function createResizeLifecycle(
             start: 4,
             end: 5,
         }),
-        numPages: ref(10),
+        numPages: ref(options?.numPages ?? 10),
         computeFitWidthScale,
         settlePreviewFitScale,
         captureViewportAnchor: options?.captureViewportAnchor,
@@ -201,25 +202,50 @@ describe('usePdfViewerResizeLifecycle inactive behavior', () => {
         }));
     });
 
-    it('refreshes render demand when viewport geometry changes without a fit-scale delta', async () => {
+    it('preserves painted layers when scrollbar geometry changes without a fit-scale delta', async () => {
         vi.useFakeTimers();
+        let viewportHeight = 896;
+        const viewer = document.createElement('div');
+        Object.defineProperties(viewer, {
+            clientWidth: {value: 1574},
+            clientHeight: {get: () => viewportHeight},
+        });
+        const viewerContainer = ref(viewer);
         const {
             computeFitWidthScale,
             scheduleResizeAwareRerender,
             setResizeTransitionVisible,
-        } = createResizeLifecycle(ref(true), { computeFitWidthScale: () => false });
+            submitResizeIntent,
+        } = createResizeLifecycle(ref(true), {
+            computeFitWidthScale: () => false,
+            viewerContainer,
+            pendingNavigationAnchorPage: ref(22),
+            numPages: 383,
+            captureViewportAnchor: () => ({
+                affinity: 'center',
+                page: 4,
+                pageXFraction: 0.5,
+                pageYFraction: 0.25,
+                viewportXFraction: 0.5,
+                viewportYFraction: 0.5,
+            }),
+        });
 
+        viewportHeight = 881;
         resizeObserverMock.callback?.();
-
         await vi.advanceTimersByTimeAsync(400);
 
         expect(computeFitWidthScale).toHaveBeenCalledOnce();
-        expect(scheduleResizeAwareRerender).toHaveBeenCalledOnce();
-        expect(setResizeTransitionVisible).toHaveBeenCalledWith(expect.objectContaining({
-            active: true,
-            anchorPage: 4,
-            source: 'resize-observer',
-        }));
+        expect(submitResizeIntent).toHaveBeenCalledExactlyOnceWith({
+            affinity: 'center',
+            page: 22,
+            pageXFraction: 0.5,
+            pageYFraction: 0.25,
+            viewportXFraction: 0.5,
+            viewportYFraction: 0.5,
+        });
+        expect(scheduleResizeAwareRerender).not.toHaveBeenCalled();
+        expect(setResizeTransitionVisible).not.toHaveBeenCalled();
     });
 
     it('suppresses the initial observer callback when geometry and fit scale are unchanged', async () => {

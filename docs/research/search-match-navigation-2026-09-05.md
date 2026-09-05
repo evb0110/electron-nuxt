@@ -158,3 +158,63 @@ Follow-up validation passed both type checks, affected lint, 489 related unit
 tests across 49 files, and the dead-code and duplication gates. CodeRabbit
 completed its review with two trivial suggestions and no correctness findings.
 The existing refresh scheduling and the explicit OCR test setup were retained.
+
+## Fresh-start recording at 11:41
+
+The previous color-handoff verification was incomplete. Its animation-frame
+monitor checked whether a current-highlight element existed. It did not check
+ancestor opacity or capture compositor pixels during the transition. A current
+highlight inside an invisible text layer therefore passed the test.
+
+The new recording contains four gaps without an orange highlight in the PDF
+viewport. Pixel analysis measured gaps of about 220 to 380 ms. Attaching to the
+user's running dev Electron process reproduced the same failure with real
+pointer clicks between PDF pages 22 and 81. The source included the earlier fix.
+The viewport was 1869 by 1018 CSS pixels at device scale factor 2 and 380% PDF
+zoom.
+
+The diagnostic capture combined existing viewport-authority events with DOM
+mutation records, animation-frame geometry and computed ancestor styles,
+ResizeObserver measurements, and CDP screencast frames. All four clicks failed
+the painted-pixel check. Of 58 captured frames, 34 had no orange pixels in the
+PDF viewport even though the current-highlight element retained its orange
+background and opacity 1.
+
+The hidden parent was `.text-layer`. The `pdfViewer--resize-transition` class
+set its opacity to zero. Navigation between pages with different rendered
+widths admitted or removed the horizontal scrollbar. The outer viewer rectangle
+stayed constant while its client height alternated between 896 and 881 pixels.
+The resize lifecycle treated this 15-pixel change at fixed scale as a full
+resize, hid the text layer, and scheduled a redundant raster/layer rebuild.
+
+A temporary, single-variable experiment in the running app kept text-layer
+opacity at 1 during the resize transition. The same four clicks then had zero
+missing-orange frames out of 59. The experiment was removed after capture.
+
+The source repair distinguishes a viewport-size change from a fit-scale change.
+At unchanged scale, with no pending scale-changing resize burst, it submits the
+semantic resize intent to the viewport authority. That controller retains the
+pending search destination and updates visible render demand. It does not hide
+or invalidate the already valid canvas and text layers. Existing scale-changing
+resize behavior and pending-burst ownership remain intact.
+
+Opt-in render tracing now records `resize-observer-render-decision`, including
+old/new client dimensions, whether scale changed, the pending navigation page,
+and whether existing layers are preserved. `resize-layer-visibility-transition`
+records each show/hide signal with its source and token. These join the existing
+navigation and render events in the same timestamped trace buffer.
+
+The strengthened Electron regression failed on the old source with three
+zero-orange compositor frames. With the fix, its fresh-process replay passed
+11 pointer selections. The ten monitored transitions retained orange in all
+67 captured compositor frames. Both full Electron suites then passed, on the
+supplied PDF and the generated 241-page document. The checks retain duplicate
+occurrence identity, hit testing, settled centering, and single-placement
+assertions.
+
+Both type checks, affected lint, 391 related unit tests across 37 files, and the
+dead-code and duplication gates passed. The existing workspace-host setup test
+now loads its compiled Vue dependency graph before timing the setup assertion;
+cold transform work had exceeded its five-second test timeout. CodeRabbit's
+initial review requested one stronger destination assertion, which was added to
+the scrollbar regression with a valid 383-page fixture model.
