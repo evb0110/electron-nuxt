@@ -1,5 +1,6 @@
 .fallow-dupes-baseline.json
   s_b412fd4cd3f576::t_f8a0b8b5fd8cae 40,42
+  s_b412fd4cd3f576::t_840f86fa732117 40,42
 scripts/checkZeroExecutionCoverage.ts
   s_3e4a192066773e::t_67530778a0412c 52
 tests/unit/app/composables/installNuxtStateTestStubs.ts
