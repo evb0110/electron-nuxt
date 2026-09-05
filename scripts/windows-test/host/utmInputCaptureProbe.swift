@@ -152,15 +152,24 @@ if (arguments.action == "release" || arguments.action == "restore") && before !=
 
 let after = checkboxValue(control) ?? -1
 let frontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
-if arguments.action == "restore" && frontmostPid == pid {
+if (arguments.action == "release" || arguments.action == "restore") && frontmostPid == pid {
     _ = hideApplication(pid)
 }
-let restoredFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+var restoredFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+if arguments.action == "release" || arguments.action == "restore" {
+    for _ in 0..<10 {
+        if restoredFrontmostPid != pid {
+            break
+        }
+        usleep(100_000)
+        restoredFrontmostPid = NSWorkspace.shared.frontmostApplication?.processIdentifier ?? -1
+    }
+}
 let output = ProbeResult(
     windowTitle: arguments.title,
     before: before,
     after: after,
-    frontmostPid: arguments.action == "restore" ? restoredFrontmostPid : frontmostPid,
+    frontmostPid: restoredFrontmostPid,
     utmPid: pid,
     action: arguments.action,
 )

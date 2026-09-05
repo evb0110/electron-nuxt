@@ -622,14 +622,11 @@ async function refreshReleaseData() {
 </script>
 
 <style scoped>
-.home-bottom {
-  flex-wrap: wrap;
-  gap: 1rem 2rem;
-}
-
+/* The credit hugs its own content so it sits flush against the footer's right
+   edge; growing it left a gap between the sentence and the edge. */
 .home-footer-acknowledgement {
-  flex: 1 1 28rem;
-  min-width: min(100%, 18rem);
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 @media (width <= 40rem) {

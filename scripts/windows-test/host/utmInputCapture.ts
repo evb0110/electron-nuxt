@@ -170,6 +170,9 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
         if (result.after !== 0) {
             throw new Error(`UTM Capture Input remained enabled for ${windowTitle} after the Command+Option release chord.`);
         }
+        if (result.frontmostPid === result.utmPid) {
+            throw new Error(`UTM remained focused for ${windowTitle} after the Capture Input check.`);
+        }
         await record('launch', result);
         return result;
     };
@@ -187,6 +190,9 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             const result = await runProbe(activeWindowTitle, 'restore');
             if (result.after !== 0) {
                 throw new Error(`UTM Capture Input remained enabled for ${activeWindowTitle} during cleanup.`);
+            }
+            if (result.frontmostPid === result.utmPid) {
+                throw new Error(`UTM remained focused for ${activeWindowTitle} during cleanup.`);
             }
             await record('cleanup', result);
         } catch (error) {
