@@ -37,7 +37,10 @@ import {
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
 import type {IWorkspaceExposeProbeWindow} from '@tests/e2e/electron/helpers/workspaceExpose';
-import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {
+    waitForPackagedCdpEndpoint,
+    waitForPackagedRendererPage,
+} from '@scripts/release/waitForPackagedCdpEndpoint';
 
 const STARTUP_TIMEOUT_MS = 90_000;
 const DETECTION_TIMEOUT_MS = 30 * 60_000;
@@ -812,12 +815,11 @@ async function run() {
             defaultViewport: null,
             protocolTimeout: CLEANUP_TIMEOUT_MS,
         });
-        const pages = await browser.pages();
-        const page = pages.find(candidate => candidate.url().startsWith('evb-viewer://app/'))
-            ?? pages.find(candidate => !candidate.isClosed());
-        if (!page) {
-            throw new Error('Packaged EVB Viewer exposed no renderer page');
-        }
+        const page = await waitForPackagedRendererPage(
+            browser,
+            STARTUP_TIMEOUT_MS,
+            'Packaged EVB Viewer',
+        );
         await installPageEvaluationShims(page);
         await openPdfInApp(page, sourceCopyPath, STARTUP_TIMEOUT_MS);
         await waitForPdfLoaded(page, STARTUP_TIMEOUT_MS);

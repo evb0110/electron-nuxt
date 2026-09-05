@@ -30,7 +30,10 @@ import {
     isProcessAlive,
     killProcessTree,
 } from '@scripts/electron-run/electronRunProcessTree';
-import {waitForPackagedCdpEndpoint} from '@scripts/release/waitForPackagedCdpEndpoint';
+import {
+    waitForPackagedCdpEndpoint,
+    waitForPackagedRendererPage,
+} from '@scripts/release/waitForPackagedCdpEndpoint';
 
 const STARTUP_TIMEOUT_MS = 75_000;
 const DELIVERY_TIMEOUT_MS = 30_000;
@@ -208,12 +211,7 @@ async function startSession(
             defaultViewport: null,
             protocolTimeout: 120_000,
         });
-        const pages = await browser.pages();
-        const page = pages.find(candidate => candidate.url().startsWith('evb-viewer://app/'))
-            ?? pages.find(candidate => !candidate.isClosed());
-        if (!page) {
-            throw new Error(`${name} exposed no renderer page`);
-        }
+        const page = await waitForPackagedRendererPage(browser, STARTUP_TIMEOUT_MS, name);
         await page.waitForFunction(() => {
             const canaryWindow = window as ICanaryWindow;
             return canaryWindow.__appReady === true
