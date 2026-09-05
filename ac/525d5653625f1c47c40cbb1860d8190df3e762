@@ -1,0 +1,36 @@
+scripts/release/build-receipt.mjs
+  s_b412fd4cd3f576::t_f7a882fc390c02 15,21-35
+  s_b412fd4cd3f576::t_dc1b6046d5807f 36-38
+scripts/build-electron.mjs
+  s_b412fd4cd3f576::t_d75e863e3bbcb9 11-13
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_b412fd4cd3f576::t_5f314aad033f5a 38,413-479,485-493
+electron/main.ts
+  s_b412fd4cd3f576::t_bb70232d305763 186
+server/utils/serverFailureReporter.ts
+  s_b412fd4cd3f576::t_4894c78412c42f 101-104,439
+tests/unit/electron/startupCrashMarker.test.ts
+  s_b412fd4cd3f576::t_0f14fcfeab8c96 403,423
+app/plugins/diagnosticsTransport.client.ts
+  s_b412fd4cd3f576::t_3055541a929fdf 9
+package.json
+  s_b412fd4cd3f576::t_6b33805daac7b4 28,145
+pnpm-lock.yaml
+  s_b412fd4cd3f576::t_27d9616726bd51 11657-11658
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ac525d5653625f1c47c40cbb1860d8190df3e762",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

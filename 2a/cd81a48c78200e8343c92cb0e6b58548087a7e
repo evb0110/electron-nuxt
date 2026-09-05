@@ -1,0 +1,25 @@
+app/types/electron.d.ts
+  s_52b85f52e159ef::t_848735bfc75af7 8,12-16
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_52b85f52e159ef::t_4ddbfbf080c9eb 1,7,15,83,455-468
+tests/unit/app/plugins/packagedDiagnosticsCanary.test.ts
+  s_52b85f52e159ef::t_2e89ffaf72ab82 1-94
+tests/unit/scripts/verifyPackagedDiagnosticsSmoke.test.ts
+  s_52b85f52e159ef::t_459ed8852df149 1-17
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2acd81a48c78200e8343c92cb0e6b58548087a7e",
+  "prompts": {},
+  "sessions": {
+    "s_52b85f52e159ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07029-1be2-7da2-bde1-2edc3d4abdca",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

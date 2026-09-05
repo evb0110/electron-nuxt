@@ -1,0 +1,19 @@
+electron/platform-ipc/coreContract.ts
+  s_0c808a1c79a8cb::t_3a830689661e2d 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "f57c16b86db07edeaf5704f8430aed54d8a9304a",
+  "prompts": {},
+  "sessions": {
+    "s_0c808a1c79a8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e75-4bed-7722-8420-a914585d293c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
