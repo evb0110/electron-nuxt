@@ -35,13 +35,98 @@ type TDatedReleaseAsset = IGithubReleaseAsset & {updated_at: TIsoTimestamp};
 const RELEASE_COHORT_COOKIE = 'evb_release_cohort';
 const RELEASE_COHORT_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
 const releaseCatalogLoader = createReleaseCatalogLoader<TPublishedGithubRelease[]>();
-const MIRROR_OMITTED_INSTALLER_PATTERNS = [
+// The core mirror is written and verified before a release is promoted, so
+// core installers always have a mirror copy. These two are built and mirrored
+// after promotion, and only the object itself can say whether that finished.
+const SUPPLEMENTAL_INSTALLER_PATTERNS = [
     /^EVB-Viewer-.+-x64\.zip$/u,
     /^EVB-Viewer-.+-arm64-setup\.exe$/u,
 ];
+const MIRROR_PROBE_TIMEOUT_MS = 2_000;
+// Mirror objects are immutable for as long as the tag stays in the retained
+// window, so a hit stays true; a miss is rechecked soon because the
+// supplemental workflow lands minutes after promotion.
+const MIRROR_PROBE_HIT_TTL_MS = 60 * 60_000;
+const MIRROR_PROBE_MISS_TTL_MS = 5 * 60_000;
+const MIRROR_PROBE_CACHE_LIMIT = 32;
+const mirrorProbeCache = new Map<string, {
+    available: boolean
+    checkedAt: number
+}>();
 
-function isPublishedToReleaseMirror(assetName: string) {
-    return !MIRROR_OMITTED_INSTALLER_PATTERNS.some(pattern => pattern.test(assetName));
+function isSupplementalInstaller(assetName: string) {
+    return SUPPLEMENTAL_INSTALLER_PATTERNS.some(pattern => pattern.test(assetName));
+}
+
+function readCachedMirrorProbe(url: string, now: number) {
+    const cached = mirrorProbeCache.get(url);
+    if (!cached) {
+        return null;
+    }
+    const ttlMs = cached.available ? MIRROR_PROBE_HIT_TTL_MS : MIRROR_PROBE_MISS_TTL_MS;
+    return now - cached.checkedAt <= ttlMs ? cached.available : null;
+}
+
+function recordMirrorProbe(url: string, available: boolean, now: number) {
+    if (mirrorProbeCache.size >= MIRROR_PROBE_CACHE_LIMIT) {
+        for (const [
+            cachedUrl,
+            entry,
+        ] of mirrorProbeCache) {
+            if (now - entry.checkedAt > MIRROR_PROBE_MISS_TTL_MS) {
+                mirrorProbeCache.delete(cachedUrl);
+            }
+        }
+        // Every entry is still fresh, so the limit only holds if the oldest
+        // one goes. Re-inserting below keeps the order by probe time.
+        const oldestUrl = mirrorProbeCache.keys().next().value;
+        if (mirrorProbeCache.size >= MIRROR_PROBE_CACHE_LIMIT && oldestUrl !== undefined) {
+            mirrorProbeCache.delete(oldestUrl);
+        }
+    }
+    mirrorProbeCache.delete(url);
+    mirrorProbeCache.set(url, {
+        available,
+        checkedAt: now,
+    });
+}
+
+async function isOnReleaseMirror(url: string) {
+    const now = Date.now();
+    const cached = readCachedMirrorProbe(url, now);
+    if (cached !== null) {
+        return cached;
+    }
+
+    let available = false;
+    try {
+        const response = await fetch(url, {
+            method: 'HEAD',
+            signal: AbortSignal.timeout(MIRROR_PROBE_TIMEOUT_MS),
+        });
+        available = response.ok;
+    } catch (error) {
+        // A mirror that cannot answer costs the visitor nothing: the GitHub
+        // download link is always rendered next to it.
+        console.warn('Unable to probe the release mirror', {
+            message: error instanceof Error ? error.message : String(error),
+            outcome: 'mirror-link-omitted',
+            url,
+        });
+    }
+    recordMirrorProbe(url, available, now);
+    return available;
+}
+
+async function resolveMirrorDownloadUrl(tag: string, assetName: string, mirrorBaseUrl: string) {
+    if (!mirrorBaseUrl) {
+        return null;
+    }
+    const url = `${mirrorBaseUrl}/${encodeURIComponent(tag)}/${encodeURIComponent(assetName)}`;
+    if (!isSupplementalInstaller(assetName)) {
+        return url;
+    }
+    return await isOnReleaseMirror(url) ? url : null;
 }
 
 function parseHttpsUrl(value: string): string | null {
@@ -88,17 +173,18 @@ function isPublishedGithubRelease(release: IGithubRelease): release is TPublishe
     return isIsoTimestamp(release.published_at);
 }
 
-function toInstallers(release: IGithubRelease, mirrorBaseUrl: string): IReleaseInstaller[] {
-    const installers = (release.assets ?? [])
+async function toInstallers(release: IGithubRelease, mirrorBaseUrl: string) {
+    const installers = await Promise.all((release.assets ?? [])
         .filter((asset): asset is TDatedReleaseAsset => isInstallerAsset(asset.name)
             && parseHttpsUrl(asset.browser_download_url) !== null
             && isIsoTimestamp(asset.updated_at))
-        .map<IReleaseInstaller>((asset) => {
-            const mirrorDownloadUrl = mirrorBaseUrl
-                && isPublishedToReleaseMirror(asset.name)
-                ? `${mirrorBaseUrl}/${encodeURIComponent(release.tag_name)}/${encodeURIComponent(asset.name)}`
-                : null;
-            return {
+        .map(async (asset) => {
+            const mirrorDownloadUrl = await resolveMirrorDownloadUrl(
+                release.tag_name,
+                asset.name,
+                mirrorBaseUrl,
+            );
+            const installer: IReleaseInstaller = {
                 id: asset.id,
                 name: asset.name,
                 downloadUrl: asset.browser_download_url,
@@ -111,7 +197,8 @@ function toInstallers(release: IGithubRelease, mirrorBaseUrl: string): IReleaseI
                 arch: detectArchitecture(asset.name),
                 isLegacy: isLegacyInstallerAsset(asset.name),
             };
-        });
+            return installer;
+        }));
 
     return normalizeInstallers(installers);
 }
@@ -230,7 +317,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
                 : 'No public release is currently available',
         });
     }
-    const installers = toInstallers(release, releaseMirrorBaseUrl);
+    const installers = await toInstallers(release, releaseMirrorBaseUrl);
 
     if (catalogResult.stale) {
         setHeader(event, 'x-evb-release-catalog', 'stale');

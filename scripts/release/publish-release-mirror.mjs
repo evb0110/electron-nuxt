@@ -68,6 +68,7 @@ const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
 /** @typedef {{body: string, etag?: string | undefined, sha256: string, size: number, tag: string}} IStableChannel */
 /** @typedef {{Key?: string | undefined}} IMirrorObject */
 /** @typedef {{artifactDirectory?: string | undefined, drill?: boolean | undefined, releaseTag?: string | undefined, publishChannel?: boolean | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishMirrorOptions */
+/** @typedef {{drill?: boolean | undefined, files?: string[] | undefined, releaseTag?: string | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishSupplementalMirrorOptions */
 /** @typedef {{environment?: NodeJS.ProcessEnv | undefined, prefix?: string | undefined, client?: TMirrorClient | undefined}} ICleanupMirrorOptions */
 /** @typedef {{[Symbol.asyncIterator]?: () => AsyncIterator<unknown>, transformToByteArray?: () => Promise<Uint8Array>, transformToString?: () => Promise<string>}} IMirrorBody */
 /** @typedef {{[Symbol.asyncIterator]: () => AsyncIterator<unknown>}} IAsyncMirrorBody */
@@ -124,30 +125,14 @@ export async function publishReleaseMirror({
             continue;
         }
 
-        const sha256 = await hashFile(filePath);
-        const key = `${mirrorPaths.releasePrefix}${releaseTag}/${name}`;
-        const existingState = await immutableUploadState(client, bucket, key, fileStat.size, sha256);
-        if (existingState === 'match') {
-            console.log(`Already verified ${name} (${fileStat.size} bytes)`);
-        } else if (existingState === 'mismatch') {
-            throw new Error(`Immutable mirror object mismatch for ${key}`);
-        } else {
-            console.log(`Uploading ${name} (${fileStat.size} bytes)`);
-            await putImmutableFile(client, bucket, key, {
-                filePath,
-                name,
-                sha256,
-                size: fileStat.size,
-            }, {
-                partBytes,
-                retryDelayMs: uploadRetryDelayMs,
-            });
-        }
-        assets.push({
+        assets.push(await mirrorImmutableAsset(client, bucket, `${mirrorPaths.releasePrefix}${releaseTag}/${name}`, {
+            filePath,
             name,
             size: fileStat.size,
-            sha256,
-        });
+        }, {
+            partBytes,
+            retryDelayMs: uploadRetryDelayMs,
+        }));
     }
 
     if (assets.length === 0) {
@@ -231,6 +216,80 @@ export async function publishReleaseMirror({
         assets,
         manifest,
         prunedTags,
+    };
+}
+
+// Supplemental installers are built and attached after promotion, so they can
+// never join the immutable manifest or the channel body a repair run has to
+// reproduce byte for byte. They are mirrored as ordinary objects under the
+// release prefix instead, and a client learns they are there by asking for
+// them: a missing object answers 404 and costs the caller nothing.
+/** @param {IPublishSupplementalMirrorOptions} options @returns {Promise<{assets: IMirrorAsset[], skipped: boolean}>} */
+export async function publishSupplementalMirrorAssets({
+    drill = false,
+    files,
+    releaseTag,
+    environment = process.env,
+    client: providedClient,
+    uploadRetryDelayMs = 5_000,
+    partBytes = MULTIPART_PART_BYTES,
+}) {
+    if (!releaseTag || !files || files.length === 0) {
+        throw new Error('Usage: publish-release-mirror.mjs supplemental <release-tag> <file...>');
+    }
+    const mirrorPaths = resolveMirrorPaths(environment, {drill});
+    const releaseTagPattern = drill ? DRILL_TAG_PATTERN : RELEASE_TAG_PATTERN;
+    if (!releaseTagPattern.test(releaseTag)) {
+        throw new Error(`Invalid release tag: ${releaseTag}`);
+    }
+
+    const releaseVersion = releaseTag.slice(1);
+    for (const filePath of files) {
+        const name = basename(filePath);
+        if (!isSupplementalReleaseAsset(name, releaseVersion)) {
+            throw new Error(`Refusing to mirror ${name} outside the immutable core manifest of ${releaseTag}`);
+        }
+    }
+
+    const {
+        bucket,
+        client,
+    } = createMirrorClient(environment, providedClient);
+    const tagPrefix = `${mirrorPaths.releasePrefix}${releaseTag}/`;
+
+    // The mirror keeps only the retained window. Without the core manifest the
+    // tag was never mirrored or has already been pruned, and a lone
+    // supplemental object would be unreachable weight in the bucket.
+    if (!await objectExists(client, bucket, `${tagPrefix}manifest.json`)) {
+        console.log(`No core mirror manifest for ${releaseTag}; leaving its supplemental assets on GitHub only.`);
+        return {
+            assets: [],
+            skipped: true,
+        };
+    }
+
+    const assets = [];
+    for (const filePath of files) {
+        const name = basename(filePath);
+        const fileStat = await stat(filePath);
+        if (!fileStat.isFile()) {
+            throw new Error(`Supplemental mirror asset is not a file: ${filePath}`);
+        }
+
+        assets.push(await mirrorImmutableAsset(client, bucket, `${tagPrefix}${name}`, {
+            filePath,
+            name,
+            size: fileStat.size,
+        }, {
+            partBytes,
+            retryDelayMs: uploadRetryDelayMs,
+        }));
+    }
+
+    console.log(`Mirrored ${assets.length} supplemental asset${assets.length === 1 ? '' : 's'} for ${releaseTag}`);
+    return {
+        assets,
+        skipped: false,
     };
 }
 
@@ -394,26 +453,59 @@ async function hashObjectBody(body) {
     };
 }
 
-/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<'match' | 'mismatch' | 'missing'>} */
-async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256) {
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @returns {Promise<boolean>} */
+async function objectExists(client, bucket, key) {
     try {
         const result = await client.send(new HeadObjectCommand({
             Bucket: bucket,
             Key: key,
         }));
-        if (result.$metadata?.httpStatusCode === 404 || result.ContentLength === undefined) {
-            return 'missing';
-        }
-        return await objectMatches(client, bucket, key, expectedSize, expectedSha256)
-            ? 'match'
-            : 'mismatch';
+        return result.$metadata?.httpStatusCode !== 404 && result.ContentLength !== undefined;
     } catch (error) {
         if (isMirrorError(error)
             && (error.$metadata?.httpStatusCode === 404 || error.name === 'NotFound')) {
-            return 'missing';
+            return false;
         }
         throw error;
     }
+}
+
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<'match' | 'mismatch' | 'missing'>} */
+async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256) {
+    if (!await objectExists(client, bucket, key)) {
+        return 'missing';
+    }
+    return await objectMatches(client, bucket, key, expectedSize, expectedSha256)
+        ? 'match'
+        : 'mismatch';
+}
+
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, size: number}} file @param {{partBytes: number, retryDelayMs: number}} upload @returns {Promise<IMirrorAsset>} */
+async function mirrorImmutableAsset(client, bucket, key, {
+    filePath,
+    name,
+    size,
+}, upload) {
+    const sha256 = await hashFile(filePath);
+    const existingState = await immutableUploadState(client, bucket, key, size, sha256);
+    if (existingState === 'match') {
+        console.log(`Already verified ${name} (${size} bytes)`);
+    } else if (existingState === 'mismatch') {
+        throw new Error(`Immutable mirror object mismatch for ${key}`);
+    } else {
+        console.log(`Uploading ${name} (${size} bytes)`);
+        await putImmutableFile(client, bucket, key, {
+            filePath,
+            name,
+            sha256,
+            size,
+        }, upload);
+    }
+    return {
+        name,
+        size,
+        sha256,
+    };
 }
 
 /** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {() => Promise<unknown>} upload @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<void>} */
@@ -944,6 +1036,22 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
             throw new Error('Usage: publish-release-mirror.mjs cleanup <evb-viewer/drill/.../>');
         }
         await cleanupMirrorPrefix({prefix: args[1]});
+    } else if (args[0] === 'supplemental') {
+        const [
+            ,
+            releaseTag,
+            ...rest
+        ] = args;
+        const files = rest.filter(argument => argument !== '--drill');
+        const unknownMode = files.find(argument => argument.startsWith('--'));
+        if (unknownMode) {
+            throw new Error(`Unknown supplemental mirror mode: ${unknownMode}`);
+        }
+        await publishSupplementalMirrorAssets({
+            drill: rest.includes('--drill'),
+            files,
+            releaseTag,
+        });
     } else {
         const [
             artifactDirectory,

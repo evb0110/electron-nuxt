@@ -1247,6 +1247,7 @@ describe('CI topology policy', () => {
             'publish_store',
             'attach_win_arm64',
             'attach_mac_intel',
+            'mirror_supplemental',
             'summary',
         ]) {
             expect(parseWorkflowJobs(supplementalWorkflow)[jobName], `missing supplemental job ${jobName}`).toBeDefined();
@@ -1275,6 +1276,16 @@ describe('CI topology policy', () => {
         expect(workflowJob(supplementalWorkflow, 'attach_mac_intel')).toContain('needs.resolve.outputs.existing_mac_x64 == \'true\'');
         expect(workflowJob(supplementalWorkflow, 'attach_win_arm64')).toContain('needs.resolve.outputs.existing_win_arm64 == \'true\'');
         expect(workflowJob(supplementalWorkflow, 'summary')).toContain('$GITHUB_STEP_SUMMARY');
+        // Supplemental bytes reach the mirror only after they are attached,
+        // and only as plain objects: the immutable manifest and the stable
+        // channel belong to the promoted core release.
+        const mirrorSupplementalJob = workflowJob(supplementalWorkflow, 'mirror_supplemental');
+        expect(mirrorSupplementalJob).toContain('environment: release');
+        expect(mirrorSupplementalJob).toContain('- attach_win_arm64');
+        expect(mirrorSupplementalJob).toContain('- attach_mac_intel');
+        expect(mirrorSupplementalJob).toContain('MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}');
+        expect(mirrorSupplementalJob).toContain('MIRROR_CHANNEL_KEY: ${{ inputs.channel_key }}');
+        expect(mirrorSupplementalJob).toContain('node scripts/release/publish-release-mirror.mjs supplemental "${args[@]}"');
 
         const drillWorkflow = await readProjectFile('.github/workflows/release-drill.yml');
         expectAcyclicNeedsGraph(drillWorkflow, 'release-drill.yml');
@@ -1294,6 +1305,16 @@ describe('CI topology policy', () => {
         const supplementalRedispatchDrillJob = workflowJob(drillWorkflow, 'supplemental_redispatch_drill');
         expect(supplementalRedispatchDrillJob).toContain('needs: supplemental_drill');
         expect(supplementalRedispatchDrillJob).toContain('drill: true');
+        // The drill mirrors its supplemental stubs into the run's own prefix,
+        // after the chain has staged the core objects they sit beside.
+        expect(supplementalDrillJob).toContain('- chain');
+        for (const job of [
+            supplementalDrillJob,
+            supplementalRedispatchDrillJob,
+        ]) {
+            expect(job).toContain('mirror_prefix: evb-viewer/drill/${{ github.run_id }}/releases/');
+            expect(job).toContain('channel_key: evb-viewer/drill/${{ github.run_id }}/channels/stable.json');
+        }
         const cleanupJob = workflowJob(drillWorkflow, 'cleanup');
         expect(cleanupJob).toContain('- supplemental_redispatch_drill');
         expect(cleanupJob).toContain('if: ${{ always() }}');

@@ -100,8 +100,9 @@ To withdraw a bad release, add its tag to `NUXT_RELEASE_WITHDRAWN_TAGS`, put the
 
 - The release and artifact-only commands stop after the dispatched GitHub workflow run is visible; GitHub owns the remote matrix from that point.
 - If GitHub takes longer than usual to surface a just-dispatched run, set `EVB_GITHUB_WORKFLOW_START_TIMEOUT_MS` to a larger positive integer.
-- The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
+- The publish-chain jobs (draft, checksums, mirror, promote, Intel attach, Windows ARM64 attach, supplemental mirror) execute only during release runs. Latent defects there surface at release time by construction; the same-SHA repair path (re-run failed jobs, or re-dispatch the same tag and target) is the designed, proven recovery.
 - Mirror transfers are bounded. The publisher uploads every artifact above 8 MiB as a multipart upload with 8 MiB parts, four parts in flight, and one HTTP request per part, so a stalled connection costs one part's request timeout (2 minutes) instead of a whole installer. The S3 client also aborts a socket that carries no bytes for 60 seconds, the publisher retries each artifact up to three times after aborting the failed multipart upload, and every publish-chain job declares `timeout-minutes` (finalize 20, mirror 40, promote 40, which covers its own three bounded activation attempts). A stalled upload fails within minutes and is repaired by re-running the failed jobs; it no longer holds the global release concurrency group for GitHub's six-hour job limit. Every drill seeds one asset larger than two parts, so the release drill proves the multipart path against the real bucket. The bucket needs a lifecycle rule that aborts incomplete multipart uploads (Yandex `AbortIncompleteMultipartUpload`, one day) because an aborted publisher process cannot clean up after itself.
+- Supplemental assets reach the mirror without joining the immutable core set. `publish-release-mirror.mjs supplemental` writes the macOS Intel ZIP, the Windows ARM64 installer, and its provenance as plain objects under the release prefix once they are attached, and refuses any name outside that set. `manifest.json` and the stable channel keep exactly the bytes promotion verified, so a same-tag repair run still reproduces them byte for byte. The upload is skipped when the tag has no core manifest, because the mirror keeps four releases and an object under a pruned tag is unreachable weight. The landing page asks the mirror for each supplemental installer rather than assuming coverage, so a release cut before this lane existed, or one whose supplemental workflow failed, offers its GitHub link alone.
 - The daily artifact canary treats the Windows 7 legacy lane as advisory (`continue-on-error: true`). That lane pins Electron 22, which cannot load the ESM main bundle, so its installer never starts and its packaged smoke fails by construction. The lane is never published; a red canary must mean a failure in the mac Intel, Windows ARM64, or Store AppX lanes that do ship.
 
 ## Deferred by evidence
@@ -131,6 +132,8 @@ draft and the complete drill prefix even when an earlier job fails.
 
 The drill uploads deterministic core assets, runs checksum finalization,
 mirror staging, and draft verification, then runs the same Intel and Windows
-ARM64 attachment code with small stub files. Attestation is skipped for drill
-files. A production release still uses the stable `vX.Y.Z` tag grammar, the
+ARM64 attachment code with small stub files and mirrors those stubs into the
+run's own prefix. Attestation is skipped for drill files. The supplemental
+lanes wait for the chain because a supplemental mirror copy is only written
+next to a core manifest that already exists. A production release still uses the stable `vX.Y.Z` tag grammar, the
 production mirror prefix, and GitHub release promotion.
