@@ -66,7 +66,7 @@ export const useTypedI18n = () => {
     const composer = useI18n();
     const typedComposer = createTypedI18nComposer<typeof composer, typeof composer.t, TLocale>(composer);
     const locale = computed<TLocale>(() => (
-        typeof composer.locale.value === 'string'
+        typeof composer.locale?.value === 'string'
             && isSupportedLocale(composer.locale.value)
             ? composer.locale.value
             : DEFAULT_LOCALE

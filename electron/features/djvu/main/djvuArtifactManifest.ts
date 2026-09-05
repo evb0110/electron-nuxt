@@ -201,7 +201,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
         }
         void checkNow().catch(() => undefined);
     }, options.intervalMs ?? DJVU_QUOTA_MONITOR_INTERVAL_MS);
-    timer.unref();
+    timer.unref?.();
 
     return {
         signal,

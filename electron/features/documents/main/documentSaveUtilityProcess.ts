@@ -104,7 +104,7 @@ function cancelActiveValidationGroups() {
 process.once('SIGTERM', () => {
     cancelActiveValidationGroups();
     const exitTimer = setTimeout(() => process.exit(143), 2_500);
-    exitTimer.unref();
+    exitTimer.unref?.();
 });
 
 async function runValidationCommand(

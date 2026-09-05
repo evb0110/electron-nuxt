@@ -58,7 +58,7 @@ function normalizePageTextNodes(textNodes: Text[]): INormalizedPageText {
     };
 
     textNodes.forEach((node, nodeIndex) => {
-        const rawText = node.textContent;
+        const rawText = node.textContent ?? '';
         if (!rawText) {
             return;
         }

@@ -145,7 +145,7 @@ async function runTaskkill(pid: number, force: boolean, timeoutMs: number) {
             killTaskkillHelper(child);
             settle(false);
         }, Math.max(0, timeoutMs));
-        timeoutHandle.unref();
+        timeoutHandle.unref?.();
 
         child.once('error', () => settle(false));
         child.once('close', exitCode => settle(exitCode === 0));

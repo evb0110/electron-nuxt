@@ -396,7 +396,7 @@ function enqueueWrite(
         state.flushTimer = null;
         void flushState(logFile, state);
     }, LOG_WRITE_FLUSH_INTERVAL_MS);
-    state.flushTimer.unref();
+    state.flushTimer.unref?.();
 }
 
 /**

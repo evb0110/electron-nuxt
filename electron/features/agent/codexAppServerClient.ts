@@ -304,7 +304,7 @@ export class CodexAppServerClient {
                 this.closePromise.then(() => true),
                 new Promise<boolean>(resolve => {
                     timeoutHandle = setTimeout(() => resolve(false), timeoutMs);
-                    timeoutHandle.unref();
+                    timeoutHandle.unref?.();
                 }),
             ]);
         } finally {

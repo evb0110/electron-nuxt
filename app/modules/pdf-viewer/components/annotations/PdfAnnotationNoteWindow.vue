@@ -158,7 +158,7 @@ const authorText = computed(() => {
     if (commentAuthor) {
         return commentAuthor;
     }
-    const settingsAuthor = settings.value.authorName.trim();
+    const settingsAuthor = settings.value.authorName?.trim();
     return settingsAuthor && settingsAuthor.length > 0
         ? settingsAuthor
         : t('noteWindow.unknownAuthor');

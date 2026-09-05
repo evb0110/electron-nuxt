@@ -73,9 +73,9 @@ export const useDocumentWorkspaceLifecycle = (options: {
 }) => {
     let unsubscribeOptimizeProgress: (() => void) | null = null;
     onMounted(() => {
-        unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress((progress) => {
+        unsubscribeOptimizeProgress = getDocumentMenuCapability().onPdfOptimizeProgress?.((progress) => {
             options.handleOptimizeProgress(progress);
-        });
+        }) ?? null;
         options.emit('expose-ready', options.workspaceExpose);
     });
     onBeforeUnmount(() => {

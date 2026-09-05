@@ -126,7 +126,7 @@ export function attachNativeWindowCloseHandshake(
                 `[window-close] Renderer close handshake timed out after ${timeoutMs}ms; keeping the window open (windowId=${window.id})`,
             );
         }, timeoutMs);
-        pendingTimeout.unref();
+        pendingTimeout.unref?.();
 
         try {
             window.webContents.send(CORE_IPC_EVENT_CHANNELS.windowCloseRequest, {requestId});

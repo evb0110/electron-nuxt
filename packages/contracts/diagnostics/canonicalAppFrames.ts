@@ -138,7 +138,7 @@ function isTrustedOriginHost(hostname: string) {
         return true;
     }
     try {
-        return globalThis.location.hostname.toLowerCase() === normalized;
+        return globalThis.location?.hostname?.toLowerCase() === normalized;
     } catch {
         return false;
     }

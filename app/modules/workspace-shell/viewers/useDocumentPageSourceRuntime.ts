@@ -588,7 +588,7 @@ export const useDocumentPageSourceRuntime = (options: {
             return null;
         }
         const snapshot = authority.openSurface.snapshot.value;
-        const frame = snapshot.openingPageFrame;
+        const frame = snapshot?.openingPageFrame;
         if (!frame) {
             return null;
         }

@@ -542,7 +542,7 @@ function getRetainedTextBytes(entry: ICachedIndex) {
         return cachedTextBytes;
     }
     const textBytes = entry.index.pages.reduce(
-        (total, page) => total + Buffer.byteLength(page.text, 'utf8'),
+        (total, page) => total + Buffer.byteLength(page.text ?? '', 'utf8'),
         0,
     );
     retainedTextBytesByIndex.set(entry.index, textBytes);

@@ -161,7 +161,7 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
         claim.timeout = setTimeout(() => {
             requeue(sender, 'claim timeout');
         }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
-        claim.timeout.unref();
+        claim.timeout.unref?.();
         claimsBySender.set(sender, claim);
     }
 

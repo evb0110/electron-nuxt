@@ -653,7 +653,7 @@ function createPdfFromInputPathsWorker(
             terminateWorker();
             reject(new Error(`Image combine worker timed out after ${PDF_COMBINE_WORKER_TIMEOUT_MS}ms`));
         }, PDF_COMBINE_WORKER_TIMEOUT_MS);
-        timeoutHandle.unref();
+        timeoutHandle.unref?.();
     });
 }
 

@@ -104,7 +104,7 @@ function runPdfPrintLayoutUtility(
         const timeout = setTimeout(() => {
             void finish(new Error('PDF print layout preparation timed out'));
         }, PDF_PRINT_LAYOUT_TIMEOUT_MS);
-        timeout.unref();
+        timeout.unref?.();
         options.signal?.addEventListener('abort', abort, {once: true});
         child.once('spawn', () => child.postMessage({
             inputPath: options.inputPath,

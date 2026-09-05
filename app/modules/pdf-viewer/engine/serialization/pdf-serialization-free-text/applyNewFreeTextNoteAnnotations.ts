@@ -107,7 +107,7 @@ function getReplayableNewFreeTextNoteDisambiguatedName(
         comment.pageIndex,
         createdAt ?? '',
         markerPart,
-        comment.text,
+        comment.text ?? '',
     ].join('|');
     return `${baseName}:new:${hashReplayableNoteNamePart(stablePart)}`;
 }
@@ -223,7 +223,7 @@ function findExistingReplayableNewFreeTextNote(
 
         const existingNoteName = getPdfStringValue(dict.get(nameKey));
         if (
-            existingNoteName.startsWith(replayedNoteNamePrefix)
+            existingNoteName?.startsWith(replayedNoteNamePrefix)
             && existingNoteName !== noteName
         ) {
             continue;
@@ -339,7 +339,7 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
                 F: PDFNumber.of(4),
             });
             annotDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
-            annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text));
+            annotDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
             annotDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
             annotDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author ?? ''));
             annotDict.set(PDFName.of('AP'), doc.context.obj({ N: blankApRef }));
@@ -360,7 +360,7 @@ export function applyNewFreeTextNoteAnnotations(doc: PDFDocument, comments: IAnn
                 });
             popupDict.set(PDFName.of('Parent'), annotRef);
             popupDict.set(PDFName.of('Rect'), toPdfRectArray(doc, pdfRect));
-            popupDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text));
+            popupDict.set(PDFName.of('Contents'), PDFHexString.fromText(comment.text ?? ''));
             popupDict.set(PDFName.of('M'), PDFString.of(modifiedAt));
             popupDict.set(PDFName.of('T'), PDFHexString.fromText(comment.author ?? ''));
             const popupRef = existingPopupRef ?? doc.context.register(popupDict);

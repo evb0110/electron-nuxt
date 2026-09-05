@@ -261,7 +261,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: async () => {
-            await previewResult.pauseForRun();
+            await previewResult?.pauseForRun();
             await options.beforeRun?.();
         },
         detectionError: detection.error,
@@ -306,7 +306,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const runPreviewRefreshPages = new Set<number>();
     watch(run.isRunning, (running, wasRunning) => {
         if (wasRunning && !running) {
-            previewResult.schedule();
+            previewResult?.schedule();
         }
     });
     watch([
@@ -326,8 +326,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             return;
         }
         runPreviewRefreshPages.add(pageNumber);
-        if (!previewResult.resultCurrent.value) {
-            previewResult.schedule();
+        if (!previewResult?.resultCurrent.value) {
+            previewResult?.schedule();
         }
     });
     // Preview has its own immediate activity watcher. Detection is a main-side

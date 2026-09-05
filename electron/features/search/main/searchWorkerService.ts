@@ -514,7 +514,7 @@ export class SearchWorkerService {
                 request.reject(error);
             }
         }, SEARCH_REQUEST_TIMEOUT_MS);
-        timeout.unref();
+        timeout.unref?.();
         try {
             return await request.settlement;
         } finally {
@@ -582,7 +582,7 @@ export class SearchWorkerService {
                 shutdownWorker: true,
             });
         }, workerIdleTtlMs);
-        state.idleCleanupTimer.unref();
+        state.idleCleanupTimer.unref?.();
         log.debug(
             `Search worker lifecycle: sender ${state.senderId} scheduled idle cleanup in ${
                 workerIdleTtlMs
@@ -658,7 +658,7 @@ export class SearchWorkerService {
                 shutdownWorker: true,
             });
         }, SEARCH_CANCEL_ACK_TIMEOUT_MS);
-        request.cancellationFallbackTimeout.unref();
+        request.cancellationFallbackTimeout.unref?.();
     }
 
     private postCancelMessagesForRequests(state: ISenderSearchState) {
@@ -694,7 +694,7 @@ export class SearchWorkerService {
                 worker.removeListener('exit', handleExit);
                 resolve(false);
             }, timeoutMs);
-            timeout.unref();
+            timeout.unref?.();
             worker.once('exit', handleExit);
         });
     }

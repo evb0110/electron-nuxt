@@ -75,7 +75,7 @@ export async function exportTextAsDocx(params: {
         if (!params.workingCopyPath) {
             return false;
         }
-        const workingPath = params.workingCopyPath;
+        const workingPath = params.workingCopyPath ?? '';
         const outPath = await documentFiles.saveDocxAs(workingPath);
         if (!outPath) {
             return false;

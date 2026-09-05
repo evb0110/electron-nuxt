@@ -60,10 +60,6 @@ jobs:
     if: ${{ github.event_name == 'pull_request' || github.event_name == 'push' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      # The repository-wide ESLint pass exceeds Node's runner default heap on a
-      # cold cache. Keep the limit explicit so CI does not fail before linting.
-      NODE_OPTIONS: --max-old-space-size=8192
 
     steps:
       - name: Checkout

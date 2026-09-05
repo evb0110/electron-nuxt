@@ -529,7 +529,7 @@ export async function beginPdfEmbeddedShapeIndex(
     filePath: TDocumentRef,
     options: IPdfEmbeddedShapeIndexOptions,
 ): Promise<IPdfEmbeddedShapeIndexSession> {
-    const expectedRevisionToken = parseDocumentRevisionToken(options.expectedDocumentRevisionToken);
+    const expectedRevisionToken = parseDocumentRevisionToken(options?.expectedDocumentRevisionToken);
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required to build an embedded shape index');
     }
@@ -797,4 +797,4 @@ const shapeIndexTtlTimer = setInterval(() => {
         logger.debug(`Embedded shape index TTL sweep failed: ${String(error)}`);
     });
 }, 30_000);
-shapeIndexTtlTimer.unref();
+shapeIndexTtlTimer.unref?.();

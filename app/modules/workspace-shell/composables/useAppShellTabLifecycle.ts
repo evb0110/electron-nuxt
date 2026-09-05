@@ -210,7 +210,7 @@ export const useAppShellTabLifecycle = (
     }
 
     function getDocumentSession(tabId: string | null | undefined) {
-        return tabId ? documentSessionsByTabId.value[tabId] ?? null : null;
+        return tabId ? documentSessionsByTabId?.value[tabId] ?? null : null;
     }
 
     function recordHasCloseableDocument(tabId: string | null | undefined) {

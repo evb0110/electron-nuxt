@@ -37,7 +37,7 @@ export function usesScanCleanupInkAlignment(options: IScanCleanupOptions) {
             || Object.values(options.pageOverrideDefaults?.placementOverrides ?? {})
                 .some(alignment => alignment === 'ink')
             || Object.values(options.pageOverrides).some(override => Object
-                .values(override.placementOverrides ?? {})
+                .values(override?.placementOverrides ?? {})
                 .some(alignment => alignment === 'ink')));
 }
 

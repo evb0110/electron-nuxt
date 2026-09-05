@@ -1447,7 +1447,7 @@ fileLifecycle.bindWorkspaceProjection({
     pendingDocumentPath: computed(() => pendingDocumentPath),
     toolbarSnapshot: workspaceToolbarSnapshot,
     currentViewState: computed(() => {
-        const retainedState = documentSession.snapshot.value.viewState;
+        const retainedState = documentSession.snapshot.value.viewState ?? initialViewState;
         return {
             ...retainedState,
             surfaceMode: surfaceMode.value,

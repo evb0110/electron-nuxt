@@ -38,7 +38,7 @@ export function getImagePlacementResizeCursorStyle(
     handle: TImagePlacementResizeHandle,
     rotationDegrees: number,
 ) {
-    const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle];
+    const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle] ?? 0;
     const normalizedAngle = ((handleAngle + rotationDegrees) % 360 + 360) % 360;
     const fallbackCursor = getImagePlacementResizeCursor(handle, rotationDegrees);
 

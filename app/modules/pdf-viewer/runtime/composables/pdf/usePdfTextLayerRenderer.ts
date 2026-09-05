@@ -355,16 +355,16 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function isTextLayerRendering(textLayerDiv: HTMLElement) {
-        return textLayerDiv.dataset.pdfTextLayerRendering === 'true';
+        return textLayerDiv.dataset?.pdfTextLayerRendering === 'true';
     }
 
     function isTextLayerMarkedReady(textLayerDiv: HTMLElement) {
-        return textLayerDiv.dataset.pdfTextLayerReady === 'true';
+        return textLayerDiv.dataset?.pdfTextLayerReady === 'true';
     }
 
     function hasSearchableTextLayerContent(textLayerDiv: HTMLElement) {
-        const textLength = textLayerDiv.textContent.trim().length;
-        return textLength > 0 && Boolean(textLayerDiv.querySelector('span'));
+        const textLength = (textLayerDiv.textContent ?? '').trim().length;
+        return textLength > 0 && Boolean(textLayerDiv.querySelector?.('span'));
     }
 
     function shouldWaitForSearchTextLayer(textLayerDiv: HTMLElement, pageMatchData: IPdfPageMatches | null) {
@@ -981,7 +981,7 @@ export const usePdfTextLayerRenderer = (deps: {
             );
             return false;
         }
-        const pageMatchData = toValue(deps.searchPageMatches).get(pageIndex) ?? null;
+        const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
         refreshSearchHighlightsForPage(
             targetContainer,
             pageIndexToPageNumber(pageIndex),

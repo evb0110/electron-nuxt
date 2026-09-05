@@ -190,7 +190,7 @@ onMounted(() => {
     }) ?? null;
 });
 const showInitialSurfacePlaceholder = computed(() => isActive.value && isLoading.value && !viewerError.value);
-const dragMode = computed(() => dragModeProp);
+const dragMode = computed(() => dragModeProp ?? false);
 const totalPages = computed(() => pageGeometry.value?.pageCount ?? 0);
 let activeSource: IPagePreviewSource | null = null;
 let boundPageSource: IDocumentPageSource | null = null;

@@ -65,7 +65,7 @@ async function readCurrentEvbGenerations(
             index += count;
         }
     } finally {
-        await catalog.close();
+        await catalog.close?.();
     }
     return generations;
 }

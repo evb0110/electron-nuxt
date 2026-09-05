@@ -237,7 +237,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
             pointerX: event.clientX,
             pointerY: event.clientY,
         };
-        options.surface.value?.setPointerCapture(event.pointerId);
+        options.surface.value?.setPointerCapture?.(event.pointerId);
         event.preventDefault();
     }
 
@@ -258,7 +258,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
             return;
         }
         const surface = options.surface.value;
-        if (surface?.hasPointerCapture(event.pointerId)) {
+        if (surface?.hasPointerCapture?.(event.pointerId)) {
             surface.releasePointerCapture(event.pointerId);
         }
         panGesture.value = null;
@@ -282,7 +282,7 @@ export const useScanCleanupPreviewZoom = (options: IUseScanCleanupPreviewZoomOpt
             return;
         }
         const surface = options.surface.value;
-        if (surface?.hasPointerCapture(gesture.pointerId)) {
+        if (surface?.hasPointerCapture?.(gesture.pointerId)) {
             surface.releasePointerCapture(gesture.pointerId);
         }
         panGesture.value = null;

@@ -105,7 +105,7 @@ const {
     capabilitiesReady: computed(() => props.source !== null),
     preferredTab: activeTab,
 });
-const isActive = computed(() => props.isActive);
+const isActive = computed(() => props.isActive ?? true);
 watch(
     availableTabs,
     tabs => emit('update:availableTabs', [...tabs]),

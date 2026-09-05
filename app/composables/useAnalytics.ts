@@ -368,7 +368,7 @@ function mergeScopedDocumentContext(
 
 export const useAnalytics = () => {
     const runtimeConfig = useRuntimeConfig();
-    const enabledFlag = runtimeConfig.public.analyticsEnabled ?? false;
+    const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
     retainAnalyticsLifecycle(enabledFlag);
     if (!tryOnScopeDispose(() => {
         releaseAnalyticsLifecycle();

@@ -132,17 +132,17 @@ export const useWorkspaceDocumentLifecycleEffects = (options: IWorkspaceDocument
         }
     }, {immediate: true});
 
-    const unsubscribeDocumentRevision = documentFiles.onDocumentRevisionChanged((event) => {
+    const unsubscribeDocumentRevision = documentFiles.onDocumentRevisionChanged?.((event) => {
         if (event.documentRef !== workingCopyPath.value) {
             return;
         }
         revisionRefreshRequestId += 1;
         documentRevisionInfo.value = event;
         documentRevisionToken.value = event.token;
-    });
+    }) ?? null;
 
     tryOnScopeDispose(() => {
-        unsubscribeDocumentRevision();
+        unsubscribeDocumentRevision?.();
     });
 
     watch(showSettings, (value) => {

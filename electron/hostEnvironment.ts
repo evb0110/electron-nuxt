@@ -84,7 +84,7 @@ function isWindowInHostZenMode(window: BrowserWindow) {
 function delay(ms: number) {
     return new Promise<void>((resolve) => {
         const timer = setTimeout(resolve, ms);
-        timer.unref();
+        timer.unref?.();
     });
 }
 
@@ -175,7 +175,7 @@ async function waitForHostZenModeState(window: BrowserWindow, active: boolean) {
             resolve();
         };
         const timer = setTimeout(finish, ZEN_STATE_EVENT_TIMEOUT_MS);
-        timer.unref();
+        timer.unref?.();
         if (active) {
             window.once('enter-full-screen', finish);
         } else {
@@ -318,7 +318,7 @@ function scheduleHostEnvironmentBroadcastForWindow(window: BrowserWindow) {
         state.timeout = null;
         broadcastHostEnvironmentForWindow(window);
     }, 0);
-    state.timeout.unref();
+    state.timeout.unref?.();
 }
 
 function broadcastHostZenModeForWindow(

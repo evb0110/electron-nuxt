@@ -195,7 +195,7 @@ export const useScanCleanupRunSession = (options: IUseScanCleanupRunSessionOptio
                 && pageNumber >= 1
                 && pageNumber <= totalPages
             ) {
-                includedPages += (override.excluded === true ? 0 : 1)
+                includedPages += (override?.excluded === true ? 0 : 1)
                     - (defaultExcluded ? 0 : 1);
             }
         }

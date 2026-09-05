@@ -633,7 +633,7 @@ async function admitPreparedOcrJob(
             'TimeoutError',
         ));
     }, OCR_QUEUE_MAX_AGE_MS);
-    queueTimeout.unref();
+    queueTimeout.unref?.();
     const admissionSignal = AbortSignal.any([
         preparingJob.registry.signal,
         timeoutController.signal,

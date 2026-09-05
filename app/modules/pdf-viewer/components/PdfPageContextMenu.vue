@@ -151,7 +151,7 @@ function getRenderedPageIndicator(page: number) {
 
     const renderedLabel = document.querySelector<HTMLElement>(`.pdf-thumbnail[data-page="${page}"] .pdf-thumbnail-number`)
         ?.textContent
-        .trim();
+        ?.trim();
     if (renderedLabel === undefined || renderedLabel.length === 0) {
         return String(page);
     }

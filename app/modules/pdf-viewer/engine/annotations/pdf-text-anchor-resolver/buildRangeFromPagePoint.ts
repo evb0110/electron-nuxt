@@ -21,7 +21,7 @@ export function buildRangeFromPagePoint(target: IPagePointTarget) {
         return null;
     }
 
-    const text = textNode.textContent;
+    const text = textNode.textContent ?? '';
     if (!text.length) {
         return null;
     }

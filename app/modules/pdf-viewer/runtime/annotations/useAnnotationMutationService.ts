@@ -102,7 +102,7 @@ export const useAnnotationMutationService = (
         if (!annotationId) {
             return false;
         }
-        options.deleteCanonicalAnnotation(annotationId);
+        options.deleteCanonicalAnnotation?.(annotationId);
         return true;
     }
 

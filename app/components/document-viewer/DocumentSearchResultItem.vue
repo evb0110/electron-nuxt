@@ -48,7 +48,7 @@ const {
 } = defineProps<IProps>();
 const emit = defineEmits<{activate: [];}>();
 
-const showPageLabel = computed(() => showPageLabelProp);
+const showPageLabel = computed(() => showPageLabelProp ?? true);
 const pageIndicator = computed(() => formatPageIndicatorWithOptions(result.pageIndex + 1, pageLabels ?? null));
 const matchIndicator = computed(() => (result.pageMatchIndex ?? result.matchIndex) + 1);
 

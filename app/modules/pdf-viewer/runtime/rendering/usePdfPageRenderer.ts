@@ -479,7 +479,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
             context.annotationLayerInstance = annotation.annotationLayerInstance;
-            textLayerRenderer.scheduleOcrDebugForPage(pageNumber, context);
+            textLayerRenderer.scheduleOcrDebugForPage?.(pageNumber, context);
             if (!pageRenderState.completeRender(pageNumber, version, requestId)) {
                 return;
             }
@@ -591,7 +591,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     toValue(options.viewRotation ?? (() => 0)),
                 ),
             });
-            const userUnit = pageViewport.userUnit;
+            const userUnit = pageViewport.userUnit ?? 1;
             try {
                 await trackLayerHydrationSettlement(
                     pageNumber,

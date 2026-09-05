@@ -207,7 +207,7 @@ async function statWithTimeout(filePath: string) {
                 timeoutHandle = setTimeout(() => {
                     reject(new RecentFileStatTimeoutError(filePath, RECENT_FILE_STAT_TIMEOUT_MS));
                 }, RECENT_FILE_STAT_TIMEOUT_MS);
-                timeoutHandle.unref();
+                timeoutHandle.unref?.();
             }),
         ]);
     } finally {

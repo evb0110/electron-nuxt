@@ -754,6 +754,28 @@ describe('PdfViewportSession behavior', () => {
         }
     });
 
+    it('places the opening page before the document reports its length', async () => {
+        const fixture = createViewportFixture({pageCount: 0});
+        try {
+            await fixture.documentSession.emit(transition('loading', {
+                isReload: false,
+                isSelectiveReload: false,
+                pagesToInvalidate: null,
+                preserveVisibleContent: false,
+                preservePageStructure: false,
+            }));
+
+            expect(fixture.emittedPages).toEqual([1]);
+
+            fixture.documentSession.numPages.value = 12;
+            await nextTick();
+
+            expect(fixture.emittedPages).toEqual([1]);
+        } finally {
+            fixture.app.unmount();
+        }
+    });
+
     it('keeps reload target and custom display zoom while fit reloads retain their fit mode', async () => {
         const customZoom = ref(1.94);
         const fixture = createViewportFixture({

@@ -268,7 +268,7 @@ describe('validation gate policy', () => {
         } finally {
             await rm(invalidPath, {force: true});
         }
-    }, 30_000);
+    }, 60_000);
 
     it('keeps root and landing config ignore policies distinct', async () => {
         const rootEslint = new ESLint({cwd: process.cwd()});

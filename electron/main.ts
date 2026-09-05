@@ -647,9 +647,9 @@ shutdownCoordinator = createShutdownCoordinator({
     runBestEffortCleanupSteps: shutdownPhaseRunners.runBestEffortCleanupSteps,
 });
 const shouldBypassWindowClose = () => Boolean(
-    shutdownCoordinator.isGracefulQuitInProgress()
-    || shutdownCoordinator.isFatalShutdownInProgress()
-    || shutdownCoordinator.isQuittingAfterCleanup(),
+    shutdownCoordinator?.isGracefulQuitInProgress()
+    || shutdownCoordinator?.isFatalShutdownInProgress()
+    || shutdownCoordinator?.isQuittingAfterCleanup(),
 );
 configureNativeWindowCloseHandshake({shouldBypass: shouldBypassWindowClose});
 // Install fatal process handlers only after the coordinator exists. A synchronous
@@ -729,7 +729,7 @@ if (pendingSafeModeRelaunchArgs) {
     requestSafeModeRelaunch(args);
 }
 configureUpdateInstallShutdown((install) => {
-    shutdownCoordinator.requestGracefulQuit({ afterCleanup: install });
+    shutdownCoordinator?.requestGracefulQuit({ afterCleanup: install });
 });
 
 function broadcastUpdateStatus(status: IAppUpdateStatus) {

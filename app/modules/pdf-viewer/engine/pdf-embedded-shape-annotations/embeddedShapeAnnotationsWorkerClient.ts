@@ -200,8 +200,8 @@ function copyNativeShapePoints(
         return undefined;
     }
     return points.map((point, index) => ({
-        x: assertFiniteValue(point.x, `${fieldName}[${index}].x`),
-        y: assertFiniteValue(point.y, `${fieldName}[${index}].y`),
+        x: assertFiniteValue(point?.x, `${fieldName}[${index}].x`),
+        y: assertFiniteValue(point?.y, `${fieldName}[${index}].y`),
     }));
 }
 

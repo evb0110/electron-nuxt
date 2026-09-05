@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    clampPageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 import type {
     ComputedRef,
@@ -279,7 +282,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
     function getVisibleRange(): IPageRange {
         if (!options.continuousScroll.value && numPages.value > 0) {
             const rowBounds = getPageRowBoundsForViewMode({
-                pageNumber: requirePageNumber(currentPage.value, numPages.value),
+                pageNumber: clampPageNumber(currentPage.value, numPages.value),
                 viewMode: options.viewMode.value,
                 totalPages: numPages.value,
             });
@@ -297,7 +300,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         (page) => {
             navigationCommittedSignal.value = {
                 revision: navigationCommittedSignal.value.revision + 1,
-                pageNumber: requirePageNumber(page, numPages.value),
+                pageNumber: clampPageNumber(page, numPages.value),
             };
         },
     );
@@ -313,7 +316,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         pdfDocument,
         getMostVisiblePage: scroll.getMostVisiblePage,
         scrollToPageInternal: (container, pageNumber, totalPages, margin, scrollOptions) => (
-            scroll.scrollToPage(container, requirePageNumber(pageNumber, totalPages), totalPages, margin, scrollOptions)
+            scroll.scrollToPage(container, clampPageNumber(pageNumber, totalPages), totalPages, margin, scrollOptions)
         ),
         updateVisibleRange: projectViewportVisibleRange,
         updateCurrentPage: scroll.updateCurrentPage,
@@ -681,7 +684,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         const pageToRestore = plan.isReload
             ? preservedRequest?.pageToRestore ?? currentPage.value
             : 1;
-        resolvedPageToRestore = requirePageNumber(Math.max(1, Math.floor(pageToRestore)), numPages.value);
+        resolvedPageToRestore = clampPageNumber(pageToRestore, numPages.value);
         const displayZoomToRestore = plan.isReload && options.zoomMode.value === 'custom'
             ? scale.effectiveScale.value
             : null;
@@ -934,7 +937,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             const terminalOutcome = singlePageScroll.viewportAuthority.getTerminalOutcome(previousIntent.id);
             if (terminalOutcome === 'settled') {
                 singlePageScroll.commitCurrentViewportIfSettled(
-                    requirePageNumber(singlePageScroll.viewportAuthority.currentPage.value),
+                    clampPageNumber(singlePageScroll.viewportAuthority.currentPage.value),
                 );
             }
         }
@@ -1007,7 +1010,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
                 return;
             }
             if (transition.plan.isReload && currentPage.value > 1) {
-                applyReloadViewport(requirePageNumber(currentPage.value, numPages.value));
+                applyReloadViewport(clampPageNumber(currentPage.value, numPages.value));
                 await nextTick();
             } else if (!transition.plan.isReload) {
                 applyReloadViewport(resolvedPageToRestore);
@@ -1021,8 +1024,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             );
         }
         const initialRange = {
-            start: requirePageNumber(currentPage.value, numPages.value),
-            end: requirePageNumber(currentPage.value, numPages.value),
+            start: clampPageNumber(currentPage.value, numPages.value),
+            end: clampPageNumber(currentPage.value, numPages.value),
         };
         await requestMandatoryRaster(initialRange, transition.plan.preserveVisibleContent
             ? {
