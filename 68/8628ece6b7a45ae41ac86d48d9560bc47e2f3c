@@ -1,0 +1,136 @@
+tests/unit/app/utils/browserLogger.test.ts
+  s_b412fd4cd3f576::t_84b2f6cdd14b08 446
+app/plugins/packagedDiagnosticsCanary.client.ts
+  s_b412fd4cd3f576::t_50e7f80c18b8a6 36-55,57-58,61,63
+  s_b412fd4cd3f576::t_fae8001200aef2 1,3-35,56,59-60,62,64-69,71-73,76,78-80,83-86,88-113
+  s_b412fd4cd3f576::t_5e310b043b0f9a 2,70,74-75,77,81-82,87
+tests/unit/electron/sentryNodeAdapter.test.ts
+  s_b412fd4cd3f576::t_d8cc095bf742a4 108-145
+.github/workflows/store-appx.yml
+  s_b412fd4cd3f576::t_31378d4a2ea066 242-244,248
+  s_b412fd4cd3f576::t_65a34b78f0848e 245-247
+app/utils/browserLogger.ts
+  s_b412fd4cd3f576::t_749089d3398f89 274-277,295,425
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_b412fd4cd3f576::t_e63705b90edf00 78-79,200-235,239-245,293-297,396,438-440
+  s_b412fd4cd3f576::t_5e310b043b0f9a 339
+  s_b412fd4cd3f576::t_f8b4fc147862e6 272
+  s_b412fd4cd3f576::t_62f97629446a4a 415,436,441-448
+  s_b412fd4cd3f576::t_94ee7c3846f2d9 21-24,332,335-336
+  s_b412fd4cd3f576::t_8ed5aa5101fad9 363-367
+  s_b412fd4cd3f576::t_7bba1c6c2d702f 38-53
+  s_b412fd4cd3f576::t_33a183360f3348 1-20,25-34,54-65,67-77,80-190,196-199,236-238,246-259,262-269,291-292,308,317-331,333-334,337-338,340-350,354,361-362,368-392,394-395,397-403,405-414,416-435,437,449-455
+  s_b412fd4cd3f576::t_a1dc4235d3d93e 191-195,393
+  s_b412fd4cd3f576::t_73085829c2031b 309-316
+  s_b412fd4cd3f576::t_3ad87077bd8431 66
+  s_b412fd4cd3f576::t_0053a411806d48 35-37,260-261,307,351-353,355-360,404
+  s_b412fd4cd3f576::t_68ff6c859f2a71 270-271,273-290,306
+  s_b412fd4cd3f576::t_609b55e365a0ad 298-305
+app/types/electron.d.ts
+  s_b412fd4cd3f576::t_4f00ad4d319392 8-11
+  s_b412fd4cd3f576::t_3ad87077bd8431 15
+  s_b412fd4cd3f576::t_fae8001200aef2 6-7,13-14,16-22,31-32
+  s_cf09a11bf9eebf::t_89ce85682f4a43 12
+docs/operations/sentry-runbook.md
+  s_b412fd4cd3f576::t_ae1c2f8366c261 38,47,81
+  s_b412fd4cd3f576::t_f20182bf104bbc 157,180,182-189
+  s_b412fd4cd3f576::t_6be25706b8af0c 181
+  s_52b85f52e159ef::t_4c0524edd8ec42 190
+tests/unit/electron/rendererLogRegistry.test.ts
+  s_b412fd4cd3f576::t_f97baf88d97eaa 312-315
+  s_b412fd4cd3f576::t_84b2f6cdd14b08 226-254,297-311,316-317
+  s_0b90548887a8e5::t_df3e183a3d4544 318
+electron/main.ts
+  s_b412fd4cd3f576::t_ea1768197ec827 233
+  s_b412fd4cd3f576::t_d8cc095bf742a4 192-200
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_ea1768197ec827 75,87,385,681,684,686-687,690,717-719
+  s_b412fd4cd3f576::t_05ba8c148f6cac 720
+electron/features/diagnostics/public.ts
+  s_b412fd4cd3f576::t_ea1768197ec827 12
+tests/unit/contracts/canonicalAppFrames.test.ts
+  s_b412fd4cd3f576::t_d4e976c48a4f77 83-94
+electron/preload.ts
+  s_b412fd4cd3f576::t_588e70b45d7fc6 137-141
+  s_b412fd4cd3f576::t_fae8001200aef2 25-28,76-81,136,142-143
+  s_cf09a11bf9eebf::t_4c8c2fe2602089 144
+app/utils/consoleErrorObserver.ts
+  s_b412fd4cd3f576::t_5e310b043b0f9a 331-335
+tests/unit/electron/settingsDiagnosticsConsent.test.ts
+  s_b412fd4cd3f576::t_e9e6f017a28948 28-30,36-39,69
+electron/settings.ts
+  s_b412fd4cd3f576::t_ea1768197ec827 26-29,196-198
+tests/unit/electron/mainFailureReporter.test.ts
+  s_b412fd4cd3f576::t_85cc6d7ba608be 129-151
+docs/operations/sentry-account-controls.md
+  s_b412fd4cd3f576::t_ae1c2f8366c261 101-102
+packages/contracts/electronApiCommon.ts
+  s_b412fd4cd3f576::t_fef21455d66e4c 10,160
+electron/features/diagnostics/sentryNodeAdapter.ts
+  s_b412fd4cd3f576::t_e14185c18902ec 299,309
+  s_b412fd4cd3f576::t_d8cc095bf742a4 13-18,43-53,66,131-180,277,280-287,289
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_4f00ad4d319392 22,26-30
+  s_b412fd4cd3f576::t_fae8001200aef2 14-21,23-25,31-37
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_b412fd4cd3f576::t_ae1c2f8366c261 184-187,1713,1719-1722,1729
+  s_b412fd4cd3f576::t_f20182bf104bbc 1656-1657,1677-1678
+tests/unit/electron/settingsQuarantine.test.ts
+  s_b412fd4cd3f576::t_e9e6f017a28948 21,33-36
+.github/workflows/build-target.yml
+  s_b412fd4cd3f576::t_31378d4a2ea066 583-585,592
+  s_b412fd4cd3f576::t_65a34b78f0848e 586-591
+packages/contracts/diagnostics/canonicalAppFrames.ts
+  s_b412fd4cd3f576::t_d4e976c48a4f77 160,166
+electron/platform-ipc/registerCoreIpcHandlers.ts
+  s_b412fd4cd3f576::t_59b73238660add 101
+  s_b412fd4cd3f576::t_5e310b043b0f9a 110-111
+  s_b412fd4cd3f576::t_4f00ad4d319392 99-100,102-107
+  s_b412fd4cd3f576::t_fae8001200aef2 30,53-58,89-98,108-109,112-126
+electron/platform-ipc/rendererLogBridge.ts
+  s_b412fd4cd3f576::t_3a8183096d5e3c 7-10,339,379,386,395-396,406-412,449
+app/app.vue
+  s_b412fd4cd3f576::t_33a183360f3348 138
+  s_b412fd4cd3f576::t_e63705b90edf00 56,66
+  s_b412fd4cd3f576::t_fae8001200aef2 84,113-116,179
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "688628ece6b7a45ae41ac86d48d9560bc47e2f3c",
+  "prompts": {},
+  "sessions": {
+    "s_0b90548887a8e5": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07021-4aab-7c21-a8f4-6394e1ec61a1",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_52b85f52e159ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07029-1be2-7da2-bde1-2edc3d4abdca",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
