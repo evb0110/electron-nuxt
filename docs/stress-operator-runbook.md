@@ -42,7 +42,9 @@ For each `EXTERNAL OPERATOR READY` line:
 3. Perform the task card with your computer-use tools. Open only its listed
    fixtures and save only its working copies. Use screenshots to verify results.
    If native targeting resolves another Electron instance, use the card's exact
-   CDP endpoint. For file setup, use `openPdfInApp` or `triggerOpenPathInApp` from
+   CDP endpoint. Pass `defaultViewport: null` to `puppeteer.connect` so the
+   connection preserves the runner's viewport instead of applying 800 by 600.
+   For file setup, use `openPdfInApp` or `triggerOpenPathInApp` from
    `tests/e2e/electron/helpers/viewerCore` on that page. Record the fallback, then
    use visible mouse and keyboard controls for the requested interactions. Do
    not send native input to an unverified window. CUA key names include `Return`
