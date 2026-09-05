@@ -1,0 +1,56 @@
+app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest.ts
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 40
+tests/unit/app/modules/pdf-viewer/usePdfSearchHighlightHandoff.test.ts
+  s_0c808a1c79a8cb::t_719431d797862f 1-17,22-40,42-52,54-58,64-75,78-82,84-196,201-263,268-299,409-414
+  s_0c808a1c79a8cb::t_f32155df50af3a 76-77
+  s_0c808a1c79a8cb::t_48d120358ff89f 18-21,197-200,264-267
+  s_0c808a1c79a8cb::t_447e43c176673f 41,53,59-63,83,300-408
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts
+  s_0c808a1c79a8cb::t_171c26f275fb26 38,471-476,1157-1158
+app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions.ts
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 8
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_0c808a1c79a8cb::t_7a005791d155a4 910
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 435,905,907-909,923-925,1168
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController.ts
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 130-132
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_0c808a1c79a8cb::t_e964910ebdb4cc 807-822,824-837,912-923,927-928
+  s_0c808a1c79a8cb::t_d9d682f837f7aa 823,841,924-926
+docs/research/search-match-navigation-2026-09-05.md
+  s_0c808a1c79a8cb::t_5547efdc12e309 151-155
+  s_0c808a1c79a8cb::t_f59e80c3989e34 126-150
+  s_0c808a1c79a8cb::t_71c9be2f1b2c2d 156-160
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_0c808a1c79a8cb::t_f9b21fade12108 1583-1981,1984-1985,1988-1997
+  s_0c808a1c79a8cb::t_ba73aea11420bb 1982-1983,1986-1987
+tests/unit/app/modules/pdf-viewer/runtime/usePdfPageRenderer.test.ts
+  s_0c808a1c79a8cb::t_3a32673be5dc1a 108-111
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_0c808a1c79a8cb::t_a4947516ae0b08 18,87-95,98
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 244-247
+app/modules/pdf-viewer/runtime/rendering/createPdfSearchHighlightRefresh.ts
+  s_0c808a1c79a8cb::t_171c26f275fb26 1-2,4-164,166-167
+  s_0c808a1c79a8cb::t_ec54314ed81e6a 3,165
+app/modules/pdf-viewer/runtime/rendering/usePdfSearchHighlightHandoff.ts
+  s_0c808a1c79a8cb::t_8f6128a9601966 24
+  s_0c808a1c79a8cb::t_1f0c6c044b648c 53-55
+  s_0c808a1c79a8cb::t_a4947516ae0b08 1-21,23,25-29,31-32,34-52,56-68
+  s_0c808a1c79a8cb::t_b93ae0a7609d36 22,30,33
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "d856c88f6e4fc4671ba277c3aed6e078521cc0d2",
+  "prompts": {},
+  "sessions": {
+    "s_0c808a1c79a8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e75-4bed-7722-8420-a914585d293c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
