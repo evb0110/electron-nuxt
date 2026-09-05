@@ -27,7 +27,7 @@ export function modelForSelection(
 export function speedModesForProviderStatus(providerStatus: IAgentAssistantProviderStatus) {
     return providerStatus.id === 'codex'
         ? [...ASSISTANT_SPEED_MODES]
-        : providerStatus.availableSpeedModes;
+        : providerStatus.availableSpeedModes ?? [ASSISTANT_DEFAULT_SPEED_MODE];
 }
 
 function effortsForProviderModel(
@@ -36,7 +36,7 @@ function effortsForProviderModel(
 ) {
     return modelOption?.reasoningEfforts
         ? modelOption.reasoningEfforts.map(effort => effort.id)
-        : providerStatus.availableEfforts;
+        : providerStatus.availableEfforts ?? [];
 }
 
 function defaultEffortForProviderModel(
@@ -75,7 +75,7 @@ export function createSelectedAssistantStatus(
         : defaultEffortForProviderModel(providerStatus, providerEfforts, selectedModelOption);
     const selectedSpeedModeValue = providerSpeedModes.includes(speedMode)
         ? speedMode
-        : providerStatus.defaultSpeedMode;
+        : providerStatus.defaultSpeedMode ?? ASSISTANT_DEFAULT_SPEED_MODE;
     const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
         ? {
             ...candidate,

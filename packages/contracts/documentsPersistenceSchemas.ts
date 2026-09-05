@@ -40,7 +40,7 @@ export function decodePdfSaveAsOptions(value: unknown): IPdfSaveAsOptions | unde
     if (decoded === undefined) {
         return undefined;
     }
-    if (decoded.optimizeLossless !== undefined && typeof decoded.optimizeLossless !== 'boolean') {
+    if (decoded?.optimizeLossless !== undefined && typeof decoded.optimizeLossless !== 'boolean') {
         throw new Error('invalid PDF save-as options');
     }
     return decoded.optimizeLossless === undefined

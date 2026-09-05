@@ -47,7 +47,7 @@ function isWorkingCopyPathCandidate(pdfPath: string) {
 
 export function resolveSearchWorkerPath(workerBaseDir = __dirname) {
     const defaultPath = join(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
-    if (!app.isPackaged) {
+    if (!app?.isPackaged) {
         return defaultPath;
     }
     return resolveUnpackedWorkerPath(workerBaseDir, WORKER_BUNDLES_BY_ID.search.fileName);
@@ -301,7 +301,7 @@ async function handlePdfSearch(
         useRegex,
     } = request;
 
-    if (!query.trim()) {
+    if (!query?.trim()) {
         return {
             results: [],
             truncated: false,
@@ -423,7 +423,7 @@ const searchMainBindings = {
     run: handlePdfSearch,
     warmIndex: handlePdfSearchWarmIndex,
     cancel: (context, requestId) => {
-        const senderId = context.senderId;
+        const senderId = context.senderId ?? context.sender.id;
         const pendingCanceled = requestId === undefined
             ? cancelPendingSearchRequestsForSender(senderId, 'explicit cancel request')
             : cancelPendingSearchRequests(senderId, requestId, 'explicit cancel request');

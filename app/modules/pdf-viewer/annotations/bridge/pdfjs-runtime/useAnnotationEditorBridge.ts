@@ -264,7 +264,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         boundFreeTextDraftInputs.add(editorObject);
         pendingFreeTextDrafts.add(editor);
         editable.addEventListener('input', () => {
-            const hasText = editable.textContent.replace(/[\u200B\uFEFF]/gu, '').length > 0;
+            const hasText = (editable.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').length > 0;
             if (!hasText) {
                 return;
             }

@@ -234,7 +234,7 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
         const didSucceed = await run();
         if (didSucceed) {
-            const outcome = lastPageOperationOutcome.value;
+            const outcome = lastPageOperationOutcome?.value;
             const delta = outcome?.status === 'succeeded' && 'pageIdentityDelta' in outcome.result
                 ? outcome.result.pageIdentityDelta
                 : undefined;

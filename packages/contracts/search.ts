@@ -1026,7 +1026,7 @@ export function* iteratePdfSearchMatches(
         if (match === null) {
             break;
         }
-        const value = match[0];
+        const value = match[0] ?? '';
         if (value.length === 0) {
             matcher.lastIndex += 1;
             continue;

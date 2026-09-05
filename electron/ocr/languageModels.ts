@@ -218,7 +218,7 @@ function createTimedAbortSignal(
             controller.abort(new DownloadTimeoutError(timeoutMs));
         }
     }, timeoutMs);
-    timeoutHandle.unref();
+    timeoutHandle.unref?.();
 
     return {
         signal: controller.signal,
@@ -241,7 +241,7 @@ async function delayWithAbort(
             cleanup();
             resolve();
         }, delayMs);
-        timeoutHandle.unref();
+        timeoutHandle.unref?.();
 
         const onAbort = () => {
             cleanup();

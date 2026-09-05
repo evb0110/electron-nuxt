@@ -248,7 +248,7 @@ function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
 
 function buildFrames(input: CaptureFailureInput, stackPolicy: DiagnosticStackPolicy) {
     const stack = stackPolicy === 'source'
-        ? readStack(input.local.cause) ?? captureCallSiteStack()
+        ? readStack(input.local?.cause) ?? captureCallSiteStack()
         : captureCallSiteStack();
 
     try {

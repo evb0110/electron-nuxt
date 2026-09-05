@@ -298,7 +298,7 @@ export function createMainJobRegistry<
             });
         emit(record, true); record.resolveTerminal(record.snapshot as TTerminal);
         record.retentionTimer = setTimeout(() => { if (record.settled) remove(record); }, Math.max(0, options.retention.terminalRecordTtlMs));
-        record.retentionTimer.unref(); prune();
+        record.retentionTimer.unref?.(); prune();
         return true;
     }
     function requestCancel(record: IRecord, reason = 'Operation canceled') {

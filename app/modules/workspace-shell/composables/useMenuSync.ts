@@ -42,7 +42,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
         const hasDocument = shellState.hasDocument.value;
         const documentInteractive = shellState.activeWorkspaceInteractive.value;
         const openingPreviewInteractive = toolbar?.openingPreviewReady === true
-            && toolbar.totalPages > 0;
+            && (toolbar.totalPages ?? 0) > 0;
         const viewInteractive = documentInteractive || openingPreviewInteractive;
         const isAnySaving = toolbar?.isAnySaving === true;
         const isHistoryBusy = toolbar?.isHistoryBusy === true;
@@ -52,7 +52,7 @@ export const useMenuSync = (deps: IUseMenuSyncDeps) => {
             && !isDocumentBusy
             && toolbar?.isPageOperationInProgress !== true;
         const isActualSizeActive = toolbar?.zoomMode === 'custom'
-            && Math.abs(toolbar.effectiveZoom - 1) < 0.0001;
+            && Math.abs((toolbar.effectiveZoom ?? 0) - 1) < 0.0001;
         const state: IApplicationMenuDocumentState = {
             hasDocument,
             interactive: viewInteractive,

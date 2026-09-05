@@ -15,7 +15,7 @@ export function getImagePlacementResizeCursor(
     handle: TImagePlacementResizeHandle,
     rotationDegrees: number,
 ) {
-    const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle];
+    const handleAngle = IMAGE_PLACEMENT_HANDLE_ANGLES[handle] ?? 0;
     const normalizedAngle = ((handleAngle + rotationDegrees) % 360 + 360) % 360;
     const snappedAngle = (Math.round(normalizedAngle / 45) * 45) % 360;
 

@@ -193,7 +193,7 @@ export const usePdfViewerFeatureController = (
                 ?? Promise.resolve(false)
         ),
         getCommittedPageScale: pageNumber => (
-            renderingSessionRef.value?.getCommittedPageScale(pageNumber) ?? null
+            renderingSessionRef.value?.getCommittedPageScale?.(pageNumber) ?? null
         ),
         selectionMarkupStyle,
         classState: {

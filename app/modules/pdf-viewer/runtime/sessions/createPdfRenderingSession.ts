@@ -920,7 +920,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         )
         : () => {};
     const stopNavigationCommitWatch = watch(viewport.navigationCommittedSignal, (signal, previous) => {
-        if (signal.revision !== previous.revision) {
+        if (signal.revision !== previous?.revision) {
             initialVisual.reconcileInitialVisual();
         }
     }, {flush: 'sync'});
@@ -1162,7 +1162,7 @@ export const createPdfRenderingSession = (options: ICreatePdfRenderingSessionOpt
         cleanupResizeLifecycle();
         await cancelRasterDemand();
         pageTextLayerReadyWaiter.settleAll();
-        await cleanupRenderedPages(); pageRenderer.dispose();
+        await cleanupRenderedPages(); pageRenderer.dispose?.();
     });
     return {
         ...pageRenderer,

@@ -149,7 +149,7 @@ export function acquireNativeCommandAdmission(signal?: AbortSignal) {
             };
             signal.addEventListener('abort', waiter.abort, {once: true});
         }
-        waiter.timeout.unref();
+        waiter.timeout.unref?.();
         nativeCommandAdmissionWaiters.push(waiter);
     });
 }
@@ -357,11 +357,11 @@ export async function runNativeCommand(
 
         const cleanupProcessOutput = (targetProc: TNativeProcess, destroyStreams: boolean) => {
             if (stdoutDataHandler) {
-                targetProc.stdout.removeListener('data', stdoutDataHandler);
+                targetProc.stdout?.removeListener('data', stdoutDataHandler);
                 stdoutDataHandler = null;
             }
             if (stderrDataHandler) {
-                targetProc.stderr.removeListener('data', stderrDataHandler);
+                targetProc.stderr?.removeListener('data', stderrDataHandler);
                 stderrDataHandler = null;
             }
             if (!destroyStreams) {
@@ -433,7 +433,7 @@ export async function runNativeCommand(
             forceRejectHandle = setTimeout(() => {
                 finalizeReject(markTerminationUnproven(error));
             }, terminationGraceMs + 2_000);
-            forceRejectHandle.unref();
+            forceRejectHandle.unref?.();
         };
 
         const getPendingTerminationError = () => pendingTerminationError;
@@ -557,8 +557,8 @@ export async function runNativeCommand(
         };
         stdoutDataHandler = (data: Buffer) => appendDecodedStdout(stdoutDecoder.write(data));
         stderrDataHandler = (data: Buffer) => appendDecodedStderr(stderrDecoder.write(data));
-        proc.stdout.on('data', stdoutDataHandler);
-        proc.stderr.on('data', stderrDataHandler);
+        proc.stdout?.on('data', stdoutDataHandler);
+        proc.stderr?.on('data', stderrDataHandler);
 
         if (typeof timeoutMs === 'number' && timeoutMs > 0) {
             timeoutHandle = setTimeout(() => {

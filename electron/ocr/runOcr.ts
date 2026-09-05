@@ -124,7 +124,7 @@ export async function runOcr(
                     // Process may already be gone.
                 }
             }, TESSERACT_KILL_GRACE_MS);
-            handles.killHandle.unref();
+            handles.killHandle.unref?.();
 
             handles.forceFinalizeHandle = setTimeout(() => {
                 finalize({
@@ -133,9 +133,9 @@ export async function runOcr(
                     error: `Tesseract timed out after ${TESSERACT_TIMEOUT_MS}ms`,
                 });
             }, TESSERACT_KILL_GRACE_MS + 1_000);
-            handles.forceFinalizeHandle.unref();
+            handles.forceFinalizeHandle.unref?.();
         }, TESSERACT_TIMEOUT_MS);
-        handles.timeoutHandle.unref();
+        handles.timeoutHandle.unref?.();
 
         if (options?.signal) {
             abortHandler = () => {
@@ -150,13 +150,13 @@ export async function runOcr(
             options.signal.addEventListener('abort', abortHandler, { once: true });
         }
 
-        proc.stdout.on('data', (data: Buffer) => {
+        proc.stdout?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stdout, data, TESSERACT_MAX_STDOUT_BYTES);
             stdout = appended.text;
             stdoutTruncated = stdoutTruncated || appended.truncated;
         });
 
-        proc.stderr.on('data', (data: Buffer) => {
+        proc.stderr?.on('data', (data: Buffer) => {
             const appended = appendTextChunkWithByteCap(stderr, data, TESSERACT_MAX_STDERR_BYTES);
             stderr = appended.text;
             stderrTruncated = stderrTruncated || appended.truncated;
@@ -212,7 +212,7 @@ export async function runOcr(
             });
         });
 
-        proc.stdin.on('error', (stdinError) => {
+        proc.stdin?.on('error', (stdinError) => {
             killProcessImmediately();
             finalize({
                 success: false,

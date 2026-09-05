@@ -151,7 +151,7 @@ function shouldReadNonHighlightCustomColor(element: Element) {
         || elementHasClassFragment(element, 'pdf-markup-subtype-underline')
         || elementHasClassFragment(element, 'pdf-markup-subtype-strikeout')
         || elementHasClassFragment(element, 'pdf-markup-subtype-squiggly')
-        || Boolean((element as HTMLElement).dataset.markupSubtypeColor);
+        || Boolean((element as HTMLElement).dataset?.markupSubtypeColor);
 }
 
 function readElementTextMarkupColorResult(
@@ -176,11 +176,11 @@ function readElementTextMarkupColorResult(
         && style.borderTopWidth !== '0px';
     const ownColor = firstVisibleCssColor([
         subtype === 'highlight'
-            ? (element as HTMLElement).style.getPropertyValue('--pdf-markup-subtype-color')
+            ? (element as HTMLElement).style?.getPropertyValue('--pdf-markup-subtype-color')
             : null,
         subtype === 'highlight' ? style?.getPropertyValue('--pdf-markup-subtype-color') : null,
         subtype !== 'highlight' && shouldReadNonHighlightCustomColor(element)
-            ? (element as HTMLElement).style.getPropertyValue('--pdf-markup-subtype-color')
+            ? (element as HTMLElement).style?.getPropertyValue('--pdf-markup-subtype-color')
             : null,
         subtype !== 'highlight' && shouldReadNonHighlightCustomColor(element)
             ? style?.getPropertyValue('--pdf-markup-subtype-color')
@@ -188,9 +188,9 @@ function readElementTextMarkupColorResult(
         subtype === 'highlight' ? style?.backgroundColor : null,
         subtype === 'highlight' && isSvgPaintElement(element) ? style?.fill : null,
         subtype === 'highlight' && isSvgPaintElement(element) ? element.getAttribute('fill') : null,
-        hasTextDecorationColor ? style.textDecorationColor : null,
-        hasBottomBorderColor ? style.borderBottomColor : null,
-        hasTopBorderColor ? style.borderTopColor : null,
+        hasTextDecorationColor ? style?.textDecorationColor : null,
+        hasBottomBorderColor ? style?.borderBottomColor : null,
+        hasTopBorderColor ? style?.borderTopColor : null,
         subtype === 'highlight' ? null : style?.stroke,
         subtype === 'highlight' ? null : element.getAttribute('stroke'),
     ]);
@@ -224,7 +224,7 @@ function readElementTextMarkupColorResult(
             subtype === 'highlight' ? nodeStyle?.fill : null,
             subtype === 'highlight' ? node.getAttribute('fill') : null,
             subtype === 'highlight' ? nodeStyle?.backgroundColor : null,
-            hasNodeTextDecorationColor ? nodeStyle.textDecorationColor : null,
+            hasNodeTextDecorationColor ? nodeStyle?.textDecorationColor : null,
         ]);
         if (nodeColor) {
             return {

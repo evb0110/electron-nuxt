@@ -153,7 +153,7 @@ export function resolveTextAnchorRect(
     }
     const needle = `${target.prefix ?? ''}${target.text}${target.suffix ?? ''}`.normalize('NFKC');
     const matchingSpan = spans.find((span) => {
-        const value = span.textContent.normalize('NFKC');
+        const value = (span.textContent ?? '').normalize('NFKC');
         return value.includes(needle) || value.includes(target.text.normalize('NFKC'));
     });
     if (!matchingSpan) {

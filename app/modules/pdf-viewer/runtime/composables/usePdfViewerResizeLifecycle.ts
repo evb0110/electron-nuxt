@@ -417,7 +417,7 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 && !activeLease.released
                 && activeLease.document === pdfDocument.value
                 && activeLease.pageContainer === pageContainer
-                && pageContainer.dataset.page === String(page)
+                && pageContainer?.dataset.page === String(page)
                 && activeLease.snapshot.isValid()
             ) {
                 activeLease.holdForMs = Math.max(activeLease.holdForMs, normalizedHoldForMs);

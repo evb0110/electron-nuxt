@@ -18,7 +18,7 @@ export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSu
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
-    const stableKey = comment.stableKey.trim();
+    const stableKey = comment.stableKey?.trim();
     const pageIndex = parsePageIndex(comment.pageIndex);
     if (!markerRect || !stableKey || pageIndex === null) {
         return null;
@@ -27,7 +27,7 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
     return {
         pageIndex,
         stableKey,
-        text: comment.text,
+        text: comment.text ?? '',
         markerRect,
         author: comment.author ?? null,
         color: comment.color ?? null,

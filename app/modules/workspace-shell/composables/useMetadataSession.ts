@@ -88,9 +88,9 @@ export const useMetadataSession = (options: IMetadataSessionOptions) => {
         pageLabelState,
         bookmarkState,
         metadataHistory,
-        clearPreservedSourceReloadMetadata: () => metadataHistory.clearPreservedSourceReloadState(),
+        clearPreservedSourceReloadMetadata: () => metadataHistory?.clearPreservedSourceReloadState(),
         consumePreservedSourceReloadMetadata: () => metadataHistory.consumePreservedSourceReloadState(),
-        preserveMetadataForNextSourceReload: () => metadataHistory.preserveCurrentStateForNextSourceReload(),
+        preserveMetadataForNextSourceReload: () => metadataHistory?.preserveCurrentStateForNextSourceReload(),
         workspaceUndoTimeline,
         workspaceCommandSink: commandSink,
     };

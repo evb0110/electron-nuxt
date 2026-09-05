@@ -6,6 +6,7 @@ import {
 import {
     buildPageMoveOrder,
     buildPageMoveRangesOrder,
+    clampPageNumber,
     createAllPageSelection,
     createComplementOfPageSelection,
     createExplicitPageSelection,
@@ -98,6 +99,18 @@ describe('page number contracts', () => {
 
     it('rejects page numbers above pageCount', () => {
         expect(parsePageNumber(4, 3)).toBeNull();
+    });
+
+    it('clamps a viewport reading instead of rejecting it', () => {
+        expect(clampPageNumber(7, 0)).toBe(7);
+        expect(clampPageNumber(7, 3)).toBe(3);
+        expect(clampPageNumber(0)).toBe(1);
+        expect(clampPageNumber(-4, 10)).toBe(1);
+        expect(clampPageNumber(2.8, 10)).toBe(2);
+        expect(clampPageNumber(Number.NaN)).toBe(1);
+        expect(clampPageNumber(Number.POSITIVE_INFINITY, 12)).toBe(12);
+        expect(clampPageNumber(Number.NEGATIVE_INFINITY, 12)).toBe(1);
+        expect(clampPageNumber(Number.MAX_SAFE_INTEGER * 2)).toBe(Number.MAX_SAFE_INTEGER);
     });
 
     it('round-trips page index and page number conversions', () => {

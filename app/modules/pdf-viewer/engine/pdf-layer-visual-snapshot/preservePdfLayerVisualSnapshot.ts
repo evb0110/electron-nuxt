@@ -39,7 +39,7 @@ function removeExcludedSnapshotContent(
 
 function isSnapshotElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotClass)
-        || Boolean(element.closest(`.${pdfLayerVisualSnapshotClass}`));
+        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
 }
 
 function hideLiveLayerSnapshotSources(layer: HTMLElement) {

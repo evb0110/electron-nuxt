@@ -91,7 +91,7 @@ export async function requestShutdownSaveFlush(options: {
                 timedOutWindowIds,
             });
         }, options.timeoutMs);
-        timeout.unref();
+        timeout.unref?.();
 
         const cleanup = () => {
             clearTimeout(timeout);

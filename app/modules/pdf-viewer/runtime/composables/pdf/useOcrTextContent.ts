@@ -108,8 +108,8 @@ export const useOcrTextContent = () => {
 
         ctx.font = '100px sans-serif';
         const metrics = ctx.measureText('x');
-        const ascent = metrics.actualBoundingBoxAscent;
-        const descent = metrics.actualBoundingBoxDescent;
+        const ascent = metrics.actualBoundingBoxAscent ?? 80;
+        const descent = metrics.actualBoundingBoxDescent ?? 20;
         cachedAscentRatio = ascent / (ascent + descent);
         return cachedAscentRatio;
     }

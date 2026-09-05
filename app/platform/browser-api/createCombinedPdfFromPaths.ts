@@ -278,7 +278,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
         }
 
         if (!result.success) {
-            throw new Error(result.error);
+            throw new Error(result.error ?? `Failed to convert DjVu file: ${fileName}`);
         }
         const parsedPath = parseDocumentRef(path);
         if (parsedPath === null) {

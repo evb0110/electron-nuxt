@@ -478,7 +478,7 @@ export async function beginPdfAnnotationIndex(
     options: IPdfAnnotationIndexOptions,
 ): Promise<IPdfAnnotationIndexSession> {
     const expectedRevisionToken = parseDocumentRevisionToken(
-        options.expectedDocumentRevisionToken,
+        options?.expectedDocumentRevisionToken,
     );
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required to build a PDF annotation index');
@@ -748,4 +748,4 @@ const annotationIndexTtlTimer = setInterval(() => {
         logger.debug(`PDF annotation index TTL sweep failed: ${String(error)}`);
     });
 }, 30_000);
-annotationIndexTtlTimer.unref();
+annotationIndexTtlTimer.unref?.();

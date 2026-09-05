@@ -454,8 +454,8 @@ const chassisOpeningPageShell = computed(() => {
         ...policy,
     }) : null;
     const style = liveFrame?.style ?? frame?.style ?? provisionalStyle;
-    const liveWidth = Number.parseFloat(style.width);
-    const liveHeight = Number.parseFloat(style.height);
+    const liveWidth = Number.parseFloat(style.width ?? '');
+    const liveHeight = Number.parseFloat(style.height ?? '');
     if (
         !Number.isFinite(liveWidth)
         || liveWidth <= 0

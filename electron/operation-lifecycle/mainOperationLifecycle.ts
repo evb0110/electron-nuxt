@@ -74,7 +74,7 @@ let shutdownAdmissionMessage: string | null = null;
 function createTimeoutPromise(timeoutMs: number): Promise<'timeout'> {
     return new Promise<'timeout'>(resolve => {
         const timer = setTimeout(() => resolve('timeout'), timeoutMs);
-        timer.unref();
+        timer.unref?.();
     });
 }
 

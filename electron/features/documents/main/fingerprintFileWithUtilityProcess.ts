@@ -86,7 +86,7 @@ export async function runDocumentSaveUtilityProcess(options: {
             },
             options.timeoutMs,
         );
-        timeout.unref();
+        timeout.unref?.();
         options.signal?.addEventListener('abort', abort, {once: true});
         child.once('spawn', () => child.postMessage(options.request));
         child.once('message', (value) => {

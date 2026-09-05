@@ -142,7 +142,7 @@ export async function getPageCount(
             '--show-npages',
             pdfPath,
         ], commandOptions);
-        const parsed = parseInt(result.stdout.trim(), 10);
+        const parsed = parseInt((result.stdout ?? '').trim(), 10);
         if (Number.isFinite(parsed) && parsed > 0) {
             return {
                 pageCount: parsed,

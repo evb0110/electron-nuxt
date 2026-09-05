@@ -37,7 +37,7 @@ function buildPreview(
     comment: IAnnotationCommentSummary,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ) {
-    const text = comment.text.trim();
+    const text = comment.text?.trim();
     if (!text) {
         return comment.kindLabel ?? comment.subtype ?? labels.note;
     }

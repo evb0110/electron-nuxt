@@ -280,7 +280,7 @@ async function openCurrentOcrCatalog(
 }
 
 async function closeOcrCatalog(catalog: IOcrCatalogHandle | null) {
-    await catalog?.close();
+    await catalog?.close?.();
 }
 
 async function loadLegacyOcrLanguages(

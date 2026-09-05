@@ -153,7 +153,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         selectedSpeedMode: selectedSpeedMode.value,
     }));
     const status = computed(() => (state.value ?? emptyState.value).status);
-    const availableEfforts = computed(() => status.value.availableEfforts);
+    const availableEfforts = computed(() => status.value.availableEfforts ?? []);
     const availableSpeedModes = computed(() => {
         const providerStatus = status.value.providers.find((
             provider: IAgentAssistantState['status']['providers'][number],
@@ -161,7 +161,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (providerStatus) {
             return speedModesForProviderStatus(providerStatus);
         }
-        const speedModes = status.value.availableSpeedModes;
+        const speedModes = status.value.availableSpeedModes ?? [];
         return speedModes.length > 0 ? [...speedModes] : [...ASSISTANT_SPEED_MODES];
     });
     const messages = computed(() => (state.value ?? emptyState.value).messages);

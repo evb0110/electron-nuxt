@@ -106,17 +106,17 @@ export function getPdfLayerVisualSnapshotAnnotationEditorLayer(
 
 export function isPdfLayerVisualSnapshotElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotClass)
-        || Boolean(element.closest(`.${pdfLayerVisualSnapshotClass}`));
+        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
 }
 
 export function isPdfLayerVisualSnapshotSourceElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotSourceClass)
-        || Boolean(element.closest(`.${pdfLayerVisualSnapshotSourceClass}`));
+        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotSourceClass}`));
 }
 
 function isInsideActivePdfLayerVisualSnapshotHost(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotActiveClass)
-        || Boolean(element.closest(`.${pdfLayerVisualSnapshotActiveClass}`));
+        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotActiveClass}`));
 }
 
 export function isPdfLayerVisualElementPotentiallyPainted(

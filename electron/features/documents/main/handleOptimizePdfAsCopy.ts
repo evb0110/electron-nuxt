@@ -130,7 +130,7 @@ export async function handleOptimizePdfAsCopy(
         await addRecentFile(result.path);
         updateRecentFilesMenu();
 
-        context.parentWindow?.setRepresentedFilename(result.path);
+        context.parentWindow?.setRepresentedFilename?.(result.path);
     }
 
     return result;

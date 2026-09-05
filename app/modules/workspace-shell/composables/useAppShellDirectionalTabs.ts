@@ -378,7 +378,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
             return;
         }
         try {
-            await globalThis.navigator.clipboard.writeText(path);
+            await globalThis.navigator?.clipboard?.writeText(path);
         } catch {
             // Best-effort; clipboard access can be denied.
         }

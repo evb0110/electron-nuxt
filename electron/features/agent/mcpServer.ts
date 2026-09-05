@@ -364,8 +364,8 @@ function closeHttpServer(server: Server | null) {
             server.closeIdleConnections();
             forceTimer = setTimeout(() => server.closeAllConnections(), MCP_SERVER_CLOSE_GRACE_MS);
             deadlineTimer = setTimeout(finish, MCP_SERVER_CLOSE_DEADLINE_MS);
-            forceTimer.unref();
-            deadlineTimer.unref();
+            forceTimer.unref?.();
+            deadlineTimer.unref?.();
         } catch {
             finish();
         }

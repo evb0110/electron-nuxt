@@ -274,7 +274,7 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
             timeSincePageLoadMs: Date.now() - pageLoadTime,
         } satisfies Omit<IReloadEvent, 'blocked'>;
 
-        if (!window.location.href.includes('localhost:')) {
+        if (!window.location?.href?.includes('localhost:')) {
             appendReloadHistory({
                 ...baseEvent,
                 blocked: true,
@@ -349,8 +349,8 @@ export function installViteOutdatedOptimizeDepRecovery(options: IInstallDevRecov
         if (isViteOptimizeDepError(message)) {
             log('warn', '[Dev] Matched optimize-deps unhandled rejection', {
                 message,
-                stack: event.reason instanceof Error ? event.reason.stack : undefined,
-                href: window.location.href,
+                stack: event?.reason instanceof Error ? event.reason.stack : undefined,
+                href: window.location?.href,
             });
             scheduleReload(message);
         }

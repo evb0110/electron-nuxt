@@ -142,7 +142,7 @@ export function setupContentSecurityPolicy() {
     session.defaultSession.setPermissionRequestHandler((webContents, permission, callback, details) => {
         callback(isTrustedClipboardWriteRequest(
             permission,
-            details.requestingUrl,
+            details.requestingUrl ?? webContents.getURL(),
             details.isMainFrame,
         ));
     });

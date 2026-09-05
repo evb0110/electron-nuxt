@@ -206,7 +206,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         x: 0,
         y: 0,
     });
-    const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer() ?? null);
+    const viewerContainer = computed(() => pdfViewerRef.value?.getViewerContainer?.() ?? null);
     const windowTarget = computed(() => (
         typeof window !== 'undefined' && typeof window.addEventListener === 'function'
             ? window
@@ -222,7 +222,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
     }
 
     function updateShapePropertiesPopoverPosition(shape: IShapeAnnotation) {
-        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer?.();
         if (!viewerContainer) {
             return false;
         }
@@ -379,7 +379,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 return;
             }
             stableKeys.add(comment.stableKey);
-            removeAnnotationNoteWindow(note.annotationId);
+            removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(comment));
         });
     }
 
@@ -398,7 +398,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             .forEach((note) => {
                 const noteComment = toAnnotationNoteWindowComment(note);
                 if (noteComment) stableKeys.add(noteComment.stableKey);
-                removeAnnotationNoteWindow(note.annotationId);
+                removeAnnotationNoteWindow(note.annotationId ?? annotationIdForSummary(noteComment ?? comment));
             });
 
         if (shouldCloseRemainingNoteWindowsAfterExplicitDelete(commentsBeforeDelete)) {
@@ -441,7 +441,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     function updateTextMarkupPropertiesPopoverPosition(markup: ITextMarkupAnnotationProperties) {
         const markerRect = markup.markerRect;
-        const viewerContainer = pdfViewerRef.value?.getViewerContainer();
+        const viewerContainer = pdfViewerRef.value?.getViewerContainer?.();
         if (!markerRect || !viewerContainer) {
             return false;
         }
@@ -1129,7 +1129,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
 
     async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
-        const text = comment.text.trim();
+        const text = comment.text?.trim();
         if (!text) {
             return;
         }

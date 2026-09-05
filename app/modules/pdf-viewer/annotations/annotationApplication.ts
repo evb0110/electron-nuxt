@@ -370,7 +370,7 @@ export class AnnotationApplication {
                     ...common,
                     kind: 'text-markup',
                     subtype: markupSubtype,
-                    text: normalizeAnnotationText(comment.text),
+                    text: normalizeAnnotationText(comment.text ?? ''),
                     // One rect per stored quad. A multi-line highlight that
                     // arrived as its bounding box would be reported as a
                     // geometry-count failure the moment the save verifier read
@@ -404,7 +404,7 @@ export class AnnotationApplication {
             const entity: IStickyNoteEntity = {
                 ...common,
                 kind: 'sticky-note',
-                text: normalizeAnnotationText(comment.text),
+                text: normalizeAnnotationText(comment.text ?? ''),
                 anchor: structuredClone(comment.markerRect),
                 color: comment.color ?? null,
             };

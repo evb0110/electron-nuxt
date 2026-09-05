@@ -135,7 +135,7 @@ export function deriveAnnotationId(documentKey: string, persistentIdentity: stri
     return asAnnotationId(`anno_${fnv1a(`${documentKey}\u0000${persistentIdentity}`)}`);
 }
 
-export function mintAnnotationId(randomUuid = globalThis.crypto.randomUUID.bind(globalThis.crypto)): AnnotationId {
+export function mintAnnotationId(randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto)): AnnotationId {
     return asAnnotationId(`anno_${randomUuid()}`);
 }
 

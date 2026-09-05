@@ -259,7 +259,7 @@ export const usePdfCanvasRenderer = (deps: {
                 toValue(effectiveViewRotation),
             ),
         });
-        const userUnit = viewport.userUnit;
+        const userUnit = viewport.userUnit ?? 1;
         const totalScaleFactor = scale * userUnit;
         const rawDims = viewport.rawDims as {
             pageWidth: number;

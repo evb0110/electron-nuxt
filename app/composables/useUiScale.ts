@@ -50,7 +50,7 @@ function resolveEffectiveUiScale(
     if (preference === 'auto') {
         return resolveAutoScale(snapshot);
     }
-    return PRESET_SCALE_FACTORS[preference];
+    return PRESET_SCALE_FACTORS[preference] ?? 1;
 }
 
 function applyUiScaleToDocument(scale: number, snapshot: IHostEnvironmentSnapshot) {

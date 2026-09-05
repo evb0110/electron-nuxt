@@ -270,8 +270,8 @@ function readLineEndingStyles(dict: PDFDict) {
     }
 
     return {
-        lineStartStyle: toLineEndStyle(lineEndings.get(0).toString()),
-        lineEndStyle: toLineEndStyle(lineEndings.get(1).toString()),
+        lineStartStyle: toLineEndStyle(lineEndings.get(0)?.toString()),
+        lineEndStyle: toLineEndStyle(lineEndings.get(1)?.toString()),
     };
 }
 

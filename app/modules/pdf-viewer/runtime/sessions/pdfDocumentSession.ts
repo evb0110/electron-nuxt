@@ -321,7 +321,7 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         return typeof metric?.width === 'number'
             && Number.isFinite(metric.width)
             && metric.width > 0
-            && typeof metric.height === 'number'
+            && typeof metric?.height === 'number'
             && Number.isFinite(metric.height)
             && metric.height > 0;
     }

@@ -661,7 +661,7 @@ export async function tryRunNativeSearch(options: INativeSearchOptions): Promise
                 createNativeSearchArgs(freshIndex.indexPath, options),
                 commandOptions,
             );
-            parsed = JSON.parse(result.stdout);
+            parsed = JSON.parse(result.stdout ?? '');
         } catch (error) {
             if (strictXlarge) {
                 throwXlargeNativeSearchError(

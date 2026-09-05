@@ -947,7 +947,7 @@ export function createDocumentsPreloadFileClient(
             let bytesRead = 0;
             let chunks = 0;
             while (bytesRead < size) {
-                throwIfAborted(options.signal);
+                throwIfAborted(options?.signal);
                 const length = Math.min(chunkBytes, size - bytesRead);
                 const chunk = await invokeFiles(
                     DOCUMENT_FILES_PLATFORM_FEATURE.invokeChannels.readFileRange,

@@ -1362,6 +1362,17 @@ export function requirePageNumber(value: number, pageCount?: number): TPageNumbe
     return pageNumber;
 }
 
+// A viewport reading is live: the page count is 0 until a document reports its
+// length and still describes the previous document during a swap. Clamp such a
+// reading instead of asserting it, and keep requirePageNumber for settled values.
+export function clampPageNumber(value: number, pageCount?: number): TPageNumber {
+    const truncated = Number.isNaN(value) ? 1 : Math.trunc(value);
+    const withinDocument = pageCount !== undefined && pageCount > 0
+        ? Math.min(truncated, pageCount)
+        : truncated;
+    return toPageNumber(Math.max(1, Math.min(withinDocument, Number.MAX_SAFE_INTEGER)));
+}
+
 export function pageIndexToPageNumber(pageIndex: TPageIndex): TPageNumber {
     return toPageNumber(pageIndex + 1);
 }

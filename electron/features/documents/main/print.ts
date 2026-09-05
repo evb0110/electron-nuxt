@@ -85,7 +85,7 @@ function scheduleDefaultAppTempCleanup(path: string, delayMs = DEFAULT_APP_TEMP_
         scheduledDefaultAppTempCleanup.delete(path);
         void unlink(path).catch(() => undefined);
     }, delayMs);
-    timer.unref();
+    timer.unref?.();
     scheduledDefaultAppTempCleanup.set(path, timer);
 }
 

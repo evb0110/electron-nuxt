@@ -23,7 +23,7 @@ export function registerNitroDiagnostics(
     registeredNitroApps.add(nitroApp);
     nitroApp.hooks.hook('error', (error, context) => {
         try {
-            reporter.captureUncaught(error, context.event);
+            reporter.captureUncaught(error, context?.event);
         } catch {
             // Diagnostics must never change the HTTP error path.
         }

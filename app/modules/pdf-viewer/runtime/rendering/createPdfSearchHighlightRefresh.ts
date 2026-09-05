@@ -95,7 +95,7 @@ export function createPdfSearchHighlightRefresh(deps: IPdfSearchHighlightRefresh
                         }
 
                         const pageIndex = pageNumberToPageIndex(mountedPageNumber);
-                        const pageMatchData = searchMatchesValue.get(pageIndex) ?? null;
+                        const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
                         deps.refreshPage(
                             container,
                             mountedPageNumber,

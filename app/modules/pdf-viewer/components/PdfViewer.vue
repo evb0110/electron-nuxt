@@ -122,7 +122,7 @@ const chassisAuthority = injectedChassisAuthority
 const emitBase = defineEmits<IPdfViewerEmit>();
 const openErrorLatch = createDocumentOpenGenerationErrorLatch();
 const isCommittedInitialPageTransition = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const snapshot = chassisAuthority?.openSurface.snapshot.value;
     return snapshot.phase === 'pending'
         || snapshot.phase === 'geometry-committed'
         || snapshot.phase === 'canvas-committed'
@@ -211,7 +211,7 @@ const openingPageFrameOwnedByRenderer = computed(() => (
     chassisAuthority.openSurface.snapshot.value.openingPageFrame?.ownerId === openingPageFrameOwnerId
 ));
 const openingPageFrameRecord = computed<IPdfOpeningPageFrameRecord | null>(() => {
-    const frame = chassisAuthority.openSurface.snapshot.value.openingPageFrame;
+    const frame = chassisAuthority?.openSurface.snapshot.value.openingPageFrame;
     if (!frame) {
         return null;
     }
@@ -238,11 +238,11 @@ const projectedOpeningPageStyle = computed(() => (
 ));
 const showCommittedInitialPageShell = computed(() => (
     isCommittedInitialPageTransition.value
-    && chassisAuthority.openSurface.viewportSession.value.visual.kind === 'page'
+    && chassisAuthority?.openSurface.viewportSession.value.visual.kind === 'page'
 ));
 function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
-    const viewportSession = chassisAuthority.openSurface.viewportSession.value;
-    const visual = viewportSession.visual;
+    const viewportSession = chassisAuthority?.openSurface.viewportSession.value;
+    const visual = viewportSession?.visual;
     return shouldShowPdfViewportPageSkeleton({
         fallbackVisible: shouldShowPageSkeleton(pageNumber),
         isEmptyToDocumentTransition: isCommittedInitialPageTransition.value,
@@ -254,7 +254,7 @@ function shouldShowViewportPageSkeleton(pageNumber: TPageNumber) {
     });
 }
 const shouldApplyOpeningPageFrame = computed(() => {
-    const snapshot = chassisAuthority.openSurface.snapshot.value;
+    const snapshot = chassisAuthority?.openSurface.snapshot.value;
     const frame = openingPageFrameRecord.value;
     return shouldApplyPdfOpeningPageFrame({
         activeGeneration: snapshot.generation,
@@ -463,7 +463,7 @@ function alignProvisionalOpeningPageShell(pageNumber: TPageNumber) {
 watchPostEffect(() => {
     void virtualPageSegments.value;
     void projectedOpeningPageStyle.value;
-    void chassisAuthority.openSurface.snapshot.value.geometry;
+    void chassisAuthority?.openSurface.snapshot.value.geometry;
     alignProvisionalOpeningPageShell(committedInitialPageNumber.value);
 });
 

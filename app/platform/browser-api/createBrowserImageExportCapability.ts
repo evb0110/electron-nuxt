@@ -234,7 +234,7 @@ async function withRenderedPdfPageCanvas<T>(
             releaseCanvas(canvas);
         }
         try {
-            await Promise.resolve(page.cleanup());
+            await Promise.resolve(page.cleanup?.());
         } catch {
             // Cleanup is best effort.
         }
@@ -329,7 +329,7 @@ async function collectTiffPageDescriptors(
         });
 
         try {
-            await Promise.resolve(page.cleanup());
+            await Promise.resolve(page.cleanup?.());
         } catch {
             // Cleanup is best effort.
         }

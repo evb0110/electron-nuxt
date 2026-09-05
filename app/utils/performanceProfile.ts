@@ -83,7 +83,7 @@ function readNavigatorPerformanceEnvironment(): IPerformanceProfileEnvironment {
     if (typeof runtimeNavigator.hardwareConcurrency === 'number') {
         environment.hardwareConcurrency = runtimeNavigator.hardwareConcurrency;
     }
-    const memoryInfo = getSystemCapability().getMemoryInfo();
+    const memoryInfo = getSystemCapability().getMemoryInfo?.();
     if (typeof memoryInfo?.totalBytes === 'number') {
         environment.totalMemoryBytes = memoryInfo.totalBytes;
     }

@@ -58,7 +58,7 @@ async function extractTextContentPageText(
         for (const item of chunk) {
             if ('str' in item) {
                 textItems.push({
-                    text: String(item.str),
+                    text: String(item.str ?? ''),
                     separatorAfter: item.hasEOL ? 'line' : 'none',
                 });
             }

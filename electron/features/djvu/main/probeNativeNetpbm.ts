@@ -74,7 +74,7 @@ export async function probeNativeNetpbm(binaryPath: string | null, path: string)
             rejectOnStdoutTruncation: true,
             timeoutMs: 60_000,
         });
-        return parseNativeNetpbmProbe(JSON.parse(result.stdout));
+        return parseNativeNetpbmProbe(JSON.parse(result.stdout ?? ''));
     } catch (error) {
         if (process.env.VITEST === 'true') {
             return null;

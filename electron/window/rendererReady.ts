@@ -106,7 +106,7 @@ export function waitForInitialRendererReady(
         const timeoutHandle = setTimeout(() => {
             rejectInitialLoadFailure(new Error(`Renderer startup timed out after ${WINDOW_RENDERER_READY_TIMEOUT_MS}ms`));
         }, WINDOW_RENDERER_READY_TIMEOUT_MS);
-        timeoutHandle.unref();
+        timeoutHandle.unref?.();
 
         windowStartupWaiters.set(windowId, {
             resolve: resolveReady,

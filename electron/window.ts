@@ -518,7 +518,7 @@ function attachRendererDiagnostics(
                     unresponsivePromptInFlight = false;
                 });
         }, UNRESPONSIVE_RECOVERY_DELAY_MS);
-        unresponsiveRecoveryTimer.unref();
+        unresponsiveRecoveryTimer.unref?.();
     });
 
     window.on('responsive', () => {

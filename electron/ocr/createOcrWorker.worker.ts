@@ -40,7 +40,7 @@ function resolveScanCleanupPath() {
 
 function getOcrWorkerPath() {
     const defaultPath = join(__dirname, WORKER_BUNDLES_BY_ID.ocr.fileName);
-    if (!app.isPackaged && existsSync(defaultPath)) {
+    if (!app?.isPackaged && existsSync(defaultPath)) {
         return defaultPath;
     }
 

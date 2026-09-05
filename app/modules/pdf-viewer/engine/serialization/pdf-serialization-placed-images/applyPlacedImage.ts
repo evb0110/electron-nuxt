@@ -139,7 +139,7 @@ export async function applyPlacedImage(
         throw new Error('Unable to apply placed image: placement rectangle has no area');
     }
 
-    const rotationDegrees = 0 - placement.rotationDegrees;
+    const rotationDegrees = 0 - (placement.rotationDegrees ?? 0);
     const radians = (rotationDegrees * Math.PI) / 180;
     const absCos = Math.abs(Math.cos(radians));
     const absSin = Math.abs(Math.sin(radians));

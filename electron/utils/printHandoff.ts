@@ -181,7 +181,7 @@ export function schedulePrintTempCleanup(path: string, delayMs = PRINT_JOB_RESOU
         scheduledPrintTempCleanup.delete(path);
         void unlink(path).catch(() => undefined);
     }, delayMs);
-    timer.unref();
+    timer.unref?.();
     scheduledPrintTempCleanup.set(path, timer);
 }
 
@@ -360,10 +360,10 @@ async function readPdfPrintLayout(path: string, signal?: AbortSignal): Promise<I
         String(PRINT_RASTER_MAX_PAGES),
         path,
     ], commandOptions);
-    const pageCount = parsePdfInfoPageCount(result.stdout);
+    const pageCount = parsePdfInfoPageCount(result.stdout ?? '');
     const pageSizes = pageCount === null || pageCount > PRINT_RASTER_MAX_PAGES
         ? []
-        : parsePdfInfoPageSizes(result.stdout, pageCount);
+        : parsePdfInfoPageSizes(result.stdout ?? '', pageCount);
     if (pageCount === null || (pageCount <= PRINT_RASTER_MAX_PAGES && pageSizes === null)) {
         throw new Error('pdfinfo did not return printable PDF metadata');
     }
@@ -741,7 +741,7 @@ function waitForPdfPluginReadyToPrint(printWindow: BrowserWindow, signal?: Abort
                 logger.debug('Print handoff phase: pdf-readiness-timeout');
                 finish(new Error(`PDF viewer did not become ready to print within ${PRINT_PDF_READY_TIMEOUT_MS}ms`));
             }, PRINT_PDF_READY_TIMEOUT_MS);
-            timeout.unref();
+            timeout.unref?.();
         };
 
         webContents.once('-pdf-ready-to-print', handleReady);
@@ -776,7 +776,7 @@ function schedulePrintWindowClose(printWindow: BrowserWindow, delayMs = PRINT_JO
     const timer = setTimeout(() => {
         closePrintWindow(printWindow);
     }, delayMs);
-    timer.unref();
+    timer.unref?.();
 }
 
 function shouldRunPrintToPdfSmoke() {
@@ -833,7 +833,7 @@ function runNativePrintDialog(
                 error: `Print dialog timed out after ${PRINT_DIALOG_TIMEOUT_MS}ms`,
             });
         }, PRINT_DIALOG_TIMEOUT_MS);
-        timeout.unref();
+        timeout.unref?.();
 
         const handleClosed = () => {
             finish({
@@ -880,7 +880,7 @@ function runNativePrintDialog(
                         return;
                     }
 
-                    const normalizedReason = failureReason.trim();
+                    const normalizedReason = (failureReason ?? '').trim();
                     if (normalizedReason.toLowerCase().includes('cancel')) {
                         finish({
                             success: false,
@@ -1070,5 +1070,5 @@ function scheduleRasterSurfaceCleanup(path: string, delayMs = PRINT_JOB_RESOURCE
             recursive: true,
         }).catch(() => undefined);
     }, delayMs);
-    timer.unref();
+    timer.unref?.();
 }
