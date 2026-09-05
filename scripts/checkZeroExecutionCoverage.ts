@@ -49,6 +49,11 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     // Electron blocking smoke and xlarge acceptance suites.
     'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge.ts',
     'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
+    // Worker entrypoints execute in browser/Electron worker bundles and are
+    // covered by the corresponding save, image, or page-ops acceptance lanes.
+    'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.worker.ts',
+    'app/platform/browser-api/browserPageOps.worker.ts',
+    'app/platform/browser-api/browserPdfCombine.worker.ts',
     'app/modules/pdf-viewer/components/PdfAnnotationToolbar.vue',
     'app/modules/pdf-viewer/components/PdfAnnotationSelectionHandles.vue',
     'app/modules/pdf-viewer/components/PdfNoteAnnotation.vue',
@@ -245,7 +250,11 @@ async function collectProductionTypeScriptFiles(root: string, relativeDirectory:
         const relativePath = path.posix.join(relativeDirectory, entry.name);
         if (entry.isDirectory()) {
             files.push(...await collectProductionTypeScriptFiles(root, relativePath));
-        } else if (entry.isFile() && isZeroExecutionTripwireTarget(relativePath)) {
+        } else if (
+            entry.isFile()
+            && isZeroExecutionTripwireTarget(relativePath)
+            && !(NON_UNIT_COVERAGE_ENTRYPOINTS as readonly string[]).includes(relativePath)
+        ) {
             files.push(relativePath);
         }
     }

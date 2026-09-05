@@ -170,6 +170,11 @@ describe('zero-execution coverage tripwire', () => {
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('scripts/generate-freetext-lifecycle-fixture.mjs');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/pages/electron.vue');
         expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('electron/preload.ts');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain(
+            'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.worker.ts',
+        );
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/platform/browser-api/browserPageOps.worker.ts');
+        expect(NON_UNIT_COVERAGE_ENTRYPOINTS).toContain('app/platform/browser-api/browserPdfCombine.worker.ts');
     });
 
     it('discovers and checks targets across the widened production roots', async () => {
