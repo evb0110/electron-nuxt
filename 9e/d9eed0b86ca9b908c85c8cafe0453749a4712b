@@ -1,0 +1,31 @@
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_b412fd4cd3f576::t_2f90d0a5734d3d 254-258,380,422-423,426-429,433
+  s_b412fd4cd3f576::t_9525dbda21d0a1 4,208-220,238-239,383-386,388-393,395-398,400-407,409,417,419-421
+  s_b412fd4cd3f576::t_bd6985e77ccdb8 432
+  s_b412fd4cd3f576::t_df7c6986e9f613 394,430-431
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_b412fd4cd3f576::t_be0369dbff269f 1374-1453,1482-1483,1485
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b412fd4cd3f576::t_17657cbe5a11c0 1355-1356,1360-1365
+  s_b412fd4cd3f576::t_bd0af15168279b 1366-1369
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_b412fd4cd3f576::t_9525dbda21d0a1 188-189
+scripts/release/verifyPackagedScanCleanup.ts
+  s_b412fd4cd3f576::t_9525dbda21d0a1 751-752
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "9ed9eed0b86ca9b908c85c8cafe0453749a4712b",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,38 @@
+scripts/windows-test/host/utmctlClient.ts
+  s_cf09a11bf9eebf::t_3569e3864778a5 3-6,16-19,23-48,350-352,595-599
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_cf09a11bf9eebf::t_008783e5c6964a 245-248
+  s_cf09a11bf9eebf::t_3569e3864778a5 15,22,189-213
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_149694cd7049aa::t_d38ec199657f5d 44,48,282-291,294
+tests/e2e/electron/blockingPdfSaveSmoke.e2e.test.ts
+  s_149694cd7049aa::t_1e83accb874c31 21
+tests/e2e/electron/helpers/viewerCore.ts
+  s_149694cd7049aa::t_374beabb8360b3 22,1316-1344
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_149694cd7049aa::t_9593ddea69d346 1353-1359
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "8b2793a853f4a36447ba245bae76e37b9c97ed5e",
+  "prompts": {},
+  "sessions": {
+    "s_149694cd7049aa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07190-dd18-77b3-a5e7-3b630691b3b0",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

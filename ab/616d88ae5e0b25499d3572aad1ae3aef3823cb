@@ -1,0 +1,214 @@
+scripts/windows-test/oracles/ocrPageMarkerOracle.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-2,4-13,23-230,233-311
+  s_cf09a11bf9eebf::t_c1cf8c279b8fc3 14-20,22,232
+  s_cf09a11bf9eebf::t_df112eb3b0fae8 3,21,231
+tests/unit/scripts/windows-test/utmProcessGuard.test.ts
+  s_cf09a11bf9eebf::t_db5b4c985f7f69 147-149,151-158
+  s_cf09a11bf9eebf::t_a0fce358704341 121,123,127-133
+  s_cf09a11bf9eebf::t_a8f5be27d2ff42 144
+  s_b412fd4cd3f576::t_398840cfa669c4 1-120,122,124-126,134-143,145-146,159-217
+  s_cf09a11bf9eebf::t_1c7c91ad7131f0 150
+docs/research/utm-windows-live-transport-2026-09-05.md
+  s_b412fd4cd3f576::t_398840cfa669c4 1-404
+  s_cf09a11bf9eebf::t_b96003325bf387 457-472
+  s_cf09a11bf9eebf::t_2c5b36dd46e357 419-456
+  s_b412fd4cd3f576::t_023ce87ba451af 405-418
+scripts/windows-test/host/standaloneUtmctl.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-29,31-118,124-250
+  s_cf09a11bf9eebf::t_8a96ceb5ace12c 30,119-123
+scripts/windows-test/host/utmctlClient.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 2,4-10,13,81-85,93-105,123,217-248,301-302,320-325,346,348-557,563-569,587,592,598,604,612,617,623-633,637,639-644,646-649,651,653-710,718-730,738-749,751-808,813,824
+  s_cf09a11bf9eebf::t_db5b4c985f7f69 70,253-261,267,750
+  s_cf09a11bf9eebf::t_33c43edea289f7 347,645,650,711-717,731-737
+  s_cf09a11bf9eebf::t_c43d21acf62640 573
+  s_cf09a11bf9eebf::t_d0ceaac5ee697e 68-69
+  s_b412fd4cd3f576::t_f02117add0f11c 249
+tests/unit/scripts/windows-test/nativeDialogs.test.ts
+  s_cf09a11bf9eebf::t_885132a314f43f 247
+  s_b412fd4cd3f576::t_398840cfa669c4 1-244,264-297
+  s_cf09a11bf9eebf::t_605dd5c992b443 245-246,248-263
+scripts/windows-test/host/doctor.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 96-99,105-110,117,136-159,168-169,171-184,192,259-267,485
+  s_cf09a11bf9eebf::t_885132a314f43f 100-104
+  s_cf09a11bf9eebf::t_368f124eae8869 118-135,160-167,170
+scripts/windows-test/guest/powershell/test-lab-helpers.ps1
+  s_cf09a11bf9eebf::t_37871fa5578e26 2-4,10-58
+  s_cf09a11bf9eebf::t_355f3877a6de20 5-9
+  s_cf09a11bf9eebf::t_493f49bb522920 1
+scripts/windows-test/images/createTestClone.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 33-51,73,82,159-169,201-214,217
+  s_cf09a11bf9eebf::t_8fcce4b5bda438 215-216
+scripts/windows-test/guest/guestWorker.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 97-98,101,312,327,356-363,451,500,573,579-583
+scripts/windows-test/guest/powershell/configure-test-printer.ps1
+  s_cf09a11bf9eebf::t_99c21eeaf37343 2-88,90,92-101,104-105,107-115,117-127
+  s_cf09a11bf9eebf::t_c1f255b9b8caa2 1
+  s_cf09a11bf9eebf::t_7369113ba18da7 89,91,106,116
+  s_cf09a11bf9eebf::t_ba0711a4757751 102-103
+tests/windows/native-ui/selectors.json
+  s_b412fd4cd3f576::t_398840cfa669c4 3,223-294
+scripts/windows-test/host/guestChannel.ts
+  s_cf09a11bf9eebf::t_7e6246ffb906b5 235,238-245,382
+  s_cf09a11bf9eebf::t_024ab2f5b883c1 366-373
+  s_b412fd4cd3f576::t_398840cfa669c4 5-6,8,20-25,67-93,96-234,236-237,246-259,265-269,289,305-308,320,336-339,342-365,374-381,383-437,442
+tests/unit/scripts/windows-test/guestWorker.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 33,398-497
+  s_cf09a11bf9eebf::t_25e75e46baaf16 498
+tests/unit/scripts/windows-test/guestChannelReadiness.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-53
+tests/unit/scripts/windows-test/hostDoctor.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 24,31,117,193-198,206,247,328-344,346-356,373-376,469-510,512-514
+  s_cf09a11bf9eebf::t_368f124eae8869 345,357-372,511
+scripts/windows-test/guest/native-ui/firstLaunchPrompt.ts
+  s_cf09a11bf9eebf::t_ee5d6a636fd22a 196
+  s_b412fd4cd3f576::t_398840cfa669c4 1-195,197-198
+scripts/windows-test/guest/guestPowerShell.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 26,28-29
+  s_cf09a11bf9eebf::t_855c123b2610fc 27
+  s_cf09a11bf9eebf::t_37871fa5578e26 30
+scripts/windows-test/guest/powershell/mute-test-audio.ps1
+  s_b412fd4cd3f576::t_398840cfa669c4 1-24,27-69,71-139
+  s_cf09a11bf9eebf::t_37871fa5578e26 25-26,70
+tests/unit/scripts/windows-test/guestWorkerMain.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-36
+scripts/windows-test/oracles/windowsHostOracleDispatcher.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 21,45,54,112-113,182,196,482-487,551-552
+tests/unit/scripts/windows-test/guestWorkerRuntime.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 36-42,112-148,156-159,162-184,385-414,448-476
+  s_cf09a11bf9eebf::t_7ad7e426c9089b 35,149-155,160-161,477
+scripts/windows-test/host/utmProcessGuard.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-123,128-182
+  s_cf09a11bf9eebf::t_db5b4c985f7f69 124-127
+scripts/windows-test/contracts/windowsTestContracts.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 10,93,95
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 10,14-23,35,43,45-52
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_cf09a11bf9eebf::t_170a71b1899206 280-285
+  s_cf09a11bf9eebf::t_8e9ebf0c1be71a 597,611,626,812
+  s_cf09a11bf9eebf::t_db5b4c985f7f69 156-160,534-535
+  s_b412fd4cd3f576::t_398840cfa669c4 7-12,19,37-46,48-49,53,55-73,152-155,161-169,187-212,254,257,266,268-269,271,273,302-508,511-512,536-548,566-596,598-610,612-625,627-811,813-825
+  s_b412fd4cd3f576::t_b393cdd225a8c3 6,509-510,513
+scripts/windows-test/guest/powershell/register-worker-logon-task.ps1
+  s_cf09a11bf9eebf::t_37871fa5578e26 55-56
+  s_cf09a11bf9eebf::t_133151c71b574c 118,140
+  s_cf09a11bf9eebf::t_630e7e3678cb18 47
+  s_cf09a11bf9eebf::t_7369113ba18da7 13
+  s_b412fd4cd3f576::t_398840cfa669c4 10-12,43-46,65-68,72-83,91-92,94-117,141-158,162-163,197,200-201,203-204
+  s_cf09a11bf9eebf::t_5427ad72cf5069 183
+  s_cf09a11bf9eebf::t_d7bddebfd6a1a6 14,48-49,84-90,119-139,159-161,202
+scripts/windows-test/guest/guestIdentity.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 104-116
+scripts/windows-test/guest/viewer/createPuppeteerViewerFactory.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 12-17,32-34,53-55,64-67,71-88,90,115,134,139-153
+  s_cf09a11bf9eebf::t_ee5d6a636fd22a 63,68-70,89
+scripts/windows-test/guest/cases/nativeDialogs.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 2-5,33-47,50-87,89,93,96,110,120-151,158-161
+scripts/windows-test/guest/powershell/probe-identity.ps1
+  s_b412fd4cd3f576::t_398840cfa669c4 12-14,105-111
+tests/unit/scripts/windows-test/ocrPageMarkerOracle.test.ts
+  s_cf09a11bf9eebf::t_c826a8b531874d 20-24,32,34-35,118-145
+  s_b412fd4cd3f576::t_398840cfa669c4 1-19,25-31,33,36-57,60-117,146-147
+  s_cf09a11bf9eebf::t_df112eb3b0fae8 58-59
+scripts/windows-test/guest/viewer/createPuppeteerViewerDriver.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 2,32,143-210,258-261
+tests/unit/scripts/windows-test/guestChannelFailures.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-50
+tests/unit/scripts/windows-test/guestIdentity.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 124-137
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 206-219,221-234,270
+  s_cf09a11bf9eebf::t_34ec5fddbaa557 220,235-269
+scripts/windows-test/host/inputMedia.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-243
+scripts/windows-test/host/prepareWindowsTestHost.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 22-26,32-33,58-67,146
+tests/unit/scripts/windows-test/windowsHostOracleDispatcher.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 21,146-158,167-172,321-346
+  s_cf09a11bf9eebf::t_b2b03f4fb04261 347
+tests/unit/scripts/windows-test/guestAppLaunch.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 10,44,54,58,121-180,284-323,334-340,353
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-9,12,40-113,142,153-154,166,168-199
+tests/unit/scripts/windows-test/nativeUiSelectors.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 21,51-56,58-62,64-66,80-103
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 3,39-41,45-46,111,113-116,142-145
+tests/unit/scripts/windows-test/firstLaunchPrompt.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-249
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 3,5,18-28,112-207
+tests/unit/scripts/windows-test/inputMedia.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-152
+docs/agents/utm-windows-tests.md
+  s_b412fd4cd3f576::t_398840cfa669c4 18-21,26,30-45,74-82,89-96
+  s_cf09a11bf9eebf::t_7075e24f4373ad 98
+  s_cf09a11bf9eebf::t_27005e8275875f 97,99
+docs/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
+  s_b412fd4cd3f576::t_398840cfa669c4 441-444,448-477
+  s_cf09a11bf9eebf::t_2c5b36dd46e357 479-498
+  s_b412fd4cd3f576::t_356ac34cf38c0e 478
+scripts/windows-test/host/runCoordinator.ts
+  s_cf09a11bf9eebf::t_ac4e11f908bf1b 435-438,440,712
+  s_b412fd4cd3f576::t_398840cfa669c4 49-52,93-95,300-315,439,441-442,533,555,561,563,573,582,629,639,649-663,665,668-678,680-686,690,732-763,787
+tests/unit/scripts/windows-test/standaloneUtmctl.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-77,89-95
+  s_cf09a11bf9eebf::t_0c11217e97314c 78-88
+scripts/windows-test/guest/powershell/start-worker-logon.ps1
+  s_cf09a11bf9eebf::t_37871fa5578e26 36-37,147,151-153,201-203,209-211
+  s_b412fd4cd3f576::t_398840cfa669c4 1-6,12-27,31-35,38-39,42-72,74-146,148-150,154-199,206,213-246,248-250,281-319
+  s_cf09a11bf9eebf::t_0a10b762119b61 7-11,29-30,40,200,204-205,207-208,212,252-275,277-279
+  s_cf09a11bf9eebf::t_133151c71b574c 41,73,247,251,276,280
+  s_cf09a11bf9eebf::t_1e74cc325806f6 28
+scripts/windows-test/host/hostRunner.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 33-34,47-49,52-55,57-58,73-77,82-87,174-229,231,340-363,374-376,378,383,420-421,423-434,439,468-480,483,485,524-525,527,536
+  s_cf09a11bf9eebf::t_9d3b7f884496d6 20,59-62,322-324,414-419,422
+  s_cf09a11bf9eebf::t_12644cd4fa7eec 230,481,490-498
+  s_b412fd4cd3f576::t_dfafcbce570945 232
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 149,154,188-190,235,257,291-294,502-550,642-643,648-667,671-672
+  s_cf09a11bf9eebf::t_adff1e4a5c3e65 669-670
+  s_b412fd4cd3f576::t_bb32fa363e9d23 668,673
+scripts/windows-test/guest/powershell/disable-test-audio.ps1
+  s_cf09a11bf9eebf::t_37871fa5578e26 22-23,69
+  s_b412fd4cd3f576::t_398840cfa669c4 1-21,24-68,70-127
+scripts/windows-test/guest/appLaunch.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 2,219-221,224,228,336,344-368,374,384-389
+tests/unit/scripts/windows-test/guestViewerDriver.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 1-145
+scripts/windows-test/oracles/pageMarkerOracle.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 11-12,23-26,67-69
+docs/windows-tests/setup-and-repair.md
+  s_cf09a11bf9eebf::t_7075e24f4373ad 138,245
+  s_cf09a11bf9eebf::t_11846b4e86c60f 137,139-142
+  s_b412fd4cd3f576::t_398840cfa669c4 14,19,50-54,82,107-111,115-119,135-136,143-147,152-158,213-214,222-226,229-236,241-244,246-249,259-276
+tests/unit/scripts/windows-test/guestPowerShell.test.ts
+  s_b412fd4cd3f576::t_398840cfa669c4 180-183,185-195,201-207,209-212,214,217-223,225-240,251-254,257-263
+  s_cf09a11bf9eebf::t_fb67c8b2c352f9 184,208,241-250,255-256
+  s_cf09a11bf9eebf::t_885132a314f43f 197,199,215
+  s_cf09a11bf9eebf::t_fc1ff107bcf306 196,198,200,213,216,224
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "ab616d88ae5e0b25499d3572aad1ae3aef3823cb",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
