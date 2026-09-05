@@ -138,6 +138,16 @@ function cliUploadRoots(identity, uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
+function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
+    if (
+        identity.target === 'web'
+        && cliRoot === path.join(uploadRoot, 'vercel/output/static')
+    ) {
+        return '~/';
+    }
+    return null;
+}
+
 async function prepareUploadTree({
     identity,
     projectRoot,
@@ -308,6 +318,11 @@ export async function uploadSentrySourcemaps({
         });
         try {
             for (const cliRoot of cliUploadRoots(normalizedIdentity, uploadRoot, manifest)) {
+                const urlPrefix = cliUploadUrlPrefix(
+                    normalizedIdentity,
+                    uploadRoot,
+                    cliRoot,
+                );
                 await runCli([
                     'sourcemaps',
                     'upload',
@@ -326,6 +341,10 @@ export async function uploadSentrySourcemaps({
                     ...UPLOAD_EXTENSIONS.flatMap(extension => [
                         '--ext',
                         extension,
+                    ]),
+                    ...(urlPrefix === null ? [] : [
+                        '--url-prefix',
+                        urlPrefix,
                     ]),
                     cliRoot,
                 ], {token});

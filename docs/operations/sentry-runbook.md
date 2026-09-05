@@ -78,7 +78,7 @@ Weekly evidence template:
 
 | Review date | Releases checked | Open issues reviewed | GitHub issues created | Resolved issues deleted | Forbidden fields | Symbolication | Quota | Reviewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 2026-09-05 | `v0.1.452` production clients and sampled `0.1.450` test canaries | 0 actionable production issues outside the deterministic source-map canaries | 0 | 0; the resolved queue was empty | None in the sampled closed-schema event | Pass; sampled top in-app frame was `electron/main.ts` | 5,448 of 5,000,000 accepted errors, 0 filtered, rate-limited, invalid, or over-quota | Repository owner account |
+| 2026-09-05 | `v0.1.452` production clients and deterministic source-map canaries | 256 unresolved source-map canary issues remain under review; one sampled issue reported missing source content | 0 | 0; the resolved queue was empty | None in the sampled closed-schema event | Blocked; the existing web canary receipt did not prove symbolication, and the sampled event had `missing_source_content` | 5,448 of 5,000,000 accepted errors, 0 filtered, rate-limited, invalid, or over-quota | Repository owner account |
 
 ## Privacy incident response
 
@@ -146,6 +146,38 @@ token is a fourth credential with only release and source-map upload scope.
 Canary events use synthetic faults and contain only the closed record. Record
 counts and outcomes, not payloads or private account links.
 
+### CLI source-map proof
+
+Run the source-map canary and its verifier from the exact build stage after the
+private upload has completed:
+
+```text
+node scripts/release/send-sentry-sourcemap-canaries.mjs
+node scripts/release/verify-sentry-sourcemap-canaries.mjs
+```
+
+The upload command uses `SENTRY_AUTH_TOKEN`. The verification command uses a
+separate `SENTRY_VERIFICATION_TOKEN` with read-only project and event access.
+Do not give the verifier the upload-only token.
+
+On the operator Mac, load the verification token from Keychain for a local
+run, then remove it from the shell:
+
+```sh
+export SENTRY_VERIFICATION_TOKEN="$(security find-generic-password -a "$USER" -s evb-viewer-sentry-verification-token -w)"
+node scripts/release/verify-sentry-sourcemap-canaries.mjs
+unset SENTRY_VERIFICATION_TOKEN
+```
+
+The first command records one deterministic event per project-source bundle in
+`canary-receipt.json`. The second command queries Sentry's source-map-debug and
+processed-event APIs for every event in that receipt. It requires the exact
+release, dist, uploaded Debug ID artifacts, source-file and map lookup, the
+expected EVB file, function, line, canary tags, and source context. It also
+checks that the receipt covers the complete staged manifest. It writes only a
+credential-free `canary-verification-receipt.json`. A submission without a
+passing verification receipt is not symbolication evidence.
+
 ### Desktop matrix
 
 Run the consent, main, renderer, worker-parent, UI-only, direct-console,
@@ -154,14 +186,14 @@ artifact-scan checks for every dist below.
 
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `macos-arm64` | `evb-viewer-desktop@0.1.453` local packaged test build | 0 | 0 | 6 one-item attempts against a rejecting test DSN, plus 228 source-map canaries | 0, including close-time | Pass for runtime and fatal UI | Pass | Pass in exact-tag job | Startup crash, replay, relaunch, and shutdown pass; update and recovery pending hosted proof | 2026-09-05 |
-| `macos-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `windows-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `windows-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `linux-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `linux-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `store-appx-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
-| `store-appx-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `macos-arm64` | `evb-viewer-desktop@0.1.453` local packaged test build | 0 | 0 | 6 one-item attempts against a rejecting test DSN, plus 228 source-map canary submissions | 0, including close-time | Pass for runtime and fatal UI | Pending API verification | Pass in exact-tag job | Startup crash, replay, relaunch, and shutdown pass; update and recovery pending hosted proof | 2026-09-05 |
+| `macos-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `windows-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `windows-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `linux-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `linux-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `store-appx-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
+| `store-appx-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canary submissions | Pending | Pending | Pending API verification | Pass in exact-tag job | Pending | 2026-09-05 |
 | `win7-legacy-x64` | Not shipped; tracked by #335 | N/A | N/A | N/A | N/A | N/A | N/A | No public artifact | N/A | 2026-09-05 |
 
 Every request count under unknown and denied must be zero. A granted canary must
@@ -169,13 +201,13 @@ produce one envelope with one event item. Revocation must produce no queued,
 close-time, or client-report envelope.
 
 The exact-tag artifact run uploaded 280 private bundles for each of the eight
-shipping identities. Every identity sent 228 deterministic canaries for
-bundles with an EVB source mapping and recorded 52 generated or vendor-only
-chunks as ineligible for original-source proof. Live Sentry inspection sampled
-macOS arm64, Windows arm64, and Store arm64 events and resolved them to original
-EVB source lines with source context, the expected release, and the expected
-dist. This is source-map evidence only. It does not replace the packaged
-consent and behavior matrix still marked pending in the same rows.
+shipping identities and submitted 228 deterministic canaries for bundles with
+an EVB source mapping. It recorded 52 generated or vendor-only chunks as
+ineligible for original-source proof. Those submissions are historical input,
+not source-map acceptance: the run did not query Sentry's source-map debug and
+processed-event APIs, so every desktop Symbolicated cell remains pending until
+the new verifier produces a passing receipt. This does not replace the
+packaged consent and behavior matrix still marked pending in the same rows.
 
 The local packaged macOS arm64 matrix runs through
 `pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts`. It uses isolated user data and a
@@ -206,22 +238,22 @@ map proof is represented as production evidence here.
 
 | Deployment | Served-byte parity | Unknown requests | Denied requests | Granted event count | Revocation requests | CSP origin count | Error ID matched | Symbolicated | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Preview | Pass, protected exact-byte deployment | Pending | Pending | 256 private source-map canaries | Pending | One EU ingest origin in built CSP | Pending | Pass, sampled browser frame | 2026-09-05 |
-| Production | Pass, exact prebuilt v0.1.452 deployment | 0 | 0 | 1 | 0 | One EU ingest origin in served CSP | Pass | Pass, original EVB browser frames | 2026-09-05 |
+| Preview | Pass, protected exact-byte deployment | Pending | Pending | Pending | Pending | One EU ingest origin in built CSP | Pending | Pending | 2026-09-05 |
+| Production | Pass, exact prebuilt v0.1.452 deployment | 0 | 0 | 1 runtime event plus 256 deterministic source-map canary events | 0 | One EU ingest origin in served CSP | Pass for the runtime event | Blocked; the sampled canary reported `missing_source_content` | 2026-09-05 |
 
 The CSP origin count must be one for the exact EU ingest origin. Electron CSP
 must remain unchanged.
 
-The Preview source-map run uploaded 473 bundles from separate visible Vercel
-`static` and `functions` roots. It sent 256 canaries for bundles with a usable
-EVB mapping and recorded 217 generated or vendor-only bundles as ineligible.
-The sampled browser canary resolved by Debug ID to
-`app/composables/useRuntimeErrorReports.ts:16`, including source context, with
-`symbolicated_in_app` true. This proves private-map symbolication only. The
-unknown, denied, grant, revocation, and Error ID rows still require the hosted
-browser behavior canary.
+The historical web source-map run uploaded 473 bundles from separate visible
+Vercel `static` and `functions` roots. The production feed now shows 256
+unresolved deterministic canary issues. A representative issue has the expected
+release and Debug ID but reports `missing_source_content`, so the previous
+browser source-map claim is invalid. The source-map fix must deploy a new exact
+release and run the CLI verifier against every event in its receipt before this
+table can return to Pass.
 
-Production completed that behavior canary against `web.evb-viewer.com`.
+Production completed the consent behavior canary against `web.evb-viewer.com`,
+but source-map acceptance is blocked separately by the canary findings above.
 Unknown and first-time denied states made no ingest request, granting the live
 fault emitted one event, and immediate revocation emitted nothing later. The
 served bundles matched the private manifest, and a real runtime event resolved

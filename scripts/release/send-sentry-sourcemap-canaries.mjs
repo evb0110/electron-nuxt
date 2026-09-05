@@ -18,8 +18,8 @@ import {
 import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const {SourceMapConsumer} = sourceMap;
-const CANARY_RECEIPT_SCHEMA_VERSION = 1;
-const CANARY_EVENT_VERSION = 'sourcemap-v6';
+export const CANARY_RECEIPT_SCHEMA_VERSION = 2;
+export const CANARY_EVENT_VERSION = 'sourcemap-v6';
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 const EU_SENTRY_INGEST_HOST_PATTERN = /(?:^|\.)ingest\.de\.sentry\.io$/u;
 const SENTRY_INGEST_ATTEMPTS = 5;
@@ -93,7 +93,7 @@ function matchManifestSource(mapSource, manifestSources) {
     return matches.length === 1 ? matches[0] : null;
 }
 
-function findCanaryMapping(mapPayload, manifestSources) {
+export function findCanaryMapping(mapPayload, manifestSources) {
     const consumer = new SourceMapConsumer(mapPayload);
     let first = null;
     let named = null;
@@ -137,7 +137,7 @@ function readDebugId(mapPayload) {
     return value;
 }
 
-function canaryCodeFile(identity, bundlePath) {
+export function getCanaryCodeFile(identity, bundlePath) {
     const vercelStaticPrefix = '.vercel/output/static/';
     if (identity.target === 'web' && bundlePath.startsWith(vercelStaticPrefix)) {
         return `https://evb-viewer.invalid/${bundlePath.slice(vercelStaticPrefix.length)}`;
@@ -145,9 +145,8 @@ function canaryCodeFile(identity, bundlePath) {
     return bundlePath;
 }
 
-function createCanaryEvent(identity, bundle, mapping, debugId) {
-    const codeFile = canaryCodeFile(identity, bundle.bundle);
-    const eventId = createHash('sha256')
+export function getCanaryEventId(identity, bundlePath) {
+    return createHash('sha256')
         .update(`evb-${CANARY_EVENT_VERSION}`)
         .update('\0')
         .update(identity.target)
@@ -158,9 +157,14 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
         .update('\0')
         .update(identity.environment)
         .update('\0')
-        .update(bundle.bundle)
+        .update(bundlePath)
         .digest('hex')
         .slice(0, 32);
+}
+
+function createCanaryEvent(identity, bundle, mapping, debugId) {
+    const codeFile = getCanaryCodeFile(identity, bundle.bundle);
+    const eventId = getCanaryEventId(identity, bundle.bundle);
     return {
         event: {
             event_id: eventId,
@@ -202,6 +206,8 @@ function createCanaryEvent(identity, bundle, mapping, debugId) {
         },
         evidence: {
             bundle: bundle.bundle,
+            codeFile,
+            debugId,
             eventId,
             expectedFunction: mapping.originalFunction,
             expectedLine: mapping.originalLine,
@@ -339,7 +345,7 @@ export async function sendSentrySourcemapCanaries({
         evidence.push(canary.evidence);
         const expectedFunction = canary.evidence.expectedFunction ?? '<anonymous>';
         process.stdout.write(
-            `Sentry source-map canary accepted: ${bundle.role}, ${bundle.bundle}, `
+            `Sentry source-map canary submitted: ${bundle.role}, ${bundle.bundle}, `
             + `${canary.evidence.eventId}, expects ${canary.evidence.expectedSource}:`
             + `${String(canary.evidence.expectedLine)} ${expectedFunction}\n`,
         );
@@ -356,7 +362,7 @@ export async function sendSentrySourcemapCanaries({
         {mode: 0o600},
     );
     process.stdout.write(
-        `Sentry accepted ${String(evidence.length)} source-map canary event(s) for ${identity.release}, ${identity.dist}.\n`,
+        `Sentry submitted ${String(evidence.length)} source-map canary event(s) for ${identity.release}, ${identity.dist}.\n`,
     );
     if (skippedBundles.length > 0) {
         process.stdout.write(

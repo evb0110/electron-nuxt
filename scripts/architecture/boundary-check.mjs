@@ -330,6 +330,8 @@ export const SENTRY_RELEASE_TOOL_ROOTS = new Set([
     'scripts/release/upload-sentry-sourcemaps.mjs',
 ]);
 
+export const SENTRY_VERIFICATION_TOOL_ROOTS = new Set(['scripts/release/verify-sentry-sourcemap-canaries.mjs']);
+
 export const SENTRY_CANARY_TOOL_ROOTS = new Set(['scripts/release/send-sentry-sourcemap-canaries.mjs']);
 
 export const SENTRY_BUILD_CONFIG_ROOTS = new Set([
@@ -1095,7 +1097,13 @@ function isSentryUploadTokenName(value) {
         || normalized === 'sentry_auth_token'
         || normalized === 'sentry_upload_token'
         || normalized === 'sentry_cli_token'
-        || (normalized.includes('sentry') && normalized.includes('token'));
+        || (normalized.includes('sentry')
+            && normalized.includes('token')
+            && normalized !== 'sentry_verification_token');
+}
+
+function isSentryVerificationTokenName(value) {
+    return value.replaceAll('-', '_').toLowerCase() === 'sentry_verification_token';
 }
 
 function isSentryCliName(value) {
@@ -1161,6 +1169,7 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
 
     const isRuntimeAdapter = SENTRY_RUNTIME_ADAPTER_ROOTS.has(filePath);
     const isReleaseTool = SENTRY_RELEASE_TOOL_ROOTS.has(filePath);
+    const isVerificationTool = SENTRY_VERIFICATION_TOOL_ROOTS.has(filePath);
     const isCanaryTool = SENTRY_CANARY_TOOL_ROOTS.has(filePath);
     const isBuildConfig = SENTRY_BUILD_CONFIG_ROOTS.has(filePath);
     const violations = [];
@@ -1222,6 +1231,14 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
                         message: 'Sentry upload tokens may be read only by the two exact release tools.',
                     });
                 }
+                if (isSentryVerificationTokenName(node.text) && !isVerificationTool) {
+                    addViolation({
+                        rule: 'sentry-upload-token-boundary',
+                        target: filePath,
+                        specifier: 'verification-token-read',
+                        message: 'The Sentry verification token may be read only by the exact verification tool.',
+                    });
+                }
             }
 
             const staticString = getStaticString(node);
@@ -1243,6 +1260,14 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
                     target: filePath,
                     specifier: 'upload-token-read',
                     message: 'Sentry upload tokens may be read only by the two exact release tools.',
+                });
+            }
+            if (staticString && !isVerificationTool && isSentryVerificationTokenName(staticString)) {
+                addViolation({
+                    rule: 'sentry-upload-token-boundary',
+                    target: filePath,
+                    specifier: 'verification-token-read',
+                    message: 'The Sentry verification token may be read only by the exact verification tool.',
                 });
             }
 

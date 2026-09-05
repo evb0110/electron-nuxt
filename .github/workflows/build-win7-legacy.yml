@@ -24,6 +24,8 @@ on:
     secrets:
       SENTRY_AUTH_TOKEN:
         required: false
+      SENTRY_VERIFICATION_TOKEN:
+        required: false
       SENTRY_ORG:
         required: false
       SENTRY_DESKTOP_PROJECT:
@@ -165,6 +167,7 @@ jobs:
         shell: bash
         env:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_VERIFICATION_CONFIGURED: ${{ secrets.SENTRY_VERIFICATION_TOKEN != '' }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
           SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
@@ -175,6 +178,10 @@ jobs:
             if [ -n "$value" ]; then configured=$((configured + 1)); fi
           done
           if [ "$configured" -eq 4 ]; then
+            if [ "${{ inputs.send_sentry_canaries }}" = 'true' ] && [ "$SENTRY_VERIFICATION_CONFIGURED" != 'true' ]; then
+              echo '::error::SENTRY_VERIFICATION_TOKEN is required when source-map canaries are enabled.'
+              exit 1
+            fi
             echo 'enabled=true' >> "$GITHUB_OUTPUT"
           elif [ "$configured" -eq 0 ]; then
             echo 'enabled=false' >> "$GITHUB_OUTPUT"
@@ -197,6 +204,23 @@ jobs:
         if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
         shell: bash
         run: node scripts/release/send-sentry-sourcemap-canaries.mjs
+
+      - name: Verify private Sentry source-map canaries
+        if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
+        shell: bash
+        env:
+          SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
+          SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+        run: node scripts/release/verify-sentry-sourcemap-canaries.mjs
+
+      - name: Upload Sentry source-map verification receipt
+        if: ${{ always() && steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sentry-sourcemap-verification-win7-x64
+          path: .tmp/private-sourcemaps/**/canary-verification-receipt.json
+          if-no-files-found: error
 
       - name: Upload artifacts
         if: steps.artifact_status.outputs.ready == 'true'

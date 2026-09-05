@@ -46,7 +46,7 @@ async function setup() {
         debug_id: '12345678-1234-5678-9abc-123456789abc',
     }));
     await writeFile(manifestPath, JSON.stringify({
-        schemaVersion: 1,
+        schemaVersion: 2,
         identity,
         bundles: [{
             bundle: 'dist-electron/main.js',
@@ -166,6 +166,8 @@ describe('Sentry source-map canaries', () => {
         });
         expect(receipt.events).toEqual([expect.objectContaining({
             bundle: 'dist-electron/main.js',
+            codeFile: 'dist-electron/main.js',
+            debugId: '12345678-1234-5678-9abc-123456789abc',
             eventId: 'c5172bffbb9b5d21a3f35cb54c0f4b5b',
             expectedFunction: 'start',
             expectedLine: 1,
@@ -237,7 +239,7 @@ describe('Sentry source-map canaries', () => {
             debug_id: '12345678-1234-5678-9abc-123456789abc',
         }));
         await writeFile(manifestPath, JSON.stringify({
-            schemaVersion: 1,
+            schemaVersion: 2,
             identity: webIdentity,
             bundles: [{
                 bundle: '.vercel/output/static/_nuxt/app.js',

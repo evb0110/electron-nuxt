@@ -1197,7 +1197,7 @@ Exit gate: four weeks of operation meet every success measure below.
 | --- | --- |
 | Closed builder | Property tests inject forbidden strings and objects at every input depth. No captured envelope contains them. |
 | Code registry | Type tests and runtime decoders reject unknown codes, context keys, values, frames, event IDs, and schema versions. |
-| Static boundary | Only three runtime adapter roots import a Sentry SDK. Two exact release tools may invoke the pinned CLI for injection and upload but cannot import a client SDK, read a DSN, call capture APIs, or construct events. All other product code, scripts, runners, gates, and tools are rejected. |
+| Static boundary | Only three runtime adapter roots import a Sentry SDK. Two exact release tools may invoke the pinned CLI for injection and upload, and one exact verification tool may read the separate read-only verification token and query the API. None may import a client SDK, read a DSN, call capture APIs, or construct events. All other product code, scripts, runners, gates, and tools are rejected. |
 | Red invariant | Raw red toast or alert creation, direct application `console.error`, and receipt-free runtime or fatal presentation fail the architecture test. |
 | Renderer ownership | One guarded Vue error writes one local log, one typed IPC record, one UI report, and one Sentry event. The inherited Vue console call is counted as `owned-projection` and creates no occurrence. |
 | Main ownership | One main `ERROR` writes one local log and one Sentry event, then may appear in every renderer without another send. |

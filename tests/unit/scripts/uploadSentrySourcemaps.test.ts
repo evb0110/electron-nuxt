@@ -103,6 +103,7 @@ describe('uploadSentrySourcemaps', () => {
         });
 
         expect(runCli).toHaveBeenCalledOnce();
+        expect(runCli.mock.calls[0]?.[0]).not.toContain('--url-prefix');
         expect(runCli.mock.calls[0]?.[0]).toEqual([
             'sourcemaps',
             'upload',
@@ -212,6 +213,13 @@ describe('uploadSentrySourcemaps', () => {
         });
 
         expect(runCli).toHaveBeenCalledOnce();
+        const cliArgs = runCli.mock.calls[0]?.[0] ?? [];
+        const urlPrefixIndex = cliArgs.indexOf('--url-prefix');
+        expect(cliArgs.slice(urlPrefixIndex, urlPrefixIndex + 2)).toEqual([
+            '--url-prefix',
+            '~/',
+        ]);
+        expect(cliArgs.at(-1)).toContain('vercel/output/static');
         expect(receipt).toMatchObject({
             bundleCount: 1,
             identity: webIdentity,

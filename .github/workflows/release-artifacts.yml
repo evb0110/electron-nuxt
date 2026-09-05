@@ -223,6 +223,7 @@ jobs:
       send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -244,6 +245,7 @@ jobs:
       artifact_group: supplemental-win-arm64
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -261,6 +263,7 @@ jobs:
       send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -280,6 +283,7 @@ jobs:
       send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}
@@ -297,6 +301,7 @@ jobs:
       send_sentry_canaries: ${{ inputs.send_sentry_canaries }}
     secrets:
       SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+      SENTRY_VERIFICATION_TOKEN: ${{ secrets.SENTRY_VERIFICATION_TOKEN }}
       SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
       SENTRY_DESKTOP_PROJECT: ${{ secrets.SENTRY_DESKTOP_PROJECT }}
       SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN }}

@@ -87,11 +87,13 @@ names and their runtime purpose here, never their values.
 | `evb-viewer-web` project | Keys named `web-browser` and `web-nitro` | Owner verified 2026-09-04 |
 | Browser allowed origins | Canonical production viewer and two viewer Vercel aliases | Owner verified 2026-09-04 |
 | Source-map upload token | One token with `org:ci` only | Owner verified by successful strict upload 2026-09-04 |
+| Source-map verification token | Separate read-only token with `project:read` and event-read access; never used for upload | Owner verified 2026-09-05; GitHub secret and local Keychain entry present, and the EU project API returned HTTP 200 |
 | Desktop runtime secret | `SENTRY_DESKTOP_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Browser runtime secret | `SENTRY_BROWSER_DSN` in Vercel Preview and Production | Owner verified by exact production deployment 2026-09-05 |
 | Browser canary secret | `SENTRY_BROWSER_DSN` in GitHub Actions | Owner verified 2026-09-04 |
 | Nitro runtime secret | `SENTRY_NITRO_DSN` in Vercel Preview; runtime remains disabled | Owner verified 2026-09-04 |
 | Release upload settings | `SENTRY_AUTH_TOKEN`, `SENTRY_ORG`, `SENTRY_DESKTOP_PROJECT`, and `SENTRY_WEB_PROJECT` in GitHub Actions | Owner verified 2026-09-04 |
+| Release verification setting | `SENTRY_VERIFICATION_TOKEN` in GitHub Actions and the local private Sentry environment | Owner verified 2026-09-05; the local CLI loads the token from the `evb-viewer-sentry-verification-token` Keychain service |
 
 ## Retention and operations
 
@@ -118,9 +120,11 @@ removal rehearsal are in `sentry-runbook.md`.
 Release `v0.1.452` is the first production viewer release with consent-gated
 client diagnostics. The exact prebuilt output is deployed at the canonical
 viewer alias. Its public JavaScript matches the private manifest and contains
-no source maps. Sentry accepted all 256 mapped production canaries for the web
-release and resolved the sampled browser and Nitro-build frames to their EVB
-source files. Nitro runtime reporting remains disabled.
+no source maps. The live Sentry feed contains 256 unresolved deterministic
+source-map canary issues for this release. A sampled issue reported
+`missing_source_content`, so the previous upload-only acceptance claim is
+retracted. A new exact release must pass the CLI/API verifier before this
+control can be considered complete. Nitro runtime reporting remains disabled.
 
 The live browser check on 2026-09-05 recorded no Sentry request before consent,
 one event after the user granted the still-live report, no later event after

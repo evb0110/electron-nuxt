@@ -1497,6 +1497,7 @@ describe('CI topology policy', () => {
         expect(isRecord(storeWorkflowCall)).toBe(true);
         expect(isRecord(storeWorkflowCall) ? storeWorkflowCall.secrets : undefined).toEqual({
             SENTRY_AUTH_TOKEN: {required: false},
+            SENTRY_VERIFICATION_TOKEN: {required: false},
             SENTRY_ORG: {required: false},
             SENTRY_DESKTOP_PROJECT: {required: false},
             SENTRY_DESKTOP_DSN: {required: false},
@@ -1512,6 +1513,7 @@ describe('CI topology policy', () => {
             uses: './.github/workflows/store-appx.yml',
             secrets: {
                 SENTRY_AUTH_TOKEN: '${{ secrets.SENTRY_AUTH_TOKEN }}',
+                SENTRY_VERIFICATION_TOKEN: '${{ secrets.SENTRY_VERIFICATION_TOKEN }}',
                 SENTRY_ORG: '${{ secrets.SENTRY_ORG }}',
                 SENTRY_DESKTOP_PROJECT: '${{ secrets.SENTRY_DESKTOP_PROJECT }}',
                 SENTRY_DESKTOP_DSN: '${{ secrets.SENTRY_DESKTOP_DSN }}',
