@@ -16,6 +16,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {getErrorMessage} from '@contracts/getErrorMessage.ts';
 import {getCanaryEventId} from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {verifySentrySourcemapCanaries} from '@scripts/release/verify-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
@@ -174,6 +175,11 @@ afterEach(async () => {
 });
 
 describe('verifySentrySourcemapCanaries', () => {
+    it('normalizes Error and non-Error values for release diagnostics', () => {
+        expect(getErrorMessage(new Error('fixture error'))).toBe('fixture error');
+        expect(getErrorMessage('fixture value')).toBe('fixture value');
+    });
+
     it('loads as a standalone Node release script', () => {
         const output = execFileSync(
             process.execPath,
