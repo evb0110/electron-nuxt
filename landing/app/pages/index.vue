@@ -115,36 +115,48 @@
             </div>
 
             <div class="installer-list-slot">
-              <div class="installer-list">
-                <a
+              <div
+                class="installer-list"
+                :class="{ 'installer-list-mirrored': hasMirrorForSelectedPlatform }"
+              >
+                <div
                   v-if="selectedInstallerTab === 'windows'"
-                  class="installer-item installer-item-store"
-                  :href="MICROSOFT_STORE_URL"
-                  target="_blank"
-                  rel="noreferrer"
-                  :aria-label="t('home.installers.store.ariaLabel')"
+                  class="installer-row installer-row-recommended"
                 >
-                  <div class="installer-item-info">
-                    <div class="installer-item-header">
-                      <span class="installer-item-variant">{{ t('home.installers.store.title') }}</span>
-                      <span class="installer-badge">
-                        {{ t('home.installers.recommended') }}
+                  <a
+                    class="installer-item installer-item-store"
+                    :href="MICROSOFT_STORE_URL"
+                    target="_blank"
+                    rel="noreferrer"
+                    :aria-label="t('home.installers.store.ariaLabel')"
+                  >
+                    <div class="installer-item-info">
+                      <div class="installer-item-header">
+                        <span class="installer-item-variant">{{ t('home.installers.store.title') }}</span>
+                        <span class="installer-badge">
+                          {{ t('home.installers.recommended') }}
+                        </span>
+                      </div>
+                      <span class="installer-item-detail">
+                        {{ t('home.installers.store.detail') }}
+                      </span>
+                      <span class="installer-item-meta">
+                        {{ t('home.installers.store.meta') }}
                       </span>
                     </div>
-                    <span class="installer-item-detail">
-                      {{ t('home.installers.store.detail') }}
+                    <span class="installer-item-chip">
+                      <UIcon
+                        name="i-simple-icons-microsoft"
+                        class="installer-item-icon"
+                      />
                     </span>
-                    <span class="installer-item-meta">
-                      {{ t('home.installers.store.meta') }}
-                    </span>
-                  </div>
-                  <span class="installer-item-chip">
-                    <UIcon
-                      name="i-simple-icons-microsoft"
-                      class="installer-item-icon"
-                    />
-                  </span>
-                </a>
+                  </a>
+                  <span
+                    v-if="hasMirrorForSelectedPlatform"
+                    class="installer-mirror-cell"
+                    aria-hidden="true"
+                  />
+                </div>
 
                 <div
                   v-if="selectedInstallerTab === 'windows'"
@@ -190,15 +202,22 @@
                       />
                     </span>
                   </a>
-                  <a
-                    v-if="installer.mirrorDownloadUrl"
-                    class="installer-mirror-link"
-                    :href="installer.mirrorDownloadUrl"
-                    :aria-label="mirrorDownloadAriaLabel(installer)"
-                    @click="trackInstallerDownload(installer)"
-                  >
-                    {{ t('home.installers.mirror') }}
-                  </a>
+                  <template v-if="hasMirrorForSelectedPlatform">
+                    <a
+                      v-if="installer.mirrorDownloadUrl"
+                      class="installer-mirror-cell installer-mirror-link"
+                      :href="installer.mirrorDownloadUrl"
+                      :aria-label="mirrorDownloadAriaLabel(installer)"
+                      @click="trackInstallerDownload(installer)"
+                    >
+                      {{ t('home.installers.mirror') }}
+                    </a>
+                    <span
+                      v-else
+                      class="installer-mirror-cell"
+                      aria-hidden="true"
+                    />
+                  </template>
                 </div>
               </div>
             </div>
@@ -370,6 +389,12 @@ const installersForSelectedPlatform = computed(() => {
 
     return base;
 });
+
+// The mirror column is reserved for the whole list so every download chip lands
+// in the same place. Platforms whose assets are all absent from the mirror drop
+// the column instead of showing an empty strip.
+const hasMirrorForSelectedPlatform = computed(() => installersForSelectedPlatform.value
+    .some(installer => Boolean(installer.mirrorDownloadUrl)));
 
 const installerPlatformHint = computed(() => {
     if (selectedInstallerTab.value === 'macos') {
