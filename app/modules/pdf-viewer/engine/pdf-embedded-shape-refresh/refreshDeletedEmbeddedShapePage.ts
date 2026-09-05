@@ -1,3 +1,9 @@
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { removeEmbeddedShapeAnnotationDom } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/removeEmbeddedShapeAnnotationDom';
 
@@ -5,7 +11,7 @@ interface IRefreshDeletedEmbeddedShapePageOptions {
     shape: Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'> | null;
     viewerContainer: HTMLElement | null;
     syncHiddenEmbeddedAnnotationDom: () => void;
-    rerenderEmbeddedShapePage?: (pageNumber: number) => void;
+    rerenderEmbeddedShapePage?: (pageNumber: TPageNumber) => void;
 }
 
 // Imported PDF drawings remain part of the PDF.js render tree until the page
@@ -30,5 +36,5 @@ export function refreshDeletedEmbeddedShapePage({
     }
 
     removeEmbeddedShapeAnnotationDom(viewerContainer, shape.annotationId);
-    rerenderEmbeddedShapePage?.(Math.max(1, Math.floor(shape.pageIndex) + 1));
+    rerenderEmbeddedShapePage?.(pageIndexToPageNumber(requirePageIndex(Math.max(0, Math.floor(shape.pageIndex)))));
 }

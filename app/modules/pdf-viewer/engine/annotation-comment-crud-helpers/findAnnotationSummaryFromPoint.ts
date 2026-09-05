@@ -1,9 +1,18 @@
+import {
+    pageNumberToPageIndex,
+    parsePageNumber,
+} from '@contracts/pageNumbers';
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 
 function findSummaryForAnnotationElement(
     annotationElement: HTMLElement,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     annotationCommentsCache: IAnnotationCommentSummary[],
 ) {
     const annotationId = annotationElement.dataset.annotationId
@@ -20,12 +29,12 @@ function findPdfAnnotationSummaryFromElementsAtPoint(
     target: HTMLElement,
     clientX: number,
     clientY: number,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     annotationCommentsCache: IAnnotationCommentSummary[],
 ) {
-    const elementsFromPoint = target.ownerDocument.elementsFromPoint?.(clientX, clientY) ?? [];
+    const elementsFromPoint = target.ownerDocument.elementsFromPoint(clientX, clientY);
     for (const element of elementsFromPoint) {
-        const annotationElement = element.closest?.<HTMLElement>(
+        const annotationElement = element.closest<HTMLElement>(
             '.annotationLayer [data-annotation-id], .annotation-layer [data-annotation-id]',
         );
         if (!annotationElement) {
@@ -57,10 +66,10 @@ function findPdfAnnotationSummaryFromAnnotationLayerGeometry(
     pageContainer: HTMLElement,
     clientX: number,
     clientY: number,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     annotationCommentsCache: IAnnotationCommentSummary[],
 ) {
-    let bestSummary: IAnnotationCommentSummary | null = null;
+    let bestSummary = null as IAnnotationCommentSummary | null;
     let bestElementIndex = -1;
     let bestScore = Number.POSITIVE_INFINITY;
     pageContainer.querySelectorAll<HTMLElement>(
@@ -122,7 +131,7 @@ export function findAnnotationSummaryFromPoint(
     target: HTMLElement,
     clientX: number,
     clientY: number,
-    currentPage: number,
+    currentPage: TPageNumber,
     annotationCommentsCache: IAnnotationCommentSummary[],
     findPageContainerFromClientPoint: (cx: number, cy: number) => HTMLElement | null,
 ) {
@@ -133,12 +142,12 @@ export function findAnnotationSummaryFromPoint(
     }
 
     const pageNumber = pageContainer.dataset.page
-        ? Number(pageContainer.dataset.page)
+        ? parsePageNumber(Number(pageContainer.dataset.page))
         : currentPage;
-    if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
+    if (pageNumber === null) {
         return null;
     }
-    const pageIndex = Math.max(0, pageNumber - 1);
+    const pageIndex = pageNumberToPageIndex(pageNumber);
 
     const pointElementSummary = findPdfAnnotationSummaryFromElementsAtPoint(
         target,
@@ -172,7 +181,7 @@ export function findAnnotationSummaryFromPoint(
     const toleranceX = 14 / pageRect.width;
     const toleranceY = 14 / pageRect.height;
 
-    let bestSummary: IAnnotationCommentSummary | null = null;
+    let bestSummary = null as IAnnotationCommentSummary | null;
     let bestSummaryIndex = -1;
     let bestScore = Number.POSITIVE_INFINITY;
 

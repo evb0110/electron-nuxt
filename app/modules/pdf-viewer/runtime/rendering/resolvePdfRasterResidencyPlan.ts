@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPageRange } from '@app/types/pdfUi';
 import {
     resolveDocumentRasterResidencyPlan,
@@ -9,7 +12,7 @@ export interface IPdfRasterResidencyPlanOptions {
     visibleRange: IPageRange;
     bufferRadius: number;
     maxBufferPixels: number;
-    estimatePagePixels: (pageNumber: number) => number;
+    estimatePagePixels: (pageNumber: TPageNumber) => number;
 }
 
 export interface IPdfRasterResidencyPlan extends Omit<IDocumentRasterResidencyPlan, 'maxPixelsPerBufferSurface'> {maxPixelsPerBufferCanvas: number;}
@@ -25,7 +28,7 @@ export function resolvePdfRasterResidencyPlan(
         visiblePages: Array.from({length: end - start + 1}, (_, index) => start + index),
         bufferRadius: options.bufferRadius,
         maxBufferPixels: options.maxBufferPixels,
-        estimatePagePixels: options.estimatePagePixels,
+        estimatePagePixels: pageNumber => options.estimatePagePixels(requirePageNumber(pageNumber)),
     });
     const {
         maxPixelsPerBufferSurface,

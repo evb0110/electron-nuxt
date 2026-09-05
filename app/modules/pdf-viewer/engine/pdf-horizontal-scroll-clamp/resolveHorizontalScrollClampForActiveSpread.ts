@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     TFitMode,
     TPdfViewRotation,
@@ -11,7 +13,7 @@ import { resolvePageBoundedHorizontalScroll } from '@app/modules/pdf-viewer/engi
 export function resolveHorizontalScrollClampForActiveSpread(options: {
     container: HTMLElement | null;
     fitMode: TFitMode;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     viewMode: TPdfViewMode;
     viewRotation: TPdfViewRotation;
     numPages: number;
@@ -19,7 +21,7 @@ export function resolveHorizontalScrollClampForActiveSpread(options: {
     basePageHeight: number | null;
     pageMetrics: IPdfPageMetric[];
     effectiveScale: number;
-    getScaleForPage?: ((pageNumber: number) => number) | undefined;
+    getScaleForPage?: ((pageNumber: TPageNumber) => number) | undefined;
     scaledMargin: number;
     epsilon: number;
 }) {

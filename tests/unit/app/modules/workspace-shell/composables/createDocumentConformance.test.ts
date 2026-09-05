@@ -11,6 +11,7 @@ import {
     type IPdfConformanceIdleScheduler,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentConformance';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const { mockReadPdfConformanceProfile } = vi.hoisted(() => (
     {mockReadPdfConformanceProfile: vi.fn()}
@@ -71,14 +72,15 @@ function createIdleScheduler() {
 }
 
 function createHarness(path = '/tmp/book.pdf') {
+    const documentRef = requireDocumentRef(path);
     const state = createDocumentSessionState({isDesktopRuntime: ref(true)});
-    state.workingCopyPath.value = path;
+    state.workingCopyPath.value = documentRef;
     const idle = createIdleScheduler();
     const conformance = createDocumentConformance(state, idle.scheduler);
     return {
         conformance,
         idle,
-        path,
+        path: documentRef,
         state,
     };
 }
@@ -100,7 +102,7 @@ describe('createDocumentConformance', () => {
         conformance.deferPdfConformanceProfile(path, {fileSize: 1024});
         expect(state.pdfConformanceAnalysisState.value).toBe('waiting-initial-visual');
         expect(mockReadPdfConformanceProfile).not.toHaveBeenCalled();
-        expect(conformance.notifyPdfInitialVisualReady('/tmp/other.pdf')).toBe(false);
+        expect(conformance.notifyPdfInitialVisualReady(requireDocumentRef('/tmp/other.pdf'))).toBe(false);
         expect(conformance.notifyPdfInitialVisualReady(path)).toBe(true);
         expect(state.pdfConformanceAnalysisState.value).toBe('waiting-idle');
         expect(mockReadPdfConformanceProfile).not.toHaveBeenCalled();
@@ -133,15 +135,15 @@ describe('createDocumentConformance', () => {
         idle.flush();
         expect(mockReadPdfConformanceProfile).toHaveBeenCalledTimes(1);
 
-        state.workingCopyPath.value = '/tmp/next.pdf';
-        conformance.deferPdfConformanceProfile('/tmp/next.pdf');
+        state.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
+        conformance.deferPdfConformanceProfile(requireDocumentRef('/tmp/next.pdf'));
         first.resolve(unsignedProfile);
         await Promise.resolve();
         await Promise.resolve();
         expect(state.pdfConformanceProfile.value).toBeNull();
         expect(state.pdfConformanceAnalysisState.value).toBe('waiting-initial-visual');
 
-        conformance.notifyPdfInitialVisualReady('/tmp/next.pdf');
+        conformance.notifyPdfInitialVisualReady(requireDocumentRef('/tmp/next.pdf'));
         idle.flush();
         await vi.waitFor(() => {
             expect(state.pdfConformanceProfile.value).toEqual(secondProfile);

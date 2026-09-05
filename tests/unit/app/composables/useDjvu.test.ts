@@ -17,7 +17,18 @@ import type {
     IDjvuOpenResult,
     IDjvuProgress,
 } from '@contracts/electronApiDjvu';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
+import {
+    requireJobId,
+    requireRequestId,
+} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 
 vi.mock('vue', async (importOriginal) => {
@@ -82,6 +93,7 @@ const mockDjvuModeState = {
 };
 
 vi.mock('@app/utils/platform', () => ({getPlatformAPI: () => mockElectronAPI}));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: browserLoggerMock}));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
@@ -158,45 +170,42 @@ describe('useDjvu', () => {
         pendingConvertJobs.clear();
         browserLoggerMock.error.mockReturnValue(conversionFailureReceipt);
         mockElectronAPI.djvu.startOpenForViewing.mockImplementation(async (path: string, requestId: string) => {
-            const jobId = `djvu-open-${requestId}`;
+            const jobId = requireJobId(`djvu-open-${requestId}`);
             pendingOpenJobs.set(jobId, mockOpenJobResult(path));
             return {
                 jobId,
-                requestId,
+                requestId: requireRequestId(requestId),
             };
         });
         mockElectronAPI.djvu.awaitOpenJob.mockImplementation(async (jobId: string) => pendingOpenJobs.get(jobId));
         mockElectronAPI.djvu.startConvertToPdf.mockImplementation(async (
             path: string,
             outputPath: string,
-            options: {
-                jobId?: string;
-                requestId?: string;
-            },
+            options: IDjvuConvertOptions,
         ) => {
             const requestId = options.requestId ?? 'request';
-            const jobId = `djvu-convert-${requestId}`;
+            const jobId = requireJobId(`djvu-convert-${requestId}`);
             pendingConvertJobs.set(jobId, mockConvertJobResult(path, outputPath, {
                 ...options,
                 jobId,
             }));
             return {
                 jobId,
-                requestId,
+                requestId: requireRequestId(requestId),
             };
         });
         mockElectronAPI.djvu.awaitConvertJob.mockImplementation(async (jobId: string) => pendingConvertJobs.get(jobId));
         mockElectronAPI.djvu.getPageSizes.mockResolvedValue([]);
         mockElectronAPI.djvu.subscribeJob.mockImplementation(async (jobId: string) => ({
-            jobId,
+            jobId: requireJobId(jobId),
             operation: 'djvu-convert' as const,
             status: 'completed' as const,
             progress: {
-                jobId,
+                jobId: requireJobId(jobId),
                 phase: 'converting' as const,
                 percent: 100,
             },
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         }));
         mockDocumentWorkingCopyCapability.cleanupFile.mockResolvedValue(undefined);
         toastAddMock.mockClear();
@@ -207,7 +216,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'job-1',
+                jobId: requireJobId('job-1'),
             });
 
             const djvu = useDjvu();
@@ -219,17 +228,17 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'job-sized',
+                jobId: requireJobId('job-sized'),
                 pageSourceInfo: {
                     pageCount: 1,
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     pageSize: {
                         width: 1200,
                         height: 1800,
                         dpi: 300,
                     },
                     sourceSize: 14_712_313,
-                    sourceModifiedAt: 1_700_000_000_000,
+                    sourceModifiedAt: requireEpochMs(1_700_000_000_000),
                 },
             });
 
@@ -247,7 +256,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'job-encoded',
+                jobId: requireJobId('job-encoded'),
             });
 
             const djvu = useDjvu();
@@ -275,7 +284,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 10,
-                jobId: 'job-multi',
+                jobId: requireJobId('job-multi'),
             });
 
             const djvu = useDjvu();
@@ -288,7 +297,7 @@ describe('useDjvu', () => {
             let resolveOpen: ((value: {
                 success: boolean;
                 pageCount: number;
-                jobId: string;
+                jobId: TJobId;
             }) => void) | null = null;
             mockOpenJobResult.mockImplementation(() => new Promise((resolve) => {
                 resolveOpen = resolve;
@@ -303,7 +312,7 @@ describe('useDjvu', () => {
             resolveOpen!({
                 success: true,
                 pageCount: 3,
-                jobId: 'job-pending',
+                jobId: requireJobId('job-pending'),
             });
             await openPromise;
 
@@ -328,7 +337,7 @@ describe('useDjvu', () => {
             accepted.resolve({
                 success: true,
                 pageCount: 100,
-                jobId: 'job-source-handoff',
+                jobId: requireJobId('job-source-handoff'),
             });
             await opening;
 
@@ -359,7 +368,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 2,
-                jobId: 'job-next',
+                jobId: requireJobId('job-next'),
             });
             mockDjvuModeState.isDjvuMode.value = true;
             mockDjvuModeState.djvuSourcePath.value = '/existing.djvu';
@@ -375,14 +384,14 @@ describe('useDjvu', () => {
             const first = createDeferred<{
                 success: boolean;
                 pageCount: number;
-                jobId: string;
+                jobId: TJobId;
             }>();
             mockOpenJobResult
                 .mockImplementationOnce(() => first.promise)
                 .mockResolvedValueOnce({
                     success: true,
                     pageCount: 2,
-                    jobId: 'newer-job',
+                    jobId: requireJobId('newer-job'),
                 });
 
             const djvu = useDjvu();
@@ -393,7 +402,7 @@ describe('useDjvu', () => {
             first.resolve({
                 success: false,
                 pageCount: 0,
-                jobId: 'older-job',
+                jobId: requireJobId('older-job'),
             });
             await expect(staleOpen).resolves.toBe(false);
 
@@ -408,7 +417,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'v-1',
+                jobId: requireJobId('v-1'),
             });
 
             const djvu = useDjvu();
@@ -432,7 +441,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue(null);
 
@@ -447,7 +456,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue(null);
 
@@ -463,7 +472,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
@@ -498,7 +507,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
@@ -522,7 +531,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
@@ -549,7 +558,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
@@ -573,7 +582,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockRejectedValue(Object.assign(
@@ -596,7 +605,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockRejectedValue(new Error('Failed to abort PDF output cleanup'));
@@ -627,12 +636,12 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             const admission = createDeferred<{
-                jobId: string;
-                requestId: string;
+                jobId: TJobId;
+                requestId: TRequestId;
             }>();
             mockElectronAPI.djvu.startConvertToPdf.mockImplementationOnce(() => admission.promise);
 
@@ -643,8 +652,8 @@ describe('useDjvu', () => {
 
             await expect(djvu.cancelActiveJobs()).resolves.toBe(false);
             admission.resolve({
-                jobId: 'late-admitted-job',
-                requestId: 'late-request',
+                jobId: requireJobId('late-admitted-job'),
+                requestId: requireRequestId('late-request'),
             });
             await conversion;
 
@@ -657,21 +666,13 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog
                 .mockResolvedValueOnce('/tmp/old.pdf')
                 .mockResolvedValueOnce('/tmp/new.pdf');
-            const oldResult = createDeferred<{
-                success: boolean;
-                pdfPath: string;
-                jobId: string;
-            }>();
-            const newResult = createDeferred<{
-                success: boolean;
-                pdfPath: string;
-                jobId: string;
-            }>();
+            const oldResult = createDeferred<IDjvuConvertResult>();
+            const newResult = createDeferred<IDjvuConvertResult>();
             mockConvertJobResult
                 .mockImplementationOnce(() => oldResult.promise)
                 .mockImplementationOnce(() => newResult.promise);
@@ -686,7 +687,7 @@ describe('useDjvu', () => {
             await vi.waitFor(() => expect(mockConvertJobResult).toHaveBeenCalledTimes(2));
             oldResult.resolve({
                 success: true,
-                pdfPath: '/tmp/old.pdf',
+                pdfPath: requireDocumentRef('/tmp/old.pdf'),
                 jobId: mockConvertJobResult.mock.calls[0]![2]!.jobId!,
             });
             await oldConversion;
@@ -694,7 +695,7 @@ describe('useDjvu', () => {
             expect(djvu.conversionState.value.isConverting).toBe(true);
             newResult.resolve({
                 success: false,
-                pdfPath: '/tmp/new.pdf',
+                pdfPath: requireDocumentRef('/tmp/new.pdf'),
                 jobId: mockConvertJobResult.mock.calls[1]![2]!.jobId!,
             });
             await newConversion;
@@ -706,7 +707,7 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('browser://documents/output/out.pdf');
             mockConvertJobResult.mockResolvedValue({
@@ -731,20 +732,20 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
             });
             const openConvertedPdf = vi.fn(async () => ({
                 status: 'opened' as const,
                 result: {
                     kind: 'pdf' as const,
-                    originalPath: '/tmp/out.pdf',
-                    workingPath: '/tmp/out-working.pdf',
+                    originalPath: requireDocumentRef('/tmp/out.pdf'),
+                    workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
             }));
 
@@ -760,13 +761,13 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
             });
             mockElectronAPI.djvu.getPageSizes.mockResolvedValue([{
                 width: 1293,
@@ -777,8 +778,8 @@ describe('useDjvu', () => {
                 status: 'opened' as const,
                 result: {
                     kind: 'pdf' as const,
-                    originalPath: '/tmp/out.pdf',
-                    workingPath: '/tmp/out-working.pdf',
+                    originalPath: requireDocumentRef('/tmp/out.pdf'),
+                    workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
             }));
 
@@ -800,13 +801,13 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
             });
 
             const djvu = useDjvu();
@@ -815,8 +816,8 @@ describe('useDjvu', () => {
                 status: 'opened' as const,
                 result: {
                     kind: 'pdf' as const,
-                    originalPath: '/tmp/out.pdf',
-                    workingPath: '/tmp/out-working.pdf',
+                    originalPath: requireDocumentRef('/tmp/out.pdf'),
+                    workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
             })));
 
@@ -837,20 +838,20 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
             });
             const openConvertedPdf = vi.fn(async () => ({
                 status: 'opened' as const,
                 result: {
                     kind: 'pdf' as const,
-                    originalPath: '/tmp/out.pdf',
-                    workingPath: '/tmp/out-working.pdf',
+                    originalPath: requireDocumentRef('/tmp/out.pdf'),
+                    workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
             }));
             const djvu = useDjvu();
@@ -888,32 +889,27 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
-            let resolveConversion: ((value: {
-                success: boolean;
-                pdfPath: string;
-                jobId: string;
-                requestId?: string;
-            }) => void) | null = null;
-            mockConvertJobResult.mockImplementation((_source, _output, options) => new Promise((resolve) => {
-                resolveConversion = resolve;
+            const conversionResult = createDeferred<IDjvuConvertResult>();
+            mockConvertJobResult.mockImplementation((_source, _output, options) => {
                 progressCallback?.({
-                    jobId: 'foreign-job',
-                    requestId: 'foreign-request',
-                    documentRef: '/tmp/input.djvu',
+                    jobId: requireJobId('foreign-job'),
+                    requestId: requireRequestId('foreign-request'),
+                    documentRef: requireDocumentRef('/tmp/input.djvu'),
                     phase: 'converting',
                     percent: 80,
                 });
                 progressCallback?.({
                     jobId: options.jobId!,
                     requestId: options.requestId!,
-                    documentRef: '/tmp/input.djvu',
+                    documentRef: requireDocumentRef('/tmp/input.djvu'),
                     phase: 'converting',
                     percent: 25,
                 });
-            }));
+                return conversionResult.promise;
+            });
 
             const djvu = useDjvu();
             await djvu.openDjvuFile('/tmp/input.djvu');
@@ -921,8 +917,8 @@ describe('useDjvu', () => {
                 status: 'opened' as const,
                 result: {
                     kind: 'pdf' as const,
-                    originalPath: '/tmp/out.pdf',
-                    workingPath: '/tmp/out-working.pdf',
+                    originalPath: requireDocumentRef('/tmp/out.pdf'),
+                    workingPath: requireDocumentRef('/tmp/out-working.pdf'),
                 },
             })));
 
@@ -936,21 +932,16 @@ describe('useDjvu', () => {
             (progressCallback as ((progress: IDjvuProgress) => void) | null)?.({
                 jobId: admittedOptions.jobId!,
                 requestId: admittedOptions.requestId!,
-                documentRef: '/tmp/input.djvu',
+                documentRef: requireDocumentRef('/tmp/input.djvu'),
                 phase: 'converting',
                 percent: 25,
             });
             expect(djvu.conversionState.value.percent).toBe(25);
-            expect(resolveConversion).not.toBeNull();
+            expect(conversionResult.promise).not.toBeNull();
             const requestId = mockConvertJobResult.mock.calls[0]?.[2]?.requestId;
-            (resolveConversion as ((value: {
-                success: boolean;
-                pdfPath: string;
-                jobId: string;
-                requestId?: string;
-            }) => void) | null)?.({
+            conversionResult.resolve({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
                 jobId: mockConvertJobResult.mock.calls[0]![2]!.jobId!,
                 requestId: requestId!,
             });
@@ -961,13 +952,13 @@ describe('useDjvu', () => {
             mockOpenJobResult.mockResolvedValue({
                 success: true,
                 pageCount: 1,
-                jobId: 'view-1',
+                jobId: requireJobId('view-1'),
             });
             mockDocumentFilesCapability.savePdfDialog.mockResolvedValue('/tmp/out.pdf');
             mockConvertJobResult.mockResolvedValue({
                 success: true,
-                pdfPath: '/tmp/out.pdf',
-                jobId: 'convert-1',
+                pdfPath: requireDocumentRef('/tmp/out.pdf'),
+                jobId: requireJobId('convert-1'),
             });
             const openConvertedPdf = vi.fn(async () => ({
                 status: 'failed' as const,

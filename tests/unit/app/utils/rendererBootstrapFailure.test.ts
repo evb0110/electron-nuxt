@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({browserLogger: {error: vi.fn()}}));
 
@@ -15,7 +16,7 @@ function createFailure(eventId: string): FailureReceipt {
     return {
         eventId: eventId as FailureReceipt['eventId'],
         code: 'UNCLASSIFIED_RENDERER_ERROR',
-        occurredAt: 1767225600000,
+        occurredAt: requireEpochMs(1767225600000),
         severity: 'error',
     };
 }

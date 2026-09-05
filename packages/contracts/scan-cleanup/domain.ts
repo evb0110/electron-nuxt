@@ -144,7 +144,6 @@ export interface IScanCleanupOptions {
     marginsMm: IScanCleanupMarginsMm;
     /** Canonical speckle-removal setting. Older settings may instead provide `despeckle`. */
     despeckleLevel?: TScanCleanupDespeckleLevel;
-    /** @deprecated Read-only compatibility input; `despeckleLevel` is persisted by current clients. */
     despeckle?: boolean;
     /** Experimental automatic page-curvature correction. */
     autoDewarp?: boolean;

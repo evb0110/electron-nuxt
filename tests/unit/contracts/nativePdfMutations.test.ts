@@ -108,7 +108,7 @@ interface INativeBookmarkTestItem {
     bold: boolean;
     italic: boolean;
     color: string | null;
-    items: INativeBookmarkTestItem[];
+    items: readonly INativeBookmarkTestItem[];
 }
 
 function createBookmark(title = 'Chapter'): INativeBookmarkTestItem {

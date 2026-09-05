@@ -6,6 +6,7 @@ import type { DiagnosticContext } from '@contracts/diagnostics/diagnosticCodes';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { IPresentedFailureCapture } from '@app/utils/failureReporter';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import { getErrorMessage } from '@app/utils/error';
 import { initializeRendererFailureReporter } from '@app/utils/failureReporter';
 import {
     getUpdatesCapability,
@@ -52,8 +53,9 @@ let initializationPromise: Promise<boolean> | null = null;
 let activeUpdateFailure: IPresentedFailureCapture | null = null;
 
 function toErrorMessage(error: unknown) {
-    if (error instanceof Error && error.message.trim().length > 0) {
-        return error.message;
+    const message = getErrorMessage(error);
+    if (message.trim().length > 0) {
+        return message;
     }
     return String(error);
 }
@@ -191,9 +193,9 @@ async function ensureInitialized() {
     if (!updates) {
         return false;
     }
-    let receivedPushedStatus = false;
+    const statusEvents = {receivedPushedStatus: false};
     const unsubscribe = updates.onStatus((nextStatus) => {
-        receivedPushedStatus = true;
+        statusEvents.receivedPushedStatus = true;
         initialized.value = true;
         applyStatus(nextStatus);
     });
@@ -205,7 +207,7 @@ async function ensureInitialized() {
     initializationPromise = (async () => {
         try {
             const currentState = await updates.getState();
-            if (!receivedPushedStatus) {
+            if (!statusEvents.receivedPushedStatus) {
                 applyStatus(currentState);
             }
             initialized.value = true;
@@ -213,7 +215,7 @@ async function ensureInitialized() {
         } catch (error) {
             const message = toErrorMessage(error);
             const failure = captureUpdateFailure(error, 'load', 'Failed to load update status');
-            if (receivedPushedStatus) {
+            if (statusEvents.receivedPushedStatus) {
                 initialized.value = true;
                 return true;
             }

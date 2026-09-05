@@ -8,6 +8,7 @@ import { ref } from 'vue';
 import { useShellWorkspaceToolbar } from '@app/modules/workspace-shell/composables/useShellWorkspaceToolbar';
 import { createDefaultWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
 import type { IWorkspaceToolbarSnapshot } from '@app/types/workspaceExpose';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createWorkspaceDocumentRecord,
     type IWorkspaceDocumentRecord,
@@ -24,7 +25,7 @@ function createRecord(snapshot: Partial<IWorkspaceToolbarSnapshot> = {}) {
     return createWorkspaceDocumentRecord({
         tab: {
             fileName: 'paper.pdf',
-            originalPath: '/docs/paper.pdf',
+            originalPath: requireDocumentRef('/docs/paper.pdf'),
             isDirty: false,
             isDjvu: false,
         },

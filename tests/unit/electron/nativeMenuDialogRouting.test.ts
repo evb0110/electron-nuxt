@@ -185,6 +185,7 @@ describe('native menu and dialog routing', () => {
 
         const service = cast<IDocumentsService>({
             openDocumentDialog: handleOpenPdfDialog,
+            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
             savePdfDialog: handleSavePdfDialog,
         });
         registerDocumentsIpcAdapter(

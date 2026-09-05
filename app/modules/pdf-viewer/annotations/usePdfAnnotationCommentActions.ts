@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
@@ -22,7 +25,7 @@ interface IUsePdfAnnotationCommentActionsOptions {
         focusAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<void>;
         deleteAnnotationComment: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     };
-    scrollToPage: (pageNumber: number, options?: { markerRect?: IAnnotationCommentSummary['markerRect'] }) => void;
+    scrollToPage: (pageNumber: TPageNumber, options?: { markerRect?: IAnnotationCommentSummary['markerRect'] }) => void;
     updateVisibleRange: (container: HTMLElement | null, numPages: number) => void;
     renderVisiblePages: (
         range: IPageRange,
@@ -60,10 +63,10 @@ export const usePdfAnnotationCommentActions = (options: IUsePdfAnnotationComment
         activeCommentStableKey.value = annotationIdForSummary(comment);
         shapeComposable.focusShape(shape.id);
 
-        const pageNumber = Math.min(
+        const pageNumber = requirePageNumber(Math.min(
             Math.max(comment.pageNumber, 1),
             Math.max(1, numPages.value),
-        );
+        ), numPages.value);
         scrollToPage(pageNumber, { markerRect: comment.markerRect });
 
         await nextTick();

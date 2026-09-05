@@ -46,6 +46,4 @@ export function combineOracleStatuses(statuses: readonly TOracleStatus[]): TOrac
     return 'passed';
 }
 
-export function describeError(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
-}
+export { getErrorMessage as describeError } from '@contracts/getErrorMessage';

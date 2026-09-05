@@ -1,3 +1,9 @@
+import {
+    createBrandedId,
+    isBrandedString,
+    parseBranded,
+} from '@contracts/brand';
+import type {TBrand} from '@contracts/brand';
 import type { TLocale } from '@i18n-core';
 import type { TClientDiagnosticsPreference } from '@contracts/diagnostics/diagnosticsPreference';
 import type {
@@ -7,6 +13,100 @@ import type {
 import type { IPdfBox as IPdfGeometryBox } from '@contracts/geometry';
 import type { TPerformanceMode } from '@contracts/hostResourceProfile';
 import { isRecord } from '@contracts/runtimeGuards';
+import type {TEpochMs} from '@contracts/timestamps';
+
+export type TRequestId = TBrand<string, 'RequestId'>;
+export type TSessionId = TBrand<string, 'SessionId'>;
+export type TJobId = TBrand<string, 'JobId'>;
+export type TLeaseId = TBrand<string, 'LeaseId'>;
+
+export function isRequestId(value: unknown): value is TRequestId {
+    return isBrandedString<'RequestId'>(value);
+}
+
+export function isSessionId(value: unknown): value is TSessionId {
+    return isBrandedString<'SessionId'>(value);
+}
+
+export function isJobId(value: unknown): value is TJobId {
+    return isBrandedString<'JobId'>(value);
+}
+
+export function isLeaseId(value: unknown): value is TLeaseId {
+    return isBrandedString<'LeaseId'>(value);
+}
+
+function parseIdentifier<TIdentifier>(
+    value: unknown,
+    guard: (candidate: unknown) => candidate is TIdentifier,
+): TIdentifier | null {
+    const normalized = typeof value === 'string' ? value.trim() : value;
+    return parseBranded(normalized, guard);
+}
+
+export function parseRequestId(value: unknown): TRequestId | null {
+    return parseIdentifier(value, isRequestId);
+}
+
+export function parseSessionId(value: unknown): TSessionId | null {
+    return parseIdentifier(value, isSessionId);
+}
+
+export function parseJobId(value: unknown): TJobId | null {
+    return parseIdentifier(value, isJobId);
+}
+
+export function parseLeaseId(value: unknown): TLeaseId | null {
+    return parseIdentifier(value, isLeaseId);
+}
+
+export function requireRequestId(value: unknown): TRequestId {
+    const parsed = parseRequestId(value);
+    if (parsed === null) {
+        throw new TypeError('Request ID must be a non-empty string');
+    }
+    return parsed;
+}
+
+export function requireSessionId(value: unknown): TSessionId {
+    const parsed = parseSessionId(value);
+    if (parsed === null) {
+        throw new TypeError('Session ID must be a non-empty string');
+    }
+    return parsed;
+}
+
+export function requireJobId(value: unknown): TJobId {
+    const parsed = parseJobId(value);
+    if (parsed === null) {
+        throw new TypeError('Job ID must be a non-empty string');
+    }
+    return parsed;
+}
+
+export function requireLeaseId(value: unknown): TLeaseId {
+    const parsed = parseLeaseId(value);
+    if (parsed === null) {
+        throw new TypeError('Lease ID must be a non-empty string');
+    }
+    return parsed;
+}
+
+export function createRequestId(prefix = 'request'): TRequestId {
+    return createBrandedId(prefix, isRequestId);
+}
+
+export function createSessionId(prefix = 'session'): TSessionId {
+    return createBrandedId(prefix, isSessionId);
+}
+
+export function createJobId(prefix = 'job'): TJobId {
+    return createBrandedId(prefix, isJobId);
+}
+
+export function createLeaseId(prefix = 'lease'): TLeaseId {
+    return createBrandedId(prefix, isLeaseId);
+}
 
 export type {
     IPageGeometry,
@@ -33,16 +133,12 @@ export interface IRecentFile {
     originalPath: TDocumentRef;
     backend?: TDocumentBackend;
     fileName: string;
-    timestamp: number;
+    timestamp: TEpochMs;
     fileSize?: number;
-    modifiedAt?: number;
+    modifiedAt?: TEpochMs;
 }
 
-export interface IOcrLanguage {
-    code: string;
-    script: 'latin' | 'cyrillic' | 'greek' | 'rtl';
-    modelState?: 'installed' | 'downloading' | 'missing';
-}
+export type { IOcrLanguage } from '@contracts/ocrLanguages';
 
 export interface IOcrWord extends IPdfGeometryBox {text: string;}
 
@@ -71,7 +167,6 @@ export type TPdfZoomState =
         axis: TFitMode
     };
 export type TDocumentViewMode = 'single' | 'facing' | 'facing-first-single';
-/** @deprecated Use TDocumentViewMode in format-neutral code. */
 export type TPdfViewMode = TDocumentViewMode;
 /** Quarter-turn projection applied to the whole PDF viewer, without editing the PDF. */
 export type TPdfViewRotation = 0 | 90 | 180 | 270;

@@ -17,10 +17,10 @@ export function sampleCanvasTextMarkupColorInRect(
             index,
         }) => {
             const pixels = data.data;
-            const r = pixels[index]!;
-            const g = pixels[index + 1]!;
-            const b = pixels[index + 2]!;
-            const alpha = pixels[index + 3]!;
+            const r = pixels[index] ?? 0;
+            const g = pixels[index + 1] ?? 0;
+            const b = pixels[index + 2] ?? 0;
+            const alpha = pixels[index + 3] ?? 0;
             const score = textMarkupCanvasColor.colorDistanceScoreFromPoint(0, 0, r, g, b, alpha);
             if (score === null) {
                 return;

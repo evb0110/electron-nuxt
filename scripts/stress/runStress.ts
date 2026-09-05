@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 import {
@@ -384,7 +385,7 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
                 oracle: 'operator-report',
                 message: `operator reported app_broken: ${result.operator.report.problem ?? 'no detail'}`,
             });
-        } else if (result.operator && !result.metrics?.rendererCrashed && result.operator.report?.outcome !== 'completed') {
+        } else if (result.operator && !result.metrics.rendererCrashed && result.operator.report?.outcome !== 'completed') {
             result.infraError = `operator did not complete: ${result.operator.report?.problem ?? result.operator.stopReason}`;
             result.findings.push({
                 severity: 'info',
@@ -396,14 +397,14 @@ async function runScenario(context: IRunContext, scenario: TStressScenario): Pro
         result.status = result.infraError ? 'infra-failed' : isStressFailure(result.findings) ? 'failed' : 'passed';
     } catch (error) {
         result.status = 'infra-failed';
-        result.infraError = error instanceof Error ? error.stack ?? error.message : String(error);
+        result.infraError = error instanceof Error ? error.stack ?? getErrorMessage(error) : getErrorMessage(error);
         log(`${scenario.id}: infrastructure failure: ${result.infraError}`);
     } finally {
         if (handle) {
             try {
                 await handle.stop();
             } catch (error) {
-                log(`${scenario.id}: stop after failure threw: ${error instanceof Error ? error.message : String(error)}`);
+                log(`${scenario.id}: stop after failure threw: ${getErrorMessage(error)}`);
             }
         }
         context.activeSession = null;
@@ -447,7 +448,7 @@ export async function runStress(argv: readonly string[]) {
     if (options.fixturesOnly) {
         const records = await ensureStressFixtures(STRESS_FIXTURE_IDS, {log: bootstrapLog});
         for (const record of records.values()) {
-            bootstrapLog(`${record.id}: ${record.available ? `${record.path} (${(record.bytes / 1024 / 1024).toFixed(1)} MiB)` : `unavailable: ${record.reason}`}`);
+            bootstrapLog(`${record.id}: ${record.available ? `${record.path} (${(record.bytes / 1024 / 1024).toFixed(1)} MiB)` : `unavailable: ${record.reason ?? '<unknown reason>'}`}`);
         }
         return [...records.values()].every(record => record.available) ? 0 : 1;
     }
@@ -497,7 +498,7 @@ export async function runStress(argv: readonly string[]) {
             if (options.operatorProfile === 'external') {
                 log('  external operator: the current agent drives the visible app; no model API calls or API spend');
             } else {
-                log(`  operator model ${options.model} (${options.operatorProfile}), per-scenario cap $${operatorScenarios[0]?.budgets.maxCostUsd.toFixed(2)}, run cap $${(options.maxRunCostUsd ?? DEFAULT_STRESS_RUN_BUDGET.maxCostUsd).toFixed(2)}`);
+                log(`  operator model ${options.model} (${options.operatorProfile}), per-scenario cap $${operatorScenarios[0]?.budgets.maxCostUsd.toFixed(2) ?? '<unknown>'}, run cap $${(options.maxRunCostUsd ?? DEFAULT_STRESS_RUN_BUDGET.maxCostUsd).toFixed(2)}`);
             }
         }
         return 0;
@@ -531,6 +532,7 @@ export async function runStress(argv: readonly string[]) {
 
     let rendererStartup: ReturnType<typeof startE2ESharedRenderer> | null = null;
     let interrupted = false;
+    const isInterrupted = () => interrupted;
     const stopRenderer = async () => {
         const renderer = await rendererStartup?.catch(() => null);
         await renderer?.stop();
@@ -549,14 +551,14 @@ export async function runStress(argv: readonly string[]) {
         try {
             rendererStartup = startE2ESharedRenderer();
             const renderer = await rendererStartup;
-            if (interrupted) {
+            if (isInterrupted()) {
                 return 130;
             }
             log(`shared renderer ${renderer.sessionName} ready at http://127.0.0.1:${renderer.port}/electron`);
             context.activeSession = await startStressSession('calibration', profile, log);
             run.calibration = await calibrate(context.activeSession, fixtures, log);
         } catch (error) {
-            log(`calibration failed: ${error instanceof Error ? error.message : String(error)}`);
+            log(`calibration failed: ${getErrorMessage(error)}`);
         } finally {
             await context.activeSession?.stop();
             context.activeSession = null;

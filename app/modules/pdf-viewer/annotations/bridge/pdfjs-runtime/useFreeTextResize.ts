@@ -1,3 +1,9 @@
+import {
+    parsePageIndex,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 // PDF.js-private FreeText executor; exposed through the runtime port.
 import { AnnotationEditorParamsType } from '@app/services/pdfjs/runtimeLib';
 import {
@@ -55,7 +61,7 @@ interface IFreeTextResizeSnapshot {
 
 interface IFreeTextResizeHistoryTarget {
     key: string;
-    pageIndex: number | null;
+    pageIndex: TPageIndex | null;
 }
 
 export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
@@ -79,11 +85,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
             return null;
         }
         const parentPageIndex = editor.parentPageIndex;
-        const pageIndex = typeof parentPageIndex === 'number'
-            && Number.isSafeInteger(parentPageIndex)
-            && parentPageIndex >= 0
-            ? parentPageIndex
-            : null;
+        const pageIndex = parsePageIndex(parentPageIndex ?? Number.NaN);
         return {
             key,
             pageIndex,
@@ -98,7 +100,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
         if (!manager) {
             return null;
         }
-        const findEditorOnPage = (pageIndex: number) => getEditorsOnPage(manager, pageIndex).find(candidate => (
+        const findEditorOnPage = (pageIndex: TPageIndex) => getEditorsOnPage(manager, pageIndex).find(candidate => (
             candidate.annotationElementId === target.key || candidate.id === target.key
         ));
         if (target.pageIndex !== null) {
@@ -107,7 +109,8 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
                 return editor;
             }
         }
-        for (let pageIndex = 0; pageIndex < getNumPages(); pageIndex += 1) {
+        for (let rawPageIndex = 0; rawPageIndex < getNumPages(); rawPageIndex += 1) {
+            const pageIndex = requirePageIndex(rawPageIndex);
             if (pageIndex === target.pageIndex) {
                 continue;
             }
@@ -613,7 +616,7 @@ export const useFreeTextResize = (options: IUseFreeTextResizeOptions) => {
     }
 
     function ensureFreeTextEditorCanResize(editor: IPdfjsEditor) {
-        if (!editor || detectEditorSubtype(editor) !== 'Typewriter') {
+        if (detectEditorSubtype(editor) !== 'Typewriter') {
             return;
         }
         if (getPdfjsEditorFacadeState(editor).freeTextResizablePatched) {

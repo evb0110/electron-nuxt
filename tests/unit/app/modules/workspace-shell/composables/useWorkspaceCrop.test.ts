@@ -9,6 +9,10 @@ import { ref } from 'vue';
 import type { IPageGeometry } from '@contracts/shared';
 import type { IPdfViewerExpose } from '@app/modules/workspace-shell/types/workspaceOrchestration.types';
 import type { ICropSelectionResult } from '@app/types/crop';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 type TCreateTextMarkupOptions = Parameters<IPdfViewerExpose['createTextMarkupFromText']>[0];
@@ -141,7 +145,7 @@ describe('useWorkspaceCrop', () => {
         const { useWorkspaceCrop } = await import('@app/modules/workspace-shell/composables/useWorkspaceCrop');
         const crop = useWorkspaceCrop({
             pdfViewerRef: ref<IPdfViewerExpose | null>(viewer),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/work.pdf')),
         });
 
         const cropPromise = crop.handleCrop();
@@ -193,9 +197,9 @@ describe('useWorkspaceCrop', () => {
                 height: 40,
             },
         };
-        const workingCopyPath = ref<string | null>('/tmp/original.pdf');
+        const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/original.pdf'));
         const viewer = createPdfViewerExpose({startCropSelection: vi.fn(async () => {
-            workingCopyPath.value = '/tmp/replaced.pdf';
+            workingCopyPath.value = requireDocumentRef('/tmp/replaced.pdf');
             return selectionResult;
         })});
 

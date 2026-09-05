@@ -2,7 +2,9 @@ import type {
     ComputedRef,
     Ref,
 } from 'vue';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import { parseTabId } from '@contracts/windowTabs';
 import type {
     IEditorPaneState,
     TPaneDirection,
@@ -337,7 +339,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         if (!pane) {
             return;
         }
-        const index = pane.tabIds.indexOf(tabId);
+        const parsedTabId = parseTabId(tabId);
+        if (parsedTabId === null) {
+            return;
+        }
+        const index = pane.tabIds.indexOf(parsedTabId);
         if (index < 0) {
             return;
         }
@@ -347,7 +353,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         }
     }
 
-    function getTabFilePath(tabId: string) {
+    function getTabFilePath(tabId: string): TDocumentRef | null {
         const path = getTabById(tabId)?.originalPath ?? null;
         return typeof path === 'string' && path.trim().length > 0 && !isBrowserDocumentRef(path)
             ? path
@@ -356,7 +362,7 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     async function revealTabInFolder(tabId: string) {
         const path = getTabFilePath(tabId);
-        if (!path) {
+        if (path === null) {
             return;
         }
         try {
@@ -368,11 +374,11 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
 
     async function copyTabPath(tabId: string) {
         const path = getTabFilePath(tabId);
-        if (!path) {
+        if (path === null) {
             return;
         }
         try {
-            await globalThis.navigator?.clipboard?.writeText(path);
+            await globalThis.navigator.clipboard.writeText(path);
         } catch {
             // Best-effort; clipboard access can be denied.
         }
@@ -460,7 +466,8 @@ export const useAppShellDirectionalTabs = (options: IUseAppShellDirectionalTabsO
         targetIndex?: number | null,
     ) {
         const pane = getPaneById(paneId);
-        if (!pane || !pane.tabIds.includes(tabId)) {
+        const parsedTabId = parseTabId(tabId);
+        if (!pane || parsedTabId === null || !pane.tabIds.includes(parsedTabId)) {
             return;
         }
 

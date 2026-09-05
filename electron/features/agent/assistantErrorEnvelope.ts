@@ -2,6 +2,7 @@ import type {
     IAgentAssistantErrorEnvelope,
     TAgentAssistantErrorCode,
 } from '@contracts/agent';
+import {createEpochMs} from '@contracts/timestamps';
 
 export function classifyAssistantError(message: string): {
     code: TAgentAssistantErrorCode;
@@ -56,7 +57,7 @@ export function createAssistantErrorEnvelope(message: string): IAgentAssistantEr
         code: classified.code,
         message,
         retryable: classified.retryable,
-        timestamp: Date.now(),
+        timestamp: createEpochMs(),
     };
 }
 

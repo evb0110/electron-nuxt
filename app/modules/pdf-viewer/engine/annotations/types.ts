@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 export interface IMarkerViewModel {
@@ -12,7 +14,7 @@ export interface IMarkerViewModel {
 
 export interface IPagePointTarget {
     pageContainer: HTMLElement;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageX: number;
     pageY: number;
 }

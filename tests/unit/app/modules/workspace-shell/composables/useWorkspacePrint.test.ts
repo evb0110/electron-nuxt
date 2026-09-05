@@ -17,6 +17,7 @@ import type { TPdfSource } from '@app/types/pdfUi';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES } from '@contracts/shared';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
@@ -617,7 +618,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/multi-gigabyte.pdf',
+                path: requireDocumentRef('/tmp/multi-gigabyte.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             workingCopyPath: '/tmp/multi-gigabyte.pdf',
@@ -650,7 +651,7 @@ describe('useWorkspacePrint', () => {
         const pathState = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/path-backed.pdf',
+                path: requireDocumentRef('/tmp/path-backed.pdf'),
                 size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
             },
             totalPages: 5_000,
@@ -668,7 +669,7 @@ describe('useWorkspacePrint', () => {
         const pathState = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/oversized-path.pdf',
+                path: requireDocumentRef('/tmp/oversized-path.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             totalPages: 10,
@@ -686,7 +687,7 @@ describe('useWorkspacePrint', () => {
         const pathState = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/high-page-count-path.pdf',
+                path: requireDocumentRef('/tmp/high-page-count-path.pdf'),
                 size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
             },
             totalPages: 5_001,
@@ -709,7 +710,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/selected-pages.pdf',
+                path: requireDocumentRef('/tmp/selected-pages.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             fileName: 'selected-pages.pdf',
@@ -757,7 +758,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/stale.pdf',
+                path: requireDocumentRef('/tmp/stale.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             workingCopyPath: '/tmp/stale.pdf',
@@ -801,7 +802,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/native-required.pdf',
+                path: requireDocumentRef('/tmp/native-required.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             hasPendingUnsavedChanges: true,
@@ -845,7 +846,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/dirty-print.pdf',
+                path: requireDocumentRef('/tmp/dirty-print.pdf'),
                 size: 10,
             },
             hasPendingUnsavedChanges: true,
@@ -879,7 +880,7 @@ describe('useWorkspacePrint', () => {
         documentsCapabilityMock.printPdfPath.mockResolvedValue({success: true});
         const sourcePdf: TPdfSource = {
             kind: 'path',
-            path: '/tmp/clean-unrepresentable.pdf',
+            path: requireDocumentRef('/tmp/clean-unrepresentable.pdf'),
             size: 3 * 1024 * 1024 * 1024,
         };
         const {
@@ -964,7 +965,7 @@ describe('useWorkspacePrint', () => {
             state,
         } = createState({sourcePdf: {
             kind: 'path',
-            path: '/tmp/path-options.pdf',
+            path: requireDocumentRef('/tmp/path-options.pdf'),
             size: PDF_PATH_PRINT_LAYOUT_MAX_SOURCE_BYTES,
         }});
 
@@ -1000,7 +1001,7 @@ describe('useWorkspacePrint', () => {
         });
         const sourcePdf: TPdfSource = {
             kind: 'path',
-            path: '/tmp/clean-native-required.pdf',
+            path: requireDocumentRef('/tmp/clean-native-required.pdf'),
             size: 3 * 1024 * 1024 * 1024,
         };
         const {
@@ -1044,7 +1045,7 @@ describe('useWorkspacePrint', () => {
         } = createState({
             sourcePdf: {
                 kind: 'path',
-                path: '/tmp/unrepresentable.pdf',
+                path: requireDocumentRef('/tmp/unrepresentable.pdf'),
                 size: 3 * 1024 * 1024 * 1024,
             },
             hasPendingUnsavedChanges: true,
@@ -1281,7 +1282,7 @@ describe('useWorkspacePrint', () => {
             state,
         } = createState({sourcePdf: {
             kind: 'path',
-            path: '/tmp/native-dialog.pdf',
+            path: requireDocumentRef('/tmp/native-dialog.pdf'),
             size: 689 * 1024 * 1024,
         }});
 
@@ -1334,7 +1335,7 @@ describe('useWorkspacePrint', () => {
             state,
         } = createState({sourcePdf: {
             kind: 'path',
-            path: '/tmp/cancel-path-print.pdf',
+            path: requireDocumentRef('/tmp/cancel-path-print.pdf'),
             size: 689 * 1024 * 1024,
         }});
         const printPromise = state.handlePrintDialogSubmit({

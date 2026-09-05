@@ -147,7 +147,7 @@ async function installBlinkSampler(page: Page) {
             return {
                 tagName: element.tagName,
                 className: String(element.className),
-                text: element.textContent?.trim().slice(0, 80) ?? '',
+                text: element.textContent.trim().slice(0, 80),
                 page: element.closest<HTMLElement>('.page_container')?.dataset.page ?? null,
             };
         }
@@ -181,8 +181,8 @@ async function installBlinkSampler(page: Page) {
                     const controls = element.closest<HTMLElement>('.page-controls');
                     const secondary = controls?.querySelector<HTMLElement>('.page-controls-current-secondary') ?? null;
                     return {
-                        text: element.textContent?.trim() ?? '',
-                        secondaryText: secondary?.textContent?.trim() ?? '',
+                        text: element.textContent.trim(),
+                        secondaryText: secondary?.textContent.trim() ?? '',
                         top: Math.round(rect.top),
                         left: Math.round(rect.left),
                     };
@@ -335,7 +335,7 @@ async function installBlinkSampler(page: Page) {
         traceWindow.__recordPdfBlinkEvent = recordEvent;
 
         document.addEventListener('click', (event) => {
-            const button = (event.target as Element | null)?.closest?.('.page-controls button[aria-label]');
+            const button = (event.target as Element | null)?.closest('.page-controls button[aria-label]');
             if (!(button instanceof HTMLButtonElement)) {
                 return;
             }
@@ -344,7 +344,7 @@ async function installBlinkSampler(page: Page) {
                 disabled: button.disabled,
                 labels: Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                     .filter(isVisibleElement)
-                    .map(element => element.textContent?.trim() ?? ''),
+                    .map(element => element.textContent.trim()),
             });
         }, true);
 
@@ -355,15 +355,15 @@ async function installBlinkSampler(page: Page) {
             }
             for (const mutation of mutations) {
                 const target = mutation.target instanceof HTMLElement ? mutation.target : null;
-                const pageContainer = target?.closest?.('.page_container') as HTMLElement | null;
+                const pageContainer = target?.closest('.page_container') as HTMLElement | null;
                 const important = pageContainer !== null
                     || Array.from(mutation.addedNodes).some(node => node instanceof HTMLElement && (
                         node.matches('.page_container, .document-page-skeleton, canvas')
-                        || Boolean(node.querySelector?.('.page_container, .document-page-skeleton, canvas'))
+                        || node.querySelector('.page_container, .document-page-skeleton, canvas') !== null
                     ))
                     || Array.from(mutation.removedNodes).some(node => node instanceof HTMLElement && (
                         node.matches('.page_container, .document-page-skeleton, canvas')
-                        || Boolean(node.querySelector?.('.page_container, .document-page-skeleton, canvas'))
+                        || node.querySelector('.page_container, .document-page-skeleton, canvas') !== null
                     ));
                 if (!important) {
                     continue;
@@ -437,7 +437,7 @@ async function waitForActiveDocumentOpenSettled(page: Page) {
     await installWorkspaceExposeProbe(page);
     await page.evaluate(async () => {
         const testApi = (window as IPdfBlinkDiagnosticWindow).__evbTestApi;
-        await testApi?.waitForActiveDocumentOpenSettled?.();
+        await testApi?.waitForActiveDocumentOpenSettled();
     });
 }
 
@@ -446,7 +446,7 @@ async function waitForFitHeightMode(
     scrollMode: IPdfNavigationBlinkTraceOptions['scrollMode'],
 ) {
     await page.waitForFunction((continuousScroll) => {
-        const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.() ?? null;
+        const snapshot = (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot() ?? null;
         return snapshot?.continuousScroll === continuousScroll
             && snapshot.fitMode === 'height'
             && snapshot.viewMode === 'single';
@@ -1437,7 +1437,7 @@ export function createPdfNavigationBlinkScenario(options = readOptions()) {
             await configureFitHeightMode(page, options.scrollMode);
             await waitForToolbarPage(page, options.startPage);
             const observedScrollMode = await page.evaluate(() =>
-                (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot?.()?.continuousScroll === true
+                (window as IPdfBlinkDiagnosticWindow).__evbTestApi?.getActiveToolbarSnapshot()?.continuousScroll === true
                     ? 'continuous' : 'paged');
             if (options.waitForStartCanvas) {
                 await context.navigation.waitForPageCanvas(options.startPage);

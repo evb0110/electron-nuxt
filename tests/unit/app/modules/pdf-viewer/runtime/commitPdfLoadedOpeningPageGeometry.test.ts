@@ -1,3 +1,5 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -13,7 +15,7 @@ import { cast } from '@tests/helpers/cast';
 function createHarness() {
     const source = {
         kind: 'path',
-        path: '/tmp/scan.pdf',
+        path: requireDocumentRef('/tmp/scan.pdf'),
         size: 28_000_000,
     } as const;
     const snapshot = ref<IDocumentOpenSurfaceSnapshot>({
@@ -41,7 +43,7 @@ function createHarness() {
         documentId: '/tmp/scan.pdf',
         metricSource: source,
         currentSource: source,
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         currentPage: 1,
         pageCount: 431,
         metric: {
@@ -95,7 +97,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
         };
         const aliasedSource = {
             kind: 'path',
-            path: '/private/var/tmp/scan.pdf',
+            path: requireDocumentRef('/private/var/tmp/scan.pdf'),
             size: 28_000_000,
         } as const;
 
@@ -155,7 +157,7 @@ describe('commitPdfLoadedOpeningPageGeometry', () => {
             ...harness.input,
             metricSource: {
                 kind: 'path',
-                path: '/tmp/older-copy.pdf',
+                path: requireDocumentRef('/tmp/older-copy.pdf'),
                 size: 28_000_000,
             },
         })).toBe(false);

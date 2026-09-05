@@ -5,6 +5,11 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
+import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import { restoreWorkspaceCheckpoint } from '@app/modules/workspace-shell/checkpoint/restoreWorkspaceCheckpoint';
 import { cast } from '@tests/helpers/cast';
@@ -33,10 +38,10 @@ describe('restoreWorkspaceCheckpoint', () => {
                 workingCopyPath: '/tmp/working/draft.pdf',
             }),
         });
-        const tabs = ref([{
+        const tabs = ref<ITab[]>([{
             id: 'restored-tab',
             fileName: 'draft.pdf',
-            originalPath: '/documents/draft.pdf',
+            originalPath: requireDocumentRef('/documents/draft.pdf'),
             isDirty: true,
             isDjvu: false,
         }]);
@@ -57,24 +62,24 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         await restoreWorkspaceCheckpoint({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-1',
-            activeTabId: 'old-tab',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('old-tab'),
             layout: {
                 type: 'leaf',
-                paneId: 'pane-1',
+                paneId: requirePaneId('pane-1'),
             },
             panes: [{
-                paneId: 'pane-1',
-                tabIds: ['old-tab'],
-                activeTabId: 'old-tab',
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('old-tab')],
+                activeTabId: requireTabId('old-tab'),
             }],
             tabs: [{
-                tabId: 'old-tab',
-                paneId: 'pane-1',
+                tabId: requireTabId('old-tab'),
+                paneId: requirePaneId('pane-1'),
                 fileName: 'draft.pdf',
-                sourceRef: '/documents/draft.pdf',
-                workingCopyRef: '/tmp/working/draft.pdf',
+                sourceRef: requireDocumentRef('/documents/draft.pdf'),
+                workingCopyRef: requireDocumentRef('/tmp/working/draft.pdf'),
                 isDirty: true,
                 isDjvu: false,
                 currentPage: 9,
@@ -141,24 +146,24 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         await restoreWorkspaceCheckpoint({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-1',
-            activeTabId: 'tab-1',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
             layout: {
                 type: 'leaf',
-                paneId: 'pane-1',
+                paneId: requirePaneId('pane-1'),
             },
             panes: [{
-                paneId: 'pane-1',
-                tabIds: ['tab-1'],
-                activeTabId: 'tab-1',
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
             }],
             tabs: [{
-                tabId: 'tab-1',
-                paneId: 'pane-1',
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
                 fileName: 'Combined.pdf',
-                sourceRef: '/documents/Combined.pdf',
-                workingCopyRef: '/tmp/working/Combined.pdf',
+                sourceRef: requireDocumentRef('/documents/Combined.pdf'),
+                workingCopyRef: requireDocumentRef('/tmp/working/Combined.pdf'),
                 requiresSaveAsOnFirstSave: true,
                 isDirty: true,
                 isDjvu: false,
@@ -167,10 +172,10 @@ describe('restoreWorkspaceCheckpoint', () => {
                 zoomMode: null,
             }],
         }, {
-            tabs: ref([{
+            tabs: ref<ITab[]>([{
                 id: 'tab-1',
                 fileName: 'Combined.pdf',
-                originalPath: '/documents/Combined.pdf',
+                originalPath: requireDocumentRef('/documents/Combined.pdf'),
                 isDirty: true,
                 isDjvu: false,
             }]),
@@ -192,24 +197,24 @@ describe('restoreWorkspaceCheckpoint', () => {
         const openPathInReservedTab = vi.fn().mockResolvedValue(true);
         await restoreWorkspaceCheckpoint({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-1',
-            activeTabId: 'tab-1',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
             layout: {
                 type: 'leaf',
-                paneId: 'pane-1',
+                paneId: requirePaneId('pane-1'),
             },
             panes: [{
-                paneId: 'pane-1',
-                tabIds: ['tab-1'],
-                activeTabId: 'tab-1',
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
             }],
             tabs: [{
-                tabId: 'tab-1',
-                paneId: 'pane-1',
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
                 fileName: 'scan.djvu',
-                sourceRef: 'browser://documents/scan.djvu',
-                workingCopyRef: 'browser://documents/scan-recovery.pdf',
+                sourceRef: requireDocumentRef('browser://documents/scan.djvu'),
+                workingCopyRef: requireDocumentRef('browser://documents/scan-recovery.pdf'),
                 requiresSaveAsOnFirstSave: true,
                 isDirty: true,
                 isDjvu: true,
@@ -243,21 +248,21 @@ describe('restoreWorkspaceCheckpoint', () => {
 
         await restoreWorkspaceCheckpoint({
             version: 1,
-            capturedAt: 123,
-            activePaneId: 'pane-1',
-            activeTabId: 'tab-1',
+            capturedAt: requireEpochMs(123),
+            activePaneId: requirePaneId('pane-1'),
+            activeTabId: requireTabId('tab-1'),
             layout: {
                 type: 'leaf',
-                paneId: 'pane-1',
+                paneId: requirePaneId('pane-1'),
             },
             panes: [{
-                paneId: 'pane-1',
-                tabIds: ['tab-1'],
-                activeTabId: 'tab-1',
+                paneId: requirePaneId('pane-1'),
+                tabIds: [requireTabId('tab-1')],
+                activeTabId: requireTabId('tab-1'),
             }],
             tabs: [{
-                tabId: 'tab-1',
-                paneId: 'pane-1',
+                tabId: requireTabId('tab-1'),
+                paneId: requirePaneId('pane-1'),
                 fileName: null,
                 sourceRef: null,
                 workingCopyRef: null,

@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { PDFOperatorList } from 'pdfjs-dist/types/src/display/api';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
@@ -116,10 +117,11 @@ export async function createHiddenAnnotationOperationsFilter(
     }
 
     if (typeof pdfPage.getOperatorList !== 'function') {
-        throw new Error(`Cannot suppress managed annotation appearances on page ${pdfPage.pageNumber}: operator list is unavailable`);
+        throw new Error(`Cannot suppress managed annotation appearances on page ${requirePageNumber(pdfPage.pageNumber)}: operator list is unavailable`);
     }
 
     try {
+        const pageNumber = requirePageNumber(pdfPage.pageNumber);
         const normalizedHiddenAnnotationIds = normalizeAnnotationIdSet(hiddenAnnotationIds);
         if (normalizedHiddenAnnotationIds.size === 0) {
             return undefined;
@@ -128,7 +130,7 @@ export async function createHiddenAnnotationOperationsFilter(
         const operatorList = coordination
             ? await runCoordinatedPdfPageOperation({
                 owner: coordination.owner,
-                pageNumber: pdfPage.pageNumber,
+                pageNumber,
                 pdfPage,
                 priority: coordination.priority,
                 signal: coordination.signal,
@@ -157,7 +159,7 @@ export async function createHiddenAnnotationOperationsFilter(
         }
         BrowserLogger.warn(
             'pdf-renderer',
-            `Failed to build hidden annotation filter for page ${pdfPage.pageNumber}`,
+            `Failed to build hidden annotation filter for page ${requirePageNumber(pdfPage.pageNumber)}`,
             error,
         );
         throw error;

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     existsSync,
     readFileSync,
@@ -149,7 +150,7 @@ if (isDirectRun) {
     try {
         runDevLogs();
     } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getErrorMessage(error)}\n`);
         process.exitCode = 1;
     }
 }

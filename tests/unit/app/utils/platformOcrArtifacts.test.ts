@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const documentsMock = vi.hoisted(() => ({
     fileExists: vi.fn(),
@@ -25,7 +26,7 @@ describe('platform OCR artifacts', () => {
         documentsMock.readTextFile.mockResolvedValue('{"version":2}');
 
         const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'manifest.json'))
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'manifest.json'))
             .resolves.toEqual({ version: 2 });
 
         expect(documentsMock.fileExists).toHaveBeenCalledWith('/tmp/doc.pdf.ocr/manifest.json');
@@ -36,7 +37,7 @@ describe('platform OCR artifacts', () => {
         documentsMock.fileExists.mockResolvedValue(false);
 
         const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'manifest.json'))
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'manifest.json'))
             .resolves.toBeNull();
 
         expect(documentsMock.readTextFile).not.toHaveBeenCalled();
@@ -45,10 +46,10 @@ describe('platform OCR artifacts', () => {
     it('rejects OCR artifact paths that escape the sidecar directory', async () => {
         const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
 
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', '../secret.json')).resolves.toBeNull();
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'pages/../secret.json')).resolves.toBeNull();
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', '/tmp/secret.json')).resolves.toBeNull();
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'C:\\secret.json')).resolves.toBeNull();
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), '../secret.json')).resolves.toBeNull();
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'pages/../secret.json')).resolves.toBeNull();
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), '/tmp/secret.json')).resolves.toBeNull();
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'C:\\secret.json')).resolves.toBeNull();
 
         expect(documentsMock.fileExists).not.toHaveBeenCalled();
         expect(documentsMock.readTextFile).not.toHaveBeenCalled();
@@ -59,7 +60,7 @@ describe('platform OCR artifacts', () => {
         documentsMock.readTextFile.mockResolvedValue('{"text":"ok"}');
 
         const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'pages\\0001.json'))
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'pages\\0001.json'))
             .resolves.toEqual({ text: 'ok' });
 
         expect(documentsMock.fileExists).toHaveBeenCalledWith('/tmp/doc.pdf.ocr/pages/0001.json');
@@ -70,16 +71,16 @@ describe('platform OCR artifacts', () => {
         documentsMock.readTextFile.mockResolvedValue('{"__proto__":{"polluted":true}}');
 
         const { readOptionalOcrArtifactJson } = await import('@app/utils/platformOcrArtifacts');
-        await expect(readOptionalOcrArtifactJson('/tmp/doc.pdf', 'manifest.json'))
+        await expect(readOptionalOcrArtifactJson(requireDocumentRef('/tmp/doc.pdf'), 'manifest.json'))
             .rejects.toThrow(SyntaxError);
     });
 
     it('rejects adjacent artifact suffixes that are not plain suffixes', async () => {
         const { readOptionalAdjacentJsonArtifact } = await import('@app/utils/platformOcrArtifacts');
 
-        await expect(readOptionalAdjacentJsonArtifact('/tmp/doc.pdf', '../secret.json')).resolves.toBeNull();
-        await expect(readOptionalAdjacentJsonArtifact('/tmp/doc.pdf', '/secret.json')).resolves.toBeNull();
-        await expect(readOptionalAdjacentJsonArtifact('/tmp/doc.pdf', '.ocr/manifest.json')).resolves.toBeNull();
+        await expect(readOptionalAdjacentJsonArtifact(requireDocumentRef('/tmp/doc.pdf'), '../secret.json')).resolves.toBeNull();
+        await expect(readOptionalAdjacentJsonArtifact(requireDocumentRef('/tmp/doc.pdf'), '/secret.json')).resolves.toBeNull();
+        await expect(readOptionalAdjacentJsonArtifact(requireDocumentRef('/tmp/doc.pdf'), '.ocr/manifest.json')).resolves.toBeNull();
 
         expect(documentsMock.fileExists).not.toHaveBeenCalled();
         expect(documentsMock.readTextFile).not.toHaveBeenCalled();
@@ -90,7 +91,7 @@ describe('platform OCR artifacts', () => {
         documentsMock.readTextFile.mockResolvedValue('{"version":1}');
 
         const { readOptionalAdjacentJsonArtifact } = await import('@app/utils/platformOcrArtifacts');
-        await expect(readOptionalAdjacentJsonArtifact('/tmp/doc.pdf', '.ocr-manifest.json'))
+        await expect(readOptionalAdjacentJsonArtifact(requireDocumentRef('/tmp/doc.pdf'), '.ocr-manifest.json'))
             .resolves.toEqual({ version: 1 });
 
         expect(documentsMock.fileExists).toHaveBeenCalledWith('/tmp/doc.pdf.ocr-manifest.json');

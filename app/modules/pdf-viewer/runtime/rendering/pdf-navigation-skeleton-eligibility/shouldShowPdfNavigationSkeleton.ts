@@ -1,13 +1,15 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TPdfViewMode } from '@contracts/shared';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 
 interface IShouldShowPdfNavigationSkeletonOptions {
-    pageNumber: number;
-    navigationAnchorPage: number | null;
+    pageNumber: TPageNumber;
+    navigationAnchorPage: TPageNumber | null;
     totalPages: number;
     viewMode: TPdfViewMode;
-    isPageRendered: (pageNumber: number) => boolean;
-    shouldShowSkeleton: (pageNumber: number) => boolean;
+    isPageRendered: (pageNumber: TPageNumber) => boolean;
+    shouldShowSkeleton: (pageNumber: TPageNumber) => boolean;
 }
 
 export function shouldShowPdfNavigationSkeleton(options: IShouldShowPdfNavigationSkeletonOptions) {

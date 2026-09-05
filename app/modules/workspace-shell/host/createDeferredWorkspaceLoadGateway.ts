@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import { delay } from 'es-toolkit/promise';
 import type {
     Ref,
@@ -26,10 +27,11 @@ async function waitForWorkspaceTask<T>(task: Promise<T>, signal?: AbortSignal) {
     if (signal.aborted) {
         return WORKSPACE_LOAD_ABORTED;
     }
-    let handleAbort: (() => void) | null = null;
+    const abortState: { handler: (() => void) | null } = {handler: null};
     const aborted = new Promise<typeof WORKSPACE_LOAD_ABORTED>((resolve) => {
-        handleAbort = () => resolve(WORKSPACE_LOAD_ABORTED);
-        signal.addEventListener('abort', handleAbort, {once: true});
+        const handler = () => resolve(WORKSPACE_LOAD_ABORTED);
+        abortState.handler = handler;
+        signal.addEventListener('abort', handler, {once: true});
     });
     try {
         return await Promise.race([
@@ -37,8 +39,9 @@ async function waitForWorkspaceTask<T>(task: Promise<T>, signal?: AbortSignal) {
             aborted,
         ]);
     } finally {
-        if (handleAbort) {
-            signal.removeEventListener('abort', handleAbort);
+        const handler = abortState.handler;
+        if (handler) {
+            signal.removeEventListener('abort', handler);
         }
     }
 }
@@ -70,7 +73,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
                 BrowserLogger.warn(DEFERRED_WORKSPACE_HOST_POLICY.RECENT_OPEN_LOG_SECTION, 'Failed to preload DocumentWorkspace chunk', {
                     tabId: options.tabId,
                     reason,
-                    error: error instanceof Error ? error.message : String(error),
+                    error: getErrorMessage(error),
                 });
                 return false;
             })
@@ -191,7 +194,7 @@ export function createDeferredWorkspaceLoadGateway(options: ICreateDeferredWorks
         } catch (error) {
             BrowserLogger.error('workspace-host', `Action failed (${action})`, {
                 tabId: options.tabId,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
             }, {
                 code: 'RENDERER_WORKSPACE_OPERATION_FAILED',
                 context: {},

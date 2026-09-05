@@ -147,6 +147,9 @@ describe('drill release asset generator', () => {
                 arch,
                 platform,
             });
+            if (target === undefined) {
+                throw new Error(`missing release target for ${platform}-${arch}`);
+            }
             const names = (await readdir(join(firstRoot, group))).filter(name => !name.endsWith('.yml'));
             for (const pattern of getRequiredArtifactPatterns(target, policyEnvironment)) {
                 expect(names.some(name => pattern.test(name))).toBe(true);

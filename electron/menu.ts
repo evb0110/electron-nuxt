@@ -12,7 +12,11 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import { basename } from 'path';
-import type { TWindowTabsAction } from '@contracts/windowTabs';
+import { parseDocumentRef } from '@contracts/documentRef';
+import type {
+    TTabId,
+    TWindowTabsAction,
+} from '@contracts/windowTabs';
 import {
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsEventMap,
@@ -198,7 +202,7 @@ function sendWindowTabsAction(sourceWindowId: number | null, action: TWindowTabs
 
 function buildMoveToWindowSubmenu(
     sourceWindowId: number,
-    tabId: string | undefined,
+    tabId: TTabId | undefined,
 ): MenuItemConstructorOptions[] {
     return buildWindowTargetSubmenu(sourceWindowId, window => ({
         kind: 'move-tab-to-window',
@@ -342,7 +346,15 @@ function buildRecentFilesSubmenu(): MenuItemConstructorOptions[] {
     const fileItems: MenuItemConstructorOptions[] = recentFiles.map((filePath) => ({
         label: basename(filePath),
         click: (_, window) => {
-            sendToWindow(resolveWindowFromMenuContext(window), DOCUMENTS_EVENT_CHANNELS.onMenuOpenRecentFile, filePath);
+            const documentRef = parseDocumentRef(filePath);
+            if (documentRef === null) {
+                return;
+            }
+            sendToWindow(
+                resolveWindowFromMenuContext(window),
+                DOCUMENTS_EVENT_CHANNELS.onMenuOpenRecentFile,
+                documentRef,
+            );
         },
     }));
 

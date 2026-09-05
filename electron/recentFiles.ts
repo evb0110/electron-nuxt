@@ -20,7 +20,14 @@ import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     inferDocumentRefBackend,
     isNativeLegacyDocumentRef,
+    parseDocumentRef,
+    type TDocumentRef,
 } from '@contracts/documentRef';
+import {
+    createEpochMs,
+    parseEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 import {
     isErrnoException,
     isRecord,
@@ -79,7 +86,7 @@ interface IFilteredRecentFiles {
 interface IPathInspectionResult {
     status: 'exists' | 'missing' | 'unreadable' | 'unavailable';
     size?: number;
-    modifiedAt?: number;
+    modifiedAt?: TEpochMs;
 }
 
 class RecentFileStatTimeoutError extends Error {
@@ -157,20 +164,19 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
             }
             const originalPath = candidate.originalPath;
             const fileName = candidate.fileName;
-            const timestamp = candidate.timestamp;
+            const timestamp = parseEpochMs(candidate.timestamp);
             const fileSize = candidate.fileSize;
-            const modifiedAt = candidate.modifiedAt;
+            const modifiedAt = candidate.modifiedAt === undefined
+                ? undefined
+                : parseEpochMs(candidate.modifiedAt);
             const backend = candidate.backend;
             if (
                 typeof originalPath === 'string'
                 && isNativeLegacyDocumentRef(originalPath)
                 && typeof fileName === 'string'
-                && typeof timestamp === 'number'
+                && timestamp !== null
                 && typeof fileSize === 'number'
-                && (modifiedAt === undefined || (
-                    typeof modifiedAt === 'number'
-                    && Number.isSafeInteger(modifiedAt) && modifiedAt >= 0
-                ))
+                && modifiedAt !== null
                 && (backend === undefined || backend === 'electron')
                 && inferDocumentRefBackend(originalPath) === 'electron'
             ) {
@@ -180,7 +186,7 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
                     fileName,
                     timestamp,
                     fileSize,
-                    ...(typeof modifiedAt === 'number' ? {modifiedAt} : {}),
+                    ...(modifiedAt === undefined ? {} : {modifiedAt}),
                 });
             }
         }
@@ -193,7 +199,7 @@ function normalizeRecentFilesData(raw: unknown): IRecentFilesData {
 }
 
 async function statWithTimeout(filePath: string) {
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
     try {
         return await Promise.race([
             stat(filePath),
@@ -201,7 +207,7 @@ async function statWithTimeout(filePath: string) {
                 timeoutHandle = setTimeout(() => {
                     reject(new RecentFileStatTimeoutError(filePath, RECENT_FILE_STAT_TIMEOUT_MS));
                 }, RECENT_FILE_STAT_TIMEOUT_MS);
-                timeoutHandle.unref?.();
+                timeoutHandle.unref();
             }),
         ]);
     } finally {
@@ -215,10 +221,11 @@ async function inspectPath(filePath: string): Promise<IPathInspectionResult> {
     for (let attempt = 0; attempt < 2; attempt += 1) {
         try {
             const fileStat = await statWithTimeout(filePath);
+            const modifiedAt = parseEpochMs(Math.trunc(fileStat.mtimeMs));
             return {
                 status: 'exists',
                 size: fileStat.size,
-                modifiedAt: Math.trunc(fileStat.mtimeMs),
+                ...(modifiedAt === null ? {} : {modifiedAt}),
             };
         } catch (error) {
             const code = isErrnoException(error) ? error.code : undefined;
@@ -474,14 +481,14 @@ function refreshRecentFilesCache(): Promise<IRecentFile[]> {
     return refreshPromise;
 }
 
-function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number) {
+function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: number): TDocumentRef | null {
     const mappedOriginalPath = (
         typeof senderWebContentsId === 'number'
             ? getWorkingCopyOriginalPath(filePath, senderWebContentsId)
             : getWorkingCopyOriginalPathForPersistence(filePath)
     )?.originalPath;
     if (mappedOriginalPath) {
-        return mappedOriginalPath;
+        return parseDocumentRef(mappedOriginalPath);
     }
 
     // Internal working copies are implementation details, not user documents. If
@@ -507,7 +514,7 @@ function resolveRecentOriginalPath(filePath: string, senderWebContentsId?: numbe
         return null;
     }
 
-    return filePath;
+    return parseDocumentRef(filePath);
 }
 
 function canonicalizePersistedRecentFiles(files: IRecentFile[]) {
@@ -577,7 +584,7 @@ export async function addRecentFile(filePath: string, senderWebContentsId?: numb
             originalPath,
             backend: 'electron',
             fileName,
-            timestamp: Date.now(),
+            timestamp: createEpochMs(),
             fileSize,
             ...(modifiedAt === undefined ? {} : {modifiedAt}),
         });

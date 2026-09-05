@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePaneId} from '@contracts/editorPanes';
 
 function deferred() {
     let resolve: () => void = () => {};
@@ -53,15 +55,15 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 function createCheckpoint(capturedAt: number): IWorkspaceCheckpoint {
     return {
         version: 1,
-        capturedAt,
-        activePaneId: 'pane-1',
+        capturedAt: requireEpochMs(capturedAt),
+        activePaneId: requirePaneId('pane-1'),
         activeTabId: null,
         layout: {
             type: 'leaf',
-            paneId: 'pane-1',
+            paneId: requirePaneId('pane-1'),
         },
         panes: [{
-            paneId: 'pane-1',
+            paneId: requirePaneId('pane-1'),
             tabIds: [],
             activeTabId: null,
         }],

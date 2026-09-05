@@ -4,20 +4,20 @@ export type TPlatformMethodKind = 'async' | 'event' | 'sync' | 'void';
 export type TBrowserPlatformLazyMode = 'forwarded' | 'direct';
 
 export interface IPlatformMethodDescriptor {
-    path: readonly string[];
-    kind: TPlatformMethodKind;
-    required: Record<TPlatformBackend, boolean>;
-    optionalWhenImplemented?: boolean;
-    browserLazy: TBrowserPlatformLazyMode;
+    readonly path: readonly string[];
+    readonly kind: TPlatformMethodKind;
+    readonly required: Readonly<Record<TPlatformBackend, boolean>>;
+    readonly optionalWhenImplemented?: boolean;
+    readonly browserLazy: TBrowserPlatformLazyMode;
 }
 
 export interface IPlatformCapabilityDescriptor {
-    path: readonly string[];
-    required: Record<TPlatformBackend, boolean>;
-    manifestPath?: readonly string[];
+    readonly path: readonly string[];
+    readonly required: Readonly<Record<TPlatformBackend, boolean>>;
+    readonly manifestPath?: readonly string[];
 }
 
 export interface IPlatformApiDescriptor {
-    capabilities: readonly IPlatformCapabilityDescriptor[];
-    methods: readonly IPlatformMethodDescriptor[];
+    readonly capabilities: readonly IPlatformCapabilityDescriptor[];
+    readonly methods: readonly IPlatformMethodDescriptor[];
 }

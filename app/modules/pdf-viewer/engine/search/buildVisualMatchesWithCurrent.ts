@@ -58,14 +58,11 @@ function buildLayerSearchMatches(
     }
 
     const occurrences = [...assembledLayerText.text.matchAll(pattern)]
-        .filter(match => (match[0]?.length ?? 0) > 0 && match.index !== undefined);
+        .filter(match => match[0].length > 0);
     const canUseBackendIdentity = occurrences.length === pageMatches.matches.length;
     return occurrences
         .flatMap((match, index): IVisualSearchMatch[] => {
             const backendMatch = pageMatches.matches[index];
-            if (match.index === undefined) {
-                return [];
-            }
             const mapped = mapAssembledSearchablePageTextRange(assembledLayerText, {
                 startOffset: match.index,
                 endOffset: match.index + match[0].length,
@@ -127,10 +124,10 @@ function getCurrentMatchOffsetDistance(
 }
 
 function arePageMatchesInSearchOrder(pageMatches: IPdfPageMatches) {
-    return pageMatches.matches.every((match, index) => (
-        index === 0
-        || match.start >= pageMatches.matches[index - 1]!.start
-    ));
+    return pageMatches.matches.every((match, index) => {
+        const previous = pageMatches.matches[index - 1];
+        return previous === undefined || match.start >= previous.start;
+    });
 }
 
 function getFallbackCurrentMatchIndex(
@@ -190,10 +187,13 @@ function markVisualMatchesWithCurrent(
     if (shouldHaveCurrent && ranges.length > 0 && !ranges.some(match => match.isCurrent)) {
         const fallbackIndex = getFallbackCurrentMatchIndex(matches, pageMatches, currentMatch);
         if (fallbackIndex >= 0) {
-            ranges[fallbackIndex] = {
-                ...ranges[fallbackIndex]!,
-                isCurrent: true,
-            };
+            const fallbackRange = ranges[fallbackIndex];
+            if (fallbackRange) {
+                ranges[fallbackIndex] = {
+                    ...fallbackRange,
+                    isCurrent: true,
+                };
+            }
         }
     }
 

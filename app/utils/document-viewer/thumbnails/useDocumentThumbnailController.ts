@@ -393,8 +393,8 @@ export const useDocumentThumbnailController = (options: IUseDocumentThumbnailCon
     }
 
     function measureItemChromeHeight(item: HTMLElement) {
-        const label = item?.querySelector<HTMLElement>('[data-document-thumbnail-label]') ?? null;
-        if (!item || !label) {
+        const label = item.querySelector<HTMLElement>('[data-document-thumbnail-label]');
+        if (!label) {
             return null;
         }
 

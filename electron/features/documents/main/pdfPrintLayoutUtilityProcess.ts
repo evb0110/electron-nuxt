@@ -11,13 +11,27 @@ import {
 } from '@electron/features/documents/main/pdfPrintLayoutUtilityProtocol';
 import { getErrorMessage } from '@electron/utils/error';
 
-const { parentPort } = process;
-
-if (!parentPort) {
-    throw new Error('PDF print layout utility started without a parent port');
+interface IUtilityParentPort {
+    once(eventName: string, listener: (event: {data: unknown}) => void): unknown;
+    postMessage(value: unknown): void;
 }
 
-parentPort.once('message', (event) => {
+function isUtilityParentPort(value: unknown): value is IUtilityParentPort {
+    return typeof value === 'object'
+        && value !== null
+        && 'once' in value
+        && typeof value.once === 'function'
+        && 'postMessage' in value
+        && typeof value.postMessage === 'function';
+}
+
+const rawParentPort: unknown = process.parentPort;
+if (!isUtilityParentPort(rawParentPort)) {
+    throw new Error('PDF print layout utility started without a parent port');
+}
+const utilityParentPort = rawParentPort;
+
+utilityParentPort.once('message', (event) => {
     void (async () => {
         const request = decodePdfPrintLayoutUtilityRequest(event.data);
         if (!request) {
@@ -47,13 +61,13 @@ parentPort.once('message', (event) => {
             ok: true,
             bytes: printableData.byteLength,
         };
-        parentPort.postMessage(result);
+        utilityParentPort.postMessage(result);
     })().catch((error: unknown) => {
         const result: TPdfPrintLayoutUtilityResult = {
             type: 'result',
             ok: false,
             error: getErrorMessage(error),
         };
-        parentPort.postMessage(result);
+        utilityParentPort.postMessage(result);
     });
 });

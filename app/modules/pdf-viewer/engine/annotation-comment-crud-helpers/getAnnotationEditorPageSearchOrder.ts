@@ -1,24 +1,30 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 const DEFAULT_ANNOTATION_EDITOR_FALLBACK_PAGE_RADIUS = 8;
 const MAX_ANNOTATION_EDITOR_FALLBACK_PAGE_RADIUS = 32;
 
 export interface IAnnotationEditorPageSearchOptions {
-    preferredPageIndex: number;
+    preferredPageIndex: TPageIndex;
     numPages: number;
-    annotationPageIndexes?: Iterable<number> | null | undefined;
-    mountedPageIndexes?: Iterable<number> | null | undefined;
+    annotationPageIndexes?: Iterable<TPageIndex> | null | undefined;
+    mountedPageIndexes?: Iterable<TPageIndex> | null | undefined;
     fallbackPageRadius?: number;
 }
 
-function normalizePageIndex(pageIndex: number, maxPageIndex: number) {
+function normalizePageIndex(pageIndex: TPageIndex, maxPageIndex: number) {
     if (!Number.isFinite(pageIndex)) {
-        return 0;
+        return requirePageIndex(0);
     }
-    return Math.min(maxPageIndex, Math.max(0, Math.trunc(pageIndex)));
+    return requirePageIndex(
+        Math.min(maxPageIndex, Math.max(0, Math.trunc(pageIndex))),
+        maxPageIndex + 1,
+    );
 }
 
 function addPageIndex(
-    pages: Set<number>,
-    pageIndex: number,
+    pages: Set<TPageIndex>,
+    pageIndex: TPageIndex,
     maxPageIndex: number,
 ) {
     if (!Number.isSafeInteger(pageIndex) || pageIndex < 0 || pageIndex > maxPageIndex) {
@@ -47,7 +53,7 @@ export function getAnnotationEditorPageSearchOrder({
 
     const maxPageIndex = numPages - 1;
     const preferred = normalizePageIndex(preferredPageIndex, maxPageIndex);
-    const pages = new Set<number>([preferred]);
+    const pages = new Set<TPageIndex>([preferred]);
     for (const pageIndex of annotationPageIndexes ?? []) {
         addPageIndex(pages, pageIndex, maxPageIndex);
     }
@@ -61,7 +67,7 @@ export function getAnnotationEditorPageSearchOrder({
     const firstFallbackPage = Math.max(0, preferred - radius);
     const lastFallbackPage = Math.min(maxPageIndex, preferred + radius);
     for (let pageIndex = firstFallbackPage; pageIndex <= lastFallbackPage; pageIndex += 1) {
-        pages.add(pageIndex);
+        pages.add(requirePageIndex(pageIndex, maxPageIndex + 1));
     }
 
     return [...pages];

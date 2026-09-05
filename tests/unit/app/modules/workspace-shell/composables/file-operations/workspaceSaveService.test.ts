@@ -11,7 +11,10 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { IPdfSerializedCommitCallbacks } from '@contracts/electronApiDocuments';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireRequestId } from '@contracts/shared';
 import { cast } from '@tests/helpers/cast';
 import {
     createDeferred,
@@ -94,13 +97,13 @@ describe('workspaceSaveService', () => {
         const getSourcePdfData = vi.fn(async () => sourceBytes.shift() ?? new Uint8Array([0]));
         const saveFile = vi.fn()
             .mockRejectedValueOnce(createStaleRevisionError({
-                documentRef: '/tmp/work.pdf',
+                documentRef: requireDocumentRef('/tmp/work.pdf'),
                 expectedRevision: requireDocumentRevisionToken('drt1:test:before-save'),
                 actualRevision: requireDocumentRevisionToken('drt1:test:page-op'),
             }))
             .mockResolvedValueOnce({
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             });
@@ -139,7 +142,7 @@ describe('workspaceSaveService', () => {
     it('stops stale revision save retries after the bounded retry budget', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const staleError = createStaleRevisionError({
-            documentRef: '/tmp/work.pdf',
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
             expectedRevision: requireDocumentRevisionToken('drt1:test:before-save'),
             actualRevision: requireDocumentRevisionToken('drt1:test:ocr-apply'),
         });
@@ -202,7 +205,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(validatePdfPath).toHaveBeenCalledWith(TEST_BROWSER_WORKING_COPY_REF);
         });
-        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('browser://documents/other-work.pdf');
         validation.resolve({
             isValid: true,
             tool: 'qpdf',
@@ -224,7 +227,7 @@ describe('workspaceSaveService', () => {
         pendingTexts.set('ann:0:3856R', 'Updated note');
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -242,7 +245,7 @@ describe('workspaceSaveService', () => {
         await Promise.resolve();
 
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
-        deps.originalPath.value = '/tmp/different-source.pdf';
+        deps.originalPath.value = requireDocumentRef('/tmp/different-source.pdf');
         notePersistence.resolve(true);
 
         await expect(savePromise).resolves.toBe(false);
@@ -270,7 +273,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(deps.saveDocument).toHaveBeenCalledOnce();
         });
-        deps.originalPath.value = '/tmp/different-source.pdf';
+        deps.originalPath.value = requireDocumentRef('/tmp/different-source.pdf');
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
@@ -297,7 +300,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         });
-        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('browser://documents/other-work.pdf');
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
@@ -327,7 +330,7 @@ describe('workspaceSaveService', () => {
         await vi.waitFor(() => {
             expect(deps.getSourcePdfData).toHaveBeenCalledOnce();
         });
-        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('browser://documents/other-work.pdf');
         sourceBytes.resolve(new Uint8Array([1]));
 
         await expect(savePromise).resolves.toBe(false);
@@ -346,7 +349,7 @@ describe('workspaceSaveService', () => {
         pendingTexts.set('ann:0:3856R', 'Updated note');
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -364,7 +367,7 @@ describe('workspaceSaveService', () => {
         await Promise.resolve();
 
         expect(deps.persistAllAnnotationNotes).toHaveBeenCalledOnce();
-        deps.workingCopyPath.value = 'browser://documents/other-work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('browser://documents/other-work.pdf');
         notePersistence.resolve(true);
 
         await expect(savePromise).resolves.toBe(false);
@@ -452,7 +455,7 @@ describe('workspaceSaveService', () => {
             bookmarksToken = 'bookmarks-after';
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -556,11 +559,14 @@ describe('workspaceSaveService', () => {
             options: {commitCallbacks?: IPdfSerializedCommitCallbacks},
         ) => {
             expect(verifyAnnotationSave).not.toHaveBeenCalled();
-            await options.commitCallbacks?.verifyPathBeforeCommit?.('/tmp/staged.pdf', finalBytes.byteLength);
+            await options.commitCallbacks?.verifyPathBeforeCommit?.(
+                requireDocumentRef('/tmp/staged.pdf'),
+                finalBytes.byteLength,
+            );
             await options.commitCallbacks?.assertBeforeCommit?.();
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -608,7 +614,7 @@ describe('workspaceSaveService', () => {
             annotationToken = 'annotation-after-newer-edit';
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -634,7 +640,7 @@ describe('workspaceSaveService', () => {
     it('repair-saves clean documents through the native working-copy repair path when available', async () => {
         const repairWorkingCopy = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -663,7 +669,7 @@ describe('workspaceSaveService', () => {
     it('optimizes clean documents through the native working-copy optimize path when available', async () => {
         const optimizeWorkingCopy = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -695,7 +701,7 @@ describe('workspaceSaveService', () => {
             annotationToken = 'annotation-after-newer-edit';
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -897,7 +903,7 @@ describe('workspaceSaveService', () => {
         }));
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -906,7 +912,7 @@ describe('workspaceSaveService', () => {
             saveFile,
         } = createDeps({
             totalPages: ref(3),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             pageLabelsDirty: ref(true),
             pageLabelRanges: ref([{
                 startPage: 1,
@@ -917,7 +923,7 @@ describe('workspaceSaveService', () => {
             bookmarksDirty: ref(true),
             bookmarkItems: ref([{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: true,
                 italic: false,
@@ -1004,7 +1010,7 @@ describe('workspaceSaveService', () => {
             saveFile,
         } = createDeps({
             totalPages: ref(3),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             pageLabelsDirty: ref(true),
             pageLabelRanges: ref([{
                 startPage: 1,
@@ -1094,7 +1100,7 @@ describe('workspaceSaveService', () => {
             bookmarksToken = 'bookmarks-after';
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -1114,7 +1120,7 @@ describe('workspaceSaveService', () => {
             bookmarksDirty: ref(true),
             bookmarkItems: ref([{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -1142,7 +1148,7 @@ describe('workspaceSaveService', () => {
             annotationToken = 'annotation-after-newer-edit';
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };
@@ -1184,7 +1190,7 @@ describe('workspaceSaveService', () => {
             ]])),
             getMarkupSubtypeHints: vi.fn(() => [{
                 subtype: 'Squiggly' as const,
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect: {
                     left: 0.1,
                     top: 0.2,
@@ -1218,7 +1224,7 @@ describe('workspaceSaveService', () => {
     it('propagates the optimization plan revision token to optimize-copy persistence', async () => {
         const optimizeWorkingCopyAsCopy = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/optimized.pdf',
+            outPath: requireDocumentRef('/tmp/optimized.pdf'),
             saveMode: 'save_as_rewrite' as const,
             didSaveAs: true,
         }));
@@ -1227,7 +1233,7 @@ describe('workspaceSaveService', () => {
 
         await expect(handleOptimizePdfAsCopy(
             {preset: 'lossless'},
-            'optimize-1',
+            requireRequestId('optimize-1'),
         )).resolves.toBe(true);
 
         expect(optimizeWorkingCopyAsCopy).toHaveBeenCalledWith(
@@ -1247,7 +1253,7 @@ describe('workspaceSaveService', () => {
             annotationToken = 'annotation-after-newer-edit';
             return {
                 success: true,
-                outPath: '/tmp/optimized.pdf',
+                outPath: requireDocumentRef('/tmp/optimized.pdf'),
                 saveMode: 'save_as_rewrite' as const,
                 didSaveAs: true,
             };
@@ -1260,7 +1266,7 @@ describe('workspaceSaveService', () => {
 
         await expect(handleOptimizePdfAsCopy(
             {preset: 'lossless'},
-            'optimize-1',
+            requireRequestId('optimize-1'),
         )).resolves.toBe(true);
 
         expect(optimizeWorkingCopyAsCopy).toHaveBeenCalledOnce();

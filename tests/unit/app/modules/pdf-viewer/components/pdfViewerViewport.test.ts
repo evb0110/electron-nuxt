@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -25,7 +26,7 @@ describe('PdfViewerViewport virtual page identity', () => {
     it('uses the same keyed restored-page frame from immediate shell through authoritative geometry', () => {
         const initialItems = flattenPdfVirtualPageSegments([], {
             initialPageShell: true,
-            initialPageShellPage: 7,
+            initialPageShellPage: requirePageNumber(7),
         });
         const authoritativeItems = flattenPdfVirtualPageSegments([{
             start: 7,

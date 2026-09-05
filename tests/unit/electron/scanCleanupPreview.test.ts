@@ -30,6 +30,8 @@ import type {
     IScanCleanupPreviewRequest,
     TScanCleanupDetectionJobState,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requireRequestId} from '@contracts/shared';
 import {isScanCleanupErrorEnvelope} from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupPlacementOffset} from '@contracts/scanCleanupPageOverrides';
 import {findSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -153,9 +155,9 @@ const dirs: string[] = [];
 const request: IScanCleanupPreviewRequest = {
     ownerId: 'preview-owner',
     documentRevision: 'revision-1',
-    requestId: 'preview-request-1',
+    requestId: requireRequestId('preview-request-1'),
     sourcePdfPath: '/document.pdf',
-    pageNumber: 1,
+    pageNumber: requirePageNumber(1),
     options: {
         preserveOriginalQuality: false,
         layoutMode: 'auto',
@@ -981,7 +983,7 @@ describe('scan cleanup preview', () => {
         await firstEntered.promise;
         const queued = previewOf(service, previewSender, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         service.cancel(previewSender, {
             ownerId: request.ownerId,
@@ -1045,7 +1047,7 @@ describe('scan cleanup preview', () => {
             documentPrior,
             layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
             pagePlanEvidence: {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page',
                 outputs: {full: {
@@ -1328,7 +1330,7 @@ describe('scan cleanup preview', () => {
 
             const rerendered = await previewOf(service, sender(), {
                 ...request,
-                requestId: 'path-only-repeat',
+                requestId: requireRequestId('path-only-repeat'),
                 layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
                 layoutDetectionComplete: true,
             });
@@ -1382,7 +1384,7 @@ describe('scan cleanup preview', () => {
         try {
             await expect(previewOf(service, sender(), {
                 ...request,
-                requestId: 'path-only-corrupt-repeat',
+                requestId: requireRequestId('path-only-corrupt-repeat'),
                 layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
                 layoutDetectionComplete: true,
             })).rejects.toThrow();
@@ -1950,7 +1952,7 @@ describe('scan cleanup preview', () => {
 
         const secondDetail = await previewOf(service, previewSender, {
             ...request,
-            requestId: 'detail-second-tile',
+            requestId: requireRequestId('detail-second-tile'),
             detail: {
                 viewports: {full: {
                     xNormalized: 0.5,
@@ -2000,8 +2002,8 @@ describe('scan cleanup preview', () => {
         };
         const detailRequest = (pageNumber: number, requestId: string): IScanCleanupPreviewRequest => ({
             ...baseRequest,
-            pageNumber,
-            requestId,
+            pageNumber: requirePageNumber(pageNumber),
+            requestId: requireRequestId(requestId),
             detail: {
                 viewports: {full: {
                     xNormalized: 0,
@@ -2017,16 +2019,16 @@ describe('scan cleanup preview', () => {
         for (let pageNumber = 1; pageNumber <= 32; pageNumber += 1) {
             await previewOf(service, previewSender, {
                 ...baseRequest,
-                pageNumber,
-                requestId: `base-${String(pageNumber)}`,
+                pageNumber: requirePageNumber(pageNumber),
+                requestId: requireRequestId(`base-${String(pageNumber)}`),
             });
         }
         await expect(previewOf(service, previewSender, detailRequest(1, 'touch-page-1')))
             .resolves.toMatchObject({pageNumber: 1});
         await previewOf(service, previewSender, {
             ...baseRequest,
-            pageNumber: 33,
-            requestId: 'base-33',
+            pageNumber: requirePageNumber(33),
+            requestId: requireRequestId('base-33'),
         });
 
         await expect(previewOf(service, previewSender, detailRequest(1, 'verify-page-1')))
@@ -2116,7 +2118,7 @@ describe('scan cleanup preview', () => {
         // force-two-page instruction without the measured cutter evidence.
         await previewOf(service, sender(), {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             layoutByPage: {
                 '1': 'two-page-spread',
                 '2': 'two-page-spread',
@@ -2290,7 +2292,7 @@ describe('scan cleanup preview', () => {
         const previewSender = sender();
         const automaticRequest = {
             ...request,
-            requestId: 'recommended-base',
+            requestId: requireRequestId('recommended-base'),
             options: {
                 ...request.options,
                 outputMode: 'auto' as const,
@@ -2305,7 +2307,7 @@ describe('scan cleanup preview', () => {
 
         await expect(previewOf(service, previewSender, {
             ...detailBase,
-            requestId: 'recommended-detail',
+            requestId: requireRequestId('recommended-detail'),
             detail: {
                 viewports: {full: {
                     xNormalized: 0,
@@ -2338,7 +2340,7 @@ describe('scan cleanup preview', () => {
                 rotation: 0,
             },
             {
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 306,
@@ -2921,7 +2923,7 @@ describe('scan cleanup preview', () => {
             sender(),
             {
                 ...request,
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
                 options: {
                     ...request.options,
@@ -2962,7 +2964,7 @@ describe('scan cleanup preview', () => {
         const previewSender = sender();
         const prefetch = previewOf(service, previewSender, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         await entered.promise;
         const visible = previewOf(service, previewSender, {
@@ -2994,12 +2996,12 @@ describe('scan cleanup preview', () => {
         const previewSender = sender();
         const prefetch = previewOf(service, previewSender, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         await entered.promise;
         const navigatedTo = previewOf(service, previewSender, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
 
         release.resolve(undefined);
@@ -3109,7 +3111,7 @@ describe('scan cleanup preview', () => {
             3,
         ].map(pageNumber => previewOf(service, previewSender, {
             ...request,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
         }));
         await Promise.all(entered);
 
@@ -4336,7 +4338,7 @@ describe('scan cleanup preview', () => {
         const pageRequest = (pageNumber: number, documentRevision = request.documentRevision) => ({
             ...request,
             documentRevision,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
         });
         for (const pageNumber of [
             1,
@@ -4530,7 +4532,7 @@ describe('scan cleanup preview', () => {
 
         await previewOf(service, sender(), {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         await previewOf(service, sender(), request);
         expect(deps.renderPage).toHaveBeenCalledTimes(3);
@@ -4744,7 +4746,7 @@ describe('scan cleanup preview', () => {
         });
         const rasterSource = await retention.rasterPageSource(document, new AbortController().signal);
 
-        await Promise.all(pages.map(page => rasterSource.getPageRaster(page.pageNumber)));
+        await Promise.all(pages.map(page => Promise.resolve(rasterSource.getPageRaster(page.pageNumber))));
 
         expect(deps.detectRasterPages).toHaveBeenCalledOnce();
         expect(vi.mocked(deps.detectRasterPages).mock.calls[0]?.[2]).toEqual(
@@ -5021,7 +5023,7 @@ describe('scan cleanup preview', () => {
         });
         const source = await retention.rasterPageSource(document, new AbortController().signal);
         const rasters = await Promise.all(Array.from({length: pageSizes.length}, (_, index) =>
-            source.getPageRaster(index + 1)));
+            Promise.resolve(source.getPageRaster(index + 1))));
 
         expect(rasters.every(raster => raster?.dpi === 280)).toBe(true);
         expect(source.documentDpi).toBe(280);
@@ -5494,7 +5496,7 @@ describe('scan cleanup preview', () => {
         // While the job is still reading the scan.
         await previewOf(service, owner, {
             ...matched,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             layoutByPage: {'1': 'two-page-spread'},
         });
         // Another page's interim single verdict is only one provisional
@@ -5502,7 +5504,7 @@ describe('scan cleanup preview', () => {
         // the full landscape sheet.
         await previewOf(service, owner, {
             ...matched,
-            pageNumber: 3,
+            pageNumber: requirePageNumber(3),
             layoutByPage: {
                 '1': 'two-page-spread',
                 '2': 'two-page-spread',
@@ -5516,7 +5518,7 @@ describe('scan cleanup preview', () => {
         // And once it has measured every content crop.
         await previewOf(service, owner, {
             ...matched,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             layoutDetectionComplete: true,
             layoutByPage: {
                 '1': 'two-page-spread',
@@ -5831,13 +5833,13 @@ describe('scan cleanup preview', () => {
 
         const second = await previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             options: detectRequest.options,
             layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
         });
         const first = await previewOf(service, owner, {
             ...request,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             options: detectRequest.options,
             layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
         });
@@ -6086,7 +6088,7 @@ describe('scan cleanup preview', () => {
 
         const prefetch = previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
         });
         await measuring.promise;
@@ -6150,7 +6152,7 @@ describe('scan cleanup preview', () => {
         await measuring.promise;
         const neighbour = previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             layoutByPage: SETTLED_SINGLE_LAYOUT_BY_PAGE,
         });
         service.cancel(owner, {
@@ -6666,7 +6668,7 @@ describe('scan cleanup preview', () => {
         });
         const prefetch = previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         await vi.waitFor(() => expect(admissions).toHaveLength(2));
         // Navigating onto the prefetched page adopts its run, which is then
@@ -6674,7 +6676,7 @@ describe('scan cleanup preview', () => {
         // queue behind detection.
         const navigated = previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             visible: true,
         });
         await granted.promise;
@@ -6713,7 +6715,7 @@ describe('scan cleanup preview', () => {
         });
         const prefetch = service.preview(owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
 
         await expect(prefetch).resolves.toEqual({canceled: true});
@@ -6721,7 +6723,7 @@ describe('scan cleanup preview', () => {
         // visible request renders page 2 for itself.
         await expect(previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             visible: true,
         })).resolves.toMatchObject({pageNumber: 2});
     });
@@ -6909,7 +6911,7 @@ describe('scan cleanup preview', () => {
 
         const previewPage = (pageNumber: number, visible = false) => previewOf(service, owner, {
             ...request,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
             ...(visible ? {visible: true} : {}),
         });
         const visiblePreview = previewPage(1, true);
@@ -6959,7 +6961,7 @@ describe('scan cleanup preview', () => {
         });
         await previewOf(service, owner, {
             ...request,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
 
         const priorities = acquire.mock.calls
@@ -7236,13 +7238,13 @@ describe('scan cleanup preview', () => {
         const owner = lifecycleSender();
         const first = previewOf(service, owner, {
             ...request,
-            requestId: 'preview-page-1',
-            pageNumber: 1,
+            requestId: requireRequestId('preview-page-1'),
+            pageNumber: requirePageNumber(1),
         });
         const second = previewOf(service, owner, {
             ...request,
-            requestId: 'preview-page-2',
-            pageNumber: 2,
+            requestId: requireRequestId('preview-page-2'),
+            pageNumber: requirePageNumber(2),
         });
         await Promise.all([
             entered.get(1)!.promise,

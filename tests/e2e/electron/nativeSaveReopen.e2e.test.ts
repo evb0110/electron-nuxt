@@ -5,6 +5,14 @@ import {
     it,
 } from 'vitest';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    requireRequestId,
+    type TRequestId,
+} from '@contracts/shared';
+import {
     createMultiPageTextFixturePdf,
     createOutlinePageLabelFixturePdf,
     readPdfMetadataWithQpdf,
@@ -168,8 +176,8 @@ describe('Electron E2E - native save and reopen', () => {
                     3,
                     4,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef) => {
+                    return evaluateInPage(page, async ({workingCopyPath}: {workingCopyPath: TDocumentRef}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
@@ -185,8 +193,8 @@ describe('Electron E2E - native save and reopen', () => {
                     2,
                     3,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef) => {
+                    return evaluateInPage(page, async ({workingCopyPath}: {workingCopyPath: TDocumentRef}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
@@ -202,8 +210,8 @@ describe('Electron E2E - native save and reopen', () => {
                     4,
                     1,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef) => {
+                    return evaluateInPage(page, async ({workingCopyPath}: {workingCopyPath: TDocumentRef}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
@@ -224,8 +232,8 @@ describe('Electron E2E - native save and reopen', () => {
                     3,
                     4,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef) => {
+                    return evaluateInPage(page, async ({workingCopyPath}: {workingCopyPath: TDocumentRef}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
@@ -246,8 +254,8 @@ describe('Electron E2E - native save and reopen', () => {
                     2,
                     3,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string) => {
-                    return evaluateInPage(page, async ({workingCopyPath}) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef) => {
+                    return evaluateInPage(page, async ({workingCopyPath}: {workingCopyPath: TDocumentRef}) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
@@ -263,28 +271,35 @@ describe('Electron E2E - native save and reopen', () => {
                     4,
                     5,
                 ],
-                run: async (page: Parameters<typeof evaluateInPage>[0], path: string, sourcePath?: string) => {
+                run: async (page: Parameters<typeof evaluateInPage>[0], path: TDocumentRef, sourcePath?: TDocumentRef) => {
                     if (!sourcePath) throw new Error('Insert fixture source is unavailable');
+                    const requestId = requireRequestId('outline-matrix-insert');
                     return evaluateInPage(page, async ({
                         workingCopyPath,
                         sourcePath: source,
+                        requestId: insertRequestId,
+                    }: {
+                        workingCopyPath: TDocumentRef;
+                        sourcePath: TDocumentRef;
+                        requestId: TRequestId;
                     }) => {
                         const api = (window as IE2EWindow).electronAPI;
                         if (!api) throw new Error('electronAPI is unavailable');
                         const revision = await api.documentFiles.getDocumentRevision(workingCopyPath);
-                        return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], 'outline-matrix-insert', {expectedDocumentRevisionToken: revision?.token});
+                        return api.pageOps.insertFile(workingCopyPath, 4, 2, [source], insertRequestId, {expectedDocumentRevisionToken: revision?.token});
                     }, {
                         workingCopyPath: path,
                         sourcePath,
+                        requestId,
                     });
                 },
             },
         ] as const;
 
         for (const testCase of cases) {
-            const pdfPath = await createOutlinePageLabelFixturePdf(`outline-matrix-${testCase.name}-${Date.now()}.pdf`);
+            const pdfPath = requireDocumentRef(await createOutlinePageLabelFixturePdf(`outline-matrix-${testCase.name}-${Date.now()}.pdf`));
             const sourcePath = testCase.name === 'insert'
-                ? await createMultiPageTextFixturePdf(`outline-matrix-${testCase.name}-source-${Date.now()}.pdf`, 1)
+                ? requireDocumentRef(await createMultiPageTextFixturePdf(`outline-matrix-${testCase.name}-source-${Date.now()}.pdf`, 1))
                 : undefined;
             session = await startElectronE2ESession(`e2e-outline-matrix-${testCase.name}-${Date.now()}`, {
                 clean: true,
@@ -295,14 +310,14 @@ describe('Electron E2E - native save and reopen', () => {
 
             if (sourcePath) {
                 const granted = await evaluateInPage(session.page, async path => {
-                    const grant = (window as IAutomationFileOpenGrantWindow)
+                    const grant = (window as typeof globalThis & IAutomationFileOpenGrantWindow)
                         .__allowRendererFileOpenForAutomation;
                     return typeof grant === 'function' && grant(path);
                 }, sourcePath);
                 expect(granted, 'insert source path automation grant').toBe(true);
             }
 
-            const workingCopyPath = await evaluateInPage(session.page, async path => {
+            const workingCopyPath = await evaluateInPage(session.page, async (path: TDocumentRef) => {
                 const api = (window as IE2EWindow).electronAPI;
                 if (!api) throw new Error('electronAPI is unavailable');
                 return api.documentWorkingCopy.createWorkingCopyFromPath(path, path);

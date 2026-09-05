@@ -21,6 +21,7 @@ import {
     type TWorkspaceExposeCommandRunner,
     type TWorkspaceExposeMethod,
 } from '@app/modules/workspace-shell/expose/workspaceExposeDescriptors';
+import { getErrorMessage } from '@app/utils/error';
 
 interface ICreateDeferredWorkspaceExposeProxyDeps {
     documentSession?: IWorkspaceDocumentController | null | undefined;
@@ -45,10 +46,6 @@ interface ICreateDeferredWorkspaceExposeProxyDeps {
         run: (workspace: IWorkspaceExpose) => Promise<boolean | undefined> | boolean | undefined,
         signal?: AbortSignal,
     ) => Promise<boolean>;
-}
-
-function getErrorMessage(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
 }
 
 export function createDeferredWorkspaceExposeProxy(

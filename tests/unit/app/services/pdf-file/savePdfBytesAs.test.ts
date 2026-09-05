@@ -7,7 +7,9 @@ import {
     vi,
 } from 'vitest';
 import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
-import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     documentFiles: {
@@ -33,8 +35,8 @@ const SERIALIZED_SAVE_OPTIONS = { expectedDocumentRevisionToken: requireDocument
 const STAGED_REVISION = {
     authority: 'browser-working-copy' as const,
     contentRevision: 1,
-    documentRef: '/tmp/staged.pdf',
-    mintedAt: 1,
+    documentRef: requireDocumentRef('/tmp/staged.pdf'),
+    mintedAt: requireEpochMs(1),
     token: requireDocumentRevisionToken('drt1:test:staged-base'),
     version: 1,
 };
@@ -70,7 +72,7 @@ describe('savePdfBytesAs', () => {
         const data = new Uint8Array([1]);
         const options = { optimizeLossless: true };
 
-        const result = await savePdfBytesAs('/tmp/active.pdf', data, options, SERIALIZED_SAVE_OPTIONS);
+        const result = await savePdfBytesAs(requireDocumentRef('/tmp/active.pdf'), data, options, SERIALIZED_SAVE_OPTIONS);
 
         expect(result.path).toBe('/tmp/fast.pdf');
         expect(savePdfDataAs).toHaveBeenCalledWith(
@@ -91,7 +93,7 @@ describe('savePdfBytesAs', () => {
             3,
         ]);
 
-        const result = await savePdfBytesAs('/tmp/active.pdf', data);
+        const result = await savePdfBytesAs(requireDocumentRef('/tmp/active.pdf'), data);
 
         expect(result.path).toBe('/tmp/saved.pdf');
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
@@ -116,7 +118,7 @@ describe('savePdfBytesAs', () => {
         });
         const data = new Uint8Array([9]);
 
-        const result = await savePdfBytesAs('/tmp/active.pdf', data);
+        const result = await savePdfBytesAs(requireDocumentRef('/tmp/active.pdf'), data);
 
         expect(result).toEqual({
             path: null,
@@ -133,7 +135,7 @@ describe('savePdfBytesAs', () => {
     it('leaves the active working copy untouched when fallback Save As fails', async () => {
         mocks.documentFiles.savePdfAs.mockRejectedValueOnce(new Error('canceled'));
 
-        await expect(savePdfBytesAs('/tmp/active.pdf', new Uint8Array([1]))).rejects.toThrow('canceled');
+        await expect(savePdfBytesAs(requireDocumentRef('/tmp/active.pdf'), new Uint8Array([1]))).rejects.toThrow('canceled');
 
         expect(mocks.documentFiles.writeFile).not.toHaveBeenCalled();
         expect(mocks.documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/staged.pdf');

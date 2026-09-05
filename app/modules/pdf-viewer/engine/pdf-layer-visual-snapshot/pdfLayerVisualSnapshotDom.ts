@@ -9,9 +9,10 @@ export function queryPdfLayerVisualSnapshotElements<T extends Element>(
     root: ParentNode | null | undefined,
     selector: string,
 ) {
-    return typeof root?.querySelectorAll === 'function'
-        ? Array.from(root.querySelectorAll<T>(selector))
-        : [];
+    if (!root) {
+        return [];
+    }
+    return Array.from(root.querySelectorAll<T>(selector));
 }
 
 export function disablePdfLayerVisualSnapshotInteractivity(snapshot: Element) {
@@ -86,42 +87,36 @@ export function hidePdfLayerVisualSnapshotSource(element: HTMLElement | SVGEleme
 export function getPdfLayerVisualSnapshotCanvasHost(
     pageContainer: HTMLElement | null | undefined,
 ) {
-    return typeof pageContainer?.querySelector === 'function'
-        ? pageContainer.querySelector<HTMLElement>('.page_canvas__render-layer')
-            ?? pageContainer.querySelector<HTMLElement>('.page_canvas, .canvasWrapper')
-            ?? null
-        : null;
+    return pageContainer?.querySelector<HTMLElement>('.page_canvas__render-layer')
+        ?? pageContainer?.querySelector<HTMLElement>('.page_canvas, .canvasWrapper')
+        ?? null;
 }
 
 export function getPdfLayerVisualSnapshotAnnotationLayer(
     pageContainer: HTMLElement | null | undefined,
 ) {
-    return typeof pageContainer?.querySelector === 'function'
-        ? pageContainer.querySelector<HTMLElement>('.annotation-layer, .annotationLayer') ?? null
-        : null;
+    return pageContainer?.querySelector<HTMLElement>('.annotation-layer, .annotationLayer') ?? null;
 }
 
 export function getPdfLayerVisualSnapshotAnnotationEditorLayer(
     pageContainer: HTMLElement | null | undefined,
 ) {
-    return typeof pageContainer?.querySelector === 'function'
-        ? pageContainer.querySelector<HTMLElement>('.annotation-editor-layer, .annotationEditorLayer') ?? null
-        : null;
+    return pageContainer?.querySelector<HTMLElement>('.annotation-editor-layer, .annotationEditorLayer') ?? null;
 }
 
 export function isPdfLayerVisualSnapshotElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
+        || Boolean(element.closest(`.${pdfLayerVisualSnapshotClass}`));
 }
 
 export function isPdfLayerVisualSnapshotSourceElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotSourceClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotSourceClass}`));
+        || Boolean(element.closest(`.${pdfLayerVisualSnapshotSourceClass}`));
 }
 
 function isInsideActivePdfLayerVisualSnapshotHost(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotActiveClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotActiveClass}`));
+        || Boolean(element.closest(`.${pdfLayerVisualSnapshotActiveClass}`));
 }
 
 export function isPdfLayerVisualElementPotentiallyPainted(

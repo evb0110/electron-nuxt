@@ -65,5 +65,5 @@ export function resolveAssistantPresetInstructions(presetId: string | null | und
     if (!isOneOf(AGENT_ASSISTANT_PRESET_IDS, presetId)) {
         return null;
     }
-    return ASSISTANT_PRESET_INSTRUCTIONS[presetId] ?? null;
+    return ASSISTANT_PRESET_INSTRUCTIONS[presetId];
 }

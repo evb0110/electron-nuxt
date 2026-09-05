@@ -1,3 +1,6 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+import type { TEpochMs } from '@contracts/timestamps';
+
 import type {
     IAnnotationMarkerRect,
     IShapeAnnotation,
@@ -29,12 +32,12 @@ interface IAnnotationFidelity {
 
 interface IAnnotationEntityBase {
     readonly identity: IAnnotationIdentity;
-    readonly pageIndex: number;
+    readonly pageIndex: TPageIndex;
     readonly revision: number;
     readonly persistedRevision: number;
     readonly deleted: boolean;
-    readonly createdAt: number | null;
-    readonly modifiedAt: number | null;
+    readonly createdAt: TEpochMs | null;
+    readonly modifiedAt: TEpochMs | null;
     readonly author: string | null;
     readonly fidelity?: IAnnotationFidelity;
 }
@@ -132,8 +135,7 @@ export function deriveAnnotationId(documentKey: string, persistentIdentity: stri
     return asAnnotationId(`anno_${fnv1a(`${documentKey}\u0000${persistentIdentity}`)}`);
 }
 
-export function mintAnnotationId(randomUuid = globalThis.crypto?.randomUUID?.bind(globalThis.crypto)): AnnotationId {
-    if (!randomUuid) throw new Error('A cryptographically strong AnnotationId generator is required');
+export function mintAnnotationId(randomUuid = globalThis.crypto.randomUUID.bind(globalThis.crypto)): AnnotationId {
     return asAnnotationId(`anno_${randomUuid()}`);
 }
 
@@ -239,10 +241,14 @@ function subtractRect(
             return;
         }
         for (let index = intervals.length - 1; index >= 0; index -= 1) {
+            const interval = intervals[index];
+            if (!interval) {
+                continue;
+            }
             const [
                 left,
                 right,
-            ] = intervals[index]!;
+            ] = interval;
             if (overlapRight <= left || overlapLeft >= right) {
                 continue;
             }

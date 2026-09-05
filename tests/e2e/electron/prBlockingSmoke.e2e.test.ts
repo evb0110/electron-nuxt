@@ -8,6 +8,10 @@ import {
 import type {CDPSession} from 'puppeteer-core';
 import {execFileSync} from 'node:child_process';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     readFile,
     stat,
 } from 'node:fs/promises';
@@ -389,9 +393,9 @@ async function readCommittedPdfCanvasPixelSize(
 
 async function readManagedPdfOpeningGeometry(
     page: Parameters<typeof evaluateInPage>[0],
-    workingCopyPath: string,
+    workingCopyPath: TDocumentRef,
 ) {
-    return evaluateInPage(page, async (path: string) => {
+    return evaluateInPage(page, async (path: TDocumentRef) => {
         const readOpeningGeometry = (window as IE2EWindow).electronAPI
             ?.documentFiles?.getPdfOpeningGeometry;
         if (!readOpeningGeometry) {
@@ -1371,6 +1375,7 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             1,
             {runOwner: PR_BLOCKING_FIXTURE_OWNER},
         );
+        const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await runPdfDiagnosticStage(session.page, 'early:prime-open-pdf', () => (
             openPdfInApp(session.page, fixturePath, PR_BLOCKING_SMOKE_TIMEOUT_MS)
         ));
@@ -1390,9 +1395,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             ), {timeout: PR_BLOCKING_SMOKE_TIMEOUT_MS}, fixturePath)
         ));
 
-        const sourceDeferred = await evaluateInPage(session.page, (path: string) => (
+        const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixturePath);
+        ), fixtureDocumentRef);
         expect(sourceDeferred).toBe(true);
         await installCommittedSurfaceSampler(
             session.page,
@@ -1430,9 +1435,9 @@ describe('Electron E2E - PR Blocking Smoke', () => {
             requestCount: 5,
         });
         await waitForAnimationFrames(session.page, 4);
-        const sourceReleased = await evaluateInPage(session.page, (path: string) => (
+        const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixturePath);
+        ), fixtureDocumentRef);
         expect(sourceReleased).toBe(true);
         const earlyNavigationRequestResults = await runPdfDiagnosticStage(
             session.page,

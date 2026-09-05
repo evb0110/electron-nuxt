@@ -16,7 +16,12 @@ import {
 } from '@contracts/pageNumbers';
 import type { IPageMoveRangeSegment } from '@contracts/pageNumbers';
 import type { TFeatureBrowserBindings } from '@contracts/platformFeature';
-import type { IPageGeometry } from '@contracts/shared';
+import {
+    createRequestId,
+    type IPageGeometry,
+    type TRequestId,
+} from '@contracts/shared';
+import { isNativeLegacyDocumentRef } from '@contracts/documentRef';
 import { normalizeCropMargins } from '@contracts/shared';
 import type * as BrowserPageOpsCoreModule from '@app/platform/browser-api/browserPageOpsCore';
 import {
@@ -41,7 +46,6 @@ import type {
     TBrowserPageOpsWorkerRequestType,
 } from '@app/platform/browser-api/browserPageOpsWorker.types';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { PdfPageOpsCapabilityError } from '@contracts/pageOpsErrors';
 
 interface ISaveBytesResult {
@@ -119,7 +123,7 @@ function buildBrowserPageOpJobLimitError(label: string, maxBytes: number) {
 }
 
 function assertBrowserPageOpsSource(path: string, operation: string) {
-    if (!isNativeDocumentRef(path)) {
+    if (!isNativeLegacyDocumentRef(path)) {
         return;
     }
     throw new PdfPageOpsCapabilityError(
@@ -268,20 +272,24 @@ export function createBrowserPageOpsCapability(
 
     async function readInsertionBytes(
         sourcePaths: string[],
-        requestId: string | undefined,
+        requestId: TRequestId | undefined,
     ) {
         for (const sourcePath of sourcePaths) {
             assertBrowserPageOpsSource(sourcePath, 'Inserting pages');
         }
         if (shouldReadSinglePdfInsertionSource(sourcePaths)) {
-            return browserDocumentStore.read(sourcePaths[0]!);
+            const sourcePath = sourcePaths[0];
+            if (sourcePath === undefined) {
+                throw new Error('A single PDF insertion source is required');
+            }
+            return browserDocumentStore.read(sourcePath);
         }
 
         return options.createCombinedPdfFromPaths(
             sourcePaths,
             {
                 operation: 'page-insert',
-                requestId: requestId ?? `browser-page-op-insert-${crypto.randomUUID()}`,
+                requestId: requestId ?? createRequestId('browser-page-op-insert'),
             },
         );
     }

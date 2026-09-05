@@ -43,12 +43,27 @@ import {
     ASSISTANT_PROVIDER_IDS,
 } from '@contracts/agent';
 import { isAgentWorkspaceSnapshot } from '@contracts/isAgentWorkspaceSnapshot';
-import type { TDocumentBackend } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentBackend,
+} from '@contracts/documentRef';
 import {
     isDocumentRevisionInfo,
     parseDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
+import {
+    parseRequestId,
+    parseSessionId,
+} from '@contracts/shared';
+import {parseTabId} from '@contracts/windowTabs';
+import {
+    parseEpochMs,
+    parseIsoTimestamp,
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
+import type {TTabId} from '@contracts/windowTabs';
 import {
     isOneOf,
     isRecord,
@@ -192,9 +207,10 @@ function decodeAssistantSendMessageRequest(value: unknown): IAgentAssistantSendM
 }
 
 function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapshotResponse {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
+        || requestId === null
         || typeof value.ok !== 'boolean'
         || (value.windowId !== undefined && (typeof value.windowId !== 'number' || !Number.isSafeInteger(value.windowId)))
         || (value.revision !== undefined && (typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision)))
@@ -205,7 +221,7 @@ function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapsho
         throw new Error('invalid workspace snapshot response');
     }
     return {
-        requestId: value.requestId,
+        requestId,
         ok: value.ok,
         ...(value.windowId === undefined ? {} : {windowId: value.windowId}),
         ...(value.snapshot === undefined ? {} : {snapshot: value.snapshot}),
@@ -216,9 +232,10 @@ function decodeWorkspaceSnapshotResponse(value: unknown): IAgentWorkspaceSnapsho
 }
 
 function decodeCommandResponse(value: unknown): IAgentCommandResponse {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (
         !isRecord(value)
-        || typeof value.requestId !== 'string'
+        || requestId === null
         || typeof value.ok !== 'boolean'
         || (value.windowId !== undefined && (typeof value.windowId !== 'number' || !Number.isSafeInteger(value.windowId)))
         || (value.result !== undefined && !isRecord(value.result))
@@ -227,7 +244,7 @@ function decodeCommandResponse(value: unknown): IAgentCommandResponse {
         throw new Error('invalid agent command response');
     }
     return {
-        requestId: value.requestId,
+        requestId,
         ok: value.ok,
         ...(value.windowId === undefined ? {} : {windowId: value.windowId}),
         ...(value.result === undefined ? {} : {result: value.result}),
@@ -236,6 +253,7 @@ function decodeCommandResponse(value: unknown): IAgentCommandResponse {
 }
 
 function decodeMcpStatus(value: unknown): IAgentMcpIntegrationStatus {
+    const lastCheckedAt = isRecord(value) ? parseIsoTimestamp(value.lastCheckedAt) : null;
     if (
         !isRecord(value)
         || typeof value.enabled !== 'boolean'
@@ -252,7 +270,7 @@ function decodeMcpStatus(value: unknown): IAgentMcpIntegrationStatus {
             && value.codexRegistrationState !== 'unknown'
         )
         || typeof value.installUrl !== 'string'
-        || typeof value.lastCheckedAt !== 'string'
+        || lastCheckedAt === null
         || (value.error !== undefined && typeof value.error !== 'string')
     ) {
         throw new Error('invalid agent MCP status');
@@ -270,11 +288,16 @@ function decodeMcpStatus(value: unknown): IAgentMcpIntegrationStatus {
     ) {
         throw new Error('invalid agent MCP setup snippets');
     }
-    if (isRecord(setupSnippets)) {
+    if (
+        isRecord(setupSnippets)
+        && typeof setupSnippets.codex === 'string'
+        && typeof setupSnippets.claude === 'string'
+        && typeof setupSnippets.cursor === 'string'
+    ) {
         decodedSetupSnippets = {
-            codex: setupSnippets.codex as string,
-            claude: setupSnippets.claude as string,
-            cursor: setupSnippets.cursor as string,
+            codex: setupSnippets.codex,
+            claude: setupSnippets.claude,
+            cursor: setupSnippets.cursor,
         };
     }
     return {
@@ -287,7 +310,7 @@ function decodeMcpStatus(value: unknown): IAgentMcpIntegrationStatus {
         codexConfigured: value.codexConfigured,
         codexRegistrationState: value.codexRegistrationState,
         installUrl: value.installUrl,
-        lastCheckedAt: value.lastCheckedAt,
+        lastCheckedAt,
         ...(decodedSetupSnippets === undefined ? {} : {setupSnippets: decodedSetupSnippets}),
         ...(value.error === undefined ? {} : {error: value.error}),
     };
@@ -360,14 +383,14 @@ function normalizeOptionalTabId(value: unknown) {
     if (value === undefined || value === null) {
         return undefined;
     }
-    return normalizeNonEmptyString(value);
+    return parseTabId(value);
 }
 
 function normalizeOptionalDocumentRef(value: unknown) {
     if (value === undefined || value === null) {
         return null;
     }
-    return normalizeNonEmptyString(value);
+    return parseDocumentRef(value);
 }
 
 function normalizeNullableDocumentRef(value: unknown) {
@@ -375,7 +398,11 @@ function normalizeNullableDocumentRef(value: unknown) {
         return null;
     }
 
-    return normalizeNonEmptyString(value);
+    return parseDocumentRef(value);
+}
+
+function normalizeRequiredTabId(value: unknown): TTabId | null {
+    return parseTabId(value);
 }
 
 function normalizeOptionalDocumentBackend(value: unknown): TDocumentBackend | null | undefined {
@@ -404,8 +431,8 @@ function normalizeOptionalDocumentInstanceId(value: unknown) {
 }
 
 function decodeCommandTargetBase(value: Record<PropertyKey, unknown>) {
-    const tabId = normalizeNonEmptyString(value.tabId);
-    const sessionId = normalizeNonEmptyString(value.sessionId);
+    const tabId = normalizeRequiredTabId(value.tabId);
+    const sessionId = parseSessionId(value.sessionId);
     const documentRef = normalizeNullableDocumentRef(value.documentRef);
     const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
     const documentInstanceId = normalizeOptionalDocumentInstanceId(value.documentInstanceId);
@@ -478,7 +505,7 @@ function decodeCommandExecutionScope(value: unknown): IAgentCommandExecutionScop
     }
 
     const windowId = normalizeOptionalWindowId(value.windowId);
-    const tabId = normalizeNonEmptyString(value.tabId);
+    const tabId = normalizeRequiredTabId(value.tabId);
     const documentRef = normalizeOptionalDocumentRef(value.documentRef);
     const documentBackend = normalizeOptionalDocumentBackend(value.documentBackend);
     const documentInstanceId = normalizeOptionalDocumentInstanceId(value.documentInstanceId);
@@ -518,7 +545,7 @@ function decodeAgentCommand(value: unknown): TAgentCommand | null {
     }
 
     if (value.name === 'activate_tab') {
-        const tabId = normalizeNonEmptyString(value.arguments.tabId);
+        const tabId = normalizeRequiredTabId(value.arguments.tabId);
         return tabId === null
             ? null
             : {
@@ -623,13 +650,13 @@ function decodeStringArray(value: unknown) {
 }
 
 function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvelope | null {
+    const timestamp = isRecord(value) ? parseEpochMs(value.timestamp) : null;
     if (
         !isRecord(value)
         || !isAssistantErrorCode(value.code)
         || typeof value.message !== 'string'
         || typeof value.retryable !== 'boolean'
-        || typeof value.timestamp !== 'number'
-        || !Number.isFinite(value.timestamp)
+        || timestamp === null
     ) {
         return null;
     }
@@ -638,7 +665,7 @@ function decodeAssistantErrorEnvelope(value: unknown): IAgentAssistantErrorEnvel
         code: value.code,
         message: value.message,
         retryable: value.retryable,
-        timestamp: value.timestamp,
+        timestamp,
     };
 }
 
@@ -675,11 +702,12 @@ function decodeAssistantMessage(value: unknown): IAgentAssistantChatMessage | nu
     const errorEnvelope = value.errorEnvelope === undefined
         ? undefined
         : decodeAssistantErrorEnvelope(value.errorEnvelope);
+    const createdAt = parseIsoTimestamp(value.createdAt);
     if (
         typeof value.id !== 'string'
         || !isAssistantMessageRole(value.role)
         || typeof value.text !== 'string'
-        || typeof value.createdAt !== 'string'
+        || createdAt === null
         || (value.pending !== undefined && typeof value.pending !== 'boolean')
         || (value.error !== undefined && typeof value.error !== 'string')
         || (value.errorEnvelope !== undefined && errorEnvelope === null)
@@ -706,7 +734,7 @@ function decodeAssistantMessage(value: unknown): IAgentAssistantChatMessage | nu
         id: value.id,
         role: value.role,
         text: value.text,
-        createdAt: value.createdAt,
+        createdAt,
     };
     if (attachments !== undefined) {
         message.attachments = attachments;
@@ -926,6 +954,15 @@ function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope
     ) {
         return null;
     }
+    const tabId = value.tabId === undefined || value.tabId === null
+        ? value.tabId
+        : parseTabId(value.tabId);
+    const documentRef = value.documentRef === undefined || value.documentRef === null
+        ? value.documentRef
+        : parseDocumentRef(value.documentRef);
+    if (tabId === null && value.tabId !== null || documentRef === null && value.documentRef !== null) {
+        return null;
+    }
     const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
         ? value.documentInstanceId
         : parseDocumentInstanceId(value.documentInstanceId);
@@ -945,10 +982,10 @@ function decodeAgentAssistantChatScope(value: unknown): IAgentAssistantChatScope
         kind: 'document',
         key: value.key,
         title: value.title,
-        ...(value.tabId === undefined ? {} : {tabId: value.tabId}),
+        ...(tabId === undefined ? {} : {tabId}),
         ...(value.documentSessionKey === undefined ? {} : {documentSessionKey: value.documentSessionKey}),
         ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
-        ...(value.documentRef === undefined ? {} : {documentRef: value.documentRef}),
+        ...(documentRef === undefined ? {} : {documentRef}),
         ...(value.documentBackend === undefined ? {} : {documentBackend: value.documentBackend}),
         ...(documentIdentity === undefined ? {} : {documentIdentity}),
         ...(commandTarget === undefined ? {} : {commandTarget}),
@@ -1054,6 +1091,7 @@ function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | nul
     } = decodeAssistantCommonStatusFields(value);
     const mcp = decodeAssistantMcpStatus(value.mcp);
     const turn = decodeAssistantTurnState(value.turn);
+    const lastCheckedAt = parseIsoTimestamp(value.lastCheckedAt);
     if (
         typeof value.supported !== 'boolean'
         || typeof value.platform !== 'string'
@@ -1082,7 +1120,7 @@ function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | nul
         || !isOneOf(AGENT_ASSISTANT_RUNTIME_STATES, value.runtimeState)
         || mcp === null
         || turn === null
-        || typeof value.lastCheckedAt !== 'string'
+        || lastCheckedAt === null
         || (value.error !== undefined && typeof value.error !== 'string')
         || errorEnvelope === null
     ) {
@@ -1116,7 +1154,7 @@ function decodeAgentAssistantStatus(value: unknown): IAgentAssistantStatus | nul
         runtimeState: value.runtimeState,
         mcp,
         turn,
-        lastCheckedAt: value.lastCheckedAt,
+        lastCheckedAt,
         ...(value.error === undefined ? {} : {error: value.error}),
         ...(errorEnvelope === undefined ? {} : {errorEnvelope}),
     };
@@ -1198,7 +1236,7 @@ function decodeAgentWorkspaceSnapshotRequest(value: unknown): IAgentWorkspaceSna
         return null;
     }
 
-    const requestId = normalizeNonEmptyString(value.requestId);
+    const requestId = parseRequestId(value.requestId);
     const windowId = normalizeOptionalWindowId(value.windowId);
     const lastSeenRevision = normalizeOptionalRevision(value.lastSeenRevision);
     const scope = decodeCommandExecutionScope(value.scope);
@@ -1219,7 +1257,7 @@ function decodeAgentCommandRequest(value: unknown): IAgentCommandRequest | null 
         return null;
     }
 
-    const requestId = normalizeNonEmptyString(value.requestId);
+    const requestId = parseRequestId(value.requestId);
     const windowId = normalizeOptionalWindowId(value.windowId);
     const scope = decodeCommandExecutionScope(value.scope);
     const command = decodeAgentCommand(value.command);
@@ -1242,7 +1280,7 @@ function decodeAgentCommandCancelRequest(
         return null;
     }
 
-    const requestId = normalizeNonEmptyString(value.requestId);
+    const requestId = parseRequestId(value.requestId);
     const windowId = normalizeOptionalWindowId(value.windowId);
     if (requestId === null || windowId === null) {
         return null;
@@ -1254,12 +1292,16 @@ function decodeAgentCommandCancelRequest(
     };
 }
 
+type TMutableAgentAssistantEvent = {
+    -readonly [TKey in keyof IAgentAssistantEvent]: IAgentAssistantEvent[TKey];
+};
+
 function decodeAgentAssistantEvent(value: unknown): IAgentAssistantEvent | null {
     if (!isRecord(value) || !isAssistantEventType(value.type)) {
         return null;
     }
 
-    const event: IAgentAssistantEvent = {type: value.type};
+    const event: TMutableAgentAssistantEvent = {type: value.type};
     if (value.state !== undefined) {
         const state = decodeAgentAssistantState(value.state);
         if (state === null) {
@@ -1293,24 +1335,25 @@ function decodeAgentAssistantEvent(value: unknown): IAgentAssistantEvent | null 
         }
         event.reasoningDelta = value.reasoningDelta;
     }
-    if (value.binding !== undefined) {
-        if (
-            !isRecord(value.binding)
-            || typeof value.binding.scopeFingerprint !== 'string'
-            || typeof value.binding.sessionKey !== 'string'
-            || !Number.isInteger(value.binding.turnGeneration)
-            || (value.binding.turnGeneration as number) < 0
-            || !Number.isInteger(value.binding.windowId)
-            || (value.binding.windowId as number) < 0
-        ) {
-            return null;
-        }
+    if (
+        isRecord(value.binding)
+        && typeof value.binding.scopeFingerprint === 'string'
+        && typeof value.binding.sessionKey === 'string'
+        && typeof value.binding.turnGeneration === 'number'
+        && Number.isInteger(value.binding.turnGeneration)
+        && value.binding.turnGeneration >= 0
+        && typeof value.binding.windowId === 'number'
+        && Number.isInteger(value.binding.windowId)
+        && value.binding.windowId >= 0
+    ) {
         event.binding = {
             scopeFingerprint: value.binding.scopeFingerprint,
             sessionKey: value.binding.sessionKey,
-            turnGeneration: value.binding.turnGeneration as number,
-            windowId: value.binding.windowId as number,
+            turnGeneration: value.binding.turnGeneration,
+            windowId: value.binding.windowId,
         };
+    } else if (value.binding !== undefined) {
+        return null;
     }
     if (value.turnId !== undefined) {
         const turnId = normalizeNonEmptyString(value.turnId);
@@ -1426,7 +1469,7 @@ const workspaceSnapshotResponseArgs = argsSchema<[IAgentWorkspaceSnapshotRespons
         return [decodeWorkspaceSnapshotResponse(args[0])];
     },
     () => [{
-        requestId: 'snapshot-1',
+        requestId: parseRequestId('snapshot-1') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
         ok: false,
         error: 'Snapshot unavailable',
     }],
@@ -1437,7 +1480,7 @@ const commandResponseArgs = argsSchema<[IAgentCommandResponse]>(
         return [decodeCommandResponse(args[0])];
     },
     () => [{
-        requestId: 'command-1',
+        requestId: parseRequestId('command-1') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
         ok: true,
         result: {},
     }],
@@ -1454,7 +1497,7 @@ function createMcpStatusExample(): IAgentMcpIntegrationStatus {
         codexConfigured: true,
         codexRegistrationState: 'configured',
         installUrl: 'https://example.test/install',
-        lastCheckedAt: '2026-07-23T00:00:00.000Z',
+        lastCheckedAt: requireIsoTimestamp('2026-07-23T00:00:00.000Z'),
     };
 }
 
@@ -1549,7 +1592,7 @@ function createAssistantStateExample(): IAgentAssistantState {
                 lastEventAtMs: null,
                 usage: null,
             },
-            lastCheckedAt: '2026-07-23T00:00:00.000Z',
+            lastCheckedAt: requireIsoTimestamp('2026-07-23T00:00:00.000Z'),
         },
         messages: [],
     };
@@ -1560,7 +1603,7 @@ const assistantErrorEnvelope = s.declared<IAgentAssistantErrorEnvelope>()(
         code: 'INTERNAL',
         message: 'Assistant unavailable',
         retryable: true,
-        timestamp: 0,
+        timestamp: requireEpochMs(0),
     })),
 );
 const mcpStatusResult = resultSchema<IAgentMcpIntegrationStatus>(
@@ -1610,7 +1653,7 @@ const workspaceSnapshotRequest = s.declared<IAgentWorkspaceSnapshotRequest>()(
     s.fromNullableDecoder(
         decodeAgentWorkspaceSnapshotRequest,
         'agent workspace snapshot request',
-        () => ({requestId: 'snapshot-1'}),
+        () => ({requestId: parseRequestId('snapshot-1') ?? (() => { throw new TypeError('invalid request ID fixture'); })()}),
     ),
 );
 const commandRequest = s.declared<IAgentCommandRequest>()(
@@ -1618,10 +1661,10 @@ const commandRequest = s.declared<IAgentCommandRequest>()(
         decodeAgentCommandRequest,
         'agent command request',
         () => ({
-            requestId: 'command-1',
+            requestId: parseRequestId('command-1') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
             command: {
                 name: 'activate_tab',
-                arguments: {tabId: 'tab-1'},
+                arguments: {tabId: parseTabId('tab-1') ?? (() => { throw new TypeError('invalid tab ID fixture'); })()},
             },
         }),
     ),
@@ -1630,7 +1673,7 @@ const commandCancelRequest = s.declared<IAgentCommandCancelRequest>()(
     s.fromNullableDecoder(
         decodeAgentCommandCancelRequest,
         'agent command cancellation request',
-        () => ({requestId: 'command-1'}),
+        () => ({requestId: parseRequestId('command-1') ?? (() => { throw new TypeError('invalid request ID fixture'); })()}),
     ),
 );
 const assistantEvent = s.declared<IAgentAssistantEvent>()(

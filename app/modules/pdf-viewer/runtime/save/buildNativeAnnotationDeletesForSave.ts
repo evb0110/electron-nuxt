@@ -3,6 +3,7 @@ import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import { parsePdfAnnotationStableKeyRef } from '@app/modules/pdf-viewer/engine/pdf-serialization-refs/parsePdfAnnotationStableKey';
 import type { IPdfNativeAnnotationDelete } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
+import { parseEpochMs } from '@contracts/timestamps';
 import { isReplayableEditorOnlyFreeTextNote } from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
@@ -28,7 +29,7 @@ export function getNativeAnnotationDeleteCommentTargetKey(
     if (targetRef && targetRef.generationNumber <= 65_535) {
         return `ref:${pageIndex}:${targetRef.objectNumber}:${targetRef.generationNumber}`;
     }
-    const stableKey = comment.stableKey?.trim();
+    const stableKey = comment.stableKey.trim();
     if (stableKey && isReplayableEditorOnlyFreeTextNote(comment)) {
         return `stable:${pageIndex}:${stableKey}`;
     }
@@ -67,7 +68,7 @@ export function buildNativeAnnotationDeletesForSave(
     const deletesByStableKey = new Map<string, IPdfNativeAnnotationDelete>();
     for (const comment of opts.pendingDeletes) {
         const targetRef = resolveNativeAnnotationDeleteRef(comment);
-        const stableKey = comment.stableKey?.trim();
+        const stableKey = comment.stableKey.trim();
         const pageIndex = parsePageIndex(comment.pageIndex);
         if (
             !targetRef
@@ -87,9 +88,7 @@ export function buildNativeAnnotationDeletesForSave(
             deletesByStableKey.set(stableKey, {
                 pageIndex,
                 stableKey,
-                createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-                    ? Math.trunc(comment.createdAt)
-                    : null,
+                createdAt: parseEpochMs(comment.createdAt),
             });
             continue;
         }

@@ -1,5 +1,6 @@
 import { existsSync } from 'fs';
 import { isAbsolute } from 'path';
+import { parseDocumentRef } from '@contracts/documentRef';
 import { isSupportedOpenPath } from '@electron/image/pdfConversion';
 import {
     createWorkingCopyFromData,
@@ -13,6 +14,14 @@ import type { IDocumentsSenderIdContext } from '@electron/features/documents/doc
 
 const logger = createLogger('documents-dialogs');
 const MAX_WORKING_COPY_DATA_BYTES = 16 * 1024 * 1024;
+
+function requireDocumentRef(value: string) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Working-copy creation returned an invalid document ref');
+    }
+    return documentRef;
+}
 
 interface ITrustedOriginalPathOptions {
     sourcePath?: string;
@@ -64,7 +73,8 @@ export async function handleCreateWorkingCopyFromData(
         context.senderId,
     );
 
-    return createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, context.senderId);
+    const workingPath = await createWorkingCopyFromData(normalizedName, data, trustedOriginalPath, context.senderId);
+    return requireDocumentRef(workingPath);
 }
 
 export async function handleCreateWorkingCopyFromPath(
@@ -84,5 +94,6 @@ export async function handleCreateWorkingCopyFromPath(
         warningContext: 'createWorkingCopyFromPath',
     }, context.senderId);
 
-    return createWorkingCopyFromPath(sourcePath, trustedOriginalPath, context.senderId);
+    const workingPath = await createWorkingCopyFromPath(sourcePath, trustedOriginalPath, context.senderId);
+    return requireDocumentRef(workingPath);
 }

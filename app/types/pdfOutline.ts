@@ -4,17 +4,13 @@ import type { TDocumentBookmarkDisplayMode } from '@app/utils/document-viewer/bo
 export type TBookmarkDisplayMode = TDocumentBookmarkDisplayMode;
 export type TBookmarkDropPosition = 'before' | 'after' | 'child';
 
-type TBookmarkContractCore = Pick<
-    IPdfBookmarkEntry,
-    | 'title'
-    | 'pageIndex'
-    | 'pageYRatio'
-    | 'bold'
-    | 'italic'
-    | 'color'
->;
-
-export interface IBookmarkItem extends TBookmarkContractCore {
+export interface IBookmarkItem {
+    title: IPdfBookmarkEntry['title'];
+    pageIndex: IPdfBookmarkEntry['pageIndex'];
+    pageYRatio?: IPdfBookmarkEntry['pageYRatio'];
+    bold: IPdfBookmarkEntry['bold'];
+    italic: IPdfBookmarkEntry['italic'];
+    color: IPdfBookmarkEntry['color'];
     dest: string | unknown[] | null;
     id: string;
     items: IBookmarkItem[];

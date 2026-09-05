@@ -9,6 +9,7 @@ import { effectScope } from 'vue';
 import { retry } from 'es-toolkit/function';
 import { withTimeout } from 'es-toolkit/promise';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const loadDocumentTextCatalogPagesMock = vi.hoisted(() => vi.fn<() => Promise<unknown>>(async () => null));
 const extractPdfTextMock = vi.hoisted(() => vi.fn<() => Promise<string | null>>(async () => null));
@@ -50,8 +51,10 @@ const mockElectronAPI = createElectronPlatformApiFixture({
     documentFiles: mockDocuments,
     documentWorkingCopy: mockDocuments,
 });
+const WORKING_COPY_PATH = requireDocumentRef('/tmp/work.pdf');
 
 vi.mock('@app/utils/getOcrCapability', () => ({ getOcrCapability: () => mockElectronAPI.ocr }));
+vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: string) => key})}));
 vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentFilesCapability: () => mockElectronAPI.documentFiles,
     getDocumentWorkingCopyCapability: () => mockElectronAPI.documentWorkingCopy,
@@ -170,7 +173,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             void ocr.cancelOcr();
@@ -237,7 +240,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
@@ -296,7 +299,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
@@ -360,7 +363,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const firstRunPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const firstRunPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             const firstRequestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
             emitComplete({
@@ -381,7 +384,7 @@ describe('useOcr', () => {
             });
             expect(mockOcr.acknowledgeResultFile).not.toHaveBeenCalled();
 
-            const secondRunPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const secondRunPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 1);
             expect(ocr.hasResults.value).toBe(false);
             const secondRequestId = mockOcr.createSearchablePdf.mock.calls[1]?.[2] as string;
@@ -431,7 +434,7 @@ describe('useOcr', () => {
                 ...ocr.settings.value,
                 selectedLanguages: ['eng'],
             };
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             expect(ocr.activeRunSettings.value?.selectedLanguages).toEqual(['eng']);
@@ -501,7 +504,7 @@ describe('useOcr', () => {
                 pageSegmentationMode: 6,
             };
 
-            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             expect(mockOcr.createSearchablePdf.mock.calls[0]?.[3]).toEqual({
                 qualityProfile: 'poor-scan',
@@ -539,7 +542,7 @@ describe('useOcr', () => {
                 ...ocr.settings.value,
                 pageRange: 'all',
             };
-            const runPromise = ocr.runOcr(1, 1_000_001, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1_000_001, WORKING_COPY_PATH);
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
 
             const call = mockOcr.createSearchablePdf.mock.calls[0] ?? [];
@@ -582,7 +585,7 @@ describe('useOcr', () => {
                 selectedLanguages: [],
             };
 
-            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             expect(mockOcr.createSearchablePdf).not.toHaveBeenCalled();
             expect(ocr.error.value).toBe('errors.ocr.noLanguages');
@@ -622,7 +625,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
             emitComplete({
@@ -640,7 +643,7 @@ describe('useOcr', () => {
                 ...ocr.settings.value,
                 selectedLanguages: [],
             };
-            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             expect(ocr.error.value).toBe('errors.ocr.noLanguages');
             expect(ocr.hasResults.value).toBe(false);
@@ -663,7 +666,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await vi.waitFor(() => {
                 expect(mockOcr.createSearchablePdf).toHaveBeenCalledTimes(1);
@@ -704,7 +707,7 @@ describe('useOcr', () => {
         }
 
         try {
-            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             expect(ocr.error.value).toBe('errors.ocr.errorCode.queueBackpressure: OCR queue is full');
             expect(loggerErrorMock).not.toHaveBeenCalled();
@@ -729,7 +732,7 @@ describe('useOcr', () => {
         }
 
         try {
-            await ocr.runOcr(1, 1, '/tmp/work.pdf');
+            await ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             expect(loggerErrorMock).toHaveBeenCalledTimes(1);
             expect(loggerErrorMock).toHaveBeenCalledWith(
@@ -774,7 +777,7 @@ describe('useOcr', () => {
         }
 
         try {
-            const runPromise = ocr.runOcr(1, 1, '/tmp/work.pdf');
+            const runPromise = ocr.runOcr(1, 1, WORKING_COPY_PATH);
 
             await waitForCondition(() => mockOcr.createSearchablePdf.mock.calls.length > 0);
             const requestId = mockOcr.createSearchablePdf.mock.calls[0]?.[2] as string;
@@ -831,14 +834,14 @@ describe('useOcr', () => {
         }
 
         try {
-            await expect(ocr.exportDocx('/tmp/work.pdf', {} as never)).resolves.toBe(true);
+            await expect(ocr.exportDocx(WORKING_COPY_PATH, {} as never)).resolves.toBe(true);
 
             expect(callOrder).toEqual([
                 'saveDocxAs',
                 'loadOcrText',
             ]);
             expect(loadDocumentTextCatalogPagesMock).toHaveBeenCalledWith(
-                '/tmp/work.pdf',
+                WORKING_COPY_PATH,
                 'revision-token',
                 undefined,
                 expect.any(AbortSignal),
@@ -904,7 +907,7 @@ describe('useOcr', () => {
 
         try {
             expect(ocr.cancelDocxExport).toEqual(expect.any(Function));
-            const exportPromise = ocr.exportDocx('/tmp/work.pdf', {} as never);
+            const exportPromise = ocr.exportDocx(WORKING_COPY_PATH, {} as never);
             await writeStarted.promise;
 
             ocr.cancelDocxExport();

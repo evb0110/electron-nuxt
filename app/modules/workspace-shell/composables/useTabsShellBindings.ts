@@ -452,7 +452,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         handleTabKeyboardShortcut,
         {capture: true},
     );
-    let isDisposed = false;
+    const lifecycle: { isDisposed: boolean } = { isDisposed: false };
     let rendererReadyNotified = false;
     let desktopViewerWarmupHandle: IDesktopViewerWarmupHandle | null = null;
 
@@ -475,7 +475,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     }
 
     onMounted(() => {
-        isDisposed = false;
+        lifecycle.isDisposed = false;
         const onMountedStart = performance.now();
         traceRendererStartup('tabs shell onMounted start');
         isStartupOpenClaimPending.value = true;
@@ -490,7 +490,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
         void (async () => {
             const shouldWaitForDesktopBridge = shouldPreferDesktopPlatform(route.path);
             const bridgeReady = await waitForDesktopPlatformBridge({shouldWait: shouldWaitForDesktopBridge});
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             traceRendererStartup('tabs shell platform bridge resolved', {
@@ -524,7 +524,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 handleWindowTabsAction,
                 toggleAssistant,
             });
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 registeredMenuCleanups.forEach(cleanup => cleanup());
                 return;
             }
@@ -534,7 +534,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             const workspaceCheckpoint = typeof windowTabsCapability.claimWorkspaceCheckpoint === 'function'
                 ? await windowTabsCapability.claimWorkspaceCheckpoint()
                 : null;
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             if (workspaceCheckpoint) {
@@ -547,11 +547,11 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                     activateTab,
                     restoreSurfaceMode: getDocumentSession ? restoreSurfaceMode : undefined,
                 });
-                if (isDisposed) {
+                if (lifecycle.isDisposed.valueOf()) {
                     return;
                 }
                 if (failedCheckpointPaths.length === 0) {
-                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint?.();
+                    await windowTabsCapability.acknowledgeWorkspaceCheckpoint();
                 } else {
                     BrowserLogger.warn(
                         'tabs-shell',
@@ -562,7 +562,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
             }
 
             const startupExternalPaths = await windowTabsCapability.claimPendingExternalOpenPaths();
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             dispatchStartupOpenClaimed(startupExternalPaths.length);
@@ -585,19 +585,19 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
                 traceRendererStartup('startup matching viewer warmup settled', matchingWarmupTraceData);
                 const failedPaths = await beginOpenPathsInAppropriateTab(startupExternalPaths);
                 await windowTabsCapability.acknowledgePendingExternalOpenPaths(failedPaths);
-                if (isDisposed) {
+                if (lifecycle.isDisposed.valueOf()) {
                     return;
                 }
             }
             isStartupOpenClaimPending.value = false;
             await nextTick();
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             traceRendererStartup('tabs shell dispatching app:rendererReady');
             notifyRendererReadyAndScheduleViewerWarmup();
         })().catch((error) => {
-            if (isDisposed) {
+            if (lifecycle.isDisposed.valueOf()) {
                 return;
             }
             BrowserLogger.warn('tabs-shell', 'Startup externalOpen preparation failed before renderer ready', error);
@@ -611,7 +611,7 @@ export const useTabsShellBindings = (options: IUseTabsShellBindingsOptions) => {
     });
 
     onUnmounted(() => {
-        isDisposed = true;
+        lifecycle.isDisposed = true;
         desktopViewerWarmupHandle?.cancel();
         desktopViewerWarmupHandle = null;
         cleanupDirectOpenDelegate?.();

@@ -26,6 +26,8 @@ import {
 import { join } from 'path';
 import { tmpdir } from 'os';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireLeaseId} from '@contracts/shared';
 import {requireDocumentRevisionToken} from '@contracts';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {createNativeIncrementalMutationSemanticScopeSha256} from '@electron/features/documents/main/documentSaveUtilityProtocol';
@@ -268,7 +270,7 @@ function createOpaqueStagedArtifact(path: string): ITypedStagedArtifact {
     return {
         receiptVersion: 2,
         artifactKind: 'pdf',
-        path,
+        path: requireDocumentRef(path),
         size: 3,
         fileIdentity: {
             platform: 'posix',
@@ -282,7 +284,7 @@ function createOpaqueStagedArtifact(path: string): ITypedStagedArtifact {
             semanticScopeSha256: createNativeIncrementalMutationSemanticScopeSha256(),
             fsynced: true,
         },
-        leaseId: 'staged-native-output',
+        leaseId: requireLeaseId('staged-native-output'),
         revision: null,
     };
 }
@@ -1338,7 +1340,7 @@ describe('handleNativeNoteTextSave', () => {
             staged.stagedOutput,
             {
                 ...revisionOptions,
-                identityBindings: staged.identityBindings,
+                identityBindings: [...staged.identityBindings],
             },
         );
 

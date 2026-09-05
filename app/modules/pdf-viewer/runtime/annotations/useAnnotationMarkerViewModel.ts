@@ -15,13 +15,17 @@ import type { IDetachedMarkerOccupied } from '@app/modules/pdf-viewer/engine/ann
 import { FOCUS_PULSE_MS } from '@app/constants/timeouts';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { isPointNoteMarkerSizedRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/pointNoteMarkerPolicy';
+import {
+    parsePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 
 interface IUseAnnotationMarkerViewModelOptions {
     viewerContainer: Ref<HTMLElement | null>;
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
     markerGeometryVersion?: Ref<number> | undefined;
-    isPageRenderedForClass?: ((pageNumber: number) => boolean) | undefined;
+    isPageRenderedForClass?: ((pageNumber: TPageNumber) => boolean) | undefined;
     labels: {
         annotation: string;
         note: string;
@@ -33,7 +37,7 @@ function buildPreview(
     comment: IAnnotationCommentSummary,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ) {
-    const text = comment.text?.trim();
+    const text = comment.text.trim();
     if (!text) {
         return comment.kindLabel ?? comment.subtype ?? labels.note;
     }
@@ -46,7 +50,7 @@ function buildAriaLabel(
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ) {
     const prefix = comment.kindLabel ?? comment.subtype ?? labels.annotation;
-    const preview = comment.text?.trim().slice(0, 40) ?? '';
+    const preview = comment.text.trim().slice(0, 40);
     const label = preview ? `${prefix}: ${preview}` : prefix;
     if (clusterSize > 1) {
         return `${label} (${labels.moreNotes(clusterSize - 1)})`;
@@ -64,7 +68,11 @@ function pickPrimaryComment(
             return active;
         }
     }
-    return maxBy(comments, comment => comment.modifiedAt ?? 0)!;
+    const primary = maxBy(comments, comment => comment.modifiedAt ?? 0);
+    if (!primary) {
+        throw new Error('Annotation marker requires at least one comment');
+    }
+    return primary;
 }
 
 function isAppOwnedPlacedImageComment(comment: IAnnotationCommentSummary) {
@@ -97,12 +105,12 @@ function computeMarkersByPage(
     comments: IAnnotationCommentSummary[],
     activeKey: string | null,
     viewerContainer: HTMLElement | null,
-    isPageRenderedForClass: ((pageNumber: number) => boolean) | undefined,
+    isPageRenderedForClass: ((pageNumber: TPageNumber) => boolean) | undefined,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ): Map<number, IMarkerViewModel[]> {
     const result = new Map<number, IMarkerViewModel[]>();
     const renderedPageCache = new Map<number, boolean>();
-    const isRenderedPage = (pageNumber: number) => {
+    const isRenderedPage = (pageNumber: TPageNumber) => {
         if (!isPageRenderedForClass) {
             return true;
         }
@@ -114,9 +122,10 @@ function computeMarkersByPage(
         renderedPageCache.set(pageNumber, rendered);
         return rendered;
     };
-    const withRect = comments.filter(comment => (
-        isRenderedPage(comment.pageNumber) && isMarkerEligibleComment(comment)
-    ));
+    const withRect = comments.filter(comment => {
+        const pageNumber = parsePageNumber(comment.pageNumber);
+        return pageNumber !== null && isRenderedPage(pageNumber) && isMarkerEligibleComment(comment);
+    });
 
     if (withRect.length === 0) {
         return result;

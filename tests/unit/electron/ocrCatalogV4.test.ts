@@ -17,6 +17,10 @@ import {
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
 import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
+import {
     encodeOcrShardIndex,
     type IOcrGenerationV4,
     type IOcrIndexV3Manifest,
@@ -83,7 +87,7 @@ async function createRoot(pageCount = 2, mappedPages = [1]) {
         shardSize: 256,
         shardCount,
         mappedPageCount: mappedPages.length,
-        createdAt: '2026-08-27T00:00:00.000Z',
+        createdAt: requireIsoTimestamp('2026-08-27T00:00:00.000Z'),
         dirtyShards: [...new Set(mappedPages.map(pageNumber => Math.floor((pageNumber - 1) / 256)))],
         liveRefs: {
             [String(generation)]: mappedPages.length,
@@ -130,20 +134,16 @@ async function createRoot(pageCount = 2, mappedPages = [1]) {
         shard,
         entries,
     ] of shards) {
+        const pageNumbers = mappedPages.filter(pageNumber => Math.floor((pageNumber - 1) / 256) === shard);
         const shardValue: IOcrShardV4 = {
             version: 4,
             generation,
             shard,
-            pages: Object.fromEntries(entries.map((entry, index) => [
-                String(mappedPages[index]!),
-                entry,
-            ])),
+            pages: Object.fromEntries(pageNumbers.map((pageNumber, index) => [
+                String(pageNumber),
+                entries[index]!,
+            ])) as Record<string, IOcrPageMappingV4>,
         };
-        const pageNumbers = mappedPages.filter(pageNumber => Math.floor((pageNumber - 1) / 256) === shard);
-        shardValue.pages = Object.fromEntries(pageNumbers.map((pageNumber, index) => [
-            String(pageNumber),
-            entries[index]!,
-        ])) as Record<string, IOcrPageMappingV4>;
         await writeFile(join(generationRoot, 'shards', `shard-${String(shard).padStart(6, '0')}.json`), JSON.stringify(shardValue));
     }
     return root;
@@ -310,7 +310,7 @@ describe('OCR catalog v3 compatibility adapter', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, 'document.pdf')},
             pageCount: 1,
             pageBox: 'crop',
@@ -342,7 +342,7 @@ describe('OCR catalog v3 compatibility adapter', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, `${'d'.repeat(1_100)}.pdf`)},
             pageCount: 1_000_000,
             pageBox: 'crop',
@@ -383,7 +383,7 @@ describe('OCR catalog v3 compatibility adapter', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, 'document.pdf')},
             pageCount: 1,
             pageBox: 'crop',
@@ -447,7 +447,7 @@ describe('OCR catalog artifact validation (SRCH-004)', () => {
         const manifest: IOcrIndexV3Manifest = {
             version: 3,
             documentRevision: {token: revision},
-            createdAt: Date.now(),
+            createdAt: requireEpochMs(Date.now()),
             source: {pdfPath: join(root, 'document.pdf')},
             pageCount: 3,
             pageBox: 'crop',

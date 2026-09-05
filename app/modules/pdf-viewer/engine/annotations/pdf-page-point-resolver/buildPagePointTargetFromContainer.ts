@@ -1,3 +1,5 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { IPagePointTarget } from '@app/modules/pdf-viewer/engine/annotations/types';
 import { clamp01 } from '@app/modules/pdf-viewer/engine/annotation-geometry/clamp01';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -36,7 +38,7 @@ export function buildPagePointTargetFromContainer(
     clientX: number,
     clientY: number,
     selectedSource: string,
-    currentPage: number,
+    currentPage: TPageNumber,
     diagnostics?: INotePlacementDiagnosticsContext,
 ): IPagePointTarget | null {
     const rect = pageContainer.getBoundingClientRect();
@@ -51,8 +53,9 @@ export function buildPagePointTargetFromContainer(
         }
         return null;
     }
-    const parsedPageNumber = pageContainer.dataset.page ? Number(pageContainer.dataset.page) : currentPage;
-    const pageNumber = Number.isFinite(parsedPageNumber) && parsedPageNumber > 0 ? parsedPageNumber : null;
+    const pageNumber = pageContainer.dataset.page
+        ? parsePageNumber(Number(pageContainer.dataset.page))
+        : currentPage;
     if (pageNumber === null) {
         if (diagnostics) {
             BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Resolved quick-note page container has invalid page number', {

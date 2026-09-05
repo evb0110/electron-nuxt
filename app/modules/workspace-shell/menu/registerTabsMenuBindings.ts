@@ -46,6 +46,13 @@ type TCleanup = () => void;
 type TMenuRunAction = (actionName: string, action: () => unknown) => void;
 type TNoArgMenuRegister = (handler: () => void) => unknown;
 type TWorkspaceMenuApi = Partial<IDocumentsMenuCapability> | Partial<IDjvuCapability>;
+/**
+ * A stale preload (dev-mode version mismatch) can be missing whole capabilities
+ * or individual bindings, so every registration is treated as optional.
+ */
+type TStalePreloadMenuApi = {
+    [TKey in keyof ITabsMenuBindingApi]?: Partial<NonNullable<ITabsMenuBindingApi[TKey]>> | undefined;
+};
 
 function toCleanup(value: unknown): TCleanup | null {
     return typeof value === 'function' ? value as TCleanup : null;
@@ -60,7 +67,7 @@ function getNoArgDocumentMenuRegister(
 }
 
 function resolveWorkspaceMenuApi(
-    menuApi: Partial<ITabsMenuBindingApi>,
+    menuApi: TStalePreloadMenuApi,
     source: 'documentMenu' | 'djvu' | undefined,
 ) {
     return source === 'djvu' ? menuApi.djvu : menuApi.documentMenu;
@@ -79,7 +86,7 @@ function runWorkspaceMenuCommand(
 }
 
 function registerWorkspaceMenuActions(
-    menuApi: Partial<ITabsMenuBindingApi>,
+    menuApi: TStalePreloadMenuApi,
     deps: ITabsMenuBindingDeps,
     runMenuAction: TMenuRunAction,
 ) {
@@ -106,7 +113,7 @@ export function registerTabsMenuBindings(
     menuApi: ITabsMenuBindingApi,
     deps: ITabsMenuBindingDeps,
 ) {
-    const api = menuApi as Partial<ITabsMenuBindingApi>;
+    const api: TStalePreloadMenuApi = menuApi;
     const documentMenu = api.documentMenu;
     let documentOpenQueue: Promise<void> = Promise.resolve();
     let disposed = false;

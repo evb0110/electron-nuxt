@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { ILinkAnnotation } from '@app/types/annotations';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
@@ -13,7 +15,7 @@ function isPdfDestination(value: unknown): value is string | unknown[] {
 
 export function tryExtractPdfLinkAnnotation(
     annotation: IPdfAnnotationRecord,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     annotationIndex: number,
     pageView: number[] | null,
     pageRotation: TPageRotation,

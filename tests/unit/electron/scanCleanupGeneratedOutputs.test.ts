@@ -320,7 +320,9 @@ describe('scan cleanup generated output pruning', () => {
             },
             nowMs,
         })).resolves.toBe(0);
-        await registration;
+        if (registration !== null) {
+            await Promise.resolve(registration);
+        }
         await expect(stat(candidate)).resolves.toBeDefined();
     });
 

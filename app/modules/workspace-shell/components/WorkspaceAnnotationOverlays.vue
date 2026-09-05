@@ -4,7 +4,7 @@
         v-for="note in visibleAnnotationNoteWindows"
         :key="note.annotationId"
         :annotation-id="note.annotationId"
-        :page-number="note.pageNumber"
+        :page-number="requirePageNumber(note.pageNumber)"
         :author="note.author"
         :created-at="note.createdAt"
         :modified-at="note.modifiedAt"
@@ -145,6 +145,7 @@
 </template>
 
 <script setup lang="ts">
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { PdfAnnotationContextMenu } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationContextMenu';
 import { PdfAnnotationNoteWindow } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationNoteWindow';
 import { PdfAnnotationProperties } from '@app/modules/pdf-viewer/public/component-exports/pdfAnnotationProperties';

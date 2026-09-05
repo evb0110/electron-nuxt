@@ -1,3 +1,6 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+import { createEpochMs } from '@contracts/timestamps';
+
 import type {
     IAnnotationSettings,
     IShapeAnnotation,
@@ -13,7 +16,7 @@ import { createBrowserSafeId } from '@app/utils/browserSafe';
 
 const MIN_DRAWN_SHAPE_SIZE = 0.005;
 
-export interface IBuildShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageIndex: number;}
+export interface IBuildShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageIndex: TPageIndex;}
 
 interface IShapeDrawingOrigin {
     x: number;
@@ -310,14 +313,14 @@ function createArrowDrawingGeometry(tool: TDrawableShapeType) {
 }
 
 export function createDrawingShape(
-    pageIndex: number,
+    pageIndex: TPageIndex,
     tool: TDrawableShapeType,
     x: number,
     y: number,
     settings: IAnnotationSettings,
 ): IShapeAnnotation {
     const style = resolveDrawingStyle(tool, settings);
-    const createdAt = Date.now();
+    const createdAt = createEpochMs();
     return {
         id: generateShapeId(),
         type: resolveDrawingShapeType(tool),
@@ -343,7 +346,7 @@ export function buildShapeAnnotation(
 ): IShapeAnnotation | null {
     const baseShape = applyGeometryStyle(
         createDrawingShape(
-            Math.max(0, Math.trunc(options.pageIndex)),
+            options.pageIndex,
             options.tool,
             clampUnit(options.x),
             clampUnit(options.y),

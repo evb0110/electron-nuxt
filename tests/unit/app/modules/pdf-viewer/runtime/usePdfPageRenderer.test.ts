@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -175,11 +176,11 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         const harness = createHarness();
         let hydration: Promise<void> | null = null;
         try {
-            harness.pageRenderState.beginRender(1, 1, 11, 'document-a', 1, 1, harness.pageContainer);
-            harness.pageRenderState.commitVisual(1, 1, 11);
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
 
             hydration = harness.renderer.renderCommittedPageLayers({
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 version: 1,
                 requestId: 11,
                 scale: 1,
@@ -191,7 +192,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
                 expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
             });
 
-            expect(harness.pageRenderState.getSlot(1).layerReadiness).toBe('hydrating');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('hydrating');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
             await harness.renderer.renderLayerPromotions({
                 start: 1,
@@ -205,8 +206,8 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             deferred.resolve();
             await hydration;
-            expect(harness.pageRenderState.getSlot(1).textLayerReadiness).toBe('ready');
-            expect(harness.pageRenderState.getSlot(1).layerReadiness).toBe('ready');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness).toBe('ready');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.pageContainer.dataset.pageLayerReadiness).toBe('ready');
         } finally {
             deferred.resolve();
@@ -228,11 +229,11 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         const harness = createHarness();
         let hydration: Promise<void> | null = null;
         try {
-            harness.pageRenderState.beginRender(1, 1, 11, 'document-a', 1, 1, harness.pageContainer);
-            harness.pageRenderState.commitVisual(1, 1, 11);
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
 
             hydration = harness.renderer.renderCommittedPageLayers({
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 version: 1,
                 requestId: 11,
                 scale: 1,
@@ -242,14 +243,14 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             });
 
             await vi.waitFor(() => expect(
-                harness.pageRenderState.getSlot(1).textLayerReadiness,
+                harness.pageRenderState.getSlot(requirePageNumber(1)).textLayerReadiness,
             ).toBe('ready'));
-            expect(harness.pageRenderState.getSlot(1).layerReadiness).toBe('hydrating');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('hydrating');
             expect(harness.onRenderedPageStateChanged).toHaveBeenCalledOnce();
 
             annotation.resolve();
             await hydration;
-            expect(harness.pageRenderState.getSlot(1).layerReadiness).toBe('ready');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
         } finally {
             annotation.resolve();
             await hydration?.catch(() => undefined);
@@ -275,10 +276,10 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         const harness = createHarness();
         let hydration: Promise<void> | null = null;
         try {
-            harness.pageRenderState.beginRender(1, 1, 11, 'document-a', 1, 1, harness.pageContainer);
-            harness.pageRenderState.commitVisual(1, 1, 11);
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
             hydration = harness.renderer.renderCommittedPageLayers({
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 version: 1,
                 requestId: 11,
                 scale: 1,
@@ -294,7 +295,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
 
             await vi.waitFor(() => expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce());
             await vi.waitFor(() => expect(
-                harness.pageRenderState.getSlot(1).layerReadiness,
+                harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness,
             ).toBe('ready'));
             expect(annotationControllerFixture.render).toHaveBeenCalledTimes(2);
         } finally {
@@ -308,10 +309,10 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
         rendererFixture.renderTextLayer.mockResolvedValue(undefined);
         const harness = createHarness();
         try {
-            harness.pageRenderState.beginRender(1, 1, 11, 'document-a', 1, 1, harness.pageContainer);
-            harness.pageRenderState.commitVisual(1, 1, 11);
-            harness.pageRenderState.markCanvasOnly(1, 1, 11);
-            harness.pageRenderState.completeRender(1, 1, 11);
+            harness.pageRenderState.beginRender(requirePageNumber(1), 1, 11, 'document-a', 1, 1, harness.pageContainer);
+            harness.pageRenderState.commitVisual(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.markCanvasOnly(requirePageNumber(1), 1, 11);
+            harness.pageRenderState.completeRender(requirePageNumber(1), 1, 11);
 
             const promotion = harness.renderer.resolveLayerPromotionDemand([1]);
             expect(promotion).not.toBeNull();
@@ -321,7 +322,7 @@ describe('usePdfPageRenderer layer hydration ownership', () => {
             });
 
             expect(rendererFixture.renderTextLayer).toHaveBeenCalledOnce();
-            expect(harness.pageRenderState.getSlot(1).layerReadiness).toBe('ready');
+            expect(harness.pageRenderState.getSlot(requirePageNumber(1)).layerReadiness).toBe('ready');
             expect(harness.renderer.resolveLayerPromotionDemand([1])).toBeNull();
         } finally {
             harness.root.remove();

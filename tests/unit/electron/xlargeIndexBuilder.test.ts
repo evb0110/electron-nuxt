@@ -12,6 +12,7 @@ import {
 import {tmpdir} from 'os';
 import {join} from 'path';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {IDocumentTextCatalogPage} from '@contracts/documentTextCatalog';
 import type {
     ICompactSearchIndexStreamingFinalizeOptions,
@@ -42,7 +43,7 @@ const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
 function createPage(pageNumber: number, text: string): IDocumentTextCatalogPage {
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         text,
         source: 'pdf-native',
         contentDigest: `page-${pageNumber}`,

@@ -20,6 +20,7 @@ import {
     type IScanCleanupDetectionRetention,
 } from '@scan-cleanup-core/detection';
 import type {IScanCleanupDetectionRequest} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     INativeScanCleanupManifestV3,
     INativeScanCleanupPageV3,
@@ -304,7 +305,7 @@ function createLeaseSidecar(options: {
                 stage: 'page-input-required',
                 completedPages: 0,
                 totalPages,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
             });
             const deadline = Date.now() + 5_000;
             for (;;) {
@@ -328,7 +329,7 @@ function createLeaseSidecar(options: {
                 stage: 'page-input-released',
                 completedPages: 0,
                 totalPages,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
             });
         };
         let completedPages = 0;
@@ -356,7 +357,7 @@ function createLeaseSidecar(options: {
                         stage: 'page-analyzed',
                         completedPages,
                         totalPages,
-                        pageNumber,
+                        pageNumber: requirePageNumber(pageNumber),
                         classification: pageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                         confidence: 0.8,
                     });
@@ -376,7 +377,7 @@ function createLeaseSidecar(options: {
                 stage: 'page-complete',
                 completedPages: totalPages,
                 totalPages,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 classification: pageNumber % 3 === 0 ? 'two-page-spread' : 'single-uncut-page',
                 confidence: 0.8,
                 // Progress carries a cutter only for the pages that have one:

@@ -8,6 +8,7 @@ import {
     createBrowserAgentMcpStatus,
     createBrowserAssistantState,
 } from '@app/platform/browser-api/browserAgentCapability';
+import {requireRequestId} from '@contracts/shared';
 
 describe('browserAgentCapability', () => {
     it('reports assistant support as unavailable in browser runtime', async () => {
@@ -22,14 +23,14 @@ describe('browserAgentCapability', () => {
 
     it('does not accept browser assistant commands', async () => {
         await expect(browserAgentCapability.submitWorkspaceSnapshot({
-            requestId: 'snapshot-1',
+            requestId: requireRequestId('snapshot-1'),
             ok: false,
         })).resolves.toEqual({
             accepted: false,
             reason: 'unknown-request',
         });
         await expect(browserAgentCapability.submitCommandResponse({
-            requestId: 'command-1',
+            requestId: requireRequestId('command-1'),
             ok: false,
         })).resolves.toEqual({
             accepted: false,

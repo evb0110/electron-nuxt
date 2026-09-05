@@ -14,6 +14,7 @@ import type {
     IScanCleanupPreviewMetadata,
     IScanCleanupPreviewResult,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     completePreviewImageSwap,
     createPreviewImageSwap,
@@ -36,6 +37,7 @@ import {
     resolvePreviewPlaceholderViewportFrame,
     resolvePreviewSpreadCutterCenter,
     resolvePreviewViewportFrame,
+    type IScanCleanupPreviewFitPlacement,
 } from '@app/modules/scan-cleanup/geometry/viewport';
 import {
     resolvePreviewMetadataPlacement,
@@ -104,7 +106,7 @@ function metadata(overrides: Partial<IScanCleanupPreviewMetadata> = {}): IScanCl
 
 function previewResult(outputMetadata: IScanCleanupPreviewMetadata, pixel = 1): IScanCleanupPreviewResult {
     return {
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         totalPages: 1,
         rawImageData: new Uint8Array([pixel]),
         rawWidthPx: 600,
@@ -731,7 +733,9 @@ describe('scan cleanup preview geometry', () => {
                 height: 600,
             },
         ]);
-        expect(resolvePreviewSpreadCutterCenter(renderedBoxes)).toBe(400);
+        expect(resolvePreviewSpreadCutterCenter(renderedBoxes.filter(
+            (box): box is IScanCleanupPreviewFitPlacement => 'left' in box && 'top' in box,
+        ))).toBe(400);
     });
 
     it('keeps a prefetch that finishes after navigation superseded it, and starts no more', async () => {

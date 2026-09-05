@@ -31,6 +31,7 @@ import type {
     TScanCleanupOutputMode,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     decodeNativeScanCleanupPreviewOutputMetadataJson,
     decodeNativeScanCleanupPreviewPageMetadataJson,
@@ -172,6 +173,11 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyBackingMetadata,
 } from '@electron/file-access/workingCopyStore';
+import {
+    createJobId,
+    type TJobId,
+} from '@contracts/shared';
+import {createEpochMs} from '@contracts/timestamps';
 
 const DETAIL_TILE_MAX_PIXELS = 4_000_000;
 const DEFAULT_SOURCE_DPI = 300;
@@ -367,7 +373,7 @@ async function readBoundedPreviewGeometry(
     let expectedPageNumber = 1;
     let pageSize: IPdfPageSize | undefined;
     let pageSourceDpi: number | undefined;
-    let allPagesHaveRasterMetadata = true;
+    let allPagesHaveRasterMetadata = true as boolean;
     let documentDpi = 0;
     await store.forEachChunk(chunk => {
         if (chunk.pageCount !== totalPages) {
@@ -423,7 +429,10 @@ function resolvePreviewPageShares(
     pageNumber: number,
     layoutByPage: IScanCleanupPreviewRequest['layoutByPage'],
 ) {
-    const pageOverride = getScanCleanupPageOverride(options.pageOverrides, pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        options.pageOverrides,
+        requirePageNumber(pageNumber),
+    );
     const layout = resolveScanCleanupPageLayout(options.layoutMode, pageOverride.layoutOverride);
     if (layout === 'force-two-page' || layout === 'keep-left' || layout === 'keep-right') {
         return 2;
@@ -435,6 +444,10 @@ function resolvePreviewPageShares(
         return 2;
     }
     return layoutByPage?.[String(pageNumber)] === 'two-page-spread' ? 2 : 1;
+}
+
+function isScanCleanupSignalAborted(signal: AbortSignal) {
+    return signal.aborted;
 }
 
 /** Check matched-canvas resampling without building a page-number collection. */
@@ -465,7 +478,10 @@ async function hasBoundedMatchedRasterResample(input: {
                 index,
                 page,
             ] of pages.entries()) {
-                if (getScanCleanupPageOverride(input.options.pageOverrides, page.pageNumber).excluded) {
+                if (getScanCleanupPageOverride(
+                    input.options.pageOverrides,
+                    requirePageNumber(page.pageNumber),
+                ).excluded) {
                     continue;
                 }
                 const carriesRaster = !input.rasterSource.detected || rasters[index] !== undefined;
@@ -1947,6 +1963,8 @@ function inverseRotatePreviewPoint(
     >,
 ) {
     switch (metadata.rotationDegrees) {
+        case 0:
+            return point;
         case 90:
             return {
                 x: point.y,
@@ -1962,8 +1980,6 @@ function inverseRotatePreviewPoint(
                 x: metadata.inputWidthPx - point.y,
                 y: point.x,
             };
-        default:
-            return point;
     }
 }
 
@@ -2443,7 +2459,7 @@ async function runPreview(
                 };
             }
         } catch (error) {
-            if (signal.aborted) throw error;
+            if (isScanCleanupSignalAborted(signal)) throw error;
             if (request.options.matchPageSize) {
                 const detail = getErrorMessage(error);
                 previewWarningEvents.push({
@@ -2750,7 +2766,7 @@ async function runPreview(
                 ));
             }
         }
-        if (signal.aborted) throw signal.reason;
+        if (isScanCleanupSignalAborted(signal)) throw signal.reason;
         const binary = dependencies.resolveBinary();
         if (!binary) throw new Error('Scan cleanup native tool is unavailable');
         const canonicalRaw = baseRaw.dpi === DETECTION_DPI
@@ -2967,7 +2983,7 @@ async function runPreview(
                 // be the per-page frame drift it exists to prevent.
                 const resolvedCanvasWidth = canvasWidthPx ?? outputWidthPx;
                 const resolvedCanvasHeight = canvasHeightPx ?? outputHeightPx;
-                const marginsAvailable = request.options.crop && output.contentBox !== undefined;
+                const marginsAvailable = request.options.crop;
                 const appliedMargins = matchedCanvas === undefined
                     ? output.appliedMargins
                     : marginsAvailable ? requestedMargins : {
@@ -3480,13 +3496,13 @@ export function createScanCleanupPreviewService(
                         ? {}
                         : {placementAnchorSummary: result.placementAnchorSummary}),
                     results,
-                    updatedAtMs: Date.now(),
+                    updatedAtMs: createEpochMs(),
                 };
             },
             canceled: latest => ({
                 ...latest,
                 status: 'canceled',
-                updatedAtMs: Date.now(),
+                updatedAtMs: createEpochMs(),
             }),
             failed: (latest, error) => ({
                 ...latest,
@@ -3499,12 +3515,12 @@ export function createScanCleanupPreviewService(
                 ...(error.scratchShortfall === undefined
                     ? {}
                     : {scratchShortfall: error.scratchShortfall}),
-                updatedAtMs: Date.now(),
+                updatedAtMs: createEpochMs(),
             }),
         },
     });
     const activeDetectionJobsByBrokerOwner = new Map<string, {
-        jobId: string;
+        jobId: TJobId;
         request: IScanCleanupDetectionRequest;
         signature: string;
     }>();
@@ -3870,7 +3886,7 @@ export function createScanCleanupPreviewService(
             return cancelPreviewRequest(sender, request, 'Canceled scan cleanup preview');
         },
         detectAll(sender, request) {
-            const jobId = `scan-cleanup-detect-${randomUUID()}`;
+            const jobId = createJobId('scan-cleanup-detect');
             if (!isAbsolute(request.sourcePdfPath)) {
                 return Promise.resolve({
                     started: false,
@@ -3931,7 +3947,7 @@ export function createScanCleanupPreviewService(
                     },
                     resultCount: 0,
                     results: [],
-                    updatedAtMs: Date.now(),
+                    updatedAtMs: createEpochMs(),
                 },
                 ownerLifecycle: {
                     destroyed: 'cancel',
@@ -4006,7 +4022,7 @@ export function createScanCleanupPreviewService(
                                     progress: normalizedProgress,
                                     resultCount: normalizedProgress.completedUnits,
                                     results: nextResults,
-                                    updatedAtMs: Date.now(),
+                                    updatedAtMs: createEpochMs(),
                                 });
                             },
                             logScanCleanupMessage,

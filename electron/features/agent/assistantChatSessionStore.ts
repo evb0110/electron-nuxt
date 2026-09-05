@@ -22,6 +22,9 @@ import {
 } from '@contracts/agentModels';
 import { isDocumentRevisionInfo } from '@contracts/documentRevision';
 import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {parseTabId} from '@contracts/windowTabs';
+import {createIsoTimestamp} from '@contracts/timestamps';
 import type { ClaudeAgentAssistantSession } from '@electron/features/agent/claudeAgentSdkAssistant';
 import { withAssistantErrorEnvelope } from '@electron/features/agent/assistantErrorEnvelope';
 import type { IAssistantSelection } from '@electron/features/agent/assistantProviderStatus';
@@ -92,7 +95,7 @@ function readAssistantChatSessionTtlMs() {
 }
 
 export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null | undefined) {
-    if (!scope || scope.kind !== 'document') {
+    if (!scope) {
         return null;
     }
 
@@ -104,14 +107,23 @@ export function normalizeAssistantScope(scope: IAgentAssistantChatScope | null |
     const title = scope.title?.trim();
     const documentSessionKey = scope.documentSessionKey?.trim();
     const documentInstanceId = parseDocumentInstanceId(scope.documentInstanceId);
+    const tabId = scope.tabId === undefined || scope.tabId === null
+        ? undefined
+        : parseTabId(scope.tabId);
+    const documentRef = scope.documentRef === undefined || scope.documentRef === null
+        ? undefined
+        : parseDocumentRef(scope.documentRef);
+    if (scope.tabId != null && tabId === null || scope.documentRef != null && documentRef === null) {
+        return null;
+    }
     return {
         kind: 'document',
         key,
         title: title && title.length > 0 ? title : null,
-        ...(scope.tabId?.trim() ? { tabId: scope.tabId.trim() } : {}),
+        ...(tabId === undefined ? {} : {tabId}),
         ...(documentSessionKey ? { documentSessionKey } : {}),
         ...(documentInstanceId === null ? {} : { documentInstanceId }),
-        ...(scope.documentRef?.trim() ? { documentRef: scope.documentRef.trim() } : {}),
+        ...(documentRef === undefined ? {} : {documentRef}),
         ...(scope.documentBackend === 'browser' || scope.documentBackend === 'electron'
             ? {documentBackend: scope.documentBackend}
             : {}),
@@ -380,7 +392,7 @@ export function createAssistantChatSessionStore(options: IAssistantChatSessionSt
             id: message.id ?? randomUUID(),
             role: message.role,
             text: message.text,
-            createdAt: new Date().toISOString(),
+            createdAt: createIsoTimestamp(),
             ...(message.attachments === undefined
                 ? {}
                 : { attachments: message.attachments.map(cloneAssistantAttachment) }),

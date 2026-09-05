@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createHash } from 'node:crypto';
 import {
     mkdir,
@@ -310,7 +311,7 @@ function ownedCloneCanStillProduceResult(status: string) {
 }
 
 function statusDetail(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
+    return getErrorMessage(error);
 }
 
 async function collectEvidence(options: {
@@ -849,7 +850,7 @@ export async function executeWindowsTestRun(
                         failures.push({
                             outcome: 'infrastructure-failed',
                             phase: 'collecting',
-                            reason: `Host oracle dispatch failed: ${error instanceof Error ? error.message : String(error)}.`,
+                            reason: `Host oracle dispatch failed: ${getErrorMessage(error)}.`,
                         });
                         outcome = combineOutcomes(outcome, 'infrastructure-failed');
                     }
@@ -874,7 +875,7 @@ export async function executeWindowsTestRun(
                     phase: recorder.currentState(),
                     reason: error instanceof WindowsTestIdentityGuardError
                         ? `${error.refusal}: ${error.message}`
-                        : (error instanceof Error ? error.message : String(error)),
+                        : (getErrorMessage(error)),
                 });
                 outcome = combineOutcomes(outcome, 'infrastructure-failed');
             }
@@ -952,7 +953,7 @@ export async function executeWindowsTestRun(
                 failures.push({
                     outcome: 'infrastructure-failed',
                     phase: 'tearing-down',
-                    reason: error instanceof Error ? error.message : String(error),
+                    reason: getErrorMessage(error),
                 });
                 outcome = combineOutcomes(outcome, 'infrastructure-failed');
             }

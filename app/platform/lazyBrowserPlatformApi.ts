@@ -135,9 +135,9 @@ function subscribeToBrowserEvent(path: TPropertyPath, args: unknown[]): TUnsubsc
             return;
         }
         const cleanup: unknown = callable.apply(owner, guardedArgs);
-        if (active && typeof cleanup === 'function') {
+        if (active.valueOf() && typeof cleanup === 'function') {
             unsubscribe = cleanup as TUnsubscribe;
-        } else if (!active && typeof cleanup === 'function') {
+        } else if (!active.valueOf() && typeof cleanup === 'function') {
             (cleanup as TUnsubscribe)();
         }
     }).catch((error: unknown) => {

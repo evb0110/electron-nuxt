@@ -1,3 +1,10 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+import type {
+    TJobId,
+    TRequestId,
+} from '@contracts/shared';
+import type {TEpochMs} from '@contracts/timestamps';
+
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
@@ -20,14 +27,14 @@ export const OCR_ERROR_CODES = [
 ] as const satisfies readonly TOcrErrorCode[];
 
 export interface IOcrErrorEnvelope {
-    code: TOcrErrorCode;
-    message: string;
-    retryable: boolean;
-    timestamp: number;
-    details?: string;
+    readonly code: TOcrErrorCode;
+    readonly message: string;
+    readonly retryable: boolean;
+    readonly timestamp: TEpochMs;
+    readonly details?: string;
 }
 
-export interface IOcrErrorEnvelopeCarrier {errorEnvelope?: IOcrErrorEnvelope;}
+export interface IOcrErrorEnvelopeCarrier {readonly errorEnvelope?: IOcrErrorEnvelope;}
 
 export type TOcrDiagnosticCode =
     | 'OCR_PREPROCESSING_UNAVAILABLE'
@@ -45,14 +52,14 @@ export const OCR_DIAGNOSTIC_CODES = [
 ] as const satisfies readonly TOcrDiagnosticCode[];
 
 export interface IOcrDiagnostic {
-    code: TOcrDiagnosticCode;
-    severity: 'info' | 'warning';
-    message: string;
-    pageNumber?: number;
+    readonly code: TOcrDiagnosticCode;
+    readonly severity: 'info' | 'warning';
+    readonly message: string;
+    readonly pageNumber?: TPageNumber;
 }
 
 export interface IOcrRecognizeRequest {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     imageData: Uint8Array;
     languages: string[];
     imageWidth?: number;
@@ -61,7 +68,7 @@ export interface IOcrRecognizeRequest {
 
 /** A single page request sent to the OCR worker. */
 export interface IOcrSearchablePdfPage {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     languages: string[];
 }
 
@@ -139,10 +146,10 @@ export interface IOcrSearchablePdfOptions {
 }
 
 export interface IOcrRecognizeResult extends IOcrErrorEnvelopeCarrier {
-    pageNumber: number;
-    success: boolean;
-    text: string;
-    error?: string;
+    readonly pageNumber: TPageNumber;
+    readonly success: boolean;
+    readonly text: string;
+    readonly error?: string;
 }
 
 export type TOcrProgressPhase =
@@ -168,53 +175,53 @@ export const OCR_PROGRESS_PHASES = [
 export type TOcrProgressStatus = 'running' | 'success' | 'canceled' | 'failed';
 
 export interface IOcrProgress {
-    requestId: string;
-    currentPage: number;
-    processedCount: number;
-    totalPages: number;
-    phase?: TOcrProgressPhase;
-    phaseProgress?: number;
-    activePages?: number[];
-    languageCode?: string;
-    status?: TOcrProgressStatus;
-    error?: string;
+    readonly requestId: TRequestId;
+    readonly currentPage: number;
+    readonly processedCount: number;
+    readonly totalPages: number;
+    readonly phase?: TOcrProgressPhase;
+    readonly phaseProgress?: number;
+    readonly activePages?: readonly number[];
+    readonly languageCode?: string;
+    readonly status?: TOcrProgressStatus;
+    readonly error?: string;
 }
 
 export interface IOcrJobStartResult extends IOcrErrorEnvelopeCarrier {
-    started: boolean;
-    jobId: string;
-    error?: string;
-    installed?: string[];
-    errors?: string[];
+    readonly started: boolean;
+    readonly jobId: TJobId;
+    readonly error?: string;
+    readonly installed?: readonly string[];
+    readonly errors?: readonly string[];
 }
 
 export type TOcrCancelFailureReason = 'invalid-request' | 'not-found' | 'failed';
 
 export interface IOcrCancelResult extends IOcrErrorEnvelopeCarrier {
-    canceled: boolean;
-    reason?: TOcrCancelFailureReason;
-    error?: string;
+    readonly canceled: boolean;
+    readonly reason?: TOcrCancelFailureReason;
+    readonly error?: string;
 }
 
 export interface IOcrResultFileAckResult extends IOcrErrorEnvelopeCarrier {
-    cleaned: boolean;
-    error?: string;
+    readonly cleaned: boolean;
+    readonly error?: string;
 }
 
 export interface IOcrRecognizeBatchResult extends IOcrErrorEnvelopeCarrier {
-    results: Record<number, string>;
-    errors: string[];
+    readonly results: Readonly<Record<number, string>>;
+    readonly errors: readonly string[];
 }
 
 export interface IOcrCompleteResult extends IOcrErrorEnvelopeCarrier {
-    requestId: string;
-    success: boolean;
-    pdfPath?: TDocumentRef;
-    sourceDocumentRevisionToken?: TDocumentRevisionToken;
-    resultSha256?: string;
-    requiresCleanupAck?: boolean;
-    errors: string[];
-    diagnostics?: IOcrDiagnostic[];
+    readonly requestId: TRequestId;
+    readonly success: boolean;
+    readonly pdfPath?: TDocumentRef;
+    readonly sourceDocumentRevisionToken?: TDocumentRevisionToken;
+    readonly resultSha256?: string;
+    readonly requiresCleanupAck?: boolean;
+    readonly errors: readonly string[];
+    readonly diagnostics?: readonly IOcrDiagnostic[];
 }
 
 export type TOcrJobProjectionPhase = TOcrProgressPhase
@@ -224,65 +231,65 @@ export type TOcrJobProjectionPhase = TOcrProgressPhase
     | 'cancel-requested';
 
 export interface IOcrJobProjectionState {
-    jobId: string;
-    requestId: string;
-    status: 'queued' | 'running' | 'handoff' | 'completed' | 'canceled' | 'failed';
-    phase: TOcrJobProjectionPhase;
-    percent: number;
-    current?: number;
-    total?: number;
-    error?: string;
-    updatedAtMs: number;
-    supersessionPolicy?: TOcrTextSupersessionPolicy;
-    replaceAllAcknowledged?: boolean;
+    readonly jobId: TJobId;
+    readonly requestId: TRequestId;
+    readonly status: 'queued' | 'running' | 'handoff' | 'completed' | 'canceled' | 'failed';
+    readonly phase: TOcrJobProjectionPhase;
+    readonly percent: number;
+    readonly current?: number;
+    readonly total?: number;
+    readonly error?: string;
+    readonly updatedAtMs: number;
+    readonly supersessionPolicy?: TOcrTextSupersessionPolicy;
+    readonly replaceAllAcknowledged?: boolean;
 }
 
 export interface IPreprocessingValidationResult extends IOcrErrorEnvelopeCarrier {
-    valid: boolean;
-    available: string[];
-    missing: string[];
+    readonly valid: boolean;
+    readonly available: readonly string[];
+    readonly missing: readonly string[];
 }
 
 export interface IOcrToolValidationResult extends IOcrErrorEnvelopeCarrier {
-    valid: boolean;
-    tools: {
-        tesseract: {
-            found: boolean;
-            path: string;
-            version?: string;
+    readonly valid: boolean;
+    readonly tools: {
+        readonly tesseract: {
+            readonly found: boolean;
+            readonly path: string;
+            readonly version?: string;
         };
-        tessdata: {
-            found: boolean;
-            path: string;
-            languages?: string[];
+        readonly tessdata: {
+            readonly found: boolean;
+            readonly path: string;
+            readonly languages?: readonly string[];
             /** Supported models not installed yet; resolved through the on-demand model flow. */
-            onDemandLanguages?: string[];
+            readonly onDemandLanguages?: readonly string[];
         };
-        pdftoppm: {
-            found: boolean;
-            path: string;
+        readonly pdftoppm: {
+            readonly found: boolean;
+            readonly path: string;
         };
-        pdftotext: {
-            found: boolean;
-            path: string;
+        readonly pdftotext: {
+            readonly found: boolean;
+            readonly path: string;
         };
-        popplerRuntime: {
-            dataDirFound: boolean;
-            dataDir?: string;
-            fontConfigDirFound: boolean;
-            fontConfigDir?: string;
+        readonly popplerRuntime: {
+            readonly dataDirFound: boolean;
+            readonly dataDir?: string;
+            readonly fontConfigDirFound: boolean;
+            readonly fontConfigDir?: string;
         };
-        qpdf: {
-            found: boolean;
-            path: string;
+        readonly qpdf: {
+            readonly found: boolean;
+            readonly path: string;
         };
     };
-    errors: string[];
+    readonly errors: readonly string[];
 }
 
 export interface IPreprocessPageResult extends IOcrErrorEnvelopeCarrier {
-    success: boolean;
-    imageData: Uint8Array;
-    message?: string;
-    error?: string;
+    readonly success: boolean;
+    readonly imageData: Uint8Array;
+    readonly message?: string;
+    readonly error?: string;
 }

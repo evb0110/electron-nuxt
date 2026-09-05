@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { IResolvedSearchMatchOptions } from '@contracts/search';
@@ -25,7 +26,7 @@ function isAbortError(error: unknown) {
 }
 
 function defaultSearchError(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
+    return getErrorMessage(error);
 }
 
 /** Workspace-owned search state with latest-run and latest-backend authority. */

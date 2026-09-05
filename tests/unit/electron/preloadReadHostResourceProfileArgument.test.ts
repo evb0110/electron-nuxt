@@ -19,7 +19,11 @@ function installBase64OnlyBuffer() {
             if (encoding === 'base64url') {
                 throw new Error('sandbox Buffer does not implement base64url');
             }
-            return originalBufferFrom(value as never, encoding);
+            // Only the string overload of Buffer.from takes an encoding, so the two
+            // arities are forwarded separately rather than through one widened call.
+            return typeof value === 'string'
+                ? originalBufferFrom(value, encoding)
+                : originalBufferFrom(value as Uint8Array);
         },
     });
     Object.defineProperty(Buffer.prototype, 'toString', {

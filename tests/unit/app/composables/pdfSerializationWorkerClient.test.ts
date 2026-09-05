@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { requireDocumentRevisionToken } from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
 
 const failureReceipt = {
@@ -235,7 +236,7 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
         await serializePdfEditsOffThread({
             bytes: data,
             ownership: 'disposable',
-            reloadPath: 'browser://documents/disposable.pdf',
+            reloadPath: requireDocumentRef('browser://documents/disposable.pdf'),
             revision,
         }, payload);
 
@@ -286,7 +287,7 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
             await expect(serializePdfEditsOffThread({
                 bytes: data,
                 ownership: 'disposable',
-                reloadPath: 'browser://documents/disposable.pdf',
+                reloadPath: requireDocumentRef('browser://documents/disposable.pdf'),
                 revision,
             }, payload)).resolves.toBe(reloaded);
 
@@ -328,7 +329,7 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
                     3,
                 ]),
                 ownership: 'disposable',
-                reloadPath: 'browser://documents/disposable.pdf',
+                reloadPath: requireDocumentRef('browser://documents/disposable.pdf'),
                 revision,
             }, createSavePayload())).rejects.toThrow('revision changed before reload');
 
@@ -360,7 +361,7 @@ describe('pdfSerializationWorkerClient', {timeout: 20_000}, () => {
                     3,
                 ]),
                 ownership: 'disposable',
-                reloadPath: '/tmp/large-native.pdf',
+                reloadPath: requireDocumentRef('/tmp/large-native.pdf'),
                 revision,
             }, createSavePayload())).rejects.toMatchObject({
                 code: 'native-save-required',

@@ -8,6 +8,7 @@ import {
 import { runInitSequence } from '@electron/bootstrap/runInitSequence';
 import { canonicalBundledApplicationVersion } from '@electron/appVersion';
 import { config } from '@electron/config';
+import {requireDocumentRef} from '@contracts/documentRef';
 import { DEFAULT_SETTINGS } from '@contracts/settings';
 
 vi.mock('@electron/config', () => ({config: {
@@ -258,18 +259,18 @@ describe('runInitSequence external open IPC', () => {
 
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
             harness.otherWindow.webContents as never,
-            ['/docs/startup.pdf'],
+            [requireDocumentRef('/docs/startup.pdf')],
         );
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
             harness.mainWindow.webContents as never,
-            ['/docs/other.pdf'],
+            [requireDocumentRef('/docs/other.pdf')],
         );
 
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).not.toHaveBeenCalled();
 
         harness.capturedHandlers.acknowledgePendingExternalOpenPaths?.(
             harness.mainWindow.webContents as never,
-            ['/docs/startup.pdf'],
+            [requireDocumentRef('/docs/startup.pdf')],
         );
 
         expect(harness.externalOpenManager.acknowledgeClaimedOpenPaths).toHaveBeenCalledTimes(1);

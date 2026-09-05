@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -21,7 +23,7 @@ function createHarness() {
     container.append(textLayerDiv);
 
     const clearedSelectionPages: number[] = [];
-    const textLayerCleanupFns = new Map<number, TPdfTextLayerCleanup>();
+    const textLayerCleanupFns = new Map<TPageNumber, TPdfTextLayerCleanup>();
     const teardownInteraction = vi.fn();
     // Mirrors the renderer contract: the text layer is torn down and rebuilt
     // only when its content key changes, and relayouted otherwise.
@@ -52,7 +54,7 @@ function createHarness() {
 
     const renderTextLayerForPage = usePdfRendererTextLayerController({
         textLayerRenderer,
-        activeTextLayerAbortControllers: new Map<number, IActivePdfTextLayerTask>(),
+        activeTextLayerAbortControllers: new Map<TPageNumber, IActivePdfTextLayerTask>(),
         textLayerCleanupFns,
         getRenderVersion: () => 1,
         cleanupTextLayer: (pageNumber) => {
@@ -73,7 +75,7 @@ function createHarness() {
         clearedSelectionPages,
         contentKey: 'revision-1',
         renderAtScale: (scale: number) => renderTextLayerForPage(
-            1,
+            requirePageNumber(1),
             1,
             1,
             {
@@ -111,12 +113,12 @@ describe('usePdfRendererTextLayerController', () => {
         const harness = createHarness();
 
         expect(await harness.renderAtScale(1)).toBe(true);
-        const interactionAfterFirstRender = harness.textLayerCleanupFns.get(1);
+        const interactionAfterFirstRender = harness.textLayerCleanupFns.get(requirePageNumber(1));
         expect(await harness.renderAtScale(2)).toBe(true);
 
         expect(harness.clearedSelectionPages).toEqual([1]);
         expect(harness.teardownInteraction).not.toHaveBeenCalled();
-        expect(harness.textLayerCleanupFns.get(1)).toBe(interactionAfterFirstRender);
+        expect(harness.textLayerCleanupFns.get(requirePageNumber(1))).toBe(interactionAfterFirstRender);
     });
 
     it('tears the selection and the interaction down when the layer content is rebuilt', async () => {
@@ -131,6 +133,6 @@ describe('usePdfRendererTextLayerController', () => {
             1,
         ]);
         expect(harness.teardownInteraction).toHaveBeenCalledTimes(1);
-        expect(harness.textLayerCleanupFns.get(1)).toBeTypeOf('function');
+        expect(harness.textLayerCleanupFns.get(requirePageNumber(1))).toBeTypeOf('function');
     });
 });

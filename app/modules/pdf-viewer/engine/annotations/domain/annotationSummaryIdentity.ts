@@ -1,3 +1,7 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+import { parseEpochMs } from '@contracts/timestamps';
+
 import { uniq } from 'es-toolkit/array';
 import type {
     IAnnotationCommentSummary,
@@ -12,7 +16,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 export interface IComputeSummaryStableKeyParams {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     id: string;
     source: IAnnotationCommentSummary['source'];
     uid?: string | null;
@@ -43,7 +47,7 @@ export function computeSummaryStableKey(params: IComputeSummaryStableKeyParams):
 
 export function getReplayableFreeTextNoteName(input: {
     stableKey: string;
-    createdAt: number | null | undefined;
+    createdAt: IAnnotationCommentSummary['createdAt'];
 }) {
     const stableKey = input.stableKey.trim();
     if (!stableKey) {
@@ -77,10 +81,10 @@ export function toCanonicalStableKey(
 ) {
     return computeSummaryStableKey({
         id: summary.id,
-        pageIndex: summary.pageIndex,
+        pageIndex: requirePageIndex(summary.pageIndex),
         source: summary.source,
-        ...(summary.uid !== undefined ? {uid: summary.uid} : {}),
-        ...(summary.annotationId !== undefined ? {annotationId: summary.annotationId} : {}),
+        ...(summary.uid !== null ? {uid: summary.uid} : {}),
+        ...(summary.annotationId !== null ? {annotationId: summary.annotationId} : {}),
         ...(summary.annotationName !== undefined ? {annotationName: summary.annotationName} : {}),
     });
 }
@@ -177,7 +181,7 @@ export function mergeCommentSummaries(existing: IAnnotationCommentSummary, incom
         uid: preferred.uid ?? fallback.uid,
         text: preferred.text.trim() ? preferred.text : fallback.text,
         author: preferred.author ?? fallback.author,
-        modifiedAt: Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0) || null,
+        modifiedAt: parseEpochMs(Math.max(preferred.modifiedAt ?? 0, fallback.modifiedAt ?? 0)) ?? null,
         color: preferred.color ?? fallback.color,
         hasNote: preferred.hasNote === true || fallback.hasNote === true,
         ...(appAnnotationId ? {appAnnotationId} : {}),
@@ -198,7 +202,10 @@ export function dedupeAnnotationCommentSummaries(comments: IAnnotationCommentSum
     for (const comment of comments.map(normalizeSummaryStableKey)) {
         const index = merged.findIndex(candidate => annotationCommentsMatch(candidate, comment));
         if (index === -1) merged.push(comment);
-        else merged[index] = mergeCommentSummaries(merged[index]!, comment);
+        else {
+            const existing = merged[index];
+            if (existing) merged[index] = mergeCommentSummaries(existing, comment);
+        }
     }
     return merged.sort(compareAnnotationCommentSummaries);
 }

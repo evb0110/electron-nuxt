@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { Ref } from 'vue';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import { collectEmbeddedShapeAnnotationIds } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/collectEmbeddedShapeAnnotationIds';
@@ -10,6 +12,10 @@ import { logPdfRenderTrace } from '@app/utils/pdfRenderTrace';
 import type { IGuardAsyncOptions } from '@app/utils/asyncGuard';
 import { tryOnScopeDispose } from '@vueuse/core';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type {
     IShapeImportPlan,
     IShapeImportSource,
@@ -53,7 +59,7 @@ interface IManagedEmbeddedPdfShapesRenderOptions {
 
 interface IPendingPostPaintEmbeddedShapeImport {
     data: Uint8Array | null;
-    path: string | null;
+    path: TDocumentRef | null;
     revision: TDocumentRevisionToken | null;
     documentKey: string | null;
     token: number;
@@ -100,13 +106,13 @@ interface IUseManagedEmbeddedPdfShapesOptions {
         options: IGuardAsyncOptions,
     ) => void;
     nextTick: () => Promise<void>;
-    isPageRendered: (pageNumber: number) => boolean;
+    isPageRendered: (pageNumber: TPageNumber) => boolean;
     invalidatePages: (pages: number[]) => void;
     renderVisiblePages: (
         visibleRange: IManagedEmbeddedPdfShapesPageRange,
         renderOptions?: IManagedEmbeddedPdfShapesRenderOptions,
     ) => Promise<void>;
-    hideManagedAnnotationEditors: (pageNumber?: number) => void;
+    hideManagedAnnotationEditors: (pageNumber?: TPageNumber) => void;
     currentPage: Ref<number>;
 }
 
@@ -131,7 +137,7 @@ export const useManagedEmbeddedPdfShapes = ({
 }: IUseManagedEmbeddedPdfShapesOptions) => {
     let embeddedShapeImportToken = 0;
     let pendingEmbeddedShapeImportData: Uint8Array | null = null;
-    let pendingEmbeddedShapeImportPath: string | null = null;
+    let pendingEmbeddedShapeImportPath: TDocumentRef | null = null;
     let pendingEmbeddedShapeImportRevision: TDocumentRevisionToken | null = null;
     let embeddedShapeImportPromise: Promise<void> = Promise.resolve();
     let embeddedShapeImportAbortController: AbortController | null = null;
@@ -142,7 +148,7 @@ export const useManagedEmbeddedPdfShapes = ({
      */
     const savePrimingAbortControllers = new Set<{
         controller: AbortController;
-        path: string | null;
+        path: TDocumentRef | null;
         documentKey: string | null;
     }>();
     const activeShapeSavePreparations = new Set<Promise<void>>();
@@ -154,25 +160,27 @@ export const useManagedEmbeddedPdfShapes = ({
     let pendingPostPaintImport: IPendingPostPaintEmbeddedShapeImport | null = null;
     let lastRenderedSource: {
         data: Uint8Array | null;
-        path: string | null;
+        path: TDocumentRef | null;
         revision: TDocumentRevisionToken | null;
         documentKey: string | null;
         token: number;
-        pageNumber: number;
+        pageNumber: TPageNumber;
     } | null = null;
     let scheduledPostPaintImport: {
         captured: IPendingPostPaintEmbeddedShapeImport;
-        pageNumber: number;
+        pageNumber: TPageNumber;
     } | null = null;
     let saveReconciledSource: {
-        path: string | null;
+        path: TDocumentRef | null;
         revision: TDocumentRevisionToken | null;
         documentKey: string | null;
     } | null = null;
 
+    const parsePath = (value: string | null | undefined) => parseDocumentRef(value);
+
     function runAfterInitialVisualPaint(
         captured: IPendingPostPaintEmbeddedShapeImport,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         task: (canvasStillMounted: boolean) => void,
     ) {
         if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
@@ -212,10 +220,7 @@ export const useManagedEmbeddedPdfShapes = ({
             && (originalPath?.value ?? null) === captured.documentKey;
     }
 
-    function scheduleCapturedImportAfterRenderedPage(
-        captured: IPendingPostPaintEmbeddedShapeImport,
-        pageNumber: number,
-    ) {
+    function scheduleCapturedImportAfterRenderedPage(captured: IPendingPostPaintEmbeddedShapeImport, pageNumber: TPageNumber) {
         if (
             !isCapturedImportCurrent(captured)
             || pageNumber < captured.visibleStart
@@ -247,17 +252,14 @@ export const useManagedEmbeddedPdfShapes = ({
         });
     }
 
-    function currentImportSource(path: string | null) {
+    function currentImportSource(path: TDocumentRef | null) {
         return {
             documentKey: originalPath?.value ?? null,
             path,
         };
     }
 
-    function hasSaveReconciledBaseline(
-        path: string | null,
-        revision: TDocumentRevisionToken | null,
-    ) {
+    function hasSaveReconciledBaseline(path: TDocumentRef | null, revision: TDocumentRevisionToken | null) {
         return shapeComposable.isShapeImportBaselineReady()
             && saveReconciledSource?.path === path
             && saveReconciledSource.revision === revision
@@ -339,7 +341,7 @@ export const useManagedEmbeddedPdfShapes = ({
         );
     }
 
-    function hasRenderedCanvasOnPage(pageNumber: number) {
+    function hasRenderedCanvasOnPage(pageNumber: TPageNumber) {
         return Boolean(
             viewerContainer.value?.querySelector(
                 `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
@@ -347,11 +349,7 @@ export const useManagedEmbeddedPdfShapes = ({
         );
     }
 
-    async function resetEmbeddedShapeImportBaseline(
-        token?: number,
-        path?: string | null,
-        revision?: TDocumentRevisionToken | null,
-    ) {
+    async function resetEmbeddedShapeImportBaseline(token?: number, path?: TDocumentRef | null, revision?: TDocumentRevisionToken | null) {
         shapeComposable.resetShapeImportBaseline();
         await waitForNextTick();
         if (token !== undefined && isStaleEmbeddedShapeImport(token, path ?? null, revision ?? null)) {
@@ -363,7 +361,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
     async function importEmbeddedShapesFromResolvedSource(
         data: Uint8Array | null,
-        path: string | null,
+        path: TDocumentRef | null,
         revision: TDocumentRevisionToken | null,
         token: number,
         signal: AbortSignal,
@@ -415,14 +413,21 @@ export const useManagedEmbeddedPdfShapes = ({
             });
             const shapes = await acquireEmbeddedShapeImport(key, async (sharedSignal) => {
                 if (nativePathSource) {
-                    return importClient.importEmbeddedShapeAnnotationsFromNativePath(path!, {
+                    if (!path) {
+                        throw new Error('Native embedded shape import requires a document path');
+                    }
+                    return importClient.importEmbeddedShapeAnnotationsFromNativePath(path, {
                         signal: sharedSignal,
                         expectedDocumentRevisionToken: revision,
                     });
                 }
-                return data && data.length > 0
-                    ? importClient.importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal})
-                    : importClient.importEmbeddedShapeAnnotationsFromPathInWorker(path!, {signal: sharedSignal});
+                if (data && data.length > 0) {
+                    return importClient.importEmbeddedShapeAnnotationsUsingWorker(data, {signal: sharedSignal});
+                }
+                if (!path) {
+                    throw new Error('Embedded shape import requires a document path');
+                }
+                return importClient.importEmbeddedShapeAnnotationsFromPathInWorker(path, {signal: sharedSignal});
             }, signal);
             if (isStaleEmbeddedShapeImport(token, path, revision)) {
                 logStaleEmbeddedShapeImport(token, path, revision);
@@ -454,11 +459,7 @@ export const useManagedEmbeddedPdfShapes = ({
         }
     }
 
-    function isStaleEmbeddedShapeImport(
-        token: number,
-        path: string | null,
-        revision: TDocumentRevisionToken | null,
-    ) {
+    function isStaleEmbeddedShapeImport(token: number, path: TDocumentRef | null, revision: TDocumentRevisionToken | null) {
         // Completed imports are cached per revision, but an in-flight one is
         // only fenced by what it captured when it started. Without the revision
         // an old scan can land after a page mutation and reinstate the shape
@@ -469,11 +470,7 @@ export const useManagedEmbeddedPdfShapes = ({
             || documentRevisionToken.value !== revision;
     }
 
-    function logStaleEmbeddedShapeImport(
-        token: number,
-        path: string | null,
-        revision: TDocumentRevisionToken | null,
-    ) {
+    function logStaleEmbeddedShapeImport(token: number, path: TDocumentRef | null, revision: TDocumentRevisionToken | null) {
         logger.debug('pdf-shapes', 'Skipped stale embedded shape import result', () => ({
             path,
             token,
@@ -486,7 +483,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
     async function applyImportedEmbeddedShapes(
         importedShapes: IShapeAnnotation[],
-        path: string | null,
+        path: TDocumentRef | null,
         token: number,
         revision: TDocumentRevisionToken | null,
     ) {
@@ -546,11 +543,7 @@ export const useManagedEmbeddedPdfShapes = ({
         });
     }
 
-    function importEmbeddedShapesForSource(
-        data: Uint8Array | null,
-        path: string | null,
-        revision: TDocumentRevisionToken | null,
-    ) {
+    function importEmbeddedShapesForSource(data: Uint8Array | null, path: TDocumentRef | null, revision: TDocumentRevisionToken | null) {
         if (disposed) {
             return Promise.resolve();
         }
@@ -586,13 +579,7 @@ export const useManagedEmbeddedPdfShapes = ({
                 return;
             }
 
-            const result = await importEmbeddedShapesFromResolvedSource(
-                data,
-                path,
-                revision,
-                localToken,
-                abortController.signal,
-            );
+            const result = await importEmbeddedShapesFromResolvedSource(data, path, revision, localToken, abortController.signal);
             if (result.status === 'empty') {
                 await resetEmbeddedShapeImportBaseline(localToken, path, revision);
                 return;
@@ -673,7 +660,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
     function ensureEmbeddedShapesImportedForCurrentSource() {
         const data = sourcePdfData.value;
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         const revision = documentRevisionToken.value;
         if (
             pendingEmbeddedShapeImportData !== data
@@ -695,7 +682,7 @@ export const useManagedEmbeddedPdfShapes = ({
             return true;
         }
         const data = sourcePdfData.value;
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         const revision = documentRevisionToken.value;
         if (hasSaveReconciledBaseline(path, revision)) {
             return true;
@@ -723,7 +710,7 @@ export const useManagedEmbeddedPdfShapes = ({
         pendingPostPaintImport = null;
         scheduledPostPaintImport = null;
         const localToken = ++embeddedShapeImportToken;
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         const revision = documentRevisionToken.value;
         shapeComposable.resetShapeImportBaseline();
         await waitForNextTick();
@@ -736,7 +723,7 @@ export const useManagedEmbeddedPdfShapes = ({
 
     function queueCurrentSourceImportAfterInitialPaint() {
         const data = sourcePdfData.value;
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         if (!data && !path) {
             pendingPostPaintImport = null;
             scheduledPostPaintImport = null;
@@ -790,9 +777,7 @@ export const useManagedEmbeddedPdfShapes = ({
     function cancelSupersededShapeSavePriming() {
         savePrimingAbortControllers.forEach((registration) => {
             if (isStaleShapeSavePriming(registration.path, registration.documentKey)) {
-                registration.controller.abort(
-                    new DOMException('Managed shape save priming was superseded', 'AbortError'),
-                );
+                registration.controller.abort(new DOMException('Managed shape save priming was superseded', 'AbortError'));
             }
         });
     }
@@ -805,16 +790,14 @@ export const useManagedEmbeddedPdfShapes = ({
      * both of which survive a save and both of which change when the viewer
      * adopts a different document.
      */
-    function isStaleShapeSavePriming(path: string | null, documentKey: string | null) {
+    function isStaleShapeSavePriming(path: TDocumentRef | null, documentKey: string | null) {
         return disposed
             || workingCopyPath.value !== path
             || (originalPath?.value ?? null) !== documentKey;
     }
 
     function retireRevisionTriggeredShapeImportAfterSave() {
-        embeddedShapeImportAbortController?.abort(
-            new DOMException('Managed shape import was superseded by save reconciliation', 'AbortError'),
-        );
+        embeddedShapeImportAbortController?.abort(new DOMException('Managed shape import was superseded by save reconciliation', 'AbortError'));
         embeddedShapeImportAbortController = null;
         embeddedShapeImportToken += 1;
         pendingEmbeddedShapeImportData = null;
@@ -827,7 +810,7 @@ export const useManagedEmbeddedPdfShapes = ({
     async function preparePersistedManagedShapesForSave(
         data?: Uint8Array,
     ): Promise<IShapeSavePreparation | null> {
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         const documentKey = originalPath?.value ?? null;
         // The store captures the frontier this priming may advance past, so a
         // failed persist rolls the canonical shapes back atomically instead of
@@ -861,7 +844,7 @@ export const useManagedEmbeddedPdfShapes = ({
                         // Do not repeat the save index scan outside the captured
                         // frontier and dirty PDF.js's saved fingerprint.
                         saveReconciledSource = {
-                            path: workingCopyPath.value,
+                            path: parsePath(workingCopyPath.value),
                             revision: documentRevisionToken.value,
                             documentKey: originalPath?.value ?? null,
                         };
@@ -908,7 +891,10 @@ export const useManagedEmbeddedPdfShapes = ({
             }
             let importedShapes;
             if (nativePathSource) {
-                importedShapes = await importClient.importEmbeddedShapeAnnotationsFromNativePath(path!, {
+                if (!path) {
+                    return abandon('Skipped managed shape save priming because the native source path was unavailable');
+                }
+                importedShapes = await importClient.importEmbeddedShapeAnnotationsFromNativePath(path, {
                     signal: registration.controller.signal,
                     expectedDocumentRevisionToken: documentRevisionToken.value,
                 });
@@ -976,7 +962,7 @@ export const useManagedEmbeddedPdfShapes = ({
             // The document can be replaced while a failed save unwinds, which
             // retires the store that captured this frontier. There is then
             // nothing to roll back, and nothing this viewer may touch.
-            logger.debug('pdf-shapes', 'Skipped managed shape rollback for a retired save frontier', () => ({path: workingCopyPath.value}));
+            logger.debug('pdf-shapes', 'Skipped managed shape rollback for a retired save frontier', () => ({path: parsePath(workingCopyPath.value)}));
             return;
         }
         await waitForNextTick();
@@ -999,7 +985,7 @@ export const useManagedEmbeddedPdfShapes = ({
                 pendingEmbeddedAnnotationRefreshPages.clear();
 
                 const pagesToRefresh = pageNumbers.filter(pageNumber => shouldRefreshManagedShapePage({
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     visibleRange: visibleRange.value,
                     renderBuffer: bufferPages.value,
                     isPageRendered,
@@ -1009,10 +995,15 @@ export const useManagedEmbeddedPdfShapes = ({
                     continue;
                 }
 
+                const start = pagesToRefresh[0];
+                const end = pagesToRefresh[pagesToRefresh.length - 1];
+                if (start === undefined || end === undefined) {
+                    continue;
+                }
                 await renderVisiblePages(
                     {
-                        start: pagesToRefresh[0]!,
-                        end: pagesToRefresh[pagesToRefresh.length - 1]!,
+                        start,
+                        end,
                     },
                     {
                         preserveRenderedPages: true,
@@ -1034,7 +1025,7 @@ export const useManagedEmbeddedPdfShapes = ({
         }
     }
 
-    function queueEmbeddedAnnotationPageRefresh(pageNumber: number) {
+    function queueEmbeddedAnnotationPageRefresh(pageNumber: TPageNumber) {
         if (disposed || !Number.isFinite(pageNumber) || pageNumber < 1) {
             return;
         }
@@ -1047,11 +1038,8 @@ export const useManagedEmbeddedPdfShapes = ({
         });
     }
 
-    function refreshHiddenAnnotationPage(comment: { pageNumber?: number | null }) {
-        const pageNumber = Number.isFinite(comment.pageNumber) && (comment.pageNumber ?? 0) > 0
-            ? Math.floor(comment.pageNumber!)
-            : currentPage.value;
-        queueEmbeddedAnnotationPageRefresh(pageNumber);
+    function refreshHiddenAnnotationPage(comment: { pageNumber?: TPageNumber | null }) {
+        queueEmbeddedAnnotationPageRefresh(comment.pageNumber ?? requirePageNumber(currentPage.value));
     }
 
     function refreshDeletedEmbeddedShape(shape: IShapeAnnotation | null) {
@@ -1079,7 +1067,7 @@ export const useManagedEmbeddedPdfShapes = ({
         if (queueCurrentSourceImportAfterInitialPaint()) {
             logger.debug('pdf-shapes', 'Deferring managed shape import until after initial PDF paint', {
                 token,
-                path: workingCopyPath.value,
+                path: parsePath(workingCopyPath.value),
             });
             settleViewerLoadSettle(token);
             return;
@@ -1089,10 +1077,10 @@ export const useManagedEmbeddedPdfShapes = ({
         settleViewerLoadSettle(token);
     }
 
-    function syncAfterPageRendered(pageNumber: number) {
+    function syncAfterPageRendered(pageNumber: TPageNumber) {
         lastRenderedSource = {
             data: sourcePdfData.value,
-            path: workingCopyPath.value,
+            path: parsePath(workingCopyPath.value),
             revision: documentRevisionToken.value,
             documentKey: originalPath?.value ?? null,
             token: embeddedShapeImportToken,
@@ -1112,15 +1100,15 @@ export const useManagedEmbeddedPdfShapes = ({
         // to repaint from the document. Undoing a delete is the path that gets
         // here, and only a rendered page can hold the annotation, which is what
         // the refresh queue already filters for.
-        if (previouslyHiddenIds && Array.from(previouslyHiddenIds).some(id => !hiddenIds.has(id))) {
+        if (Array.from(previouslyHiddenIds).some(id => !hiddenIds.has(id))) {
             const buffer = Math.max(0, bufferPages.value);
             const firstPage = Math.max(1, visibleRange.value.start - buffer);
             for (let pageNumber = firstPage; pageNumber <= visibleRange.value.end + buffer; pageNumber += 1) {
-                queueEmbeddedAnnotationPageRefresh(pageNumber);
+                queueEmbeddedAnnotationPageRefresh(requirePageNumber(pageNumber));
             }
         }
         const localToken = embeddedShapeImportToken;
-        const path = workingCopyPath.value;
+        const path = parsePath(workingCopyPath.value);
         const revision = documentRevisionToken.value;
         void waitForNextTick().then(() => {
             if (isStaleEmbeddedShapeImport(localToken, path, revision)) {
@@ -1143,6 +1131,7 @@ export const useManagedEmbeddedPdfShapes = ({
             path,
             ,
         ]) => {
+            const parsedPath = parsePath(path);
             if (!data && !path) {
                 if (
                     pendingPostPaintImport
@@ -1158,7 +1147,7 @@ export const useManagedEmbeddedPdfShapes = ({
                 path,
                 hasBaseline: shapeComposable.isShapeImportBaselineReady(),
             });
-            if (!shapeComposable.preservesShapeImportBaseline(currentImportSource(path))) {
+            if (!shapeComposable.preservesShapeImportBaseline(currentImportSource(parsedPath))) {
                 await clearManagedShapesForDeferredImport();
             }
             queueCurrentSourceImportAfterInitialPaint();

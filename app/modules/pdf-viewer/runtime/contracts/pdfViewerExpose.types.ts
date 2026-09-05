@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -22,12 +24,11 @@ import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/doc
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import type { IPdfLiveAnnotationChangeSummary } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
 
-/** @deprecated Use the format-neutral document sidebar tab contract. */
 export type TPdfSidebarTab = TDocumentSidebarTab;
 export type TAgentTextMarkupKind = 'highlight' | 'underline' | 'strikethrough' | 'squiggly';
 
 export interface ICreateTextMarkupFromTextOptions {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     text: string;
     occurrence?: number | undefined;
     markup?: TAgentTextMarkupKind | undefined;
@@ -38,7 +39,7 @@ export interface ICreateTextMarkupFromTextOptions {
 
 export interface ICreateTextMarkupFromTextResult {
     created: boolean;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     requestedText: string;
     matchedText: string | null;
     occurrence: number;
@@ -54,7 +55,7 @@ export interface ICreateTextMarkupFromTextResult {
 }
 
 export interface ICreatePointNoteAnnotationOptions {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageX: number;
     pageY: number;
     preferTextAnchor?: boolean | undefined;
@@ -62,7 +63,7 @@ export interface ICreatePointNoteAnnotationOptions {
 
 export interface ICreatePointNoteAnnotationResult {
     created: boolean;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageX: number;
     pageY: number;
     reason?: string | undefined;
@@ -75,11 +76,11 @@ export interface ICreatePointNoteAnnotationResult {
     pendingEditor?: boolean | undefined;
 }
 
-export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: number;}
+export interface ICreateShapeAnnotationOptions extends IShapeAnnotationConstructionOptions {pageNumber: TPageNumber;}
 
 export interface ICreateShapeAnnotationResult {
     created: boolean;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     shape: IAnnotationCommentSummary | null;
     reason?: string | undefined;
 }
@@ -135,7 +136,7 @@ export interface IPdfViewerSaveExpose {
 
 export interface IPdfViewerBrowserPrintExpose {renderLoadedPdfPagesForBrowserPrint?: (
     targetDocument: IBrowserPrintDocument,
-    pageNumbers: number[],
+    pageNumbers: TPageNumber[],
     options?: { signal?: AbortSignal },
 ) => Promise<void>;}
 
@@ -154,7 +155,7 @@ export interface IPdfViewerAnnotationCommandExpose {
         options: ICreateTextMarkupFromTextOptions,
     ) => Promise<ICreateTextMarkupFromTextResult>;
     commentAtPoint: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageX: number,
         pageY: number,
         options?: { preferTextAnchor?: boolean },
@@ -195,7 +196,7 @@ export interface IPdfViewerAnnotationCommentExpose {
     /** Remove a reopened editor and tombstone its canonical entity in one history transaction. */
     deleteReopenedEditorAnnotation?: (comment: IAnnotationCommentSummary) => Promise<boolean>;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
-    rerenderAnnotationPage: (pageNumber: number) => Promise<boolean>;
+    rerenderAnnotationPage: (pageNumber: TPageNumber) => Promise<boolean>;
     deleteEmbeddedAnnotationDeferred?: (comment: IAnnotationCommentSummary) => boolean;
     removeAnnotationFromDom: (comment: IAnnotationCommentSummary) => void;
     removeAnnotationFromInternalCache: (stableKey: string) => void;
@@ -230,7 +231,7 @@ export interface IPdfViewerImagePlacementExpose {
     startImagePlacement: (
         file: File,
         options?: {
-            pageNumber?: number | null;
+            pageNumber?: TPageNumber | null;
             pageX?: number | null;
             pageY?: number | null;
             stableKey?: string;

@@ -10,6 +10,7 @@ import {
     readDocumentBytesIfBelowLimit,
 } from '@app/utils/documentBytes';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const mockDocuments = {
     statFile: vi.fn(),
@@ -36,7 +37,7 @@ describe('documentBytes', () => {
         mockDocuments.statFile.mockResolvedValue({ size: bytes.byteLength });
         mockDocuments.readFile.mockResolvedValue(bytes);
 
-        await expect(readDocumentBytes('/tmp/doc.pdf')).resolves.toEqual(bytes);
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/doc.pdf'))).resolves.toEqual(bytes);
         expect(mockDocuments.readFile).toHaveBeenCalledWith('/tmp/doc.pdf');
         expect(mockDocuments.readFileRange).not.toHaveBeenCalled();
     });
@@ -61,7 +62,7 @@ describe('documentBytes', () => {
             .mockResolvedValueOnce(secondChunk)
             .mockResolvedValueOnce(finalChunk);
 
-        await expect(readDocumentBytes('/tmp/doc.pdf', { chunkSize: 64 * 1024 })).resolves.toEqual(expected);
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/doc.pdf'), {chunkSize: 64 * 1024})).resolves.toEqual(expected);
         expect(mockDocuments.readFile).not.toHaveBeenCalled();
         expect(mockDocuments.readFileRange).toHaveBeenNthCalledWith(1, '/tmp/doc.pdf', 0, 64 * 1024);
         expect(mockDocuments.readFileRange).toHaveBeenNthCalledWith(2, '/tmp/doc.pdf', 64 * 1024, 64 * 1024);
@@ -71,7 +72,7 @@ describe('documentBytes', () => {
     it('returns null when the document exceeds the requested limit', async () => {
         mockDocuments.statFile.mockResolvedValue({ size: 100 });
 
-        await expect(readDocumentBytesIfBelowLimit('/tmp/doc.pdf', 64)).resolves.toBeNull();
+        await expect(readDocumentBytesIfBelowLimit(requireDocumentRef('/tmp/doc.pdf'), 64)).resolves.toBeNull();
         expect(mockDocuments.readFile).not.toHaveBeenCalled();
         expect(mockDocuments.readFileRange).not.toHaveBeenCalled();
     });
@@ -80,7 +81,7 @@ describe('documentBytes', () => {
         mockDocuments.statFile.mockResolvedValue({ size: 4 });
         mockDocuments.readFile.mockResolvedValue(new Uint8Array(128));
 
-        await expect(readDocumentBytes('/tmp/doc.pdf', { maxBytes: 64 }))
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/doc.pdf'), {maxBytes: 64}))
             .rejects
             .toThrow('Document exceeds in-memory read limit (64 bytes)');
     });
@@ -93,7 +94,7 @@ describe('documentBytes', () => {
             3,
         ]));
 
-        await expect(readDocumentBytes('/tmp/doc.pdf'))
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/doc.pdf')))
             .rejects
             .toThrow('expected 4 bytes, read 3 bytes');
     });
@@ -103,7 +104,7 @@ describe('documentBytes', () => {
         mockDocuments.readFileRange.mockResolvedValueOnce(new Uint8Array(64 * 1024));
         mockDocuments.readFileRange.mockResolvedValueOnce(new Uint8Array(1));
 
-        await expect(readDocumentBytes('/tmp/doc.pdf', { chunkSize: 64 * 1024 }))
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/doc.pdf'), {chunkSize: 64 * 1024}))
             .rejects
             .toThrow('expected 65536 bytes, read 1 bytes');
     });
@@ -111,7 +112,7 @@ describe('documentBytes', () => {
     it('rejects oversized allocation sizes before reading or allocating', async () => {
         mockDocuments.statFile.mockResolvedValue({ size: MAX_DOCUMENT_ALLOCATION_BYTES + 1 });
 
-        await expect(readDocumentBytes('/tmp/oversized.pdf'))
+        await expect(readDocumentBytes(requireDocumentRef('/tmp/oversized.pdf')))
             .rejects
             .toThrow(`no greater than ${MAX_DOCUMENT_ALLOCATION_BYTES} bytes`);
         expect(mockDocuments.readFile).not.toHaveBeenCalled();

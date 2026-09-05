@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getFailureReceipt } from '@contracts/diagnostics/failureReceipt';
 
@@ -18,12 +19,12 @@ export function handleDocumentWorkspaceCrash(
     const errorDiagnostic = error instanceof Error
         ? {
             name: error.name,
-            message: error.message,
+            message: getErrorMessage(error),
             stack: error.stack ?? null,
             cause: error.cause instanceof Error
                 ? {
                     name: error.cause.name,
-                    message: error.cause.message,
+                    message: getErrorMessage(error.cause),
                     stack: error.cause.stack ?? null,
                 }
                 : error.cause ?? null,

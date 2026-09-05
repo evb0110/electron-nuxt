@@ -7,6 +7,7 @@ import {
 } from 'vitest';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
+import {requireIsoTimestamp} from '@contracts/timestamps';
 
 describe('preload debug log buffer', () => {
     beforeEach(() => {
@@ -21,11 +22,12 @@ describe('preload debug log buffer', () => {
         const eventId = parseDiagnosticEventId('b'.repeat(32))!;
 
         for (let index = 0; index < 2_000; index += 1) {
+            const timestamp = requireIsoTimestamp(`2026-09-03T00:00:${String(index % 60).padStart(2, '0')}.000Z`);
             const entry: IDebugLogEntry = index === 1_000
                 ? {
                     source: `main-${index}`,
                     message: '[ERROR] preserved failure',
-                    timestamp: `2026-09-03T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
+                    timestamp,
                     level: 'ERROR',
                     failureRef: {
                         eventId,
@@ -36,7 +38,7 @@ describe('preload debug log buffer', () => {
                 : {
                     source: `main-${index}`,
                     message: `[INFO] message ${index}`,
-                    timestamp: `2026-09-03T00:00:${String(index % 60).padStart(2, '0')}.000Z`,
+                    timestamp,
                     level: 'INFO',
                 };
             pushDebugLogMessage(entry);
@@ -49,7 +51,7 @@ describe('preload debug log buffer', () => {
         pushDebugLogMessage({
             source: 'main-final',
             message: '[INFO] final',
-            timestamp: '2026-09-03T00:01:00.000Z',
+            timestamp: requireIsoTimestamp('2026-09-03T00:01:00.000Z'),
             level: 'INFO',
         });
         expect(getDebugLogMessages()).toHaveLength(2_000);

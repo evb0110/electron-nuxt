@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     mkdir,
     mkdtemp,
@@ -221,7 +222,7 @@ export function assertSemanticParity(results) {
             }
             return JSON.stringify(output);
         } catch (error) {
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = getCliErrorMessage(error);
             throw new Error(
                 `Save benchmark scenario ${result.scenario ?? '<unknown>'} has missing or invalid semantic reopen evidence: ${reason}`,
             );

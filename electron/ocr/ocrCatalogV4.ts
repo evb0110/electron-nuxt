@@ -286,7 +286,7 @@ async function openReadOnlyNoFollow(filePath: string): Promise<FileHandle> {
 
 async function assertNoSymlinkAncestors(path: string, displayPath: string): Promise<void> {
     let cursor = resolve(path);
-    while (true) {
+    for (;;) {
         try {
             const ancestorStat = await lstat(cursor);
             if (ancestorStat.isSymbolicLink()) {
@@ -676,7 +676,6 @@ function validateIndexRecord(
         || record.generation > rootGeneration
         || !isSafeNonNegativeInteger(record.mappedCount)
         || record.mappedCount > shardPageCount
-        || record.reserved !== 0
         || (record.generation === 0 && record.mappedCount !== 0)
     ) {
         throw new OcrCatalogCorruptError(`invalid shard-index record ${shard}`);
@@ -1084,7 +1083,7 @@ async function findFirstUnmappedV3Page(
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'evb-ocr-v3-page-bits-'));
     const bitmapPath = join(temporaryDirectory, 'mapped.bits');
     let bitmap: FileHandle | null = null;
-    let firstUnreadablePage: number | null = null;
+    let firstUnreadablePage = null as number | null;
     const markUnreadable = (pageNumber: number) => {
         if (firstUnreadablePage === null || pageNumber < firstUnreadablePage) {
             firstUnreadablePage = pageNumber;
@@ -1724,10 +1723,7 @@ export async function readCatalogRoot(catalogRoot: string): Promise<TOcrCatalogR
         if (error instanceof OcrCatalogCorruptError) {
             throw error;
         }
-        if (hasV4Marker) {
-            throw new OcrCatalogCorruptError('published v4 root manifest is invalid JSON');
-        }
-        return null;
+        throw new OcrCatalogCorruptError('published v4 root manifest is invalid JSON');
     }
 }
 

@@ -1,7 +1,9 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IDocumentMutationRevisionOptions,
     IDocumentsFileCapability,
 } from '@contracts/electronApiDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import type { IRecentFile } from '@contracts/shared';
 import {
@@ -53,6 +55,7 @@ import {
     saveWorkingBytesToSourceStructured,
 } from '@app/platform/browser-api/browserSaveTargets';
 import { createPlatformUnsupportedResult } from '@contracts/platformUnsupported';
+import { createEpochMs } from '@contracts/timestamps';
 import { writeRecentFilesToStorage } from '@app/platform/browser/browserRecentFilesStore';
 import { stripBrowserPdfEncryption } from '@app/platform/browser-api/stripBrowserPdfEncryption';
 
@@ -75,7 +78,10 @@ const defaultBrowserLargeSaveHandleHintProvider = () => (
     'Use a browser with local file system access enabled to save large documents.'
 );
 
-type TCanonicalDocumentsFileCapability = IDocumentsFileCapability;
+type TCanonicalDocumentsFileCapability = IDocumentsFileCapability & Required<Pick<
+    IDocumentsFileCapability,
+    'openFolderDialogStructured' | 'createCombinedPdfFromFiles' | 'showItemInFolderStructured'
+>>;
 
 function createCanceledSaveValidationResult(validation: IPdfValidationResult): IPdfValidationResult {
     return {
@@ -87,12 +93,12 @@ function createCanceledSaveValidationResult(validation: IPdfValidationResult): I
 
 export function createBrowserDocumentsFileCapability(
     options: ICreateBrowserDocumentsFileCapabilityOptions,
-): IDocumentsFileCapability {
+): TCanonicalDocumentsFileCapability {
     const { clearSearchCaches } = options;
     const browserLargeSaveHandleHintProvider = options.errorMessageProvider?.largeSaveHandleHint
         ?? defaultBrowserLargeSaveHandleHintProvider;
 
-    async function cleanupTransientOpenRefs(paths: string[]) {
+    async function cleanupTransientOpenRefs(paths: TDocumentRef[]) {
         await Promise.all(paths.map(async (path) => {
             try {
                 await browserDocumentStore.remove(path);
@@ -103,7 +109,7 @@ export function createBrowserDocumentsFileCapability(
     }
 
     async function savePdfAsWithOptionalData(
-        workingCopyPath: string,
+        workingCopyPath: TDocumentRef,
         data?: Uint8Array,
         revisionOptions?: IDocumentMutationRevisionOptions,
         commitCallbacks?: Parameters<IDocumentsFileCapability['savePdfDataAs']>[4],
@@ -131,7 +137,7 @@ export function createBrowserDocumentsFileCapability(
         await commitCallbacks?.assertBeforeCommit?.();
 
         let externalWriteCommitted: boolean | null = false;
-        let savedSourceRef: string | null;
+        let savedSourceRef: TDocumentRef | null;
         try {
             savedSourceRef = await browserDocumentStore.runDocumentMutationWithSource(
                 workingCopyPath,
@@ -140,7 +146,7 @@ export function createBrowserDocumentsFileCapability(
                 async (mutation) => {
                     let normalizedFileName = ensurePdfExtension(saveResult.fileName);
                     let savedHandle = saveResult.handle;
-                    let sourceRef: string;
+                    let sourceRef: TDocumentRef;
 
                     if (saveResult.handle) {
                         if (data) {
@@ -323,7 +329,7 @@ export function createBrowserDocumentsFileCapability(
                 return null;
             }
 
-            const refs: string[] = [];
+            const refs: TDocumentRef[] = [];
             for (const picked of pickedFiles) {
                 const ref = await browserDocumentStore.registerFile(picked.file, {
                     kind: 'source',
@@ -463,8 +469,12 @@ export function createBrowserDocumentsFileCapability(
         async readFile(path) {
             return browserDocumentStore.read(path);
         },
-        statFile(path) {
-            return browserDocumentStore.stat(path);
+        async statFile(path) {
+            const result = await browserDocumentStore.stat(path);
+            return {
+                size: result.size,
+                modifiedAt: createEpochMs(result.modifiedAt),
+            };
         },
         readFileRange(path, offset, length) {
             return browserDocumentStore.readRange(path, offset, length);
@@ -800,7 +810,7 @@ export function createBrowserDocumentsFileCapability(
                 return {
                     ok: false,
                     reason: 'write-failed',
-                    message: error instanceof Error ? error.message : String(error),
+                    message: getErrorMessage(error),
                     externalWriteCommitted: false,
                     validation: null,
                 };
@@ -906,14 +916,14 @@ export function createBrowserDocumentsFileCapability(
             return files.map(file => browserDocumentStore.getRefForFile(file));
         },
         async registerFilesForOpen(files) {
-            const refs: string[] = [];
+            const refs: TDocumentRef[] = [];
             for (const file of files) {
                 refs.push(await browserDocumentStore.registerFile(file));
             }
             return refs;
         },
         async createCombinedPdfFromFiles(files, options) {
-            const refs: string[] = [];
+            const refs: TDocumentRef[] = [];
             for (const file of files) {
                 const ref = await browserDocumentStore.registerFile(file, {
                     kind: 'source',

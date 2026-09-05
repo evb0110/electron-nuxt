@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import assert from 'node:assert/strict';
 import {
     existsSync,
@@ -224,7 +225,7 @@ async function serializeConsoleMessage(message: ConsoleMessage, startedAtMs: num
         try {
             return await handle.jsonValue();
         } catch (error) {
-            return {unserializable: error instanceof Error ? error.message : String(error)};
+            return {unserializable: getErrorMessage(error)};
         }
     }));
     const location = message.location();
@@ -264,7 +265,7 @@ function installConsoleCollector(page: Page): IConsoleCollector {
             .catch(error => pushEntry({
                 receivedAtMs: Date.now() - startedAtMs,
                 type: 'console-serialization-error',
-                text: error instanceof Error ? error.message : String(error),
+                text: getErrorMessage(error),
                 location: {},
                 args: [],
             }))
@@ -276,7 +277,7 @@ function installConsoleCollector(page: Page): IConsoleCollector {
         pushEntry({
             receivedAtMs: Date.now() - startedAtMs,
             type: 'pageerror',
-            text: error.message,
+            text: getErrorMessage(error),
             location: {},
             args: [{
                 name: error.name,
@@ -338,23 +339,24 @@ function isExecutionContextReset(error: unknown) {
         return false;
     }
 
-    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(error.message);
+    return /Execution context was destroyed|Cannot find context with specified id|Target closed|Session closed|Frame was detached/i.test(getErrorMessage(error));
 }
 
 async function openPathDirectOnce(page: Page, pdfPath: string) {
     return page.evaluate(async (path: string) => {
         const diagnosticWindow = window as Window & {
-            __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
-            __openFileDirect?: (value: string) => Promise<boolean>;
+            __allowRendererFileOpenForAutomation?: unknown;
+            __openFileDirect?: unknown;
         };
+        const isPathHandler = (value: unknown): value is (path: string) => Promise<boolean> => typeof value === 'function';
 
         const automationGrant = diagnosticWindow.__allowRendererFileOpenForAutomation;
-        if (typeof automationGrant === 'function') {
+        if (isPathHandler(automationGrant)) {
             await automationGrant(path);
         }
 
         const openFileDirect = diagnosticWindow.__openFileDirect;
-        if (typeof openFileDirect !== 'function') {
+        if (!isPathHandler(openFileDirect)) {
             throw new Error('window.__openFileDirect is not available');
         }
 
@@ -387,7 +389,7 @@ async function openPathDirectWithRetry(
                 attempts: progress.attempts,
             };
         } catch (error) {
-            lastError = error instanceof Error ? error.message : String(error);
+            lastError = getErrorMessage(error);
             attempt.finishedAtMs = Date.now() - startedAtMs;
             attempt.error = lastError;
             progress.status = 'retrying';
@@ -540,7 +542,7 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                     && result.transparentPixelCount === 0;
                 result.luminanceRange = Math.round(maxLuminance - minLuminance);
             } catch (error) {
-                result.error = error instanceof Error ? error.message : String(error);
+                result.error = getErrorMessage(error);
             }
 
             return result;
@@ -605,7 +607,7 @@ async function collectOpenSnapshot(page: Page, label: string, startedAtMs: numbe
                 )).filter(intersectsViewport).length,
             },
             workspace: {
-                loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent?.trim() ?? null,
+                loadingText: document.querySelector<HTMLElement>('.document-loading, .pdf-loading, .pdf-loading-overlay')?.textContent.trim() ?? null,
                 hostClassName: activeHost?.className ?? null,
                 hostRect: rectSnapshot(activeHost),
                 openingSkeletonRect: rectSnapshot(document.querySelector('.workspace-host-document-open-fallback')),
@@ -972,7 +974,7 @@ function assertArnoldAcceptance(input: {
     assert.doesNotMatch(input.mainProcessLog, /(?:uncaught|unhandled promise|fatal|renderer process (?:crashed|gone)|error:)/iu, evidence());
     assert.equal(input.scrollResult.scrolled, true, evidence());
     assert.equal(input.scrollResult.target, 'pdf-viewer', evidence());
-    assert.ok((input.scrollResult.afterScrollTop ?? 0) > (input.scrollResult.beforeScrollTop ?? 0), evidence());
+    assert.ok(input.scrollResult.afterScrollTop > input.scrollResult.beforeScrollTop, evidence());
     assert.ok(input.highZoom.viewerHorizontalOverflow > 0, evidence());
     assert.ok(input.highZoom.viewerScrollLeftAfter > input.highZoom.viewerScrollLeftBefore, evidence());
     assert.ok(input.highZoom.documentHorizontalOverflow <= 1, evidence());
@@ -1192,7 +1194,7 @@ export const runArnoldPdfOpenDiagnostics = () => (
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runArnoldPdfOpenDiagnostics().catch((error: unknown) => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     });
 }

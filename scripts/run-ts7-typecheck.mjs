@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {
     spawn,
     spawnSync,
@@ -17,6 +18,7 @@ import path from 'node:path';
 
 const require = createRequire(import.meta.url);
 
+/** @returns {{packageJsonPath: string, tscPath: string}} */
 function readTs7Package() {
     const packageJsonPath = require.resolve('typescript7/package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
@@ -34,6 +36,7 @@ function readTs7Package() {
     };
 }
 
+/** @returns {{tscPath: string, version: string}} */
 function resolveTs7Compiler() {
     const {
         packageJsonPath,
@@ -69,6 +72,7 @@ function resolveTs7Compiler() {
     };
 }
 
+/** @param {string[]} args @returns {string[]} */
 function parseProjectArguments(args) {
     const projects = [];
     for (let index = 0; index < args.length; index += 2) {
@@ -87,6 +91,7 @@ function parseProjectArguments(args) {
     return projects;
 }
 
+/** @param {string} project @param {string} version @returns {string} */
 function getBuildInfoPath(project, version) {
     const fingerprint = createHash('sha256')
         .update(project)
@@ -101,6 +106,7 @@ function getBuildInfoPath(project, version) {
     return path.join(cacheDir, `${fingerprint}.tsbuildinfo`);
 }
 
+/** @param {string[]} protectedPaths */
 function pruneBuildInfoCache(protectedPaths) {
     const cacheDir = path.resolve('.devkit', 'cache', 'typecheck', 'ts7');
     const protectedNames = new Set(protectedPaths.map(filePath => path.basename(filePath)));
@@ -119,11 +125,13 @@ function pruneBuildInfoCache(protectedPaths) {
     }
 }
 
+/** @param {string} tscPath @param {string} version @param {string} project @param {string} buildInfoPath @param {{cold?: boolean}} options @returns {Promise<void>} */
 function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {}) {
     if (cold) {
         rmSync(buildInfoPath, {force: true});
     }
-    return new Promise((resolve, reject) => {
+    /** @type {Promise<void>} */
+    const result = new Promise((resolve, reject) => {
         const child = spawn(tscPath, [
             '-p',
             project,
@@ -155,10 +163,13 @@ function runProject(tscPath, version, project, buildInfoPath, {cold = false} = {
             ));
         });
     });
+    return result;
 }
 
+/** @type {Set<import('node:child_process').ChildProcess>} */
 const activeChildren = new Set();
 
+/** @param {import('node:child_process').ChildProcess} except */
 function terminateActiveChildren(except) {
     for (const child of activeChildren) {
         if (child !== except && child.exitCode === null && child.signalCode === null) {
@@ -167,6 +178,7 @@ function terminateActiveChildren(except) {
     }
 }
 
+/** @returns {Promise<void>} */
 async function run() {
     const rawArgs = process.argv.slice(2);
     const cold = rawArgs.includes('--cold') || process.env.EVB_TYPECHECK_COLD === '1';
@@ -194,11 +206,16 @@ async function run() {
         while (nextProjectIndex < projects.length) {
             const projectIndex = nextProjectIndex;
             nextProjectIndex += 1;
+            const project = projects[projectIndex];
+            const buildInfoPath = buildInfoPaths[projectIndex];
+            if (!project || !buildInfoPath) {
+                return;
+            }
             await runProject(
                 tscPath,
                 version,
-                projects[projectIndex],
-                buildInfoPaths[projectIndex],
+                project,
+                buildInfoPath,
                 {cold},
             );
         }
@@ -208,6 +225,6 @@ async function run() {
 try {
     await run();
 } catch (error) {
-    console.error(error instanceof Error ? error.message : String(error));
+    console.error(getCliErrorMessage(error));
     process.exit(1);
 }

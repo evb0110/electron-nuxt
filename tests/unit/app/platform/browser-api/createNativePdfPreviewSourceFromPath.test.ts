@@ -9,6 +9,8 @@ import type {
     IDocumentsFileIoCapability,
     IPdfNativePagePreview,
 } from '@contracts/electronApiDocuments';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
 import { createNativePdfPreviewSourceFromPath } from '@app/platform/browser-api/createNativePdfPreviewSourceFromPath';
 import { workspaceSurfaceBudgetController } from '@app/modules/workspace-shell/memory/workspaceSurfaceBudgetController';
 
@@ -48,7 +50,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             revokeObjectURL: vi.fn(),
         });
 
-        const source = createNativePdfPreviewSourceFromPath('/tmp/native-preview.pdf', documentFiles);
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/native-preview.pdf'), documentFiles);
         const renderPromise = source.renderPageObjectUrl(1);
         await Promise.resolve();
 
@@ -56,7 +58,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
         await expect(renderPromise).rejects.toThrow('Native PDF preview canceled');
         expect(documentFiles.cancelPdfNativePagePreview)
-            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:\d+:1:1$/));
+            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview-\d+-\d+-\d+-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u));
     });
 
     it('cancels the active request for a page when that page is reset', async () => {
@@ -88,7 +90,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             revokeObjectURL: vi.fn(),
         });
 
-        const source = createNativePdfPreviewSourceFromPath('/tmp/native-preview.pdf', documentFiles);
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/native-preview.pdf'), documentFiles);
         const renderPromise = source.renderPageObjectUrl(2);
         await Promise.resolve();
 
@@ -96,7 +98,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
 
         await expect(renderPromise).rejects.toThrow('Native PDF preview canceled');
         expect(documentFiles.cancelPdfNativePagePreview)
-            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:\d+:2:1$/));
+            .toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview-\d+-\d+-\d+-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u));
     });
 
     it('never reuses request IDs across two sources for the same path and page', async () => {
@@ -124,8 +126,8 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             createObjectURL: vi.fn(() => 'blob:pane-preview'),
             revokeObjectURL: vi.fn(),
         });
-        const paneA = createNativePdfPreviewSourceFromPath('/tmp/shared-pane.pdf', documentFiles);
-        const paneB = createNativePdfPreviewSourceFromPath('/tmp/shared-pane.pdf', documentFiles);
+        const paneA = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/shared-pane.pdf'), documentFiles);
+        const paneB = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/shared-pane.pdf'), documentFiles);
 
         await paneA.renderPageObjectUrl(1);
         await paneB.renderPageObjectUrl(1);
@@ -156,8 +158,8 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             revokeObjectURL: vi.fn(),
         });
         const before = workspaceSurfaceBudgetController.getSnapshot();
-        const paneA = createNativePdfPreviewSourceFromPath('/tmp/shared-budget.pdf', documentFiles);
-        const paneB = createNativePdfPreviewSourceFromPath('/tmp/shared-budget.pdf', documentFiles);
+        const paneA = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/shared-budget.pdf'), documentFiles);
+        const paneB = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/shared-budget.pdf'), documentFiles);
         const pageBytes = 40 * 25 * 4;
 
         await paneA.renderPageObjectUrl(1);
@@ -201,9 +203,9 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             createObjectURL: vi.fn(() => 'blob:preview'),
             revokeObjectURL: vi.fn(),
         });
-        const source = createNativePdfPreviewSourceFromPath('/tmp/native-preview.pdf', documentFiles);
-        const viewport = source.renderPageObjectUrl(2, {previewRequestId: 'viewport'});
-        const thumbnail = source.renderPageObjectUrl(2, {previewRequestId: 'thumbnail'});
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/native-preview.pdf'), documentFiles);
+        const viewport = source.renderPageObjectUrl(2, {previewRequestId: requireRequestId('viewport')});
+        const thumbnail = source.renderPageObjectUrl(2, {previewRequestId: requireRequestId('thumbnail')});
         await vi.waitFor(() => expect(pending.size).toBe(2));
 
         source.cancelPagePreview?.(2, 'thumbnail');
@@ -246,7 +248,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             revokeObjectURL: vi.fn(),
         });
         const before = workspaceSurfaceBudgetController.getSnapshot();
-        const source = createNativePdfPreviewSourceFromPath('/tmp/leased-preview.pdf', documentFiles);
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/leased-preview.pdf'), documentFiles);
 
         const rendered = await source.renderPageObjectUrl(1);
 
@@ -278,7 +280,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             createObjectURL: vi.fn(() => 'blob:raster-preview'),
             revokeObjectURL: vi.fn(),
         });
-        const source = createNativePdfPreviewSourceFromPath('/tmp/raster-preview.pdf', documentFiles);
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/raster-preview.pdf'), documentFiles);
 
         await expect(source.renderPageObjectUrl(1)).resolves.toMatchObject({
             objectUrl: 'blob:raster-preview',
@@ -306,7 +308,7 @@ describe('createNativePdfPreviewSourceFromPath', () => {
             revokeObjectURL: vi.fn(),
         });
         workspaceSurfaceBudgetController.setPressureLevel('healthy');
-        const source = createNativePdfPreviewSourceFromPath('/tmp/pressure-preview.pdf', documentFiles);
+        const source = createNativePdfPreviewSourceFromPath(requireDocumentRef('/tmp/pressure-preview.pdf'), documentFiles);
         const rendered = await source.renderPageObjectUrl(1);
         const onInvalidated = vi.fn();
         rendered.onInvalidated?.(onInvalidated);

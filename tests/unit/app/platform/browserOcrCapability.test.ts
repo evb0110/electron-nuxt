@@ -9,6 +9,9 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const browserPlatformWiringTimeoutMs = 8_000;
 
@@ -41,12 +44,12 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     it('does not create searchable PDFs in browser runtime', async () => {
         const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
 
-        await expect(browserOcrCapability.createSearchablePdf('/tmp/in.pdf', [{
-            pageNumber: 1,
+        await expect(browserOcrCapability.createSearchablePdf(requireDocumentRef('/tmp/in.pdf'), [{
+            pageNumber: requirePageNumber(1),
             languages: ['eng'],
-        }], 'request-2')).resolves.toMatchObject({
+        }], requireRequestId('request-2'))).resolves.toMatchObject({
             started: false,
-            jobId: 'request-2',
+            jobId: expect.stringMatching(/^ocr-unavailable-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u),
             installed: [],
             error: 'Browser OCR is unavailable; use the desktop app to create searchable PDFs.',
             errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
@@ -56,12 +59,12 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
     it('returns Electron-compatible unavailable shapes for browser-only OCR operations', async () => {
         const { browserOcrCapability } = await import('@app/platform/browser-api/browserOcrCapability');
 
-        await expect(browserOcrCapability.cancel('request-5')).resolves.toMatchObject({
+        await expect(browserOcrCapability.cancel(requireRequestId('request-5'))).resolves.toMatchObject({
             canceled: false,
             reason: 'not-found',
             errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
         });
-        await expect(browserOcrCapability.acknowledgeResultFile('request-5')).resolves.toMatchObject({
+        await expect(browserOcrCapability.acknowledgeResultFile(requireRequestId('request-5'))).resolves.toMatchObject({
             cleaned: false,
             errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
         });
@@ -85,10 +88,10 @@ describe('browser OCR capability', {timeout: 20_000}, () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { browserPlatformApi } = await import('@app/platform/browserPlatformApi');
 
-        await expect(browserPlatformApi.ocr.createSearchablePdf('/tmp/source.pdf', [], 'request-4'))
+        await expect(browserPlatformApi.ocr.createSearchablePdf(requireDocumentRef('/tmp/source.pdf'), [], requireRequestId('request-4')))
             .resolves.toMatchObject({
                 started: false,
-                jobId: 'request-4',
+                jobId: expect.stringMatching(/^ocr-unavailable-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u),
                 errorEnvelope: { code: 'OCR_WORKER_UNAVAILABLE' },
             });
     }, browserPlatformWiringTimeoutMs);

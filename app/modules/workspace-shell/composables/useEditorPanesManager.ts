@@ -8,6 +8,15 @@ import type {
     TPaneDirection,
 } from '@contracts/editorPanes';
 import {
+    createPaneId,
+    parsePaneId,
+} from '@contracts/editorPanes';
+import {
+    createTabId,
+    parseTabId,
+    type TTabId,
+} from '@contracts/windowTabs';
+import {
     removeLeafNode,
     replaceLeafWithSplit,
     updateLayoutSplitRatio,
@@ -71,7 +80,7 @@ export const useEditorPanesManager = () => {
         ]));
     });
     const tabPaneLookup = computed<Map<string, string>>(() => {
-        return new Map(panes.value.flatMap((pane: IEditorPaneState) => pane.tabIds.map((tabId: string) => [
+        return new Map(panes.value.flatMap((pane: IEditorPaneState) => pane.tabIds.map(tabId => [
             tabId,
             pane.paneId,
         ] as const)));
@@ -79,7 +88,7 @@ export const useEditorPanesManager = () => {
 
     function createPane(): IEditorPaneState {
         return {
-            paneId: allocateEntityId('pane'),
+            paneId: createPaneId(),
             tabIds: [],
             activeTabId: null,
         };
@@ -96,16 +105,20 @@ export const useEditorPanesManager = () => {
     }
 
     function setPaneActiveTab(paneId: string, activeTabIdValue: string | null) {
+        const activeTabId = activeTabIdValue === null ? null : parseTabId(activeTabIdValue);
+        if (activeTabIdValue !== null && activeTabId === null) {
+            return null;
+        }
         return withPaneUpdate(paneId, pane => ({
             ...pane,
-            activeTabId: activeTabIdValue,
+            activeTabId,
         }));
     }
 
     function updatePaneTabIds(
         paneId: string,
-        update: (tabIds: string[]) => string[],
-        activeTabIdUpdate?: (pane: IEditorPaneState, nextTabIds: string[]) => string | null,
+        update: (tabIds: TTabId[]) => TTabId[],
+        activeTabIdUpdate?: (pane: IEditorPaneState, nextTabIds: TTabId[]) => TTabId | null,
     ) {
         return withPaneUpdate(paneId, (pane) => {
             const nextTabIds = update(pane.tabIds);
@@ -178,7 +191,7 @@ export const useEditorPanesManager = () => {
 
     function createEmptyTab(initial?: ICreateTabOptions['initial']): ITab {
         return {
-            id: allocateEntityId('tab'),
+            id: createTabId(),
             fileName: initial?.fileName ?? null,
             originalPath: initial?.originalPath ?? null,
             ...(initial?.documentInstanceId === undefined ? {} : {documentInstanceId: initial.documentInstanceId}),
@@ -236,8 +249,8 @@ export const useEditorPanesManager = () => {
     }
 
     function insertTabId(
-        tabIds: string[],
-        tabId: string,
+        tabIds: TTabId[],
+        tabId: TTabId,
         targetIndex: number | null | undefined,
     ) {
         const insertionIndex = targetIndex === null || targetIndex === undefined
@@ -256,17 +269,21 @@ export const useEditorPanesManager = () => {
         tabId: string,
         targetIndex: number | null | undefined,
     ) {
+        const resolvedTabId = parseTabId(tabId);
+        if (resolvedTabId === null) {
+            return targetPane.tabIds;
+        }
         const placeholderTabId = targetPane.tabIds.length === 1 ? targetPane.tabIds[0] : null;
-        if (!placeholderTabId || placeholderTabId === tabId) {
-            return insertTabId(targetPane.tabIds, tabId, targetIndex);
+        if (!placeholderTabId || placeholderTabId === resolvedTabId) {
+            return insertTabId(targetPane.tabIds, resolvedTabId, targetIndex);
         }
 
         if (!isPlaceholderTab(getTabById(placeholderTabId))) {
-            return insertTabId(targetPane.tabIds, tabId, targetIndex);
+            return insertTabId(targetPane.tabIds, resolvedTabId, targetIndex);
         }
 
         tabs.value = tabs.value.filter(candidate => candidate.id !== placeholderTabId);
-        return [tabId];
+        return [resolvedTabId];
     }
 
     function ensureLayoutInitialized() {
@@ -327,7 +344,8 @@ export const useEditorPanesManager = () => {
 
     function activateTab(paneId: string, tabId: string) {
         const pane = getPaneById(paneId);
-        if (!pane || !pane.tabIds.includes(tabId)) {
+        const parsedTabId = parseTabId(tabId);
+        if (!pane || parsedTabId === null || !pane.tabIds.includes(parsedTabId)) {
             return;
         }
 
@@ -355,6 +373,10 @@ export const useEditorPanesManager = () => {
         }
 
         const tab = createEmptyTab(options.initial);
+        const tabId = parseTabId(tab.id);
+        if (tabId === null) {
+            throw new TypeError('Created tab ID is invalid');
+        }
         tabs.value = [
             ...tabs.value,
             tab,
@@ -364,10 +386,10 @@ export const useEditorPanesManager = () => {
             pane.paneId,
             tabIds => [
                 ...tabIds,
-                tab.id,
+                tabId,
             ],
             currentPane => options.activate !== false || !currentPane.activeTabId
-                ? tab.id
+                ? tabId
                 : currentPane.activeTabId,
         );
 
@@ -503,9 +525,13 @@ export const useEditorPanesManager = () => {
         direction: TPaneDirection,
         wrap = true,
     ) {
+        const resolvedSourcePaneId = parsePaneId(sourcePaneId);
+        if (resolvedSourcePaneId === null) {
+            return null;
+        }
         const targetPaneId = findDirectionalPaneId({
             layout: layout.value,
-            sourcePaneId,
+            sourcePaneId: resolvedSourcePaneId,
             direction,
             paneMru: paneMru.value,
             wrap,
@@ -514,7 +540,11 @@ export const useEditorPanesManager = () => {
     }
 
     function splitPane(sourcePaneId: string, direction: TPaneDirection) {
-        const sourcePane = getPaneById(sourcePaneId);
+        const resolvedSourcePaneId = parsePaneId(sourcePaneId);
+        if (resolvedSourcePaneId === null) {
+            return null;
+        }
+        const sourcePane = getPaneById(resolvedSourcePaneId);
         if (!sourcePane || !layout.value) {
             return null;
         }
@@ -527,7 +557,7 @@ export const useEditorPanesManager = () => {
 
         const sourceLeaf: IEditorLayoutLeafNode = {
             type: 'leaf',
-            paneId: sourcePaneId,
+            paneId: resolvedSourcePaneId,
         };
         const newLeaf: IEditorLayoutLeafNode = {
             type: 'leaf',
@@ -546,7 +576,7 @@ export const useEditorPanesManager = () => {
             second: beforeSource ? sourceLeaf : newLeaf,
         };
 
-        layout.value = replaceLeafWithSplit(layout.value, sourcePaneId, splitNode);
+        layout.value = replaceLeafWithSplit(layout.value, resolvedSourcePaneId, splitNode);
         touchPaneMru(newPane.paneId);
         normalizeManagerState();
 
@@ -587,7 +617,8 @@ export const useEditorPanesManager = () => {
     ) {
         const sourcePane = getPaneByTabId(tabId);
         const targetPane = getPaneById(targetPaneId);
-        if (!sourcePane || !targetPane) {
+        const parsedTabId = parseTabId(tabId);
+        if (!sourcePane || !targetPane || parsedTabId === null) {
             return false;
         }
 
@@ -599,20 +630,20 @@ export const useEditorPanesManager = () => {
             return true;
         }
 
-        const sourceTabIndex = sourcePane.tabIds.indexOf(tabId);
-        const nextSourceTabIds = sourcePane.tabIds.filter((candidate: string) => candidate !== tabId);
+        const sourceTabIndex = sourcePane.tabIds.indexOf(parsedTabId);
+        const nextSourceTabIds = sourcePane.tabIds.filter(candidate => candidate !== parsedTabId);
         const sourceReplacementTabId = nextSourceTabIds[sourceTabIndex] ?? nextSourceTabIds[sourceTabIndex - 1] ?? null;
         updatePaneTabIds(
             sourcePane.paneId,
             () => nextSourceTabIds,
-            currentPane => currentPane.activeTabId === tabId
+            currentPane => currentPane.activeTabId === parsedTabId
                 ? sourceReplacementTabId
                 : currentPane.activeTabId,
         );
         updatePaneTabIds(
             targetPane.paneId,
-            () => resolveTargetTabIdsForMove(targetPane, tabId, targetIndex),
-            () => tabId,
+            () => resolveTargetTabIdsForMove(targetPane, parsedTabId, targetIndex),
+            () => parsedTabId,
         );
 
         if (nextSourceTabIds.length === 0) {

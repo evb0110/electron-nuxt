@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import path from 'node:path';
 import type {
     ICommandResult,
@@ -72,7 +73,7 @@ async function listUtmProcesses(
     } catch (error) {
         throw new UtmProcessGuardError(
             'process-scan-failed',
-            `Could not inspect the UTM process table: ${error instanceof Error ? error.message : String(error)}. Keep UTM running and retry the Windows lane.`,
+            `Could not inspect the UTM process table: ${getErrorMessage(error)}. Keep UTM running and retry the Windows lane.`,
         );
     }
     if (result.exitCode !== 0 || result.timedOut) {
@@ -90,7 +91,7 @@ async function listUtmProcesses(
         } catch (error) {
             throw new UtmProcessGuardError(
                 'process-scan-failed',
-                `Could not read the start time for UTM pid ${process.pid}: ${error instanceof Error ? error.message : String(error)}. Refusing to send Apple Events; keep UTM running and retry the Windows lane.`,
+                `Could not read the start time for UTM pid ${process.pid}: ${getErrorMessage(error)}. Refusing to send Apple Events; keep UTM running and retry the Windows lane.`,
             );
         }
         if (startTime === null) {

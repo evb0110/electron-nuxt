@@ -116,7 +116,11 @@ async function computeHash2B(
             'SHA-384',
             'SHA-512',
         ] as const;
-        K = await sha(hashAlgos[s % 3]!, E);
+        const hashAlgorithm = hashAlgos[s % 3];
+        if (!hashAlgorithm) {
+            throw new Error('PDF encryption hash algorithm is unavailable');
+        }
+        K = await sha(hashAlgorithm, E);
 
         if (round >= 63 && (E[E.length - 1] ?? 0) <= round - 32) break;
         round++;
@@ -305,7 +309,7 @@ function hasEncryptMarker(data: Uint8Array) {
 }
 
 export async function stripPdfEncryption(data: Uint8Array) {
-    if (typeof crypto === 'undefined' || !crypto.subtle) {
+    if (typeof crypto === 'undefined') {
         return data;
     }
     if (!hasEncryptMarker(data)) {

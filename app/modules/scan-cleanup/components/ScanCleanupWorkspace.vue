@@ -178,6 +178,7 @@
 <script setup lang="ts">
 /* eslint-disable max-lines -- The workspace owns the coordinated settings, preview, and run controls. */
 import type {TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupOptions,
     IScanCleanupPageOverride,
@@ -520,6 +521,12 @@ const scopePageNumbers = computed<TScanCleanupPageScope | readonly number[]>(() 
     : settingsScope.value === 'page'
         ? [selectionLeader.value]
         : [...selectedPages.value].sort((left, right) => left - right));
+function getPageOverride(page: number) {
+    return getScanCleanupPageOverride(
+        settings.pageOverrides,
+        requirePageNumber(page, Math.max(1, previewTotalPages.value)),
+    );
+}
 function existingOverridePages() {
     return Object.keys(settings.pageOverrides)
         .map(Number)
@@ -527,7 +534,7 @@ function existingOverridePages() {
 }
 const scopePageOverrides = computed(() => settingsScope.value === 'all'
     ? []
-    : [...scopePageNumbers.value].map(page => getScanCleanupPageOverride(settings.pageOverrides, page)));
+    : [...scopePageNumbers.value].map(page => getPageOverride(page)));
 
 function resolveAllPageOverrideValue<T>(
     defaultValue: T,
@@ -541,7 +548,7 @@ function resolveAllPageOverrideValue<T>(
         if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
             continue;
         }
-        values.push(read(getScanCleanupPageOverride(settings.pageOverrides, page)));
+        values.push(read(getPageOverride(page)));
     }
     return resolveScanCleanupMixedValue(values);
 }
@@ -576,7 +583,7 @@ const scopeManualSkew = computed(() => settingsScope.value === 'all'
     ? resolveAllPageOverrideValue(undefined, override => override.manualSkewDegrees)
     : resolveScanCleanupMixedValue(scopePageOverrides.value.map(override => override.manualSkewDegrees)));
 const scopeDetectedSkewDegrees = computed(() => settingsScope.value === 'page'
-    ? previewMetadataByPage?.get(selectionLeader.value)?.detectedSkewDegrees
+    ? previewMetadataByPage.get(selectionLeader.value)?.detectedSkewDegrees
     : undefined);
 const scopeContentBoxes = computed(() => settingsScope.value === 'all'
     ? resolveAllPageOverrideValue({}, override => override.manualContentBoxes ?? {})
@@ -618,7 +625,7 @@ function countAllScopeOverrides(
         if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
             continue;
         }
-        const pageIsOverride = isOverride(getScanCleanupPageOverride(settings.pageOverrides, page));
+        const pageIsOverride = isOverride(getPageOverride(page));
         if (pageIsOverride !== defaultIsOverride) {
             count += pageIsOverride ? 1 : -1;
         }
@@ -656,7 +663,7 @@ const scopeOverrideCounts = computed(() => {
         if (!Number.isSafeInteger(page) || page < 1 || page > previewTotalPages.value) {
             continue;
         }
-        const override = getScanCleanupPageOverride(settings.pageOverrides, page);
+        const override = getPageOverride(page);
         if (resolveScanCleanupPageLayout(settings.layoutMode, override.layoutOverride) !== settings.layoutMode) {
             counts.layout += 1;
         }
@@ -852,7 +859,7 @@ function handleScopeLayout(value: string | number) {
                 : layoutMode === 'force-two-page' ? 'spread' : 'auto';
             const matchingPages = Object.keys(settings.pageOverrides)
                 .map(Number)
-                .filter(page => getScanCleanupPageOverride(settings.pageOverrides, page).layoutOverride === matchingOverride);
+                .filter(page => getPageOverride(page).layoutOverride === matchingOverride);
             updateAllScopeDefault({layoutOverride: DEFAULT_SCAN_CLEANUP_PAGE_OVERRIDE.layoutOverride});
             updateSelectionLayoutOverride('auto', matchingPages);
         }
@@ -1068,14 +1075,12 @@ function resetScopeControlOverride(control: TScanCleanupOverrideControl) {
                 ...withoutMargins
             } = current;
             next = withoutMargins;
-        } else if (control === 'placement') {
+        } else {
             const {
                 placementOverrides: _placementOverrides,
                 ...withoutPlacement
             } = current;
             next = withoutPlacement;
-        } else {
-            next = current;
         }
         setAllScopeDefault(createScanCleanupPageOverride(next));
         resetControlOverride(control, existingOverridePages());

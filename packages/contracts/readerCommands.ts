@@ -46,25 +46,25 @@ export type TReaderCommandPlacement = 'inline' | 'menu';
 export type TReaderCommandMap = Readonly<Record<TReaderCommandId, boolean>>;
 
 export interface IReaderCommandDescriptor {
-    id: TReaderCommandId;
-    category: TReaderCommandCategory;
-    labelKey: string;
-    icon: TReaderCommandIconName;
+    readonly id: TReaderCommandId;
+    readonly category: TReaderCommandCategory;
+    readonly labelKey: string;
+    readonly icon: TReaderCommandIconName;
 }
 
 export interface IReaderCommandSurface {
-    inline: TReaderCommandMap;
-    menu: TReaderCommandMap;
+    readonly inline: TReaderCommandMap;
+    readonly menu: TReaderCommandMap;
 }
 
 export interface IReaderCommandState {
-    id: TReaderCommandId;
-    enabled: boolean;
-    visible: boolean;
-    selected?: boolean;
+    readonly id: TReaderCommandId;
+    readonly enabled: boolean;
+    readonly visible: boolean;
+    readonly selected?: boolean;
 }
 
-export interface IReaderCommandStateSnapshot { commands: readonly IReaderCommandState[] }
+export interface IReaderCommandStateSnapshot { readonly commands: readonly IReaderCommandState[] }
 
 export interface IReaderCommandRequest {
     id: TReaderCommandId;

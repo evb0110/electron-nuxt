@@ -9,6 +9,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import PdfAnnotationCommentsList from '@app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue';
 import { annotationIdForSummary } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { BASE_ROOT_FONT_SIZE_PX } from '@app/utils/rootFontSize';
+import { requireEpochMs } from '@contracts/timestamps';
 
 /**
  * Mounts the shipped `PdfAnnotationCommentsList` so that both the DOM-only unit
@@ -39,7 +40,7 @@ function createComment(index: number): IAnnotationCommentSummary {
         author: `Author ${index}`,
         color: null,
         id: `comment-${index}`,
-        modifiedAt: 1_700_000_000_000 + index,
+        modifiedAt: requireEpochMs(1_700_000_000_000 + index),
         pageIndex: index,
         pageNumber: index + 1,
         source: 'pdf',

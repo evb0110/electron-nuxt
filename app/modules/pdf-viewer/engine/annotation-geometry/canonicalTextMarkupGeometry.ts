@@ -1,4 +1,5 @@
 import { clamp } from 'es-toolkit/math';
+import { isFiniteNumber } from '@contracts/runtimeGuards';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { normalizeMarkerRectBounds } from '@app/utils/pdfMarkerRect';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
@@ -157,23 +158,16 @@ function toCanonicalTextMarkupRectFromQuad(
     if (quad.length < 8) {
         return null;
     }
-    const xs = [
-        quad[0]!,
-        quad[2]!,
-        quad[4]!,
-        quad[6]!,
-    ];
-    const ys = [
-        quad[1]!,
-        quad[3]!,
-        quad[5]!,
-        quad[7]!,
-    ];
-    if ([
-        ...xs,
-        ...ys,
-    ].some(value => typeof value !== 'number' || !Number.isFinite(value))) {
-        return null;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let index = 0; index < 8; index += 2) {
+        const x = quad[index];
+        const y = quad[index + 1];
+        if (!isFiniteNumber(x) || !isFiniteNumber(y)) {
+            return null;
+        }
+        xs.push(x);
+        ys.push(y);
     }
     return toCanonicalTextMarkupRect(toMarkerRectFromPdfRect([
         Math.min(...xs),
@@ -263,8 +257,9 @@ export function toCanonicalTextMarkupGeometryFromRecord(
             );
             return bounding ? [bounding] : [];
         }
-        for (let index = 0; index + 7 < quadPoints.length; index += 8) {
-            const quad = Array.from({ length: 8 }, (_unused, offset) => quadPoints[index + offset]!);
+        const quadValues = Array.from(quadPoints);
+        for (let index = 0; index + 7 < quadValues.length; index += 8) {
+            const quad = quadValues.slice(index, index + 8);
             const rect = toCanonicalTextMarkupRectFromQuad(quad, pageView, pageRotation);
             if (rect) {
                 geometry.push(rect);
@@ -311,22 +306,28 @@ export function matchCanonicalTextMarkupGeometry(
     let maxCoordinateDelta = 0;
     let worstRectIndex: number | null = null;
     let matched = true;
-    expected.forEach((expectedRect, expectedIndex) => {
+    for (const [
+        expectedIndex,
+        expectedRect,
+    ] of expected.entries()) {
         let bestIndex: number | null = null;
         let bestDelta = Number.POSITIVE_INFINITY;
-        reopened.forEach((reopenedRect, reopenedIndex) => {
+        for (const [
+            reopenedIndex,
+            reopenedRect,
+        ] of reopened.entries()) {
             if (claimed.has(reopenedIndex)) {
-                return;
+                continue;
             }
             const delta = coordinateDelta(expectedRect, reopenedRect);
             if (delta < bestDelta) {
                 bestDelta = delta;
                 bestIndex = reopenedIndex;
             }
-        });
+        }
         if (bestIndex === null) {
             matched = false;
-            return;
+            continue;
         }
         claimed.add(bestIndex);
         if (bestDelta > tolerance) {
@@ -336,11 +337,11 @@ export function matchCanonicalTextMarkupGeometry(
             maxCoordinateDelta = bestDelta;
             worstRectIndex = expectedIndex;
         }
-    });
+    }
     const countMatches = expected.length === reopened.length;
     return {
         countMatches,
-        matched: matched && countMatches,
+        matched: Boolean(matched) && countMatches,
         expectedCount: expected.length,
         reopenedCount: reopened.length,
         maxCoordinateDelta,

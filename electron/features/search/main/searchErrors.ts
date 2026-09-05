@@ -3,6 +3,7 @@ import type {
     ISearchErrorEnvelopeCarrier,
     TSearchErrorCode,
 } from '@contracts/search';
+import {createEpochMs} from '@contracts/timestamps';
 import { getErrorMessage } from '@electron/utils/error';
 import {hasNativeErrorCode} from '@contracts/nativeErrors';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
@@ -37,16 +38,13 @@ export function buildSearchErrorEnvelope(
         details?: string;
     } = {},
 ): ISearchErrorEnvelope {
-    const envelope: ISearchErrorEnvelope = {
+    return {
         code,
         message,
         retryable: options.retryable ?? false,
-        timestamp: Date.now(),
+        timestamp: createEpochMs(),
+        ...(options.details ? {details: trimSearchErrorDetails(options.details)} : {}),
     };
-    if (options.details) {
-        envelope.details = trimSearchErrorDetails(options.details);
-    }
-    return envelope;
 }
 
 export function toSearchIpcError(

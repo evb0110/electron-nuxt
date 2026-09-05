@@ -5,6 +5,7 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCapabilityDomain,
 } from '@contracts/agent';
+import type { TTabId } from '@contracts/windowTabs';
 import { AGENT_CAPABILITY_DOMAINS } from '@contracts/agent';
 import { isOneOf } from '@contracts/runtimeGuards';
 import {
@@ -81,7 +82,7 @@ export function isAgentDocumentTab(tab: IAgentTabSnapshot) {
         );
 }
 
-function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: string) {
+function findCapabilityTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
     const targetTabId = tabId ?? snapshot.activeTabId;
     if (!targetTabId) {
         return null;
@@ -180,7 +181,7 @@ function createCompactCapabilityDescriptor(
         risk: template.risk,
         policy: template.policy,
         availability: createCapabilityAvailability(template, tab),
-        hasInputSchema: template.inputSchema !== undefined,
+        hasInputSchema: true,
         hasOutputSchema: template.outputSchema !== undefined,
         hasResourceTemplates: template.resourceTemplates !== undefined,
     };

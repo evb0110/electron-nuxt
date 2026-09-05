@@ -22,6 +22,10 @@ const STRICT_BUILD_DUPLICATE_GATES = new Set([
     'check:wasm:strict',
 ]);
 
+/** @typedef {{command: string, args: string[]}} IReleaseCheckCommand */
+/** @typedef {{write: (chunk: string) => unknown}} IWritable */
+
+/** @param {NodeJS.ProcessEnv} env @param {string} scriptName @returns {NodeJS.ProcessEnv} */
 function environmentForReleaseCheck(env, scriptName) {
     if (scriptName !== 'test:coverage') {
         return env;
@@ -34,6 +38,7 @@ function environmentForReleaseCheck(env, scriptName) {
     return testEnv;
 }
 
+/** @param {string | undefined} rawSkipList @param {{knownScripts?: string[]}} [options] @returns {string[]} */
 export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     const requested = (rawSkipList ?? '')
         .split(',')
@@ -54,6 +59,7 @@ export function parseReleaseVerifySkipList(rawSkipList, {knownScripts} = {}) {
     return requested;
 }
 
+/** @param {{argv?: string[], env?: NodeJS.ProcessEnv}} [options] @returns {boolean} */
 export function isReleaseVerifySkipAcknowledged({
     argv = process.argv.slice(2),
     env = process.env,
@@ -61,6 +67,7 @@ export function isReleaseVerifySkipAcknowledged({
     return env[SKIP_ACK_ENV_VAR] === '1' || argv.includes('--allow-skip');
 }
 
+/** @param {string[]} skippedScripts @param {IWritable} stderr */
 function writeSkippedGateSummary(skippedScripts, stderr) {
     if (skippedScripts.length === 0) {
         return;
@@ -77,6 +84,7 @@ function writeSkippedGateSummary(skippedScripts, stderr) {
     ].join('\n'));
 }
 
+/** @param {string[]} skippedScripts @param {{allowSkip?: boolean}} [options] */
 export function assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip} = {}) {
     if (skippedScripts.length === 0 || allowSkip) {
         return;
@@ -89,6 +97,7 @@ export function assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip} 
     );
 }
 
+/** @param {{scanCleanupIdentity?: boolean}} [options] @returns {IReleaseCheckCommand[]} */
 export function getLocalReleaseCheckCommands({scanCleanupIdentity = false} = {}) {
     const scriptNames = [...getLocalReleaseCheckGateScripts()];
     if (scanCleanupIdentity && !scriptNames.includes('test:scan-cleanup:canonical-identity')) {
@@ -103,6 +112,7 @@ export function getLocalReleaseCheckCommands({scanCleanupIdentity = false} = {})
     }));
 }
 
+/** @param {{argv?: string[], env?: NodeJS.ProcessEnv, allowSkip?: boolean, runCommand?: typeof run, skipList?: string | undefined, stderr?: IWritable, validateBuildReceipt?: typeof validateReleaseBuildReceipt, writeBuildReceipt?: typeof writeReleaseBuildReceipt}} [options] */
 export function runLocalReleaseChecks({
     argv = process.argv.slice(2),
     env = getReleaseCiEnv(),
@@ -119,7 +129,7 @@ export function runLocalReleaseChecks({
     const commands = getLocalReleaseCheckCommands({scanCleanupIdentity: argv.includes('--scan-cleanup-identity')});
     const knownScripts = commands
         .filter(command => command.args[0] === 'run')
-        .map(command => command.args[1]);
+        .flatMap(command => command.args[1] ? [command.args[1]] : []);
     const skippedScripts = parseReleaseVerifySkipList(skipList, {knownScripts});
 
     assertReleaseVerifySkipAcknowledged(skippedScripts, {allowSkip});
@@ -135,7 +145,7 @@ export function runLocalReleaseChecks({
         throw new Error(`Cannot reuse the all-gates strict build: ${reason}`);
     }
     const receiptValidation = canHandoffStrictBuild && reuseRequested
-        ? validateBuildReceipt(receiptPath, {env})
+        ? validateBuildReceipt(receiptPath ?? '', {env})
         : null;
     if (receiptValidation && !receiptValidation.valid) {
         throw new Error(
@@ -158,7 +168,7 @@ export function runLocalReleaseChecks({
             env,
             stdio: 'inherit',
         });
-        writeBuildReceipt(receiptPath, {env});
+        writeBuildReceipt(receiptPath ?? '', {env});
         stderr.write(
             `Recorded strict-build receipt for the packaging phase: ${receiptPath}\n`,
         );
@@ -168,7 +178,7 @@ export function runLocalReleaseChecks({
     // Run the local release gate under CI-mode test semantics so runner-only
     // behavior is more likely to fail before we ever push a release tag.
     for (const command of commands) {
-        const scriptName = command.args[0] === 'run' ? command.args[1] : undefined;
+        const scriptName = command.args[0] === 'run' ? command.args[1] ?? '' : '';
         if (scriptName && skippedScripts.includes(scriptName)) {
             continue;
         }

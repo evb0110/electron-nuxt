@@ -10,6 +10,10 @@ import {
     type PDFObject,
 } from 'pdf-lib';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import {
+    parsePageIndex,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 
 export const PDF_COMBINE_CATALOG_POLICY = Object.freeze({
     pages: 'preserve',
@@ -133,7 +137,8 @@ function readOutlineItems(
         if (visited.has(dict)) break;
         visited.add(dict);
         const title = textValue(dict.get(PDFName.of('Title'))) ?? 'Untitled';
-        const pageIndex = destinationPageIndex(document, dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')), pageRefs);
+        const rawPageIndex = destinationPageIndex(document, dict.get(PDFName.of('Dest')) ?? dict.lookupMaybe(PDFName.of('A'), PDFDict)?.get(PDFName.of('D')), pageRefs);
+        const pageIndex = rawPageIndex === null ? null : parsePageIndex(rawPageIndex);
         const flags = dict.lookupMaybe(PDFName.of('F'), PDFNumber)?.asNumber() ?? 0;
         output.push({
             title,
@@ -205,7 +210,9 @@ export function applyCombinedPdfPageLabels(document: PDFDocument, ranges: readon
 export function offsetPdfCombineBookmarks(bookmarks: readonly IPdfBookmarkEntry[], pageOffset: number): IPdfBookmarkEntry[] {
     return bookmarks.map(bookmark => ({
         ...bookmark,
-        pageIndex: bookmark.pageIndex === null ? null : bookmark.pageIndex + pageOffset,
+        pageIndex: bookmark.pageIndex === null
+            ? null
+            : requirePageIndex(bookmark.pageIndex + pageOffset),
         namedDest: null,
         items: offsetPdfCombineBookmarks(bookmark.items, pageOffset),
     }));

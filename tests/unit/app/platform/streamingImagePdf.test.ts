@@ -7,6 +7,7 @@ import {
 import { PDFDocument } from 'pdf-lib';
 import { sumBy } from 'es-toolkit/math';
 import { StreamingImagePdfWriter } from '@app/platform/browser-api/streamingImagePdfWriter';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const PAGE_TREE_FANOUT = 64;
 
@@ -59,7 +60,7 @@ describe('StreamingImagePdfWriter', () => {
             pageCount: 1,
             bookmarks: [{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 pageYRatio: 0.5,
                 namedDest: null,
                 bold: false,

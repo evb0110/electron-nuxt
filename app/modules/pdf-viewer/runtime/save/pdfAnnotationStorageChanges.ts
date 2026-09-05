@@ -537,7 +537,7 @@ export function collectLivePdfJsAnnotationChangeIds(
         const countedSerializableEntries: Array<[string, unknown]> = [];
         const serializable = storage?.serializable;
         const serializableMap = serializable?.map;
-        const modifiedIds = storage?.modifiedIds?.ids;
+        const modifiedIds = storage?.modifiedIds.ids;
         let hasSerializableChanges = false;
 
         if (serializableMap instanceof Map && serializableMap.size > 0) {

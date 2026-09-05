@@ -20,6 +20,7 @@ import type { ISerializationPlanInputs } from '@app/modules/pdf-viewer/serializa
 import { buildSerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
 import { requireDocumentRevisionToken } from '@contracts';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import type { IPdfNativeFreeTextEditor } from '@contracts/electronApiDocuments';
 
 const MARKER_RECT = {
@@ -36,11 +37,11 @@ function embeddedNote(id: string, pdfRef: string): IStickyNoteEntity {
             id: asAnnotationId(id),
             pdfRef,
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1_781_000_000_000,
+        createdAt: requireEpochMs(1_781_000_000_000),
         modifiedAt: null,
         author: 'Tester',
         text: `text-${id}`,
@@ -64,11 +65,11 @@ function editorNote(id: string): AnnotationEntity {
             id: asAnnotationId(id),
             elementId: 'pdfjs_internal_editor_0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1_781_000_000_000,
+        createdAt: requireEpochMs(1_781_000_000_000),
         modifiedAt: null,
         author: 'Tester',
         text: `text-${id}`,
@@ -89,12 +90,12 @@ function editorMarkup(id: string): ITextMarkupEntity {
     return {
         kind: 'text-markup',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 1,
         persistedRevision: -1,
         deleted: false,
         createdAt: null,
-        modifiedAt: 1,
+        modifiedAt: requireEpochMs(1),
         author: null,
         subtype: 'Highlight',
         text: 'marked',
@@ -162,7 +163,7 @@ function nativeShape(): IShapeAnnotation {
     return {
         id: 'shape-1',
         type: 'rectangle',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         x: 0.1,
         y: 0.2,
         width: 0.3,
@@ -173,8 +174,8 @@ function nativeShape(): IShapeAnnotation {
         annotationId: '22R0',
         stableKey: 'ann:0:22R0',
         pdfSubtype: 'Square',
-        createdAt: 1_781_000_000_000,
-        modifiedAt: 1_781_000_000_100,
+        createdAt: requireEpochMs(1_781_000_000_000),
+        modifiedAt: requireEpochMs(1_781_000_000_100),
     };
 }
 
@@ -396,7 +397,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 }),
                 markupSubtypeHints: [{
                     subtype: 'Highlight',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: MARKER_RECT,
                     consumed: false,
                     annotationId: '44R',
@@ -592,7 +593,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 }),
                 markupSubtypeHints: [{
                     subtype: 'Highlight',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: MARKER_RECT,
                     consumed: false,
                     id: 'pdfjs_internal_editor_0',
@@ -666,7 +667,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 }),
                 markupSubtypeHints: [{
                     subtype: 'Highlight',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: MARKER_RECT,
                     consumed: false,
                     id: 'pdfjs_internal_editor_2',
@@ -721,7 +722,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 }),
                 markupSubtypeHints: [{
                     subtype: 'Highlight',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: MARKER_RECT,
                     consumed: false,
                     id: 'pdfjs_saved_highlight_undo',
@@ -814,7 +815,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 }),
                 markupSubtypeHints: [{
                     subtype: 'Highlight',
-                    pageIndex: 0,
+                    pageIndex: requirePageIndex(0),
                     markerRect: MARKER_RECT,
                     consumed: false,
                     id: 'pdfjs_internal_editor_2',
@@ -864,7 +865,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                     bookmarksDirty: true,
                     bookmarkItems: [{
                         title: 'Chapter',
-                        pageIndex: 0,
+                        pageIndex: requirePageIndex(0),
                         namedDest: null,
                         bold: false,
                         italic: false,
@@ -928,7 +929,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
                 pdfName: 'evb-pdf-004-text-parent',
                 pdfRef: '12R',
             },
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             anchor: {
                 left: 0.6,
                 top: 0.25,
@@ -964,7 +965,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.nativeMutationProjection.mutations).toMatchObject({geometryUpdates: [{
             objectNumber: 12,
             generationNumber: 0,
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             markerRect: moved.anchor,
         }]});
 
@@ -1563,7 +1564,7 @@ describe('classifyPdfSaveRoute native-append grant', () => {
         expect(decision.route).toBe('native-append');
         if (decision.route !== 'native-append') throw new Error('expected the native route');
         expect(decision.nativeMutationProjection.annotationDeletes).toEqual([{
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             objectNumber: 12,
             generationNumber: 0,
         }]);

@@ -4,6 +4,7 @@ import type {
 } from 'vue';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
+import { parseDocumentRef } from '@contracts/documentRef';
 import type { IWorkingCopyBackingStatus } from '@contracts/electronApiDocuments';
 import {
     getDocumentRefBaseName,
@@ -15,17 +16,11 @@ import {
     getDocumentFilesCapability,
     getDocumentWindowCapability,
 } from '@app/utils/platformDocuments';
+import { isPathPdfSource as isNativePathPdfSource } from '@app/modules/pdf-viewer/public';
 
 type TSaveDotState = 'idle' | 'saving' | 'failed' | 'dirty' | 'clean';
 type TReadableRef<T> = ComputedRef<T> | Ref<T>;
 const WORKING_COPY_BACKING_STATUS_REFRESH_INTERVAL_MS = 1_000;
-
-function isPathPdfSource(value: TPdfSource | null): value is Extract<TPdfSource, { kind: 'path' }> {
-    return typeof value === 'object'
-        && value !== null
-        && 'kind' in value
-        && value.kind === 'path';
-}
 
 interface IPageStatusBarDeps {
     hasDocument: Ref<boolean>;
@@ -169,13 +164,13 @@ export const usePageStatusBar = (deps: IPageStatusBarDeps) => {
         }
 
         const normalizedPath = path.trim();
-        return normalizedPath.length > 0 ? normalizedPath : null;
+        return normalizedPath.length > 0 ? parseDocumentRef(normalizedPath) : null;
     });
     const inMemoryFileSizeBytes = computed(() => {
         if (pdfData.value) {
             return pdfData.value.byteLength;
         }
-        if (isPathPdfSource(pdfSrc.value)) {
+        if (isNativePathPdfSource(pdfSrc.value)) {
             return pdfSrc.value.size;
         }
         return null;

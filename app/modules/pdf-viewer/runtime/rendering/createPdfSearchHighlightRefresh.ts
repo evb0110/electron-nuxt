@@ -1,3 +1,8 @@
+import {
+    pageNumberToPageIndex,
+    parsePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -12,7 +17,7 @@ interface IPdfSearchHighlightRefreshOptions {
     state: IPageHighlightSignatureState;
     getPageMatches: () => Map<number, IPdfPageMatches>;
     getCurrentMatch: () => IPdfSearchMatch | null;
-    refreshPage: (container: HTMLElement, page: number, matches: IPdfPageMatches | null, current: IPdfSearchMatch | null) => void;
+    refreshPage: (container: HTMLElement, page: TPageNumber, matches: IPdfPageMatches | null, current: IPdfSearchMatch | null) => void;
 }
 
 export function createPdfSearchHighlightRefresh(deps: IPdfSearchHighlightRefreshOptions) {
@@ -77,17 +82,20 @@ export function createPdfSearchHighlightRefresh(deps: IPdfSearchHighlightRefresh
                     let processedPages = 0;
 
                     while (nextIndex < pageContainers.length) {
-                        const container = pageContainers[nextIndex]!;
+                        const container = pageContainers[nextIndex];
                         nextIndex += 1;
                         processedPages += 1;
-
-                        const mountedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-                        if (!Number.isFinite(mountedPageNumber) || mountedPageNumber < 1) {
+                        if (!container) {
                             continue;
                         }
 
-                        const pageIndex = mountedPageNumber - 1;
-                        const pageMatchData = searchMatchesValue?.get(pageIndex) ?? null;
+                        const mountedPageNumber = parsePageNumber(Number.parseInt(container.dataset.page ?? '', 10));
+                        if (mountedPageNumber === null) {
+                            continue;
+                        }
+
+                        const pageIndex = pageNumberToPageIndex(mountedPageNumber);
+                        const pageMatchData = searchMatchesValue.get(pageIndex) ?? null;
                         deps.refreshPage(
                             container,
                             mountedPageNumber,
@@ -153,9 +161,13 @@ export function createPdfSearchHighlightRefresh(deps: IPdfSearchHighlightRefresh
         const matches = deps.getPageMatches();
         const current = deps.getCurrentMatch();
         for (const page of pages) {
+            const pageNumber = parsePageNumber(page);
+            if (pageNumber === null) {
+                continue;
+            }
             const container = containerRoot.querySelector<HTMLElement>(`.page_container[data-page="${page}"]`);
             if (container) {
-                deps.refreshPage(container, page, matches?.get(page - 1) ?? null, current);
+                deps.refreshPage(container, pageNumber, matches.get(pageNumberToPageIndex(pageNumber)) ?? null, current);
             }
         }
     }

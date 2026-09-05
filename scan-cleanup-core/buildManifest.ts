@@ -15,6 +15,7 @@ import {
 } from '@scan-cleanup-core/provenanceStamp';
 import type {TScanCleanupStampBuildIds} from '@scan-cleanup-core/provenanceStamp';
 import {embeddedScanCleanupBuildGitSha} from '@scan-cleanup-core/buildGitSha';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 export async function buildScanCleanupStampBuildIds({
     paths,
@@ -94,7 +95,7 @@ async function hashBinaryOrBackendMarker(
     } catch (error) {
         throw new Error(
             `Provenance stamp requires a readable ${role} binary at ${path}: `
-            + (error instanceof Error ? error.message : String(error)),
+            + getErrorMessage(error),
         );
     }
 }

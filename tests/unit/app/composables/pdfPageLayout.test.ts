@@ -23,6 +23,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import { resolveDocumentBaseMetric } from '@app/modules/pdf-viewer/engine/pdf-page-layout/resolveDocumentBaseMetric';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 describe('pdfPageLayout', () => {
     it('reuses immutable base topology across scale-only changes', () => {
@@ -85,12 +86,12 @@ describe('pdfPageLayout', () => {
         });
 
         expect(layout).not.toBeNull();
-        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, index))).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, requirePageIndex(index)))).toEqual([
             20,
             240,
             660,
         ]);
-        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageHeight(layout, index))).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageHeight(layout, requirePageIndex(index)))).toEqual([
             200,
             400,
             240,
@@ -130,7 +131,7 @@ describe('pdfPageLayout', () => {
         });
 
         expect(layout).not.toBeNull();
-        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, index))).toEqual([
+        expect(layout && layout.base.pageHeights.map((_height, index) => getLayoutPageTop(layout, requirePageIndex(index)))).toEqual([
             20,
             20,
             180,
@@ -503,8 +504,8 @@ describe('pdfPageLayout', () => {
         expect(layout?.base.rowEndPages[0]).toBe(2);
         expect(layout?.base.rowStartPages[499_999]).toBe(999_999);
         expect(layout?.base.rowEndPages[499_999]).toBe(totalPages);
-        expect(layout && getLayoutPageTop(layout, 0)).toBe(8);
-        expect(layout && getLayoutPageHeight(layout, totalPages - 1)).toBe(520);
+        expect(layout && getLayoutPageTop(layout, requirePageIndex(0))).toBe(8);
+        expect(layout && getLayoutPageHeight(layout, requirePageIndex(totalPages - 1))).toBe(520);
         expect(layout?.base.rowHeights[0]).toBe(500);
         expect(layout?.base.rowHeights[499_999]).toBe(520);
         expect(layout?.base.pageHeightPrefixSums[0]).toBe(500);

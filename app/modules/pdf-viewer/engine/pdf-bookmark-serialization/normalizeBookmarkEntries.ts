@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { clamp } from 'es-toolkit/math';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import { normalizeBookmarkColor } from '@app/utils/pdfOutlineHelpers';
@@ -16,7 +17,7 @@ export function normalizeBookmarkEntries(
     function normalizeItem(item: IPdfBookmarkEntry): IPdfBookmarkEntry {
         const title = item.title.trim();
         const pageIndex = typeof item.pageIndex === 'number'
-            ? clamp(Math.trunc(item.pageIndex), 0, maxPageIndex)
+            ? requirePageIndex(clamp(Math.trunc(item.pageIndex), 0, maxPageIndex), totalPages)
             : null;
         const pageYRatio = pageIndex !== null
             && typeof item.pageYRatio === 'number'

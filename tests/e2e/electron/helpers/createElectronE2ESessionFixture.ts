@@ -13,6 +13,7 @@ import {
     formatElectronE2ESessionFailure,
     runElectronE2EInfrastructureStage,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 type TSessionNameFactory = string | (() => string);
 type TElectronE2ESessionStarter = typeof startElectronE2ESession;
@@ -174,7 +175,7 @@ function createElectronE2ESessionFixtureWithStarter(
             try {
                 await session?.captureFailureArtifacts(failureContext.task.fullTestName ?? failureContext.task.name);
             } catch (error) {
-                console.warn(`[E2E artifacts] Failed to capture failure state: ${error instanceof Error ? error.message : String(error)}`);
+                console.warn(`[E2E artifacts] Failed to capture failure state: ${getErrorMessage(error)}`);
             }
         }, 15_000);
     });

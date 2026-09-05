@@ -94,14 +94,20 @@ describe('extractTextWithPdfjs cancellation', () => {
 
     it('emits each page as soon as pdfjs text extraction finishes it', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
-        const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [{
-            str: 'Hello',
-            hasEOL: true,
-        }]})};
-        const pageTwo = {getTextContent: vi.fn().mockResolvedValue({items: [{
-            str: 'World',
-            hasEOL: false,
-        }]})};
+        const pageOne = {
+            cleanup: vi.fn(),
+            getTextContent: vi.fn().mockResolvedValue({items: [{
+                str: 'Hello',
+                hasEOL: true,
+            }]}),
+        };
+        const pageTwo = {
+            cleanup: vi.fn(),
+            getTextContent: vi.fn().mockResolvedValue({items: [{
+                str: 'World',
+                hasEOL: false,
+            }]}),
+        };
         const doc = {
             numPages: 2,
             getPage: vi.fn(async (pageNumber: number) => pageNumber === 1 ? pageOne : pageTwo),
@@ -142,14 +148,20 @@ describe('extractTextWithPdfjs cancellation', () => {
 
     it('extracts only requested pdfjs pages', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
-        const pageTwo = {getTextContent: vi.fn().mockResolvedValue({items: [{
-            str: 'Second',
-            hasEOL: false,
-        }]})};
-        const pageFour = {getTextContent: vi.fn().mockResolvedValue({items: [{
-            str: 'Fourth',
-            hasEOL: false,
-        }]})};
+        const pageTwo = {
+            cleanup: vi.fn(),
+            getTextContent: vi.fn().mockResolvedValue({items: [{
+                str: 'Second',
+                hasEOL: false,
+            }]}),
+        };
+        const pageFour = {
+            cleanup: vi.fn(),
+            getTextContent: vi.fn().mockResolvedValue({items: [{
+                str: 'Fourth',
+                hasEOL: false,
+            }]}),
+        };
         const doc = {
             numPages: 5,
             getPage: vi.fn(async (pageNumber: number) => {
@@ -238,20 +250,23 @@ describe('extractTextWithPdfjs cancellation', () => {
     it('collapses exact repeated hidden text streams before emitting page text', async () => {
         const { extractTextWithPdfjs } = await import('@electron/search/extractTextWithPdfjs');
         const repeatedText = 'СЛОВАРЬ\nАРАБСКОЙ ХРЕСТОМАТИИ И КОРАНУ. СОСТАВИЛЪ ПРОФ. В. ГИРГАСЪ.\n';
-        const pageOne = {getTextContent: vi.fn().mockResolvedValue({items: [
-            {
-                str: repeatedText,
-                hasEOL: false,
-            },
-            {
-                str: repeatedText,
-                hasEOL: false,
-            },
-            {
-                str: repeatedText,
-                hasEOL: false,
-            },
-        ]})};
+        const pageOne = {
+            cleanup: vi.fn(),
+            getTextContent: vi.fn().mockResolvedValue({items: [
+                {
+                    str: repeatedText,
+                    hasEOL: false,
+                },
+                {
+                    str: repeatedText,
+                    hasEOL: false,
+                },
+                {
+                    str: repeatedText,
+                    hasEOL: false,
+                },
+            ]}),
+        };
         const doc = {
             numPages: 1,
             getPage: vi.fn(async () => pageOne),
@@ -280,6 +295,7 @@ describe('extractTextWithPdfjs cancellation', () => {
     it('extracts pdfjs operator-list word boxes from nested text matrices', async () => {
         const { extractTextWithPdfjsWordBoxes } = await import('@electron/search/extractTextWithPdfjs');
         const pageOne = {
+            cleanup: vi.fn(),
             view: [
                 0,
                 0,

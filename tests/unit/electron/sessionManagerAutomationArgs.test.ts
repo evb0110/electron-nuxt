@@ -655,7 +655,6 @@ describe('sessionManager automation launch args', () => {
 
     it('detects a hydrated renderer with missing preload bindings as retryable', () => {
         expect(classifyRendererBindingReadiness({
-            bodyExists: true,
             bodyTextLength: 12,
             bodyTextSnippet: 'EVB Viewer',
             electronAPI: 'undefined',

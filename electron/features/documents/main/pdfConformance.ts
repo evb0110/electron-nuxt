@@ -209,7 +209,7 @@ function createEmptyPdfValidationResult(): IPdfValidationResult {
 
 function isQpdfValidationTimeoutError(error: unknown) {
     return error instanceof Error
-        && QPDF_VALIDATE_TIMEOUT_PATTERN.test(error.message);
+        && QPDF_VALIDATE_TIMEOUT_PATTERN.test(getErrorMessage(error));
 }
 
 async function validatePdfFileWithStructuralFallback(
@@ -295,7 +295,7 @@ export async function validatePdfFile(
         return {
             isValid: false,
             tool: 'qpdf',
-            errors: [error instanceof Error ? error.message : 'PDF validation failed'],
+            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF validation failed'],
             warnings: [],
         };
     }
@@ -349,7 +349,7 @@ export async function validatePdfFileForOpening(
         return {
             isValid: false,
             tool: 'qpdf',
-            errors: [error instanceof Error ? error.message : 'PDF opening validation failed'],
+            errors: [error instanceof Error ? getErrorMessage(error) : 'PDF opening validation failed'],
             warnings: [],
         };
     }

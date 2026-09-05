@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     beforeEach,
@@ -163,10 +164,16 @@ interface IFakeDivElement {
     style: Record<string, string>;
     setAttribute: ReturnType<typeof vi.fn>;
     addEventListener: ReturnType<typeof vi.fn>;
-    closest?: (selector: string) => unknown;
+    classList: { contains: (className: string) => boolean; };
+    closest: (selector: string) => unknown;
+    querySelector: (selector: string) => unknown;
+    querySelectorAll: (selector: string) => unknown[];
 }
 
-interface IFakeContainerElement {querySelector: ReturnType<typeof vi.fn>;}
+interface IFakeContainerElement {
+    querySelector: ReturnType<typeof vi.fn>;
+    querySelectorAll: ReturnType<typeof vi.fn>;
+}
 
 interface IViewportLike {
     clone: ReturnType<typeof vi.fn>;
@@ -193,6 +200,10 @@ function createDiv(): HTMLDivElement {
         style: {},
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
+        classList: { contains: () => false },
+        closest: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
     };
     return cast<HTMLDivElement>(fakeDiv);
 }
@@ -241,7 +252,9 @@ function createAnnotationLayerDiv(options?: {
         style: {},
         setAttribute: vi.fn(),
         addEventListener: vi.fn(),
+        classList: { contains: () => false },
         closest: (selector: string) => selector === '.page_container' ? pageContainer : null,
+        querySelector: () => null,
         append: (element) => {
             appended.push(element);
         },
@@ -266,7 +279,10 @@ function createContainer(pageCanvas: HTMLDivElement) {
         }
         return null;
     });
-    const fakeContainer: IFakeContainerElement = { querySelector };
+    const fakeContainer: IFakeContainerElement = {
+        querySelector,
+        querySelectorAll: vi.fn(() => []),
+    };
     return cast<HTMLElement>(fakeContainer);
 }
 
@@ -328,7 +344,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -344,7 +360,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -395,7 +411,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             null,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
             { signal: abortController.signal },
         );
@@ -447,7 +463,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             createDiv(),
             null,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
             { signal: firstAbortController.signal },
         );
@@ -462,7 +478,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             createDiv(),
             createDiv(),
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -519,7 +535,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => []) }),
             createAnnotationLayerDiv(),
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
             { signal: annotationAbortController.signal },
         ).catch(error => error as Error);
@@ -543,7 +559,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             createDiv(),
             createDiv(),
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
         expect(didRenderAnnotationEditorLayer(replacementResult)).toBe(true);
@@ -580,7 +596,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             null,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -598,7 +614,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             null,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -615,7 +631,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             createDiv(),
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -632,7 +648,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             createDiv(),
             createViewport(),
-            2,
+            requirePageNumber(2),
             null,
         );
 
@@ -646,7 +662,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             createDiv(),
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -673,7 +689,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfPage,
             annotationLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
         );
 
         const hiddenElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
@@ -699,7 +715,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfPage,
             annotationLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
         );
 
         const managedElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
@@ -725,7 +741,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfPage,
             annotationLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
         );
 
         const managedElement = annotationLayerDiv.querySelectorAll('[data-annotation-id="12R"]')[0] as IFakeEditorLayerAnnotationElement | undefined;
@@ -757,7 +773,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfPage,
             annotationLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
         ) as {
             getEditableAnnotations?: () => Array<{ data: { id: string; }; }>;
             getEditableAnnotation?: (id: string) => unknown;
@@ -794,7 +810,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfPage,
             annotationLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
         ) as {
             getEditableAnnotations?: () => Array<{ data: { id: string; }; }>;
             getEditableAnnotation?: (id: string) => unknown;
@@ -827,7 +843,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -841,7 +857,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -877,7 +893,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -891,7 +907,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationEditorLayerDiv,
             textLayerDiv,
             createViewport(),
-            1,
+            requirePageNumber(1),
             null,
         );
 
@@ -942,7 +958,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             annotationL10n: ref(null),
         });
 
-        renderer.hideHiddenManagedEditors(1);
+        renderer.hideHiddenManagedEditors(requirePageNumber(1));
 
         expect(hiddenEditor.show).toHaveBeenCalledWith(false);
         expect(hiddenEditor.disableEditing).toHaveBeenCalledTimes(1);

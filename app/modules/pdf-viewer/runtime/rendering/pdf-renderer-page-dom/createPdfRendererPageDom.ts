@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import { clearPdfSelectionForLayerTeardown } from '@app/modules/pdf-viewer/engine/pdf-selection-cleanup/clearPdfSelectionForLayerTeardown';
 import { findPdfPageContainer } from '@app/modules/pdf-viewer/dom/pdf-viewer-dom/findPdfPageContainer';
@@ -14,13 +16,13 @@ export function createPdfRendererPageDom(options: ICreatePdfRendererPageDomOptio
     } = options;
 
     function getMountedPageContainer(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         containerRoot = container.value,
     ) {
         return findPdfPageContainer(containerRoot, pageNumber);
     }
 
-    function clearSelectionBeforePageLayerTeardown(pageNumber: number): boolean {
+    function clearSelectionBeforePageLayerTeardown(pageNumber: TPageNumber): boolean {
         const containerRoot = container.value;
         const pageContainer = getMountedPageContainer(pageNumber, containerRoot);
         return clearPdfSelectionForLayerTeardown({

@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -179,7 +180,7 @@ function buildFreeTextNoteSummary(size: number) {
             contentsObj: {str: 'Sticky note'},
         },
         null,
-        1,
+        requirePageNumber(1),
         0,
         [
             0,
@@ -408,7 +409,7 @@ describe('point-note marker threshold policy', () => {
                     contentsObj: {str: 'Sticky note'},
                 },
                 null,
-                1,
+                requirePageNumber(1),
                 0,
                 PAGE_VIEW,
                 pageRotation,

@@ -19,6 +19,12 @@ import {
     sendSentrySourcemapCanaries,
 } from '@scripts/release/send-sentry-sourcemap-canaries.mjs';
 import {getPrivateSourcemapManifestPath} from '@scripts/release/stage-private-sourcemaps.mjs';
+import { makeDsn } from '@sentry/core';
+
+const canaryDsn = makeDsn('https://public@o123.ingest.de.sentry.io/42');
+if (canaryDsn === undefined) {
+    throw new Error('Canary DSN fixture failed to parse');
+}
 
 const roots: string[] = [];
 const identity = {
@@ -89,7 +95,7 @@ describe('Sentry source-map canaries', () => {
         const fetchImpl = vi.fn(async () => responses.shift() ?? new Response(null, {status: 500}));
         const sleep = vi.fn(async () => undefined);
 
-        await sendEnvelope({event_id: 'a'.repeat(32)}, 'https://public@o123.ingest.de.sentry.io/42', {
+        await sendEnvelope({event_id: 'a'.repeat(32)}, canaryDsn, {
             fetchImpl,
             sleep,
         });
@@ -105,7 +111,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,
@@ -123,7 +129,7 @@ describe('Sentry source-map canaries', () => {
 
         await expect(sendEnvelope(
             {event_id: 'a'.repeat(32)},
-            'https://public@o123.ingest.de.sentry.io/42',
+            canaryDsn,
             {
                 fetchImpl,
                 sleep,

@@ -1,6 +1,10 @@
 import type {
     ChildProcess,
     SpawnOptions,
+    SpawnOptionsWithStdioTuple,
+    SpawnOptionsWithoutStdio,
+    StdioNull,
+    StdioPipe,
 } from 'child_process';
 import { terminateProcessTree } from '@electron/utils/processTree';
 
@@ -8,6 +12,23 @@ export function shouldUseDetachedProcessGroup(platform: NodeJS.Platform = proces
     return platform !== 'win32';
 }
 
+export function createDetachedChildProcessSpawnOptions(): SpawnOptions;
+export function createDetachedChildProcessSpawnOptions<
+    TStdin extends StdioNull | StdioPipe,
+    TStdout extends StdioNull | StdioPipe,
+    TStderr extends StdioNull | StdioPipe,
+>(
+    options: SpawnOptionsWithStdioTuple<TStdin, TStdout, TStderr>,
+    platform?: NodeJS.Platform,
+): SpawnOptionsWithStdioTuple<TStdin, TStdout, TStderr>;
+export function createDetachedChildProcessSpawnOptions(
+    options: SpawnOptionsWithoutStdio,
+    platform?: NodeJS.Platform,
+): SpawnOptionsWithoutStdio;
+export function createDetachedChildProcessSpawnOptions(
+    options: SpawnOptions,
+    platform?: NodeJS.Platform,
+): SpawnOptions;
 export function createDetachedChildProcessSpawnOptions(
     options: SpawnOptions = {},
     platform: NodeJS.Platform = process.platform,

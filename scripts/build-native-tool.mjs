@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { spawnSync } from 'node:child_process';
 import {
     access,
@@ -397,7 +398,7 @@ const isDirectRun = process.argv[1]
     && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isDirectRun) {
     await runNativeToolBuilder().catch((error) => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exitCode = 1;
     });
 }

@@ -1,3 +1,10 @@
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    requirePageNumber,
+    type TPageIndex,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { MaybeRefOrGetter } from 'vue';
 import { tryOnScopeDispose } from '@vueuse/core';
@@ -8,6 +15,10 @@ import type {
 } from '@app/types/pdfUi';
 import type { IOcrWord } from '@contracts/shared';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { buildOcrWordKey } from '@contracts/ocrText';
 import type { TextContent } from 'pdfjs-dist/types/src/display/api';
 import { usePdfSearchHighlight } from '@app/modules/pdf-viewer/runtime/composables/usePdfSearchHighlight';
@@ -47,7 +58,7 @@ import { PDF_PAGE_SCALE_CSS_VARS } from '@app/modules/pdf-viewer/engine/pdf-page
 interface IRenderedTextLayer {
     textLayer: ReturnType<typeof createPdfjsTextLayer>;
     pdfPage: PDFPageProxy;
-    workingCopyPath: string | null;
+    workingCopyPath: TDocumentRef | null;
     documentRevisionToken: TDocumentRevisionToken | null;
 }
 
@@ -121,11 +132,7 @@ export const usePdfTextLayerRenderer = (deps: {
         return Array.from(wordsByKey.values());
     }
 
-    function isSamePageMatchEntry(
-        match: TPageMatchEntry,
-        matchIndex: number,
-        currentMatchValue: IPdfSearchMatch,
-    ) {
+    function isSamePageMatchEntry(match: TPageMatchEntry, matchIndex: number, currentMatchValue: IPdfSearchMatch) {
         return matchIndex === currentMatchValue.pageMatchIndex
             || match.matchIndex === currentMatchValue.matchIndex
             || (
@@ -137,14 +144,15 @@ export const usePdfTextLayerRenderer = (deps: {
     function resolveCurrentMatchWords(
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number,
-    ): IOcrWord[] {
+        pageIndex: TPageIndex,
+    ): readonly IOcrWord[] {
         if (!currentMatchValue || currentMatchValue.pageIndex !== pageIndex) {
             return [];
         }
 
-        if (Array.isArray(currentMatchValue.words) && currentMatchValue.words.length > 0) {
-            return currentMatchValue.words;
+        const currentWords = currentMatchValue.words;
+        if (currentWords !== undefined && currentWords.length > 0) {
+            return currentWords;
         }
 
         const currentPageMatch = pageMatchData?.matches.find((match, index) => (
@@ -157,7 +165,7 @@ export const usePdfTextLayerRenderer = (deps: {
     function hasRenderableGeometryMatch(match: TPageMatchEntry): match is TPageMatchEntry & {
         pageHeight: number;
         pageWidth: number;
-        words: IOcrWord[];
+        words: readonly IOcrWord[];
     } {
         return Array.isArray(match.words)
             && match.words.length > 0
@@ -171,11 +179,11 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function hasRenderableCurrentMatchGeometry(
         currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number,
+        pageIndex: TPageIndex,
     ): currentMatchValue is IPdfSearchMatch & {
         pageWidth: number;
         pageHeight: number;
-        words: IOcrWord[];
+        words: readonly IOcrWord[];
     } {
         return Boolean(
             currentMatchValue
@@ -191,7 +199,7 @@ export const usePdfTextLayerRenderer = (deps: {
         );
     }
 
-    function computeWordsGeometryHash(words: IOcrWord[] | undefined) {
+    function computeWordsGeometryHash(words: readonly IOcrWord[] | undefined) {
         return words?.reduce((hash, word) => {
             let nextHash = hash;
             nextHash = Math.imul(nextHash ^ Math.round(word.x * 100), 16777619);
@@ -216,15 +224,12 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function isCurrentMatchForPage(
         currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number | undefined,
+        pageIndex: TPageIndex | undefined,
     ): currentMatchValue is IPdfSearchMatch {
         return Boolean(currentMatchValue && currentMatchValue.pageIndex === pageIndex);
     }
 
-    function buildPageHighlightSignature(
-        pageMatchData: IPdfPageMatches | null,
-        currentMatchValue: IPdfSearchMatch | null,
-    ) {
+    function buildPageHighlightSignature(pageMatchData: IPdfPageMatches | null, currentMatchValue: IPdfSearchMatch | null) {
         if (!pageMatchData || pageMatchData.matches.length === 0) {
             return isCurrentMatchForPage(currentMatchValue, pageMatchData?.pageIndex)
                 ? `empty|current=${currentMatchValue.matchIndex}:${currentMatchValue.pageMatchIndex ?? -1}`
@@ -244,7 +249,7 @@ export const usePdfTextLayerRenderer = (deps: {
         container: HTMLElement,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number,
+        pageIndex: TPageIndex,
     ) {
         clearWordBoxes(container);
 
@@ -303,20 +308,12 @@ export const usePdfTextLayerRenderer = (deps: {
         return Boolean(pageMatchData?.matches.some(hasRenderableGeometryMatch));
     }
 
-    function hasSearchGeometryForPage(
-        pageMatchData: IPdfPageMatches | null,
-        currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number,
-    ) {
+    function hasSearchGeometryForPage(pageMatchData: IPdfPageMatches | null, currentMatchValue: IPdfSearchMatch | null, pageIndex: TPageIndex) {
         return hasPageMatchWordBoxes(pageMatchData)
             || hasRenderableCurrentMatchGeometry(currentMatchValue, pageIndex);
     }
 
-    function hasRenderedSearchGeometry(
-        container: HTMLElement,
-        currentMatchValue: IPdfSearchMatch | null,
-        pageIndex: number,
-    ) {
+    function hasRenderedSearchGeometry(container: HTMLElement, currentMatchValue: IPdfSearchMatch | null, pageIndex: TPageIndex) {
         if (!container.querySelector('.pdf-word-box')) {
             return false;
         }
@@ -331,7 +328,7 @@ export const usePdfTextLayerRenderer = (deps: {
     function hasUsablePdfTextContent(textContent: TextContent | null) {
         return Boolean(textContent?.items.some(item => (
             'str' in item
-            && String(item.str ?? '').trim().length > 0
+            && item.str.trim().length > 0
         )));
     }
 
@@ -358,22 +355,19 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function isTextLayerRendering(textLayerDiv: HTMLElement) {
-        return textLayerDiv.dataset?.pdfTextLayerRendering === 'true';
+        return textLayerDiv.dataset.pdfTextLayerRendering === 'true';
     }
 
     function isTextLayerMarkedReady(textLayerDiv: HTMLElement) {
-        return textLayerDiv.dataset?.pdfTextLayerReady === 'true';
+        return textLayerDiv.dataset.pdfTextLayerReady === 'true';
     }
 
     function hasSearchableTextLayerContent(textLayerDiv: HTMLElement) {
-        const textLength = (textLayerDiv.textContent ?? '').trim().length;
-        return textLength > 0 && Boolean(textLayerDiv.querySelector?.('span'));
+        const textLength = textLayerDiv.textContent.trim().length;
+        return textLength > 0 && Boolean(textLayerDiv.querySelector('span'));
     }
 
-    function shouldWaitForSearchTextLayer(
-        textLayerDiv: HTMLElement,
-        pageMatchData: IPdfPageMatches | null,
-    ) {
+    function shouldWaitForSearchTextLayer(textLayerDiv: HTMLElement, pageMatchData: IPdfPageMatches | null) {
         if (!pageHasSearchMatches(pageMatchData)) {
             return false;
         }
@@ -390,7 +384,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function deferSearchHighlightsUntilTextLayerReady(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         textLayerDiv: HTMLElement,
         pageMatchData: IPdfPageMatches | null,
     ) {
@@ -405,22 +399,18 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function refreshSearchHighlightsForPage(
         container: HTMLElement,
-        mountedPageNumber: number,
+        mountedPageNumber: TPageNumber,
         pageMatchData: IPdfPageMatches | null,
         currentMatchValue: IPdfSearchMatch | null,
     ) {
-        const pageIndex = mountedPageNumber - 1;
+        const pageIndex = pageNumberToPageIndex(mountedPageNumber);
         const textLayerDiv = container.querySelector<HTMLElement>('.text-layer');
         if (!textLayerDiv) {
             pageHighlightState.signatureByPage.delete(mountedPageNumber);
             return;
         }
 
-        const hasGeometryHighlights = hasSearchGeometryForPage(
-            pageMatchData,
-            currentMatchValue,
-            pageIndex,
-        );
+        const hasGeometryHighlights = hasSearchGeometryForPage(pageMatchData, currentMatchValue, pageIndex);
         if (!hasGeometryHighlights && deferSearchHighlightsUntilTextLayerReady(
             mountedPageNumber,
             textLayerDiv,
@@ -444,11 +434,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 clearHighlights(textLayerDiv);
                 renderWordBoxesForPageMatch(container, pageMatchData, currentMatchValue, pageIndex);
             } else if (pageMatchData && pageMatchData.matches.length > 0) {
-                highlightPage(
-                    textLayerDiv,
-                    pageMatchData,
-                    currentMatchValue,
-                );
+                highlightPage(textLayerDiv, pageMatchData, currentMatchValue);
                 clearWordBoxes(container);
             } else {
                 clearHighlights(textLayerDiv);
@@ -456,7 +442,7 @@ export const usePdfTextLayerRenderer = (deps: {
             }
 
             if (canvas) {
-                maybeLogHighlightDebug(pageIndex + 1, pageMatchData, canvas, textLayerDiv);
+                maybeLogHighlightDebug(pageIndexToPageNumber(pageIndex), pageMatchData, canvas, textLayerDiv);
             }
         } catch (error) {
             BrowserLogger.warn('pdf-text-layer', 'Failed to refresh search highlights', {
@@ -484,7 +470,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function getHighlightDebugGuard(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageMatchData: IPdfPageMatches | null,
     ): IHighlightDebugGuard | null {
         if (!isHighlightDebugEnabled()) {
@@ -536,7 +522,7 @@ export const usePdfTextLayerRenderer = (deps: {
             `spanTransform=${JSON.stringify(spanStyle.transform)}`,
             `spanScaleX=${JSON.stringify(scaleX)}`,
             `spanFontHeightVar=${JSON.stringify(fontHeight)}`,
-            `spanText=${JSON.stringify(span.textContent?.slice(0, 60) ?? '')}`,
+            `spanText=${JSON.stringify(span.textContent.slice(0, 60))}`,
         ].join(' ');
     }
 
@@ -571,10 +557,7 @@ export const usePdfTextLayerRenderer = (deps: {
         };
     }
 
-    function formatHighlightDebugInfo(
-        debugInfo: IHighlightDebugInfo | undefined,
-        computedTotalScaleFactor: string,
-    ) {
+    function formatHighlightDebugInfo(debugInfo: IHighlightDebugInfo | undefined, computedTotalScaleFactor: string) {
         if (!debugInfo) {
             return [
                 '',
@@ -593,7 +576,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function buildHighlightDebugMessage(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         guard: IHighlightDebugGuard,
         rects: IHighlightDebugRects,
         debugInfo?: IHighlightDebugInfo,
@@ -629,7 +612,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function maybeLogHighlightDebug(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageMatchData: IPdfPageMatches | null,
         canvas: HTMLCanvasElement,
         textLayerDiv: HTMLElement,
@@ -642,12 +625,7 @@ export const usePdfTextLayerRenderer = (deps: {
 
         BrowserLogger.debug(
             'PDF-HIGHLIGHT',
-            buildHighlightDebugMessage(
-                pageNumber,
-                guard,
-                collectHighlightDebugRects(canvas, textLayerDiv),
-                debugInfo,
-            ),
+            buildHighlightDebugMessage(pageNumber, guard, collectHighlightDebugRects(canvas, textLayerDiv), debugInfo),
         );
     }
 
@@ -663,7 +641,7 @@ export const usePdfTextLayerRenderer = (deps: {
     ) {
         throwIfAborted(signal);
 
-        const currentWorkingCopyPath = toValue(deps.workingCopyPath);
+        const currentWorkingCopyPath = parseDocumentRef(toValue(deps.workingCopyPath));
         const currentDocumentRevisionToken = toValue(deps.documentRevisionToken);
 
         const rendered = renderedTextLayers.get(textLayerDiv);
@@ -698,7 +676,7 @@ export const usePdfTextLayerRenderer = (deps: {
                 hasOcrFallbackForPage = await hasPageOcrData(
                     currentWorkingCopyPath,
                     currentDocumentRevisionToken,
-                    pdfPage.pageNumber,
+                    requirePageNumber(pdfPage.pageNumber),
                 );
                 throwIfAborted(signal);
             } catch (ocrAvailabilityError) {
@@ -720,7 +698,7 @@ export const usePdfTextLayerRenderer = (deps: {
                     const ocrTextContent = await getOcrTextContent(
                         currentWorkingCopyPath,
                         currentDocumentRevisionToken,
-                        pdfPage.pageNumber,
+                        requirePageNumber(pdfPage.pageNumber),
                         viewport,
                     );
                     throwIfAborted(signal);
@@ -777,14 +755,14 @@ export const usePdfTextLayerRenderer = (deps: {
     function applyPageSearchHighlights(
         container: HTMLElement,
         textLayerDiv: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         canvas: HTMLCanvasElement | null,
         debugInfo?: IHighlightDebugInfo,
     ) {
-        const pageIndex = pageNumber - 1;
+        const pageIndex = pageNumberToPageIndex(pageNumber);
         const searchMatches = toValue(deps.searchPageMatches);
         const currentMatch = toValue(deps.currentSearchMatch) ?? null;
-        if (!searchMatches || searchMatches.size === 0) {
+        if (searchMatches.size === 0) {
             clearHighlights(textLayerDiv);
             clearWordBoxes(container);
             pageHighlightState.signatureByPage.set(pageNumber, buildPageHighlightSignature(null, currentMatch));
@@ -837,7 +815,7 @@ export const usePdfTextLayerRenderer = (deps: {
             || highlightResult.elements.length > 0
             || highlightResult.currentMatchRanges.length > 0;
 
-        if (!hasInTextHighlights && pageMatchData && pageMatchData.matches.length > 0) {
+        if (!hasInTextHighlights) {
             renderWordBoxesForPageMatch(container, pageMatchData, currentMatch, pageIndex);
         } else {
             clearWordBoxes(container);
@@ -924,7 +902,7 @@ export const usePdfTextLayerRenderer = (deps: {
             targetContainer: HTMLElement,
             pageMatchData: IPdfPageMatches | null,
             currentMatchValue: IPdfSearchMatch,
-            pageIndex: number,
+            pageIndex: TPageIndex,
         ) {
             const currentWords = resolveCurrentMatchWords(pageMatchData, currentMatchValue, pageIndex);
             if (currentWords.length === 0) {
@@ -1003,10 +981,10 @@ export const usePdfTextLayerRenderer = (deps: {
             );
             return false;
         }
-        const pageMatchData = toValue(deps.searchPageMatches)?.get(pageIndex) ?? null;
+        const pageMatchData = toValue(deps.searchPageMatches).get(pageIndex) ?? null;
         refreshSearchHighlightsForPage(
             targetContainer,
-            pageIndex + 1,
+            pageIndexToPageNumber(pageIndex),
             pageMatchData,
             currentMatchValue,
         );
@@ -1087,8 +1065,8 @@ export const usePdfTextLayerRenderer = (deps: {
 
     function scheduleRenderOcrDebugBoxes(
         container: HTMLElement,
-        pageNumber: number,
-        wcPath: string,
+        pageNumber: TPageNumber,
+        wcPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
         rawPageWidth: number,
@@ -1113,7 +1091,7 @@ export const usePdfTextLayerRenderer = (deps: {
     }
 
     function scheduleOcrDebugForPage(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         context: {
             container: HTMLElement;
             renderResult: {
@@ -1129,7 +1107,7 @@ export const usePdfTextLayerRenderer = (deps: {
             return;
         }
 
-        const wcPath = toValue(deps.workingCopyPath);
+        const wcPath = parseDocumentRef(toValue(deps.workingCopyPath));
         const documentRevisionToken = toValue(deps.documentRevisionToken);
         if (!wcPath || !documentRevisionToken) {
             return;

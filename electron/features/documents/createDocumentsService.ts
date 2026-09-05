@@ -124,6 +124,8 @@ import type {
     IWorkingCopyBackingStatus,
     TWorkingCopyBackingStatusState,
 } from '@contracts/electronApiDocuments';
+import { parseDocumentRef } from '@contracts/documentRef';
+import {requireSessionId} from '@contracts/shared';
 import {
     createManagedTempFileHandle,
     releaseManagedTempFileHandle,
@@ -165,8 +167,12 @@ function toBackingFailure(
 function toProgressStatus(
     progress: IWorkingCopyMaterializationProgress,
 ): IWorkingCopyBackingStatus {
+    const documentRef = parseDocumentRef(progress.documentRef);
+    if (documentRef === null) {
+        throw new Error('Working-copy progress has an invalid document ref');
+    }
     return {
-        documentRef: progress.documentRef,
+        documentRef,
         failure: toBackingFailure(progress.errorCode),
         progress: progress.status === 'completed'
             ? 1
@@ -177,6 +183,14 @@ function toProgressStatus(
                 ? 'materializing'
                 : 'lazy-original',
     };
+}
+
+function requireDocumentRef(value: unknown) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
 }
 
 export function createDocumentsService(): IDocumentsService {
@@ -255,21 +269,21 @@ export function createDocumentsService(): IDocumentsService {
         renderPdfNativePagePreview: (...args: TDocumentsServiceArgs<'renderPdfNativePagePreview'>) =>
             handlePdfNativePagePreview(...args),
         beginPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'beginPdfAnnotationIndex'>) =>
-            beginPdfAnnotationIndex(...args),
+            beginPdfAnnotationIndex(args[0], requireDocumentRef(args[1]), args[2]),
         readPdfAnnotationIndexChunk: (...args: TDocumentsServiceArgs<'readPdfAnnotationIndexChunk'>) =>
-            readPdfAnnotationIndexChunk(...args),
+            readPdfAnnotationIndexChunk(args[0], requireSessionId(args[1]), args[2], args[3]),
         releasePdfAnnotationIndex: (...args: TDocumentsServiceArgs<'releasePdfAnnotationIndex'>) =>
-            releasePdfAnnotationIndex(...args),
+            releasePdfAnnotationIndex(args[0], requireSessionId(args[1])),
         cancelPdfAnnotationIndex: (...args: TDocumentsServiceArgs<'cancelPdfAnnotationIndex'>) =>
-            cancelPdfAnnotationIndex(...args),
+            cancelPdfAnnotationIndex(args[0], requireSessionId(args[1])),
         beginPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'beginPdfEmbeddedShapeIndex'>) =>
-            beginPdfEmbeddedShapeIndex(...args),
+            beginPdfEmbeddedShapeIndex(args[0], requireDocumentRef(args[1]), args[2]),
         readPdfEmbeddedShapeIndexChunk: (...args: TDocumentsServiceArgs<'readPdfEmbeddedShapeIndexChunk'>) =>
-            readPdfEmbeddedShapeIndexChunk(...args),
+            readPdfEmbeddedShapeIndexChunk(args[0], requireSessionId(args[1]), args[2], args[3]),
         releasePdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'releasePdfEmbeddedShapeIndex'>) =>
-            releasePdfEmbeddedShapeIndex(...args),
+            releasePdfEmbeddedShapeIndex(args[0], requireSessionId(args[1])),
         cancelPdfEmbeddedShapeIndex: (...args: TDocumentsServiceArgs<'cancelPdfEmbeddedShapeIndex'>) =>
-            cancelPdfEmbeddedShapeIndex(...args),
+            cancelPdfEmbeddedShapeIndex(args[0], requireSessionId(args[1])),
         readTextFile: (...args: TDocumentsServiceArgs<'readTextFile'>) => handleFileReadText(...args),
         fileExists: (...args: TDocumentsServiceArgs<'fileExists'>) => handleFileExists(...args),
         getDocumentRevision: (...args: TDocumentsServiceArgs<'getDocumentRevision'>) => {
@@ -294,7 +308,7 @@ export function createDocumentsService(): IDocumentsService {
             const key = normalizePathForLookup(filePath) || filePath;
             const latestStatus = latestBackingStatus.get(key);
             return {
-                documentRef: filePath,
+                documentRef: requireDocumentRef(filePath),
                 failure: toBackingFailure(entry.sourceBackingErrorCode),
                 progress: state === 'materialized'
                     ? 1

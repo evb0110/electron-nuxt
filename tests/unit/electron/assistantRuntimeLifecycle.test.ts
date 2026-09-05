@@ -11,6 +11,7 @@ import {
     claimAssistantTurn,
     supersedeAssistantTurn,
 } from '@electron/features/agent/assistantTurnLifecycle';
+import { requireTabId } from '@contracts/windowTabs';
 
 const mocks = vi.hoisted(() => ({refreshCodexAuthStateAndRuntimeAvailability: vi.fn(async () => undefined)}));
 
@@ -32,7 +33,7 @@ describe('assistant runtime lifecycle', () => {
             kind: 'document',
             key: 'document-a',
             title: 'Document A',
-            tabId: 'tab-a',
+            tabId: requireTabId('tab-a'),
         }, {
             provider: 'codex',
             model: 'gpt-5.4',
@@ -71,7 +72,7 @@ describe('assistant runtime lifecycle', () => {
             scopeKey: 'document-a',
             provider: 'codex',
             windowId: 1,
-            tabId: 'tab-a',
+            tabId: requireTabId('tab-a'),
             documentRef: null,
             documentIdentity: null,
         });

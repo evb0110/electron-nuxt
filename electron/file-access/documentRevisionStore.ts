@@ -17,7 +17,12 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { createWorkingCopySyncRequiredError } from '@contracts/documentMutationErrors';
+import {createEpochMs} from '@contracts/timestamps';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import {
@@ -66,6 +71,14 @@ interface IProvisionalWorkingCopyRevision {
     sidecar: IWorkingCopyRevisionSidecar;
 }
 const provisionalWorkingCopyRevisions = new Map<string, IProvisionalWorkingCopyRevision>();
+
+function requireDocumentRef(value: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new TypeError('Working copy path must be an absolute document ref');
+    }
+    return parsed;
+}
 
 async function measureRevisionTransitionPhase<T>(
     phase: string,
@@ -159,11 +172,11 @@ function createRevisionSidecar(
     contentRevision: number,
     senderId?: number,
 ): IWorkingCopyRevisionSidecar {
-    const mintedAt = Date.now();
+    const mintedAt = createEpochMs();
     return {
         sidecarVersion: 1,
         version: 1,
-        documentRef: workingCopyPath,
+        documentRef: requireDocumentRef(workingCopyPath),
         authority: 'electron-working-copy',
         token: requireDocumentRevisionToken(`drt1:${getTokenRegistrationId(workingCopyPath, senderId)}:${contentRevision}:${randomUUID()}`),
         contentRevision,
@@ -444,7 +457,7 @@ export function assertWorkingCopyMutationAllowed(workingCopyPath: string) {
     const reason = hydrateWorkingCopySyncRequiredFromJournal(workingCopyPath);
     if (reason !== undefined) {
         throw createWorkingCopySyncRequiredError({
-            documentRef: workingCopyPath,
+            documentRef: requireDocumentRef(workingCopyPath),
             message: reason,
         });
     }

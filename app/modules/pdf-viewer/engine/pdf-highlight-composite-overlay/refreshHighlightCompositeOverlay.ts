@@ -52,9 +52,10 @@ function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
     selector: string,
 ) {
-    return typeof root?.querySelectorAll === 'function'
-        ? Array.from(root.querySelectorAll<T>(selector))
-        : [];
+    if (!root) {
+        return [];
+    }
+    return Array.from(root.querySelectorAll<T>(selector));
 }
 
 function rectFromSvg(hostRect: DOMRect, svg: SVGElement): IHighlightRect | null {
@@ -126,11 +127,9 @@ function isRectangularHighlightSourceSvg(svg: SVGElement) {
 }
 
 function removeCompositeOverlay(host: HTMLElement) {
-    if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(
-            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
-        )?.remove();
-    }
+    host.querySelector<SVGSVGElement>(
+        `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+    )?.remove();
     queryAll<SVGElement>(
         host,
         `:scope > svg.${ORIGINAL_HIDDEN_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
@@ -140,11 +139,9 @@ function removeCompositeOverlay(host: HTMLElement) {
 }
 
 function renderCompositeOverlay(host: HTMLElement, fragments: IHighlightPaintFragment[]) {
-    if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(
-            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
-        )?.remove();
-    }
+    host.querySelector<SVGSVGElement>(
+        `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+    )?.remove();
     if (fragments.length === 0) {
         return;
     }

@@ -5,6 +5,10 @@ import {
 } from 'vitest';
 import { delay } from 'es-toolkit/promise';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     copyFileSync,
     mkdirSync,
     unlinkSync,
@@ -616,6 +620,7 @@ describe('Electron E2E - Recent Files', () => {
         }
 
         const fixturePath = await createLargeScannedFixturePdf(`recent-file-${Date.now()}.pdf`);
+        const fixtureDocumentRef = requireDocumentRef(fixturePath);
         await openPdfInApp(session.page, fixturePath);
         await waitForPdfLoaded(session.page);
         session = await sessionFixture.restart({
@@ -629,9 +634,9 @@ describe('Electron E2E - Recent Files', () => {
         await waitForStartupOverlayRemoved(session);
         await installCommittedSurfaceSampler(session.page);
         await startToolbarTransitionSampling(session);
-        const sourceDeferred = await evaluateInPage(session.page, (path: string) => (
+        const sourceDeferred = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__deferDocumentOpenForAutomation?.(path) ?? false
-        ), fixturePath);
+        ), fixtureDocumentRef);
         expect(sourceDeferred).toBe(true);
         const immediateOpen = await emptyCurrentTabAndOpenRecentAtFirstOpenSurface(
             session,
@@ -705,9 +710,9 @@ describe('Electron E2E - Recent Files', () => {
             const shell = document.querySelector<HTMLElement>('[data-e2e-recent-opening-shell="stable"]');
             return shell?.querySelector('.document-page-skeleton') !== null;
         });
-        const sourceReleased = await evaluateInPage(session.page, (path: string) => (
+        const sourceReleased = await evaluateInPage(session.page, (path: TDocumentRef) => (
             window.__releaseDocumentOpenForAutomation?.(path) ?? false
-        ), fixturePath);
+        ), fixtureDocumentRef);
         expect(debouncedSkeletonVisible).toBe(true);
         expect(sourceReleased).toBe(true);
         // Opening a Recent file consumes the current empty tab; it must not create

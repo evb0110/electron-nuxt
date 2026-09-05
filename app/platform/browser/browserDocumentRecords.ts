@@ -14,6 +14,7 @@ import type {
     TBrowserDocumentStorageMode,
 } from '@app/platform/browser/browserDocumentTypes';
 import { getBrowserDocumentEntryContentRevision } from '@app/platform/browser/browserDocumentRevision';
+import { parseDocumentRef } from '@contracts/documentRef';
 
 export function createPersistedBrowserDocumentRecord(
     entry: IBrowserDocumentEntry,
@@ -300,8 +301,13 @@ function defaultSaveKindForFileName(fileName: string): IBrowserDocumentEntry['sa
 export function createEntryFromPersistedRecord(
     record: IBrowserPersistedDocumentRecord,
 ): IBrowserDocumentEntry {
+    const ref = parseDocumentRef(record.ref);
+    if (ref === null) {
+        throw new TypeError('Persisted browser document reference is invalid');
+    }
     return {
         ...record,
+        ref,
         data: cloneBytes(record.data),
         pendingLoad: null,
         retention: record.retention ?? defaultRetentionForKind(record.kind),

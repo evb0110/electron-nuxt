@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import type {
@@ -526,7 +527,7 @@ async function observeControls(page: Page) {
         };
         const labelOf = (element: Element) => {
             const explicit = element.getAttribute('aria-label') ?? element.getAttribute('title') ?? element.getAttribute('placeholder');
-            const text = (explicit ?? element.textContent ?? '').replace(/\s+/gu, ' ').trim();
+            const text = (explicit ?? element.textContent).replace(/\s+/gu, ' ').trim();
             return text.slice(0, 60);
         };
         const registry = new Map<string, Element>();
@@ -804,7 +805,7 @@ export async function executeStressOperatorTool(context: IStressOperatorToolCont
         }
         return failure(`unknown tool ${call.name}`);
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getErrorMessage(error);
         context.log(`tool ${call.name} failed: ${message}`);
         return failure(message);
     }

@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import { resolvePdfRenderPerformancePolicy } from '@app/modules/pdf-viewer/engine/pdf-render-performance/resolvePdfRenderPerformancePolicy';
@@ -30,7 +33,6 @@ import { usePdfImagePlacement } from '@app/modules/pdf-viewer/runtime/composable
 import { usePdfRegionSnip } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfRegionSnip';
 import { usePdfViewerSelectionToolState } from '@app/modules/pdf-viewer/tools/public';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
-import { createPdfViewportWritePort } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewportWritePort';
 import { usePdfViewerPropModel } from '@app/modules/pdf-viewer/runtime/contracts/usePdfViewerPropModel';
 import type {
     IPdfViewerProps,
@@ -88,7 +90,7 @@ export const usePdfViewerFeatureController = (
     const performanceProfile = getPerformanceProfile();
     const performancePolicy = resolvePdfRenderPerformancePolicy(performanceProfile);
     const outputScale = usePdfViewerOutputScale(performancePolicy);
-    const viewportWritePort = chassisAuthority?.viewportWritePort ?? createPdfViewportWritePort();
+    const viewportWritePort = chassisAuthority.viewportWritePort;
     const regionSnip = usePdfRegionSnip({ viewerContainer });
     const cropSelection = usePdfCropSelection({ viewerContainer });
     const viewportSessionRef = shallowRef<TPdfViewportSession | null>(null);
@@ -99,7 +101,14 @@ export const usePdfViewerFeatureController = (
 
     const documentSession = createPdfDocumentSession({
         chassisAuthority,
-        openSurfaceDocumentId: () => String(props.originalPath ?? workingCopyPath.value ?? src.value ?? 'pdf-open'),
+        openSurfaceDocumentId: () => {
+            const source = src.value;
+            return props.originalPath
+                ?? workingCopyPath.value
+                ?? (typeof source === 'object' && source !== null && 'path' in source
+                    ? source.path
+                    : 'pdf-open');
+        },
         emitInitialVisualPending: viewerEvents.initialVisualPending,
         src,
         reloadSrc,
@@ -184,7 +193,7 @@ export const usePdfViewerFeatureController = (
                 ?? Promise.resolve(false)
         ),
         getCommittedPageScale: pageNumber => (
-            renderingSessionRef.value?.getCommittedPageScale?.(pageNumber) ?? null
+            renderingSessionRef.value?.getCommittedPageScale(pageNumber) ?? null
         ),
         selectionMarkupStyle,
         classState: {
@@ -258,7 +267,7 @@ export const usePdfViewerFeatureController = (
         immediate: true,
     });
 
-    let markDelayedSkeletonPageRendered = (_pageNumber: number) => {};
+    let markDelayedSkeletonPageRendered = (_pageNumber: TPageNumber) => {};
     const renderingSession = createPdfRenderingSession({
         document: documentSession,
         viewport: viewportSession,
@@ -341,21 +350,36 @@ export const usePdfViewerFeatureController = (
         suppressLoadingOverlay,
         skeletonContentInsets: viewportSession.skeletonInsets.skeletonContentInsets,
         pagesToRender: viewportSession.viewModel.pagesToRender,
-        isPageBuffered: viewportSession.viewModel.isPageBuffered,
-        isPageRenderedForClass: renderingSession.isPageRenderedForClass,
-        isPageRendering: renderingSession.isPageRendering,
-        isPageRenderFailed: renderingSession.isPageRenderFailed,
-        shouldShowSkeleton: pageNumber => shouldShowPdfNavigationSkeleton({
-            pageNumber,
-            navigationAnchorPage: viewportSession.singlePageScroll.navigationAnchorPage.value
-                ?? (viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
-                    ? viewportSession.currentPage.value
-                    : null),
-            totalPages: documentSession.numPages.value,
-            viewMode: viewMode.value,
-            isPageRendered: renderingSession.isPageVisualReady,
-            shouldShowSkeleton: isPageNearVisibleAndUnrendered,
-        }),
+        isPageBuffered: pageNumber => viewportSession.viewModel.isPageBuffered(
+            requirePageNumber(pageNumber, documentSession.numPages.value),
+        ),
+        isPageRenderedForClass: pageNumber => renderingSession.isPageRenderedForClass(
+            requirePageNumber(pageNumber, documentSession.numPages.value),
+        ),
+        isPageRendering: pageNumber => renderingSession.isPageRendering(
+            requirePageNumber(pageNumber, documentSession.numPages.value),
+        ),
+        isPageRenderFailed: pageNumber => renderingSession.isPageRenderFailed(
+            requirePageNumber(pageNumber, documentSession.numPages.value),
+        ),
+        shouldShowSkeleton: pageNumber => {
+            const totalPages = documentSession.numPages.value;
+            const brandedPageNumber = requirePageNumber(pageNumber, totalPages);
+            const navigationAnchorPageValue = viewportSession.singlePageScroll.navigationAnchorPage.value;
+            const navigationAnchorPage = navigationAnchorPageValue === null
+                ? (viewportSession.singlePageScroll.isProgrammaticNavigationActive.value
+                    ? requirePageNumber(viewportSession.currentPage.value, totalPages)
+                    : null)
+                : requirePageNumber(navigationAnchorPageValue, totalPages);
+            return shouldShowPdfNavigationSkeleton({
+                pageNumber: brandedPageNumber,
+                navigationAnchorPage,
+                totalPages,
+                viewMode: viewMode.value,
+                isPageRendered: renderingSession.isPageVisualReady,
+                shouldShowSkeleton: isPageNearVisibleAndUnrendered,
+            });
+        },
         visibleRange: viewportSession.visibleRange,
         currentPage: viewportSession.currentPage,
         zoom,
@@ -370,7 +394,7 @@ export const usePdfViewerFeatureController = (
     markDelayedSkeletonPageRendered = renderViewModel.markPageRendered;
 
     const SKELETON_BUFFER = 3;
-    function isPageNearVisibleAndUnrendered(pageNumber: number) {
+    function isPageNearVisibleAndUnrendered(pageNumber: TPageNumber) {
         const start = Math.max(1, viewportSession.visibleRange.value.start - SKELETON_BUFFER);
         const end = Math.min(documentSession.numPages.value, viewportSession.visibleRange.value.end + SKELETON_BUFFER);
         return pageNumber >= start
@@ -443,7 +467,7 @@ export const usePdfViewerFeatureController = (
     });
     async function renderLoadedPdfPagesForBrowserPrint(
         targetDocument: IBrowserPrintDocument,
-        pageNumbers: number[],
+        pageNumbers: TPageNumber[],
         renderOptions?: { signal?: AbortSignal },
     ) {
         const pdfDocument = documentSession.pdfDocument.value;
@@ -514,8 +538,8 @@ export const usePdfViewerFeatureController = (
         handleViewerDblClick,
         handleViewerContextMenu,
         handleSelectStart,
-        handlePageContainerMounted: (pageNumber: number) => viewportSession.markPageMounted(pageNumber),
-        handlePageContainerUnmounted: (pageNumber: number) => {
+        handlePageContainerMounted: (pageNumber: TPageNumber) => viewportSession.markPageMounted(pageNumber),
+        handlePageContainerUnmounted: (pageNumber: TPageNumber) => {
             viewportSession.markPageUnmounted(pageNumber);
             renderingSession.releaseUnmountedPage(pageNumber);
         },

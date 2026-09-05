@@ -16,6 +16,15 @@ import {
     isStringArray,
 } from '@contracts/runtimeGuards';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseJobId,
+    parseRequestId,
+    requireJobId,
+    type TRequestId,
+} from '@contracts/shared';
+import {parseDocumentRef} from '@contracts/documentRef';
+import {parseEpochMs} from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 export { isAbortError };
 
@@ -31,8 +40,8 @@ export function createTimeoutError(message: string) {
     return error;
 }
 
-export function toScopedOcrJobId(webContentsId: number, requestId: string) {
-    return `${webContentsId}:${requestId}`;
+export function toScopedOcrJobId(webContentsId: number, requestId: TRequestId) {
+    return requireJobId(`${webContentsId}:${requestId}`);
 }
 
 export type TOcrWorkerManagerMessage = Exclude<
@@ -56,7 +65,9 @@ function parseWorkerLogMessage(message: Record<string, unknown>): TOcrWorkerMana
 
 function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
     const progress = message.progress;
-    if (!isRecord(progress) || typeof message.jobId !== 'string' || typeof progress.requestId !== 'string') {
+    const jobId = parseJobId(message.jobId);
+    const requestId = isRecord(progress) ? parseRequestId(progress.requestId) : null;
+    if (!isRecord(progress) || jobId === null || requestId === null) {
         return null;
     }
 
@@ -70,9 +81,9 @@ function parseWorkerProgressMessage(message: Record<string, unknown>): TOcrWorke
 
     const parsedProgress: TOcrWorkerManagerMessage = {
         type: 'progress',
-        jobId: message.jobId,
+        jobId,
         progress: {
-            requestId: progress.requestId,
+            requestId,
             currentPage: progress.currentPage,
             processedCount: progress.processedCount,
             totalPages: progress.totalPages,
@@ -97,11 +108,12 @@ function parseSuccessfulCompleteResult(
         ? result.pdfPath.trim()
         : '';
     const sourceDocumentRevisionToken = parseDocumentRevisionToken(result.sourceDocumentRevisionToken);
+    const pdfPath = parseDocumentRef(normalizedPdfPath);
     const resultSha256 = typeof result.resultSha256 === 'string' && /^[a-f0-9]{64}$/u.test(result.resultSha256)
         ? result.resultSha256
         : null;
     if (
-        normalizedPdfPath.length === 0
+        pdfPath === null
         || sourceDocumentRevisionToken === null
         || resultSha256 === null
         || typeof result.requiresCleanupAck !== 'boolean'
@@ -111,7 +123,7 @@ function parseSuccessfulCompleteResult(
 
     return {
         success: true as const,
-        pdfPath: normalizedPdfPath,
+        pdfPath,
         sourceDocumentRevisionToken,
         resultSha256,
         requiresCleanupAck: result.requiresCleanupAck,
@@ -124,11 +136,12 @@ function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
     if (!isRecord(value)) {
         return undefined;
     }
+    const timestamp = parseEpochMs(value.timestamp);
     if (
         !isOneOf(OCR_ERROR_CODES, value.code)
         || typeof value.message !== 'string'
         || typeof value.retryable !== 'boolean'
-        || !isFiniteNumber(value.timestamp)
+        || timestamp === null
     ) {
         return undefined;
     }
@@ -140,7 +153,7 @@ function parseOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
         code: value.code,
         message: value.message,
         retryable: value.retryable,
-        timestamp: value.timestamp,
+        timestamp,
         ...(value.details === undefined ? {} : {details: value.details}),
     };
 }
@@ -170,7 +183,9 @@ function parseOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefine
             code: diagnostic.code,
             severity: diagnostic.severity,
             message: diagnostic.message,
-            ...(diagnostic.pageNumber === undefined ? {} : {pageNumber: diagnostic.pageNumber}),
+            ...(diagnostic.pageNumber === undefined
+                ? {}
+                : {pageNumber: requirePageNumber(diagnostic.pageNumber)}),
         };
     });
     return diagnostics.some(diagnostic => diagnostic === null)
@@ -211,7 +226,8 @@ function parseWorkerCompleteResult(result: unknown) {
 }
 
 function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
-    if (typeof message.jobId !== 'string') {
+    const jobId = parseJobId(message.jobId);
+    if (jobId === null) {
         return null;
     }
 
@@ -219,17 +235,18 @@ function parseWorkerCompleteMessage(message: Record<string, unknown>): TOcrWorke
     return result
         ? {
             type: 'complete',
-            jobId: message.jobId,
+            jobId,
             result,
         }
         : null;
 }
 
 function parseWorkerCleanupCompleteMessage(message: Record<string, unknown>): TOcrWorkerManagerMessage | null {
-    return typeof message.jobId === 'string'
+    const jobId = parseJobId(message.jobId);
+    return jobId !== null
         ? {
             type: 'cleanup-complete',
-            jobId: message.jobId,
+            jobId,
         }
         : null;
 }

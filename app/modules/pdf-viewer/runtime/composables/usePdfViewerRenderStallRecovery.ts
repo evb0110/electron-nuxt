@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     ComputedRef,
     Ref,
@@ -93,7 +94,7 @@ export const usePdfViewerRenderStallRecovery = (options: IUsePdfViewerRenderStal
         }).catch((error: unknown) => {
             BrowserLogger.warn('pdf-renderer', 'PDF render heartbeat recovery failed; reloading source', {
                 page,
-                error: error instanceof Error ? error.message : String(error),
+                error: getErrorMessage(error),
             });
             options.scheduleReload(true);
         });

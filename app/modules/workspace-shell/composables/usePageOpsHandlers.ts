@@ -7,16 +7,7 @@ import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
-    getPageIdentityDeltaNextPageCount,
-    mapPageNumberThroughPageIdentityDelta,
-    type IPageIdentityDelta,
-} from '@contracts/electronApiPageOps';
-import type {
-    IPageMoveRangeSegment,
-    TPageMoveOperation,
-    TPageSelection,
-} from '@contracts/pageNumbers';
-import {
+    requirePageNumber,
     createAllPageSelection,
     createExplicitPageSelection,
     createMappedPageSelection,
@@ -25,6 +16,16 @@ import {
     materializePageSelection,
     mapPageNumberAfterPageMove,
     pageSelectionCount,
+} from '@contracts/pageNumbers';
+import {
+    getPageIdentityDeltaNextPageCount,
+    mapPageNumberThroughPageIdentityDelta,
+    type IPageIdentityDelta,
+} from '@contracts/electronApiPageOps';
+import type {
+    IPageMoveRangeSegment,
+    TPageMoveOperation,
+    TPageSelection,
 } from '@contracts/pageNumbers';
 import { usePageOperations } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
@@ -233,12 +234,15 @@ export const usePageOpsHandlers = (deps: IPageOpsHandlersDeps) => {
         }
         const didSucceed = await run();
         if (didSucceed) {
-            const outcome = lastPageOperationOutcome?.value;
+            const outcome = lastPageOperationOutcome.value;
             const delta = outcome?.status === 'succeeded' && 'pageIdentityDelta' in outcome.result
                 ? outcome.result.pageIdentityDelta
                 : undefined;
             if (delta) {
-                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, currentPage.value);
+                const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
+                    delta,
+                    requirePageNumber(currentPage.value),
+                );
                 const nextPageCount = getPageIdentityDeltaNextPageCount(delta);
                 currentPage.value = mappedPageNumber
                     ?? Math.min(currentPage.value, nextPageCount ?? currentPage.value);

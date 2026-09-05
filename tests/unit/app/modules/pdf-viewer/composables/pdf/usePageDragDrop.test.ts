@@ -11,6 +11,7 @@ import {
     ref,
 } from 'vue';
 import { usePageDragDrop } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePageDragDrop';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createAllPageSelection,
     createExplicitPageSelection,
@@ -102,10 +103,10 @@ describe('usePageDragDrop', () => {
 
     it('registers external dropped paths through the split picker capability', async () => {
         const pickerRegisterFilesForOpen = vi.fn(async () => [
-            '/docs/a.pdf',
-            '/docs/b.png',
-            '/docs/a.pdf',
-            '/docs/readme.txt',
+            requireDocumentRef('/docs/a.pdf'),
+            requireDocumentRef('/docs/b.png'),
+            requireDocumentRef('/docs/a.pdf'),
+            requireDocumentRef('/docs/readme.txt'),
         ]);
         vi.stubGlobal('window', {
             ...globalThis,
@@ -139,7 +140,7 @@ describe('usePageDragDrop', () => {
             if (files[0]?.name === 'file-0') {
                 throw new Error('page ingestion failed');
             }
-            return ['/docs/b.png'];
+            return [requireDocumentRef('/docs/b.png')];
         });
         vi.stubGlobal('window', {
             ...globalThis,

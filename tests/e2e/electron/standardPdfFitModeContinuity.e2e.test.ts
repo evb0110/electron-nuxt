@@ -463,7 +463,7 @@ async function openPathAndAwaitRouteOutcome(
     path: string,
 ): Promise<IDirectOpenRouteOutcome> {
     return evaluateInPage(session.page, async (targetPath: string) => {
-        const openWindow = window as Window & {
+        const openWindow = Object.create(window) as {
             __allowRendererFileOpenForAutomation?: (value: string) => Promise<boolean>;
             __openFileDirect?: (value: string) => Promise<boolean>;
         };
@@ -487,7 +487,7 @@ async function openPathAndAwaitRouteOutcome(
         } catch (error) {
             return {
                 available: true,
-                error: error instanceof Error ? error.message : String(error),
+                error: String(error),
                 opened: null,
             };
         }

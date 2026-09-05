@@ -1,4 +1,5 @@
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {parseRequestId} from '@contracts/shared';
 import type {
     ISearchWorkerRequest,
     TSearchWorkerInboundMessage,
@@ -12,10 +13,10 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     if (!isWorkerMessageRecord(value)) {
         return null;
     }
+    const requestId = parseRequestId(value.requestId);
     const documentRevision = parseDocumentRevisionToken(value.documentRevision);
     if (
-        typeof value.requestId !== 'string'
-        || value.requestId.trim().length === 0
+        requestId === null
         || typeof value.pdfPath !== 'string'
         || value.pdfPath.trim().length === 0
         || documentRevision === null
@@ -38,7 +39,7 @@ function parseSearchWorkerRequest(value: unknown): ISearchWorkerRequest | null {
     const wholeWord = typeof value.wholeWord === 'boolean' ? value.wholeWord : undefined;
     const useRegex = typeof value.useRegex === 'boolean' ? value.useRegex : undefined;
     return {
-        requestId: value.requestId,
+        requestId,
         pdfPath: value.pdfPath,
         documentRevision,
         query: value.query,
@@ -56,12 +57,15 @@ export function parseSearchWorkerInboundMessage(value: unknown): TSearchWorkerIn
     }
     switch (value.type) {
         case 'cancel':
-            return typeof value.requestId === 'string' && value.requestId.trim().length > 0
-                ? {
+        {
+            const requestId = parseRequestId(value.requestId);
+            return requestId === null
+                ? null
+                : {
                     type: 'cancel',
-                    requestId: value.requestId,
-                }
-                : null;
+                    requestId,
+                };
+        }
         case 'reset-cache':
             return {type: 'reset-cache'};
         case 'reset-state':

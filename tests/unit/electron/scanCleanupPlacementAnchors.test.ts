@@ -8,6 +8,7 @@ import type {
     IScanCleanupOptions,
 } from '@contracts/electronApiScanCleanup';
 import type {IScanCleanupDetectionResultStore} from '@scan-cleanup-core/types';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     buildScanCleanupPlacementAnchorSummary,
     resolveScanCleanupPlacementAnchorFromSummary,
@@ -34,8 +35,9 @@ const options: IScanCleanupOptions = {
 };
 
 function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionResult {
+    const brandedPageNumber = requirePageNumber(pageNumber);
     return {
-        pageNumber,
+        pageNumber: brandedPageNumber,
         classification: 'single-uncut-page',
         confidence: 1,
         cutterXPx: null,
@@ -44,7 +46,7 @@ function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionR
         reconciled: true,
         clusterAgreement: 1,
         sourcePageMetadata: {
-            pageNumber,
+            pageNumber: brandedPageNumber,
             xPoints: 0,
             yPoints: 0,
             widthPoints: 612,
@@ -53,7 +55,7 @@ function result(pageNumber: number, yNormalized: number): IScanCleanupDetectionR
             sourceDpi: 300,
         },
         pagePlanEvidence: {
-            pageNumber,
+            pageNumber: brandedPageNumber,
             rotationDegrees: 0,
             layoutClassification: 'single-uncut-page',
             outputs: {full: {contentBox: {

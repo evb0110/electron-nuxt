@@ -103,7 +103,7 @@ import {
     findPageByPageLabelInput,
     getPageIndicatorLayoutMetrics,
     type TDocumentPageLabelLookup,
-} from '@app/utils/pdfPageLabels';
+} from '@app/utils/document-viewer/pageLabels';
 import {
     getPdfPageDropdownIndicatorParts,
     getPdfPageDropdownInputLabel,

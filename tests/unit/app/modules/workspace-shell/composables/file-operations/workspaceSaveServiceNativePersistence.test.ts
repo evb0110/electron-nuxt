@@ -11,6 +11,8 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { PDF_SAVE_TIMEOUT_MS } from '@app/constants/timeouts';
 import { cast } from '@tests/helpers/cast';
@@ -60,7 +62,7 @@ describe('workspaceSaveService native persistence', () => {
         });
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
             materializedIdentityBindings: [binding],
@@ -109,7 +111,7 @@ describe('workspaceSaveService native persistence', () => {
                 annotationId: null,
             })]),
             hasAnnotationChanges: vi.fn(() => true),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             trySavePdfNativeMutations,
             runSaveTransaction,
         });
@@ -264,7 +266,7 @@ describe('workspaceSaveService native persistence', () => {
     }) => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -273,7 +275,7 @@ describe('workspaceSaveService native persistence', () => {
             saveFile,
         } = createDeps({
             ...configure(),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             trySavePdfNativeMutations,
         });
         const {handleSave} = useWorkspaceSaveServiceForTest(deps);
@@ -366,7 +368,7 @@ describe('workspaceSaveService native persistence', () => {
                 }
                 return {
                     success: true,
-                    outPath: '/tmp/work.pdf',
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
                     saveMode: 'rewrite' as const,
                     didSaveAs: false,
                 };
@@ -376,7 +378,7 @@ describe('workspaceSaveService native persistence', () => {
             saveFile,
         } = createDeps({
             ...configure(),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             ...(trySavePdfNativeMutations ? {trySavePdfNativeMutations} : {}),
         });
         const {handleSave} = useWorkspaceSaveServiceForTest(deps);
@@ -416,13 +418,13 @@ describe('workspaceSaveService native persistence', () => {
     it.each(strictSerializedRouteRows)('rejects $name on a native path before renderer serialization', async ({invoke}) => {
         const repairWorkingCopy = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
         const optimizeWorkingCopy = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -432,7 +434,7 @@ describe('workspaceSaveService native persistence', () => {
             saveWorkingCopyAs,
         } = createDeps({
             annotationDirty: ref(true),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             repairWorkingCopy,
             optimizeWorkingCopy,
         });
@@ -459,7 +461,7 @@ describe('workspaceSaveService native persistence', () => {
     it('uses the native PDF mutation path for dirty managed shapes', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -535,7 +537,7 @@ describe('workspaceSaveService native persistence', () => {
     }) => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -548,7 +550,7 @@ describe('workspaceSaveService native persistence', () => {
             saveFile,
         } = createDeps({
             totalPages: ref(2),
-            workingCopyPath: ref('/tmp/work.pdf'),
+            workingCopyPath: ref(requireDocumentRef('/tmp/work.pdf')),
             hasShapeChanges: vi.fn(() => true),
             getAllShapes: vi.fn(() => [createShapeAnnotation()]),
             trySavePdfNativeMutations,
@@ -574,7 +576,7 @@ describe('workspaceSaveService native persistence', () => {
     it('keeps a committed native shape save successful when saved bytes cannot be reread', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -608,7 +610,7 @@ describe('workspaceSaveService native persistence', () => {
     it('falls back to serialized save when dirty shapes are not native-eligible', async () => {
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -648,7 +650,7 @@ describe('workspaceSaveService native persistence', () => {
             }]),
             trySaveEmbeddedNoteTextUpdates: vi.fn(async () => ({
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             })),
@@ -697,7 +699,7 @@ describe('workspaceSaveService native persistence', () => {
         const pendingDeletes = [createEditorFreeTextNote()];
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -734,7 +736,7 @@ describe('workspaceSaveService native persistence', () => {
         pendingTexts.set('ann:0:3856R', 'Updated note');
         const trySaveEmbeddedNoteTextUpdates = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -857,7 +859,7 @@ describe('workspaceSaveService native persistence', () => {
                 saveOrder.push('save-file');
                 return {
                     success: true,
-                    outPath: '/tmp/work.pdf',
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
                     saveMode: 'rewrite' as const,
                     didSaveAs: false,
                 };
@@ -889,7 +891,7 @@ describe('workspaceSaveService native persistence', () => {
                 saveOrder.push('save-file');
                 return {
                     success: true,
-                    outPath: '/tmp/work.pdf',
+                    outPath: requireDocumentRef('/tmp/work.pdf'),
                     saveMode: 'rewrite' as const,
                     didSaveAs: false,
                 };
@@ -1002,7 +1004,7 @@ describe('workspaceSaveService native persistence', () => {
             kindLabel: 'Note',
             subtype: 'FreeText',
             author: null,
-            modifiedAt: Date.now(),
+            modifiedAt: requireEpochMs(1_781_009_077_000),
             color: null,
             uid: null,
             annotationId: '3856R',
@@ -1096,7 +1098,7 @@ describe('workspaceSaveService native persistence', () => {
         const prepared = { prepared: 'native' };
         const trySavePdfNativeMutations = vi.fn(async () => ({
             success: true,
-            outPath: '/tmp/work.pdf',
+            outPath: requireDocumentRef('/tmp/work.pdf'),
             saveMode: 'rewrite' as const,
             didSaveAs: false,
         }));
@@ -1220,7 +1222,7 @@ describe('workspaceSaveService native persistence', () => {
             deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
             return {
                 success: true,
-                outPath: '/tmp/work.pdf',
+                outPath: requireDocumentRef('/tmp/work.pdf'),
                 saveMode: 'rewrite' as const,
                 didSaveAs: false,
             };

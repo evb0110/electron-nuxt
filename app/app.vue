@@ -476,7 +476,7 @@ useHead(() => ({
         'data-platform': uiHostSnapshot.value.platform,
         style: `--app-ui-scale: ${uiEffectiveScale.value}; --app-toast-stack-max: ${APP_TOAST_STACK_MAX};`,
         class: [
-            localeHead.value.htmlAttrs?.class,
+            localeHead.value.htmlAttrs.class,
             settings.value.theme,
         ].filter(Boolean).join(' '),
     },
@@ -494,11 +494,12 @@ function schedulePostReadyRecentGeometryWarmup(
                 await loadRecentFiles();
                 const documentFiles = getDocumentFilesCapability();
                 const djvu = getDjvuCapability();
+                const readPdfOpeningGeometry = documentFiles.getPdfOpeningGeometry;
                 await runPostReadyRecentGeometryPrewarm({
                     files: recentFiles.value,
                     ports: {
-                        ...(documentFiles.getPdfOpeningGeometry
-                            ? {readPdfOpeningGeometry: (path: string) => documentFiles.getPdfOpeningGeometry!(path)}
+                        ...(readPdfOpeningGeometry
+                            ? {readPdfOpeningGeometry}
                             : {}),
                         readDjvuSourceInfo: path => djvu.getPageSourceInfo(path, 1),
                     },
@@ -508,7 +509,7 @@ function schedulePostReadyRecentGeometryWarmup(
                         `Application-level Recent ${kind.toUpperCase()} geometry warmup unavailable`,
                         {
                             path,
-                            error: error instanceof Error ? error.message : String(error),
+                            error: getErrorMessage(error),
                         },
                     ),
                 });

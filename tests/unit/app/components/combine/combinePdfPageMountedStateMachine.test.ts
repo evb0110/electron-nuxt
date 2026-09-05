@@ -16,6 +16,7 @@ import {
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireDocumentRef} from '@contracts/documentRef';
 import CombinePdfPage from '@app/components/combine/CombinePdfPage.vue';
 import { useCombinePdfOperation } from '@app/modules/combine/useCombinePdfOperation';
 import { useCombinePdfQueue } from '@app/modules/combine/useCombinePdfQueue';
@@ -158,8 +159,8 @@ describe('mounted Combine PDF page state machine', () => {
         const combined = deferred<TOpenFileResult>();
         const result: TOpenFileResult = {
             kind: 'pdf',
-            workingPath: '/tmp/combined-working.pdf',
-            originalPath: '/tmp/combined-working.pdf',
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
+            originalPath: requireDocumentRef('/tmp/combined-working.pdf'),
             isGenerated: true,
         };
         mocks.combinePdfFiles.mockReturnValueOnce(combined.promise);

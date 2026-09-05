@@ -29,9 +29,14 @@ import {
     type IDocumentTextCatalogWindow,
     type IDocumentTextSnapshot,
 } from '@contracts/documentTextCatalog';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     parseDocumentRevisionToken,
+    requireDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import {
@@ -55,7 +60,17 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
-import type { IOcrLanguage } from '@contracts/shared';
+import {
+    parseJobId,
+    parseRequestId,
+    type IOcrLanguage,
+    type TRequestId,
+} from '@contracts/shared';
+import {
+    createEpochMs,
+    isEpochMs,
+    requireEpochMs,
+} from '@contracts/timestamps';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 const OCR_NATIVE_IPC_TIMEOUT_MS = 30 * 60 * 1_000;
@@ -96,7 +111,7 @@ function decodeStringArrayArg(args: readonly unknown[], index: number, fieldName
     if (!Array.isArray(value) || value.some(item => typeof item !== 'string')) {
         throw new Error(`${fieldName} must be an array of strings`);
     }
-    return value as string[];
+    return value.filter((item): item is string => typeof item === 'string');
 }
 
 function decodeBoundedArray(value: unknown, fieldName: string) {
@@ -130,7 +145,7 @@ function decodeOcrErrorEnvelope(value: unknown): IOcrErrorEnvelope | undefined {
         || !isOneOf(OCR_ERROR_CODES, value.code)
         || typeof value.message !== 'string'
         || typeof value.retryable !== 'boolean'
-        || !isFiniteNumber(value.timestamp)
+        || !isEpochMs(value.timestamp)
         || (value.details !== undefined && typeof value.details !== 'string')
     ) {
         throw new Error('invalid OCR error envelope');
@@ -166,7 +181,9 @@ function decodeSearchablePdfPages(value: unknown) {
                 throw new Error('OCR searchable PDF page must be an object');
             }
             return {
-                pageNumber: decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1),
+                pageNumber: requirePageNumber(
+                    decodeSafeIntegerArg([page.pageNumber], 0, 'pageNumber', 1),
+                ),
                 languages: decodeStringArrayArg([page.languages], 0, 'languages'),
             } satisfies IOcrSearchablePdfPage;
         }) satisfies IOcrSearchablePdfPage[];
@@ -291,10 +308,11 @@ function decodeSearchablePdfOptions(value: unknown): number | IOcrSearchablePdfO
 }
 
 function decodeJobStartResult(value: unknown) {
+    const jobId = isRecord(value) ? parseJobId(value.jobId) : null;
     if (
         !isRecord(value)
         || typeof value.started !== 'boolean'
-        || typeof value.jobId !== 'string'
+        || jobId === null
         || (value.installed !== undefined && (!Array.isArray(value.installed) || value.installed.some(item => typeof item !== 'string')))
         || (value.errors !== undefined && (!Array.isArray(value.errors) || value.errors.some(item => typeof item !== 'string')))
     ) {
@@ -302,7 +320,7 @@ function decodeJobStartResult(value: unknown) {
     }
     return {
         started: value.started,
-        jobId: value.jobId,
+        jobId,
         ...(value.installed === undefined ? {} : {installed: value.installed.map(String)}),
         ...(value.errors === undefined ? {} : {errors: value.errors.map(String)}),
         ...decodeOptionalErrorFields(value),
@@ -341,7 +359,7 @@ function decodeAckResult(value: unknown) {
 }
 
 function buildMalformedCompleteResult(
-    requestId: string,
+    requestId: TRequestId,
     message = 'Malformed OCR completion payload',
 ): IOcrCompleteResult {
     return {
@@ -352,15 +370,16 @@ function buildMalformedCompleteResult(
             code: 'OCR_INVALID_PAYLOAD',
             message,
             retryable: false,
-            timestamp: Date.now(),
+            timestamp: createEpochMs(),
         },
     };
 }
 
 function decodeOcrProgress(payload: unknown): IOcrProgress | null {
+    const requestId = isRecord(payload) ? parseRequestId(payload.requestId) : null;
     if (
         !isRecord(payload)
-        || typeof payload.requestId !== 'string'
+        || requestId === null
         || !isFiniteNumber(payload.currentPage)
         || !isFiniteNumber(payload.processedCount)
         || !isFiniteNumber(payload.totalPages)
@@ -402,13 +421,13 @@ function decodeOcrProgress(payload: unknown): IOcrProgress | null {
     }
 
     return {
-        requestId: payload.requestId,
+        requestId,
         currentPage: payload.currentPage,
         processedCount: payload.processedCount,
         totalPages: payload.totalPages,
         ...(payload.phase === undefined ? {} : {phase: payload.phase}),
         ...(payload.phaseProgress === undefined ? {} : {phaseProgress: payload.phaseProgress}),
-        ...(payload.activePages === undefined ? {} : {activePages: payload.activePages as number[]}),
+        ...(payload.activePages === undefined ? {} : {activePages: payload.activePages.filter((page): page is number => isFiniteNumber(page))}),
         ...(payload.languageCode === undefined ? {} : {languageCode: payload.languageCode}),
         ...(payload.status === undefined ? {} : {status: payload.status}),
         ...(payload.error === undefined ? {} : {error: payload.error}),
@@ -441,7 +460,9 @@ function decodeOcrDiagnostics(value: unknown): IOcrDiagnostic[] | null | undefin
             code: diagnostic.code,
             severity: diagnostic.severity,
             message: diagnostic.message,
-            ...(diagnostic.pageNumber === undefined ? {} : {pageNumber: diagnostic.pageNumber}),
+            ...(diagnostic.pageNumber === undefined
+                ? {}
+                : {pageNumber: requirePageNumber(diagnostic.pageNumber)}),
         });
     }
     return diagnostics;
@@ -453,7 +474,7 @@ function decodeOcrEventErrorEnvelope(payload: unknown): IOcrErrorEnvelope | null
         || !isOneOf(OCR_ERROR_CODES, payload.code)
         || typeof payload.message !== 'string'
         || typeof payload.retryable !== 'boolean'
-        || !isFiniteNumber(payload.timestamp)
+        || !isEpochMs(payload.timestamp)
     ) {
         return null;
     }
@@ -478,7 +499,7 @@ const ocrEventErrorEnvelope = s.declared<IOcrErrorEnvelope>()(
             code: 'OCR_INTERNAL_ERROR',
             message: 'OCR failed',
             retryable: false,
-            timestamp: 0,
+            timestamp: requireEpochMs(0),
         }),
     ),
 );
@@ -487,28 +508,30 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
     if (!isRecord(payload)) {
         return null;
     }
-    if (typeof payload.requestId !== 'string') {
+    const requestId = parseRequestId(payload.requestId);
+    if (requestId === null) {
         return null;
     }
+    const pdfPath = payload.pdfPath === undefined ? undefined : parseDocumentRef(payload.pdfPath);
 
     if (
         typeof payload.success !== 'boolean'
         || !Array.isArray(payload.errors)
         || payload.errors.some(error => typeof error !== 'string')
     ) {
-        return buildMalformedCompleteResult(payload.requestId);
+        return buildMalformedCompleteResult(requestId);
     }
-    if (payload.pdfPath !== undefined && typeof payload.pdfPath !== 'string') {
-        return buildMalformedCompleteResult(payload.requestId);
+    if (pdfPath === null) {
+        return buildMalformedCompleteResult(requestId);
     }
     const sourceDocumentRevisionToken = payload.sourceDocumentRevisionToken === undefined
         ? undefined
         : parseDocumentRevisionToken(payload.sourceDocumentRevisionToken);
     if (sourceDocumentRevisionToken === null) {
-        return buildMalformedCompleteResult(payload.requestId);
+        return buildMalformedCompleteResult(requestId);
     }
     if (payload.requiresCleanupAck !== undefined && typeof payload.requiresCleanupAck !== 'boolean') {
-        return buildMalformedCompleteResult(payload.requestId);
+        return buildMalformedCompleteResult(requestId);
     }
     const resultSha256 = payload.resultSha256 === undefined
         ? undefined
@@ -516,19 +539,18 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
             ? payload.resultSha256
             : null;
     if (resultSha256 === null) {
-        return buildMalformedCompleteResult(payload.requestId);
+        return buildMalformedCompleteResult(requestId);
     }
     if (
         payload.success
         && (
-            typeof payload.pdfPath !== 'string'
-            || payload.pdfPath.trim().length === 0
+            pdfPath === undefined
             || sourceDocumentRevisionToken === undefined
             || resultSha256 === undefined
             || typeof payload.requiresCleanupAck !== 'boolean'
         )
     ) {
-        return buildMalformedCompleteResult(payload.requestId);
+        return buildMalformedCompleteResult(requestId);
     }
     let errorEnvelope: IOcrErrorEnvelope | null = null;
     if (payload.errorEnvelope !== undefined) {
@@ -536,26 +558,26 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
             errorEnvelope = ocrEventErrorEnvelope.decode(payload.errorEnvelope);
         } catch {
             return buildMalformedCompleteResult(
-                payload.requestId,
+                requestId,
                 'Malformed OCR completion error envelope',
             );
         }
     }
-    const errors = payload.errors.map(error => error as string);
+    const errors = payload.errors.filter((error): error is string => typeof error === 'string');
     const diagnostics = decodeOcrDiagnostics(payload.diagnostics);
     if (diagnostics === null) {
         return buildMalformedCompleteResult(
-            payload.requestId,
+            requestId,
             'Malformed OCR completion diagnostics',
         );
     }
 
     return {
-        requestId: payload.requestId,
+        requestId,
         success: payload.success,
         errors,
         ...(diagnostics === undefined ? {} : {diagnostics}),
-        ...(payload.pdfPath === undefined ? {} : {pdfPath: payload.pdfPath}),
+        ...(pdfPath === undefined ? {} : {pdfPath}),
         ...(sourceDocumentRevisionToken === undefined ? {} : {sourceDocumentRevisionToken}),
         ...(resultSha256 === undefined ? {} : {resultSha256}),
         ...(payload.requiresCleanupAck === undefined ? {} : {requiresCleanupAck: payload.requiresCleanupAck}),
@@ -564,12 +586,12 @@ function decodeOcrCompleteResult(payload: unknown): IOcrCompleteResult | null {
 }
 
 type TOcrCreateSearchablePdfArgs = [
-    sourcePdfPath: string,
+    sourcePdfPath: TDocumentRef,
     pages: TOcrSearchablePdfPages,
-    requestId: string,
+    requestId: TRequestId,
     renderDpiOrOptions?: number | IOcrSearchablePdfOptions,
 ];
-type TOcrAcknowledgeResultFileArgs = [requestId: string, pdfPath?: TDocumentRef];
+type TOcrAcknowledgeResultFileArgs = [requestId: TRequestId, pdfPath?: TDocumentRef];
 type TResolveDocumentTextCatalogArgs =
     | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken]
     | [workingCopyPath: TDocumentRef, documentRevision: TDocumentRevisionToken, pageCount: number]
@@ -577,13 +599,13 @@ type TResolveDocumentTextCatalogArgs =
         workingCopyPath: TDocumentRef,
         documentRevision: TDocumentRevisionToken,
         pageCount: undefined,
-        requestId: string,
+        requestId: TRequestId,
     ]
     | [
         workingCopyPath: TDocumentRef,
         documentRevision: TDocumentRevisionToken,
         pageCount: number,
-        requestId: string,
+        requestId: TRequestId,
     ];
 type TResolveDocumentTextCatalogWindowArgs =
     | [
@@ -605,7 +627,7 @@ type TResolveDocumentTextCatalogWindowArgs =
         firstPage: number,
         lastPage: number,
         pageCount: undefined,
-        requestId: string,
+        requestId: TRequestId,
     ]
     | [
         workingCopyPath: TDocumentRef,
@@ -613,7 +635,7 @@ type TResolveDocumentTextCatalogWindowArgs =
         firstPage: number,
         lastPage: number,
         pageCount: number,
-        requestId: string,
+        requestId: TRequestId,
     ];
 
 function decodeDocumentRevisionArg(
@@ -635,9 +657,9 @@ const createSearchablePdfArgs = argsSchema<TOcrCreateSearchablePdfArgs>(
             max: 4,
         });
         const requiredArgs: [
-            string,
+            TDocumentRef,
             TOcrSearchablePdfPages,
-            string,
+            TRequestId,
         ] = [
             assertAbsolutePath(
                 args[0],
@@ -658,18 +680,18 @@ const createSearchablePdfArgs = argsSchema<TOcrCreateSearchablePdfArgs>(
             ];
     },
     () => [
-        '/tmp/ocr-fixture.pdf',
+        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture sourcePdfPath'),
         [{
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             languages: ['eng'],
         }],
-        'ocr-searchable-pdf-fixture',
+        assertRequestId('ocr-searchable-pdf-fixture', 'fixture requestId'),
         {renderDpi: 300},
     ],
 );
-const requestIdArgs = argsSchema<[string]>(
+const requestIdArgs = argsSchema<[TRequestId]>(
     args => [assertRequestId(requireArgs(args, 1)[0], 'requestId')],
-    () => ['ocr-request-fixture'],
+    () => [parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })()],
 );
 const acknowledgeResultFileArgs = argsSchema<TOcrAcknowledgeResultFileArgs>(
     (args) => {
@@ -685,16 +707,17 @@ const acknowledgeResultFileArgs = argsSchema<TOcrAcknowledgeResultFileArgs>(
             args[1],
             'ocrAcknowledgeResultFile.pdfPath',
         );
-        return pdfPath === undefined
-            ? [requestId]
-            : [
-                requestId,
-                pdfPath,
-            ];
+        if (pdfPath === undefined) {
+            return [requestId];
+        }
+        return [
+            requestId,
+            pdfPath,
+        ];
     },
     () => [
-        'ocr-request-fixture',
-        '/tmp/ocr-result-fixture.pdf',
+        assertRequestId('ocr-request-fixture', 'fixture requestId'),
+        assertAbsolutePath('/tmp/ocr-result-fixture.pdf', 'fixture pdfPath'),
     ],
 );
 const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArgs>(
@@ -723,10 +746,10 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
         const requestId = args[3] === undefined
             ? undefined
             : assertRequestId(args[3], 'resolveDocumentTextCatalog.requestId');
-        if (pageCount === undefined && requestId === undefined) {
-            return requiredArgs;
-        }
         if (requestId === undefined) {
+            if (pageCount === undefined) {
+                return requiredArgs;
+            }
             const pageCountArgs: [
                 TDocumentRef,
                 TDocumentRevisionToken,
@@ -734,7 +757,7 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
             ] = [
                 requiredArgs[0],
                 requiredArgs[1],
-                pageCount!,
+                pageCount,
             ];
             return pageCountArgs;
         }
@@ -743,7 +766,7 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
                 TDocumentRef,
                 TDocumentRevisionToken,
                 undefined,
-                string,
+                TRequestId,
             ] = [
                 requiredArgs[0],
                 requiredArgs[1],
@@ -756,7 +779,7 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
             TDocumentRef,
             TDocumentRevisionToken,
             number,
-            string,
+            TRequestId,
         ] = [
             requiredArgs[0],
             requiredArgs[1],
@@ -766,8 +789,8 @@ const resolveDocumentTextCatalogArgs = argsSchema<TResolveDocumentTextCatalogArg
         return requestIdArgs;
     },
     () => [
-        '/tmp/ocr-fixture.pdf',
-        parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
+        requireDocumentRevisionToken('drt1:ocr-fixture'),
         1,
     ],
 );
@@ -809,10 +832,10 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
             firstPage,
             lastPage,
         ];
-        if (pageCount === undefined && requestId === undefined) {
-            return requiredArgs;
-        }
         if (requestId === undefined) {
+            if (pageCount === undefined) {
+                return requiredArgs;
+            }
             const pageCountArgs: [
                 TDocumentRef,
                 TDocumentRevisionToken,
@@ -824,7 +847,7 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
                 requiredArgs[1],
                 requiredArgs[2],
                 requiredArgs[3],
-                pageCount!,
+                pageCount,
             ];
             return pageCountArgs;
         }
@@ -835,7 +858,7 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
                 number,
                 number,
                 undefined,
-                string,
+                TRequestId,
             ] = [
                 requiredArgs[0],
                 requiredArgs[1],
@@ -852,7 +875,7 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
             number,
             number,
             number,
-            string,
+            TRequestId,
         ] = [
             requiredArgs[0],
             requiredArgs[1],
@@ -864,8 +887,8 @@ const resolveDocumentTextCatalogWindowArgs = argsSchema<TResolveDocumentTextCata
         return requestIdArgs;
     },
     () => [
-        '/tmp/ocr-fixture.pdf',
-        parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
+        requireDocumentRevisionToken('drt1:ocr-fixture'),
         1,
         64,
         64,
@@ -890,8 +913,8 @@ const resolveDocumentOcrAvailabilityArgs = argsSchema<[
         ];
     },
     () => [
-        '/tmp/ocr-fixture.pdf',
-        parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
+        requireDocumentRevisionToken('drt1:ocr-fixture'),
     ],
 );
 const resolveDocumentOcrPageArgs = argsSchema<[
@@ -915,14 +938,14 @@ const resolveDocumentOcrPageArgs = argsSchema<[
         ];
     },
     () => [
-        '/tmp/ocr-fixture.pdf',
-        parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        assertAbsolutePath('/tmp/ocr-fixture.pdf', 'fixture workingCopyPath'),
+        requireDocumentRevisionToken('drt1:ocr-fixture'),
         1,
     ],
 );
 const jobStartResult = resultSchema<IOcrJobStartResult>(decodeJobStartResult, () => ({
     started: true,
-    jobId: 'ocr-job-fixture',
+    jobId: parseJobId('ocr-job-fixture') ?? (() => { throw new TypeError('invalid job ID fixture'); })(),
 }));
 const cancelResult = resultSchema(decodeCancelResult, () => ({canceled: false}));
 const acknowledgeResult =
@@ -941,7 +964,7 @@ const documentTextCatalogResult = resultSchema<IDocumentTextSnapshot>(
         'DocumentTextCatalog snapshot',
     ),
     () => ({
-        documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
         pageCount: 0,
         pages: [],
         contentDigest: '',
@@ -954,7 +977,7 @@ const documentTextCatalogWindowResult = resultSchema<IDocumentTextCatalogWindow>
         'DocumentTextCatalog window',
     ),
     () => ({
-        documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
         pageCount: 64,
         firstPage: 1,
         lastPage: 64,
@@ -969,7 +992,7 @@ const documentOcrAvailabilityResult = resultSchema<IDocumentOcrAvailability>(
         'document OCR availability',
     ),
     () => ({
-        documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
         pageCount: 0,
         mappedPageCount: 0,
         pageRanges: [],
@@ -983,14 +1006,14 @@ const documentOcrPageResult = resultSchema<IDocumentOcrPageSnapshot>(
         'document OCR page',
     ),
     () => ({
-        documentRevision: parseDocumentRevisionToken('drt1:ocr-fixture')!,
+        documentRevision: requireDocumentRevisionToken('drt1:ocr-fixture'),
         pageCount: 0,
         page: null,
     }),
 );
 const progress = s.declared<IOcrProgress>()(
     s.fromNullableDecoder(decodeOcrProgress, 'OCR progress', () => ({
-        requestId: 'ocr-request-fixture',
+        requestId: parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
         currentPage: 1,
         processedCount: 0,
         totalPages: 1,
@@ -999,7 +1022,7 @@ const progress = s.declared<IOcrProgress>()(
 );
 const completeResult = s.declared<IOcrCompleteResult>()(
     s.fromNullableDecoder(decodeOcrCompleteResult, 'OCR completion', () => ({
-        requestId: 'ocr-request-fixture',
+        requestId: parseRequestId('ocr-request-fixture') ?? (() => { throw new TypeError('invalid request ID fixture'); })(),
         success: false,
         errors: [],
     })),
@@ -1016,8 +1039,13 @@ const progressReplay = {
     terminalRetentionMs: 30_000,
 } as const;
 
-function assertRequestId(value: unknown, fieldName: string) {
-    return assertNonEmptyString(value, fieldName, OCR_REQUEST_ID_MAX_LENGTH);
+function assertRequestId(value: unknown, fieldName: string): TRequestId {
+    const normalized = assertNonEmptyString(value, fieldName, OCR_REQUEST_ID_MAX_LENGTH);
+    const parsed = parseRequestId(normalized);
+    if (parsed === null) {
+        throw new Error(`${fieldName} must be a valid request ID`);
+    }
+    return parsed;
 }
 
 function defineOcrMethod<

@@ -3,7 +3,8 @@ import { toFreeTextNoteMarkerRect } from '@app/modules/pdf-viewer/engine/seriali
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { IPdfNativeFreeTextNote } from '@contracts/electronApiDocuments';
 import { parsePageIndex } from '@contracts/pageNumbers';
-import {parsePdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
+import { parseEpochMs } from '@contracts/timestamps';
+import { parsePdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
 import type { INativePdfMutationBuildResult } from '@app/modules/pdf-viewer/runtime/save/nativePdfMutationProjectionTypes';
 
 export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSummary) {
@@ -17,7 +18,7 @@ export function isReplayableEditorOnlyFreeTextNote(comment: IAnnotationCommentSu
 
 export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNativeFreeTextNote | null {
     const markerRect = toFreeTextNoteMarkerRect(comment.markerRect);
-    const stableKey = comment.stableKey?.trim();
+    const stableKey = comment.stableKey.trim();
     const pageIndex = parsePageIndex(comment.pageIndex);
     if (!markerRect || !stableKey || pageIndex === null) {
         return null;
@@ -26,13 +27,11 @@ export function toNativeFreeTextNote(comment: IAnnotationCommentSummary): IPdfNa
     return {
         pageIndex,
         stableKey,
-        text: comment.text ?? '',
+        text: comment.text,
         markerRect,
         author: comment.author ?? null,
         color: comment.color ?? null,
-        createdAt: typeof comment.createdAt === 'number' && Number.isFinite(comment.createdAt)
-            ? Math.trunc(comment.createdAt)
-            : null,
+        createdAt: parseEpochMs(comment.createdAt),
     };
 }
 

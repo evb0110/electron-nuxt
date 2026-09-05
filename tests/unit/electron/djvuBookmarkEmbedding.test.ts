@@ -6,6 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 const mocks = vi.hoisted(() => ({
     copyFile: vi.fn(),
@@ -75,7 +76,7 @@ describe('embedBookmarksIntoPdfFile', () => {
             '/tmp/output.pdf',
             [{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -98,7 +99,7 @@ describe('embedBookmarksIntoPdfFile', () => {
             '/tmp/output.pdf',
             [{
                 title: 'Chapter 1',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 namedDest: null,
                 bold: false,
                 italic: false,

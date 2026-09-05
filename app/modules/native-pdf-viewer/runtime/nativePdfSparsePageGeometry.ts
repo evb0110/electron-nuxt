@@ -102,12 +102,18 @@ function normalizePageCount(pageCount: number) {
     return pageCount;
 }
 
+function isPageSizeArray(
+    pageSizes: TPdfNativePageSizes,
+): pageSizes is readonly IPdfNativePageSize[] {
+    return Array.isArray(pageSizes);
+}
+
 /**
  * Normalize either the legacy small-document array or compact page metadata
  * into a scalar page count plus a bounded known-page map.
  */
 export function createNativePdfPageGeometry(pageSizes: TPdfNativePageSizes): INativePdfPageGeometry {
-    if (Array.isArray(pageSizes)) {
+    if (isPageSizeArray(pageSizes)) {
         const pageCount = normalizePageCount(pageSizes.length);
         const firstPageSize = pageSizes[0];
         if (!isValidPageSize(firstPageSize)) {
@@ -137,11 +143,7 @@ export function createNativePdfPageGeometry(pageSizes: TPdfNativePageSizes): INa
         };
     }
 
-    if (
-        typeof pageSizes !== 'object'
-        || pageSizes === null
-        || !isValidPageSize(pageSizes.defaultPageSize)
-    ) {
+    if (!isValidPageSize(pageSizes.defaultPageSize)) {
         throw new Error('Native PDF page geometry metadata is invalid');
     }
     const pageCount = normalizePageCount(pageSizes.pageCount);
@@ -291,7 +293,7 @@ export function createNativePdfSparsePageLayout(
         index,
         entry,
     ] of pageHeightDeltas.entries()) {
-        prefixDeltas[index + 1] = prefixDeltas[index]! + entry.delta;
+        prefixDeltas[index + 1] = (prefixDeltas[index] ?? 0) + entry.delta;
     }
 
     function getNormalizedPageNumber(pageNumber: number) {
@@ -308,7 +310,11 @@ export function createNativePdfSparsePageLayout(
         let high = pageHeightDeltas.length;
         while (low < high) {
             const middle = low + Math.floor((high - low) / 2);
-            if (pageHeightDeltas[middle]!.pageNumber < pageNumber) {
+            const entry = pageHeightDeltas[middle];
+            if (!entry) {
+                break;
+            }
+            if (entry.pageNumber < pageNumber) {
                 low = middle + 1;
             } else {
                 high = middle;

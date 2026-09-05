@@ -1,3 +1,10 @@
+import {
+    pageNumberToPageIndex,
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 // Sole PDF.js editor lifecycle executor; application code consumes its port.
 import {
     AnnotationEditorParamsType,
@@ -95,11 +102,11 @@ interface IEditorBridgeDeps {
     annotationUiManager: ShallowRef<TAnnotationEditorUIManager | null>;
     annotationL10n: ShallowRef<TGenericL10n | null>;
     getIdentity: () => {
-        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+        getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;
         hydrateSummaryFromMemory: (s: IAnnotationCommentSummary) => IAnnotationCommentSummary;
     };
     getCommentSync: () => {
-        toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
+        toEditorSummary: (editor: IPdfjsEditor, pageIndex: TPageIndex, text: string) => IAnnotationCommentSummary;
         setActiveCommentStableKey: (key: string | null) => void;
         scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
         incrementSyncToken: () => void;
@@ -257,7 +264,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         boundFreeTextDraftInputs.add(editorObject);
         pendingFreeTextDrafts.add(editor);
         editable.addEventListener('input', () => {
-            const hasText = (editable.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').length > 0;
+            const hasText = editable.textContent.replace(/[\u200B\uFEFF]/gu, '').length > 0;
             if (!hasText) {
                 return;
             }
@@ -304,14 +311,14 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         function resolveEditorPageIndex(editor: IPdfjsEditor) {
             const editorState = getPdfjsEditorFacadeState(editor);
             const explicitResolvedPageIndex = Number.isFinite(editorState.resolvedPageIndex)
-                ? (editorState.resolvedPageIndex as number)
+                ? Number(editorState.resolvedPageIndex)
                 : null;
             if (
                 explicitResolvedPageIndex !== null
                 && explicitResolvedPageIndex >= 0
                 && explicitResolvedPageIndex < Math.max(1, numPages.value)
             ) {
-                return explicitResolvedPageIndex;
+                return requirePageIndex(explicitResolvedPageIndex, Math.max(0, numPages.value - 1));
             }
 
             const pageFromDom = (() => {
@@ -322,20 +329,20 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 if (!Number.isFinite(pageNumber) || pageNumber <= 0) {
                     return null;
                 }
-                return pageNumber - 1;
+                return pageNumberToPageIndex(requirePageNumber(pageNumber));
             })();
             if (pageFromDom !== null) {
                 return pageFromDom;
             }
 
             const parentPageIndex = Number.isFinite(editor.parentPageIndex)
-                ? (editor.parentPageIndex as number)
+                ? Number(editor.parentPageIndex)
                 : null;
             if (parentPageIndex !== null) {
-                return parentPageIndex;
+                return requirePageIndex(parentPageIndex, Math.max(0, numPages.value - 1));
             }
 
-            return currentPage.value - 1;
+            return pageNumberToPageIndex(requirePageNumber(currentPage.value));
         }
 
         return {
@@ -360,7 +367,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                     ),
                 );
                 const parentPageIndex = Number.isFinite(editor.parentPageIndex)
-                    ? (editor.parentPageIndex as number)
+                    ? requirePageIndex(Number(editor.parentPageIndex))
                     : null;
                 const editorState = getPdfjsEditorFacadeState(editor);
                 const placementAttemptId = typeof editorState.placementAttemptId === 'string'
@@ -418,10 +425,10 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
     function resolveMountedPageIndexes() {
         const pageNumbers = getMountedPageNumbers?.() ?? [currentPage.value];
-        const pageIndexes = new Set<number>();
+        const pageIndexes = new Set<TPageIndex>();
         for (const pageNumber of pageNumbers) {
             if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
-                pageIndexes.add(pageNumber - 1);
+                pageIndexes.add(pageNumberToPageIndex(requirePageNumber(pageNumber)));
             }
         }
         return pageIndexes;
@@ -475,7 +482,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
         if (!manager) {
             return null;
         }
-        for (let pageIndex = 0; pageIndex < numPages.value; pageIndex += 1) {
+        for (let page = 0; page < numPages.value; page += 1) {
+            const pageIndex = requirePageIndex(page, Math.max(0, numPages.value - 1));
             for (const candidate of getEditorsOnPage(manager, pageIndex)) {
                 const candidateId = deriveAnnotationId(
                     'pdfjs-runtime',
@@ -671,8 +679,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 }
             }
             const leasePageIndex = Number.isFinite(createdEditor?.parentPageIndex)
-                ? (createdEditor?.parentPageIndex as number)
-                : Math.max(0, currentPage.value - 1);
+                ? requirePageIndex(Number(createdEditor?.parentPageIndex))
+                : pageNumberToPageIndex(requirePageNumber(currentPage.value));
             const lease = createdEditor
                 ? pdfjsFacade.bindEditor(
                     createdEditor,
@@ -701,8 +709,8 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 if (normalizedEditor) {
                     freeTextResize.ensureFreeTextEditorCanResize(normalizedEditor);
                     const pageIndex = Number.isFinite(normalizedEditor.parentPageIndex)
-                        ? (normalizedEditor.parentPageIndex as number)
-                        : Math.max(0, currentPage.value - 1);
+                        ? requirePageIndex(Number(normalizedEditor.parentPageIndex))
+                        : pageNumberToPageIndex(requirePageNumber(currentPage.value));
                     const resolvedEditorSubtype = editorSubtype ?? detectEditorSubtype(normalizedEditor);
                     let knownSubtype = markupSubtype.resolveEditorMarkupSubtypeOverride(normalizedEditor, pageIndex);
                     knownSubtype ??= markupSubtype.resolveEditorSubtypeFromPresentation(normalizedEditor);
@@ -853,7 +861,7 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
 
         startPdfjsAnnotationManagerEditing(uiManager);
         uiManager.onScaleChanging({ scale: effectiveScale.value / PixelsPerInch.PDF_TO_CSS_UNITS });
-        uiManager.onPageChanging({ pageNumber: currentPage.value });
+        uiManager.onPageChanging({ pageNumber: requirePageNumber(currentPage.value) });
 
         toolManager.applyAnnotationSettings(toolManager.pendingAnnotationSettings.value);
         runGuardedTask(

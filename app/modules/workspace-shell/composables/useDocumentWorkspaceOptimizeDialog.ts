@@ -2,12 +2,14 @@ import type {
     IPdfOptimizeOptions,
     IPdfOptimizeProgress,
 } from '@contracts/electronApiDocuments';
+import { createRequestId } from '@contracts/shared';
+import type { TRequestId } from '@contracts/shared';
 import type { ComputedRef } from 'vue';
 import type { FailurePresentation } from '@app/composables/useFailureToast';
 
 interface IUseDocumentWorkspaceOptimizeDialogOptions {
     canOptimizePdf: ComputedRef<boolean>;
-    handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: string) => Promise<boolean>;
+    handleOptimizePdfAsCopy: (options: IPdfOptimizeOptions, requestId: TRequestId) => Promise<boolean>;
     getLastFailurePresentation?: () => FailurePresentation | null;
     onOptimizeSuccess: () => void;
 }
@@ -21,14 +23,11 @@ export const useDocumentWorkspaceOptimizeDialog = ({
     const optimizeDialogOpen = ref(false);
     const optimizeProgress = ref<IPdfOptimizeProgress | null>(null);
     const optimizeDialogError = ref<FailurePresentation | null>(null);
-    const optimizeRequestId = ref<string | null>(null);
+    const optimizeRequestId = ref<TRequestId | null>(null);
     const isOptimizeDialogRunning = computed(() => optimizeRequestId.value !== null);
 
     function createOptimizeRequestId() {
-        const randomId = globalThis.crypto?.randomUUID?.();
-        return randomId
-            ? `pdf-optimize-${randomId}`
-            : `pdf-optimize-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return createRequestId('pdf-optimize');
     }
 
     function openOptimizePdfForInteractionDialog() {

@@ -1,13 +1,15 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 
 
 export interface IVisiblePageRange {
-    start: number;
-    end: number;
+    start: TPageNumber;
+    end: TPageNumber;
 }
 
 export interface IViewportVisibilityResult {
     range: IVisiblePageRange | null;
-    mostVisiblePage: number | null;
+    mostVisiblePage: TPageNumber | null;
 }
 
 export interface IPageScrollBounds {
@@ -16,7 +18,7 @@ export interface IPageScrollBounds {
 }
 
 export interface IVisiblePageDebugEntry {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageTop: number;
     pageBottom: number;
     pageHeight: number;

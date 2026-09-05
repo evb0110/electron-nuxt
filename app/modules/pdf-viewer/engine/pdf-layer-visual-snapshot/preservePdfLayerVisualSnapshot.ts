@@ -15,9 +15,10 @@ function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
     selector: string,
 ) {
-    return typeof root?.querySelectorAll === 'function'
-        ? Array.from(root.querySelectorAll<T>(selector))
-        : [];
+    if (!root) {
+        return [];
+    }
+    return Array.from(root.querySelectorAll<T>(selector));
 }
 
 function getChildren(element: Element | null | undefined) {
@@ -38,7 +39,7 @@ function removeExcludedSnapshotContent(
 
 function isSnapshotElement(element: Element) {
     return element.classList.contains(pdfLayerVisualSnapshotClass)
-        || Boolean(element.closest?.(`.${pdfLayerVisualSnapshotClass}`));
+        || Boolean(element.closest(`.${pdfLayerVisualSnapshotClass}`));
 }
 
 function hideLiveLayerSnapshotSources(layer: HTMLElement) {

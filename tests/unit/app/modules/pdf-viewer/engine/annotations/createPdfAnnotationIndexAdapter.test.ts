@@ -1,3 +1,5 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -75,25 +77,25 @@ describe('createPdfAnnotationIndexAdapter', () => {
                 entries: [entry(2, 33, 'third-page-name')],
             });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/document.pdf'));
         expect(adapter).not.toBeNull();
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(Promise.resolve(reader.readPage(2))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(2)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([[
                 '33R',
                 'third-page-name',
             ]]),
         });
-        await expect(Promise.resolve(reader.readPage(0))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(0)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([[
                 '11R',
                 'first-page-name',
             ]]),
         });
-        await expect(Promise.resolve(reader.readPage(1))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(1)))).resolves.toEqual({
             hasAnnotations: false,
             names: new Map(),
         });
@@ -126,25 +128,25 @@ describe('createPdfAnnotationIndexAdapter', () => {
             ],
         });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/document.pdf'));
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(Promise.resolve(reader.readPage(0))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(0)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map(),
         });
-        await expect(Promise.resolve(reader.readPage(1))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(1)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map(),
         });
-        await expect(Promise.resolve(reader.readPage(2))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(2)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([[
                 '22R',
                 'named-entry',
             ]]),
         });
-        await expect(Promise.resolve(reader.readPage(3))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(3)))).resolves.toEqual({
             hasAnnotations: false,
             names: new Map(),
         });
@@ -170,10 +172,10 @@ describe('createPdfAnnotationIndexAdapter', () => {
                 ],
             });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/document.pdf'));
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(Promise.resolve(reader.readPage(0))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(0)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([
                 [
@@ -186,7 +188,7 @@ describe('createPdfAnnotationIndexAdapter', () => {
                 ],
             ]),
         });
-        await expect(Promise.resolve(reader.readPage(1))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(1)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([[
                 '61R',
@@ -212,10 +214,10 @@ describe('createPdfAnnotationIndexAdapter', () => {
             entries: [entry(149_999, 99, 'last-page-name')],
         });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/large-document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/large-document.pdf'));
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(Promise.resolve(reader.readPage(149_999))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(149_999)))).resolves.toEqual({
             hasAnnotations: true,
             names: new Map([[
                 '99R',
@@ -247,20 +249,20 @@ describe('createPdfAnnotationIndexAdapter', () => {
             entries: [],
         });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/empty-large-document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/empty-large-document.pdf'));
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(Promise.resolve(reader.readPage(0))).resolves.toEqual({
+        await expect(Promise.resolve(reader.readPage(requirePageIndex(0)))).resolves.toEqual({
             hasAnnotations: false,
             names: new Map(),
         });
-        const laterPageRead = reader.readPage(137_999);
+        const laterPageRead = reader.readPage(requirePageIndex(137_999));
         expect(laterPageRead).not.toBeInstanceOf(Promise);
         expect(laterPageRead).toEqual({
             hasAnnotations: false,
             names: new Map(),
         });
-        expect(reader.readPage(137_998)).toBe(laterPageRead);
+        expect(reader.readPage(requirePageIndex(137_998))).toBe(laterPageRead);
         expect(mocks.files.readPdfAnnotationIndexChunk).toHaveBeenCalledOnce();
     });
 
@@ -273,10 +275,10 @@ describe('createPdfAnnotationIndexAdapter', () => {
             entries: [entry(0, 44, 'legacy-name')],
         });
 
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/document.pdf'));
         const reader = await adapter!.begin(EXPECTED_REVISION);
 
-        await expect(reader.readPageNames(0)).resolves.toEqual(new Map([[
+        await expect(reader.readPageNames(requirePageIndex(0))).resolves.toEqual(new Map([[
             '44R',
             'legacy-name',
         ]]));
@@ -284,7 +286,7 @@ describe('createPdfAnnotationIndexAdapter', () => {
 
     it('releases a session even when cancellation reports an error', async () => {
         mocks.files.cancelPdfAnnotationIndex.mockRejectedValueOnce(new Error('already canceled'));
-        const adapter = createPdfAnnotationIndexAdapter('/tmp/document.pdf');
+        const adapter = createPdfAnnotationIndexAdapter(requireDocumentRef('/tmp/document.pdf'));
         const reader = await adapter!.begin(null);
 
         await expect(reader.cancel()).rejects.toThrow('already canceled');

@@ -1,8 +1,10 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { clamp } from 'es-toolkit/math';
 import type { IImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/pdfImagePlacementSizingTypes';
 
 export interface IImagePlacementTarget {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageX: number;
     pageY: number;
     pageWidthPx: number | null;

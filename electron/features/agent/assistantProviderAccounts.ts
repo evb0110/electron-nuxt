@@ -85,9 +85,7 @@ export function applyCodexAuthStatusResponse(
         ? 'signed-out'
         : 'signed-in';
     providerRuntime.account = null;
-    if (providerRuntime.authState === 'signed-in' || providerRuntime.authState === 'signed-out') {
-        delete providerRuntime.lastError;
-    }
+    delete providerRuntime.lastError;
 }
 
 export async function refreshCodexAuthState(

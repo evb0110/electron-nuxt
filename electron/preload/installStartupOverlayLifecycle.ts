@@ -83,8 +83,7 @@ function ensureStartupOverlayStyles() {
     to { transform: translateZ(0) rotate(360deg); }
 }
 `;
-    const styleRoot = document.head ?? document.documentElement;
-    styleRoot?.appendChild(style);
+    document.head.appendChild(style);
 }
 
 function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
@@ -101,12 +100,7 @@ function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
   <div class="evb-startup-overlay__text">Loading...</div>
 </div>
 `;
-    const overlayRoot = document.body ?? document.documentElement;
-    if (!overlayRoot) {
-        return;
-    }
-
-    overlayRoot.appendChild(overlay);
+    document.body.appendChild(overlay);
     deps.tracePreload('startup overlay mounted');
     deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay mounted', {
         variant: 'startup-overlay',

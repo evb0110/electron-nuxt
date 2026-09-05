@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -40,7 +41,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             new Promise<never>(() => {}),
             {
-                pageNumber: 7,
+                pageNumber: requirePageNumber(7),
                 stage: 'canvas-render',
                 timeoutMs: 25,
             },
@@ -83,7 +84,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             new Promise<never>(() => {}),
             {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 stage: 'text-layer',
                 timeoutMs: 15_000,
             },
@@ -114,7 +115,7 @@ describe('pdf render supervisor', () => {
         const stalledPromise = withPageStageTimeout(
             abortedStage,
             {
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 stage: 'annotation-layer',
                 timeoutMs: 25,
             },
@@ -242,7 +243,7 @@ describe('pdf render supervisor', () => {
                 throw new Error('timeout failed');
             },
             payload: {
-                pageNumber: 9,
+                pageNumber: requirePageNumber(9),
                 stage: 'canvas-render',
                 timeoutMs: 25,
             },

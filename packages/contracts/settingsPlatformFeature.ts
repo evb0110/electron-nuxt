@@ -37,7 +37,7 @@ function decodeSettingsPatch(value: unknown): TSettingsSavePatch {
         key,
         candidate,
     ] of Object.entries(value)) {
-        if (normalized[key as keyof typeof normalized] !== candidate) {
+        if (!isSettingsSaveKey(key) || normalized[key] !== candidate) {
             throw new Error(`invalid settings field: ${key}`);
         }
     }

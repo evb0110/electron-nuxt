@@ -21,6 +21,7 @@
 
 <script setup lang="ts">
 import { useMutationObserver } from '@vueuse/core';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import PdfCommentMarkerLayer from '@app/modules/pdf-viewer/components/annotations/PdfCommentMarkerLayer.vue';
 import PdfLinkOverlayLayer from '@app/modules/pdf-viewer/components/annotations/PdfLinkOverlayLayer.vue';
 import { resolvePdfViewerPortalTargets } from '@app/modules/pdf-viewer/runtime/portal/resolvePdfViewerPortalTargets';
@@ -55,12 +56,18 @@ let portalTargetRefreshFrame: number | null = null;
 
 const markerLayerTargets = computed(() => {
     void portalTargetRefreshTick.value;
-    return resolvePdfViewerPortalTargets(viewerContainer, [...markersByPage.keys()]);
+    return resolvePdfViewerPortalTargets(
+        viewerContainer,
+        [...markersByPage.keys()].map(pageNumber => requirePageNumber(pageNumber)),
+    );
 });
 
 const linkLayerTargets = computed(() => {
     void portalTargetRefreshTick.value;
-    return resolvePdfViewerPortalTargets(viewerContainer, Object.keys(linksByPage).map(Number));
+    return resolvePdfViewerPortalTargets(
+        viewerContainer,
+        Object.keys(linksByPage).map(pageNumber => requirePageNumber(Number(pageNumber))),
+    );
 });
 
 function handleOpenNote(comment: IAnnotationCommentSummary) {

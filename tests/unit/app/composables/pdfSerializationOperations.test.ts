@@ -31,6 +31,8 @@ import {
     getPdfStringValue,
 } from '@app/utils/pdfDict';
 import { createEmbeddedShapeColorPdf } from '@tests/unit/app/fixtures/createEmbeddedShapeColorPdf';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 function createEmptyPayload(): IPdfSerializationSavePayload {
     return {
@@ -1039,7 +1041,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: overrideTag,
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1081,7 +1083,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: refTag,
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1121,7 +1123,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: refTag,
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1157,7 +1159,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const payload = createEmptyPayload();
         payload.markupSubtypeHints = [{
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1196,7 +1198,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: overrideTag,
             subtype: 'Highlight',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1232,7 +1234,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             {
                 annotationId: refTag,
                 subtype: 'Underline',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 consumed: false,
                 source: 'editor-live',
@@ -1240,7 +1242,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             {
                 annotationId: refTag,
                 subtype: 'Highlight',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 consumed: false,
                 source: 'pdf',
@@ -1265,7 +1267,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: refTag,
             subtype: 'Underline',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1400,7 +1402,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             annotationId: `${ref.objectNumber}R`,
             subtype: 'Underline',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1607,7 +1609,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const payload = createEmptyPayload();
         const hint: IMarkupSubtypeHint = {
             subtype: 'StrikeOut',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.15,
@@ -1641,7 +1643,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         payload.markupSubtypeHints = [{
             id: 'stale-comment-summary',
             subtype: 'Underline',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.125,
@@ -1697,7 +1699,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             {
                 id: 'new-underline-editor',
                 subtype: 'Underline',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 color: '#22c55e',
                 consumed: false,
@@ -1707,7 +1709,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
                 id: 'existing-highlight-comment',
                 annotationId: `${highlightRef.objectNumber}R`,
                 subtype: 'Highlight',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect,
                 color: '#ffd400',
                 consumed: false,
@@ -1746,7 +1748,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const payload = createEmptyPayload();
         const sharedHint: IMarkupSubtypeHint = {
             subtype: 'Underline',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.125,
@@ -1794,7 +1796,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
         const underlineHint: IMarkupSubtypeHint = {
             id: 'editor:0:underline',
             subtype: 'Underline',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             markerRect: {
                 left: 0.1,
                 top: 0.125,
@@ -1845,7 +1847,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             {
                 id: 'runtime-editor-id',
                 subtype: 'Underline',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect: {
                     left: 0.1,
                     top: 0.125,
@@ -1858,7 +1860,7 @@ describe('serializePdfEdits markup subtype rewrites', () => {
             {
                 id: 'comment-summary-id',
                 subtype: 'Underline',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 markerRect: {
                     left: 0.1,
                     top: 0.125,
@@ -2612,7 +2614,7 @@ describe('serializePdfEdits free-text note rect application', () => {
             subtype: 'Typewriter',
             hasNote: true,
             text: 'fresh editor note',
-            createdAt: 1780531944655,
+            createdAt: requireEpochMs(1780531944655),
             markerRect: {
                 left: 0.7,
                 top: 0.24,

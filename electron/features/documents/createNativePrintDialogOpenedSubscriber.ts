@@ -1,10 +1,13 @@
 import type {IpcRenderer} from 'electron';
-import type {IDocumentsFileCapability} from '@contracts/electronApiDocuments';
+import type {
+    IDocumentsFileCapability,
+    IPdfNativePrintDialogOpenedEvent,
+} from '@contracts/electronApiDocuments';
 import {DOCUMENT_PDF_PLATFORM_FEATURE} from '@contracts/documentsPlatformFeature';
 import {decodePdfNativePrintDialogOpenedEvent} from '@contracts/pdfPathPrintOptions';
 import {createTypedIpcEventSubscriber} from '@electron/preload/ipcClient';
 
-interface INativePrintDialogEventMap { [DOCUMENT_PDF_PLATFORM_FEATURE.eventChannels.onNativePrintDialogOpened]: {requestId: string}; }
+interface INativePrintDialogEventMap {[DOCUMENT_PDF_PLATFORM_FEATURE.eventChannels.onNativePrintDialogOpened]: IPdfNativePrintDialogOpenedEvent;}
 
 type TSubscribeToNativePrintDialogOpened = NonNullable<
     IDocumentsFileCapability['onNativePrintDialogOpened']

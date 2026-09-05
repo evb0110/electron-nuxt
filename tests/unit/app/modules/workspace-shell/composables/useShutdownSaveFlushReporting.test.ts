@@ -12,6 +12,10 @@ import {
 } from 'vue';
 import type { IShutdownSaveFlushResponse } from '@contracts/systemPlatformFeature';
 import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     preventBrowserUnloadWhenDirty,
     useBrowserDirtyUnloadGuard,
     useShutdownSaveFlushReporting,
@@ -35,10 +39,12 @@ function createHarness(options: {
         return unsubscribe;
     });
     const systemCapability = {onShutdownSaveFlushRequest};
-    const workingCopyPath = ref<string | null>(
+    const workingCopyPath = ref<TDocumentRef | null>(
         options.workingCopyPath === undefined
-            ? '/tmp/document-working-copy.pdf'
-            : options.workingCopyPath,
+            ? requireDocumentRef('/tmp/document-working-copy.pdf')
+            : options.workingCopyPath === null
+                ? null
+                : requireDocumentRef(options.workingCopyPath),
     );
     const hasPendingUnsavedChanges = ref(options.dirty ?? true);
     const saveForExternalRead = vi.fn(options.saveForExternalRead ?? (async () => true));
@@ -134,7 +140,7 @@ describe('useShutdownSaveFlushReporting', () => {
     it('reports the captured dirty working copy when shutdown save cannot complete', async () => {
         const harness = createHarness({saveForExternalRead: async () => false});
 
-        harness.workingCopyPath.value = '/tmp/document-working-copy-after-registration.pdf';
+        harness.workingCopyPath.value = requireDocumentRef('/tmp/document-working-copy-after-registration.pdf');
         await expect(harness.invoke()).resolves.toEqual({dirtyWorkingCopyPaths: ['/tmp/document-working-copy-after-registration.pdf']});
         expect(harness.saveForExternalRead).toHaveBeenCalledTimes(1);
 

@@ -14,7 +14,10 @@ export function computePointsMinMax(points: ReadonlyArray<{
     let maxX = first.x;
     let maxY = first.y;
     for (let index = 1; index < points.length; index += 1) {
-        const point = points[index]!;
+        const point = points[index];
+        if (!point) {
+            continue;
+        }
         minX = Math.min(minX, point.x);
         minY = Math.min(minY, point.y);
         maxX = Math.max(maxX, point.x);

@@ -1,3 +1,6 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import {
     hasCommittedDocumentOpeningLayout,
@@ -13,7 +16,7 @@ function readPositivePixels(value: string | undefined) {
     return Number.isFinite(number) && number > 0 ? number : null;
 }
 
-function resolveUniformPageRowIndex(pageNumber: number, viewMode: TPdfViewMode) {
+function resolveUniformPageRowIndex(pageNumber: TPageNumber, viewMode: TPdfViewMode) {
     if (viewMode === 'single') {
         return pageNumber - 1;
     }
@@ -56,8 +59,8 @@ function resolvePdfCommittedOpenVirtualSpacerHeight(input: {
         return null;
     }
 
-    const pageNumber = Math.min(geometry.pageCount, Math.floor(input.lastMountedPage));
-    if (!Number.isFinite(pageNumber) || pageNumber < 1) {
+    const pageNumber = parsePageNumber(Math.min(geometry.pageCount, Math.floor(input.lastMountedPage)), geometry.pageCount);
+    if (pageNumber === null) {
         return null;
     }
     const hiddenRows = Math.max(

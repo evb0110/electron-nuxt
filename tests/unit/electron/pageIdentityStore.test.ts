@@ -36,7 +36,10 @@ import {
 } from '@electron/file-access/pageIdentityStore';
 import {rebasePageIdentitySidecarRevision} from '@electron/file-access/rebasePageIdentitySidecarRevision';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts/documentRevision';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {writeWorkingCopyRevisionSidecar} from '@electron/file-access/documentRevisionSidecar';
 import {resolveDocumentOcrPage} from '@electron/ocr/documentTextCatalog';
 import * as ocrIndexWriter from '@electron/ocr/worker/indexWriterV4';
@@ -108,23 +111,39 @@ describe('page identity deltas', () => {
         await writeWorkingCopyRevisionSidecar(path, {
             sidecarVersion: 1,
             version: 1,
-            documentRef: path,
+            documentRef: requireDocumentRef(path),
             authority: 'electron-working-copy',
             token,
             contentRevision: token === OLD_TOKEN ? 1 : 2,
-            mintedAt: 1,
-            updatedAt: 1,
+            mintedAt: requireEpochMs(1),
+            updatedAt: requireEpochMs(1),
         });
     }
 
     function nextRevisionInfo(path: string) {
         return {
             version: 1 as const,
-            documentRef: path,
+            documentRef: requireDocumentRef(path),
             authority: 'electron-working-copy' as const,
             token: NEW_TOKEN,
             contentRevision: 2,
-            mintedAt: 2,
+            mintedAt: requireEpochMs(2),
+        };
+    }
+
+    function createRevisionInfo(
+        path: string,
+        token: TDocumentRevisionToken,
+        contentRevision: number,
+        mintedAt: number,
+    ) {
+        return {
+            version: 1 as const,
+            documentRef: requireDocumentRef(path),
+            authority: 'electron-working-copy' as const,
+            token,
+            contentRevision,
+            mintedAt: requireEpochMs(mintedAt),
         };
     }
 
@@ -196,7 +215,7 @@ describe('page identity deltas', () => {
             createdAt: 1,
             pageCount: 3,
             pages: OCR_PAGE_TEXTS.map((text, index) => ({
-                pageNumber: index + 1,
+                pageNumber: requirePageNumber(index + 1),
                 text,
             })),
         }));
@@ -204,7 +223,7 @@ describe('page identity deltas', () => {
             documentRevision: OLD_TOKEN,
             pageCount: 3,
             pages: OCR_PAGE_TEXTS.map((text, index) => ({
-                pageNumber: index + 1,
+                pageNumber: requirePageNumber(index + 1),
                 text,
             })),
         });
@@ -864,14 +883,7 @@ describe('page identity deltas', () => {
 
         await expect(rebasePageIdentitySidecarRevision(
             path,
-            {
-                version: 1,
-                documentRef: path,
-                authority: 'electron-working-copy',
-                token: OLD_TOKEN,
-                contentRevision: 1,
-                mintedAt: 1,
-            },
+            createRevisionInfo(path, OLD_TOKEN, 1, 1),
             nextRevisionInfo(path),
         )).rejects.toMatchObject({code: 'PAGE_IDENTITY_SIDECAR_CORRUPT'});
     });
@@ -898,14 +910,7 @@ describe('page identity deltas', () => {
 
         await expect(rebasePageIdentitySidecarRevision(
             path,
-            {
-                version: 1,
-                documentRef: path,
-                authority: 'electron-working-copy',
-                token: NEW_TOKEN,
-                contentRevision: 2,
-                mintedAt: 2,
-            },
+            createRevisionInfo(path, NEW_TOKEN, 2, 2),
             nextRevisionInfo(path),
         )).rejects.toThrow('Page identity state belongs to a stale document revision');
     });
@@ -956,14 +961,7 @@ describe('page identity deltas', () => {
 
         await rebasePageIdentitySidecarRevision(
             path,
-            {
-                version: 1,
-                documentRef: path,
-                authority: 'electron-working-copy',
-                token: OLD_TOKEN,
-                contentRevision: 1,
-                mintedAt: 1,
-            },
+            createRevisionInfo(path, OLD_TOKEN, 1, 1),
             nextRevisionInfo(path),
         );
 
@@ -1000,14 +998,7 @@ describe('page identity deltas', () => {
 
         await rebasePageIdentitySidecarRevision(
             path,
-            {
-                version: 1,
-                documentRef: path,
-                authority: 'electron-working-copy',
-                token: OLD_TOKEN,
-                contentRevision: 1,
-                mintedAt: 1,
-            },
+            createRevisionInfo(path, OLD_TOKEN, 1, 1),
             nextRevisionInfo(path),
         );
 
@@ -1031,14 +1022,12 @@ describe('page identity deltas', () => {
         vi.mocked(getPdfPageCount).mockImplementationOnce(() => new Promise(resolve => {
             releasePageCount = resolve;
         }));
-        schedulePageIdentityStoreInitialization(path, {
-            version: 1,
-            documentRef: path,
-            authority: 'electron-working-copy',
-            token: requireDocumentRevisionToken('drt1:test:cancelled'),
-            contentRevision: 1,
-            mintedAt: 1,
-        });
+        schedulePageIdentityStoreInitialization(path, createRevisionInfo(
+            path,
+            requireDocumentRevisionToken('drt1:test:cancelled'),
+            1,
+            1,
+        ));
 
         expect(getPdfPageCount).not.toHaveBeenCalled();
         const task = awaitPageIdentityStoreInitialization(path);
@@ -1060,14 +1049,7 @@ describe('page identity deltas', () => {
         root = await mkdtemp(join(tmpdir(), 'evb-page-identity-revision-'));
         const path = join(root, 'working.pdf');
         await writeFile(path, '%PDF fixture');
-        schedulePageIdentityStoreInitialization(path, {
-            version: 1,
-            documentRef: path,
-            authority: 'electron-working-copy',
-            token: OLD_TOKEN,
-            contentRevision: 1,
-            mintedAt: 1,
-        });
+        schedulePageIdentityStoreInitialization(path, createRevisionInfo(path, OLD_TOKEN, 1, 1));
 
         await publishRevisionSidecar(path, NEW_TOKEN);
         await awaitPageIdentityStoreInitialization(path);
@@ -1086,14 +1068,7 @@ describe('page identity deltas', () => {
         vi.mocked(getPdfPageCount).mockImplementationOnce(() => new Promise(resolve => {
             releasePageCount = resolve;
         }));
-        schedulePageIdentityStoreInitialization(path, {
-            version: 1,
-            documentRef: path,
-            authority: 'electron-working-copy',
-            token: OLD_TOKEN,
-            contentRevision: 1,
-            mintedAt: 1,
-        });
+        schedulePageIdentityStoreInitialization(path, createRevisionInfo(path, OLD_TOKEN, 1, 1));
 
         const task = awaitPageIdentityStoreInitialization(path);
         await vi.waitFor(() => expect(getPdfPageCount).toHaveBeenCalled());
@@ -1236,7 +1211,7 @@ describe('page identity deltas', () => {
                 pageCount,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'sparse',
             }],
         );

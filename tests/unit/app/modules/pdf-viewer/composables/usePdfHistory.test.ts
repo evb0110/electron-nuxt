@@ -13,6 +13,8 @@ import type { Ref } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfHistory } from '@app/modules/pdf-viewer/runtime/composables/usePdfHistory';
 import type { TWorkspaceUndoSource } from '@app/types/workspaceUndoSource';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
 import { cast } from '@tests/helpers/cast';
 
 const loggerWarn = vi.fn();
@@ -35,7 +37,7 @@ function createMockDeps(overrides: Partial<Parameters<typeof usePdfHistory>[0]> 
         isAnnotationUndoContext: ref(false),
         nextUndoSource: ref<TWorkspaceUndoSource | null>('file'),
         nextRedoSource: ref<TWorkspaceUndoSource | null>('file'),
-        workingCopyPath: ref<string | null>('/tmp/test.pdf'),
+        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/test.pdf')),
         resetSearchCache: vi.fn(),
         clearOcrCache: vi.fn(),
         undoHistory: vi.fn(async () => true),
@@ -357,7 +359,7 @@ describe('usePdfHistory', () => {
     });
 
     it('does not clear OCR cache when workingCopyPath is null', async () => {
-        const deps = createMockDeps({ workingCopyPath: ref<string | null>(null) });
+        const deps = createMockDeps({ workingCopyPath: ref<TDocumentRef | null>(null) });
         const { handleUndo } = usePdfHistory(deps);
 
         const undoPromise = handleUndo();

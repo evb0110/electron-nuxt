@@ -51,7 +51,7 @@ function toMarkerPointFromPdfPointInternal(
                 x: 1 - normY,
                 y: 1 - normX,
             };
-        default:
+        case 0:
             return {
                 x: normX,
                 y: 1 - normY,

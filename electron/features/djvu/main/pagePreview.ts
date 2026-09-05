@@ -13,6 +13,7 @@ import type {
     IDjvuPageSize,
     IDjvuPageSourceInfo,
 } from '@contracts/electronApiDjvu';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     getDjvuPageCount,
     getDjvuResolution,
@@ -359,7 +360,7 @@ export async function getDjvuPageSourceInfoForViewing(
             }
             return {
                 pageCount,
-                pageNumber: effectivePageNumber,
+                pageNumber: requirePageNumber(effectivePageNumber, pageCount),
                 pageSize,
                 sourceSize: sourceRevision.sourceSize,
                 sourceModifiedAt: sourceRevision.sourceModifiedAt,
@@ -413,7 +414,7 @@ export async function getDjvuPageSizesForViewing(
         sourceRevision.revision,
         sizes.map((pageSize, index) => ({
             pageCount: expectedPageCount,
-            pageNumber: index + 1,
+            pageNumber: requirePageNumber(index + 1, expectedPageCount),
             pageSize,
             sourceSize: sourceRevision.sourceSize,
             sourceModifiedAt: sourceRevision.sourceModifiedAt,

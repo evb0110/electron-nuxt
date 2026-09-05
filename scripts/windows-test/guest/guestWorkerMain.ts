@@ -25,6 +25,7 @@ import {
     createNodeGuestFileSystem,
     nodeGuestClock,
 } from '@scripts/windows-test/guest/guestRuntime';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     runGuestWorker,
     type IGuestWorkerAdapters,
@@ -103,7 +104,7 @@ export async function acquireGuestWorkerPipeLock(guestRoot: string): Promise<IGu
         if (isRecord(error) && error.code === 'EADDRINUSE') {
             throw new GuestWorkerLockBusyError(pipePath);
         }
-        throw new Error(`Cannot acquire guest worker pipe ${pipePath}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Cannot acquire guest worker pipe ${pipePath}: ${getErrorMessage(error)}`);
     }
     return {
         pipePath,
@@ -214,7 +215,7 @@ if (entryPath !== null && entryPath === canonicalPath(fileURLToPath(import.meta.
             process.exitCode = summary.result === null ? 1 : 0;
         },
         (error: unknown) => {
-            process.stderr.write(`${error instanceof Error ? error.stack ?? error.message : String(error)}\n`);
+            process.stderr.write(`${error instanceof Error ? error.stack ?? getErrorMessage(error) : getErrorMessage(error)}\n`);
             process.exitCode = 1;
         },
     );

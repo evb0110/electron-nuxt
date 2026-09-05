@@ -21,10 +21,18 @@ import {getPrivateSourcemapManifestPath} from './stage-private-sourcemaps.mjs';
 
 const RECEIPT_SCHEMA_VERSION = 1;
 export const RELEASE_BUILD_RECEIPT_ENV_VAR = 'EVB_RELEASE_BUILD_RECEIPT';
+/** @typedef {{schemaVersion: number, platformArch: string, stagingRoots: string[]}} IBuildManifest */
+/** @typedef {{bundle: string, bundleSha256: string, stagedMapPath: string, mapSha256: string}} IManifestBundle */
+/** @typedef {{stagedPath: string, sha256: string}} IManifestSource */
+/** @typedef {{schemaVersion: number, identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity, bundles: IManifestBundle[], sources: IManifestSource[], unmappedGeneratedBundles?: IManifestBundle[]}} IPrivateSourcemapManifest */
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+/** @typedef {{env?: NodeJS.ProcessEnv | undefined, inputFiles?: string[] | undefined, outputPaths?: string[] | undefined, projectRoot?: string | undefined, runCommand?: TCommandRunner | undefined}} IComputeReleaseBuildStateOptions */
+
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
 function getBuildOutputs(env, projectRoot) {
     const {platformArch} = getRequestedNativeRustTarget(env);
     const nativeManifest = `.tmp/native-build-manifest/${platformArch}.json`;
-    const manifest = JSON.parse(readFileSync(path.resolve(projectRoot, nativeManifest), 'utf8'));
+    const manifest = /** @type {IBuildManifest} */ (JSON.parse(readFileSync(path.resolve(projectRoot, nativeManifest), 'utf8')));
     if (
         manifest?.schemaVersion !== 1
         || manifest.platformArch !== platformArch
@@ -70,17 +78,23 @@ const BUILD_ENVIRONMENT_PREFIXES = [
 ];
 const SENSITIVE_BUILD_ENVIRONMENT_KEY = /(?:AUTH|CREDENTIAL|DATABASE|DSN|ENDPOINT|KEY|PASSWORD|PRIVATE|SECRET|TOKEN)/iu;
 
+/** @param {string} projectRoot @param {string} filePath */
 function normalizedRelativePath(projectRoot, filePath) {
     return path.relative(projectRoot, filePath).split(path.sep).join('/');
 }
 
+/** @param {import('node:crypto').Hash} hash @param {string} projectRoot @param {string} filePath */
 function addPath(hash, projectRoot, filePath) {
     const relativePath = normalizedRelativePath(projectRoot, filePath);
     let metadata;
     try {
         metadata = lstatSync(filePath);
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        const isMissing = error
+            && typeof error === 'object'
+            && 'code' in error
+            && error.code === 'ENOENT';
+        if (isMissing) {
             hash.update(`missing\0${relativePath}\0`);
             return;
         }
@@ -106,6 +120,7 @@ function addPath(hash, projectRoot, filePath) {
     hash.update('\0');
 }
 
+/** @param {string} projectRoot @param {string[]} paths @param {{requireExisting?: boolean}} [options] */
 function fingerprintPaths(projectRoot, paths, {requireExisting = false} = {}) {
     const hash = createHash('sha256');
     for (const filePath of paths
@@ -119,6 +134,7 @@ function fingerprintPaths(projectRoot, paths, {requireExisting = false} = {}) {
     return hash.digest('hex');
 }
 
+/** @param {string} command @param {string[]} args @param {object} [options] */
 function defaultRun(command, args, options = {}) {
     return String(execFileSync(command, args, {
         cwd: process.cwd(),
@@ -128,6 +144,7 @@ function defaultRun(command, args, options = {}) {
     })).trim();
 }
 
+/** @param {{projectRoot?: string, runCommand?: TCommandRunner}} [options] */
 export function getReleaseBuildInputFiles({
     projectRoot = process.cwd(),
     runCommand = defaultRun,
@@ -142,6 +159,7 @@ export function getReleaseBuildInputFiles({
     return output.split('\0').filter(Boolean);
 }
 
+/** @param {NodeJS.ProcessEnv} env */
 function buildEnvironment(env) {
     return Object.fromEntries(Object.entries(env)
         .filter(([key]) => (
@@ -151,6 +169,7 @@ function buildEnvironment(env) {
         .sort(([left], [right]) => left.localeCompare(right, 'en')));
 }
 
+/** @param {string} projectRoot @param {NodeJS.ProcessEnv} env @returns {string | undefined} */
 function readPackageVersion(projectRoot, env) {
     const packagePath = path.join(projectRoot, 'package.json');
     try {
@@ -159,13 +178,18 @@ function readPackageVersion(projectRoot, env) {
             ? packageJson.version
             : undefined;
     } catch (error) {
-        if (error?.code !== 'ENOENT') {
+        const isMissing = error
+            && typeof error === 'object'
+            && 'code' in error
+            && error.code === 'ENOENT';
+        if (!isMissing) {
             throw error;
         }
         return env.EVB_PACKAGE_VERSION ?? env.npm_package_version;
     }
 }
 
+/** @param {NodeJS.ProcessEnv} env @param {string} projectRoot */
 function buildSentryIdentity(env, projectRoot) {
     if (!isSentryDiagnosticsBuild(env)) {
         return null;
@@ -177,10 +201,12 @@ function buildSentryIdentity(env, projectRoot) {
     });
 }
 
+/** @param {string} filePath */
 function sha256File(filePath) {
     return createHash('sha256').update(readFileSync(filePath)).digest('hex');
 }
 
+/** @param {string} stageRoot @param {string} relativePath @param {string} label */
 function resolvePrivateStagePath(stageRoot, relativePath, label) {
     if (typeof relativePath !== 'string' || relativePath.length === 0) {
         throw new Error(`Invalid ${label} path in the private source-map manifest`);
@@ -213,7 +239,7 @@ export function assertSentryPrivateManifestParity(
         projectRoot,
         identity,
     });
-    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
+    const manifest = /** @type {IPrivateSourcemapManifest} */ (JSON.parse(readFileSync(manifestPath, 'utf8')));
     if (
         manifest?.schemaVersion !== 1
         || !Array.isArray(manifest.bundles)
@@ -256,6 +282,7 @@ export function assertSentryPrivateManifestParity(
     return true;
 }
 
+/** @param {TCommandRunner} runCommand */
 function toolchain(runCommand) {
     return {
         cargo: runCommand('cargo', ['--version']),
@@ -265,15 +292,7 @@ function toolchain(runCommand) {
     };
 }
 
-/**
- * @param {{
- *   env?: NodeJS.ProcessEnv;
- *   inputFiles?: string[];
- *   outputPaths?: string[];
- *   projectRoot?: string;
- *   runCommand?: (command: string, args: string[], options?: object) => string;
- * }} [options]
- */
+/** @param {IComputeReleaseBuildStateOptions} [options] */
 export function computeReleaseBuildState({
     env = process.env,
     inputFiles,
@@ -316,6 +335,7 @@ export function computeReleaseBuildState({
     };
 }
 
+/** @param {string} receiptPath @param {IComputeReleaseBuildStateOptions} [options] */
 export function writeReleaseBuildReceipt(receiptPath, options = {}) {
     const receipt = {
         ...computeReleaseBuildState(options),
@@ -328,9 +348,10 @@ export function writeReleaseBuildReceipt(receiptPath, options = {}) {
     return receipt;
 }
 
+/** @param {string} receiptPath @param {IComputeReleaseBuildStateOptions} [options] */
 export function validateReleaseBuildReceipt(receiptPath, options = {}) {
     try {
-        const receipt = JSON.parse(readFileSync(receiptPath, 'utf8'));
+        const receipt = /** @type {{schemaVersion?: number, inputFingerprint?: string, outputFingerprint?: string}} */ (JSON.parse(readFileSync(receiptPath, 'utf8')));
         if (receipt?.schemaVersion !== RECEIPT_SCHEMA_VERSION) {
             return {
                 reason: 'schema-mismatch',
@@ -355,8 +376,12 @@ export function validateReleaseBuildReceipt(receiptPath, options = {}) {
             valid: true,
         };
     } catch (error) {
+        const isMissing = error
+            && typeof error === 'object'
+            && 'code' in error
+            && error.code === 'ENOENT';
         return {
-            reason: error?.code === 'ENOENT' ? 'missing' : 'unreadable-or-incomplete',
+            reason: isMissing ? 'missing' : 'unreadable-or-incomplete',
             valid: false,
         };
     }

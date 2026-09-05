@@ -1,4 +1,5 @@
 /* eslint-disable custom/file-naming -- The task contract fixes this CLI filename. */
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
     mkdtemp,
@@ -517,7 +518,7 @@ function resolveWasmManifestPage(parts: string[]): ICliPdfCombineWasmPage | null
         const color = [
             Number.parseInt(parts[6] ?? '', 10),
             Number.parseInt(parts[7] ?? '', 10),
-            Number.parseInt(parts[8] ?? '', 10),
+            Number.parseInt(parts[8], 10),
         ];
         return Number.isSafeInteger(jpegQuality)
             && jpegQuality > 0
@@ -884,9 +885,7 @@ export async function main() {
             return pending;
         };
         return Promise.resolve({
-            get detected() {
-                return pdfimagesBinary !== undefined;
-            },
+            detected: true,
             get documentDpi() {
                 return documentDpi;
             },
@@ -1165,10 +1164,10 @@ export async function main() {
 
 if (process.argv[1] !== undefined && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     void main().catch(error => {
-        if (error instanceof Error && error.message === '') {
+        if (error instanceof Error && getErrorMessage(error) === '') {
             return;
         }
-        process.stderr.write(`[scan-cleanup] error: ${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`[scan-cleanup] error: ${getErrorMessage(error)}\n`);
         process.exitCode = 1;
     });
 }

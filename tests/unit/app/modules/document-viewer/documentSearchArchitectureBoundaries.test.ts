@@ -97,8 +97,5 @@ describe('document search architecture boundaries', () => {
 
         const pageLabels = read('app/utils/document-viewer/pageLabels.ts');
         expect(pageLabels).not.toMatch(/\bpdf(?:[-_]|[A-Z])/iu);
-
-        const compatibilityModule = read('app/utils/pdfPageLabels.ts');
-        expect(compatibilityModule).toContain('from \'@app/utils/document-viewer/pageLabels\'');
     });
 });

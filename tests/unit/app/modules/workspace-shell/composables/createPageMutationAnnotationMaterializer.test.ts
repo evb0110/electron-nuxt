@@ -8,9 +8,14 @@ import {
 import {ref} from 'vue';
 import {createPageMutationAnnotationMaterializer} from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
 import type { INativePdfMutationProjection } from '@app/modules/pdf-viewer/public';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireLeaseId} from '@contracts/shared';
 
 const nativeMocks = vi.hoisted(() => ({
     createManagedTempFileHandle: vi.fn(),
@@ -38,7 +43,7 @@ const nativeProjection: INativePdfMutationProjection = {
 const nativeStagedArtifact: ITypedStagedArtifact = {
     receiptVersion: 1,
     artifactKind: 'pdf',
-    path: '/tmp/native-staged.pdf',
+    path: requireDocumentRef('/tmp/native-staged.pdf'),
     size: 3,
     sha256: 'b'.repeat(64),
     fileIdentity: {
@@ -53,7 +58,7 @@ const nativeStagedArtifact: ITypedStagedArtifact = {
         semanticScopeSha256: 'c'.repeat(64),
         fsynced: true,
     },
-    leaseId: 'staged-lease',
+    leaseId: requireLeaseId('staged-lease'),
     revision: requireDocumentRevisionToken('revision-1'),
 };
 
@@ -106,7 +111,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
             verifyAnnotationSave: async () => { callOrder.push('verify'); },
             commitAnnotationSave: () => callOrder.push('commit-frontier'),
         }));
-        const workingCopyPath = ref('browser://documents/document.pdf');
+        const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('browser://documents/document.pdf'));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const materialize = createPageMutationAnnotationMaterializer({
             annotationDirty: ref(true),
@@ -137,7 +142,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
 
     it('rejects stale bytes and acknowledgement when the same path receives another revision', async () => {
         const bytes = new Uint8Array([1]);
-        const workingCopyPath = ref('browser://documents/document.pdf');
+        const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('browser://documents/document.pdf'));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const verifyAnnotationSave = vi.fn(async () => undefined);
         const assertAnnotationSaveCurrent = vi.fn(async () => undefined);
@@ -183,7 +188,7 @@ describe('createPageMutationAnnotationMaterializer', () => {
 
     it('replaces only a native working copy from a staged mutation without reading bytes', async () => {
         const callOrder: string[] = [];
-        const workingCopyPath = ref('/tmp/document.pdf');
+        const workingCopyPath = ref<TDocumentRef | null>(requireDocumentRef('/tmp/document.pdf'));
         const documentRevisionToken = ref(requireDocumentRevisionToken('revision-1'));
         const loadPdfFromData = vi.fn(async () => {
             throw new Error('native page mutation must not load PDF bytes');

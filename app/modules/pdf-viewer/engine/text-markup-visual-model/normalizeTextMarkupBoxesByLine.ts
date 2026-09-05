@@ -76,7 +76,11 @@ export function normalizeTextMarkupBoxesByLine(
         return [];
     }
     if (groups.length === 1) {
-        return groups[0]!.boxes
+        const group = groups[0];
+        if (!group) {
+            return [];
+        }
+        return group.boxes
             .sort((left, right) => left.index - right.index)
             .map(({ box }) => ({ ...box }));
     }

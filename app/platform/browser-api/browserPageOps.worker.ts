@@ -126,8 +126,6 @@ async function handleRequest(
             return handleRemoveCropRequest(request);
         case 'getPageGeometry':
             return handleGetPageGeometryRequest(request);
-        default:
-            throw new Error(`Unsupported browser page operation request: ${(request as {type: string}).type}`);
     }
 }
 

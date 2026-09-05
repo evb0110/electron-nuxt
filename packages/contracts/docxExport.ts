@@ -1,4 +1,5 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import type {TSessionId} from '@contracts/shared';
 
 /** Binary chunks accepted by the desktop DOCX output sink. */
 export type TDocxExportChunkSource = Iterable<Uint8Array> | AsyncIterable<Uint8Array>;
@@ -20,7 +21,7 @@ export const DOCX_EXPORT_STREAM_CHANNELS = {
 export const DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES = 4 * 1024 * 1024;
 export const DOCX_EXPORT_STREAM_SESSION_TIMEOUT_MS = 10 * 60 * 1000;
 
-export interface IDocxExportStreamBeginResult {sessionId: string;}
+export interface IDocxExportStreamBeginResult {readonly sessionId: TSessionId;}
 
 /** Invoke contract for the validated Electron IPC boundary. */
 export interface IDocxExportInvokeMap {
@@ -29,15 +30,15 @@ export interface IDocxExportInvokeMap {
         result: IDocxExportStreamBeginResult;
     };
     [DOCX_EXPORT_STREAM_CHANNELS.writeChunk]: {
-        args: [sessionId: string, chunk: Uint8Array];
+        args: [sessionId: TSessionId, chunk: Uint8Array];
         result: boolean;
     };
     [DOCX_EXPORT_STREAM_CHANNELS.commit]: {
-        args: [sessionId: string];
+        args: [sessionId: TSessionId];
         result: boolean;
     };
     [DOCX_EXPORT_STREAM_CHANNELS.cancel]: {
-        args: [sessionId: string];
+        args: [sessionId: TSessionId];
         result: boolean;
     };
 }

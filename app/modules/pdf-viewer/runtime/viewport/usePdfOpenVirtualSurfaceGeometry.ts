@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IDocumentViewerChassisAuthority } from '@app/utils/document-viewer/chassis/documentViewerChassisAuthority';
@@ -15,9 +17,9 @@ interface IUsePdfOpenVirtualSurfaceGeometryOptions<TSpacerStyle, TPlaceholderSty
     getLastMountedPage: () => number | undefined;
     viewerContainer: Readonly<Ref<HTMLElement | null>>;
     zoomMode: Readonly<Ref<string>>;
-    hasExactPageGeometry: (pageNumber: number) => boolean;
+    hasExactPageGeometry: (pageNumber: TPageNumber) => boolean;
     isFitWidthScaleCurrent: (container: HTMLElement, options: { page: number }) => boolean;
-    getPagePlaceholderStyle: (pageNumber: number) => TPlaceholderStyle;
+    getPagePlaceholderStyle: (pageNumber: TPageNumber) => TPlaceholderStyle;
 }
 
 export const usePdfOpenVirtualSurfaceGeometry = <TSpacerStyle, TPlaceholderStyle>(
@@ -52,7 +54,7 @@ export const usePdfOpenVirtualSurfaceGeometry = <TSpacerStyle, TPlaceholderStyle
         });
     });
 
-    function getExactPagePlaceholderStyle(pageNumber: number) {
+    function getExactPagePlaceholderStyle(pageNumber: TPageNumber) {
         const fitViewport = options.viewerContainer.value;
         if (
             !options.hasExactPageGeometry(pageNumber)

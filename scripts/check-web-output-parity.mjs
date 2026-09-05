@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -45,7 +46,7 @@ if (isDirectCliRun) {
         await validateWebOutputParity();
         console.log('Desktop-static and Vercel web output contracts match.');
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     }
 }

@@ -136,7 +136,7 @@ runDjvuPrintHandoffOrSkip('Electron E2E - DjVu Print Handoff', () => {
             sourcePath: string,
             pageNumbers: number[],
         ) => {
-            const api = (window as IE2EWindow & {electronAPI?: {djvu?: {printDjvuPath?: (
+            const api = (window as typeof globalThis & IE2EWindow & {electronAPI?: {djvu?: {printDjvuPath?: (
                 path: string,
                 options: {
                     fileName: string;

@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
@@ -11,7 +13,7 @@ export interface IAnnotationMutationVisualEffect {
     kind: TAnnotationMutationVisualEffectKind;
     stableKey?: string | null;
     annotationId?: string | null;
-    pageNumber?: number | null;
+    pageNumber?: TPageNumber | null;
     commentSnapshot?: IAnnotationCommentSummary | null;
     color?: string | null;
     sourceColor?: string | null;

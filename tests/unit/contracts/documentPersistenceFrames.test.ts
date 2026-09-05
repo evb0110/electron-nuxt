@@ -23,6 +23,11 @@ import {
     normalizePdfPersistencePreloadToMainPayload,
     parsePdfPersistenceMainToPreloadFrame,
 } from '@contracts/documentPersistenceFrames';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    requireLeaseId,
+    requireSessionId,
+} from '@contracts/shared';
 
 const validValidation = {
     isValid: true,
@@ -33,7 +38,7 @@ const validValidation = {
 const validStagedOutput = {
     receiptVersion: 1 as const,
     artifactKind: 'pdf' as const,
-    path: '/tmp/staged.pdf',
+    path: requireDocumentRef('/tmp/staged.pdf'),
     size: 512,
     sha256: 'a'.repeat(64),
     fileIdentity: {
@@ -48,7 +53,7 @@ const validStagedOutput = {
         semanticCheck: false,
         fsynced: true,
     },
-    leaseId: 'lease-1',
+    leaseId: requireLeaseId('lease-1'),
     revision: null,
 };
 
@@ -92,14 +97,14 @@ describe('document persistence frame contracts', () => {
             seq: 2,
             receivedBytes: 512,
         });
-        expect(parsePdfPersistenceMainToPreloadFrame(createPdfPersistenceResultFrame('/tmp/out.pdf', validValidation)))
+        expect(parsePdfPersistenceMainToPreloadFrame(createPdfPersistenceResultFrame(requireDocumentRef('/tmp/out.pdf'), validValidation)))
             .toEqual({
                 type: 'result',
                 path: '/tmp/out.pdf',
                 validation: validValidation,
             });
         expect(parsePdfPersistenceMainToPreloadFrame(createPdfPersistenceStagedFrame(
-            'session-1',
+            requireSessionId('session-1'),
             validStagedOutput,
             validValidation,
         ))).toEqual({

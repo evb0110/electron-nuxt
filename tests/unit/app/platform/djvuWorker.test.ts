@@ -7,6 +7,9 @@ import {
 } from 'vitest';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
+import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -45,7 +48,7 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 interface IDjvuPreviewSourceForTest {
     cancelPagePreview(pageNumber: number, requestId?: string): void;
     renderPageObjectUrl(pageNumber: number, options?: {
-        previewRequestId?: string;
+        previewRequestId?: ReturnType<typeof requireRequestId>;
         targetWidthPx?: number
     }): Promise<{
         objectUrl: string;
@@ -58,7 +61,7 @@ interface IDjvuPreviewSourceForTest {
         width: number;
     }>>;
     searchText?(request: {
-        requestId: string;
+        requestId: ReturnType<typeof requireRequestId>;
         pageCount: number;
         query: string;
         matchOptions: {
@@ -68,7 +71,7 @@ interface IDjvuPreviewSourceForTest {
         };
         signal: AbortSignal;
         onProgress?: (progress: {
-            requestId: string;
+            requestId: ReturnType<typeof requireRequestId>;
             processed: number;
             total: number
         }) => void;
@@ -180,7 +183,7 @@ describe('createDjvuWorkerFromPath', () => {
         controller.abort(new DOMException('Superseded DjVu load', 'AbortError'));
 
         await expect(createDjvuWorkerFromPath(
-            'browser://documents/source/canceled.djvu',
+            requireDocumentRef('browser://documents/source/canceled.djvu'),
             {signal: controller.signal},
         )).rejects.toThrow('DjVu conversion canceled');
 
@@ -206,7 +209,7 @@ describe('createDjvuWorkerFromPath', () => {
         }};
 
         const response = await searchDjvuWorkerText(worker as never, {
-            requestId: 'browser-batched-search',
+            requestId: requireRequestId('browser-batched-search'),
             pageCount: 1,
             query: 'hit',
             matchOptions: {
@@ -250,7 +253,7 @@ describe('createDjvuWorkerFromPath', () => {
         }};
 
         await expect(searchDjvuWorkerText(worker as never, {
-            requestId: 'oversized-page-text',
+            requestId: requireRequestId('oversized-page-text'),
             pageCount: 1,
             query: 'x',
             matchOptions: {
@@ -266,7 +269,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        await expect(createDjvuWorkerFromPath('/Users/test/book.djvu'))
+        await expect(createDjvuWorkerFromPath(requireDocumentRef('/Users/test/book.djvu')))
             .rejects.toBeInstanceOf(PdfCombineCapabilityError);
 
         expect(mocks.stat).not.toHaveBeenCalled();
@@ -281,7 +284,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        await expect(createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu'))
+        await expect(createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/book.djvu')))
             .rejects.toMatchObject({
                 name: 'PdfCombineCapabilityError',
                 code: 'native-unavailable',
@@ -295,7 +298,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('reads small browser DjVu files through ranges instead of the whole-read API', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const ref = 'browser://documents/source/range-only.djvu';
+        const ref = requireDocumentRef('browser://documents/source/range-only.djvu');
         mocks.stat.mockResolvedValue({size: 3});
         mocks.read.mockRejectedValue(new Error('browser whole reads are forbidden'));
         mocks.readRange.mockResolvedValue(new Uint8Array([
@@ -346,7 +349,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        await createDjvuWorkerFromPath('/Users/test/desktop-book.djvu');
+        await createDjvuWorkerFromPath(requireDocumentRef('/Users/test/desktop-book.djvu'));
 
         expect(documentFiles.statFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
         expect(documentFiles.readFile).toHaveBeenCalledWith('/Users/test/desktop-book.djvu');
@@ -364,7 +367,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('still unloads transient browser document refs after creating the worker', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const ref = 'browser://documents/source/book.djvu';
+        const ref = requireDocumentRef('browser://documents/source/book.djvu');
 
         await createDjvuWorkerFromPath(ref);
 
@@ -377,7 +380,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('terminates the worker and unloads browser document refs if document creation fails', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const ref = 'browser://documents/source/broken.djvu';
+        const ref = requireDocumentRef('browser://documents/source/broken.djvu');
         mocks.createDocument.mockRejectedValue(new Error('decode failed'));
 
         await expect(createDjvuWorkerFromPath(ref)).rejects.toThrow('decode failed');
@@ -389,7 +392,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('aborts browser DjVu reads before creating the worker document', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const ref = 'browser://documents/source/large.djvu';
+        const ref = requireDocumentRef('browser://documents/source/large.djvu');
         const controller = new AbortController();
         mocks.stat.mockResolvedValue({size: (4 * 1024 * 1024) + 1});
         mocks.readRange.mockImplementation(async () => {
@@ -410,7 +413,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('rejects oversized DjVu allocations before requesting ranges', async () => {
         const { createDjvuWorkerFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const ref = 'browser://documents/source/oversized.djvu';
+        const ref = requireDocumentRef('browser://documents/source/oversized.djvu');
         mocks.stat.mockResolvedValue({size: (192 * 1024 * 1024) + 1});
 
         await expect(createDjvuWorkerFromPath(ref))
@@ -445,7 +448,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/book.djvu'));
         await expect(source.getPageSizes()).resolves.toEqual([{
             width: 100,
             height: 200,
@@ -489,7 +492,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/book.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/book.djvu'));
         await expect(source.getPageSizes()).resolves.toEqual([{
             width: 100,
             height: 200,
@@ -505,7 +508,7 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.stat).not.toHaveBeenCalled();
         expect(mocks.read).not.toHaveBeenCalled();
         expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith('/Users/test/book.djvu', 1, {
-            previewRequestId: 'native-preview:1:1',
+            previewRequestId: expect.stringMatching(/^native-preview-\d+-\d+-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u),
             subsample: 2,
         });
     });
@@ -539,7 +542,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/huge.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/huge.djvu'));
         await expect(source.renderPageObjectUrl(1, { subsample: 2 })).resolves.toEqual({
             objectUrl: 'blob:native-preview',
             renderedPx: 100,
@@ -596,7 +599,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/tiny-many-pages.djvu') as IDjvuPreviewSourceForTest;
+        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/tiny-many-pages.djvu')));
         await expect(source.renderPageObjectUrl(10_001)).resolves.toEqual({
             objectUrl: 'blob:native-preview',
             renderedPx: 100,
@@ -609,7 +612,7 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.nativeRenderPagePreview).toHaveBeenCalledWith(
             '/Users/test/tiny-many-pages.djvu',
             10_001,
-            expect.objectContaining({previewRequestId: 'native-preview:10001:1'}),
+            expect.objectContaining({previewRequestId: expect.stringMatching(/^native-preview-\d+-\d+-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u)}),
         );
     });
 
@@ -630,7 +633,7 @@ describe('createDjvuWorkerFromPath', () => {
         });
         mocks.nativeSearchText.mockImplementation(async () => {
             emitProgress?.({
-                requestId: 'native-search',
+                requestId: requireRequestId('native-search'),
                 processed: 8,
                 total: 431,
             });
@@ -651,11 +654,11 @@ describe('createDjvuWorkerFromPath', () => {
         })});
         const {createDjvuPagePreviewSourceFromPath} =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/huge.djvu') as IDjvuPreviewSourceForTest;
+        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/huge.djvu')));
         const onProgress = vi.fn();
 
         await expect(source.searchText!({
-            requestId: 'native-search',
+            requestId: requireRequestId('native-search'),
             pageCount: 431,
             query: 'needle',
             matchOptions: {
@@ -672,14 +675,14 @@ describe('createDjvuWorkerFromPath', () => {
 
         expect(mocks.nativeSearchText).toHaveBeenCalledOnce();
         expect(mocks.nativeSearchText).toHaveBeenCalledWith('/Users/test/huge.djvu', 'needle', {
-            requestId: 'native-search',
+            requestId: requireRequestId('native-search'),
             pageCount: 431,
             matchCase: false,
             wholeWord: true,
             useRegex: false,
         });
         expect(onProgress).toHaveBeenCalledWith({
-            requestId: 'native-search',
+            requestId: requireRequestId('native-search'),
             processed: 8,
             total: 431,
         });
@@ -708,7 +711,7 @@ describe('createDjvuWorkerFromPath', () => {
         });
         mocks.nativeSearchText.mockImplementation(async () => {
             emitProgress?.({
-                requestId: 'small-native-search',
+                requestId: requireRequestId('small-native-search'),
                 processed: 1,
                 total: 1,
             });
@@ -729,7 +732,7 @@ describe('createDjvuWorkerFromPath', () => {
         })});
         const {createDjvuPagePreviewSourceFromPath} =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = await createDjvuPagePreviewSourceFromPath('/Users/test/small.djvu') as IDjvuPreviewSourceForTest;
+        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/small.djvu')));
         const onProgress = vi.fn();
 
         await expect(source.renderPageObjectUrl(1)).resolves.toEqual({
@@ -737,7 +740,7 @@ describe('createDjvuWorkerFromPath', () => {
             renderedPx: 100,
         });
         await expect(source.searchText!({
-            requestId: 'small-native-search',
+            requestId: requireRequestId('small-native-search'),
             pageCount: 1,
             query: 'needle',
             matchOptions: {
@@ -756,14 +759,14 @@ describe('createDjvuWorkerFromPath', () => {
         expect(mocks.createPngObjectUrlRun).toHaveBeenCalledWith(1);
         expect(mocks.nativeRenderPagePreview).not.toHaveBeenCalled();
         expect(mocks.nativeSearchText).toHaveBeenCalledWith('/Users/test/small.djvu', 'needle', {
-            requestId: 'small-native-search',
+            requestId: requireRequestId('small-native-search'),
             pageCount: 1,
             matchCase: false,
             wholeWord: true,
             useRegex: false,
         });
         expect(onProgress).toHaveBeenCalledWith({
-            requestId: 'small-native-search',
+            requestId: requireRequestId('small-native-search'),
             processed: 1,
             total: 1,
         });
@@ -798,12 +801,12 @@ describe('createDjvuWorkerFromPath', () => {
         });
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('browser://documents/source/book.djvu'));
 
-        const blockingRender = source.renderPageObjectUrl(2, { previewRequestId: 'blocker' });
+        const blockingRender = source.renderPageObjectUrl(2, {previewRequestId: requireRequestId('blocker')});
         await vi.waitFor(() => expect(mocks.createPngObjectUrlRun).toHaveBeenCalledWith(2));
-        const viewportRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-viewport' });
-        const thumbnailRender = source.renderPageObjectUrl(1, { previewRequestId: 'page-1-thumbnail' });
+        const viewportRender = source.renderPageObjectUrl(1, {previewRequestId: requireRequestId('page-1-viewport')});
+        const thumbnailRender = source.renderPageObjectUrl(1, {previewRequestId: requireRequestId('page-1-thumbnail')});
 
         firstRender.resolve({
             height: 200,
@@ -843,9 +846,9 @@ describe('createDjvuWorkerFromPath', () => {
         });
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = await createDjvuPagePreviewSourceFromPath(
-            'browser://documents/source/too-many-pages.djvu',
-        ) as IDjvuPreviewSourceForTest;
+        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(
+            requireDocumentRef('browser://documents/source/too-many-pages.djvu'),
+        ));
 
         await expect(source.getPageSizes!()).rejects.toThrow('capped at 10000 pages');
         expect(mocks.getPagesQuantity).toHaveBeenCalledOnce();
@@ -856,7 +859,7 @@ describe('createDjvuWorkerFromPath', () => {
     it('revokes stale browser fallback preview URLs created after cancellation', async () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('browser://documents/source/book.djvu'));
         mocks.createPngObjectUrlRun.mockImplementation(async () => {
             source.cancelPagePreview(1, 'stale');
             return {
@@ -866,7 +869,7 @@ describe('createDjvuWorkerFromPath', () => {
             };
         });
 
-        const staleRender = source.renderPageObjectUrl(1, { previewRequestId: 'stale' });
+        const staleRender = source.renderPageObjectUrl(1, {previewRequestId: requireRequestId('stale')});
 
         await expect(staleRender).rejects.toThrow('DjVu conversion canceled');
 
@@ -883,7 +886,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        const source = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('browser://documents/source/book.djvu'));
         await expect(source.renderPageObjectUrl(1, { targetWidthPx: 50 })).resolves.toEqual({
             objectUrl: 'blob:scaled-preview',
             renderedPx: 50,
@@ -899,7 +902,7 @@ describe('createDjvuWorkerFromPath', () => {
 
     it('revokes scaled browser fallback preview URLs when they become stale before return', async () => {
         const revokeWindowObjectURL = vi.fn();
-        let source: IDjvuPreviewSourceForTest | null = null;
+        let source: Pick<IDjvuPreviewSourceForTest, 'cancelPagePreview'> | null = null;
         vi.stubGlobal('URL', {
             createObjectURL: vi.fn(() => {
                 source?.cancelPagePreview(1, 'scaled-stale');
@@ -911,11 +914,11 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const previewSource = await createDjvuPagePreviewSourceFromPath('browser://documents/source/book.djvu');
+        const previewSource = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('browser://documents/source/book.djvu'));
         source = previewSource;
 
         await expect(previewSource.renderPageObjectUrl(1, {
-            previewRequestId: 'scaled-stale',
+            previewRequestId: requireRequestId('scaled-stale'),
             targetWidthPx: 50,
         }))
             .rejects

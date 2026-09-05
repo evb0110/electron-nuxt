@@ -9,6 +9,10 @@ import { config } from '@electron/config';
 import { getErrorMessage } from '@electron/utils/error';
 import type { IAppUpdateStatus } from '@contracts/updatesPlatformFeature';
 import type { ISettingsData } from '@contracts/shared';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { PACKAGED_STARTUP_READY_MARKER } from '@contracts/packagedStartupReadyMarker';
 import { resolveApplicationVersion } from '@electron/appVersion';
 
@@ -44,8 +48,8 @@ function normalizeAcknowledgedExternalOpenPaths(paths: string[]) {
 
 interface IRegisterIpcHandlersOptions {
     onRendererReady?: (event: IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (sender: WebContents) => Promise<TDocumentRef[]>;
+    acknowledgePendingExternalOpenPaths?: (sender: WebContents, failedPaths: TDocumentRef[]) => void;
 }
 
 function shouldWaitForInitialRendererReady() {
@@ -157,7 +161,7 @@ function createStartupExternalOpenClaimTracker(options: Pick<IRunInitSequenceOpt
         claim.timeout = setTimeout(() => {
             requeue(sender, 'claim timeout');
         }, STARTUP_EXTERNAL_OPEN_CLAIM_TIMEOUT_MS);
-        claim.timeout.unref?.();
+        claim.timeout.unref();
         claimsBySender.set(sender, claim);
     }
 
@@ -317,9 +321,22 @@ function bootIpc(
             if (paths.length === 0) {
                 return [];
             }
-            startupExternalOpenClaims.track(sender, paths);
-            allowOpenPaths(paths, sender);
-            return paths;
+            const validPaths: string[] = [];
+            const documentRefs: TDocumentRef[] = [];
+            for (const path of paths) {
+                const documentRef = parseDocumentRef(path);
+                if (documentRef === null) {
+                    continue;
+                }
+                validPaths.push(path);
+                documentRefs.push(documentRef);
+            }
+            if (validPaths.length === 0) {
+                return [];
+            }
+            startupExternalOpenClaims.track(sender, validPaths);
+            allowOpenPaths(validPaths, sender);
+            return documentRefs;
         },
         acknowledgePendingExternalOpenPaths: (sender, failedPaths) => {
             const window = getWindowFromWebContents(sender);

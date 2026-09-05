@@ -38,6 +38,7 @@ import {
     disablePdfDiagnosticSession,
     enablePdfDiagnosticSession,
 } from '@tests/e2e/electron/helpers/pdfDiagnosticSession';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 interface IRendererErrorTracker {
     errors: string[];
@@ -123,7 +124,7 @@ function createRendererErrorTracker(page: Page): IRendererErrorTracker {
     };
 
     const onPageError = (error: unknown) => {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         errors.push(`pageerror:${detail}`);
     };
 
@@ -678,7 +679,7 @@ async function saveViaToolbarButton(page: Page) {
         await clickToolbarButtonWhenEnabled(page, 'Save', 20_000);
     } catch (error) {
         const state = await getToolbarSaveDebugState(page);
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         throw new Error(`Save toolbar action was not clickable: ${detail}. State: ${JSON.stringify(state)}`);
     }
 
@@ -2236,7 +2237,7 @@ async function waitForShapeCountWithScenarioDiagnostics(
             getPointInteractionDebugState(page, shape.hit),
         ]);
         throw new Error([
-            `${scenario.name}: ${error instanceof Error ? error.message : String(error)}`,
+            `${scenario.name}: ${getErrorMessage(error)}`,
             `stateAfterClick=${JSON.stringify(stateAfterClick)}`,
             `managedShapeState=${JSON.stringify(managedShapeState)}`,
             `toolbarState=${JSON.stringify(toolbarState)}`,
@@ -2335,7 +2336,7 @@ async function runSavedShapeDeleteScenario(page: Page, scenario: ISavedShapeDele
                 }
             }
         } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
+            const detail = getErrorMessage(error);
             const managedShapeState = await getManagedShapeDebugState(page);
             throw new Error([
                 `${scenario.name}: step ${stepIndex + 1} (${step.action}) failed`,

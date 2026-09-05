@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IEditedTextMarkupVisualOptions } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
 import type {
     IAnnotationCommentSummary,
@@ -35,7 +37,7 @@ const DEFAULT_EDITED_HIGHLIGHT_OVERLAY_OPACITY = 0.35;
 
 interface IReconcileTextMarkupVisualOverlaysOptions {
     comments: readonly IAnnotationCommentSummary[];
-    pageNumber?: number | undefined;
+    pageNumber?: TPageNumber | undefined;
     removeSameKeyOnLiveHighlight: boolean;
     removeStaleVisuals: boolean;
     requireColorEdited: boolean;
@@ -45,8 +47,7 @@ interface IReconcileTextMarkupVisualOverlaysOptions {
 
 function getEditedTextMarkupVisualKey(comment: IAnnotationCommentSummary) {
     return normalizePdfJsAnnotationId(comment.annotationId ?? comment.uid ?? comment.id)
-        ?? comment.stableKey
-        ?? comment.id;
+        ?? comment.stableKey;
 }
 
 function formatOverlayNumber(value: number) {
@@ -315,10 +316,8 @@ function suppressNativeTextMarkupAnnotationLayerVisuals(
     });
 }
 
-function pageMatchesOption(comment: IAnnotationCommentSummary, pageNumber: number | undefined) {
-    return !Number.isFinite(pageNumber)
-        || pageNumber! <= 0
-        || Math.floor(comment.pageNumber) === Math.floor(pageNumber!);
+function pageMatchesOption(comment: IAnnotationCommentSummary, pageNumber: TPageNumber | undefined) {
+    return pageNumber === undefined || Math.floor(comment.pageNumber) === pageNumber;
 }
 
 export function reconcileTextMarkupVisualOverlays(
@@ -327,9 +326,10 @@ export function reconcileTextMarkupVisualOverlays(
 ) {
     const commentsByPage = new Map<HTMLElement, IAnnotationCommentSummary[]>();
     const pageContainers = new Set<HTMLElement>();
-    if (Number.isFinite(options.pageNumber) && options.pageNumber! > 0) {
+    const pageNumber = options.pageNumber;
+    if (typeof pageNumber === 'number' && Number.isFinite(pageNumber) && pageNumber > 0) {
         const pageContainer = container.querySelector<HTMLElement>(
-            `.page_container[data-page="${Math.floor(options.pageNumber!)}"]`,
+            `.page_container[data-page="${Math.floor(pageNumber)}"]`,
         );
         if (pageContainer) {
             pageContainers.add(pageContainer);

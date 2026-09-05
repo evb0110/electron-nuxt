@@ -1,3 +1,8 @@
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
 // External PDF.js identity decoding. It never owns semantic annotation state.
 import type { Ref } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
@@ -20,7 +25,7 @@ export const useAnnotationIdentity = (
     const editorRuntimeIds = new WeakMap<IPdfjsEditor, string>();
     let editorRuntimeIdCounter = 0;
 
-    function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: number) {
+    function getEditorRuntimeId(editor: IPdfjsEditor, pageIndex: TPageIndex) {
         let runtimeId = editorRuntimeIds.get(editor);
         if (!runtimeId) {
             editorRuntimeIdCounter += 1;
@@ -30,7 +35,7 @@ export const useAnnotationIdentity = (
         return runtimeId;
     }
 
-    function getEditorIdentity(editor: IPdfjsEditor, pageIndex: number) {
+    function getEditorIdentity(editor: IPdfjsEditor, pageIndex: TPageIndex) {
         const rawEditorId = typeof editor.id === 'string' || typeof editor.id === 'number'
             ? String(editor.id)
             : '';
@@ -54,7 +59,7 @@ export const useAnnotationIdentity = (
         return annotationCommentsCache.value.find(comment => comment.stableKey === stableKey) ?? null;
     }
 
-    function findCommentByAnnotationId(annotationId: string | null | undefined, pageNumber: number | null = null) {
+    function findCommentByAnnotationId(annotationId: string | null | undefined, pageNumber: TPageNumber | null = null) {
         const normalized = (annotationId ?? '').trim();
         if (!normalized) {
             return null;

@@ -297,11 +297,6 @@ async function buildWorkerRequestWithTransfers(
                 transfer: [transferableData.buffer] satisfies Transferable[],
             };
         }
-        default:
-            return {
-                request,
-                transfer: [] satisfies Transferable[],
-            };
     }
 }
 
@@ -378,8 +373,7 @@ async function runDirect(
             const { serializePdfEdits } = await import(
                 '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits'
             );
-            return await serializePdfEdits(payload.data, payload.payload)
-                ?? payload.data;
+            return serializePdfEdits(payload.data, payload.payload);
         }
         case 'updateEmbeddedText': {
             const { payload } = request;
@@ -419,8 +413,6 @@ async function runDirect(
                 identityBindings,
             };
         }
-        default:
-            throw new Error('Unsupported PDF serialization request');
     }
 }
 

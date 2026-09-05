@@ -1,8 +1,13 @@
+import {
+    pageNumberToPageIndex,
+    parsePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 
 export function findPdfAnnotationSummaryFromTarget(
     target: HTMLElement,
-    currentPage: number,
+    currentPage: TPageNumber,
     annotationCommentsCache: IAnnotationCommentSummary[],
 ) {
     const annotationElement = target.closest<HTMLElement>(
@@ -19,9 +24,9 @@ export function findPdfAnnotationSummaryFromTarget(
 
     const pageContainer = annotationElement.closest<HTMLElement>('.page_container');
     const pageNumber = pageContainer?.dataset.page
-        ? Number(pageContainer.dataset.page)
+        ? parsePageNumber(Number(pageContainer.dataset.page)) ?? currentPage
         : currentPage;
-    const pageIndex = Math.max(0, pageNumber - 1);
+    const pageIndex = pageNumberToPageIndex(pageNumber);
 
     return annotationCommentsCache.find(c => (
         c.annotationId === annotationId && c.pageIndex === pageIndex

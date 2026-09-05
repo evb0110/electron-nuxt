@@ -7,12 +7,20 @@ import { ref } from 'vue';
 import type {
     IEditorPaneState,
     TEditorLayoutNode,
+    TPaneId,
 } from '@contracts/editorPanes';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     requireDocumentRevisionToken,
     type IDocumentRevisionInfo,
 } from '@contracts/documentRevision';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireEpochMs } from '@contracts/timestamps';
+import type { TTabId } from '@contracts/windowTabs';
+import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import {
@@ -40,21 +48,21 @@ function createIdentity(token: string, contentRevision: number): IDocumentRevisi
     return {
         version: 1,
         token: requireDocumentRevisionToken(token),
-        documentRef: '/doc.pdf' as TDocumentRef,
+        documentRef: requireDocumentRef('/doc.pdf'),
         authority: 'electron-working-copy',
         contentRevision,
-        mintedAt: 0,
+        mintedAt: requireEpochMs(0),
     };
 }
 
 function createSignatureOptions() {
     const pane: IEditorPaneState = {
-        paneId: 'pane-1',
+        paneId: requirePaneId('pane-1'),
         tabIds: [
-            'tab-a',
-            'tab-b',
+            requireTabId('tab-a'),
+            requireTabId('tab-b'),
         ],
-        activeTabId: 'tab-a',
+        activeTabId: requireTabId('tab-a'),
     };
     return {
         panes: ref([pane]),
@@ -63,8 +71,8 @@ function createSignatureOptions() {
             createTab('tab-b'),
         ]),
         layout: ref<TEditorLayoutNode | null>(null),
-        activePaneId: ref<string | null>('pane-1'),
-        activeTabId: ref<string | null>('tab-a'),
+        activePaneId: ref<TPaneId | null>(requirePaneId('pane-1')),
+        activeTabId: ref<TTabId | null>(requireTabId('tab-a')),
         workspaceRefs: ref(new Map<string, IWorkspaceExpose>()),
         documentRecordsByTabId: ref<Record<string, IWorkspaceDocumentRecord>>({}),
         getPaneByTabId: (): IEditorPaneState | null => pane,
@@ -186,7 +194,7 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         ]]);
         const before = buildWorkspaceCheckpointChangeSignature(options);
 
-        originalPath = '/restored.pdf' as TDocumentRef;
+        originalPath = requireDocumentRef('/restored.pdf');
         const after = buildWorkspaceCheckpointChangeSignature(options);
 
         expect(after.tabSignatures.get('tab-a')).not.toBe(before.tabSignatures.get('tab-a'));
@@ -197,19 +205,19 @@ describe('buildWorkspaceCheckpointChangeSignature', () => {
         const options = createSignatureOptions();
         const before = buildWorkspaceCheckpointChangeSignature(options);
 
-        options.activeTabId.value = 'tab-b';
+        options.activeTabId.value = requireTabId('tab-b');
         const afterActiveTab = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterActiveTab.workspace).not.toBe(before.workspace);
         expect([...afterActiveTab.tabSignatures.entries()]).toEqual([...before.tabSignatures.entries()]);
 
-        options.activeTabId.value = 'tab-a';
+        options.activeTabId.value = requireTabId('tab-a');
         options.panes.value = [{
-            paneId: 'pane-1',
+            paneId: requirePaneId('pane-1'),
             tabIds: [
-                'tab-b',
-                'tab-a',
+                requireTabId('tab-b'),
+                requireTabId('tab-a'),
             ],
-            activeTabId: 'tab-a',
+            activeTabId: requireTabId('tab-a'),
         }];
         const afterTabOrder = buildWorkspaceCheckpointChangeSignature(options);
         expect(afterTabOrder.workspace).not.toBe(before.workspace);

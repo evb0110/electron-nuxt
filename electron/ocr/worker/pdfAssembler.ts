@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     readFile,
     stat,
@@ -141,7 +142,7 @@ export async function getPageCount(
             '--show-npages',
             pdfPath,
         ], commandOptions);
-        const parsed = parseInt((result.stdout ?? '').trim(), 10);
+        const parsed = parseInt(result.stdout.trim(), 10);
         if (Number.isFinite(parsed) && parsed > 0) {
             return {
                 pageCount: parsed,
@@ -151,7 +152,7 @@ export async function getPageCount(
     } catch (err) {
         return {
             pageCount: fallback,
-            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${err instanceof Error ? err.message : String(err)}`],
+            warnings: [`qpdf page-count failed; using OCR page fallback ${fallback}: ${getErrorMessage(err)}`],
         };
     }
     return {

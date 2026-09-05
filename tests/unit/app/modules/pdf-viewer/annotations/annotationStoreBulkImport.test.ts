@@ -8,6 +8,7 @@ import {
     asAnnotationId,
     type IStickyNoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 
 function persistedNote(id: string, text = id): IStickyNoteEntity {
@@ -17,7 +18,7 @@ function persistedNote(id: string, text = id): IStickyNoteEntity {
             id: asAnnotationId(id),
             pdfRef: `${id}-ref`,
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,

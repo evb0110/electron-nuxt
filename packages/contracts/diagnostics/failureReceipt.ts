@@ -14,6 +14,10 @@ import {
     FAILURE_SEVERITIES,
     type FailureSeverity,
 } from '@contracts/diagnostics/diagnosticRecord';
+import {
+    isEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 export interface LocalFailureDetail {
     source: string;
@@ -33,7 +37,7 @@ export interface CaptureFailureInput<C extends DiagnosticCode = DiagnosticCode> 
 export interface FailureReceipt {
     eventId: DiagnosticEventId;
     code: DiagnosticCode;
-    occurredAt: number;
+    occurredAt: TEpochMs;
     severity: FailureSeverity;
 }
 
@@ -44,6 +48,11 @@ const FAILURE_RECEIPT_KEYS = [
     'severity',
 ] as const;
 
+function isFailureSeverity(value: unknown): value is FailureSeverity {
+    return typeof value === 'string'
+        && FAILURE_SEVERITIES.some(severity => severity === value);
+}
+
 export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
     if (!isPlainRecord(value)) {
         return null;
@@ -52,22 +61,19 @@ export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
         const keys = Reflect.ownKeys(value);
         if (
             keys.length !== FAILURE_RECEIPT_KEYS.length
-            || !keys.every(key => typeof key === 'string' && FAILURE_RECEIPT_KEYS.includes(
-                key as typeof FAILURE_RECEIPT_KEYS[number],
-            ))
+            || !keys.every(key => typeof key === 'string' && FAILURE_RECEIPT_KEYS.some(allowedKey => allowedKey === key))
             || !isDiagnosticEventId(value.eventId)
             || !isDiagnosticCode(value.code)
-            || !Number.isSafeInteger(value.occurredAt)
-            || (value.occurredAt as number) < 0
-            || !FAILURE_SEVERITIES.includes(value.severity as FailureSeverity)
+            || !isEpochMs(value.occurredAt)
+            || !isFailureSeverity(value.severity)
         ) {
             return null;
         }
         return {
             eventId: value.eventId,
             code: value.code,
-            occurredAt: value.occurredAt as number,
-            severity: value.severity as FailureSeverity,
+            occurredAt: value.occurredAt,
+            severity: value.severity,
         };
     } catch {
         return null;
@@ -75,10 +81,10 @@ export function decodeFailureReceipt(value: unknown): FailureReceipt | null {
 }
 
 export function getFailureReceipt(value: unknown): FailureReceipt | undefined {
-    if (!value || typeof value !== 'object') {
+    if (typeof value !== 'object' || value === null || !('failure' in value)) {
         return undefined;
     }
-    return decodeFailureReceipt((value as {failure?: unknown}).failure) ?? undefined;
+    return decodeFailureReceipt(value.failure) ?? undefined;
 }
 
 export const EXPECTED_OUTCOME_CODES = [
@@ -120,7 +126,7 @@ export function isExpectedOutcome(value: unknown): value is ExpectedOutcome {
             && Object.hasOwn(value, 'code')
             && value.kind === 'expected'
             && typeof value.code === 'string'
-            && EXPECTED_OUTCOME_CODES.includes(value.code as ExpectedOutcomeCode);
+            && EXPECTED_OUTCOME_CODES.some(code => code === value.code);
     } catch {
         return false;
     }

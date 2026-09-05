@@ -42,7 +42,10 @@ export function createDocumentBookmarkTree(
         target: result,
     }));
     while (stack.length > 0) {
-        const entry = stack.pop()!;
+        const entry = stack.pop();
+        if (!entry) {
+            break;
+        }
         const mapped: IDocumentBookmarkTreeItem = {
             id: createBookmarkId(entry.itemPath),
             title: normalizeTitle(entry.item.title),
@@ -51,8 +54,12 @@ export function createDocumentBookmarkTree(
         };
         entry.target.push(mapped);
         for (let index = entry.item.children.length - 1; index >= 0; index -= 1) {
+            const child = entry.item.children[index];
+            if (!child) {
+                continue;
+            }
             stack.push({
-                item: entry.item.children[index]!,
+                item: child,
                 itemPath: [
                     ...entry.itemPath,
                     index,
@@ -79,13 +86,22 @@ export function getDocumentBookmarkActivePath(
         const {
             item,
             path,
-        } = stack.pop()!;
+        } = stack.pop() ?? {
+            item: null,
+            path: [],
+        };
+        if (!item) {
+            continue;
+        }
         if (item.pageNumber !== null && item.pageNumber <= currentPage && item.pageNumber >= bestPage) {
             bestPage = item.pageNumber;
             bestPath = path;
         }
         for (let index = item.children.length - 1; index >= 0; index -= 1) {
-            const child = item.children[index]!;
+            const child = item.children[index];
+            if (!child) {
+                continue;
+            }
             stack.push({
                 item: child,
                 path: [
@@ -139,7 +155,13 @@ export function getDocumentBookmarkVisibleRows(
         const {
             item,
             depth,
-        } = stack.pop()!;
+        } = stack.pop() ?? {
+            item: null,
+            depth: 0,
+        };
+        if (!item) {
+            continue;
+        }
         const isExpanded = item.children.length > 0 && isDocumentBookmarkExpanded(item.id, display);
         rows.push({
             item,
@@ -148,8 +170,12 @@ export function getDocumentBookmarkVisibleRows(
         });
         if (isExpanded) {
             for (let index = item.children.length - 1; index >= 0; index -= 1) {
+                const child = item.children[index];
+                if (!child) {
+                    continue;
+                }
                 stack.push({
-                    item: item.children[index]!,
+                    item: child,
                     depth: depth + 1,
                 });
             }
@@ -195,7 +221,10 @@ export function findDocumentBookmark(
 ): IDocumentBookmarkTreeItem | null {
     const stack = items.toReversed();
     while (stack.length > 0) {
-        const item = stack.pop()!;
+        const item = stack.pop();
+        if (!item) {
+            break;
+        }
         if (item.id === id) {
             return item;
         }

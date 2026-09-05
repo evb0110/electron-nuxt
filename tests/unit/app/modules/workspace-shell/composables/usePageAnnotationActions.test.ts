@@ -22,6 +22,9 @@ import {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations
 import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacement';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import { requireDocumentRevisionToken } from '@contracts';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
@@ -250,7 +253,7 @@ function createHarness() {
         sidebarTab: ref<'annotations' | 'thumbnails' | 'bookmarks' | 'search'>('search'),
         dragMode,
         currentPage: ref(3),
-        workingCopyPath: ref<string | null>('browser://documents/work.pdf'),
+        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('browser://documents/work.pdf')),
         closeAnnotationContextMenu: vi.fn(),
         showAnnotationContextMenu: vi.fn(),
         handleAnnotationToolChange,
@@ -435,7 +438,7 @@ describe('usePageAnnotationActions', () => {
                 uid: 'actual-editor',
                 stableKey: 'uid:0:actual-editor',
                 text: 'Saved note text',
-                modifiedAt: Date.now() + 1_000,
+                modifiedAt: requireEpochMs(Date.now() + 1_000),
             };
             deps.annotationNoteWindows.value = [{
                 draftText: 'Saved note text',
@@ -941,10 +944,10 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        deps.workingCopyPath.value = '/tmp/work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
         deps.embedPlacedImageToPage.mockResolvedValueOnce({
             kind: 'native-path',
-            path: '/tmp/work.pdf',
+            path: requireDocumentRef('/tmp/work.pdf'),
             revisionToken: requireDocumentRevisionToken('drt1:test:placed-image-native'),
         });
 
@@ -962,7 +965,7 @@ describe('usePageAnnotationActions', () => {
             viewer,
             actions,
         } = createHarness();
-        deps.workingCopyPath.value = '/tmp/work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
         deps.embedPlacedImageToPage.mockRejectedValueOnce(new Error('native placement failed'));
 
         await expect(actions.handleFinalizePlacedImage(placedImagePayload(90))).resolves.toBe(false);
@@ -987,7 +990,7 @@ describe('usePageAnnotationActions', () => {
             deps,
             actions,
         } = createHarness();
-        deps.workingCopyPath.value = '/tmp/large-work.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/large-work.pdf');
         const appliedMutations: string[] = [];
         deps.materializeAnnotationsForPageMutation.mockImplementationOnce(async () => {
             if (pendingAnnotations) {
@@ -995,12 +998,12 @@ describe('usePageAnnotationActions', () => {
             }
             return true;
         });
-        deps.embedPlacedImageToPage.mockImplementationOnce(async (data) => {
+        deps.embedPlacedImageToPage.mockImplementationOnce(async (data, _placement) => {
             expect(data).toBeNull();
             appliedMutations.push('placed-image');
             return {
                 kind: 'native-path',
-                path: '/tmp/large-work.pdf',
+                path: requireDocumentRef('/tmp/large-work.pdf'),
                 revisionToken: requireDocumentRevisionToken('drt1:test:large-placed-image'),
             };
         });
@@ -1059,7 +1062,7 @@ describe('usePageAnnotationActions', () => {
             actions,
         } = createHarness();
         deps.embedPlacedImageToPage.mockImplementationOnce(async () => {
-            deps.workingCopyPath.value = 'browser://documents/other.pdf';
+            deps.workingCopyPath.value = requireDocumentRef('browser://documents/other.pdf');
             return Uint8Array.of(7, 7);
         });
 

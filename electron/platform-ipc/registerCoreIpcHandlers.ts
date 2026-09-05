@@ -4,6 +4,7 @@ import {
     sortBy,
 } from 'es-toolkit/array';
 import type { IWindowTabTargetWindow } from '@contracts/windowTabs';
+import type { TDocumentRef } from '@contracts/documentRef';
 import {
     WINDOW_TABS_PLATFORM_FEATURE,
     type IWindowTabsInvokeMap,
@@ -40,8 +41,8 @@ import { allowOpenPaths } from '@electron/file-access/openPathCapabilities';
 
 export interface ICoreIpcHandlerOptions {
     onRendererReady?: (event: Electron.IpcMainEvent) => void;
-    claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<string[]>;
-    acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: string[]) => void;
+    claimPendingExternalOpenPaths?: (sender: Electron.WebContents) => Promise<TDocumentRef[]>;
+    acknowledgePendingExternalOpenPaths?: (sender: Electron.WebContents, failedPaths: TDocumentRef[]) => void;
 }
 
 const CORE_RAW_EVENT_CHANNEL_SET = new Set<string>([
@@ -186,7 +187,7 @@ export function registerCoreIpcHandlers(
                 allowOpenPaths(checkpoint.tabs.flatMap(tab => [
                     tab.sourceRef,
                     tab.workingCopyRef,
-                ].filter((path): path is string => path !== null)), sender);
+                ].filter((path): path is TDocumentRef => path !== null)), sender);
             }
             return checkpoint;
         },

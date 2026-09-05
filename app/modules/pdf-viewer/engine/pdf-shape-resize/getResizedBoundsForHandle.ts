@@ -52,7 +52,6 @@ export function getResizedBoundsForHandle(
                 maxY: clamp(y, Math.min(1, bounds.minY + safeMinSize), 1),
             };
         case 'se':
-        default:
             return {
                 minX: bounds.minX,
                 minY: bounds.minY,

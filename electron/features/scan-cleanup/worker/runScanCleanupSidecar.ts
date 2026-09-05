@@ -157,7 +157,7 @@ async function streamScanCleanupSidecar(
         }
     }
     const startedAt = performance.now();
-    let terminalResult: 'success' | 'failure' | null = null;
+    let terminalResult = null as 'success' | 'failure' | null;
     let protocolError: Error | null = null;
     let nativeFailure: NativeScanCleanupError | null = null;
     let terminationPromise: Promise<boolean> | null = null;
@@ -167,7 +167,7 @@ async function streamScanCleanupSidecar(
     // payload, with last-write-wins for any repeated terminal frame, so the
     // diagnostic totals represent each page once and use reconciled timings.
     const terminalPageTimings = new Map<number, TNativeScanCleanupPageStageTimingsV3>();
-    let terminalUnkeyedTimings: TNativeScanCleanupPageStageTimingsV3 | null = null;
+    let terminalUnkeyedTimings = null as TNativeScanCleanupPageStageTimingsV3 | null;
     // The fallback timer bounds how long this adapter waits, not whether the
     // tree died. It resolves `false`, which every caller below turns into an
     // error the working-copy owner can see, so a bound that expires quarantines
@@ -191,7 +191,7 @@ async function streamScanCleanupSidecar(
                 resolve(terminated);
             };
             const fallbackHandle = setTimeout(() => settle(false), SCAN_CLEANUP_TERMINATION_FALLBACK_MS);
-            fallbackHandle.unref?.();
+            fallbackHandle.unref();
             void treeTermination.then(terminated => settle(terminated === true));
         });
         return terminationPromise;
@@ -218,7 +218,7 @@ async function streamScanCleanupSidecar(
         };
     });
     const protocol = createScanCleanupSidecarProtocolHandler({
-        stdout: child.stdout!,
+        stdout: child.stdout,
         stderr: child.stderr,
         onProtocolError: error => {
             protocolError = error;
@@ -274,7 +274,7 @@ async function streamScanCleanupSidecar(
         }
         throw withTerminationProof(terminal, terminated);
     };
-    let aborting = false;
+    let aborting = false as boolean;
     const handleAbort = () => {
         aborting = true;
         // AbortSignal is the transport boundary. This native adapter first asks
@@ -315,7 +315,7 @@ async function streamScanCleanupSidecar(
                             reject(withTerminationProof(timeoutError, terminated))
                         ));
                     }, timeoutMs);
-                    timeoutHandle.unref?.();
+                    timeoutHandle.unref();
                 }),
                 fatalSettlement,
             ]);

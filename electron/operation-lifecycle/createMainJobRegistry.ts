@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {randomUUID} from 'node:crypto';
 import type {
     Event,
@@ -297,7 +298,7 @@ export function createMainJobRegistry<
             });
         emit(record, true); record.resolveTerminal(record.snapshot as TTerminal);
         record.retentionTimer = setTimeout(() => { if (record.settled) remove(record); }, Math.max(0, options.retention.terminalRecordTtlMs));
-        record.retentionTimer.unref?.(); prune();
+        record.retentionTimer.unref(); prune();
         return true;
     }
     function requestCancel(record: IRecord, reason = 'Operation canceled') {
@@ -392,7 +393,7 @@ export function createMainJobRegistry<
             operation.signal,
             ...(startOptions.signals ?? []),
         ]) {
-            const abort = () => requestCancel(record, signal.reason instanceof Error ? signal.reason.message : 'Operation canceled');
+            const abort = () => requestCancel(record, signal.reason instanceof Error ? getErrorMessage(signal.reason) : 'Operation canceled');
             if (signal.aborted) abort();
             else {
                 signal.addEventListener('abort', abort, {once: true}); record.cleanupSignals.push(() => signal.removeEventListener('abort', abort));

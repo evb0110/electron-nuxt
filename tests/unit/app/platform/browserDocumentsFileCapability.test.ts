@@ -10,6 +10,8 @@ import type {
     IDocumentsFileCapability,
     IDocumentsOpenCapability,
 } from '@contracts/electronApiDocuments';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
 import type { BrowserDocumentStore } from '@app/platform/browserDocumentStore';
 import {BROWSER_MAX_FULL_READ_BYTES as BROWSER_FULL_READ_LIMIT} from '@app/platform/browser/browserDocumentConstants';
 import {
@@ -251,8 +253,8 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             reason: 'requires-native-backend',
             message: 'Folder dialogs require the desktop app.',
         });
-        await expect(capability.showItemInFolder('browser://documents/source.pdf')).resolves.toBe(false);
-        await expect(capability.showItemInFolderStructured!('browser://documents/source.pdf')).resolves.toEqual({
+        await expect(capability.showItemInFolder(requireDocumentRef('browser://documents/source.pdf'))).resolves.toBe(false);
+        await expect(capability.showItemInFolderStructured!(requireDocumentRef('browser://documents/source.pdf'))).resolves.toEqual({
             ok: false,
             reason: 'requires-native-backend',
             message: 'Showing files in a folder requires the desktop app.',
@@ -371,7 +373,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        const path = 'browser://documents/source/large-validation.pdf';
+        const path = requireDocumentRef('browser://documents/source/large-validation.pdf');
         const largeSize = BROWSER_FULL_READ_LIMIT + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
             size: largeSize,
@@ -407,7 +409,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        const path = 'browser://documents/source/multi-range-validation.pdf';
+        const path = requireDocumentRef('browser://documents/source/multi-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
         const largeSize = BROWSER_FULL_READ_LIMIT + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
@@ -459,7 +461,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability();
-        const path = 'browser://documents/source/failed-range-validation.pdf';
+        const path = requireDocumentRef('browser://documents/source/failed-range-validation.pdf');
         const chunkSize = 4 * 1024 * 1024;
         const largeSize = BROWSER_FULL_READ_LIMIT + 1;
         const statSpy = vi.spyOn(browserDocumentStore, 'stat').mockResolvedValue({
@@ -1098,7 +1100,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'structured save',
             invoke: (
                 capability: IDocumentsFileCapability,
-                workingRef: string,
+                workingRef: TDocumentRef,
                 revisionOptions: Awaited<ReturnType<typeof getRevisionOptions>>,
             ) => capability.saveFileStructured(workingRef, revisionOptions),
             expected: {
@@ -1110,7 +1112,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             name: 'PDF data save',
             invoke: async (
                 capability: IDocumentsFileCapability,
-                workingRef: string,
+                workingRef: TDocumentRef,
                 revisionOptions: Awaited<ReturnType<typeof getRevisionOptions>>,
             ) => capability.savePdfData(workingRef, await createPdfBytes(), revisionOptions),
             expected: {
@@ -1626,7 +1628,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-        const outputPath = await capability.saveDocxAs('/tmp/work.pdf');
+        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
         expect(outputPath).not.toBeNull();
         if (!outputPath) {
             throw new Error('Expected browser DOCX output path');
@@ -1665,7 +1667,7 @@ describe('createBrowserDocumentsFileCapability', {timeout: 20_000}, () => {
             capability,
             browserDocumentStore,
         } = await loadBrowserDocumentsFileCapability({windowOverrides: {showSaveFilePicker: undefined}});
-        const outputPath = await capability.saveDocxAs('/tmp/work.pdf');
+        const outputPath = await capability.saveDocxAs(requireDocumentRef('/tmp/work.pdf'));
         expect(outputPath).not.toBeNull();
         if (!outputPath) {
             throw new Error('Expected browser DOCX output path');

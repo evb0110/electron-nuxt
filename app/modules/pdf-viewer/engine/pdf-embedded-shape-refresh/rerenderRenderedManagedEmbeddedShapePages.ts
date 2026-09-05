@@ -1,3 +1,9 @@
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 import type { IPageRange } from '@app/types/pdfUi';
 import { uniq } from 'es-toolkit/array';
@@ -11,7 +17,7 @@ interface IRerenderRenderedManagedEmbeddedShapePagesOptions {
     shapes: Array<Pick<IShapeAnnotation, 'annotationId' | 'pageIndex' | 'source'>>;
     visibleRange: IPageRange;
     renderBuffer: number;
-    isPageRendered: (pageNumber: number) => boolean;
+    isPageRendered: (pageNumber: TPageNumber) => boolean;
     invalidatePages: (pages: number[]) => void;
     renderVisiblePages: (
         visibleRange: IPageRange,
@@ -30,7 +36,7 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
     const renderedManagedPages = uniq(
         shapes
             .filter(shape => shape.source === 'embedded' && !!shape.annotationId)
-            .map(shape => Math.max(1, Math.floor(shape.pageIndex) + 1))
+            .map(shape => pageIndexToPageNumber(requirePageIndex(Math.max(0, Math.floor(shape.pageIndex)))))
             .filter(pageNumber => shouldRefreshManagedShapePage({
                 pageNumber,
                 visibleRange,
@@ -56,10 +62,15 @@ export async function rerenderRenderedManagedEmbeddedShapePages({
     });
     invalidatePages(renderedManagedPages);
 
+    const start = renderedManagedPages[0];
+    const end = renderedManagedPages[renderedManagedPages.length - 1];
+    if (start === undefined || end === undefined) {
+        return;
+    }
     await renderVisiblePages(
         {
-            start: renderedManagedPages[0]!,
-            end: renderedManagedPages[renderedManagedPages.length - 1]!,
+            start,
+            end,
         },
         {
             preserveRenderedPages: true,

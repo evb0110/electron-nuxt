@@ -31,6 +31,9 @@ const remoteCredentialPattern = /\bsntry[su]_[A-Za-z0-9_-]{16,}\b/u;
 const sentryEndpointPattern = /https:\/\/[A-Za-z0-9]+@[A-Za-z0-9.-]*sentry\.io\/\d+/giu;
 const sentryIngestHostPattern = /\b(?:o\d+\.)?ingest(?:\.[a-z0-9-]+)*\.sentry\.io\b/iu;
 
+/** @typedef {{absolutePath: string, relativePath: string}} IArtifactFile */
+
+/** @param {string} relativePath @returns {boolean} */
 export function isForbiddenPublicArtifactPath(relativePath) {
     if (allowedLicensePattern.test(relativePath)) {
         return false;
@@ -38,10 +41,12 @@ export function isForbiddenPublicArtifactPath(relativePath) {
     return forbiddenPublicArtifactPathPatterns.some(pattern => pattern.test(relativePath));
 }
 
+/** @param {string} relativePath @returns {boolean} */
 export function shouldScanPublicArtifactContent(relativePath) {
     return contentFilePattern.test(relativePath);
 }
 
+/** @param {string | Buffer} content @param {{target: string}} options @returns {string[]} */
 export function collectPublicArtifactContentViolations(
     content,
     {target},
@@ -66,6 +71,7 @@ export function collectPublicArtifactContentViolations(
     return [...new Set(violations)];
 }
 
+/** @param {string} dirPath @param {string} relativeRoot @returns {Promise<IArtifactFile[]>} */
 async function collectFiles(dirPath, relativeRoot) {
     const entries = await readdir(dirPath, {withFileTypes: true});
     const files = [];
@@ -91,6 +97,7 @@ async function collectFiles(dirPath, relativeRoot) {
     return files;
 }
 
+/** @param {{rootPath: string, target: string}} options @returns {Promise<string[]>} */
 export async function scanPublicArtifactDirectory({
     rootPath,
     target,
@@ -114,6 +121,7 @@ export async function scanPublicArtifactDirectory({
     return violations;
 }
 
+/** @param {string} relativeRoot @param {string} root @returns {Promise<IArtifactFile[]>} */
 async function collectArtifactFiles(relativeRoot, root) {
     const rootPath = path.join(root, relativeRoot);
     try {
@@ -136,6 +144,7 @@ async function collectArtifactFiles(relativeRoot, root) {
     return collectFiles(rootPath, relativeRoot);
 }
 
+/** @param {string} relativeRoot @param {string} relativePath @returns {string} */
 function targetForArtifact(relativeRoot, relativePath) {
     if (relativeRoot === 'dist-electron') {
         return 'desktop';
@@ -149,6 +158,7 @@ function targetForArtifact(relativeRoot, relativePath) {
     return 'web-server';
 }
 
+/** @param {{root?: string}} options @returns {Promise<string[]>} */
 export async function runBuildArtifactHygiene({root = projectRoot} = {}) {
     const violations = [];
     for (const artifactRoot of artifactRoots) {

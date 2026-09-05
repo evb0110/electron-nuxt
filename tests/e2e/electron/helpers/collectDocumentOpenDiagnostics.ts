@@ -1,6 +1,7 @@
 import type {Page} from 'puppeteer-core';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
 import {evaluateInPage} from '@tests/e2e/electron/helpers/pageRuntime';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 export async function collectDocumentOpenDiagnostics(page: Page) {
     try {
@@ -22,6 +23,6 @@ export async function collectDocumentOpenDiagnostics(page: Page) {
             };
         });
     } catch (error) {
-        return {diagnosticError: error instanceof Error ? error.message : String(error)};
+        return {diagnosticError: getErrorMessage(error)};
     }
 }

@@ -152,6 +152,7 @@ export function enqueueWorkingCopyMutation<T>(
         cancelGroup,
         markCommitStarted: lifecycleOperation.markCommitStarted,
     };
+    const isMutationAborted = () => mutationOperation.signal.aborted;
     const entry: IWorkingCopyMutationQueueEntry = {
         tail: Promise.resolve(),
         operationId: lifecycleOperation.id,
@@ -182,7 +183,7 @@ export function enqueueWorkingCopyMutation<T>(
     })}`);
     const operationPromise = previousTail
         .then(async () => {
-            if (mutationOperation.signal.aborted) {
+            if (isMutationAborted()) {
                 throw mutationOperation.signal.reason instanceof Error
                     ? mutationOperation.signal.reason
                     : new Error('Working-copy mutation canceled');
@@ -208,7 +209,7 @@ export function enqueueWorkingCopyMutation<T>(
                 if (preparation) {
                     await preparation;
                 }
-                if (mutationOperation.signal.aborted) {
+                if (isMutationAborted()) {
                     throw mutationOperation.signal.reason instanceof Error
                         ? mutationOperation.signal.reason
                         : new Error('Working-copy mutation canceled');

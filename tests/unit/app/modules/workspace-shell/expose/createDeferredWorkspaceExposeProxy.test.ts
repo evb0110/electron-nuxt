@@ -4,6 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { createDeferredWorkspaceExposeProxy } from '@app/modules/workspace-shell/expose/createDeferredWorkspaceExposeProxy';
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import {
@@ -60,7 +61,7 @@ function createSession(path = '/tmp/a.pdf') {
         sessionId: 'session-1',
         initialRecord: createWorkspaceDocumentRecord({tab: {
             fileName: path.split('/').pop() ?? null,
-            originalPath: path,
+            originalPath: requireDocumentRef(path),
             isDirty: false,
             isDjvu: false,
         }}),
@@ -74,7 +75,7 @@ function replaceSessionDocument(
 ) {
     session.applyWorkspaceRecord(createWorkspaceDocumentRecord({tab: {
         fileName: path.split('/').pop() ?? null,
-        originalPath: path,
+        originalPath: requireDocumentRef(path),
         isDirty: false,
         isDjvu: false,
     }}), 'workspace');

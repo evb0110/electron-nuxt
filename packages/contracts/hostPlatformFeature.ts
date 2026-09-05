@@ -15,8 +15,8 @@ export type THostPlatform = 'darwin' | 'win32' | 'linux';
 const HOST_OS_SCALE_FACTOR_MAX = 8;
 
 export interface IHostEnvironmentSnapshot {
-    platform: THostPlatform;
-    osScaleFactor: number;
+    readonly platform: THostPlatform;
+    readonly osScaleFactor: number;
 }
 
 export function decodeHostEnvironmentSnapshot(value: unknown): IHostEnvironmentSnapshot | null {
@@ -36,8 +36,8 @@ export function decodeHostEnvironmentSnapshot(value: unknown): IHostEnvironmentS
 }
 
 export interface IHostZenModeState {
-    active: boolean;
-    supported: boolean;
+    readonly active: boolean;
+    readonly supported: boolean;
 }
 
 function decodeHostZenModeState(value: unknown): IHostZenModeState {

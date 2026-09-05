@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     computed,
     createApp,
@@ -33,6 +34,7 @@ const rendererFixture = vi.hoisted(() => {
         attachAnnotationProjection: vi.fn(() => vi.fn()),
         cancelPendingSearchScroll: vi.fn(),
         cleanupAllLayers: vi.fn(async () => undefined),
+        dispose: vi.fn(),
         hideManagedAnnotationEditors: vi.fn(),
         queuePrioritizedTextLayerPromotions: vi.fn(),
         releasePageLayers: vi.fn(),
@@ -791,20 +793,20 @@ describe('PdfRenderingSession behavior', () => {
             fixture.renderTasks[0]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             const resident = fixture.canvasHost.querySelector('canvas');
-            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(true);
+            expect(fixture.rendering.isPageRenderedForClass(requirePageNumber(3))).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true);
 
             fixture.outputScale.value = 2;
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
             expect(fixture.canvasHost.querySelector('canvas')).toBe(resident);
-            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            expect(fixture.rendering.isPageRenderedForClass(requirePageNumber(3))).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(false);
 
             fixture.renderTasks[1]!.resolve();
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBe(resident));
             expect(resident?.isConnected).toBe(false);
-            expect(fixture.rendering.isPageRenderedForClass(3)).toBe(true);
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(true);
+            expect(fixture.rendering.isPageRenderedForClass(requirePageNumber(3))).toBe(true);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true);
         } finally {
             await fixture.dispose();
         }
@@ -815,7 +817,7 @@ describe('PdfRenderingSession behavior', () => {
         try {
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
             fixture.renderTasks[0]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             const resident = fixture.canvasHost.querySelector('canvas');
             fixture.demand.value = {
                 ...fixture.demand.value,
@@ -828,15 +830,15 @@ describe('PdfRenderingSession behavior', () => {
                 ...fixture.demand.value,
                 revision: 3,
             };
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
-            expect(fixture.rendering.getCommittedPageScale(3)).toBe(1);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(false);
+            expect(fixture.rendering.getCommittedPageScale(requirePageNumber(3))).toBe(1);
             fixture.effectiveScale.value = 5.27;
             fixture.demand.value = {
                 ...fixture.demand.value,
                 revision: 4,
             };
 
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(false);
             expect(fixture.canvasHost.querySelector('canvas')).toBe(resident);
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(2));
             expect(canvasFixture.prepare).toHaveBeenLastCalledWith(
@@ -846,8 +848,8 @@ describe('PdfRenderingSession behavior', () => {
             );
 
             fixture.renderTasks[1]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
-            expect(fixture.rendering.getCommittedPageScale(3)).toBeCloseTo(5.27);
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
+            expect(fixture.rendering.getCommittedPageScale(requirePageNumber(3))).toBeCloseTo(5.27);
             expect(fixture.canvasHost.querySelector('canvas')).not.toBe(resident);
         } finally {
             await fixture.dispose();
@@ -859,7 +861,7 @@ describe('PdfRenderingSession behavior', () => {
         try {
             await vi.waitFor(() => expect(fixture.renderTasks).toHaveLength(1));
             fixture.renderTasks[0]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             fixture.demand.value = {
                 ...fixture.demand.value,
                 revision: 2,
@@ -886,10 +888,10 @@ describe('PdfRenderingSession behavior', () => {
                 5.27,
                 expect.anything(),
             );
-            expect(fixture.rendering.isPageVisualReady(3)).toBe(false);
+            expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(false);
 
             fixture.renderTasks[2]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             expect(fixture.pdfPage.render).toHaveBeenCalledTimes(3);
         } finally {
             await fixture.dispose();
@@ -938,7 +940,7 @@ describe('PdfRenderingSession behavior', () => {
             expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
             expect(rendererFixture.api.renderCommittedPageLayers).not.toHaveBeenCalled();
             const renderState = rendererFixture.options?.pageRenderState as TPdfPageRenderState;
-            expect(renderState.getSlot(3).job).toBe('idle');
+            expect(renderState.getSlot(requirePageNumber(3)).job).toBe('idle');
         } finally {
             await fixture.dispose();
         }
@@ -995,7 +997,7 @@ describe('PdfRenderingSession behavior', () => {
             expect(fixture.settleMandatoryRaster).not.toHaveBeenCalled();
 
             fixture.renderTasks[0]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(1));
         } finally {
             await fixture.dispose();
@@ -1110,7 +1112,7 @@ describe('PdfRenderingSession behavior', () => {
             expect(fixture.renderTasks).toHaveLength(1);
             expect(fixture.settleMandatoryRaster).not.toHaveBeenCalledWith(2);
             fixture.renderTasks[0]!.resolve();
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
             await vi.waitFor(() => expect(fixture.settleMandatoryRaster).toHaveBeenCalledWith(2));
         } finally {
             await fixture.dispose();
@@ -1349,7 +1351,7 @@ describe('PdfRenderingSession behavior', () => {
             setDemandSpy.mockClear();
             frameCallbacks.shift()?.(performance.now());
             await vi.waitFor(() => expect(submittedPages()).toEqual([3]));
-            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(3)).toBe(true));
+            await vi.waitFor(() => expect(fixture.rendering.isPageVisualReady(requirePageNumber(3))).toBe(true));
 
             setDemandSpy.mockClear();
             const queuedFrames = frameCallbacks.splice(0);
@@ -1448,7 +1450,7 @@ describe('PdfRenderingSession behavior', () => {
             ]));
 
             const renderState = rendererFixture.options?.pageRenderState as TPdfPageRenderState;
-            expect(renderState.getSlot(4).committedRasterQuality?.wasClamped).toBe(false);
+            expect(renderState.getSlot(requirePageNumber(4)).committedRasterQuality?.wasClamped).toBe(false);
             expect(fixture.rasterScheduler.snapshot().residentPages)
                 .toContainEqual(expect.objectContaining({
                     lane: 'viewport-visible',
@@ -1556,7 +1558,7 @@ describe('PdfRenderingSession behavior', () => {
             await vi.waitFor(() => expect(fixture.canvasHost.querySelector('canvas')).not.toBeNull());
             expect(fixture.rasterScheduler.snapshot().residentPages).toHaveLength(1);
 
-            fixture.rendering.releaseUnmountedPage(3);
+            fixture.rendering.releaseUnmountedPage(requirePageNumber(3));
             expect(fixture.rasterScheduler.snapshot().residentPages).toHaveLength(0);
             expect(fixture.canvasHost.querySelector('canvas')).toBeNull();
             expect(rendererFixture.api.releasePageLayers).toHaveBeenCalledWith(3);

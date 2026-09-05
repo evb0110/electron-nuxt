@@ -24,7 +24,7 @@ function readDomState(page: Page) {
             return rect.width > 0 && rect.height > 0 && style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0';
         };
         const label = (element: Element) => {
-            const text = (element.getAttribute('aria-label') ?? element.textContent ?? '').replace(/\s+/gu, ' ').trim();
+            const text = (element.getAttribute('aria-label') ?? element.textContent).replace(/\s+/gu, ' ').trim();
             return text.slice(0, 160);
         };
         const tabs = Array.from(document.querySelectorAll<HTMLElement>('.tab-list .tab[data-tab-id]'));

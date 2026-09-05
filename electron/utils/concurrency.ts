@@ -2,7 +2,7 @@ import {
     availableParallelism,
     cpus,
 } from 'os';
-import { limitAsync } from 'es-toolkit/array';
+import { limitAsync } from 'es-toolkit/promise';
 import { clamp } from 'es-toolkit/math';
 
 function parsePositiveInt(value: string | undefined) {

@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import {buildPrintablePdfPath} from '@electron/features/documents/main/buildPrintablePdfPath';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const GIB = 1024 * 1024 * 1024;
 
@@ -42,8 +43,8 @@ function build() {
         outputPath: '/tmp/printable.pdf',
         printOptions: {
             pageNumbers: [
-                1,
-                2,
+                requirePageNumber(1),
+                requirePageNumber(2),
             ],
             viewMode: 'facing',
             orientation: 'auto',

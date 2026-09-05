@@ -236,7 +236,10 @@ export const useAnnotationNoteWindows = (deps: IAnnotationNoteWindowDeps) => {
         const existing = stateById(annotationId);
         if (existing) {
             existing.minimized = false;
-            const metadata = runtime.get(annotationId)!;
+            const metadata = runtime.get(annotationId);
+            if (!metadata) {
+                return;
+            }
             metadata.error = null;
             metadata.order = ++nextOrder;
             applyCommentSnapshot(metadata, comment);

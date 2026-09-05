@@ -31,12 +31,14 @@ import type {
     TScanCleanupWarningEvent,
 } from '@contracts/electronApiScanCleanup';
 import {resolveScanCleanupEffectiveOutputMode} from '@contracts/electronApiScanCleanup';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     decodeNativeScanCleanupOutputMetadataJson,
     decodeNativeScanCleanupPageMetadataJson,
 } from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import type { IScanCleanupRuntimePolicy } from '@contracts/resourcePolicies';
 import { getErrorMessage } from '@contracts/getErrorMessage';
+import { isRecord } from '@contracts/runtimeGuards';
 import {
     getScanCleanupPageOverride,
     resolveScanCleanupOutputPlacement,
@@ -384,7 +386,10 @@ function decodePageGeometrySidecarPage(value: unknown, expectedPageNumber: numbe
             `Scan cleanup page-geometry sidecar has invalid geometry for page ${String(expectedPageNumber)}`,
         );
     }
-    if (page.renderBox !== undefined && page.renderBox !== 'cropbox' && page.renderBox !== 'mediabox') {
+    // The sidecar is untrusted JSON, so its declared render-box union is a
+    // claim to verify rather than a guarantee the compiler may rely on.
+    const renderBox: unknown = page.renderBox;
+    if (renderBox !== undefined && renderBox !== 'cropbox' && renderBox !== 'mediabox') {
         throw new Error(
             `Scan cleanup page-geometry sidecar has an invalid render box for page ${String(expectedPageNumber)}`,
         );
@@ -874,11 +879,9 @@ export async function validateScanCleanupBatchSummarySidecar(
         if (expectedPageScope !== undefined && expectedPageScope.length === 0) {
             throw new Error('expected page scope is empty');
         }
-        for await (const record of readJsonLines<Record<string, unknown>>(sidecarPath, signal)) {
+        for await (const record of readJsonLines<unknown>(sidecarPath, signal)) {
             if (
-                record === null
-                || typeof record !== 'object'
-                || Array.isArray(record)
+                !isRecord(record)
                 || typeof record.batchIndex !== 'number'
                 || !Number.isSafeInteger(record.batchIndex)
                 || typeof record.firstPageNumber !== 'number'
@@ -956,9 +959,9 @@ export async function validateScanCleanupStreamingReport(
     expectedPageScope?: TScanCleanupPageScope,
 ) {
     try {
-        const report = JSON.parse(await readFile(reportPath, 'utf8')) as Record<string, unknown>;
+        const report: unknown = JSON.parse(await readFile(reportPath, 'utf8'));
         if (
-            report === null
+            !isRecord(report)
             || report.outputMappingsSidecarPath !== sidecarPath
             || report.pagesSidecarPath !== sidecarPath
         ) {
@@ -1120,7 +1123,10 @@ function resolveBatchPlacementAnchors(
     for (const pageNumber of pageNumbers) {
         const key = String(pageNumber);
         const result = results.get(pageNumber);
-        const pageOverride = getScanCleanupPageOverride(baseRequest.options.pageOverrides, pageNumber);
+        const pageOverride = getScanCleanupPageOverride(
+            baseRequest.options.pageOverrides,
+            requirePageNumber(pageNumber),
+        );
         const evidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
         const metadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
         const explicit = baseRequest.placementAnchorsByPage?.[key];
@@ -1215,7 +1221,7 @@ function buildBoundedDetectionRequestFields(
     const documentPriorByPage: NonNullable<IRunScanCleanupPipelineRequest['documentPriorByPage']> = {};
     for (const pageNumber of pageNumbers) {
         const key = String(pageNumber);
-        const result = resultByPage.get(pageNumber);
+        const result = resultByPage.get(requirePageNumber(pageNumber));
         const layout = result?.classification ?? baseRequest.layoutByPage?.[key];
         if (layout !== undefined) layoutByPage[key] = layout;
         const pagePlanEvidence = result?.pagePlanEvidence ?? baseRequest.pagePlanEvidenceByPage?.[key];
@@ -1228,7 +1234,7 @@ function buildBoundedDetectionRequestFields(
         const sourcePageMetadata = result?.sourcePageMetadata ?? baseRequest.sourcePageMetadataByPage?.[key];
         if (sourcePageMetadata !== undefined) sourcePageMetadataByPage[key] = sourcePageMetadata;
         const documentPrior = result?.documentPrior ?? baseRequest.documentPriorByPage?.[key];
-        if (documentPrior !== undefined && documentPrior !== null) documentPriorByPage[key] = documentPrior;
+        if (documentPrior !== undefined) documentPriorByPage[key] = documentPrior;
     }
     return {
         documentPriorByPage,
@@ -1589,7 +1595,7 @@ export async function runScanCleanupConversion(
         const warnEvent = (event: TScanCleanupWarningEvent, pageNumber?: number) => {
             warningEvents.push({
                 event,
-                ...(pageNumber === undefined ? {} : {pageNumber}),
+                ...(pageNumber === undefined ? {} : {pageNumber: requirePageNumber(pageNumber)}),
             });
             warn(formatScanCleanupWarningEvent(event, pageNumber));
         };
@@ -1657,9 +1663,6 @@ export async function runScanCleanupConversion(
                 pageSizeStore = createPdfPageSizeStore(prepared.pdfPath, pageSizeOptions);
             }
             const openedPageSizeStore = pageSizeStore;
-            if (openedPageSizeStore === null) {
-                throw new Error('Scan cleanup page-size store was not opened');
-            }
             // Pull one scalar to validate the first chunk and discover the
             // document count without retaining a document-sized geometry array.
             // A streaming child deliberately skips this probe. Its shared
@@ -1679,9 +1682,6 @@ export async function runScanCleanupConversion(
                 `Scan cleanup cannot safely rasterize without trusted page geometry (${getErrorMessage(error)})`,
                 {cause: error},
             );
-        }
-        if (pageSizeStore === null) {
-            throw new Error('Scan cleanup page-size store was not opened');
         }
         const geometryPageSizeStore = pageSizeStore;
         // The old array contract remains an explicitly small adapter. The
@@ -1802,7 +1802,9 @@ export async function runScanCleanupConversion(
                             );
                         }
                         expectedGeometryPageNumber += 1;
-                        const detectionResult = detectionByPage?.get(measuredPage.pageNumber);
+                        const detectionResult = detectionByPage?.get(
+                            requirePageNumber(measuredPage.pageNumber),
+                        );
                         const detectedPageMetadata = detectionResult?.sourcePageMetadata;
                         const page = detectedPageMetadata?.renderBox === 'mediabox'
                             ? detectedPageMetadata
@@ -1819,7 +1821,10 @@ export async function runScanCleanupConversion(
                             request.options,
                             observedLayout,
                         );
-                        const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
+                        const pageOverride = getScanCleanupPageOverride(
+                            request.options.pageOverrides,
+                            requirePageNumber(pageNumber),
+                        );
                         // Probe every page in the ordered geometry pass, even
                         // when an override excludes its output. The full-run
                         // Auto budget describes the source document, and the
@@ -1911,7 +1916,7 @@ export async function runScanCleanupConversion(
             losslessRun = false;
             warnEvent({
                 code: 'matched-canvas-pages-resampled',
-                pages: resampledPages,
+                pages: resampledPages.map(pageNumber => requirePageNumber(pageNumber)),
             });
         }
         if (largeStreamingRun) {
@@ -1988,7 +1993,10 @@ export async function runScanCleanupConversion(
                 : Math.max(documentDpi, resolveSourceDpi(dpiSource.documentDpi)),
         );
         const resolvePageOutputMode = (pageNumber: number) => {
-            const pageOverride = getScanCleanupPageOverride(request.options.pageOverrides, pageNumber);
+            const pageOverride = getScanCleanupPageOverride(
+                request.options.pageOverrides,
+                requirePageNumber(pageNumber),
+            );
             if (pageOverride.excluded) {
                 return 'color' as const;
             }
@@ -2147,7 +2155,7 @@ export async function runScanCleanupConversion(
             if (dpi < plan.dpi) {
                 warnEvent({
                     code: 'matched-canvas-page-dpi-capped',
-                    pageNumber: plan.pageNumber,
+                    pageNumber: requirePageNumber(plan.pageNumber),
                     appliedDpiThousandths: toScanCleanupDpiThousandths(dpi),
                     requestedDpiThousandths: toScanCleanupDpiThousandths(plan.dpi),
                 });
@@ -2278,7 +2286,7 @@ export async function runScanCleanupConversion(
         const trustedForegroundCandidates = rasterPlans.filter(plan => {
             const pageOverride = getScanCleanupPageOverride(
                 request.options.pageOverrides,
-                plan.pageNumber,
+                requirePageNumber(plan.pageNumber),
             );
             return shouldExtractTrustedMrcForeground(
                 request.options.outputMode,
@@ -2658,7 +2666,7 @@ export async function runScanCleanupConversion(
                         sourcePage: sourcePageNumber,
                         half: 'full',
                         outputOrdinal: null,
-                        rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                        rotationDegrees: pageMetadata.rotationDegrees,
                         excluded: true,
                         blank: false,
                     });
@@ -2709,7 +2717,7 @@ export async function runScanCleanupConversion(
                         const candidateBackgroundPath = await requireProducedRasterFile(
                             requirePublishedRaster,
                             output.backgroundOutputPath,
-                            pageNumber,
+                            requirePageNumber(pageNumber),
                             'mixed background layer',
                         );
                         if (metadata.layeredForegroundKind === 'soft-alpha') {
@@ -2892,7 +2900,7 @@ export async function runScanCleanupConversion(
                         }
                         reportScanCleanupSummaryWarningEvent(summary, {
                             event,
-                            pageNumber,
+                            pageNumber: requirePageNumber(pageNumber),
                             ...(metadata.half === undefined ? {} : {half: metadata.half}),
                         }, report);
                     }
@@ -2919,7 +2927,7 @@ export async function runScanCleanupConversion(
                             sourcePage: sourcePageNumber,
                             half,
                             outputOrdinal: null,
-                            rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                            rotationDegrees: pageMetadata.rotationDegrees,
                             excluded: false,
                             blank: true,
                         });
@@ -2929,7 +2937,7 @@ export async function runScanCleanupConversion(
                         sourcePage: sourcePageNumber,
                         half: 'full',
                         outputOrdinal: null,
-                        rotationDegrees: pageMetadata.rotationDegrees ?? 0,
+                        rotationDegrees: pageMetadata.rotationDegrees,
                         excluded: false,
                         blank: true,
                     });
@@ -2942,7 +2950,7 @@ export async function runScanCleanupConversion(
         if (fittedMarginBoxPages.size > 0) {
             reportScanCleanupSummaryWarningEvent(summary, {event: {
                 code: 'matched-canvas-content-fitted-pages',
-                pages: [...fittedMarginBoxPages],
+                pages: [...fittedMarginBoxPages].map(pageNumber => requirePageNumber(pageNumber)),
             }}, report);
         }
         summary.outputPages = outputPages.length;
@@ -3057,7 +3065,7 @@ export async function runScanCleanupConversion(
             sourcePage: output.sourcePageNumber,
             half: output.metadata.half ?? 'full',
             outputOrdinal: outputIndex + 1,
-            rotationDegrees: output.metadata.rotationDegrees ?? 0,
+            rotationDegrees: output.metadata.rotationDegrees,
             excluded: false,
             blank: false,
         }));
@@ -3299,14 +3307,14 @@ export async function runScanCleanupConversion(
                                 ? 'mixed'
                                 : output.resolvedOutputMode,
                     preservationReason: output.preservedSource?.reason ?? null,
-                    sourceDpi: resolvePageSourceDpi(output.sourcePageNumber) ?? null,
+                    sourceDpi: resolvePageSourceDpi(output.sourcePageNumber),
                     sourceBackgroundDpi: sourceRaster?.backgroundDpi ?? null,
                     renderDpi: output.dpi,
                     illuminationNormalized: output.metadata.illuminationNormalized === true,
                     textToneApplied: output.metadata.textToneDiagnostics?.applied === true,
                     binarizationMode: output.metadata.binarizationMode ?? null,
                     half: output.metadata.half ?? 'full',
-                    rotationDegrees: output.metadata.rotationDegrees ?? 0,
+                    rotationDegrees: output.metadata.rotationDegrees,
                     excluded: false,
                     blank: false,
                     renderGeometry: {

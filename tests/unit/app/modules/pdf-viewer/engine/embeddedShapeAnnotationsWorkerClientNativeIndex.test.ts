@@ -1,3 +1,6 @@
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireSessionId } from '@contracts/shared';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
     beforeEach,
@@ -64,16 +67,16 @@ function createEntry(
         strokes: null,
         lineStartStyle: null,
         lineEndStyle: null,
-        createdAt: 1_700_000_000,
-        modifiedAt: 1_700_000_001,
+        createdAt: requireEpochMs(1_700_000_000),
+        modifiedAt: requireEpochMs(1_700_000_001),
         ...overrides,
     };
 }
 
 function createSession(overrides: Partial<IPdfEmbeddedShapeIndexSession> = {}) {
     return {
-        sessionId: 'native-shape-session',
-        documentRef: path,
+        sessionId: requireSessionId('native-shape-session'),
+        documentRef: requireDocumentRef(path),
         documentRevisionToken: revision,
         pageCount: 2_147_483_648,
         entryCount: 1,
@@ -190,7 +193,7 @@ describe('native embedded shape index import', () => {
         mocks.files.readPdfEmbeddedShapeIndexChunk.mockResolvedValue(createDoneChunk(entries));
         vi.mocked(readDocumentBytes).mockRejectedValue(new Error('whole-document reads are forbidden'));
 
-        const shapes = await importEmbeddedShapeAnnotationsFromNativePath(path, {expectedDocumentRevisionToken: revision});
+        const shapes = await importEmbeddedShapeAnnotationsFromNativePath(requireDocumentRef(path), {expectedDocumentRevisionToken: revision});
 
         expect(shapes).toHaveLength(6);
         expect(shapes.map(shape => shape.pdfSubtype)).toEqual([
@@ -245,7 +248,7 @@ describe('native embedded shape index import', () => {
     });
 
     it('uses the revision capability when the caller has no token', async () => {
-        await importEmbeddedShapeAnnotationsFromNativePath(path);
+        await importEmbeddedShapeAnnotationsFromNativePath(requireDocumentRef(path));
 
         expect(mocks.files.getDocumentRevision).toHaveBeenCalledWith(path);
         expect(mocks.files.beginPdfEmbeddedShapeIndex).toHaveBeenCalledWith(
@@ -260,7 +263,7 @@ describe('native embedded shape index import', () => {
             beginPdfEmbeddedShapeIndex: undefined,
         };
 
-        const result = await importEmbeddedShapeAnnotationsFromNativePathResult(path, {expectedDocumentRevisionToken: revision});
+        const result = await importEmbeddedShapeAnnotationsFromNativePathResult(requireDocumentRef(path), {expectedDocumentRevisionToken: revision});
 
         expect(result).toEqual({
             status: 'incomplete',
@@ -279,7 +282,7 @@ describe('native embedded shape index import', () => {
         });
         vi.mocked(readDocumentBytes).mockRejectedValue(new Error('whole-document reads are forbidden'));
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(path, {signal: new AbortController().signal})).rejects.toBeInstanceOf(EmbeddedShapeImportCapabilityError);
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef(path), {signal: new AbortController().signal})).rejects.toBeInstanceOf(EmbeddedShapeImportCapabilityError);
         expect(mocks.files.cancelPdfEmbeddedShapeIndex).toHaveBeenCalledWith('native-shape-session');
         expect(mocks.files.releasePdfEmbeddedShapeIndex).toHaveBeenCalledWith('native-shape-session');
         expect(readDocumentBytes).not.toHaveBeenCalled();

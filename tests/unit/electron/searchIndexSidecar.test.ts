@@ -36,6 +36,7 @@ import {
 } from '@electron/search/searchIndexSidecar';
 import { OCR_TEXT_LAYER_INDEX_VERSION } from '@contracts/ocrText';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const DOCUMENT_REVISION = requireDocumentRevisionToken('revision-token');
 
@@ -65,11 +66,11 @@ describe('compact search index sidecar', () => {
             },
             pages: [
                 {
-                    pageNumber: 2,
+                    pageNumber: requirePageNumber(2),
                     text: 'second page',
                 },
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: 'first page',
                 },
             ],
@@ -135,7 +136,7 @@ describe('compact search index sidecar', () => {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'bounded text',
             }],
         });
@@ -152,7 +153,7 @@ describe('compact search index sidecar', () => {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'current text',
             }],
         });
@@ -189,7 +190,7 @@ describe('compact search index sidecar', () => {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 3,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'partial text',
             }],
         });
@@ -221,7 +222,7 @@ describe('compact search index sidecar', () => {
             documentRevision: DOCUMENT_REVISION,
             pageCount: 1,
             pages: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'generic text',
             }],
         });
@@ -265,11 +266,11 @@ describe('compact search index sidecar', () => {
             },
             [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: 'first',
                 },
                 {
-                    pageNumber: pageCount,
+                    pageNumber: requirePageNumber(pageCount),
                     text: 'last',
                 },
             ],
@@ -361,7 +362,7 @@ describe('compact search index sidecar', () => {
                 pageCount: 1,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text,
             }],
         );
@@ -399,15 +400,15 @@ describe('compact search index sidecar', () => {
             },
             [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: '',
                 },
                 {
-                    pageNumber: 2,
+                    pageNumber: requirePageNumber(2),
                     text: 'text',
                 },
                 {
-                    pageNumber: 3,
+                    pageNumber: requirePageNumber(3),
                     text: '',
                 },
             ],
@@ -440,11 +441,11 @@ describe('compact search index sidecar', () => {
         });
 
         await writer.writePage({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: '',
         });
         await expect(writer.writePage({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: '',
         })).rejects.toThrow(
             'Duplicate pageNumber',
@@ -463,7 +464,7 @@ describe('compact search index sidecar', () => {
                 truncatedCoverage: true,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'text',
             }],
         );
@@ -495,7 +496,7 @@ describe('compact search index sidecar', () => {
                 pageCount: 1,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'old',
             }],
         );
@@ -506,7 +507,7 @@ describe('compact search index sidecar', () => {
             pageCount: 1,
         });
         await writer.writePage({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'new',
         });
 
@@ -530,7 +531,7 @@ describe('compact search index sidecar', () => {
                 pageCount: 1,
             },
             [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 text: 'text',
             }],
         );

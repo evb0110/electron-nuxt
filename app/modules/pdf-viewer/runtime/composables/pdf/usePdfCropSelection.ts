@@ -1,3 +1,6 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     InjectionKey,
     Ref,
@@ -28,7 +31,7 @@ type TCropSelectionState = 'idle' | 'selecting';
 interface IUsePdfCropSelectionOptions {viewerContainer: Ref<HTMLElement | null>;}
 
 interface IPageTarget {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     clientRect: IClientRect;
 }
 
@@ -71,10 +74,10 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
     }
 
     function toPageTarget(element: HTMLElement, clientRect: IClientRect): IPageTarget | null {
-        const pageNum = parseInt(element.dataset.page ?? '', 10);
-        return Number.isFinite(pageNum)
+        const pageNumber = parsePageNumber(parseInt(element.dataset.page ?? '', 10));
+        return pageNumber !== null
             ? {
-                pageNumber: pageNum,
+                pageNumber,
                 clientRect,
             }
             : null;
@@ -126,7 +129,7 @@ export const usePdfCropSelection = (options: IUsePdfCropSelectionOptions) => {
         return bestTarget;
     }
 
-    function findPageTargetByNumber(pageNumber: number): IPageTarget | null {
+    function findPageTargetByNumber(pageNumber: TPageNumber): IPageTarget | null {
         const container = options.viewerContainer.value;
         if (!container) {
             return null;

@@ -82,7 +82,7 @@ function setNodeStyle(document: PDFDocument, dict: PDFDict, item: IPdfBookmarkEn
 
 function buildOutlineLevel(
     document: PDFDocument,
-    bookmarks: IPdfBookmarkEntry[],
+    bookmarks: readonly IPdfBookmarkEntry[],
     parentRef: PDFRef,
 ) {
     if (bookmarks.length === 0) {

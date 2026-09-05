@@ -8,6 +8,7 @@ import {
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {PassThrough} from 'node:stream';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     afterEach,
     beforeEach,
@@ -77,7 +78,7 @@ describe('CLI scan cleanup sidecar protocol failures', () => {
                     stage: 'page-complete',
                     completedPages: 1,
                     totalPages: 1,
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     classification: 'single-uncut-page',
                     confidence: 0.9,
                 },
@@ -185,7 +186,7 @@ describe('CLI scan cleanup acceptance evidence', () => {
             },
         };
         const results = compactScanCleanupDetectionVerdicts([{
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             classification: 'two-page-spread',
             confidence: 0.71,
             cutterXPx: 1203,
@@ -204,7 +205,7 @@ describe('CLI scan cleanup acceptance evidence', () => {
             splitDiagnostics,
         }]);
         expect(results).toEqual([{
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             classification: 'two-page-spread',
             confidence: 0.71,
             cutterXPx: 1203,

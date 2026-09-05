@@ -510,7 +510,7 @@ async function writePdfWithNativeImageCombiner(
     } catch (error) {
         if (
             error instanceof Error
-            && error.message.startsWith('Native image PDF combine fallback is not allowed in tests:')
+            && getErrorMessage(error).startsWith('Native image PDF combine fallback is not allowed in tests:')
         ) {
             await rm(outputPath, { force: true }).catch(() => undefined);
         }
@@ -660,16 +660,16 @@ async function runNativePdfImageCombine(
                 return;
             }
             pendingTermination = completion;
-            proc.stdout?.removeAllListeners('data');
-            proc.stderr?.removeAllListeners('data');
-            proc.stdout?.destroy?.();
-            proc.stderr?.destroy?.();
+            proc.stdout.removeAllListeners('data');
+            proc.stderr.removeAllListeners('data');
+            proc.stdout.destroy();
+            proc.stderr.destroy();
             void terminateDetachedChildProcess(proc, 1_000)
                 .finally(() => settleAfterTermination(completion));
             forceSettleHandle = setTimeout(() => {
                 settleAfterTermination(completion);
             }, 3_000);
-            forceSettleHandle.unref?.();
+            forceSettleHandle.unref();
         };
 
         const handleProgressLine = (line: string) => {
@@ -696,7 +696,7 @@ async function runNativePdfImageCombine(
             logger.warn(`Native image PDF combine timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
             requestFailureTermination(`native process timed out after ${NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS}ms`);
         }, NATIVE_PDF_IMAGE_COMBINE_TIMEOUT_MS);
-        timeoutHandle.unref?.();
+        timeoutHandle.unref();
 
         if (options?.signal) {
             abortHandler = () => {
@@ -711,7 +711,7 @@ async function runNativePdfImageCombine(
             }
         }
 
-        proc.stdout?.on('data', (data: Buffer) => {
+        proc.stdout.on('data', (data: Buffer) => {
             stdoutBuffer += data.toString('utf8');
             if (Buffer.byteLength(stdoutBuffer, 'utf8') > NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES) {
                 logger.warn(`Native image PDF combine stdout line exceeded ${NATIVE_PDF_IMAGE_COMBINE_MAX_STDOUT_BUFFER_BYTES} bytes`);
@@ -729,7 +729,7 @@ async function runNativePdfImageCombine(
             }
         });
 
-        proc.stderr?.on('data', (data: Buffer) => {
+        proc.stderr.on('data', (data: Buffer) => {
             stderr = `${stderr}${data.toString('utf8')}`.slice(-8_192);
         });
 
@@ -751,8 +751,9 @@ async function runNativePdfImageCombine(
                 stdoutBuffer = '';
             }
             if (code !== 0) {
+                const exitCode = code ?? '<unknown>';
                 const detail = stderr.trim();
-                logger.debug(`Native image PDF combine exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                logger.debug(`Native image PDF combine exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
                 const nativeError = decodeSerializableErrorEnvelope(
                     detail,
                     isNativeErrorEnvelope,
@@ -762,7 +763,7 @@ async function runNativePdfImageCombine(
                     fail(new SerializableError(nativeError));
                     return;
                 }
-                finishFailure(`native process exited with code ${code}${detail ? `: ${detail}` : ''}`);
+                finishFailure(`native process exited with code ${exitCode}${detail ? `: ${detail}` : ''}`);
                 return;
             }
             finish(true);

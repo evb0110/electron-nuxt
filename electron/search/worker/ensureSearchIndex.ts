@@ -133,7 +133,7 @@ function validateIndexTextBudget(
     let totalTextBytes = 0;
 
     for (const page of index.pages) {
-        const pageText = page.text ?? '';
+        const pageText = page.text;
         const pageTextBytes = Buffer.byteLength(pageText, 'utf8');
         if (pageTextBytes > options.maxPageTextBytes) {
             throw new SearchIndexTextBudgetError(
@@ -263,7 +263,7 @@ function shouldRebuildCachedIndex(
     if (entry.index.schemaVersion !== SEARCH_INDEX_SCHEMA_VERSION) {
         return true;
     }
-    if (entry.index.documentRevision?.token !== documentRevision) {
+    if (entry.index.documentRevision.token !== documentRevision) {
         return true;
     }
 

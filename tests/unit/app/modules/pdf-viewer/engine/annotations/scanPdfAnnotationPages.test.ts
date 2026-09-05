@@ -19,6 +19,7 @@ import type {
     IAnnotationCommentSummary,
     ILinkAnnotation,
 } from '@app/types/annotations';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const collectPagePdfSnapshotEntries = vi.hoisted(() => vi.fn());
 
@@ -68,7 +69,7 @@ async function scan(
     const onNativeIndexReadFailure = vi.fn();
     const waitForIdle = vi.fn(async () => {});
     const result = await scanPdfAnnotationPages({
-        pageOrder,
+        pageOrder: Array.from(pageOrder, pageNumber => requirePageNumber(pageNumber)),
         nativeIndexReader,
         annotationNamesByPage: null,
         comments,

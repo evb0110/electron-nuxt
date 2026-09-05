@@ -37,7 +37,6 @@ export function preservePdfPageAnnotationVisualSnapshot(
 ) {
     if (
         !pageContainer
-        || typeof pageContainer.querySelector !== 'function'
         || pageContainer.querySelector(`.${pdfLayerVisualSnapshotClass}`)
     ) {
         return null;

@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -18,7 +20,7 @@ import {
 type TOcrTextDirection = 'ltr' | 'rtl';
 const SERVER_ASCENT_RATIO_FALLBACK = 0.8;
 
-function normalizeWordsToLineHeights(words: IOcrWord[]): IOcrWord[] {
+function normalizeWordsToLineHeights(words: readonly IOcrWord[]): IOcrWord[] {
     const normalizedWords = words.map(word => ({ ...word }));
     if (normalizedWords.length <= 1) {
         return normalizedWords;
@@ -49,13 +51,22 @@ function normalizeWordsToLineHeights(words: IOcrWord[]): IOcrWord[] {
         }
 
         for (let index = lineStartIndex; index <= lineEndIndex; index += 1) {
-            normalizedWords[index]!.y = lineTop;
-            normalizedWords[index]!.height = lineHeight;
+            const word = normalizedWords[index];
+            if (!word) {
+                continue;
+            }
+            word.y = lineTop;
+            word.height = lineHeight;
         }
     }
 
     for (let index = 0; index < normalizedWords.length - 1; index += 1) {
-        if (!areWordsOnSameVisualLine(normalizedWords[index]!, normalizedWords[index + 1]!)) {
+        const currentWord = normalizedWords[index];
+        const nextWord = normalizedWords[index + 1];
+        if (!currentWord || !nextWord) {
+            continue;
+        }
+        if (!areWordsOnSameVisualLine(currentWord, nextWord)) {
             applyLineBox(index);
             lineStartIndex = index + 1;
         }
@@ -97,8 +108,8 @@ export const useOcrTextContent = () => {
 
         ctx.font = '100px sans-serif';
         const metrics = ctx.measureText('x');
-        const ascent = metrics.actualBoundingBoxAscent ?? 80;
-        const descent = metrics.actualBoundingBoxDescent ?? 20;
+        const ascent = metrics.actualBoundingBoxAscent;
+        const descent = metrics.actualBoundingBoxDescent;
         cachedAscentRatio = ascent / (ascent + descent);
         return cachedAscentRatio;
     }
@@ -191,7 +202,7 @@ export const useOcrTextContent = () => {
     async function getOcrTextContent(
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         viewport: PageViewport,
     ) {
         const pageData = await loadSharedDocumentOcrPage(
@@ -264,7 +275,7 @@ export const useOcrTextContent = () => {
     async function hasPageOcrData(
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         const availability = await loadSharedDocumentOcrAvailability(workingCopyPath, documentRevisionToken);
         if (!availability) {

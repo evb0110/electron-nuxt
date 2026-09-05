@@ -228,6 +228,7 @@ function requiredPrPushJobs(jobs: Record<string, IWorkflowJob>) {
 
 const splitQualityCommands = [
     'pnpm run lint',
+    'pnpm run check:tests:as-never',
     'pnpm run check:static:reports',
     'pnpm run check:static:assets',
     'pnpm run typecheck',
@@ -478,6 +479,7 @@ describe('CI topology policy', () => {
         expect(prQuality).toContain('run: pnpm run check:drizzle-schema');
         expect(prQuality).toContain('run: pnpm run check:electron-builder:asar-unpack');
         expect(packageScripts.lint).toBe('node scripts/validation-gates.mjs lint');
+        expect(packageScripts['check:tests:as-never']).toBe('pnpm exec tsx scripts/checkTestsAsNever.ts');
         expect(packageScripts['generate:build-artifacts']).toContain('scripts/generateBuildArtifacts.ts');
         expect(packageScripts.prepare).toContain('pnpm run generate:build-artifacts');
         expect(packageJson).not.toContain('check:native-tool-protocols');

@@ -8,7 +8,10 @@ import {
 import { ref } from 'vue';
 import { createDocumentPersistence } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistence';
 import { createDocumentSessionState } from '@app/modules/workspace-shell/viewers/workspaceDocumentDriver';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePdfDateString } from '@contracts/pdfDateString';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireRequestId } from '@contracts/shared';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
 import type { TTranslateFn } from '@i18n-app';
 import {requireDocumentRevisionToken} from '@contracts';
@@ -73,8 +76,8 @@ vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumen
 
 function createPersistenceHarness(isDesktopRuntime = false) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });
-    state.workingCopyPath.value = '/tmp/old-working.pdf';
-    state.originalPath.value = '/tmp/original.pdf';
+    state.workingCopyPath.value = requireDocumentRef('/tmp/old-working.pdf');
+    state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
     state.documentRevisionToken.value = TEST_DOCUMENT_REVISION_TOKEN;
     state.isDirty.value = true;
 
@@ -92,7 +95,7 @@ function createPersistenceHarness(isDesktopRuntime = false) {
             pdfData: new Uint8Array([1]),
             pdfSrc: {
                 kind: 'path' as const,
-                path: '/tmp/new-working.pdf',
+                path: requireDocumentRef('/tmp/new-working.pdf'),
                 size: 1,
             },
         })),
@@ -378,7 +381,7 @@ describe('createDocumentPersistence', () => {
         } = createPersistenceHarness();
         const options = { preset: 'lossless' as const };
 
-        const result = await persistence.optimizeWorkingCopyAsCopy(options, 'optimize-1');
+        const result = await persistence.optimizeWorkingCopyAsCopy(options, requireRequestId('optimize-1'));
 
         expect(result.success).toBe(true);
         expect(result.outPath).toBe('/tmp/optimized.pdf');
@@ -401,11 +404,11 @@ describe('createDocumentPersistence', () => {
             state,
         } = createPersistenceHarness();
         mocks.documentWorkingCopyCapability.createWorkingCopyFromPath.mockImplementationOnce(async () => {
-            state.workingCopyPath.value = '/tmp/replaced-working.pdf';
-            return '/tmp/new-working.pdf';
+            state.workingCopyPath.value = requireDocumentRef('/tmp/replaced-working.pdf');
+            return requireDocumentRef('/tmp/new-working.pdf');
         });
 
-        const result = await persistence.optimizeWorkingCopyAsCopy({ preset: 'lossless' }, 'optimize-stale');
+        const result = await persistence.optimizeWorkingCopyAsCopy({ preset: 'lossless' }, requireRequestId('optimize-stale'));
 
         expect(result.success).toBe(false);
         expect(state.originalPath.value).toBe('/tmp/original.pdf');
@@ -489,8 +492,8 @@ describe('createDocumentPersistence', () => {
             state,
         } = createPersistenceHarness();
         mocks.documentWorkingCopyCapability.createWorkingCopyFromPath.mockImplementationOnce(async () => {
-            state.workingCopyPath.value = '/tmp/replaced-working.pdf';
-            return '/tmp/new-working.pdf';
+            state.workingCopyPath.value = requireDocumentRef('/tmp/replaced-working.pdf');
+            return requireDocumentRef('/tmp/new-working.pdf');
         });
 
         const result = await persistence.saveWorkingCopyAs();
@@ -521,15 +524,15 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         });
 
         expect(result?.success).toBe(true);
         expect(mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             mutations,
-            'D:20260628123456+03\'00\'',
+            requirePdfDateString('D:20260628093456Z'),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.createManagedTempFileHandle).not.toHaveBeenCalled();
@@ -578,8 +581,8 @@ describe('createDocumentPersistence', () => {
             text: 'Verified note text',
         }]}, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
             verifyPathBeforeExpose,
             assertBeforeExpose,
         });
@@ -627,8 +630,8 @@ describe('createDocumentPersistence', () => {
             },
         }]}, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
             verifyPathBeforeExpose,
             assertBeforeExpose,
         });
@@ -688,8 +691,8 @@ describe('createDocumentPersistence', () => {
 
         await expect(persistence.trySavePdfNativeMutations(createNativeMarkupMutations(), {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         })).rejects.toThrow();
 
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).not.toHaveBeenCalled();
@@ -733,8 +736,8 @@ describe('createDocumentPersistence', () => {
 
         await expect(persistence.trySavePdfNativeMutations(createNativeMarkupMutations(), {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         })).rejects.toThrow('changed between staging and commit');
 
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
@@ -756,8 +759,8 @@ describe('createDocumentPersistence', () => {
             text: 'Commit boundary failure',
         }]}, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         })).rejects.toThrow('Staged artifact content changed after staging');
 
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
@@ -776,8 +779,8 @@ describe('createDocumentPersistence', () => {
             text: 'Rejected note text',
         }]}, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
             verifyPathBeforeExpose,
         })).rejects.toThrow('semantic verification failed');
 
@@ -830,8 +833,8 @@ describe('createDocumentPersistence', () => {
             text: 'Large verified note text',
         }]}, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
             verifyPathBeforeExpose,
         });
 
@@ -861,15 +864,15 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123526+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093526Z'),
         });
 
         expect(result?.success).toBe(true);
         expect(mocks.documentFilesCapability.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             mutations,
-            'D:20260628123526+03\'00\'',
+            requirePdfDateString('D:20260628093526Z'),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
@@ -899,15 +902,15 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations({ updates }, {
             saveMode: 'incremental',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123556+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093556Z'),
         });
 
         expect(result?.success).toBe(true);
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             updates,
-            'D:20260628123556+03\'00\'',
+            requirePdfDateString('D:20260628093556Z'),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteChanges).not.toHaveBeenCalled();
@@ -944,8 +947,8 @@ describe('createDocumentPersistence', () => {
             deletes,
         }, {
             saveMode: 'incremental',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123626+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093626Z'),
         });
 
         expect(result?.success).toBe(true);
@@ -955,7 +958,7 @@ describe('createDocumentPersistence', () => {
                 freeTextNotes,
                 deletes,
             },
-            'D:20260628123626+03\'00\'',
+            requirePdfDateString('D:20260628093626Z'),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -984,15 +987,15 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations({geometryUpdates}, {
             saveMode: 'incremental',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123640+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093640Z'),
         });
 
         expect(result?.success).toBe(true);
         expect(mocks.documentFilesCapability.savePdfNoteChanges).toHaveBeenCalledWith(
             '/tmp/old-working.pdf',
             {geometryUpdates},
-            'D:20260628123640+03\'00\'',
+            requirePdfDateString('D:20260628093640Z'),
             {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
         );
         expect(mocks.documentFilesCapability.savePdfNoteTextUpdates).not.toHaveBeenCalled();
@@ -1020,8 +1023,8 @@ describe('createDocumentPersistence', () => {
 
         const result = await persistence.trySavePdfNativeMutations({ updates }, {
             saveMode: 'rewrite',
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123656+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093656Z'),
         });
 
         expect(result).toBeNull();
@@ -1037,7 +1040,7 @@ describe('createDocumentPersistence', () => {
         } = createPersistenceHarness();
         state.pdfSrc.value = {
             kind: 'path',
-            path: '/tmp/old-working.pdf',
+            path: requireDocumentRef('/tmp/old-working.pdf'),
             size: 1,
         };
 
@@ -1113,8 +1116,8 @@ describe('createDocumentPersistence', () => {
         }]}, {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         });
 
         expect(result?.success).toBe(true);
@@ -1147,7 +1150,7 @@ describe('createDocumentPersistence', () => {
         } = createPersistenceHarness(true);
         const liveSource = {
             kind: 'path' as const,
-            path: '/tmp/old-working.pdf',
+            path: requireDocumentRef('/tmp/old-working.pdf'),
             size: 3,
             revision: TEST_DOCUMENT_REVISION_TOKEN,
         };
@@ -1162,8 +1165,8 @@ describe('createDocumentPersistence', () => {
         }]}, {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
-            expectedWorkingPath: '/tmp/old-working.pdf',
-            modifiedAt: 'D:20260628123456+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/old-working.pdf'),
+            modifiedAt: requirePdfDateString('D:20260628093456Z'),
         });
 
         expect(result?.success).toBe(true);
@@ -1194,7 +1197,7 @@ describe('createDocumentPersistence', () => {
         const largeDocumentSize = (2 * 1024 * 1024 * 1024) + 1;
         const pathSource = {
             kind: 'path' as const,
-            path: '/tmp/old-working.pdf',
+            path: requireDocumentRef('/tmp/old-working.pdf'),
             size: largeDocumentSize,
             revision: TEST_DOCUMENT_REVISION_TOKEN,
         };

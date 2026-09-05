@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
 import type {DiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     buildSentryEvent,
     createSentryNitroAdapter,
@@ -50,7 +51,7 @@ function createRecord(eventId = '00000000000000000000000000000001'): DiagnosticR
         severity: 'error',
         runtime: 'viewer-nitro',
         operation: 'main-error',
-        occurredAt: 1_725_000_000_000,
+        occurredAt: requireEpochMs(1_725_000_000_000),
         frames: [{
             module: 'server/api/example.ts',
             function: 'handleRequest',

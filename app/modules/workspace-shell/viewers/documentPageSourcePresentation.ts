@@ -446,10 +446,10 @@ export function createDocumentPageSourcePresentation(options: {
         }
         const renderController = new AbortController();
         renderControllers.set(pageNumber, renderController);
-        let attemptGeneration: number | null = null;
+        const renderAttempt: { generation: number | null } = {generation: null};
         try {
             const outcome = await options.renderSession?.runPageRender(pageNumber, async (renderGeneration) => {
-                attemptGeneration = renderGeneration;
+                renderAttempt.generation = renderGeneration;
                 const nextState = previous ?? createVisualState(renderGeneration, priority, widthPx);
                 if (!preserveExistingVisual) {
                     nextState.generation = renderGeneration;
@@ -551,7 +551,7 @@ export function createDocumentPageSourcePresentation(options: {
                 && isCurrent()
                 && (preserveExistingVisual
                     ? current === previous
-                    : current?.generation === attemptGeneration)
+                    : current?.generation === renderAttempt.generation)
                 && !(error instanceof DOMException && error.name === 'AbortError')
             ) {
                 if (current && current.retryCount < 2) {

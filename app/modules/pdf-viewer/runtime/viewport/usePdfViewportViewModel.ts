@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -39,7 +42,7 @@ interface IUsePdfViewportViewModelOptions {
     }>;
     navigationAnchorPage: ComputedRef<number | null>;
     navigationVisualHandoffTargetPage?: ComputedRef<number | null> | undefined;
-    getCommittedPageScale?: ((pageNumber: number) => number | null) | undefined;
+    getCommittedPageScale?: ((pageNumber: TPageNumber) => number | null) | undefined;
     resizeTransitionAnchorPage: Ref<number | null>;
     zoomVirtualizationFreeze: Ref<IZoomVirtualizationFreeze | null>;
     scaleContainerStyle: ComputedRef<Record<string, string>>;
@@ -195,7 +198,10 @@ export const usePdfViewportViewModel = (options: IUsePdfViewportViewModelOptions
         const scrollClamp = resolveActiveSpreadHorizontalScrollClamp({
             container,
             fitMode: options.classState.fitMode.value,
-            pageNumber: options.currentPage.value,
+            pageNumber: requirePageNumber(
+                options.currentPage.value,
+                Math.max(1, options.numPages.value),
+            ),
             viewMode: options.viewMode.value,
             viewRotation: viewRotation.value,
             numPages: options.numPages.value,

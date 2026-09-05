@@ -7,8 +7,14 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
-import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import type {
+    IPdfOpeningGeometry,
+    TOpenFileResult,
+} from '@contracts/electronApiDocuments';
 import { IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES } from '@contracts/electronApiDocuments';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
 import type { TTranslateFn } from '@i18n-app';
 import {
@@ -140,13 +146,13 @@ describe('createDocumentOpenFlow', () => {
         });
         mocks.documentRecentFiles.recentFiles.get.mockResolvedValue([]);
         mocks.documentFiles.getPdfOpeningGeometry.mockResolvedValue({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 1,
             width: 612,
             height: 792,
             rotation: 0,
             size: PDF_BYTES.byteLength,
-            modifiedAt: 1,
+            modifiedAt: requireEpochMs(1),
         });
         mocks.documentFiles.getDocumentRevision.mockImplementation(async (path: string) => ({
             version: 1,
@@ -165,12 +171,12 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('recovers navigation that arrives during the initial native preview render', async () => {
-        const originalPath = '/documents/dictionary.pdf';
-        const workingPath = '/tmp/dictionary-working.pdf';
+        const originalPath = requireDocumentRef('/documents/dictionary.pdf');
+        const workingPath = requireDocumentRef('/tmp/dictionary-working.pdf');
         const size = 170_496_793;
-        const modifiedAt = 1_724_000_000_000;
+        const modifiedAt = requireEpochMs(1_724_000_000_000);
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 1_859,
             width: 612,
             height: 792,
@@ -186,7 +192,7 @@ describe('createDocumentOpenFlow', () => {
         }, {
             documentId: originalPath,
             ownerId: 'test-chassis',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             intentKey: 'fit-width:1',
             layoutKey: '1000x800',
             policyKey: 'width:single:fit-width:1',
@@ -310,12 +316,12 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('waits for the host to claim an idle opening surface and commit its late page frame', async () => {
-        const originalPath = '/documents/late-frame-dictionary.pdf';
-        const workingPath = '/tmp/late-frame-dictionary-working.pdf';
+        const originalPath = requireDocumentRef('/documents/late-frame-dictionary.pdf');
+        const workingPath = requireDocumentRef('/tmp/late-frame-dictionary-working.pdf');
         const size = 722_049_367;
-        const modifiedAt = 1_776_000_000_000;
+        const modifiedAt = requireEpochMs(1_776_000_000_000);
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 882,
             width: 612,
             height: 792,
@@ -392,7 +398,7 @@ describe('createDocumentOpenFlow', () => {
         expect(openSurface.commitOpeningPageFrame(generation, {
             generation,
             ownerId: 'late-test-chassis',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             intentKey: 'fit-width:1',
             sourceRevisionKey: `${String(size)}:${String(modifiedAt)}`,
             style: {
@@ -418,11 +424,11 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('cancels an in-flight native opening raster when validation rejects the PDF', async () => {
-        const originalPath = '/documents/corrupt-dictionary.pdf';
+        const originalPath = requireDocumentRef('/documents/corrupt-dictionary.pdf');
         const size = 170_496_793;
-        const modifiedAt = 1_724_000_000_000;
+        const modifiedAt = requireEpochMs(1_724_000_000_000);
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 1_859,
             width: 612,
             height: 792,
@@ -438,7 +444,7 @@ describe('createDocumentOpenFlow', () => {
         }, {
             documentId: originalPath,
             ownerId: 'test-chassis',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             intentKey: 'fit-width:1',
             layoutKey: '1000x800',
             policyKey: 'width:single:fit-width:1',
@@ -482,7 +488,7 @@ describe('createDocumentOpenFlow', () => {
         const opening = openFlow.openFile({
             kind: 'pdf',
             originalPath,
-            workingPath: '/tmp/corrupt-dictionary-working.pdf',
+            workingPath: requireDocumentRef('/tmp/corrupt-dictionary-working.pdf'),
             openingGeometry,
         });
         await vi.waitFor(() => {
@@ -502,12 +508,12 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('does not publish a native page source after cancellation during page-size loading', async () => {
-        const originalPath = '/documents/corrupt-page-sizes.pdf';
-        const workingPath = '/tmp/corrupt-page-sizes-working.pdf';
+        const originalPath = requireDocumentRef('/documents/corrupt-page-sizes.pdf');
+        const workingPath = requireDocumentRef('/tmp/corrupt-page-sizes-working.pdf');
         const size = 170_496_793;
-        const modifiedAt = 1_724_000_000_000;
+        const modifiedAt = requireEpochMs(1_724_000_000_000);
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 1_859,
             width: 612,
             height: 792,
@@ -523,7 +529,7 @@ describe('createDocumentOpenFlow', () => {
         }, {
             documentId: originalPath,
             ownerId: 'test-chassis',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             intentKey: 'fit-width:1',
             layoutKey: '1000x800',
             policyKey: 'width:single:fit-width:1',
@@ -599,12 +605,12 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('retires native resources when a second open supersedes validation', async () => {
-        const originalPath = '/documents/first-dictionary.pdf';
-        const workingPath = '/tmp/first-dictionary-working.pdf';
+        const originalPath = requireDocumentRef('/documents/first-dictionary.pdf');
+        const workingPath = requireDocumentRef('/tmp/first-dictionary-working.pdf');
         const size = 170_496_793;
-        const modifiedAt = 1_724_000_000_000;
+        const modifiedAt = requireEpochMs(1_724_000_000_000);
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 1_859,
             width: 612,
             height: 792,
@@ -620,7 +626,7 @@ describe('createDocumentOpenFlow', () => {
         }, {
             documentId: originalPath,
             ownerId: 'test-chassis',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             intentKey: 'fit-width:1',
             layoutKey: '1000x800',
             policyKey: 'width:single:fit-width:1',
@@ -683,16 +689,16 @@ describe('createDocumentOpenFlow', () => {
 
         await expect(openFlow.openFile({
             kind: 'pdf',
-            originalPath: '/documents/replacement.pdf',
-            workingPath: '/tmp/replacement-working.pdf',
+            originalPath: requireDocumentRef('/documents/replacement.pdf'),
+            workingPath: requireDocumentRef('/tmp/replacement-working.pdf'),
             openingGeometry: {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 pageCount: 1,
                 width: 612,
                 height: 792,
                 rotation: 0,
                 size: PDF_BYTES.byteLength,
-                modifiedAt: 2,
+                modifiedAt: requireEpochMs(2),
                 linearized: true,
             },
         })).resolves.toMatchObject({status: 'opened'});
@@ -714,16 +720,16 @@ describe('createDocumentOpenFlow', () => {
         const {openFlow} = createOpenFlowHarness();
         const result = {
             kind: 'pdf' as const,
-            originalPath: '/documents/reopened.pdf',
-            workingPath: '/tmp/reopened-working.pdf',
+            originalPath: requireDocumentRef('/documents/reopened.pdf'),
+            workingPath: requireDocumentRef('/tmp/reopened-working.pdf'),
             openingGeometry: {
-                pageNumber: 1 as const,
+                pageNumber: requirePageNumber(1),
                 pageCount: 10,
                 width: 612,
                 height: 792,
                 rotation: 0 as const,
                 size: PDF_BYTES.byteLength,
-                modifiedAt: 100,
+                modifiedAt: requireEpochMs(100),
             },
         };
 
@@ -733,7 +739,7 @@ describe('createDocumentOpenFlow', () => {
             ...result,
             openingGeometry: {
                 ...result.openingGeometry,
-                modifiedAt: 101,
+                modifiedAt: requireEpochMs(101),
             },
         })).resolves.toMatchObject({status: 'opened'});
 
@@ -743,7 +749,7 @@ describe('createDocumentOpenFlow', () => {
     it('reads PDF state with the split document files stat capability', async () => {
         const { openFlow } = createOpenFlowHarness();
 
-        const nextState = await openFlow.readPdfStateFromPath('/tmp/work.pdf');
+        const nextState = await openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/work.pdf'));
 
         expect(nextState.pdfData).toEqual(PDF_BYTES);
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/work.pdf');
@@ -783,16 +789,16 @@ describe('createDocumentOpenFlow', () => {
         } = createOpenFlowHarness();
         const activeData = Uint8Array.of(1, 2, 3);
         const activeSource = new Blob([activeData], {type: 'application/pdf'});
-        state.originalPath.value = '/documents/active.pdf';
-        state.workingCopyPath.value = '/tmp/active-working.pdf';
+        state.originalPath.value = requireDocumentRef('/documents/active.pdf');
+        state.workingCopyPath.value = requireDocumentRef('/tmp/active-working.pdf');
         state.pdfData.value = activeData;
         state.pdfSrc.value = activeSource;
         state.pdfReloadSrc.value = activeSource;
         state.isDirty.value = true;
         const corruptCandidate: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/documents/corrupt.pdf',
-            workingPath: '/tmp/corrupt-working.pdf',
+            originalPath: requireDocumentRef('/documents/corrupt.pdf'),
+            workingPath: requireDocumentRef('/tmp/corrupt-working.pdf'),
         };
         mocks.documentPdf.validatePdfPath.mockResolvedValueOnce({
             isValid: false,
@@ -826,7 +832,7 @@ describe('createDocumentOpenFlow', () => {
         const size = IPC_DIRECT_BINARY_PAYLOAD_MAX_BYTES + 1;
         mocks.documentFiles.statFile.mockResolvedValue({ size });
 
-        const nextState = await openFlow.readPdfStateFromPath('/tmp/large-work.pdf');
+        const nextState = await openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/large-work.pdf'));
 
         expect(nextState).toEqual({
             pdfData: null,
@@ -848,7 +854,7 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentFiles.readFile.mockResolvedValue(data);
         const {openFlow} = createOpenFlowHarness();
 
-        const nextState = await openFlow.readPdfStateFromPath('/tmp/boundary.pdf');
+        const nextState = await openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/boundary.pdf'));
 
         expect(nextState.pdfData).toBe(data);
         expect(nextState.pdfSrc).toBeInstanceOf(Blob);
@@ -861,7 +867,7 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentFiles.statFile.mockResolvedValue({size});
         const {openFlow} = createOpenFlowHarness();
 
-        await expect(openFlow.readPdfStateFromPath('/tmp/above-boundary.pdf')).resolves.toEqual({
+        await expect(openFlow.readPdfStateFromPath(requireDocumentRef('/tmp/above-boundary.pdf'))).resolves.toEqual({
             pdfData: null,
             pdfSrc: {
                 kind: 'path',
@@ -884,8 +890,8 @@ describe('createDocumentOpenFlow', () => {
 
         await expect(openFlow.openFile({
             kind: 'pdf',
-            originalPath: '/tmp/medium.pdf',
-            workingPath: '/tmp/medium-working.pdf',
+            originalPath: requireDocumentRef('/tmp/medium.pdf'),
+            workingPath: requireDocumentRef('/tmp/medium-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
 
         expect(deps.resetHistory).toHaveBeenCalledWith(null, {isCurrent: expect.any(Function)});
@@ -909,8 +915,8 @@ describe('createDocumentOpenFlow', () => {
 
         await expect(openFlow.openFile({
             kind: 'pdf',
-            originalPath: '/tmp/normal-medium.pdf',
-            workingPath: '/tmp/normal-medium-working.pdf',
+            originalPath: requireDocumentRef('/tmp/normal-medium.pdf'),
+            workingPath: requireDocumentRef('/tmp/normal-medium-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
 
         expect(deps.resetHistory).toHaveBeenCalledWith(
@@ -927,7 +933,7 @@ describe('createDocumentOpenFlow', () => {
             openFlow,
             state,
         } = createOpenFlowHarness();
-        state.workingCopyPath.value = '/tmp/work.pdf';
+        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
         const snapshot = Uint8Array.from([
             37,
             80,
@@ -948,7 +954,7 @@ describe('createDocumentOpenFlow', () => {
             state,
         } = createOpenFlowHarness();
         const before = new Uint8Array([1]);
-        state.workingCopyPath.value = '/tmp/work.pdf';
+        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
         state.pdfData.value = before;
         deps.ensureHistoryBaselineForMutation.mockResolvedValue(false);
 
@@ -971,7 +977,7 @@ describe('createDocumentOpenFlow', () => {
         } = createOpenFlowHarness();
         const preselectedDjvu: TOpenFileResult = {
             kind: 'djvu',
-            originalPath: '/tmp/scan.djvu',
+            originalPath: requireDocumentRef('/tmp/scan.djvu'),
             workingPath: '',
         };
 
@@ -1002,14 +1008,14 @@ describe('createDocumentOpenFlow', () => {
         } = createOpenFlowHarness();
         const staleResult: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/stale.pdf',
-            workingPath: '/tmp/stale-working.pdf',
+            originalPath: requireDocumentRef('/stale.pdf'),
+            workingPath: requireDocumentRef('/tmp/stale-working.pdf'),
             isGenerated: false,
         };
         const freshResult: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/fresh.pdf',
-            workingPath: '/tmp/fresh-working.pdf',
+            originalPath: requireDocumentRef('/fresh.pdf'),
+            workingPath: requireDocumentRef('/tmp/fresh-working.pdf'),
             isGenerated: false,
         };
         const staleGate = Promise.withResolvers<TOpenFileResult>();
@@ -1022,8 +1028,8 @@ describe('createDocumentOpenFlow', () => {
         mocks.documentFiles.statFile.mockResolvedValue({ size: PDF_BYTES.byteLength });
         mocks.documentFiles.readFile.mockResolvedValue(PDF_BYTES);
 
-        const staleOpen = openFlow.openFileDirect('/stale.pdf');
-        await expect(openFlow.openFileDirect('/fresh.pdf')).resolves.toMatchObject({
+        const staleOpen = openFlow.openFileDirect(requireDocumentRef('/stale.pdf'));
+        await expect(openFlow.openFileDirect(requireDocumentRef('/fresh.pdf'))).resolves.toMatchObject({
             status: 'opened',
             result: freshResult,
         });
@@ -1057,11 +1063,11 @@ describe('createDocumentOpenFlow', () => {
             workingPath: `/tmp/${path.replaceAll('/', '')}`,
         }));
 
-        await expect(openFlow.openFileDirect('/scan.pdf', {rasterDisplayProfile: profile})).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/scan.pdf'), {rasterDisplayProfile: profile})).resolves.toMatchObject({status: 'opened'});
 
         expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
 
-        await expect(openFlow.openFileDirect('/ordinary.pdf')).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/ordinary.pdf'))).resolves.toMatchObject({status: 'opened'});
 
         expect(state.pdfRasterDisplayProfile.value).toBeNull();
     });
@@ -1078,21 +1084,21 @@ describe('createDocumentOpenFlow', () => {
                 height: 1966,
             }],
         };
-        registerPdfRasterDisplayProfile('/tmp/generated.pdf', profile);
+        registerPdfRasterDisplayProfile(requireDocumentRef('/tmp/generated.pdf'), profile);
         mocks.documentOpen.openDocumentDirect.mockResolvedValue({
             kind: 'pdf',
-            originalPath: '/tmp/generated.pdf',
-            workingPath: '/tmp/generated-working.pdf',
+            originalPath: requireDocumentRef('/tmp/generated.pdf'),
+            workingPath: requireDocumentRef('/tmp/generated-working.pdf'),
         });
 
-        await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/tmp/generated.pdf'))).resolves.toMatchObject({status: 'opened'});
 
         expect(state.pdfRasterDisplayProfile.value).toStrictEqual(profile);
         expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/generated.pdf');
         expect(mocks.documentFiles.statFile).toHaveBeenCalledWith('/tmp/generated-working.pdf');
 
-        await expect(openFlow.openFileDirect('/tmp/generated.pdf')).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/tmp/generated.pdf'))).resolves.toMatchObject({status: 'opened'});
 
         expect(state.pdfRasterDisplayProfile.value).toBeNull();
     });
@@ -1107,7 +1113,7 @@ describe('createDocumentOpenFlow', () => {
         };
 
         for (let index = 0; index < 100; index += 1) {
-            registerPdfRasterDisplayProfile(`/tmp/generated-${index}.pdf`, profile);
+            registerPdfRasterDisplayProfile(requireDocumentRef(`/tmp/generated-${index}.pdf`), profile);
         }
 
         expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(64);
@@ -1121,11 +1127,11 @@ describe('createDocumentOpenFlow', () => {
         } = createOpenFlowHarness();
         const result: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/tmp/reused.pdf',
-            workingPath: '/tmp/reused-working.pdf',
+            originalPath: requireDocumentRef('/tmp/reused.pdf'),
+            workingPath: requireDocumentRef('/tmp/reused-working.pdf'),
         };
         mocks.documentOpen.openDocumentDirect.mockResolvedValue(result);
-        registerPdfRasterDisplayProfile('/tmp/reused.pdf', {
+        registerPdfRasterDisplayProfile(requireDocumentRef('/tmp/reused.pdf'), {
             kind: 'trusted-raster-djvu',
             sourcePagePixels: [{
                 width: 100,
@@ -1136,10 +1142,10 @@ describe('createDocumentOpenFlow', () => {
             .mockRejectedValueOnce(new Error('load failed'))
             .mockResolvedValue(PDF_BYTES);
 
-        await expect(openFlow.openFileDirect('/tmp/reused.pdf')).resolves.toMatchObject({status: 'failed'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/tmp/reused.pdf'))).resolves.toMatchObject({status: 'failed'});
         expect(getRegisteredPdfRasterDisplayProfileCountForTests()).toBe(0);
 
-        await expect(openFlow.openFileDirect('/tmp/reused.pdf')).resolves.toMatchObject({status: 'opened'});
+        await expect(openFlow.openFileDirect(requireDocumentRef('/tmp/reused.pdf'))).resolves.toMatchObject({status: 'opened'});
         expect(state.pdfRasterDisplayProfile.value).toBeNull();
     });
 
@@ -1151,14 +1157,14 @@ describe('createDocumentOpenFlow', () => {
         } = createOpenFlowHarness();
         const firstResult: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/first.pdf',
-            workingPath: '/tmp/first-working.pdf',
+            originalPath: requireDocumentRef('/first.pdf'),
+            workingPath: requireDocumentRef('/tmp/first-working.pdf'),
             isGenerated: true,
         };
         const secondResult: TOpenFileResult = {
             kind: 'pdf',
-            originalPath: '/second.pdf',
-            workingPath: '/tmp/second-working.pdf',
+            originalPath: requireDocumentRef('/second.pdf'),
+            workingPath: requireDocumentRef('/tmp/second-working.pdf'),
             isGenerated: false,
         };
         const firstHistoryResetGate = Promise.withResolvers<undefined>();
@@ -1198,22 +1204,14 @@ describe('createDocumentOpenFlow', () => {
     });
 
     it('caches concurrent geometry without replacing an already-committed canvas', async () => {
-        const originalPath = '/documents/concurrent.pdf';
-        const workingPath = '/tmp/concurrent-working.pdf';
+        const originalPath = requireDocumentRef('/documents/concurrent.pdf');
+        const workingPath = requireDocumentRef('/tmp/concurrent-working.pdf');
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: originalPath,
             documentRevision: 'open-intent:1',
         });
-        const geometryGate = Promise.withResolvers<{
-            pageNumber: 1;
-            pageCount: number;
-            width: number;
-            height: number;
-            rotation: 0;
-            size: number;
-            modifiedAt: number;
-        }>();
+        const geometryGate = Promise.withResolvers<IPdfOpeningGeometry>();
         const statGate = Promise.withResolvers<{size: number}>();
         mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
         mocks.documentFiles.statFile.mockImplementation((path: string) => path === originalPath
@@ -1241,7 +1239,7 @@ describe('createDocumentOpenFlow', () => {
         const generation = openSurface.snapshot.value.generation;
         expect(openSurface.commitOpeningPageGeometry(generation, {
             documentId: originalPath,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 8,
             width: 612,
             height: 792,
@@ -1257,7 +1255,7 @@ describe('createDocumentOpenFlow', () => {
             documentRevision: 'open-intent:1',
             renderVersion: 1,
             requestId: 1,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         expect(renderFence).not.toBeNull();
         if (!renderFence) {
@@ -1267,16 +1265,16 @@ describe('createDocumentOpenFlow', () => {
         const committedRender = openSurface.snapshot.value.committedRender;
 
         geometryGate.resolve({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 8,
             width: 640,
             height: 900,
             rotation: 0,
             size: PDF_BYTES.byteLength,
-            modifiedAt: 9_000,
+            modifiedAt: requireEpochMs(9_000),
         });
         await vi.waitFor(() => {
-            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, 1)).toMatchObject({
+            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, requirePageNumber(1))).toMatchObject({
                 size: 4_096,
                 modifiedAt: 2_000,
                 width: 640,
@@ -1290,15 +1288,15 @@ describe('createDocumentOpenFlow', () => {
             height: 792,
         });
         expect(openSurface.snapshot.value.committedRender).toBe(committedRender);
-        invalidateTrustedPdfOpenGeometry(originalPath, 1);
+        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
     });
 
     it('commits validated cached geometry before source loading settles', async () => {
-        const originalPath = '/documents/cached.pdf';
-        const workingPath = '/tmp/cached-working.pdf';
+        const originalPath = requireDocumentRef('/documents/cached.pdf');
+        const workingPath = requireDocumentRef('/tmp/cached-working.pdf');
         const cachedGeometry = {
             documentId: originalPath,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 12,
             width: 612,
             height: 792,
@@ -1326,13 +1324,13 @@ describe('createDocumentOpenFlow', () => {
         expect(openSurface.snapshot.value.openingPageGeometry).toEqual(cachedGeometry);
         statGate.resolve({size: PDF_BYTES.byteLength});
         await expect(open).resolves.toMatchObject({status: 'opened'});
-        invalidateTrustedPdfOpenGeometry(originalPath, 1);
+        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
     });
 
     it('makes a constrained cold open without geometry IPC', async () => {
         mocks.performanceProfile.lowCpu = true;
-        const originalPath = '/documents/constrained.pdf';
-        invalidateTrustedPdfOpenGeometry(originalPath, 1);
+        const originalPath = requireDocumentRef('/documents/constrained.pdf');
+        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: originalPath,
@@ -1343,7 +1341,7 @@ describe('createDocumentOpenFlow', () => {
         await expect(openFlow.openFile({
             kind: 'pdf',
             originalPath,
-            workingPath: '/tmp/constrained-working.pdf',
+            workingPath: requireDocumentRef('/tmp/constrained-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
 
         expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
@@ -1352,10 +1350,10 @@ describe('createDocumentOpenFlow', () => {
 
     it('keeps validated cache-only geometry available on constrained opens', async () => {
         mocks.performanceProfile.lowMemory = true;
-        const originalPath = '/documents/constrained-cached.pdf';
+        const originalPath = requireDocumentRef('/documents/constrained-cached.pdf');
         const cachedGeometry = {
             documentId: originalPath,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 42,
             width: 612,
             height: 792,
@@ -1375,30 +1373,22 @@ describe('createDocumentOpenFlow', () => {
         await expect(openFlow.openFile({
             kind: 'pdf',
             originalPath,
-            workingPath: '/tmp/constrained-cached-working.pdf',
+            workingPath: requireDocumentRef('/tmp/constrained-cached-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
 
         expect(mocks.documentFiles.getPdfOpeningGeometry).not.toHaveBeenCalled();
         expect(openSurface.snapshot.value.openingPageGeometry).toEqual(cachedGeometry);
-        invalidateTrustedPdfOpenGeometry(originalPath, 1);
+        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
     });
 
     it('caches geometry that resolves after its open surface was superseded', async () => {
-        const originalPath = '/documents/late.pdf';
+        const originalPath = requireDocumentRef('/documents/late.pdf');
         const openSurface = createDocumentOpenSurfaceSession();
         openSurface.begin({
             documentId: originalPath,
             documentRevision: 'open-intent:1',
         });
-        const geometryGate = Promise.withResolvers<{
-            pageNumber: 1;
-            pageCount: number;
-            width: number;
-            height: number;
-            rotation: 0;
-            size: number;
-            modifiedAt: number;
-        }>();
+        const geometryGate = Promise.withResolvers<IPdfOpeningGeometry>();
         mocks.documentFiles.getPdfOpeningGeometry.mockReturnValue(geometryGate.promise);
         mocks.documentFiles.statFile.mockImplementation(async (path: string) => path === originalPath
             ? {
@@ -1411,27 +1401,27 @@ describe('createDocumentOpenFlow', () => {
         await expect(openFlow.openFile({
             kind: 'pdf',
             originalPath,
-            workingPath: '/tmp/late-working.pdf',
+            workingPath: requireDocumentRef('/tmp/late-working.pdf'),
         })).resolves.toMatchObject({status: 'opened'});
         const supersededGeneration = openSurface.supersede();
         expect(supersededGeneration).not.toBeNull();
 
         geometryGate.resolve({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 5,
             width: 620,
             height: 880,
             rotation: 0,
             size: 5_000,
-            modifiedAt: 6_000,
+            modifiedAt: requireEpochMs(6_000),
         });
         await vi.waitFor(() => {
-            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, 1)).toMatchObject({
+            expect(readPrevalidatedTrustedPdfOpenGeometry(originalPath, requirePageNumber(1))).toMatchObject({
                 width: 620,
                 height: 880,
             });
         });
         expect(openSurface.snapshot.value.openingPageGeometry).toBeNull();
-        invalidateTrustedPdfOpenGeometry(originalPath, 1);
+        invalidateTrustedPdfOpenGeometry(originalPath, requirePageNumber(1));
     });
 });

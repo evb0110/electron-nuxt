@@ -4,6 +4,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import { cast } from '@tests/helpers/cast';
 import type { IPdfViewerEmit } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { createPdfViewerEventAdapter } from '@app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter';
@@ -18,12 +20,12 @@ describe('createPdfViewerEventAdapter', () => {
             failure: {
                 eventId: createDiagnosticEventId(),
                 code: 'UNCLASSIFIED_RENDERER_ERROR' as const,
-                occurredAt: 1,
+                occurredAt: requireEpochMs(1),
                 severity: 'error' as const,
             },
             operationId: 'annotation-create-3',
             reason: 'mode-switch-failed' as const,
-            pageNumber: 4,
+            pageNumber: requirePageNumber(4),
         };
 
         adapter.annotationFailure(failure);

@@ -15,6 +15,10 @@ import type {
 } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IRecentFile } from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
+import { requireIsoTimestamp } from '@contracts/timestamps';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
 import type {
     IWorkspaceExpose,
     IWorkspaceToolbarSnapshot,
@@ -62,9 +66,7 @@ function cloneEditorLayoutNode(node: TEditorLayoutNode | null): TEditorLayoutNod
 }
 
 function getTabPath(tab: ITab) {
-    return typeof tab.originalPath === 'string'
-        ? tab.originalPath
-        : null;
+    return parseDocumentRef(tab.originalPath);
 }
 
 function inferDocumentKindFromName(name: string): TAgentDocumentKind {
@@ -183,8 +185,8 @@ function buildAgentTabSnapshot(
     const originalPath = getTabPath(tab);
     const originalBackend = resolveDocumentRefBackend(originalPath);
     return {
-        tabId: tab.id,
-        paneId: pane?.paneId ?? null,
+        tabId: requireTabId(tab.id),
+        paneId: pane ? requirePaneId(pane.paneId) : null,
         fileName: tab.fileName,
         originalPath,
         ...(originalBackend === undefined ? {} : {originalBackend}),
@@ -240,7 +242,7 @@ function createRecentFileSnapshot(file: IRecentFile): IAgentRecentFileSnapshot {
         originalPath: file.originalPath,
         ...(file.backend === undefined ? {} : {backend: file.backend}),
         kind: inferDocumentKindFromName(name),
-        openedAt,
+        openedAt: openedAt ? requireIsoTimestamp(openedAt) : requireIsoTimestamp(new Date(0).toISOString()),
         ...(file.fileSize === undefined ? {} : { fileSize: file.fileSize }),
     };
 }
@@ -260,9 +262,13 @@ export function buildAgentWorkspaceSnapshot(
     const recentFiles = (options.recentFiles?.value ?? []).map(createRecentFileSnapshot);
 
     return {
-        capturedAt: new Date().toISOString(),
-        activePaneId: options.activePaneId.value,
-        activeTabId: options.activeTabId.value,
+        capturedAt: requireIsoTimestamp(new Date().toISOString()),
+        activePaneId: options.activePaneId.value === null
+            ? null
+            : requirePaneId(options.activePaneId.value),
+        activeTabId: options.activeTabId.value === null
+            ? null
+            : requireTabId(options.activeTabId.value),
         summary: {
             mode: activeDocumentTab
                 ? 'open-document'
@@ -275,9 +281,9 @@ export function buildAgentWorkspaceSnapshot(
             recentFilesResolved: options.recentFilesResolved?.value === true,
         },
         panes: options.panes.value.map(pane => ({
-            paneId: pane.paneId,
-            tabIds: [...pane.tabIds],
-            activeTabId: pane.activeTabId,
+            paneId: requirePaneId(pane.paneId),
+            tabIds: pane.tabIds.map(tabId => requireTabId(tabId)),
+            activeTabId: pane.activeTabId === null ? null : requireTabId(pane.activeTabId),
         })),
         tabs: tabSnapshots,
         recentFiles,

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The audit keeps its extraction, matching, and report policy in one inspectable CLI. */
 
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {inflateSync} from 'node:zlib';
 import {
     mkdtemp,
@@ -3048,7 +3049,7 @@ function pageError(pageNumber, outputPageNumber, error) {
         outputPage: outputPageNumber,
         page: pageNumber,
         status: 'error',
-        error: error instanceof Error ? error.message : String(error),
+        error: getCliErrorMessage(error),
         silhouetteFlagged: false,
         silhouettes: [],
     };
@@ -3833,7 +3834,7 @@ async function loadPageMapping(options) {
             return null;
         }
         throw new Error(
-            `Could not read mapping summary ${mappingPath}: ${error instanceof Error ? error.message : String(error)}`,
+            `Could not read mapping summary ${mappingPath}: ${getCliErrorMessage(error)}`,
         );
     }
     let summary;
@@ -3841,7 +3842,7 @@ async function loadPageMapping(options) {
         summary = JSON.parse(summaryText);
     } catch (error) {
         throw new Error(
-            `Could not parse mapping summary ${mappingPath}: ${error instanceof Error ? error.message : String(error)}`,
+            `Could not parse mapping summary ${mappingPath}: ${getCliErrorMessage(error)}`,
         );
     }
     const pages = readSummaryPageMapping(summary);
@@ -4306,7 +4307,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
         process.exitCode = (await main()) ? 1 : 0;
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exitCode = 1;
     }
 }

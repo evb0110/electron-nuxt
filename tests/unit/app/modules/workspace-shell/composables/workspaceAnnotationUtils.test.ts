@@ -12,6 +12,10 @@ import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { createSerializeCurrentPdfForEmbeddedFallback } from '@app/modules/workspace-shell/annotations/createSerializeCurrentPdfForEmbeddedFallback';
 import { hasAnnotationChanges } from '@app/modules/workspace-shell/annotations/hasAnnotationChanges';
 import { hasViewerShapeChanges } from '@app/modules/workspace-shell/annotations/hasViewerShapeChanges';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
 function createSaveTransaction(bytes: Uint8Array | null) {
@@ -181,7 +185,7 @@ describe('createSerializeCurrentPdfForEmbeddedFallback', () => {
                 getAllShapes: () => [],
             }),
             currentPage: ref(7),
-            workingCopyPath: ref('/tmp/working.pdf'),
+            workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/working.pdf')),
             waitForPdfReload,
             loadPdfFromData,
         });

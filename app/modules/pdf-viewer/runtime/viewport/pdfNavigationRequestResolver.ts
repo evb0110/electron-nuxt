@@ -123,7 +123,7 @@ export function resolveTextAnchorRect(
                     searchOptions: target.searchOptions,
                 });
         const rects = range
-            ? Array.from(range.getClientRects?.() ?? []).filter(rect => rect.width > 0 || rect.height > 0)
+            ? Array.from(range.getClientRects()).filter(rect => rect.width > 0 || rect.height > 0)
             : [];
         const rect = rects.length > 0
             ? {
@@ -153,7 +153,7 @@ export function resolveTextAnchorRect(
     }
     const needle = `${target.prefix ?? ''}${target.text}${target.suffix ?? ''}`.normalize('NFKC');
     const matchingSpan = spans.find((span) => {
-        const value = (span.textContent ?? '').normalize('NFKC');
+        const value = span.textContent.normalize('NFKC');
         return value.includes(needle) || value.includes(target.text.normalize('NFKC'));
     });
     if (!matchingSpan) {
@@ -190,7 +190,7 @@ export function isPdfNavigationReady(
     const pageElement = container.querySelector<HTMLElement>(`.page_container[data-page="${page}"]`);
     if (readiness === 'text-layer') {
         const textLayer = pageElement?.querySelector<HTMLElement>('.text-layer, .textLayer');
-        return textLayer?.dataset?.pdfTextLayerReady === 'true';
+        return textLayer?.dataset.pdfTextLayerReady === 'true';
     }
     return Boolean(pageElement?.querySelector('.annotation-editor-layer, .annotationEditorLayer'));
 }

@@ -24,6 +24,17 @@ import {
     sentryBuildIdentityKey,
 } from '../../packages/contracts/diagnostics/releaseIdentity.js';
 
+/** @typedef {import('../../packages/contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity} TSentryBuildIdentity */
+/** @typedef {{absolutePath: string, relativePath: string}} ICollectedFile */
+/** @typedef {{bytes: number, path: string, sha256: string, stagedPath: string}} ISourceFile */
+/** @typedef {{bundle: string, bundleBytes: number, bundleSha256: string, map: string, mapBytes: number, mapSha256: string, role: string, sourceFiles: ISourceFile[], sources: string[], stagedMapPath: string}} IStagedBundle */
+/** @typedef {{bundle: string, bundleBytes: number, bundleSha256: string, producer: string, role: string}} IUnmappedBundle */
+/** @typedef {{bundles: IStagedBundle[], identity: TSentryBuildIdentity, removedPublicMaps: string[], schemaVersion: number, sources: ISourceFile[], unmappedGeneratedBundles: IUnmappedBundle[]}} IPrivateManifest */
+/** @typedef {{version: number, sources: string[], sourceRoot?: string, sourcesContent?: Array<string | null> | false}} ISourceMapPayload */
+/** @typedef {{relativePath: string, absolutePath: string, role: string}} IBundleCandidate */
+/** @typedef {{includePreload?: boolean, includeNitro?: boolean}} IClassifyBundleOptions */
+/** @typedef {{projectRoot?: string, identity?: TSentryBuildIdentity | undefined, outputRoots?: string[], reset?: boolean, resetCompletedIdentityLock?: boolean, removePublicOutputMaps?: boolean, includePreload?: boolean, includeNitro?: boolean}} IStagePrivateSourcemapsOptions */
+
 export const PRIVATE_SOURCEMAP_STAGE_ROOT = '.tmp/private-sourcemaps';
 export const SENTRY_BUILD_IDENTITY_LOCK_PATH = '.tmp/sentry-build-identity.json';
 export const PRIVATE_SOURCEMAP_MANIFEST_SCHEMA_VERSION = 1;
@@ -59,18 +70,22 @@ const WORKER_BY_FILE_NAME = new Map(
 );
 const execFileAsync = promisify(execFile);
 
+/** @param {string} value @returns {string} */
 function slashPath(value) {
     return value.split(path.sep).join('/');
 }
 
+/** @param {string} left @param {string} right @returns {number} */
 function compareStrings(left, right) {
     return left.localeCompare(right, 'en');
 }
 
+/** @param {string} value @returns {string} */
 function encodePathSegment(value) {
     return encodeURIComponent(value);
 }
 
+/** @param {string} projectRoot @param {TSentryBuildIdentity} identity @returns {string} */
 function stageDirectory(projectRoot, identity) {
     return path.join(
         projectRoot,
@@ -82,14 +97,17 @@ function stageDirectory(projectRoot, identity) {
     );
 }
 
+/** @param {string} projectRoot @param {TSentryBuildIdentity} identity @returns {string} */
 function stageManifestPath(projectRoot, identity) {
     return path.join(stageDirectory(projectRoot, identity), 'manifest.json');
 }
 
+/** @param {string} projectRoot @returns {string} */
 function identityLockPath(projectRoot) {
     return path.join(projectRoot, SENTRY_BUILD_IDENTITY_LOCK_PATH);
 }
 
+/** @param {string} projectRoot @param {string} outputRoot @returns {string} */
 function normalizeOutputRoot(projectRoot, outputRoot) {
     if (typeof outputRoot !== 'string' || outputRoot.length === 0) {
         throw new TypeError('Source-map output roots must be non-empty paths');
@@ -106,6 +124,7 @@ function normalizeOutputRoot(projectRoot, outputRoot) {
     return slashPath(relativeRoot);
 }
 
+/** @param {string} projectRoot @param {string} filePath @returns {string | null} */
 function relativeProjectPath(projectRoot, filePath) {
     const relative = slashPath(path.relative(projectRoot, filePath));
     if (
@@ -119,36 +138,40 @@ function relativeProjectPath(projectRoot, filePath) {
     return relative;
 }
 
+/** @param {string} filePath @returns {Promise<boolean>} */
 async function fileExists(filePath) {
     try {
         return (await stat(filePath)).isFile();
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             return false;
         }
         throw error;
     }
 }
 
+/** @param {string} dirPath @returns {Promise<boolean>} */
 async function directoryExists(dirPath) {
     try {
         return (await stat(dirPath)).isDirectory();
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             return false;
         }
         throw error;
     }
 }
 
+/** @param {string} rootPath @returns {Promise<ICollectedFile[]>} */
 async function collectFiles(rootPath) {
-    const files = [];
+    const files = /** @type {ICollectedFile[]} */ ([]);
+    /** @param {string} currentPath @param {string} [relativePrefix] @returns {Promise<void>} */
     const visit = async (currentPath, relativePrefix = '') => {
         let entries;
         try {
             entries = await readdir(currentPath, {withFileTypes: true});
         } catch (error) {
-            if (error?.code === 'ENOENT') {
+            if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
                 return;
             }
             throw error;
@@ -176,12 +199,14 @@ async function collectFiles(rootPath) {
     return files.sort((left, right) => compareStrings(left.relativePath, right.relativePath));
 }
 
+/** @param {string} relativePath @returns {boolean} */
 function isJavaScriptBundle(relativePath) {
     const extension = path.extname(relativePath);
     return JAVASCRIPT_EXTENSIONS.has(extension)
         && !relativePath.endsWith('.meta.json');
 }
 
+/** @param {string} outputRoot @param {string} relativePath @param {IClassifyBundleOptions} [options] @returns {string | null} */
 function classifyBundle(outputRoot, relativePath, {
     includePreload = false,
     includeNitro = true,
@@ -230,10 +255,12 @@ function classifyBundle(outputRoot, relativePath, {
     return null;
 }
 
+/** @param {string} bundlePath @returns {string} */
 function mapPathForBundle(bundlePath) {
     return `${bundlePath}.map`;
 }
 
+/** @param {string} source @returns {boolean} */
 function isVirtualSource(source) {
     return source.startsWith('\0')
         || source.startsWith('virtual:')
@@ -246,6 +273,7 @@ function isVirtualSource(source) {
         || /^<[^>\r\n]+>$/u.test(source);
 }
 
+/** @param {string | null} relativePath @returns {string | null} */
 function privateProjectSource(relativePath) {
     return relativePath === null
         || relativePath.split('/').includes('node_modules')
@@ -253,6 +281,7 @@ function privateProjectSource(relativePath) {
         : relativePath;
 }
 
+/** @param {string} projectRoot @param {string} mapPath @param {string | undefined} sourceRoot @param {string} source @returns {string | null} */
 function resolveMapSource(projectRoot, mapPath, sourceRoot, source) {
     if (typeof source !== 'string' || source.length === 0 || isVirtualSource(source)) {
         return null;
@@ -285,6 +314,7 @@ function resolveMapSource(projectRoot, mapPath, sourceRoot, source) {
     return privateProjectSource(relativeProjectPath(projectRoot, absolutePath));
 }
 
+/** @param {ISourceMapPayload} payload @param {string} mapRelativePath */
 function assertSourceMapPayload(payload, mapRelativePath) {
     if (
         !payload
@@ -304,6 +334,7 @@ function assertSourceMapPayload(payload, mapRelativePath) {
     }
 }
 
+/** @param {string[]} bundlePaths @returns {Promise<void>} */
 async function injectDebugIds(bundlePaths) {
     if (bundlePaths.length === 0) {
         return;
@@ -319,17 +350,20 @@ async function injectDebugIds(bundlePaths) {
     });
 }
 
+/** @param {string} filePath @returns {Promise<string>} */
 async function sha256(filePath) {
     const bytes = await readFile(filePath);
     return createHash('sha256').update(bytes).digest('hex');
 }
 
+/** @param {string} manifestPath @param {TSentryBuildIdentity} identity @returns {Promise<IPrivateManifest | null>} */
 async function readExistingManifest(manifestPath, identity) {
     if (!(await fileExists(manifestPath))) {
         return null;
     }
     let manifest;
     try {
+        /** @type {IPrivateManifest} */
         manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
     } catch (error) {
         throw new Error(`Unreadable private source-map manifest: ${manifestPath}`, {cause: error});
@@ -345,6 +379,7 @@ async function readExistingManifest(manifestPath, identity) {
     return manifest;
 }
 
+/** @param {string} projectRoot @param {TSentryBuildIdentity} identity @returns {Promise<string>} */
 async function lockBuildIdentity(projectRoot, identity) {
     const lockPath = identityLockPath(projectRoot);
     await mkdir(path.dirname(lockPath), {recursive: true});
@@ -357,7 +392,7 @@ async function lockBuildIdentity(projectRoot, identity) {
     try {
         await link(temporaryPath, lockPath);
     } catch (error) {
-        if (error?.code !== 'EEXIST') {
+        if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST')) {
             throw error;
         }
         await assertLockedBuildIdentity(lockPath, identity);
@@ -367,6 +402,7 @@ async function lockBuildIdentity(projectRoot, identity) {
     return lockPath;
 }
 
+/** @param {string} lockPath @param {TSentryBuildIdentity} identity @returns {Promise<void>} */
 async function assertLockedBuildIdentity(lockPath, identity) {
     let existing;
     try {
@@ -377,6 +413,7 @@ async function assertLockedBuildIdentity(lockPath, identity) {
     assertSameSentryBuildIdentity(identity, existing);
 }
 
+/** @param {string} projectRoot @param {TSentryBuildIdentity} identity @returns {Promise<void>} */
 async function resetCompletedIdentityLockOnConflict(projectRoot, identity) {
     const lockPath = identityLockPath(projectRoot);
     if (!(await fileExists(lockPath))) {
@@ -404,6 +441,7 @@ async function resetCompletedIdentityLockOnConflict(projectRoot, identity) {
     await rm(lockPath, {force: true});
 }
 
+/** @param {IPrivateManifest | null} manifest @returns {Map<string, IStagedBundle>} */
 function manifestBundleMap(manifest) {
     return new Map((manifest?.bundles ?? []).map(bundle => [
         bundle.bundle,
@@ -411,6 +449,7 @@ function manifestBundleMap(manifest) {
     ]));
 }
 
+/** @param {IPrivateManifest | null} manifest @returns {Map<string, IUnmappedBundle>} */
 function manifestUnmappedGeneratedBundleMap(manifest) {
     return new Map((manifest?.unmappedGeneratedBundles ?? []).map(bundle => [
         bundle.bundle,
@@ -418,6 +457,7 @@ function manifestUnmappedGeneratedBundleMap(manifest) {
     ]));
 }
 
+/** @param {string} encoded @returns {unknown} */
 function decodeGeneratedManifestString(encoded) {
     try {
         return JSON.parse(`"${encoded}"`);
@@ -426,6 +466,7 @@ function decodeGeneratedManifestString(encoded) {
     }
 }
 
+/** @param {string} value @returns {string | null} */
 function normalizeNuxtAssetPath(value) {
     const slashed = value.replaceAll('\\', '/').replace(/^\/+/, '');
     const withoutNuxtPrefix = slashed.startsWith('_nuxt/')
@@ -444,6 +485,7 @@ function normalizeNuxtAssetPath(value) {
     return normalized;
 }
 
+/** @param {string} relativeBundlePath @returns {string | null} */
 function relativeNuxtAssetPath(relativeBundlePath) {
     const marker = '/_nuxt/';
     const markerIndex = relativeBundlePath.indexOf(marker);
@@ -452,6 +494,7 @@ function relativeNuxtAssetPath(relativeBundlePath) {
         : normalizeNuxtAssetPath(relativeBundlePath.slice(markerIndex + marker.length));
 }
 
+/** @param {string} projectRoot @returns {Promise<Set<string>>} */
 async function readNuxtGeneratedBrowserBundleNames(projectRoot) {
     const configuredBuildDir = process.env.EVB_NUXT_BUILD_DIR?.trim();
     const manifestPaths = [
@@ -468,7 +511,11 @@ async function readNuxtGeneratedBrowserBundleNames(projectRoot) {
         const manifestText = await readFile(absoluteManifestPath, 'utf8');
         const bundleNames = new Set();
         for (const match of manifestText.matchAll(/(?:"file"|\bfile):"((?:\\.|[^"\\])+)"/gu)) {
-            const decoded = decodeGeneratedManifestString(match[1]);
+            const encoded = match[1];
+            if (encoded === undefined) {
+                continue;
+            }
+            const decoded = decodeGeneratedManifestString(encoded);
             const normalized = typeof decoded === 'string'
                 ? normalizeNuxtAssetPath(decoded)
                 : null;
@@ -484,6 +531,7 @@ async function readNuxtGeneratedBrowserBundleNames(projectRoot) {
     return new Set();
 }
 
+/** @param {string} relativeAssetPath @param {string} bundleText @param {Set<string>} generatedBundleNames @returns {string | null} */
 function identifyGeneratedMaplessBrowserBundle(relativeAssetPath, bundleText, generatedBundleNames) {
     if (bundleText.includes('sourceMappingURL')) {
         return null;
@@ -501,6 +549,7 @@ function identifyGeneratedMaplessBrowserBundle(relativeAssetPath, bundleText, ge
     return null;
 }
 
+/** @param {{projectRoot: string, outputRoot: string, bundle: string, role: string, mapPath: string, stageRoot: string}} options @returns {Promise<IStagedBundle>} */
 async function stageBundle({
     projectRoot,
     outputRoot,
@@ -511,6 +560,7 @@ async function stageBundle({
 }) {
     const mapRelativePath = slashPath(path.join(outputRoot, mapPath));
     const bundleRelativePath = slashPath(path.join(outputRoot, bundle));
+    /** @type {ISourceMapPayload} */
     const mapPayload = JSON.parse(await readFile(path.join(projectRoot, mapRelativePath), 'utf8'));
     assertSourceMapPayload(mapPayload, mapRelativePath);
 
@@ -584,6 +634,7 @@ async function stageBundle({
     };
 }
 
+/** @param {{candidate: IBundleCandidate, generatedBundleNames: Set<string>, outputRoot: string, projectRoot: string}} options @returns {Promise<IUnmappedBundle | null>} */
 async function describeUnmappedGeneratedBrowserBundle({
     candidate,
     generatedBundleNames,
@@ -627,6 +678,7 @@ async function describeUnmappedGeneratedBrowserBundle({
     };
 }
 
+/** @param {string} outputRootPath @returns {Promise<string[]>} */
 async function removeMaps(outputRootPath) {
     const files = await collectFiles(outputRootPath);
     const mapFiles = files.filter(file => file.relativePath.endsWith('.map'));
@@ -636,6 +688,7 @@ async function removeMaps(outputRootPath) {
     return mapFiles.map(file => file.relativePath).sort(compareStrings);
 }
 
+/** @param {Iterable<IStagedBundle>} bundles @returns {ISourceFile[]} */
 function collectSourceEntries(bundles) {
     const sources = new Map();
     for (const bundle of bundles) {
@@ -650,6 +703,7 @@ function collectSourceEntries(bundles) {
     return [...sources.values()].sort((left, right) => compareStrings(left.path, right.path));
 }
 
+/** @param {string} manifestPath @param {IPrivateManifest} manifest @returns {Promise<void>} */
 async function writeManifest(manifestPath, manifest) {
     await mkdir(path.dirname(manifestPath), {recursive: true});
     const temporaryPath = `${manifestPath}.${process.pid}.${randomUUID()}.tmp`;
@@ -667,16 +721,7 @@ async function writeManifest(manifestPath, manifest) {
  * credentials, URLs, timestamps, or source contents, so a later uploader can
  * consume it without rebuilding or inspecting the public output.
  *
- * @param {{
- *   projectRoot?: string,
- *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
- *   outputRoots?: string[],
- *   reset?: boolean,
- *   resetCompletedIdentityLock?: boolean,
- *   removePublicOutputMaps?: boolean,
- *   includePreload?: boolean,
- *   includeNitro?: boolean,
- * }} options
+ * @param {IStagePrivateSourcemapsOptions} options
  */
 export async function stagePrivateSourcemaps({
     projectRoot = process.cwd(),
@@ -688,6 +733,9 @@ export async function stagePrivateSourcemaps({
     includePreload = false,
     includeNitro = true,
 } = {}) {
+    if (!identity) {
+        throw new TypeError('A Sentry build identity is required');
+    }
     const normalizedIdentity = assertSentryBuildIdentity(identity);
     const root = path.resolve(projectRoot);
     const stageRoot = stageDirectory(root, normalizedIdentity);
@@ -726,14 +774,16 @@ export async function stagePrivateSourcemaps({
         const files = await collectFiles(absoluteOutputRoot);
         const candidates = files
             .filter(file => isJavaScriptBundle(file.relativePath))
-            .map(file => ({
-                ...file,
-                role: classifyBundle(normalizedOutputRoot, file.relativePath, {
+            .flatMap(file => {
+                const role = classifyBundle(normalizedOutputRoot, file.relativePath, {
                     includePreload,
                     includeNitro,
-                }),
-            }))
-            .filter(file => file.role !== null)
+                });
+                return role === null ? [] : [{
+                    ...file,
+                    role,
+                }];
+            })
             .sort((left, right) => compareStrings(left.relativePath, right.relativePath));
 
         const mappedCandidates = [];
@@ -842,6 +892,7 @@ export async function stagePrivateSourcemaps({
     return manifest;
 }
 
+/** @param {{projectRoot?: string, outputRoots?: string[]}} [options] @returns {Promise<boolean>} */
 export async function assertPublicOutputMapFree({
     projectRoot = process.cwd(),
     outputRoots = DEFAULT_OUTPUT_ROOTS,
@@ -866,22 +917,24 @@ export async function assertPublicOutputMapFree({
 }
 
 /**
- * @param {{
- *   projectRoot?: string,
- *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
- * }} options
+ * @param {{projectRoot?: string, identity?: TSentryBuildIdentity | undefined}} options
  */
 export function getPrivateSourcemapManifestPath({
     projectRoot = process.cwd(),
     identity,
 } = {}) {
+    if (!identity) {
+        throw new TypeError('A Sentry build identity is required');
+    }
     return stageManifestPath(path.resolve(projectRoot), assertSentryBuildIdentity(identity));
 }
 
+/** @param {{projectRoot?: string}} [options] @returns {string} */
 export function getSentryBuildIdentityLockPath({projectRoot = process.cwd()} = {}) {
     return identityLockPath(path.resolve(projectRoot));
 }
 
+/** @param {TSentryBuildIdentity} identity @returns {string} */
 export function getSentryBuildIdentityKey(identity) {
     return sentryBuildIdentityKey(assertSentryBuildIdentity(identity));
 }

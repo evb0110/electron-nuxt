@@ -73,6 +73,8 @@
 </template>
 
 <script setup lang="ts">
+import { pageNumberToPageIndex } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 
 import DocumentPageSkeleton from '@app/components/document-viewer/DocumentPageSkeleton.vue';
 import PdfImagePlacementOverlay from '@app/modules/pdf-viewer/components/PdfImagePlacementOverlay.vue';
@@ -95,7 +97,7 @@ import {
 } from '@app/modules/pdf-viewer/engine/pdf-page-scale/pdfPageScale';
 
 interface IProps {
-    page: number;
+    page: TPageNumber;
     showSkeleton: boolean;
     renderFailed?: boolean;
     renderErrorLabel?: string;
@@ -125,8 +127,8 @@ const {
 } = defineProps<IProps>();
 const { t } = useTypedI18n();
 const emit = defineEmits<{
-    'page-container-mounted': [page: number];
-    'page-container-unmounted': [page: number];
+    'page-container-mounted': [pageNumber: TPageNumber];
+    'page-container-unmounted': [pageNumber: TPageNumber];
     'update-placed-image-rect': [payload: IPdfImagePlacementRectUpdate];
     'finalize-placed-image': [];
     'cancel-placed-image': [];
@@ -149,14 +151,15 @@ const pageSkeletonContentHeight = computed(() => scaledPageHeight.value ?? 760);
 
 const shapeContext = inject<IShapeContextProvide | null>('shapeContext', null);
 
-const pageShapes = computed(() => shapeContext?.getShapesForPage(page - 1) ?? []);
+const pageIndex = computed(() => pageNumberToPageIndex(page));
+const pageShapes = computed(() => shapeContext?.getShapesForPage(pageIndex.value) ?? []);
 const showPageSkeleton = computed(() => showSkeleton);
 const pageVisualState = computed(() => rendered ? 'ready' : 'none');
 const isPageVisualReadyForShapeOverlay = computed(() => shapeOverlayVisualReady);
 
 const pageDrawingShape = computed(() => {
     const drawing = shapeContext?.drawingShape.value;
-    if (!drawing || drawing.pageIndex !== page - 1) {
+    if (!drawing || drawing.pageIndex !== pageIndex.value) {
         return null;
     }
     return drawing;
@@ -172,7 +175,7 @@ const showShapeOverlay = computed(() => Boolean(
 ));
 
 function startDrawingShape(coords: IShapePoint) {
-    shapeContext?.handleStartDrawing(page - 1, coords);
+    shapeContext?.handleStartDrawing(pageIndex.value, coords);
 }
 
 function continueDrawingShape(coords: IShapePoint) {

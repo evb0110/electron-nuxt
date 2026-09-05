@@ -36,9 +36,9 @@ function runCodesign(args: string[]) {
                 stderr,
             });
         }, CODESIGN_CHECK_TIMEOUT_MS);
-        timeoutHandle.unref?.();
+        timeoutHandle.unref();
 
-        child.stderr?.on('data', (chunk: Buffer) => {
+        child.stderr.on('data', (chunk: Buffer) => {
             stderr += chunk.toString();
         });
 

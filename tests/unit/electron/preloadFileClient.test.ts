@@ -15,10 +15,29 @@ import {
     DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES,
 } from '@contracts/docxExport';
 import { createDocumentsPreloadFileClient } from '@electron/features/documents/createDocumentsPreloadFileClient';
-import { requirePageIndex } from '@contracts/pageNumbers';
-import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+import {
+    normalizePdfNativeModifiedAt,
+    PDF_NATIVE_MUTATION_LIMITS,
+} from '@contracts/nativePdfMutations';
 import { MAX_DOCUMENT_ALLOCATION_BYTES } from '@contracts/electronApiDocuments';
 import {requireDocumentRevisionToken} from '@contracts';
+import {cast} from '@tests/helpers/cast';
+import {
+    requireLeaseId,
+    requireRequestId,
+} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 
 class FakeMessagePort {
@@ -58,7 +77,7 @@ interface INativeMutationInvokePayload {placedImages: Array<{source: unknown}>}
 
 interface INativeBookmarkTestItem {
     title: string;
-    pageIndex: number | null;
+    pageIndex: TPageIndex | null;
     namedDest: string | null;
     bold: boolean;
     italic: boolean;
@@ -69,7 +88,7 @@ interface INativeBookmarkTestItem {
 function createNativeBookmark(title = 'Chapter'): INativeBookmarkTestItem {
     return {
         title,
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
@@ -134,10 +153,10 @@ function createNativePlacedImage() {
         rotationDegrees: 0,
         mimeType: 'image/jpeg' as const,
         source: {
-            path: '/tmp/image.jpg',
+            path: requireDocumentRef('/tmp/image.jpg'),
             size: 3,
             sha256: 'a'.repeat(64),
-            leaseId: 'image-lease',
+            leaseId: requireLeaseId('image-lease'),
             revision: null,
         },
     };
@@ -178,6 +197,7 @@ function createStagedPdfArtifact() {
 
 describe('createDocumentsPreloadFileClient', () => {
     const revisionOptions = { expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-save') };
+    const nativeModifiedAt = normalizePdfNativeModifiedAt('D:20260609133855+03\'00\'', 'modifiedAt');
 
     afterEach(() => {
         vi.unstubAllGlobals();
@@ -191,15 +211,15 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const options = {
             pageNumbers: [
-                2,
-                5,
+                requirePageNumber(2),
+                requirePageNumber(5),
             ],
             viewMode: 'facing' as const,
             orientation: 'landscape' as const,
-            requestId: 'print-request-1',
+            requestId: requireRequestId('print-request-1'),
         };
 
-        await expect(client.printPdfPath('/tmp/document.pdf', undefined, options))
+        await expect(client.printPdfPath(requireDocumentRef('/tmp/document.pdf'), undefined, options))
             .resolves.toEqual({success: true});
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfPrintPath,
@@ -207,9 +227,9 @@ describe('createDocumentsPreloadFileClient', () => {
             undefined,
             options,
         );
-        expect(() => client.printPdfPath('/tmp/document.pdf', undefined, {
+        expect(() => client.printPdfPath(requireDocumentRef('/tmp/document.pdf'), undefined, {
             ...options,
-            pageNumbers: [0],
+            pageNumbers: [cast<TPageNumber>(0)],
         })).toThrow('printPdfPath.options.pageNumbers[0] must be a positive safe integer');
         expect(ipcRenderer.invoke).toHaveBeenCalledOnce();
     });
@@ -223,11 +243,11 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const data = Uint8Array.of(1, 2, 3);
-        const options = {requestId: 'print-data-request-1'};
+        const options = {requestId: requireRequestId('print-data-request-1')};
 
         await expect(client.printPdfData(data, 'document.pdf', options))
             .resolves.toEqual({success: true});
-        await expect(client.cancelPdfPrint?.(' print-data-request-1 '))
+        await expect(client.cancelPdfPrint?.(requireRequestId(' print-data-request-1 ')))
             .resolves.toEqual({canceled: true});
         expect(ipcRenderer.invoke).toHaveBeenCalledWith(
             DOCUMENTS_CHANNELS.pdfPrintData,
@@ -239,9 +259,9 @@ describe('createDocumentsPreloadFileClient', () => {
             DOCUMENTS_CHANNELS.pdfPrintCancel,
             'print-data-request-1',
         );
-        expect(() => client.printPdfData(data, 'document.pdf', {requestId: ''}))
+        expect(() => client.printPdfData(data, 'document.pdf', {requestId: cast<TRequestId>('')}))
             .toThrow('printPdfData.options.requestId must be a non-empty bounded string');
-        expect(() => client.cancelPdfPrint?.(''))
+        expect(() => client.cancelPdfPrint?.(cast<TRequestId>('')))
             .toThrow('cancelPdfPrint.requestId must not be empty');
         expect(ipcRenderer.invoke).toHaveBeenCalledTimes(2);
     });
@@ -305,7 +325,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfDataAs('/tmp/working.pdf', new Uint8Array([
+        await expect(client.savePdfDataAs(requireDocumentRef('/tmp/working.pdf'), new Uint8Array([
             1,
             2,
             3,
@@ -330,7 +350,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.writeDocxFileChunks('/tmp/export.docx', [
+        await expect(client.writeDocxFileChunks(requireDocumentRef('/tmp/export.docx'), [
             Uint8Array.of(1, 2),
             Uint8Array.of(3, 4),
         ])).resolves.toBe(true);
@@ -365,7 +385,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.writeDocxFileChunks('/tmp/export.docx', [new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)])).rejects.toThrow('writeDocxFileChunks chunk exceeds maximum size');
+        await expect(client.writeDocxFileChunks(requireDocumentRef('/tmp/export.docx'), [new Uint8Array(DOCX_EXPORT_STREAM_MAX_CHUNK_BYTES + 1)])).rejects.toThrow('writeDocxFileChunks chunk exceeds maximum size');
         expect(ipcRenderer.invoke).toHaveBeenLastCalledWith(
             DOCX_EXPORT_STREAM_CHANNELS.cancel,
             'docx-session',
@@ -409,7 +429,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const writePromise = client.writeDocxFileChunks(
-            '/tmp/export.docx',
+            requireDocumentRef('/tmp/export.docx'),
             [Uint8Array.of(1, 2)],
             controller.signal,
         );
@@ -480,7 +500,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.savePdfDataAs(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             new Uint8Array([
                 1,
                 2,
@@ -509,7 +529,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        expect(() => client.saveFileStructured('/tmp/working.pdf'))
+        expect(() => client.saveFileStructured(requireDocumentRef('/tmp/working.pdf')))
             .toThrow('saveFileStructured.options.expectedDocumentRevisionToken must be a non-empty string');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
@@ -522,7 +542,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.optimizePdfAsCopy?.(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             { preset: 'ultra' } as never,
         )).toThrow('optimizePdfAsCopy.options.preset is invalid');
 
@@ -537,9 +557,9 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         expect(() => client.optimizePdfAsCopy?.(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             { preset: 'lossless' },
-            'request-1',
+            requireRequestId('request-1'),
             { expectedDocumentRevisionToken: '' as TDocumentRevisionToken },
         )).toThrow('optimizePdfAsCopy.revisionOptions.expectedDocumentRevisionToken must be a non-empty string');
 
@@ -567,7 +587,7 @@ describe('createDocumentsPreloadFileClient', () => {
             bytes: number[];
         }> = [];
 
-        await expect(client.readFileChunks('/tmp/working.pdf', {chunkBytes: 2}, (chunk, offset) => {
+        await expect(client.readFileChunks(requireDocumentRef('/tmp/working.pdf'), {chunkBytes: 2}, (chunk, offset) => {
             chunks.push({
                 offset,
                 bytes: [...chunk],
@@ -618,13 +638,13 @@ describe('createDocumentsPreloadFileClient', () => {
             {size: Number.MAX_SAFE_INTEGER + 1},
             {size: '100'},
         ]) {
-            await expect(client.statFile('/tmp/working.pdf')).rejects.toThrow(
+            await expect(client.statFile(requireDocumentRef('/tmp/working.pdf'))).rejects.toThrow(
                 'invalid file stat',
             );
         }
 
         result = {size: MAX_DOCUMENT_ALLOCATION_BYTES + 1};
-        await expect(client.statFile('/tmp/working.pdf')).resolves.toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
+        await expect(client.statFile(requireDocumentRef('/tmp/working.pdf'))).resolves.toEqual({size: MAX_DOCUMENT_ALLOCATION_BYTES + 1});
     });
 
     it('drops malformed revision events and removes the exact subscribed listener', () => {
@@ -694,7 +714,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage' | 'on' | 'removeListener'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.getWorkingCopyBackingStatus?.('/tmp/working.pdf')).resolves.toEqual({
+        await expect(client.getWorkingCopyBackingStatus?.(requireDocumentRef('/tmp/working.pdf'))).resolves.toEqual({
             documentRef: '/tmp/working.pdf',
             failure: null,
             progress: 0.25,
@@ -784,15 +804,15 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.getPdfOpeningGeometry?.('/tmp/huge.pdf')).resolves.toStrictEqual(openingGeometry);
-        await expect(client.getPdfNativePageSizes?.('/tmp/huge.pdf')).resolves.toStrictEqual(pageSizes);
-        await expect(client.cancelPdfNativePagePreview?.(' preview-1 ')).resolves.toEqual(cancelResult);
+        await expect(client.getPdfOpeningGeometry?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(openingGeometry);
+        await expect(client.getPdfNativePageSizes?.(requireDocumentRef('/tmp/huge.pdf'))).resolves.toStrictEqual(pageSizes);
+        await expect(client.cancelPdfNativePagePreview?.(requireRequestId(' preview-1 '))).resolves.toEqual(cancelResult);
         await expect(client.renderPdfNativePagePreview?.(
-            '/tmp/huge.pdf',
-            3,
+            requireDocumentRef('/tmp/huge.pdf'),
+            requirePageNumber(3),
             {
                 targetWidthPx: 900.8,
-                previewRequestId: ' preview-2 ',
+                previewRequestId: requireRequestId(' preview-2 '),
             },
         )).resolves.toStrictEqual(preview);
 
@@ -826,23 +846,23 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        expect(() => client.getPdfOpeningGeometry?.('relative.pdf'))
+        expect(() => client.getPdfOpeningGeometry?.(cast<TDocumentRef>('relative.pdf')))
             .toThrow('getPdfOpeningGeometry.path must be an absolute path');
-        expect(() => client.getPdfNativePageSizes?.('relative.pdf'))
+        expect(() => client.getPdfNativePageSizes?.(cast<TDocumentRef>('relative.pdf')))
             .toThrow('getPdfNativePageSizes.path must be an absolute path');
-        expect(() => client.renderPdfNativePagePreview?.('/tmp/huge.pdf', 0))
+        expect(() => client.renderPdfNativePagePreview?.(requireDocumentRef('/tmp/huge.pdf'), cast<TPageNumber>(0)))
             .toThrow('renderPdfNativePagePreview.pageNumber must be a positive integer');
         expect(() => client.renderPdfNativePagePreview?.(
-            '/tmp/huge.pdf',
-            1,
+            requireDocumentRef('/tmp/huge.pdf'),
+            requirePageNumber(1),
             { targetWidthPx: Number.POSITIVE_INFINITY },
         )).toThrow('renderPdfNativePagePreview.options.targetWidthPx must be a positive finite number');
         expect(() => client.renderPdfNativePagePreview?.(
-            '/tmp/huge.pdf',
-            1,
-            { previewRequestId: '   ' },
+            requireDocumentRef('/tmp/huge.pdf'),
+            requirePageNumber(1),
+            { previewRequestId: cast<TRequestId>('   ') },
         )).toThrow('renderPdfNativePagePreview.options.previewRequestId must be a non-empty string');
-        expect(() => client.cancelPdfNativePagePreview?.(''))
+        expect(() => client.cancelPdfNativePagePreview?.(cast<TRequestId>('')))
             .toThrow('cancelPdfNativePagePreview.requestId must not be empty');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
@@ -901,7 +921,7 @@ describe('createDocumentsPreloadFileClient', () => {
         };
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfData('/tmp/working.pdf', sourceBytes, revisionOptions))
+        await expect(client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions))
             .resolves
             .toMatchObject({isValid: true});
 
@@ -945,7 +965,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
         const sourceBytes = new Uint8Array((8 * 1024 * 1024) + 1);
 
-        const savePromise = client.savePdfData('/tmp/working.pdf', sourceBytes, revisionOptions);
+        const savePromise = client.savePdfData(requireDocumentRef('/tmp/working.pdf'), sourceBytes, revisionOptions);
         await waitForPostedChunkCount(port1, 2);
 
         expect(port1.postedMessages.some(message => isPortMessage(message, 'complete'))).toBe(false);
@@ -1023,7 +1043,7 @@ describe('createDocumentsPreloadFileClient', () => {
         };
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfDataChunks('/tmp/working.pdf', 5, [
+        await expect(client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [
             new Uint8Array([
                 1,
                 2,
@@ -1108,7 +1128,7 @@ describe('createDocumentsPreloadFileClient', () => {
         };
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        await expect(client.savePdfDataChunks('/tmp/working.pdf', 5, [new Uint8Array([
+        await expect(client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [new Uint8Array([
             1,
             2,
             3,
@@ -1187,7 +1207,7 @@ describe('createDocumentsPreloadFileClient', () => {
             throw new Error('renderer verification failed');
         };
 
-        await expect(client.savePdfDataChunks('/tmp/working.pdf', 5, [new Uint8Array([
+        await expect(client.savePdfDataChunks(requireDocumentRef('/tmp/working.pdf'), 5, [new Uint8Array([
             1,
             2,
             3,
@@ -1215,7 +1235,7 @@ describe('createDocumentsPreloadFileClient', () => {
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
-        expect(() => client.savePdfNoteTextUpdates!('/tmp/working.pdf', [], 'D:20260609133855+03\'00\''))
+        expect(() => client.savePdfNoteTextUpdates!(requireDocumentRef('/tmp/working.pdf'), [], nativeModifiedAt))
             .toThrow('savePdfNoteTextUpdates.updates must be a non-empty array');
 
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
@@ -1248,11 +1268,11 @@ describe('createDocumentsPreloadFileClient', () => {
             },
             author: 'Tester',
             color: 'rgba(255, 204, 0, 0.8)',
-            createdAt: 1781009077000,
+            createdAt: requireEpochMs(1781009077000),
         }];
 
         await expect(client.savePdfNoteChanges!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {
                 updates: [],
                 freeTextNotes,
@@ -1265,11 +1285,11 @@ describe('createDocumentsPreloadFileClient', () => {
                     {
                         pageIndex: requirePageIndex(0),
                         stableKey: 'uid:0:pdfjs_internal_editor_0',
-                        createdAt: 1781009077000,
+                        createdAt: requireEpochMs(1781009077000),
                     },
                 ],
             },
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
@@ -1283,18 +1303,18 @@ describe('createDocumentsPreloadFileClient', () => {
                 })],
                 deletes: [
                     {
-                        pageIndex: 0,
+                        pageIndex: requirePageIndex(0),
                         objectNumber: 3856,
                         generationNumber: 0,
                     },
                     {
-                        pageIndex: 0,
+                        pageIndex: requirePageIndex(0),
                         stableKey: 'uid:0:pdfjs_internal_editor_0',
-                        createdAt: 1781009077000,
+                        createdAt: requireEpochMs(1781009077000),
                     },
                 ],
             },
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         );
     });
@@ -1315,7 +1335,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const client = createDocumentsPreloadFileClient(ipcRenderer);
 
         await expect(client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {
                 pageLabels: {
                     totalPages: 3,
@@ -1331,7 +1351,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     untitledLabel: 'Untitled',
                     items: [{
                         title: 'Chapter 1',
-                        pageIndex: 0,
+                        pageIndex: requirePageIndex(0),
                         pageYRatio: null,
                         namedDest: null,
                         bold: true,
@@ -1356,8 +1376,8 @@ describe('createDocumentsPreloadFileClient', () => {
                         opacity: 0.5,
                         strokeWidth: 3,
                         stableKey: 'evb-shape:shape-1',
-                        createdAt: 1781009077000,
-                        modifiedAt: 1781009087000,
+                        createdAt: requireEpochMs(1781009077000),
+                        modifiedAt: requireEpochMs(1781009087000),
                     }],
                     deletedAnnotationIds: ['44R'],
                     deletedStableKeys: ['evb-shape:deleted'],
@@ -1384,7 +1404,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     }],
                 },
             },
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
@@ -1467,7 +1487,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const imageSource = createNativePlacedImage().source;
 
         await expect(client.applyPdfNativeMutationsToWorkingCopy!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {placedImages: [{
                 pageIndex: requirePageIndex(0),
                 x: 0.1,
@@ -1478,7 +1498,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 mimeType: 'image/jpeg',
                 source: imageSource,
             }]},
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
@@ -1490,7 +1510,7 @@ describe('createDocumentsPreloadFileClient', () => {
                 mimeType: 'image/jpeg',
                 source: imageSource,
             })]},
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         );
         const firstCall = invoke.mock.calls[0];
@@ -1525,7 +1545,7 @@ describe('createDocumentsPreloadFileClient', () => {
         const imageSource = createNativePlacedImage().source;
 
         await expect(client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {
                 updates: Array.from({length: cap.noteTextUpdates + 1}, (_, index) => ({
                     objectNumber: index + 1,
@@ -1603,7 +1623,7 @@ describe('createDocumentsPreloadFileClient', () => {
                     source: imageSource,
                 })),
             },
-            'D:20260609133855+03\'00\'',
+            nativeModifiedAt,
             revisionOptions,
         )).resolves.toMatchObject({applied: true});
 
@@ -1665,21 +1685,21 @@ describe('createDocumentsPreloadFileClient', () => {
             postMessage: vi.fn(),
         } satisfies Pick<IpcRenderer, 'invoke' | 'postMessage'>;
         const client = createDocumentsPreloadFileClient(ipcRenderer);
-        const modifiedAt = 'D:20260609133855+03\'00\'';
+        const modifiedAt = nativeModifiedAt;
         const tooManyCollectionItems = () => Array.from(
             {length: PDF_NATIVE_MUTATION_LIMITS.collectionItems + 1},
             () => undefined as never,
         );
 
         expect(() => client.savePdfNoteChanges!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {freeTextNotes: tooManyCollectionItems()},
             modifiedAt,
             revisionOptions,
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} notes`);
 
         expect(() => client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {pageLabels: {
                 totalPages: 3,
                 ranges: tooManyCollectionItems(),
@@ -1689,7 +1709,7 @@ describe('createDocumentsPreloadFileClient', () => {
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} ranges`);
 
         expect(() => client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {bookmarks: {
                 totalPages: 3,
                 untitledLabel: 'Untitled',
@@ -1700,7 +1720,7 @@ describe('createDocumentsPreloadFileClient', () => {
         )).toThrow('maximum bookmark depth');
 
         expect(() => client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {shapes: {
                 totalPages: 3,
                 rewriteShapeState: true,
@@ -1719,7 +1739,7 @@ describe('createDocumentsPreloadFileClient', () => {
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.shapePoints} points`);
 
         expect(() => client.savePdfNativeMutations!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {markup: {
                 overrides: tooManyCollectionItems(),
                 hints: [],
@@ -1729,14 +1749,14 @@ describe('createDocumentsPreloadFileClient', () => {
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} items`);
 
         expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {placedImages: tooManyCollectionItems()},
             modifiedAt,
             revisionOptions,
         )).toThrow(`at most ${PDF_NATIVE_MUTATION_LIMITS.collectionItems} images`);
 
         expect(() => client.applyPdfNativeMutationsToWorkingCopy!(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             {placedImages: [createNativePlacedImage()]},
             modifiedAt,
             undefined as never,

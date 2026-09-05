@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     app,
     webContents,
@@ -12,6 +13,7 @@ import {
     decodeWorkspaceCheckpoint,
     type IWorkspaceCheckpoint,
 } from '@contracts/workspaceCheckpoint';
+import {parseDocumentRef} from '@contracts/documentRef';
 import {
     isErrnoException,
     isRecord,
@@ -113,7 +115,7 @@ function releaseClaimIfOwnerDestroyed(newOwnerWebContentsId: number) {
     ) {
         return;
     }
-    const claimedOwner = webContents?.fromId(claimedWorkspaceCheckpointOwnerWebContentsId);
+    const claimedOwner = webContents.fromId(claimedWorkspaceCheckpointOwnerWebContentsId);
     if (claimedOwner?.isDestroyed() === true || claimedOwner === undefined) {
         claimedWorkspaceCheckpointOwnerWebContentsId = null;
         claimedWorkspaceCheckpointPath = null;
@@ -329,10 +331,10 @@ function canonicalizeCheckpointSources(
         ...checkpoint,
         tabs: checkpoint.tabs.map((tab) => {
             const workingCopySourceRef = tab.workingCopyRef
-                ? getWorkingCopyOriginalPath(tab.workingCopyRef, ownerWebContentsId)?.originalPath
+                ? parseDocumentRef(getWorkingCopyOriginalPath(tab.workingCopyRef, ownerWebContentsId)?.originalPath)
                 : null;
             const sourceMapping = tab.sourceRef
-                ? getWorkingCopyOriginalPath(tab.sourceRef, ownerWebContentsId)?.originalPath
+                ? parseDocumentRef(getWorkingCopyOriginalPath(tab.sourceRef, ownerWebContentsId)?.originalPath)
                 : null;
             const canonicalSourceRef = workingCopySourceRef ?? sourceMapping ?? tab.sourceRef;
             if (tab.workingCopyRef && !workingCopySourceRef && canonicalSourceRef === tab.workingCopyRef) {
@@ -376,7 +378,7 @@ async function quarantineCorruptWorkspaceCheckpoint(reason: string) {
         // error and the checkpoint path so the bad file can still be found. The
         // corrupt checkpoint is treated as discarded either way, so recovery
         // continues rather than propagating this failure.
-        log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${error instanceof Error ? error.message : String(error)}`, {
+        log.error(`Failed to quarantine corrupt workspace checkpoint at ${storagePath}: ${getErrorMessage(error)}`, {
             code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
             context: {},
             cause: error,
@@ -521,7 +523,7 @@ function scheduleTrailingCheckpointSave(
             // barrier serializes the debounced write against queued clears/claims.
             void enqueueWorkspaceCheckpointBarrier(async () => {});
         }, delayMs);
-        timer.unref?.();
+        timer.unref();
         trailingCheckpointSave = {
             stored,
             ownerWebContentsId,
@@ -622,7 +624,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             blockStaleWorkingCopyDirectoryCleanup(
                 `workspace checkpoint read failed at ${checkpointPath}`,
             );
-            log.error(`Failed to read workspace checkpoint: ${error instanceof Error ? error.message : String(error)}`, {
+            log.error(`Failed to read workspace checkpoint: ${getErrorMessage(error)}`, {
                 code: 'MAIN_WORKSPACE_CHECKPOINT_FAILED',
                 context: {},
                 cause: error,
@@ -635,7 +637,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             stored = decodeStoredCheckpoint(JSON.parse(raw));
         } catch (error) {
             await quarantineCorruptWorkspaceCheckpoint(
-                `parse failure: ${error instanceof Error ? error.message : String(error)}`,
+                `parse failure: ${getErrorMessage(error)}`,
             );
             return null;
         }
@@ -651,7 +653,7 @@ export async function claimWorkspaceCheckpoint(newOwnerWebContentsId: number) {
             // schema paths above, or the same bad file crash-loops recovery on
             // every startup. This runs before any ownership change below.
             await quarantineCorruptWorkspaceCheckpoint(
-                `invariant failure: ${error instanceof Error ? error.message : String(error)}`,
+                `invariant failure: ${getErrorMessage(error)}`,
             );
             return null;
         }
@@ -752,7 +754,7 @@ export function acknowledgeWorkspaceCheckpoint(ownerWebContentsId: number) {
             stored = decodeStoredCheckpoint(JSON.parse(raw));
         } catch (error) {
             await quarantineCorruptWorkspaceCheckpoint(
-                `acknowledgement parse failure: ${error instanceof Error ? error.message : String(error)}`,
+                `acknowledgement parse failure: ${getErrorMessage(error)}`,
             );
             throw new WorkspaceCheckpointReadError(storagePath, error);
         }

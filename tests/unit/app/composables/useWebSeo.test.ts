@@ -15,13 +15,13 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({
     t: (key: string) => key,
 })}));
 
-const serverSeoMetaInputs: Array<Record<string, unknown>> = [];
+const seoMetaInputs: Array<Record<string, unknown>> = [];
 const headInputs: unknown[] = [];
 
 function installSeoStubs(siteUrl: unknown) {
     vi.stubGlobal('useRuntimeConfig', () => ({public: {siteUrl}}));
-    vi.stubGlobal('useServerSeoMeta', (input: Record<string, unknown>) => {
-        serverSeoMetaInputs.push(input);
+    vi.stubGlobal('useSeoMeta', (input: Record<string, unknown>) => {
+        seoMetaInputs.push(input);
     });
     vi.stubGlobal('useHead', (input: unknown) => {
         headInputs.push(input);
@@ -29,7 +29,7 @@ function installSeoStubs(siteUrl: unknown) {
 }
 
 function seoMeta(field: string) {
-    const input = serverSeoMetaInputs.at(-1);
+    const input = seoMetaInputs.at(-1);
     expect(input).toBeDefined();
     const value = input![field];
     return typeof value === 'function' ? value() : value;
@@ -57,7 +57,7 @@ function headPayload(): IHeadPayload {
 
 afterEach(() => {
     vi.unstubAllGlobals();
-    serverSeoMetaInputs.length = 0;
+    seoMetaInputs.length = 0;
     headInputs.length = 0;
 });
 

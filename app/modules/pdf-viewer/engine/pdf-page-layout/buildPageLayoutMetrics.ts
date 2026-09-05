@@ -1,3 +1,9 @@
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type {
@@ -73,7 +79,7 @@ function getLayoutRowEnd(rowIndex: number, totalPages: number, viewMode: TPdfVie
         : rowIndex === 0 ? 1 : Math.min(totalPages, start + 1);
 }
 
-function getLayoutRowIndex(pageIndex: number, totalPages: number, viewMode: TPdfViewMode) {
+function getLayoutRowIndex(pageIndex: TPageIndex, totalPages: number, viewMode: TPdfViewMode) {
     if (viewMode === 'single' || totalPages <= 1) {
         return pageIndex;
     }
@@ -84,7 +90,7 @@ function getLayoutRowIndex(pageIndex: number, totalPages: number, viewMode: TPdf
 
 function getMetricDimension(
     pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     dimension: 'width' | 'height',
 ) {
     const metric = getIndexedValue(pageMetrics, pageIndex);
@@ -96,7 +102,7 @@ function getMetricDimension(
 
 function getMetricEstimateDimension(
     pageMetrics: IPdfPageMetric[] | IPdfLazyIndexedCollection<IPdfPageMetric>,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     dimension: 'width' | 'height',
 ) {
     const metric = isSparsePageMetricCollection(pageMetrics)
@@ -114,7 +120,7 @@ function getRowHeight(
     totalPages: number,
     viewMode: TPdfViewMode,
     getDimension: (
-        pageIndex: number,
+        pageIndex: TPageIndex,
     ) => number,
 ) {
     const start = getLayoutRowStart(rowIndex, totalPages, viewMode) - 1;
@@ -123,7 +129,7 @@ function getRowHeight(
     for (let index = start; index <= end; index += 1) {
         height = Math.max(
             height,
-            getDimension(index),
+            getDimension(requirePageIndex(index)),
         );
     }
     return height;
@@ -157,13 +163,20 @@ function getEstimatedRowChangeIndexes(
     const knownIndices = pageMetrics.knownIndices;
     const changes: number[] = [];
     for (let index = 0; index < knownIndices.length - 1; index += 1) {
-        const currentIndex = knownIndices[index]!;
-        const nextIndex = knownIndices[index + 1]!;
+        const currentIndex = knownIndices[index];
+        const nextIndex = knownIndices[index + 1];
+        if (currentIndex === undefined || nextIndex === undefined) {
+            continue;
+        }
         const metricChangeIndex = Math.floor((currentIndex + nextIndex) / 2) + 1;
         if (metricChangeIndex >= totalPages) {
             continue;
         }
-        const rowIndex = getLayoutRowIndex(metricChangeIndex, totalPages, viewMode);
+        const rowIndex = getLayoutRowIndex(
+            requirePageIndex(metricChangeIndex),
+            totalPages,
+            viewMode,
+        );
         if (rowIndex > 0 && rowIndex < rowCount && changes.at(-1) !== rowIndex) {
             changes.push(rowIndex);
         }
@@ -176,7 +189,11 @@ function findFirstAtOrAfter(values: readonly number[], target: number) {
     let high = values.length;
     while (low < high) {
         const middle = low + Math.floor((high - low) / 2);
-        if (values[middle]! < target) {
+        const middleValue = values[middle];
+        if (middleValue === undefined) {
+            return low;
+        }
+        if (middleValue < target) {
             low = middle + 1;
         } else {
             high = middle;
@@ -214,14 +231,20 @@ function refreshSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
 }
 
 function rotateSparsePrefixDeltaLeft(node: ISparsePrefixDeltaNode) {
-    const pivot = node.right!;
+    const pivot = node.right;
+    if (!pivot) {
+        return node;
+    }
     node.right = pivot.left;
     pivot.left = refreshSparsePrefixDeltaNode(node);
     return refreshSparsePrefixDeltaNode(pivot);
 }
 
 function rotateSparsePrefixDeltaRight(node: ISparsePrefixDeltaNode) {
-    const pivot = node.left!;
+    const pivot = node.left;
+    if (!pivot) {
+        return node;
+    }
     node.left = pivot.right;
     pivot.right = refreshSparsePrefixDeltaNode(node);
     return refreshSparsePrefixDeltaNode(pivot);
@@ -232,20 +255,28 @@ function rebalanceSparsePrefixDeltaNode(node: ISparsePrefixDeltaNode) {
     const balance = getSparsePrefixDeltaHeight(refreshed.left)
         - getSparsePrefixDeltaHeight(refreshed.right);
     if (balance > 1) {
+        const left = refreshed.left;
+        if (!left) {
+            return refreshed;
+        }
         if (
-            getSparsePrefixDeltaHeight(refreshed.left!.left)
-            < getSparsePrefixDeltaHeight(refreshed.left!.right)
+            getSparsePrefixDeltaHeight(left.left)
+            < getSparsePrefixDeltaHeight(left.right)
         ) {
-            refreshed.left = rotateSparsePrefixDeltaLeft(refreshed.left!);
+            refreshed.left = rotateSparsePrefixDeltaLeft(left);
         }
         return rotateSparsePrefixDeltaRight(refreshed);
     }
     if (balance < -1) {
+        const right = refreshed.right;
+        if (!right) {
+            return refreshed;
+        }
         if (
-            getSparsePrefixDeltaHeight(refreshed.right!.right)
-            < getSparsePrefixDeltaHeight(refreshed.right!.left)
+            getSparsePrefixDeltaHeight(right.right)
+            < getSparsePrefixDeltaHeight(right.left)
         ) {
-            refreshed.right = rotateSparsePrefixDeltaRight(refreshed.right!);
+            refreshed.right = rotateSparsePrefixDeltaRight(right);
         }
         return rotateSparsePrefixDeltaLeft(refreshed);
     }
@@ -426,8 +457,9 @@ function buildDensePageLayoutBase(options: {
     const pageWidths = new Array<number>(options.totalPages);
     const pageHeights = new Array<number>(options.totalPages);
     for (let index = 0; index < options.totalPages; index += 1) {
-        pageWidths[index] = getMetricDimension(options.pageMetrics, index, 'width');
-        pageHeights[index] = getMetricDimension(options.pageMetrics, index, 'height');
+        const pageIndex = requirePageIndex(index);
+        pageWidths[index] = getMetricDimension(options.pageMetrics, pageIndex, 'width');
+        pageHeights[index] = getMetricDimension(options.pageMetrics, pageIndex, 'height');
     }
 
     const pageRowIndices = Array.from({length: options.totalPages}, () => 0);
@@ -438,7 +470,7 @@ function buildDensePageLayoutBase(options: {
 
     for (let pageNumber = 1; pageNumber <= options.totalPages;) {
         const rowPages = getPageNumbersForViewMode({
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber, options.totalPages),
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
@@ -483,15 +515,27 @@ function buildSparsePageLayoutBase(options: {
     const rowCount = getLayoutRowCount(options.totalPages, options.viewMode);
     const pageWidths = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getMetricDimension(options.pageMetrics, index, 'width'),
+        getValue: index => getMetricDimension(
+            options.pageMetrics,
+            requirePageIndex(index),
+            'width',
+        ),
     });
     const pageHeights = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getMetricDimension(options.pageMetrics, index, 'height'),
+        getValue: index => getMetricDimension(
+            options.pageMetrics,
+            requirePageIndex(index),
+            'height',
+        ),
     });
     const pageRowIndices = createLazyIndexedCollection<number>({
         length: options.totalPages,
-        getValue: index => getLayoutRowIndex(index, options.totalPages, options.viewMode),
+        getValue: index => getLayoutRowIndex(
+            requirePageIndex(index),
+            options.totalPages,
+            options.viewMode,
+        ),
     });
     const rowStartPages = createLazyIndexedCollection<number>({
         length: rowCount,
@@ -509,19 +553,35 @@ function buildSparsePageLayoutBase(options: {
                 rowIndex,
                 options.totalPages,
                 options.viewMode,
-                index => getMetricDimension(options.pageMetrics, index, 'height'),
+                index => getMetricDimension(
+                    options.pageMetrics,
+                    requirePageIndex(index),
+                    'height',
+                ),
             );
         },
     });
     const estimatePageHeightRange = (start: number, end: number) => (
         isSparsePageMetricCollection(options.pageMetrics)
             ? options.pageMetrics.estimateRange(start, end, 'height')
-            : getMetricEstimateDimension(options.pageMetrics, start, 'height') * (end - start)
+            : getMetricEstimateDimension(
+                options.pageMetrics,
+                requirePageIndex(start),
+                'height',
+            ) * (end - start)
     );
     const pageHeightPrefixSums = createChunkedPrefixSums(
         options.totalPages,
-        index => getMetricDimension(options.pageMetrics, index, 'height'),
-        index => getMetricEstimateDimension(options.pageMetrics, index, 'height'),
+        index => getMetricDimension(
+            options.pageMetrics,
+            requirePageIndex(index),
+            'height',
+        ),
+        index => getMetricEstimateDimension(
+            options.pageMetrics,
+            requirePageIndex(index),
+            'height',
+        ),
         estimatePageHeightRange,
         end => estimatePageHeightRange(0, end),
     );
@@ -557,7 +617,11 @@ function buildSparsePageLayoutBase(options: {
             rowIndex,
             options.totalPages,
             options.viewMode,
-            index => getMetricDimension(options.pageMetrics, index, 'height'),
+            index => getMetricDimension(
+                options.pageMetrics,
+                requirePageIndex(index),
+                'height',
+            ),
         ),
         rowIndex => getEstimatedRowHeight(
             options.pageMetrics,

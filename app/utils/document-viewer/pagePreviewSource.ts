@@ -19,7 +19,7 @@ export interface IPreviewPageSize {
     dpi?: number | undefined;
 }
 
-export type TPreviewPageSizes = IPreviewPageSize[] | IPdfNativePageSizes;
+export type TPreviewPageSizes = readonly IPreviewPageSize[] | IPdfNativePageSizes;
 
 export interface IPagePreviewSourceInfo {
     pageCount: number;
@@ -82,9 +82,9 @@ export async function getPagePreviewSizesWithDeadline(
     source: Pick<IPagePreviewSource, 'getPageSizes'>,
     deadlineMs: number,
 ) {
-    let deadlineTimer: ReturnType<typeof setTimeout> | null = null;
+    const deadlineState: { timer: ReturnType<typeof setTimeout> | null } = {timer: null};
     const deadline = new Promise<never>((_resolve, reject) => {
-        deadlineTimer = setTimeout(() => {
+        deadlineState.timer = setTimeout(() => {
             reject(new PagePreviewSourceDeadlineError(
                 'Timed out while reading PDF page sizes. Retry opening the document.',
             ));
@@ -96,6 +96,7 @@ export async function getPagePreviewSizesWithDeadline(
             deadline,
         ]);
     } finally {
+        const deadlineTimer = deadlineState.timer;
         if (deadlineTimer !== null) {
             clearTimeout(deadlineTimer);
         }

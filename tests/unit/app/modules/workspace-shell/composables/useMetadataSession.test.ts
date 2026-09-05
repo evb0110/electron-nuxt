@@ -11,11 +11,12 @@ import {
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 function createBookmark(title: string): IPdfBookmarkEntry {
     return {
         title,
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,

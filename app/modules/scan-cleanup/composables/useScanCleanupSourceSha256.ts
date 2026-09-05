@@ -1,4 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import type { TLeaseId } from '@contracts/shared';
 import {isScanCleanupSourceSha256} from '@contracts/scanCleanupSettings';
 import {BrowserLogger} from '@app/utils/browserLogger';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
@@ -61,13 +62,13 @@ export const useScanCleanupSourceSha256 = (options: IUseScanCleanupSourceSha256O
             return;
         }
 
-        let leaseId: string | null = null;
+        let leaseId: TLeaseId | null = null;
         try {
             const handle = await createHandle(sourcePath);
             leaseId = handle.leaseId;
             if (
                 currentGeneration === generation
-                && options.enabled.value
+                && Boolean(options.enabled.value)
                 && options.sourcePath.value === sourcePath
                 && options.documentRevision.value === documentRevision
             ) {

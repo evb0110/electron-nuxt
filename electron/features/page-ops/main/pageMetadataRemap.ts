@@ -14,6 +14,10 @@ import type {
 import type {IPdfNativeMutationSet} from '@contracts/electronApiDocuments';
 import {splitPdfNativeMutationSetIntoBoundedChunks} from '@contracts/nativePdfMutations';
 import {mapPageNumberThroughPageIdentityDelta} from '@contracts/electronApiPageOps';
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+} from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import {
@@ -37,13 +41,16 @@ function remapBookmarkItems(
                 items: children,
             }];
         }
-        const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, item.pageIndex + 1);
+        const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
+            delta,
+            pageIndexToPageNumber(item.pageIndex),
+        );
         if (mappedPageNumber === null) {
             return children;
         }
         return [{
             ...item,
-            pageIndex: mappedPageNumber - 1,
+            pageIndex: pageNumberToPageIndex(mappedPageNumber),
             namedDest: null,
             items: children,
         }];

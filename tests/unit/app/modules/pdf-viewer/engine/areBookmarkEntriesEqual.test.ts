@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -13,7 +14,7 @@ function createEntry(
 ): IPdfBookmarkEntry {
     return {
         title,
-        pageIndex: 3,
+        pageIndex: requirePageIndex(3),
         pageYRatio: 0.5,
         namedDest: 'anchor',
         bold: false,
@@ -27,7 +28,7 @@ function createEntry(
 function createTree(): IPdfBookmarkEntry[] {
     return [
         createEntry('Cover', {
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             pageYRatio: null,
             namedDest: null,
             color: null,
@@ -35,7 +36,7 @@ function createTree(): IPdfBookmarkEntry[] {
         createEntry('Chapter', { items: [
             createEntry('Section one'),
             createEntry('Section two', {
-                pageIndex: 4,
+                pageIndex: requirePageIndex(4),
                 bold: true,
             }),
         ] }),
@@ -60,13 +61,13 @@ describe('areBookmarkEntriesEqual', () => {
                 italic: false,
                 bold: false,
                 namedDest: null,
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 title: 'Cover',
             },
             {
                 title: '  Chapter  ',
                 namedDest: 'anchor',
-                pageIndex: 3,
+                pageIndex: requirePageIndex(3),
                 pageYRatio: 0.5,
                 bold: false,
                 italic: false,
@@ -75,7 +76,7 @@ describe('areBookmarkEntriesEqual', () => {
                     createEntry('Section one'),
                     {
                         title: 'Section two',
-                        pageIndex: 4,
+                        pageIndex: requirePageIndex(4),
                         pageYRatio: 0.5,
                         namedDest: 'anchor',
                         bold: true,
@@ -107,8 +108,12 @@ describe('areBookmarkEntriesEqual', () => {
 
     it('treats a missing pageYRatio the same as an explicit null', () => {
         const withNull = [createEntry('Chapter', { pageYRatio: null })];
-        const withoutRatio = [createEntry('Chapter')];
-        delete withoutRatio[0]?.pageYRatio;
+        const {
+            pageYRatio: unusedPageYRatio,
+            ...withoutRatioEntry
+        } = createEntry('Chapter');
+        void unusedPageYRatio;
+        const withoutRatio = [withoutRatioEntry];
 
         expectSymmetricEquality(withNull, withoutRatio, true);
     });
@@ -120,7 +125,7 @@ describe('areBookmarkEntriesEqual', () => {
         ],
         [
             'pageIndex',
-            { pageIndex: 9 },
+            { pageIndex: requirePageIndex(9) },
         ],
         [
             'pageYRatio',
@@ -157,7 +162,18 @@ describe('areBookmarkEntriesEqual', () => {
         const section = changed[1]?.items[1];
         expect(section).toBeDefined();
         if (section) {
-            section.italic = true;
+            const chapter = changed[1];
+            if (chapter) {
+                changed[1] = {
+                    ...chapter,
+                    items: chapter.items.map(entry => entry === section
+                        ? {
+                            ...entry,
+                            italic: true,
+                        }
+                        : entry),
+                };
+            }
         }
 
         expectSymmetricEquality(createTree(), changed, false);
@@ -175,9 +191,24 @@ describe('areBookmarkEntriesEqual', () => {
 
     it('detects added and removed nodes', () => {
         const added = createTree();
-        added[1]?.items.push(createEntry('Section three'));
+        const addedChapter = added[1];
+        if (addedChapter) {
+            added[1] = {
+                ...addedChapter,
+                items: [
+                    ...addedChapter.items,
+                    createEntry('Section three'),
+                ],
+            };
+        }
         const removed = createTree();
-        removed[1]?.items.pop();
+        const removedChapter = removed[1];
+        if (removedChapter) {
+            removed[1] = {
+                ...removedChapter,
+                items: removedChapter.items.slice(0, -1),
+            };
+        }
 
         expectSymmetricEquality(createTree(), added, false);
         expectSymmetricEquality(createTree(), removed, false);
@@ -208,18 +239,27 @@ describe('areBookmarkEntriesEqual', () => {
     it('compares large outlines without quadratic work', () => {
         function createLargeTree(): IPdfBookmarkEntry[] {
             return Array.from({ length: 2000 }, (_unused, index) => createEntry(`Section ${index}`, {
-                pageIndex: index,
-                items: Array.from({ length: 4 }, (_child, childIndex) => createEntry(`Section ${index}.${childIndex}`, { pageIndex: index })),
+                pageIndex: requirePageIndex(index),
+                items: Array.from({ length: 4 }, (_child, childIndex) => createEntry(`Section ${index}.${childIndex}`, { pageIndex: requirePageIndex(index)})),
             }));
         }
 
         const left = createLargeTree();
         const right = createLargeTree();
         const divergent = createLargeTree();
-        const lastChild = divergent.at(-1)?.items.at(-1);
+        const lastRoot = divergent.at(-1);
+        const lastChild = lastRoot?.items.at(-1);
         expect(lastChild).toBeDefined();
-        if (lastChild) {
-            lastChild.bold = true;
+        if (lastRoot && lastChild) {
+            divergent[divergent.length - 1] = {
+                ...lastRoot,
+                items: lastRoot.items.map(entry => entry === lastChild
+                    ? {
+                        ...entry,
+                        bold: true,
+                    }
+                    : entry),
+            };
         }
 
         expect(areBookmarkEntriesEqual(left, right)).toBe(true);

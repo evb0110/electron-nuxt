@@ -11,6 +11,7 @@ import {
     MAIN_DIAGNOSTICS_MAX_SUPPRESSED_COUNT,
 } from '@electron/features/diagnostics/public';
 import {parseDiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 import type {DiagnosticRecord} from '@contracts/diagnostics/diagnosticRecord';
 
 const BASE_STACK = 'Error\n    at mainFailure (electron/main.ts:12:4)';
@@ -345,7 +346,7 @@ describe('Electron main failure reporter', () => {
             severity: 'error',
             runtime: 'electron-renderer',
             operation: 'renderer-error',
-            occurredAt: 1,
+            occurredAt: requireEpochMs(1),
             frames: [{module: 'app/utils/failureReporter.ts'}],
             context: {},
         });

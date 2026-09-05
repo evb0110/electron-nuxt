@@ -15,6 +15,7 @@ import {
     type TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import type { TTranslateFn } from '@i18n-app';
+import {createIsoTimestamp} from '@contracts/timestamps';
 import type {ExpectedOutcome} from '@contracts/diagnostics/failureReceipt';
 import {
     ASSISTANT_DEFAULT_EFFORT,
@@ -152,7 +153,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         selectedSpeedMode: selectedSpeedMode.value,
     }));
     const status = computed(() => (state.value ?? emptyState.value).status);
-    const availableEfforts = computed(() => status.value.availableEfforts ?? []);
+    const availableEfforts = computed(() => status.value.availableEfforts);
     const availableSpeedModes = computed(() => {
         const providerStatus = status.value.providers.find((
             provider: IAgentAssistantState['status']['providers'][number],
@@ -160,7 +161,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
         if (providerStatus) {
             return speedModesForProviderStatus(providerStatus);
         }
-        const speedModes = status.value.availableSpeedModes ?? [];
+        const speedModes = status.value.availableSpeedModes;
         return speedModes.length > 0 ? [...speedModes] : [...ASSISTANT_SPEED_MODES];
     });
     const messages = computed(() => (state.value ?? emptyState.value).messages);
@@ -339,7 +340,7 @@ export const useAgentAssistantPanelController = (props: Readonly<IAgentAssistant
                     id: `local-assistant-status-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                     role: 'assistant',
                     text,
-                    createdAt: new Date().toISOString(),
+                    createdAt: createIsoTimestamp(),
                 },
             ],
         };

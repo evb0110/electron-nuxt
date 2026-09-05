@@ -13,7 +13,7 @@ export interface IDocumentSearchMatch {
     startOffset: number;
     endOffset: number;
     excerpt?: IPdfSearchExcerpt;
-    words?: IOcrWord[];
+    words?: readonly IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
     rotation?: TOcrIndexRotation;

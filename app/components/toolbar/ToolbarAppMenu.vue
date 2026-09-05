@@ -307,9 +307,10 @@ function createCommandItem(
 }
 
 function getMenuShortcut(item: unknown) {
-    return typeof item === 'object' && item != null && 'shortcut' in item
-        ? String(item.shortcut ?? '')
-        : '';
+    if (typeof item !== 'object' || item === null || !('shortcut' in item)) {
+        return '';
+    }
+    return typeof item.shortcut === 'string' ? item.shortcut : '';
 }
 </script>
 

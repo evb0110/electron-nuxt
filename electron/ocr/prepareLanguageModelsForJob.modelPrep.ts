@@ -43,7 +43,7 @@ export async function prepareLanguageModelsForJob(
             createTimeoutError(`OCR model preparation timed out after ${timeoutMs}ms`),
         );
     }, timeoutMs);
-    modelPrepTimeout.unref?.();
+    modelPrepTimeout.unref();
     const signal = AbortSignal.any([
         preparingJob.registry.signal,
         timeoutController.signal,

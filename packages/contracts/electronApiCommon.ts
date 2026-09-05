@@ -12,6 +12,10 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    parseIsoTimestamp,
+    type TIsoTimestamp,
+} from '@contracts/timestamps';
 
 export type TMenuEventCallback = () => void;
 
@@ -26,15 +30,16 @@ export type TRendererLogLevel = 'debug' | 'info' | 'warn' | 'error';
  * ERROR entry. Reference-free ERROR entries are rejected.
  */
 export interface IDebugLogFailureRef {
-    eventId: DiagnosticEventId;
-    code: DiagnosticCode;
-    severity: FailureSeverity;
+    readonly eventId: DiagnosticEventId;
+    readonly code: DiagnosticCode;
+    readonly severity: FailureSeverity;
 }
 
 interface IDebugLogEntryBase {
-    source: string;
-    message: string;
-    timestamp: string;
+    readonly source: string;
+    readonly message: string;
+    // Keep the ISO string because Electron logger consumers persist this wire shape.
+    readonly timestamp: TIsoTimestamp;
 }
 
 // Main-process diagnostic logs use the native Electron/logger channel casing.
@@ -42,12 +47,12 @@ interface IDebugLogEntryBase {
 // makes it impossible to attach one.
 export type IDebugLogEntry = IDebugLogEntryBase & (
     | {
-        level?: Exclude<TDebugLogLevel, 'ERROR'>;
-        failureRef?: never;
+        readonly level?: Exclude<TDebugLogLevel, 'ERROR'>;
+        readonly failureRef?: never;
     }
     | {
-        level: 'ERROR';
-        failureRef: IDebugLogFailureRef;
+        readonly level: 'ERROR';
+        readonly failureRef: IDebugLogFailureRef;
     }
 );
 
@@ -107,11 +112,12 @@ function decodeDebugLogFailureRef(value: unknown): IDebugLogFailureRef | null {
  */
 export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
     try {
+        const timestamp = isRecord(value) ? parseIsoTimestamp(value.timestamp) : null;
         if (!isRecord(value)
             || !hasOnlyKeys(value, DEBUG_LOG_ENTRY_KEYS)
             || typeof value.source !== 'string'
             || typeof value.message !== 'string'
-            || typeof value.timestamp !== 'string'
+            || timestamp === null
             || (value.level !== undefined && !isOneOf(DEBUG_LOG_LEVELS, value.level))) {
             return null;
         }
@@ -123,7 +129,7 @@ export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
             return {
                 source: value.source,
                 message: value.message,
-                timestamp: value.timestamp,
+                timestamp,
                 ...(value.level === undefined ? {} : {level: value.level}),
             };
         }
@@ -141,7 +147,7 @@ export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
         return {
             source: value.source,
             message: value.message,
-            timestamp: value.timestamp,
+            timestamp,
             level: 'ERROR',
             failureRef,
         };
@@ -152,10 +158,11 @@ export function decodeDebugLogEntry(value: unknown): IDebugLogEntry | null {
 
 export interface IRendererLogEntry {
     // Renderer logs mirror BrowserLogger casing before they are bridged to main.
-    level: TRendererLogLevel;
-    section: string;
-    message: string;
-    timestamp: string;
-    data?: unknown;
-    failureRef?: FailureReceipt;
+    readonly level: TRendererLogLevel;
+    readonly section: string;
+    readonly message: string;
+    // Keep the ISO string because renderer log entries cross the logger bridge unchanged.
+    readonly timestamp: TIsoTimestamp;
+    readonly data?: unknown;
+    readonly failureRef?: FailureReceipt;
 }

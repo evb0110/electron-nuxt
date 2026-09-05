@@ -44,7 +44,13 @@ export function createPagePreviewDocumentSource(
         : options.pageCount;
     const getPageSize = options.pageSizes === undefined
         ? options.getPageSize
-        : (pageNumber: number) => options.pageSizes[pageNumber - 1]!;
+        : (pageNumber: number) => {
+            const pageSize = options.pageSizes[pageNumber - 1];
+            if (!pageSize) {
+                throw new RangeError(`Page ${String(pageNumber)} is outside the preview source`);
+            }
+            return pageSize;
+        };
     let nextRenderRequestId = 0;
     async function renderPage(request: Parameters<IDocumentPageSource['renderPage']>[0]) {
         assertDocumentPageNumber(request.pageNumber, pageCount);
@@ -93,7 +99,7 @@ export function createPagePreviewDocumentSource(
             request.signal.removeEventListener('abort', cancelRender);
         }
         if (request.signal.aborted) {
-            if (!canceledRenderResolved) {
+            if (!canceledRenderResolved.valueOf()) {
                 options.previewSource.revokeObjectURL(rendered.objectUrl);
             }
             request.signal.throwIfAborted();

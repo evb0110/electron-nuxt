@@ -64,9 +64,6 @@ export function updateAssistantProviderRuntimeState(
     patch: TAssistantProviderRuntimeStatePatch,
 ) {
     Object.assign(states[provider], patch);
-    if ('lastError' in patch && patch.lastError === undefined) {
-        delete states[provider].lastError;
-    }
     return states[provider];
 }
 

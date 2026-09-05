@@ -1,3 +1,4 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
 import type {
     IGeometryResolution,
     IPageCandidateLogEntry,
@@ -81,11 +82,7 @@ function parsePageNumberFromContainer(pageContainer: HTMLElement | null) {
     if (!pageContainer?.dataset.page) {
         return null;
     }
-    const parsed = Number(pageContainer.dataset.page);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return null;
-    }
-    return parsed;
+    return parsePageNumber(Number(pageContainer.dataset.page));
 }
 
 function toPageCandidateLogEntry(candidate: IPageGeometryCandidate): IPageCandidateLogEntry {

@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -11,7 +12,7 @@ describe('computeSummaryStableKey', () => {
             annotationId: '12R',
             annotationName: ' evb-markup:stable ',
             id: 'editor-id',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: 'uid-1',
         })).toBe('nm:evb-markup:stable');
@@ -19,7 +20,7 @@ describe('computeSummaryStableKey', () => {
         expect(computeSummaryStableKey({
             annotationId: '12R',
             id: 'editor-id',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: 'uid-1',
         })).toBe('ann:1:12R');
@@ -27,7 +28,7 @@ describe('computeSummaryStableKey', () => {
         expect(computeSummaryStableKey({
             annotationId: null,
             id: 'editor-id',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: 'uid-1',
         })).toBe('uid:1:uid-1');
@@ -35,7 +36,7 @@ describe('computeSummaryStableKey', () => {
         expect(computeSummaryStableKey({
             annotationId: null,
             id: 'editor-id',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             source: 'editor',
             uid: null,
         })).toBe('src:editor:1:editor-id');

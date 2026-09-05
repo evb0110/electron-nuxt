@@ -10,6 +10,7 @@ import type {
 } from '@contracts/documentRef';
 import type { IDocumentRevisionInfo } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {TTabId} from '@contracts/windowTabs';
 
 export interface IAssistantSessionScopeBinding {
     sessionKey: string;
@@ -17,7 +18,7 @@ export interface IAssistantSessionScopeBinding {
     provider: TAgentAssistantProviderId;
     turnGeneration: number;
     windowId: number;
-    tabId: string;
+    tabId: TTabId;
     documentSessionKey?: string | null;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
@@ -241,10 +242,11 @@ export function getAssistantTurnProviderTurnId(owner: TAssistantTurnOwnerState) 
 
 export function getAssistantTurnPhase(owner: TAssistantTurnOwnerState): TAgentAssistantTurnPhase {
     switch (owner.phase) {
+        case 'idle': return 'idle';
         case 'starting': return 'queued';
         case 'running': return 'streaming';
+        case 'interrupting': return 'interrupting';
         case 'error': return 'failed';
-        default: return owner.phase;
     }
 }
 
@@ -258,7 +260,7 @@ export function buildAssistantSessionScopeBindingFingerprint(
     return JSON.stringify({
         provider: binding?.provider ?? null,
         scopeKey: binding?.scopeKey ?? null,
-        tabId: binding?.tabId === '' ? null : binding?.tabId ?? null,
+        tabId: binding?.tabId ?? null,
         documentSessionKey: binding?.documentSessionKey ?? binding?.scopeKey ?? null,
         documentInstanceId: binding?.documentInstanceId ?? binding?.commandTarget?.documentInstanceId ?? null,
         documentRef: binding?.documentRef ?? binding?.commandTarget?.documentRef ?? null,

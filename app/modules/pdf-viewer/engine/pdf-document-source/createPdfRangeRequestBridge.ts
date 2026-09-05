@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { PDFDataRangeTransport } from 'pdfjs-dist';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { getDocumentFilesCapability } from '@app/utils/platformDocuments';
@@ -205,7 +206,10 @@ export function createPdfRangeRequestBridge({
                     chunk.byteLength - sourceOffset,
                     PDF_RANGE_DELIVERY_BYTES - deliveryLength,
                 );
-                deliveryBuffer!.set(
+                if (!deliveryBuffer) {
+                    throw new Error('PDF range delivery buffer was not allocated');
+                }
+                deliveryBuffer.set(
                     chunk.subarray(sourceOffset, sourceOffset + copyLength),
                     deliveryLength,
                 );
@@ -293,7 +297,7 @@ export function createPdfRangeRequestBridge({
                         begin,
                         end,
                         version,
-                        error: error instanceof Error ? error.message : String(error),
+                        error: getErrorMessage(error),
                     });
                     rangeFailure.failRangeRead(error);
                     onRangeReadFailure(error, version);

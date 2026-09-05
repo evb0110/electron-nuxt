@@ -15,6 +15,7 @@ import {
     HeadObjectCommand,
     ListObjectsV2Command,
     PutObjectCommand,
+    S3Client,
     UploadPartCommand,
 } from '@aws-sdk/client-s3';
 import {
@@ -35,6 +36,10 @@ import {
     resolveMirrorPaths,
     versionParts,
 } from '@scripts/release/publish-release-mirror.mjs';
+
+function hasConfigProvider(value: unknown): value is {configProvider: Promise<Record<string, unknown>>} {
+    return typeof value === 'object' && value !== null && 'configProvider' in value;
+}
 
 const environment = {
     MIRROR_S3_ENDPOINT: 'https://mirror.example.test',
@@ -150,7 +155,13 @@ describe('release mirror publisher', () => {
 
     it('bounds every mirror transfer instead of waiting on a stalled socket', async () => {
         const {client} = createMirrorClient(environment);
-        const handler = client.config.requestHandler as {configProvider: Promise<Record<string, unknown>>};
+        if (!(client instanceof S3Client)) {
+            throw new Error('createMirrorClient must build a real S3 client when none is injected');
+        }
+        const handler: unknown = client.config.requestHandler;
+        if (!hasConfigProvider(handler)) {
+            throw new Error('request handler must expose its resolved config');
+        }
 
         await expect(handler.configProvider).resolves.toMatchObject({
             ...MIRROR_TRANSFER_TIMEOUTS,

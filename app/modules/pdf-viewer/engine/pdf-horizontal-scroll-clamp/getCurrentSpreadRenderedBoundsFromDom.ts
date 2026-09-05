@@ -1,12 +1,18 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { IRenderedSpreadHorizontalBounds } from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/pdfHorizontalScrollClampTypes';
 
 export function getCurrentSpreadRenderedBoundsFromDom(options: {
     container: HTMLElement;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     viewMode: 'single' | 'facing' | 'facing-first-single';
     totalPages: number;
 }): IRenderedSpreadHorizontalBounds | null {
+    if (options.totalPages <= 0) {
+        return null;
+    }
     const bounds = getPageRowBoundsForViewMode({
         pageNumber: options.pageNumber,
         viewMode: options.viewMode,
@@ -16,9 +22,14 @@ export function getCurrentSpreadRenderedBoundsFromDom(options: {
     let left = Number.POSITIVE_INFINITY;
     let right = Number.NEGATIVE_INFINITY;
 
-    for (let pageNumber = bounds.start; pageNumber <= bounds.end; pageNumber += 1) {
+    for (
+        let pageNumber = Number(bounds.start);
+        pageNumber <= bounds.end;
+        pageNumber += 1
+    ) {
+        const normalizedPageNumber = requirePageNumber(pageNumber, options.totalPages);
         const pageElement = options.container.querySelector<HTMLElement>(
-            `.page_container[data-page="${pageNumber}"]`,
+            `.page_container[data-page="${normalizedPageNumber}"]`,
         );
         if (!pageElement) {
             return null;

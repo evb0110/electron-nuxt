@@ -15,6 +15,7 @@ import {
     ref,
     shallowRef,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type {
     IDocumentOutlineItem,
     IDocumentPageSource,
@@ -92,7 +93,7 @@ function createSearchSession(): IDocumentSearchSession {
 function createSource(getOutline: () => Promise<IDocumentOutlineItem[]>): IDocumentPageSource {
     return {
         kind: 'djvu',
-        documentRef: 'test.djvu',
+        documentRef: requireDocumentRef('/tmp/test.djvu'),
         pageCount: 2,
         outlineProvider: {getOutline},
         getPageMetrics: vi.fn(),

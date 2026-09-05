@@ -1,13 +1,16 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPageRange } from '@app/types/pdfUi';
 
 
 
 interface IShouldRefreshManagedShapePageOptions {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     visibleRange: IPageRange;
     renderBuffer: number;
-    isPageRendered: (pageNumber: number) => boolean;
-    hasRenderedCanvasDom?: (pageNumber: number) => boolean;
+    isPageRendered: (pageNumber: TPageNumber) => boolean;
+    hasRenderedCanvasDom?: (pageNumber: TPageNumber) => boolean;
 }
 
 export function shouldRefreshManagedShapePage({
@@ -17,7 +20,7 @@ export function shouldRefreshManagedShapePage({
     isPageRendered,
     hasRenderedCanvasDom,
 }: IShouldRefreshManagedShapePageOptions) {
-    const normalizedPageNumber = Math.max(1, Math.floor(pageNumber));
+    const normalizedPageNumber = requirePageNumber(Math.max(1, Math.floor(pageNumber)));
     const normalizedBuffer = Math.max(0, Math.floor(renderBuffer));
     const renderWindowStart = Math.max(1, Math.floor(visibleRange.start) - normalizedBuffer);
     const renderWindowEnd = Math.max(

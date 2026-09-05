@@ -1,7 +1,7 @@
 import type { TPdfSource } from '@app/types/pdfUi';
 
 function isPdfPathSource(source: TPdfSource): source is Extract<TPdfSource, { kind: 'path' }> {
-    return !(source instanceof Blob) && source.kind === 'path';
+    return !(source instanceof Blob);
 }
 
 /**

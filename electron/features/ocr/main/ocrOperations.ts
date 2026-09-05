@@ -1,6 +1,14 @@
 import type { WebContents } from 'electron';
 import { extname } from 'path';
-import type { IOcrCancelResult } from '@contracts/electronApiOcr';
+import type {
+    IOcrCancelResult,
+    IOcrJobStartResult,
+} from '@contracts/electronApiOcr';
+import {
+    createJobId,
+    parseJobId,
+    requireJobId,
+} from '@contracts/shared';
 import type { IPlatformMainSenderContext } from '@contracts/platformFeature';
 import {AVAILABLE_OCR_LANGUAGES} from '@electron/ocr/availableLanguages';
 import {
@@ -311,13 +319,8 @@ export async function handleOcrCreateSearchablePdf(
     pagesPayload: unknown,
     requestIdPayload: unknown,
     renderDpiOrOptionsPayload?: unknown,
-): Promise<{
-    started: boolean;
-    jobId: string;
-    error?: string;
-    errorEnvelope?: ReturnType<typeof buildOcrErrorEnvelope>;
-}> {
-    let jobId = typeof requestIdPayload === 'string' ? requestIdPayload.trim() : '';
+): Promise<IOcrJobStartResult> {
+    let jobId = parseJobId(requestIdPayload) ?? createJobId('ocr');
 
     try {
         const payload = validateCreateSearchablePdfPayload(
@@ -327,7 +330,7 @@ export async function handleOcrCreateSearchablePdf(
             renderDpiOrOptionsPayload,
         );
 
-        jobId = payload.requestId;
+        jobId = requireJobId(payload.requestId);
         const validatedSourcePdfPath = await validateOcrPersistenceSourcePdfPath(
             payload.sourcePdfPath,
             context.senderId,

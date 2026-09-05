@@ -143,7 +143,7 @@ describe('combinePdfFiles', () => {
         expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith([
             '/tmp/first.pdf',
             '/tmp/second.pdf',
-        ], 'combine-request-1', {forceCombine: true});
+        ], 'pdf-combine-combine-request-1', {forceCombine: true});
         expect(mocks.documentOpen.onOpenDocumentDirectBatchProgress).toHaveBeenCalledOnce();
         expect(mocks.stopProgress).toHaveBeenCalledOnce();
         expect(onProgress).toHaveBeenNthCalledWith(1, {
@@ -184,7 +184,7 @@ describe('combinePdfFiles', () => {
                 '/tmp/first.pdf',
                 '/tmp/second.pdf',
             ],
-            'combine-request-1',
+            'pdf-combine-combine-request-1',
             {forceCombine: true},
         );
     });
@@ -202,7 +202,7 @@ describe('combinePdfFiles', () => {
 
         expect(mocks.documentOpen.openDocumentDirectBatch).toHaveBeenCalledWith(
             paths,
-            'combine-request-1',
+            'pdf-combine-combine-request-1',
             {forceCombine: true},
         );
     });
@@ -320,7 +320,7 @@ describe('combinePdfFiles', () => {
         controller.abort(new DOMException('Canceled', 'AbortError'));
 
         await expect(pending).rejects.toMatchObject({code: 'canceled'});
-        expect(mocks.documentOpen.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith('combine-request-1');
+        expect(mocks.documentOpen.cancelOpenDocumentDirectBatch).toHaveBeenCalledWith('pdf-combine-combine-request-1');
     });
 
     it('rejects oversized browser inputs with a structured limit code before starting work', async () => {

@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import {
     createAgentPageLabelPlan,
     createAgentPageLabelSnapshot,
@@ -23,7 +24,7 @@ const DEFAULT_RANGES = [{
 function bookmark(overrides: Partial<IPdfBookmarkEntry>): IPdfBookmarkEntry {
     return {
         title: 'Bookmark',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
@@ -238,7 +239,7 @@ describe('agentMetadataPlans', () => {
         expect(plan.bookmarks).toEqual([
             expect.objectContaining({
                 title: 'Introduction',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 items: [expect.objectContaining({
                     title: 'Scope',
                     pageIndex: 1,
@@ -407,7 +408,7 @@ describe('agentMetadataPlans', () => {
             ]},
             currentBookmarks: [bookmark({
                 title: 'Old',
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
             })],
             totalPages: 4,
             dirty: false,

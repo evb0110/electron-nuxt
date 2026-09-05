@@ -8,6 +8,11 @@ import {
 import type * as UTIFModule from 'utif';
 import type * as EsToolkitMathModule from 'es-toolkit/math';
 import {cast} from '@tests/unit/app/platform/browserPlatformTestDoubles';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {
+    requirePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 
 type TUtifModule = typeof UTIFModule;
 
@@ -39,7 +44,10 @@ vi.mock('@app/platform/browserDocumentStore', () => ({
 }));
 
 vi.mock('@app/platform/browser-api/browserYield', () => ({ yieldToBrowser: yieldToBrowserMock }));
-vi.mock('@contracts/documentRef', () => ({isNativeLegacyDocumentRef: (value: unknown) => typeof value === 'string' && value.startsWith('/')}));
+vi.mock('@contracts/documentRef', () => ({
+    isNativeLegacyDocumentRef: (value: unknown) => typeof value === 'string' && value.startsWith('/'),
+    requireDocumentRef: (value: unknown) => value,
+}));
 
 vi.mock('@app/platform/browser-api/createDjvuWorkerFromPath', () => ({
     createDjvuWorkerFromPath: (...args: unknown[]) => createDjvuWorkerFromPathMock(...args),
@@ -239,8 +247,8 @@ describe('createBrowserImageExportCapability', () => {
         );
         const capability = createBrowserImageExportCapability();
 
-        await capability.exportPdfToImages('browser://documents/work/sample.pdf', [1]);
-        await capability.exportPdfToImages('browser://documents/work/sample.pdf', [1]);
+        await capability.exportPdfToImages(requireDocumentRef('browser://documents/work/sample.pdf'), [requirePageNumber(1)]);
+        await capability.exportPdfToImages(requireDocumentRef('browser://documents/work/sample.pdf'), [requirePageNumber(1)]);
 
         expect(utifLoaderState.encoderAccess).not.toHaveBeenCalled();
         expect(utifLoaderState.request).not.toHaveBeenCalled();
@@ -257,8 +265,8 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         await Promise.all([
-            capability.exportPdfToMultiPageTiff('browser://documents/work/first.pdf'),
-            capability.exportPdfToMultiPageTiff('browser://documents/work/second.pdf'),
+            capability.exportPdfToMultiPageTiff(requireDocumentRef('browser://documents/work/first.pdf')),
+            capability.exportPdfToMultiPageTiff(requireDocumentRef('browser://documents/work/second.pdf')),
         ]);
 
         expect(utifLoaderState.request).toHaveBeenCalledOnce();
@@ -275,7 +283,7 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const result = await capability.exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.pdf',
+            requireDocumentRef('browser://documents/work/sample.pdf'),
         );
 
         expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
@@ -323,8 +331,8 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         await expect(capability.exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         )).rejects.toThrow('page failed');
 
         expect(fakePdfDocument.destroy).toHaveBeenCalledTimes(1);
@@ -345,7 +353,7 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.pdf',
+            requireDocumentRef('browser://documents/work/sample.pdf'),
         )).resolves.toEqual({
             success: false,
             canceled: true,
@@ -367,7 +375,7 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.pdf',
+            requireDocumentRef('browser://documents/work/sample.pdf'),
         )).rejects.toThrow('encoder failed');
 
         expect(utifLoaderState.encoderAccess).toHaveBeenCalled();
@@ -405,8 +413,8 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.djvu',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.djvu'),
+            [requirePageNumber(1)],
             undefined,
             'djvu',
         )).resolves.toEqual({
@@ -507,7 +515,7 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.djvu',
+            requireDocumentRef('browser://documents/work/sample.djvu'),
             undefined,
             undefined,
             'djvu',
@@ -582,7 +590,7 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.djvu',
+            requireDocumentRef('browser://documents/work/sample.djvu'),
             undefined,
             undefined,
             'djvu',
@@ -616,8 +624,8 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         )).rejects.toThrow('render failed');
 
         expect(cleanup).toHaveBeenCalledOnce();
@@ -651,8 +659,8 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         await expect(createBrowserImageExportCapability().exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         )).rejects.toThrow('Canvas 2D context is unavailable');
 
         expect(render).not.toHaveBeenCalled();
@@ -680,8 +688,8 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const result = await capability.exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         );
 
         expect(result).toEqual({
@@ -758,8 +766,8 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const result = await capability.exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         );
 
         expect(result).toEqual({
@@ -807,8 +815,8 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const result = await capability.exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [1],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(1)],
         );
 
         expect(result).toEqual({
@@ -857,10 +865,10 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const result = await capability.exportPdfToImages(
-            'browser://documents/work/sample.pdf',
+            requireDocumentRef('browser://documents/work/sample.pdf'),
             [
-                0,
-                3,
+                cast<TPageNumber>(0),
+                requirePageNumber(3),
             ],
         );
 
@@ -881,12 +889,12 @@ describe('createBrowserImageExportCapability', () => {
         );
         const capability = createBrowserImageExportCapability();
 
-        await expect(capability.exportPdfToImages('/tmp/native.pdf', [1])).rejects.toMatchObject({
+        await expect(capability.exportPdfToImages(requireDocumentRef('/tmp/native.pdf'), [requirePageNumber(1)])).rejects.toMatchObject({
             name: 'PdfCombineCapabilityError',
             code: 'native-unavailable',
             operation: 'image-export',
         });
-        await expect(capability.exportPdfToMultiPageTiff('/tmp/native.pdf', [1])).rejects.toMatchObject({
+        await expect(capability.exportPdfToMultiPageTiff(requireDocumentRef('/tmp/native.pdf'), [requirePageNumber(1)])).rejects.toMatchObject({
             name: 'PdfCombineCapabilityError',
             code: 'native-unavailable',
             operation: 'image-export',
@@ -916,7 +924,7 @@ describe('createBrowserImageExportCapability', () => {
         const capability = createBrowserImageExportCapability();
 
         const rejection = await capability.exportPdfToImages(
-            'browser://documents/work/sample.pdf',
+            requireDocumentRef('browser://documents/work/sample.pdf'),
         ).then(
             () => {
                 throw new Error('Expected the oversized all-pages export to be refused');
@@ -962,7 +970,7 @@ describe('createBrowserImageExportCapability', () => {
         const {createBrowserImageExportCapability} = await import('@app/platform/browser-api/createBrowserImageExportCapability');
 
         const rejection = await createBrowserImageExportCapability().exportPdfToMultiPageTiff(
-            'browser://documents/work/sample.djvu',
+            requireDocumentRef('browser://documents/work/sample.djvu'),
             undefined,
             undefined,
             'djvu',
@@ -1003,8 +1011,8 @@ describe('createBrowserImageExportCapability', () => {
         );
 
         const result = await createBrowserImageExportCapability().exportPdfToImages(
-            'browser://documents/work/sample.pdf',
-            [7],
+            requireDocumentRef('browser://documents/work/sample.pdf'),
+            [requirePageNumber(7)],
         );
 
         expect(result).toEqual({

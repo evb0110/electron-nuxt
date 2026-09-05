@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto';
 import {rm} from 'fs/promises';
 import {
     dirname,
@@ -73,6 +72,11 @@ import {
     ScanCleanupNativeToolUnavailableError,
 } from '@scan-cleanup-core/errors';
 import {SCAN_CLEANUP_INPUT_MAX_PAGE_ENTRIES} from '@contracts/scan-cleanup/inputLimits';
+import {createEpochMs} from '@contracts/timestamps';
+import {
+    createJobId,
+    type TJobId,
+} from '@contracts/shared';
 import {
     attachScanCleanupPageOverrideDefaults,
     usesScanCleanupInkAlignment,
@@ -286,7 +290,7 @@ function completedProgress(
             }),
             ...completedPageMetadata,
         },
-        updatedAtMs: Date.now(),
+        updatedAtMs: createEpochMs(),
     };
 }
 
@@ -298,7 +302,7 @@ function terminalProgress(
     const base = {
         jobId: latest.jobId,
         progress: latest.progress,
-        updatedAtMs: Date.now(),
+        updatedAtMs: createEpochMs(),
     };
     return status === 'canceled'
         ? {
@@ -469,7 +473,7 @@ export function createScanCleanupService(
     jobs: TScanCleanupJobRegistry = createScanCleanupJobRegistry(),
 ): IScanCleanupService {
     const activeJobsByBrokerOwner = new Map<string, {
-        jobId: string;
+        jobId: TJobId;
         outputPdfPath: string;
         request: IScanCleanupStartRequest;
         signature: string;
@@ -500,7 +504,7 @@ export function createScanCleanupService(
     }
     return {
         async start(sender, request) {
-            const jobId = `scan-cleanup-${randomUUID()}`;
+            const jobId = createJobId('scan-cleanup');
             const brokerOwnerId = createStableJobBrokerOwnerId(
                 'scan-cleanup',
                 sender.id,
@@ -642,7 +646,7 @@ export function createScanCleanupService(
                         jobId,
                         status: 'queued',
                         progress,
-                        updatedAtMs: Date.now(),
+                        updatedAtMs: createEpochMs(),
                     },
                     ownerLifecycle: {
                         // A destroyed or crashed renderer can never present this
@@ -738,7 +742,7 @@ export function createScanCleanupService(
                                         jobId,
                                         status: nextProgress.stage === 'handoff' ? 'handoff' : 'running',
                                         progress: nextProgress,
-                                        updatedAtMs: Date.now(),
+                                        updatedAtMs: createEpochMs(),
                                     });
                                 },
                             );

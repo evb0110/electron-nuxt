@@ -24,17 +24,40 @@ interface IPdfTextMarkupQuadLineGroup {
 function toPdfTextMarkupQuads(values: readonly number[]): IPdfTextMarkupQuad[] | null {
     const quads: IPdfTextMarkupQuad[] = [];
     for (let index = 0; index < values.length; index += 8) {
+        if (index + 7 >= values.length) {
+            return null;
+        }
+        const x0 = values[index];
+        const x1 = values[index + 2];
+        const x2 = values[index + 4];
+        const x3 = values[index + 6];
+        const y0 = values[index + 1];
+        const y1 = values[index + 3];
+        const y2 = values[index + 5];
+        const y3 = values[index + 7];
+        if (
+            x0 === undefined
+            || x1 === undefined
+            || x2 === undefined
+            || x3 === undefined
+            || y0 === undefined
+            || y1 === undefined
+            || y2 === undefined
+            || y3 === undefined
+        ) {
+            return null;
+        }
         const xs = [
-            values[index]!,
-            values[index + 2]!,
-            values[index + 4]!,
-            values[index + 6]!,
+            x0,
+            x1,
+            x2,
+            x3,
         ];
         const ys = [
-            values[index + 1]!,
-            values[index + 3]!,
-            values[index + 5]!,
-            values[index + 7]!,
+            y0,
+            y1,
+            y2,
+            y3,
         ];
         if (xs.some(value => !Number.isFinite(value)) || ys.some(value => !Number.isFinite(value))) {
             return null;

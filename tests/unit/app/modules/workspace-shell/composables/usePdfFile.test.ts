@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import {
@@ -109,8 +111,8 @@ function createFacade(options: Parameters<typeof usePdfFile>[0] = {}) {
 function pdfResult(name: string): TOpenFileResult {
     return {
         kind: 'pdf',
-        originalPath: `/${name}.pdf`,
-        workingPath: `/tmp/${name}.pdf`,
+        originalPath: requireDocumentRef(`/${name}.pdf`),
+        workingPath: requireDocumentRef(`/tmp/${name}.pdf`),
     };
 }
 
@@ -121,9 +123,9 @@ function invokeOpen(file: IPdfFileFacade, entryPoint: TOpenEntryPoint, name: str
         return file.openFile();
     }
     if (entryPoint === 'direct') {
-        return file.openFileDirect(`/${name}.pdf`);
+        return file.openFileDirect(requireDocumentRef(`/${name}.pdf`));
     }
-    return file.openFileDirectBatch([`/${name}.pdf`]);
+    return file.openFileDirectBatch([requireDocumentRef(`/${name}.pdf`)]);
 }
 
 function installRacingResults(entryPoint: TOpenEntryPoint) {
@@ -164,7 +166,7 @@ describe('usePdfFile façade', () => {
             token: 'revision-token',
         });
         mocks.getOpeningGeometry.mockResolvedValue({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 1,
             width: 612,
             height: 792,
@@ -209,7 +211,7 @@ describe('usePdfFile façade', () => {
         });
         rememberValidatedTrustedPdfOpenGeometry({
             documentId: result.originalPath,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pageCount: 7,
             width: 640,
             height: 900,
@@ -229,7 +231,7 @@ describe('usePdfFile façade', () => {
             width: 640,
             height: 900,
         });
-        invalidateTrustedPdfOpenGeometry(result.originalPath, 1);
+        invalidateTrustedPdfOpenGeometry(result.originalPath, requirePageNumber(1));
     });
 
     it('rejects an empty PDF before it can claim the document session', async () => {

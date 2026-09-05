@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -172,7 +173,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         }));
 
-        scroll.scrollToPage(container, 3, 3, 20);
+        scroll.scrollToPage(container, requirePageNumber(3), 3, 20);
 
         expect(getScrollTop()).toBe(740);
     });
@@ -248,7 +249,7 @@ describe('usePdfScroll page layout fallback', () => {
                 paddingBottom: 20,
             }));
 
-            scroll.scrollToPage(container, 2, 3, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect });
 
             expect(scrollTop).not.toBe(1_300);
 
@@ -329,7 +330,7 @@ describe('usePdfScroll page layout fallback', () => {
                 width: 0.1,
                 height: 0.1,
             };
-            scroll.scrollToPage(container, 2, 2, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, { markerRect });
             scroll.setPageLayoutMetrics(null);
 
             expect(mutationDisconnect).not.toHaveBeenCalled();
@@ -416,8 +417,8 @@ describe('usePdfScroll page layout fallback', () => {
                 width: 0.1,
                 height: 0.1,
             };
-            scroll.scrollToPage(container, 2, 2, 20, { markerRect });
-            scroll.scrollToPage(container, 2, 2, 20, {
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, { markerRect });
+            scroll.scrollToPage(container, requirePageNumber(2), 2, 20, {
                 markerRect,
                 preferExactDom: true,
             });
@@ -641,7 +642,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         }));
 
-        scroll.scrollToPage(container, 3, 5, 20);
+        scroll.scrollToPage(container, requirePageNumber(3), 5, 20);
 
         expect(getScrollTop()).toBe(160);
     });
@@ -667,7 +668,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.1,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: rightSideMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: rightSideMarkerRect });
 
         expect(getScrollLeft()).toBe(0);
     });
@@ -693,7 +694,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.02,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: nearBottomMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: nearBottomMarkerRect });
 
         expect(getScrollTop()).toBe(1020);
     });
@@ -713,7 +714,7 @@ describe('usePdfScroll page layout fallback', () => {
         });
         const scroll = usePdfScroll();
 
-        scroll.scrollToPage(container, 2, 3, 20, { pageYRatio: 0.25 });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { pageYRatio: 0.25 });
 
         expect(getScrollTop()).toBe(580);
     });
@@ -739,7 +740,7 @@ describe('usePdfScroll page layout fallback', () => {
             height: 0.1,
         };
 
-        scroll.scrollToPage(container, 2, 3, 20, { markerRect: farRightMarkerRect });
+        scroll.scrollToPage(container, requirePageNumber(2), 3, 20, { markerRect: farRightMarkerRect });
 
         expect(getScrollLeft()).toBe(440);
     });
@@ -769,7 +770,7 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 0,
         }));
 
-        scroll.scrollToPage(container, 2, 2, 20, {markerRect: {
+        scroll.scrollToPage(container, requirePageNumber(2), 2, 20, {markerRect: {
             left: 0.8,
             top: 0.25,
             width: 0.2,
@@ -798,12 +799,12 @@ describe('usePdfScroll page layout fallback', () => {
             paddingBottom: 20,
         });
         const targetPage = 69_001;
-        const targetTop = getPageTop(layout!, targetPage)!;
+        const targetTop = getPageTop(layout!, requirePageNumber(targetPage))!;
         const segmentOrigin = Math.floor(targetTop / PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT)
             * PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT;
         scroll.setPageLayoutMetrics(layout);
 
-        scroll.scrollToPage(container, targetPage, 138_000, 20);
+        scroll.scrollToPage(container, requirePageNumber(targetPage), 138_000, 20);
 
         expect(getScrollTop()).toBe(targetTop - segmentOrigin - 20);
         expect(getScrollTop()).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);

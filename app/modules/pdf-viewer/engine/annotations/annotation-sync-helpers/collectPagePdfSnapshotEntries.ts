@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     ILinkAnnotation,
@@ -17,7 +19,7 @@ import { tryExtractPdfLinkAnnotation } from '@app/modules/pdf-viewer/engine/anno
 
 export function collectPagePdfSnapshotEntries(
     pageBundle: IPdfPageAnnotationBundle,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     summaryDeps: IPdfCommentSummaryDeps,
     comments: IAnnotationCommentSummary[],
     links: ILinkAnnotation[],

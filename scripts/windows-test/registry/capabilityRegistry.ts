@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { readFile } from 'node:fs/promises';
 import {
     isOneOf,
@@ -171,7 +172,7 @@ export async function loadCapabilityRegistry(registryPath: string) {
     try {
         parsed = JSON.parse(raw);
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         throw new Error(`Windows capability registry at ${registryPath} is not valid JSON: ${detail}`);
     }
     if (!isWindowsCapabilityRegistry(parsed)) {

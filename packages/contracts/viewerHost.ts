@@ -9,7 +9,10 @@ import type {
     IPdfSearchRequestOptions,
     IPdfSearchResponse,
 } from '@contracts/search';
-import type { ISettingsData } from '@contracts/shared';
+import type {
+    ISettingsData,
+    TRequestId,
+} from '@contracts/shared';
 import type { TSettingsSavePatch } from '@contracts/settings';
 import type {
     IWindowTabTargetWindow,
@@ -69,7 +72,7 @@ export interface IViewerSearchCapability {
         ref: TDocumentRef,
         options?: IPdfSearchRequestOptions,
     ) => Promise<boolean>;
-    cancel?: (requestId?: string) => Promise<{ canceled: boolean }>;
+    cancel?: (requestId?: TRequestId) => Promise<{ canceled: boolean }>;
     onProgress?: (callback: (progress: IPdfSearchProgress) => void) => TMenuEventUnsubscribe;
 }
 

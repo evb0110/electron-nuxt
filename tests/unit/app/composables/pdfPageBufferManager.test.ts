@@ -6,6 +6,7 @@ import {
 import { getPageContainer } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/getPageContainer';
 import { setupPagePlaceholderSizes } from '@app/modules/pdf-viewer/engine/pdf-page-buffer-manager/setupPagePlaceholderSizes';
 import { cast } from '@tests/helpers/cast';
+import {requirePageIndex} from '@contracts/pageNumbers';
 
 function createPageContainerRoot(pageNumbers: number[]) {
     const mountedPages = pageNumbers.map((pageNumber) => cast<HTMLElement>({dataset: {page: String(pageNumber)}}));
@@ -56,8 +57,8 @@ describe('pdfPageBufferManager.getPageContainer', () => {
             44,
         ]);
 
-        const page41 = getPageContainer(root, 40);
-        const page44 = getPageContainer(root, 43);
+        const page41 = getPageContainer(root, requirePageIndex(40));
+        const page44 = getPageContainer(root, requirePageIndex(43));
 
         expect(page41?.dataset.page).toBe('41');
         expect(page44?.dataset.page).toBe('44');
@@ -69,7 +70,7 @@ describe('pdfPageBufferManager.getPageContainer', () => {
             44,
         ]);
 
-        expect(getPageContainer(root, 0)).toBeNull();
+        expect(getPageContainer(root, requirePageIndex(0))).toBeNull();
     });
 
     it('sizes mounted placeholders from each page metric instead of one shared size', () => {

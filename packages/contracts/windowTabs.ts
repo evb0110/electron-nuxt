@@ -1,3 +1,9 @@
+import {
+    createBrandedId,
+    isBrandedString,
+    parseBranded,
+} from '@contracts/brand';
+import type {TBrand} from '@contracts/brand';
 import type { TaggedUnion } from 'type-fest';
 import type {
     TDocumentBackend,
@@ -5,49 +11,73 @@ import type {
 } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {TSessionId} from '@contracts/shared';
 
-export interface IEmptySplitPayload {kind: 'empty';}
+export type TTabId = TBrand<string, 'TabId'>;
+
+export function isTabId(value: unknown): value is TTabId {
+    return isBrandedString<'TabId'>(value);
+}
+
+export function parseTabId(value: unknown): TTabId | null {
+    const normalized = typeof value === 'string' ? value.trim() : value;
+    return parseBranded(normalized, isTabId);
+}
+
+export function requireTabId(value: unknown): TTabId {
+    const parsed = parseTabId(value);
+    if (parsed === null) {
+        throw new TypeError('Tab ID must be a non-empty string');
+    }
+    return parsed;
+}
+
+export function createTabId(prefix = 'tab'): TTabId {
+    return createBrandedId(prefix, isTabId);
+}
+
+export interface IEmptySplitPayload {readonly kind: 'empty';}
 
 export interface IDjvuSplitPayload {
-    kind: 'djvu';
-    sourcePath: TDocumentRef;
-    sourceBackend?: TDocumentBackend;
-    currentPage?: number;
-    totalPages?: number;
+    readonly kind: 'djvu';
+    readonly sourcePath: TDocumentRef;
+    readonly sourceBackend?: TDocumentBackend;
+    readonly currentPage?: number;
+    readonly totalPages?: number;
 }
 
 export interface IPdfSnapshotSplitPayload {
-    kind: 'pdfSnapshot';
-    fileName: string;
-    originalPath: TDocumentRef | null;
-    originalBackend?: TDocumentBackend;
-    snapshotPath: TDocumentRef;
-    snapshotBackend?: TDocumentBackend;
-    isDirty: boolean;
-    currentPage?: number;
-    totalPages?: number;
+    readonly kind: 'pdfSnapshot';
+    readonly fileName: string;
+    readonly originalPath: TDocumentRef | null;
+    readonly originalBackend?: TDocumentBackend;
+    readonly snapshotPath: TDocumentRef;
+    readonly snapshotBackend?: TDocumentBackend;
+    readonly isDirty: boolean;
+    readonly currentPage?: number;
+    readonly totalPages?: number;
 }
 
 export type TSplitPayload = IEmptySplitPayload | IDjvuSplitPayload | IPdfSnapshotSplitPayload;
 
 export interface ITabMetadataCore {
-    fileName: string | null;
-    originalPath: TDocumentRef | null;
-    originalBackend?: TDocumentBackend;
-    documentInstanceId?: TDocumentInstanceId | null;
-    isDirty: boolean;
-    isDjvu: boolean;
+    readonly fileName: string | null;
+    readonly originalPath: TDocumentRef | null;
+    readonly originalBackend?: TDocumentBackend;
+    readonly documentInstanceId?: TDocumentInstanceId | null;
+    readonly isDirty: boolean;
+    readonly isDjvu: boolean;
 }
 
 export type ITransferredTabState = ITabMetadataCore;
 
 export interface IWindowTabTransferSessionState {
-    sessionId: string;
-    sessionRevision: number;
-    documentRef: TDocumentRef | null;
-    documentBackend?: TDocumentBackend;
-    documentInstanceId?: TDocumentInstanceId | null;
-    documentRevisionToken?: TDocumentRevisionToken;
+    readonly sessionId: TSessionId;
+    readonly sessionRevision: number;
+    readonly documentRef: TDocumentRef | null;
+    readonly documentBackend?: TDocumentBackend;
+    readonly documentInstanceId?: TDocumentInstanceId | null;
+    readonly documentRevisionToken?: TDocumentRevisionToken;
 }
 
 export type TWindowTabTransferTarget =
@@ -66,38 +96,38 @@ export interface IWindowTabTransferRequest {
 }
 
 export interface IWindowTabIncomingTransfer {
-    transferId: string;
-    sourceWindowId: number;
-    targetWindowId: number;
-    tab: ITransferredTabState;
-    payload: TSplitPayload;
-    session?: IWindowTabTransferSessionState;
+    readonly transferId: string;
+    readonly sourceWindowId: number;
+    readonly targetWindowId: number;
+    readonly tab: ITransferredTabState;
+    readonly payload: TSplitPayload;
+    readonly session?: IWindowTabTransferSessionState;
 }
 
 export interface IWindowTabTransferAck {
-    transferId: string;
-    success: boolean;
-    error?: string;
+    readonly transferId: string;
+    readonly success: boolean;
+    readonly error?: string;
 }
 
 export interface IWindowTabTransferResult {
-    transferId: string;
-    success: boolean;
-    targetWindowId: number;
-    error?: string;
+    readonly transferId: string;
+    readonly success: boolean;
+    readonly targetWindowId: number;
+    readonly error?: string;
 }
 
 export interface IWindowTabTargetWindow {
-    windowId: number;
-    label: string;
+    readonly windowId: number;
+    readonly label: string;
 }
 
 export type TWindowTabsAction = TaggedUnion<'kind', {
-    'close-tab': {tabId?: string;};
-    'move-tab-to-new-window': {tabId?: string;};
+    'close-tab': {tabId?: TTabId;};
+    'move-tab-to-new-window': {tabId?: TTabId;};
     'move-tab-to-window': {
         targetWindowId: number;
-        tabId?: string;
+        tabId?: TTabId;
     };
     'merge-window-into': {targetWindowId: number;};
 }>;

@@ -50,10 +50,10 @@ export function sampleCanvasTextMarkupColorAtPoint(
     for (let y = 0; y < height; y += 1) {
         for (let x = 0; x < width; x += 1) {
             const index = (y * width + x) * 4;
-            const r = data.data[index]!;
-            const g = data.data[index + 1]!;
-            const b = data.data[index + 2]!;
-            const alpha = data.data[index + 3]!;
+            const r = data.data[index] ?? 0;
+            const g = data.data[index + 1] ?? 0;
+            const b = data.data[index + 2] ?? 0;
+            const alpha = data.data[index + 3] ?? 0;
             const score = textMarkupCanvasColor.colorDistanceScoreFromPoint(
                 (left + x - centerX) / scaleX,
                 (top + y - centerY) / scaleY,

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     createHash,
     randomBytes,
@@ -178,7 +179,7 @@ function infrastructureReport(message: string): IWindowsTestRunReport {
 }
 
 function standaloneUtmctlDoctorFailure(error: unknown): IWindowsTestDoctorReport {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = getErrorMessage(error);
     const check: IWindowsTestDoctorCheck = {
         id: 'utmctl-standalone',
         ok: false,
@@ -192,7 +193,7 @@ function standaloneUtmctlDoctorFailure(error: unknown): IWindowsTestDoctorReport
 }
 
 function utmProcessDoctorFailure(error: unknown): IWindowsTestDoctorReport {
-    const detail = error instanceof Error ? error.message : String(error);
+    const detail = getErrorMessage(error);
     const check: IWindowsTestDoctorCheck = {
         id: 'utm-app-running',
         ok: false,
@@ -342,14 +343,14 @@ export async function executeWindowsTestRunOnHost(
         if (error instanceof WindowsTestConfigError && error.kind === 'config-missing') {
             return infrastructureReport(describeMissingWindowsTestConfig(layout.configFile));
         }
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
 
     let candidate: IWindowsTestCandidate | null;
     try {
         candidate = await resolveWindowsTestCandidate(config, options.artifact);
     } catch (error) {
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
     if (candidate === null) {
         return infrastructureReport('A verified candidate installer is required before starting a Windows test run. Register the candidate artifact and its provenance, then retry.');
@@ -366,14 +367,14 @@ export async function executeWindowsTestRunOnHost(
             path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
         );
     } catch (error) {
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
 
     let utmctlPath: string;
     try {
         utmctlPath = await resolvePreparedStandaloneUtmctl({layout});
     } catch (error) {
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
     const transport = createProductionUtmTransport(utmctlPath, {
         layout,
@@ -382,13 +383,13 @@ export async function executeWindowsTestRunOnHost(
     try {
         await transport.runner.assertUtmProcess();
     } catch (error) {
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
     let installedUtmVersion: string;
     try {
         installedUtmVersion = parseUtmctlVersion(await transport.utmctl.version()) ?? '';
     } catch (error) {
-        return infrastructureReport(error instanceof Error ? error.message : String(error));
+        return infrastructureReport(getErrorMessage(error));
     }
     if (isUtmScreenshotPreferenceRequired(installedUtmVersion)) {
         const screenshotPreference = await readUtmScreenshotPreference(transport.runner);
@@ -398,10 +399,10 @@ export async function executeWindowsTestRunOnHost(
     }
     options.onIdentity?.({
         runnerVersion: WINDOWS_TEST_RUNNER_VERSION,
-        appVersion: candidate?.version ?? 'unknown',
-        sourceSha: candidate?.sourceSha ?? 'unknown',
-        artifactFileName: candidate?.fileName ?? 'unknown',
-        artifactSha256: candidate?.sha256 ?? 'unknown',
+        appVersion: candidate.version,
+        sourceSha: candidate.sourceSha,
+        artifactFileName: candidate.fileName,
+        artifactSha256: candidate.sha256,
         imageId: imageManifest.imageId,
         environment: options.environment ?? config.environment,
     });
@@ -547,7 +548,7 @@ export async function runWindowsTestDoctorOnHost(
                 remedy: 'Release capture with UTM Command+Option, then rerun doctor. The harness refuses to start a test while capture remains enabled.',
             };
         } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
+            const detail = getErrorMessage(error);
             const noTargetWindow = /target(?: window|WindowUnavailable)/iu.test(detail);
             const noUtmProcess = /UTM process count/iu.test(detail);
             inputCaptureCheck = {
@@ -595,7 +596,7 @@ export async function requestWindowsTestStopOnHost(
             exitCode: windowsTestExitCodes.infrastructureFailed,
             messages: [error instanceof WindowsTestConfigError && error.kind === 'config-missing'
                 ? describeMissingWindowsTestConfig(layout.configFile)
-                : (error instanceof Error ? error.message : String(error))],
+                : (getErrorMessage(error))],
             recovered: false,
         };
     }

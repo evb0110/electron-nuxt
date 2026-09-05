@@ -8,12 +8,13 @@ import {
     reactive,
 } from 'vue';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {estimateScanCleanupOutputPages} from '@contracts/scanCleanupPageOverrides';
 import {applyScanCleanupDetectionResults} from '@app/modules/scan-cleanup/runtime/applyScanCleanupDetectionResults';
 
 function detectionResult(pageNumber: number): IScanCleanupDetectionResult {
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         classification: 'single-uncut-page',
         confidence: 0.9,
         cutterXPx: null,
@@ -38,7 +39,7 @@ describe('scan cleanup detection results', () => {
         ]]);
         applyScanCleanupDetectionResults([
             {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 classification: 'two-page-spread',
                 confidence: 0.82,
                 cutterXPx: 740,
@@ -60,7 +61,7 @@ describe('scan cleanup detection results', () => {
                 },
             },
             {
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 classification: 'single-uncut-page',
                 confidence: 0.94,
                 cutterXPx: null,

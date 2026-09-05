@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -329,7 +330,7 @@ describe('useAnnotationHighlight commentAtPoint', () => {
             emitAnnotationNotePlacementChange: () => {},
         }));
 
-        const outcome = await highlight.commentAtPoint(1, 0.5, 0.5, { preferTextAnchor: false });
+        const outcome = await highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, { preferTextAnchor: false });
 
         expect(outcome).toEqual({
             status: 'pending-editor',

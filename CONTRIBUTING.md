@@ -29,6 +29,14 @@ pnpm run test:unit
 
 Use `pnpm validate` for the full maintenance gate when the change touches shared architecture, build tooling, or release-critical behavior.
 
+`pnpm typecheck` runs two compilers. `vue-tsc` checks the Nuxt app and
+`packages/` on TypeScript 6, and typescript-eslint and `type-coverage` use
+that same TypeScript 6. The electron, tests, scripts, and server projects go
+through `scripts/run-ts7-typecheck.mjs` on the TypeScript 7 native compiler.
+A file that only one of them covers can pass one checker and fail another, so
+when a diagnostic looks inconsistent, note which compiler produced it before
+changing code to satisfy it.
+
 The pre-push hook also runs Cubic against each unpublished local commit. This
 is a local pre-flight review and does not create or poll a pull request. Run the
 same check manually for the current commit with:

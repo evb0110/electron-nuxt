@@ -99,7 +99,7 @@ export async function runExternalStressOperator(options: IStressOperatorDriverOp
         '',
         'Use your existing computer-use tools to operate this session. No API key is needed.',
         `Session: ${options.toolContext.session.name}`,
-        `Electron PID: ${info.electronPid}`,
+        `Electron PID: ${info.electronPid ?? 'unknown'}`,
         `Session metadata: ${sessionFilePath(options.toolContext.session.name)}`,
         `CDP endpoint: http://127.0.0.1:${info.cdpPort}`,
         'Use the Electron PID from the session metadata JSON and the exact CDP endpoint above to identify this run. If a desktop selector needs a path, match that PID in the computer-use app inventory.',

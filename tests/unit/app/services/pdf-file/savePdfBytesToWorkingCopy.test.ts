@@ -7,6 +7,7 @@ import {
     vi,
 } from 'vitest';
 import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const mocks = vi.hoisted(() => ({
@@ -55,7 +56,7 @@ describe('savePdfBytesToWorkingCopy', () => {
         mocks.documentFiles.savePdfData = savePdfData;
         const data = new Uint8Array([1]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        const result = await savePdfBytesToWorkingCopy(requireDocumentRef('/tmp/working.pdf'), data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toBe(validation);
         expect(savePdfData).toHaveBeenCalledWith(
@@ -76,7 +77,7 @@ describe('savePdfBytesToWorkingCopy', () => {
             3,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        const result = await savePdfBytesToWorkingCopy(requireDocumentRef('/tmp/working.pdf'), data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: true,
@@ -100,7 +101,7 @@ describe('savePdfBytesToWorkingCopy', () => {
             6,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        const result = await savePdfBytesToWorkingCopy(requireDocumentRef('/tmp/working.pdf'), data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: false,
@@ -125,7 +126,7 @@ describe('savePdfBytesToWorkingCopy', () => {
             9,
         ]);
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', data, SERIALIZED_SAVE_OPTIONS);
+        const result = await savePdfBytesToWorkingCopy(requireDocumentRef('/tmp/working.pdf'), data, SERIALIZED_SAVE_OPTIONS);
 
         expect(result).toEqual({
             isValid: false,
@@ -145,7 +146,7 @@ describe('savePdfBytesToWorkingCopy', () => {
         });
 
         const result = await savePdfBytesToWorkingCopy(
-            '/tmp/working.pdf',
+            requireDocumentRef('/tmp/working.pdf'),
             new Uint8Array([10]),
             SERIALIZED_SAVE_OPTIONS,
         );
@@ -168,7 +169,7 @@ describe('savePdfBytesToWorkingCopy', () => {
             errors: ['broken'],
         });
 
-        const result = await savePdfBytesToWorkingCopy('/tmp/working.pdf', new Uint8Array([9]));
+        const result = await savePdfBytesToWorkingCopy(requireDocumentRef('/tmp/working.pdf'), new Uint8Array([9]));
 
         expect(result).toEqual({
             isValid: false,

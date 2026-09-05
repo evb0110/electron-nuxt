@@ -1,9 +1,11 @@
 import path from 'node:path';
 
+/** @param {string[]} argv @param {string} name @returns {string | null} */
 function findNamedArg(argv, name) {
     return argv.find(argument => argument.startsWith(`--${name}=`)) ?? null;
 }
 
+/** @param {string} value @returns {string | null} */
 function normalizeRootArg(value) {
     const trimmed = value.trim();
     if (!trimmed || path.isAbsolute(trimmed)) {
@@ -16,6 +18,7 @@ function normalizeRootArg(value) {
         : null;
 }
 
+/** @param {string[]} argv @returns {string[] | null} */
 export function parseArchitectureRootsArg(argv) {
     const rootArg = findNamedArg(argv, 'roots');
     if (!rootArg) {
@@ -26,9 +29,10 @@ export function parseArchitectureRootsArg(argv) {
         .slice('--roots='.length)
         .split(',')
         .map(normalizeRootArg)
-        .filter(Boolean);
+        .flatMap(value => value === null ? [] : [value]);
 }
 
+/** @param {string[]} argv @param {{defaultScope?: 'all' | 'focused'}} [options] @returns {'all' | 'focused'} */
 export function parseArchitectureScopeArg(argv, {defaultScope = 'all'} = {}) {
     const scopeArg = findNamedArg(argv, 'scope');
     if (!scopeArg) {

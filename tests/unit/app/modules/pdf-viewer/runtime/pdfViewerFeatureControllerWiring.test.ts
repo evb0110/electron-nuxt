@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -112,7 +113,7 @@ describe('usePdfViewerFeatureController wiring', () => {
         const harness = mountFeatureController();
 
         // No document is loaded, so the annotation editor manager is absent.
-        await expect(harness.controller.pdfViewerPublicApi.commentAtPoint(1, 0.5, 0.5))
+        await expect(harness.controller.pdfViewerPublicApi.commentAtPoint(requirePageNumber(1), 0.5, 0.5))
             .resolves.toBe(false);
 
         const failures = harness.emitted.filter(([event]) => event === 'annotation-failure');
@@ -121,6 +122,16 @@ describe('usePdfViewerFeatureController wiring', () => {
             reason: 'viewer-not-ready',
             pageNumber: 1,
         });
+    });
+
+    it('survives a page number past the safe integer range', () => {
+        const harness = mountFeatureController();
+
+        // The public scrollToPage takes a plain number, so a caller can hand over
+        // a finite page that is not a safe integer. requirePageNumber rejects one,
+        // and branding it without a cap threw that RangeError at the caller.
+        expect(() => harness.controller.pdfViewerPublicApi.scrollToPage(Number.MAX_SAFE_INTEGER * 4))
+            .not.toThrow();
     });
 
     it('routes a modifier wheel packet into the zoom path', () => {

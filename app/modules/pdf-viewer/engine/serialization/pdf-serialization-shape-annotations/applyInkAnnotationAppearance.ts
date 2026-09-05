@@ -69,16 +69,26 @@ export function applyInkAnnotationAppearance(
     );
 
     let hasPath = false;
-    inkList.forEach((strokePoints) => {
+    for (const strokePoints of inkList) {
         if (strokePoints.length < 4) {
-            return;
+            continue;
         }
-        operators.push(moveTo(strokePoints[0]!, strokePoints[1]!));
+        const startX = strokePoints[0];
+        const startY = strokePoints[1];
+        if (startX === undefined || startY === undefined) {
+            continue;
+        }
+        operators.push(moveTo(startX, startY));
         for (let index = 2; index + 1 < strokePoints.length; index += 2) {
-            operators.push(lineTo(strokePoints[index]!, strokePoints[index + 1]!));
+            const x = strokePoints[index];
+            const y = strokePoints[index + 1];
+            if (x === undefined || y === undefined) {
+                continue;
+            }
+            operators.push(lineTo(x, y));
         }
         hasPath = true;
-    });
+    }
     if (!hasPath) {
         return false;
     }

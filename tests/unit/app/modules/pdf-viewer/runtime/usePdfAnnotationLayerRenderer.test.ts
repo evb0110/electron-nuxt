@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -5,8 +6,41 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
+import type {
+    AnnotationEditorUIManager,
+    PDFPageProxy,
+} from 'pdfjs-dist';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
+import type {PDFDocumentProxy} from '@app/types/pdfContracts';
+import {cast} from '@tests/helpers/cast';
+import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
+
+type TPdfViewport = ReturnType<PDFPageProxy['getViewport']>;
+
+function createPageProxy<TGetAnnotations extends (...args: never[]) => unknown>(
+    getAnnotations: TGetAnnotations,
+): PDFPageProxy & {getAnnotations: TGetAnnotations} {
+    return cast<PDFPageProxy & {getAnnotations: TGetAnnotations}>({getAnnotations});
+}
+
+function createViewport(width = 200, height = 300): TPdfViewport {
+    return cast<TPdfViewport>({
+        width,
+        height,
+        rotation: 0,
+    });
+}
+
+function createAnnotationLayerDiv(innerHTML = ''): HTMLElement {
+    return cast<HTMLElement>({
+        innerHTML,
+        querySelectorAll: vi.fn(() => []),
+    });
+}
 
 const annotationLayerCtor = vi.fn();
 const annotationLayerRender = vi.fn(async (_options: unknown) => {});
@@ -51,18 +85,14 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
-            annotationUiManager: ref(null),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
             annotationL10n: ref(null),
         });
 
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(async () => [{
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(async () => [{
             id: 'stamp-1',
             annotationType: 13,
             rect: [
@@ -72,8 +102,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
                 10,
             ],
             noHTML: false,
-        }])} as never;
-        const annotationLayerDiv = { innerHTML: '' } as HTMLDivElement;
+        }]));
+        const annotationLayerDiv = createAnnotationLayerDiv();
         const annotationCanvasMap = new Map<string, HTMLCanvasElement>([[
             'stamp-1',
             {} as HTMLCanvasElement,
@@ -82,8 +112,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
         await renderer.renderAnnotationLayer(
             pdfPage,
             annotationLayerDiv,
-            viewport as never,
-            1,
+            viewport,
+            requirePageNumber(1),
             annotationCanvasMap,
         );
 
@@ -106,27 +136,20 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
-            annotationUiManager: ref(null),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
             annotationL10n: ref(null),
         });
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(() => annotations.promise)} as never;
-        const annotationLayerDiv = {
-            innerHTML: '<section class="underlineAnnotation"></section>',
-            querySelectorAll: vi.fn(() => []),
-        };
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(() => annotations.promise));
+        const annotationLayerDiv = createAnnotationLayerDiv('<section class="underlineAnnotation"></section>');
 
         const renderPromise = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            1,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(1),
         );
         await Promise.resolve();
 
@@ -147,28 +170,21 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
-            annotationUiManager: ref(null),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
             annotationL10n: ref(null),
             getDocumentVersion: () => documentVersion,
         });
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(() => annotations.promise)} as never;
-        const annotationLayerDiv = {
-            innerHTML: '<section class="existingAnnotation"></section>',
-            querySelectorAll: vi.fn(() => []),
-        };
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(() => annotations.promise));
+        const annotationLayerDiv = createAnnotationLayerDiv('<section class="existingAnnotation"></section>');
 
         const renderPromise = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            1,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(1),
             null,
             {
                 documentVersion: 1,
@@ -214,34 +230,27 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: ref(annotationUiManager as never),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
             annotationL10n: ref(null),
         });
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
-        const annotationLayerDiv = {
-            innerHTML: '',
-            querySelectorAll: vi.fn(() => []),
-        };
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(async () => []));
+        const annotationLayerDiv = createAnnotationLayerDiv();
 
         const firstPromise = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            1,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(1),
         );
         const secondPromise = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            2,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(2),
         );
 
         await vi.waitFor(() => {
@@ -282,29 +291,22 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: ref(annotationUiManager as never),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
             annotationL10n: ref(null),
         });
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
-        const annotationLayerDiv = {
-            innerHTML: '',
-            querySelectorAll: vi.fn(() => []),
-        };
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(async () => []));
+        const annotationLayerDiv = createAnnotationLayerDiv();
         const abortController = new AbortController();
 
         const abortedRender = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            1,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(1),
             null,
             { signal: abortController.signal },
         ).catch(error => error as Error);
@@ -321,9 +323,9 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         const quarantinedRender = await renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            2,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(2),
         );
         expect(quarantinedRender).toBeNull();
         expect(annotationLayerRender).toHaveBeenCalledTimes(1);
@@ -335,9 +337,9 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         const nextRender = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            3,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(3),
         );
         await vi.waitFor(() => {
             expect(annotationLayerRender).toHaveBeenCalledTimes(2);
@@ -360,38 +362,31 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: ref(annotationUiManager as never),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
             annotationL10n: ref(null),
         });
-        const viewport = {
-            width: 200,
-            height: 300,
-            rotation: 0,
-        };
-        const pdfPage = {getAnnotations: vi.fn(async () => [])} as never;
-        const annotationLayerDiv = {
-            innerHTML: '',
-            querySelectorAll: vi.fn(() => []),
-        };
+        const viewport = createViewport();
+        const pdfPage = createPageProxy(vi.fn(async () => []));
+        const annotationLayerDiv = createAnnotationLayerDiv();
         const waitingAbortController = new AbortController();
 
         const firstRender = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            1,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(1),
         );
         await vi.waitFor(() => {
             expect(annotationLayerRender).toHaveBeenCalledTimes(1);
         });
         const waitingRender = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            2,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(2),
             null,
             { signal: waitingAbortController.signal },
         ).catch(error => error as Error);
@@ -403,9 +398,9 @@ describe('usePdfAnnotationLayerRenderer', () => {
 
         const thirdRender = renderer.renderAnnotationLayer(
             pdfPage,
-            annotationLayerDiv as never,
-            viewport as never,
-            3,
+            annotationLayerDiv,
+            viewport,
+            requirePageNumber(3),
         );
         await Promise.resolve();
         expect(annotationLayerRender).toHaveBeenCalledTimes(1);
@@ -423,13 +418,13 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(3),
             currentPage: ref(1),
-            pdfDocument: ref({ annotationStorage: {} } as never),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
-            annotationUiManager: ref(null),
+            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(null),
             annotationL10n: ref(null),
         });
-        const annotationLayerDiv = { innerHTML: '' } as HTMLDivElement;
-        const createPageProxy = () => ({getAnnotations: vi.fn(async () => [{
+        const annotationLayerDiv = createAnnotationLayerDiv();
+        const createPage = () => createPageProxy(vi.fn(async () => [{
             id: 'link-1',
             annotationType: 2,
             rect: [
@@ -439,18 +434,14 @@ describe('usePdfAnnotationLayerRenderer', () => {
                 10,
             ],
             noHTML: false,
-        }])});
-        const pdfPage = createPageProxy();
-        const reloadedPdfPage = createPageProxy();
-        const renderAt = (page: unknown, scale: number) => renderer.renderAnnotationLayer(
-            page as never,
+        }]));
+        const pdfPage = createPage();
+        const reloadedPdfPage = createPage();
+        const renderAt = (page: PDFPageProxy, scale: number) => renderer.renderAnnotationLayer(
+            page,
             annotationLayerDiv,
-            {
-                width: 200 * scale,
-                height: 300 * scale,
-                rotation: 0,
-            } as never,
-            1,
+            createViewport(200 * scale, 300 * scale),
+            requirePageNumber(1),
         );
 
         await renderAt(pdfPage, 1);

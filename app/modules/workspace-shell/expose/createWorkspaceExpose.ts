@@ -9,12 +9,15 @@ import type {
     TAnnotationCommentsStatus,
 } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requirePageNumber,
+    pageSelectionCount,
+} from '@contracts/pageNumbers';
 import type { ICropMargins } from '@app/types/crop';
 import type {
     TPageMoveOperation,
     TPageSelection,
 } from '@contracts/pageNumbers';
-import { pageSelectionCount } from '@contracts/pageNumbers';
 import type { IPdfPageLabelRange } from '@contracts/pdfPageLabels';
 import type {
     TFitMode,
@@ -601,7 +604,12 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
         getDeletedEmbeddedShapeStableKeys: () => deps.pdfAutomationViewerRef?.value?.getDeletedEmbeddedShapeStableKeys?.() ?? [],
         highlightSelection: () => deps.pdfAutomationViewerRef?.value?.highlightSelection?.() ?? Promise.resolve(false),
         commentAtPoint: (pageNumber, pageX, pageY, options) => (
-            deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(pageNumber, pageX, pageY, options) ?? Promise.resolve(false)
+            deps.pdfAutomationViewerRef?.value?.commentAtPoint?.(
+                requirePageNumber(pageNumber),
+                pageX,
+                pageY,
+                options,
+            ) ?? Promise.resolve(false)
         ),
     };
 
@@ -619,7 +627,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
             }
             if (descriptor.group === 'pageOps') {
                 return createWorkspaceExposeCommandRunner(() => (
-                    descriptor.kind === 'async' && descriptor.deferred === 'mountWaitBoolean'
+                    descriptor.deferred === 'mountWaitBoolean'
                         ? Promise.resolve(false)
                         : undefined
                 ));

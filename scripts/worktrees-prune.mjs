@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { realpath } from 'node:fs/promises';
@@ -272,7 +273,7 @@ export async function pruneWorktrees(options) {
                 : reclaimedKiB + sizeKiB;
             console.log(`removed ${worktree.path}`);
         } catch (error) {
-            console.error(`failed to remove ${worktree.path}: ${error instanceof Error ? error.message : String(error)}`);
+            console.error(`failed to remove ${worktree.path}: ${getCliErrorMessage(error)}`);
         }
     }
     git([
@@ -306,7 +307,7 @@ if (isMain) {
             await pruneWorktrees(options);
         }
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getCliErrorMessage(error);
         console.error(`worktrees-prune: ${message}`);
         console.error(USAGE);
         process.exitCode = 1;

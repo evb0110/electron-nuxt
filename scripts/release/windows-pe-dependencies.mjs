@@ -1,8 +1,15 @@
 #!/usr/bin/env node
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+
+/** @typedef {'ia32' | 'x64' | 'arm64'} TWindowsMachine */
+/** @typedef {{virtualSize: number, virtualAddress: number, sizeOfRawData: number, pointerToRawData: number}} IWindowsPeSection */
+/** @typedef {{machine: string, machineCode: number, imports: string[]}} IWindowsPeInfo */
+/** @typedef {{allowedMachines: string[], files: string[], systemDllPattern: RegExp}} IVerifyWindowsPeDependenciesOptions */
+/** @typedef {{allowedMachines: string[], fileListPath: string, systemDllPatternFile: string}} IVerifyCliOptions */
 
 const MACHINE_NAMES = new Map([
     [
@@ -19,6 +26,7 @@ const MACHINE_NAMES = new Map([
     ],
 ]);
 
+/** @param {string} filePath @param {string} [platform] @returns {string} */
 export function normalizeWindowsHostPath(filePath, platform = process.platform) {
     if (platform !== 'win32') {
         return filePath;
@@ -34,29 +42,37 @@ export function normalizeWindowsHostPath(filePath, platform = process.platform) 
         drive,
         remainder = '',
     ] = msysDrivePath;
+    if (!drive) {
+        return filePath;
+    }
     return `${drive.toUpperCase()}:/${remainder}`;
 }
 
+/** @param {string} message @returns {never} */
 function fail(message) {
     throw new Error(message);
 }
 
+/** @param {Buffer} buffer @param {number} offset @param {number} length @param {string} label */
 function ensureRange(buffer, offset, length, label) {
     if (offset < 0 || length < 0 || offset + length > buffer.length) {
         fail(`${label} is outside the file bounds`);
     }
 }
 
+/** @param {Buffer} buffer @param {number} offset @param {string} label @returns {number} */
 function readUInt16(buffer, offset, label) {
     ensureRange(buffer, offset, 2, label);
     return buffer.readUInt16LE(offset);
 }
 
+/** @param {Buffer} buffer @param {number} offset @param {string} label @returns {number} */
 function readUInt32(buffer, offset, label) {
     ensureRange(buffer, offset, 4, label);
     return buffer.readUInt32LE(offset);
 }
 
+/** @param {Buffer} buffer @param {number} offset @param {string} label @returns {string} */
 function readCString(buffer, offset, label) {
     ensureRange(buffer, offset, 1, label);
     let end = offset;
@@ -70,6 +86,7 @@ function readCString(buffer, offset, label) {
     return buffer.toString('ascii', offset, end);
 }
 
+/** @param {number} rva @param {IWindowsPeSection[]} sections @param {number} sizeOfHeaders @returns {number} */
 function rvaToOffset(rva, sections, sizeOfHeaders) {
     if (rva < sizeOfHeaders) {
         return rva;
@@ -85,6 +102,7 @@ function rvaToOffset(rva, sections, sizeOfHeaders) {
     fail(`Unable to map PE RVA 0x${rva.toString(16)} to a file offset`);
 }
 
+/** @param {string} filePath @returns {IWindowsPeInfo} */
 export function readWindowsPeInfo(filePath) {
     const buffer = readFileSync(normalizeWindowsHostPath(filePath));
 
@@ -162,16 +180,19 @@ export function readWindowsPeInfo(filePath) {
     };
 }
 
+/** @param {string} patternFilePath @returns {RegExp} */
 function readSystemDllPattern(patternFilePath) {
     const source = readFileSync(patternFilePath, 'utf8');
     const match = /^system_dll_pattern='([^']+)'/mu.exec(source);
-    if (!match?.[1]) {
+    const pattern = match?.[1];
+    if (!pattern) {
         fail(`Unable to read system_dll_pattern from ${patternFilePath}`);
     }
 
-    return new RegExp(match[1], 'iu');
+    return new RegExp(pattern, 'iu');
 }
 
+/** @param {IVerifyWindowsPeDependenciesOptions} options @returns {string[]} */
 export function verifyWindowsPeDependencies({
     allowedMachines,
     files,
@@ -197,7 +218,7 @@ export function verifyWindowsPeDependencies({
         try {
             info = readWindowsPeInfo(file);
         } catch (error) {
-            errors.push(`Error: Unable to read Windows PE headers for ${file}\n  ${error instanceof Error ? error.message : String(error)}`);
+            errors.push(`Error: Unable to read Windows PE headers for ${file}\n  ${getCliErrorMessage(error)}`);
             continue;
         }
 
@@ -229,6 +250,7 @@ function usage() {
     ].join('\n');
 }
 
+/** @param {string} fileListPath @returns {string[]} */
 function readFileList(fileListPath) {
     return readFileSync(fileListPath, 'utf8')
         .split(/\r?\n/u)
@@ -236,7 +258,9 @@ function readFileList(fileListPath) {
         .filter(Boolean);
 }
 
+/** @param {string[]} args @returns {IVerifyCliOptions} */
 function parseVerifyArgs(args) {
+    /** @type {IVerifyCliOptions} */
     const options = {
         allowedMachines: [],
         fileListPath: '',
@@ -311,7 +335,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     try {
         runCli();
     } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     }
 }

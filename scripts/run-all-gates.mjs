@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {spawn} from 'node:child_process';
 import {
     createWriteStream,
@@ -284,7 +285,7 @@ const isDirectCliRun = process.argv[1]
     && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url));
 if (isDirectCliRun) {
     runAllGates().catch(error => {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getCliErrorMessage(error)}\n`);
         process.exitCode = 1;
     });
 }

@@ -275,7 +275,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
             hasPdfError: Boolean(options.pdfError.value),
             hasDjvuError: Boolean(options.djvuError.value),
             initialVisualReady: initialDocumentVisualReady.value,
-            openSurface: openSurface ? {
+            openSurface: {
                 generation: openSurface.generation,
                 phase: openSurface.phase,
                 presentation: openSurface.presentation,
@@ -292,7 +292,7 @@ export const useDocumentOpenVisualSettle = (options: IUseDocumentOpenVisualSettl
                     documentGeometryRevision: openSurface.committedViewport.documentGeometryRevision,
                     interactionEpoch: openSurface.committedViewport.interactionEpoch,
                 } : null,
-            } : null,
+            },
             viewportSession: options.openSurface.viewportSession.value,
             lifecycleHistory: (options.openSurface as IDocumentOpenSurfaceSession).getDiagnosticHistory(),
         });

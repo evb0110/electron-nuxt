@@ -100,7 +100,10 @@ function toTransferableBuffer(data: Uint8Array) {
     return clone.buffer;
 }
 
-async function runTask(task: TDjvuPdfWorkerTask, signal: AbortSignal) {
+async function runTask(
+    task: Exclude<TDjvuPdfWorkerTask, {type: 'embedBookmarksInFile';}>,
+    signal: AbortSignal,
+) {
     switch (task.type) {
         case 'buildPdf':
             return buildOptimizedPdf(task.imagePaths, task.dpi, (page, total) => {
@@ -115,8 +118,6 @@ async function runTask(task: TDjvuPdfWorkerTask, signal: AbortSignal) {
             const pdfBytes = await buildOptimizedPdf([task.imagePath], task.dpi, undefined, {signal});
             return pdfBytes.length;
         }
-        default:
-            throw new Error(`Unsupported DjVu PDF worker task: ${(task as { type: string }).type}`);
     }
 }
 

@@ -1,7 +1,9 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 
 export function buildTrustedPdfGeometrySeed(input: {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageCount: number;
     width: number;
     height: number;

@@ -16,6 +16,12 @@ import type {
     TAgentWorkspaceMode,
 } from '@contracts/agent';
 import type { TEditorLayoutNode } from '@contracts/editorPanes';
+import { parsePaneId } from '@contracts/editorPanes';
+import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
+import { parseDocumentRef } from '@contracts/documentRef';
+import { parseIsoTimestamp } from '@contracts/timestamps';
+import { parseSessionId } from '@contracts/shared';
+import { parseTabId } from '@contracts/windowTabs';
 import {
     isRecord,
     isStringArray,
@@ -80,13 +86,15 @@ function isAgentWorkspaceCommandTarget(value: unknown): value is TAgentWorkspace
         return false;
     }
     if (
-        typeof value.tabId !== 'string'
-        || value.tabId.trim().length === 0
-        || typeof value.sessionId !== 'string'
-        || value.sessionId.trim().length === 0
-        || (value.documentRef !== null && typeof value.documentRef !== 'string')
+        parseTabId(value.tabId) === null
+        || parseSessionId(value.sessionId) === null
+        || (value.documentRef !== null && parseDocumentRef(value.documentRef) === null)
         || !isOptionalDocumentBackend(value.documentBackend)
-        || (value.documentInstanceId !== undefined && value.documentInstanceId !== null && typeof value.documentInstanceId !== 'string')
+        || (
+            value.documentInstanceId !== undefined
+            && value.documentInstanceId !== null
+            && parseDocumentInstanceId(value.documentInstanceId) === null
+        )
         || (value.documentRevisionToken !== undefined && typeof value.documentRevisionToken !== 'string')
     ) {
         return false;
@@ -102,13 +110,17 @@ function isAgentWorkspaceCommandTarget(value: unknown): value is TAgentWorkspace
 
 function hasAgentDocumentSnapshotFields(value: unknown): value is Record<string, unknown> {
     return isRecord(value)
-        && typeof value.tabId === 'string'
-        && isNullableString(value.paneId)
+        && parseTabId(value.tabId) !== null
+        && (value.paneId === null || parsePaneId(value.paneId) !== null)
         && isNullableString(value.fileName)
-        && isNullableString(value.originalPath)
+        && (value.originalPath === null || parseDocumentRef(value.originalPath) !== null)
         && isOptionalDocumentBackend(value.originalBackend)
         && (value.documentSessionKey === undefined || value.documentSessionKey === null || typeof value.documentSessionKey === 'string')
-        && (value.documentInstanceId === undefined || value.documentInstanceId === null || typeof value.documentInstanceId === 'string')
+        && (
+            value.documentInstanceId === undefined
+            || value.documentInstanceId === null
+            || parseDocumentInstanceId(value.documentInstanceId) !== null
+        )
         && (value.commandTarget === undefined || isAgentWorkspaceCommandTarget(value.commandTarget));
 }
 
@@ -128,9 +140,10 @@ function isWorkspaceSummary(value: unknown): value is IAgentWorkspaceSummary {
 
 function isAgentPaneSnapshot(value: unknown): value is IAgentPaneSnapshot {
     return isRecord(value)
-        && typeof value.paneId === 'string'
-        && isStringArray(value.tabIds)
-        && isNullableString(value.activeTabId);
+        && parsePaneId(value.paneId) !== null
+        && Array.isArray(value.tabIds)
+        && value.tabIds.every(tabId => parseTabId(tabId) !== null)
+        && (value.activeTabId === null || parseTabId(value.activeTabId) !== null);
 }
 
 function isAgentDocumentOcrState(value: unknown): value is IAgentDocumentOcrState {
@@ -179,10 +192,10 @@ function isAgentTabSnapshot(value: unknown): value is IAgentTabSnapshot {
 function isAgentRecentFileSnapshot(value: unknown): value is IAgentRecentFileSnapshot {
     return isRecord(value)
         && typeof value.fileName === 'string'
-        && typeof value.originalPath === 'string'
+        && parseDocumentRef(value.originalPath) !== null
         && isOptionalDocumentBackend(value.backend)
         && isAgentDocumentKind(value.kind)
-        && typeof value.openedAt === 'string'
+        && parseIsoTimestamp(value.openedAt) !== null
         && (value.fileSize === undefined || isNonNegativeInteger(value.fileSize));
 }
 
@@ -194,7 +207,7 @@ function isEditorLayoutNode(value: unknown, depth = 0): value is TEditorLayoutNo
         return false;
     }
     if (value.type === 'leaf') {
-        return typeof value.paneId === 'string';
+        return parsePaneId(value.paneId) !== null;
     }
     return value.type === 'split'
         && typeof value.id === 'string'
@@ -207,9 +220,9 @@ function isEditorLayoutNode(value: unknown, depth = 0): value is TEditorLayoutNo
 
 export function isAgentWorkspaceSnapshot(value: unknown): value is IAgentWorkspaceSnapshot {
     return isRecord(value)
-        && typeof value.capturedAt === 'string'
-        && isNullableString(value.activePaneId)
-        && isNullableString(value.activeTabId)
+        && parseIsoTimestamp(value.capturedAt) !== null
+        && (value.activePaneId === null || parsePaneId(value.activePaneId) !== null)
+        && (value.activeTabId === null || parseTabId(value.activeTabId) !== null)
         && isWorkspaceSummary(value.summary)
         && Array.isArray(value.panes)
         && value.panes.length <= MAX_COLLECTION_ITEMS

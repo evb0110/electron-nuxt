@@ -25,6 +25,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     inspect: vi.fn(),
@@ -430,7 +431,7 @@ describe('managed temporary file handles', () => {
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, {
             ...artifact,
-            path: otherPath,
+            path: requireDocumentRef(otherPath),
         })).rejects.toThrow('altered');
     });
 
@@ -475,7 +476,20 @@ describe('managed temporary file handles', () => {
             mocks.path,
             validations,
         );
-        const rendererArtifact = structuredClone(artifact);
+        const rendererQpdfResult = artifact.validations.qpdfResult
+            ? {
+                ...artifact.validations.qpdfResult,
+                errors: [...artifact.validations.qpdfResult.errors],
+                warnings: [...artifact.validations.qpdfResult.warnings],
+            }
+            : undefined;
+        const rendererArtifact = {
+            ...artifact,
+            validations: {
+                ...artifact.validations,
+                ...(rendererQpdfResult === undefined ? {} : {qpdfResult: rendererQpdfResult}),
+            },
+        };
         expect(Object.isFrozen(artifact)).toBe(true);
         expect(Object.isFrozen(artifact.validations)).toBe(true);
         expect(Object.isFrozen(artifact.validations.qpdfResult)).toBe(true);
@@ -483,7 +497,7 @@ describe('managed temporary file handles', () => {
         validations.tailCheck = false;
         validations.qpdfResult.warnings.push('input mutation');
         rendererArtifact.validations.fsynced = false;
-        rendererArtifact.validations.qpdfResult?.warnings.push('receipt mutation');
+        rendererQpdfResult?.warnings.push('receipt mutation');
 
         await expect(resolveTypedStagedArtifact({senderId: 42}, rendererArtifact))
             .rejects.toThrow('altered');

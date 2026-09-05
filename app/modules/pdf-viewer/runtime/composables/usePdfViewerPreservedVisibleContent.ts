@@ -1,3 +1,9 @@
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
 import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
@@ -10,7 +16,7 @@ const PRESERVED_VISUAL_SNAPSHOT_RELEASE_MAX_DELAY_MS = 2_500;
 export interface IPreservedVisibleContentRequest {pageToRestore?: number | null;}
 
 export interface IPreservedVisibleContentState {
-    pageToRestore: number | null;
+    pageToRestore: TPageNumber | null;
     semanticAnchor: {
         xRatio: number;
         yRatio: number;
@@ -20,7 +26,7 @@ export interface IPreservedVisibleContentState {
 
 interface IPreservedVisibleContentReleasePlan {
     preservedVisibleContent: IPreservedVisibleContentState | null;
-    resolvedPageToRestore: number;
+    resolvedPageToRestore: TPageNumber;
 }
 
 interface IUsePdfViewerPreservedVisibleContentOptions {
@@ -30,7 +36,7 @@ interface IUsePdfViewerPreservedVisibleContentOptions {
 
 function normalizePreservedPageNumber(value: number | null | undefined) {
     return typeof value === 'number' && Number.isFinite(value)
-        ? Math.max(1, Math.floor(value))
+        ? parsePageNumber(Math.max(1, Math.floor(value)))
         : null;
 }
 
@@ -45,9 +51,10 @@ function asHtmlElement(value: Element | null | undefined) {
 }
 
 export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreservedVisibleContentOptions) => {
-    function findPreservedPageContainer(pageNumber: number | null | undefined) {
+    function findPreservedPageContainer(pageNumber: TPageNumber | null | undefined) {
         const container = options.viewerContainer.value;
-        const normalizedPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
+        const normalizedPage = normalizePreservedPageNumber(pageNumber)
+            ?? requirePageNumber(options.currentPage.value);
         return asHtmlElement(
             container?.querySelector(`.page_container[data-page="${normalizedPage}"]`),
         );
@@ -70,8 +77,9 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         };
     }
 
-    function capturePreservedVisualSnapshot(pageNumber: number | null) {
-        const snapshotPage = normalizePreservedPageNumber(pageNumber) ?? options.currentPage.value;
+    function capturePreservedVisualSnapshot(pageNumber: TPageNumber | null) {
+        const snapshotPage = normalizePreservedPageNumber(pageNumber)
+            ?? requirePageNumber(options.currentPage.value);
         const pageContainer = findPreservedPageContainer(snapshotPage);
         const release = createSingleUsePreservedVisualSnapshotRelease(
             preservePdfPageAnnotationVisualSnapshot(pageContainer, null),
@@ -84,7 +92,7 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         return release;
     }
 
-    function captureSemanticAnchor(pageNumber: number | null) {
+    function captureSemanticAnchor(pageNumber: TPageNumber | null) {
         const container = options.viewerContainer.value;
         const pageContainer = findPreservedPageContainer(pageNumber);
         if (
@@ -141,7 +149,7 @@ export const usePdfViewerPreservedVisibleContent = (options: IUsePdfViewerPreser
         request?: IPreservedVisibleContentRequest,
     ): IPreservedVisibleContentState {
         const requestPage = normalizePreservedPageNumber(request?.pageToRestore);
-        const pageToRestore = requestPage ?? options.currentPage.value;
+        const pageToRestore = requestPage ?? requirePageNumber(options.currentPage.value);
         return {
             pageToRestore,
             semanticAnchor: captureSemanticAnchor(pageToRestore),

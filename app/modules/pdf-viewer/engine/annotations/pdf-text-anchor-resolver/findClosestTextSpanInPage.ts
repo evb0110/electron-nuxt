@@ -22,7 +22,7 @@ export function findClosestTextSpanInPage(pageContainer: HTMLElement, targetX: n
     } | null = null;
 
     spans.forEach((span) => {
-        const text = span.textContent?.trim() ?? '';
+        const text = span.textContent.trim();
         if (!text) {
             return;
         }

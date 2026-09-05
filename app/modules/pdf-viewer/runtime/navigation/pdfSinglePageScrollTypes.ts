@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     Ref,
     ShallowRef,
@@ -54,9 +56,9 @@ export interface IUsePdfSinglePageScrollOptions {
         renderOptions?: IRenderVisiblePagesOptions,
     ) => Promise<void>;
     ensurePageMetricsInRange?: ((startPage: number, endPage: number) => Promise<boolean>) | undefined;
-    prepareNavigationLayout?: ((pageNumber: number, signal: AbortSignal) => Promise<void>) | undefined;
-    isPageFreshlyRenderedForNavigation?: ((pageNumber: number) => boolean) | undefined;
-    waitForPageTextLayerReady?: ((pageNumber: number, signal: AbortSignal) => Promise<boolean>) | undefined;
+    prepareNavigationLayout?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<void>) | undefined;
+    isPageFreshlyRenderedForNavigation?: ((pageNumber: TPageNumber) => boolean) | undefined;
+    waitForPageTextLayerReady?: ((pageNumber: TPageNumber, signal: AbortSignal) => Promise<boolean>) | undefined;
     visibleRange: Ref<{
         start: number;
         end: number;

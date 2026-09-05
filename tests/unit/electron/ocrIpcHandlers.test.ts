@@ -231,7 +231,7 @@ describe('OCR platform feature main bindings', () => {
         );
         await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogSnapshot).toHaveBeenCalledTimes(1));
 
-        await expect(getHandler('ocr:cancel')(
+        expect(getHandler('ocr:cancel')(
             {sender: createMockSender(43)},
             requestId,
         )).toMatchObject({canceled: true});
@@ -271,7 +271,7 @@ describe('OCR platform feature main bindings', () => {
         );
         await vi.waitFor(() => expect(mocks.resolveDocumentTextCatalogWindow).toHaveBeenCalledTimes(1));
 
-        await expect(getHandler('ocr:cancel')(
+        expect(getHandler('ocr:cancel')(
             {sender: createMockSender(44)},
             requestId,
         )).toMatchObject({canceled: true});

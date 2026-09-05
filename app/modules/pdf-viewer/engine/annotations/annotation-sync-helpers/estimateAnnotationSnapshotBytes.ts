@@ -53,7 +53,9 @@ function estimateValueBytes(value: unknown, depth: number, seen: WeakSet<object>
         case 'symbol':
         case 'function':
             return PRIMITIVE_BYTES;
-        default:
+        case 'undefined':
+            return PRIMITIVE_BYTES;
+        case 'object':
             break;
     }
 

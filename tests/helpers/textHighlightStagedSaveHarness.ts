@@ -23,6 +23,7 @@ import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { cast } from '@tests/helpers/cast';
 
 /**
@@ -272,7 +273,8 @@ export async function ingestFixtureAnnotations(
     bytes: Uint8Array,
 ) {
     return withPdfjsDocument(bytes, async (document) => {
-        const bundle = await loadPdfPageAnnotations(cast<PDFDocumentProxy>(document), 1);
+        const pageNumber = requirePageNumber(1);
+        const bundle = await loadPdfPageAnnotations(cast<PDFDocumentProxy>(document), pageNumber);
         if (!bundle) {
             throw new Error('The fixture page produced no annotation bundle');
         }
@@ -280,7 +282,7 @@ export async function ingestFixtureAnnotations(
         const links: ILinkAnnotation[] = [];
         collectPagePdfSnapshotEntries(
             bundle,
-            1,
+            pageNumber,
             {
                 computeStableKey: computeSummaryStableKey,
                 resolveKindLabel: subtype => subtype ?? '',

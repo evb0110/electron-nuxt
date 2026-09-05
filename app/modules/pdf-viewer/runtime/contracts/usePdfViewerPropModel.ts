@@ -9,6 +9,7 @@ import type {
     TZoomMode,
 } from '@app/types/pdfContracts';
 import type {TPdfZoomState} from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
 import type { IPdfPageMatches } from '@app/types/pdfUi';
 import type { IPdfViewerProps } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
@@ -70,7 +71,7 @@ export const usePdfViewerPropModel = (props: Readonly<IPdfViewerProps>) => {
         currentSearchMatch: computed(() => props.currentSearchMatch ?? null),
         currentSearchMatchNavigationId: computed(() => props.currentSearchMatchNavigationId ?? 0),
         requestedCurrentPage: computed(() => props.currentPage),
-        workingCopyPath: computed(() => props.workingCopyPath ?? null),
+        workingCopyPath: computed(() => parseDocumentRef(props.workingCopyPath)),
         documentRevisionToken: computed(() => props.documentRevisionToken ?? null),
         continuousScroll: computed(() => props.continuousScroll ?? true),
         isActive: computed(() => props.isActive ?? true),

@@ -71,11 +71,8 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         if (scope.value === 'selected') {
             return normalizedSelectedPages.value.length > 0 ? normalizedSelectedPages.value : null;
         }
-        if (scope.value === 'range') {
-            const selection = resolveRangeSelection();
-            return selection ? materializePageSelection(selection) : null;
-        }
-        return undefined;
+        const selection = resolveRangeSelection();
+        return selection ? materializePageSelection(selection) : null;
     }
 
     function resolveRangeSelection(): TPageSelection | null {
@@ -91,8 +88,11 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
         if (normalized.length === 0) {
             return null;
         }
-        const first = normalized[0]!;
-        const last = normalized.at(-1)!;
+        const first = normalized[0];
+        const last = normalized.at(-1);
+        if (first === undefined || last === undefined) {
+            return null;
+        }
         const isContiguous = normalized.every((page, index) => page === first + index);
         return isContiguous
             ? createRangePageSelection(options.totalPages(), first, last)
@@ -120,8 +120,6 @@ export const usePdfPageScopeSelection = (options: IPdfPageScopeSelectionOptions)
                     : null;
             case 'range':
                 return resolveRangeSelection();
-            default:
-                return undefined;
         }
     }
 

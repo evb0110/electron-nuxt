@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import { shouldRetryAsyncChunkLoad } from '@app/modules/workspace-shell/host/shouldRetryAsyncChunkLoad';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
@@ -48,8 +49,8 @@ export const useDeferredWorkspaceChunkLoader = (options: IUseDeferredWorkspaceCh
         workspaceChunkFailurePresentation.value = {
             failure: receipt,
             title: 'Workspace failed to load',
-            ...(error instanceof Error && error.message
-                ? {description: error.message}
+            ...(error instanceof Error && getErrorMessage(error)
+                ? {description: getErrorMessage(error)}
                 : {description: message}),
         };
         workspaceChunkLoadError.value = error;

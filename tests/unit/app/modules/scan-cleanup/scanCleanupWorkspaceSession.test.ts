@@ -15,6 +15,12 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {requireDocumentRef} from '@contracts/documentRef';
+import type {TJobId} from '@contracts/shared';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {
     IScanCleanupCapability,
     IScanCleanupOptions,
@@ -44,6 +50,7 @@ import {
     setScanCleanupRunError,
 } from '@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {cast} from '@tests/helpers/cast';
 
 const capability = vi.hoisted(() => ({value: null as IScanCleanupCapability | null}));
 // Counts the real reduction rather than replacing it: the document's layouts
@@ -97,7 +104,7 @@ function previewResult(
     classification: IScanCleanupPreviewResult['pageMetadata']['layoutClassification'],
 ): IScanCleanupPreviewResult {
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         totalPages: 3,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1,
@@ -148,7 +155,7 @@ function detectionState(
     const results = status === 'queued'
         ? []
         : Array.from({length: totalPages}, (_, index) => ({
-            pageNumber: index + 1,
+            pageNumber: requirePageNumber(index + 1),
             classification: 'single-uncut-page' as const,
             confidence: 0.9,
             cutterXPx: null,
@@ -158,7 +165,7 @@ function detectionState(
             documentPrior: null,
             ...(status === 'completed'
                 ? {pagePlanEvidence: {
-                    pageNumber: index + 1,
+                    pageNumber: requirePageNumber(index + 1),
                     rotationDegrees: 0,
                     layoutClassification: 'single-uncut-page' as const,
                     outputs: {},
@@ -166,7 +173,7 @@ function detectionState(
                 : {}),
         }));
     return {
-        jobId,
+        jobId: requireJobId(jobId),
         status,
         progress: {
             stage: 'detecting',
@@ -176,7 +183,7 @@ function detectionState(
             completedPageNumbers: results.map(result => result.pageNumber),
         },
         results,
-        updatedAtMs: Date.now(),
+        updatedAtMs: requireEpochMs(Date.now()),
     };
 }
 
@@ -203,7 +210,7 @@ function capabilityHarness() {
         cancelPreview: vi.fn(async () => true),
         detectAll: vi.fn(async () => ({
             started: true as const,
-            jobId: `detect-${++nextJob}`,
+            jobId: requireJobId(`detect-${++nextJob}`),
         })),
         cancelDetection: vi.fn(async () => true),
         getDetectionJobState: vi.fn(async () => null),
@@ -238,7 +245,7 @@ function mountSession(documentKey: string, overrides: {
     documentRevision?: () => string | null;
     initialPreviewPage?: () => number | undefined;
     pageMapping?: () => TScanCleanupPageOutputMapping | null | undefined;
-    sourcePath?: () => string | null;
+    sourcePath?: () => TDocumentRef | null;
     sourceSha256?: () => string | null;
     totalPages?: () => number;
 } = {}) {
@@ -248,7 +255,7 @@ function mountSession(documentKey: string, overrides: {
     const app = createApp(defineComponent({setup() {
         session = useScanCleanupWorkspaceSession({
             active: overrides.active ?? (() => true),
-            sourcePath: overrides.sourcePath ?? (() => `/docs/${documentKey}.pdf`),
+            sourcePath: overrides.sourcePath ?? (() => requireDocumentRef(`/docs/${documentKey}.pdf`)),
             documentKey: overrides.documentKey ?? (() => documentKey),
             ...(overrides.documentRevision === undefined
                 ? {}
@@ -322,7 +329,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     3,
                 ],
             },
-            updatedAtMs: Date.now() + 1_000,
+            updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
         await vi.waitFor(() => expect(settled.has(1)).toBe(true));
         expect([...settled].sort((left, right) => left - right)).toEqual([
@@ -345,7 +352,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 completedPageNumbers: [2],
             },
             results: [{
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 classification: 'single-uncut-page',
                 confidence: 0.9,
                 cutterXPx: null,
@@ -354,7 +361,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 clusterAgreement: 0,
                 documentPrior: null,
             }],
-            updatedAtMs: Date.now() + 2_000,
+            updatedAtMs: requireEpochMs(Date.now() + 2_000),
         });
         await vi.waitFor(() => expect(settled.has(2)).toBe(true));
         expect([...settled].sort((left, right) => left - right)).toEqual([
@@ -376,7 +383,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
 
         harness.emitDetection({
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'completed',
             progress: {
                 stage: 'detecting',
@@ -387,7 +394,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             },
             resultCount: 20_001,
             results: [],
-            updatedAtMs: Date.now() + 1_000,
+            updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
         await vi.waitFor(() => expect(mounted.session.detection.terminalStatus.value).toBe('completed'));
         expect(mounted.session.detection.pagePlanEvidenceByPage.size).toBe(0);
@@ -414,14 +421,14 @@ describe('scan cleanup workspace session detection guidance', () => {
         state.detectionResultStoreId = 'store-1';
         state.results = Array.from({length: 300}, (_, index) => ({
             ...state.results[0]!,
-            pageNumber: index + 1,
+            pageNumber: requirePageNumber(index + 1),
             pagePlanEvidence: {
                 ...state.results[0]!.pagePlanEvidence!,
-                pageNumber: index + 1,
+                pageNumber: requirePageNumber(index + 1),
             },
             sourcePageMetadata: {
                 ...state.results[0]!.sourcePageMetadata!,
-                pageNumber: index + 1,
+                pageNumber: requirePageNumber(index + 1),
             },
         }));
         harness.emitDetection(state);
@@ -514,7 +521,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         vi.mocked(harness.value.start).mockResolvedValue({
             started: false as const,
-            jobId: 'run-1',
+            jobId: requireJobId('run-1'),
             error: 'test stop',
             errorCode: 'internal' as const,
         });
@@ -535,19 +542,19 @@ describe('scan cleanup workspace session detection guidance', () => {
             }],
             samples: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     half: 'full',
                     yNormalized: 0.1,
                     anchor: {yNormalized: 0},
                 },
                 {
-                    pageNumber: 10_001,
+                    pageNumber: requirePageNumber(10_001),
                     half: 'full',
                     yNormalized: 0.2,
                     anchor: {yNormalized: 0.1},
                 },
                 {
-                    pageNumber: 20_001,
+                    pageNumber: requirePageNumber(20_001),
                     half: 'full',
                     yNormalized: 0.2,
                     anchor: {yNormalized: 0.1},
@@ -566,9 +573,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         state.placementAnchorSummary = placementAnchorSummary;
         state.results = [{
             ...state.results[0]!,
-            pageNumber: 20_001,
+            pageNumber: requirePageNumber(20_001),
             sourcePageMetadata: {
-                pageNumber: 20_001,
+                pageNumber: requirePageNumber(20_001),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 612,
@@ -578,7 +585,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             },
             pagePlanEvidence: {
                 ...state.results[0]!.pagePlanEvidence!,
-                pageNumber: 20_001,
+                pageNumber: requirePageNumber(20_001),
                 outputs: {full: {contentBox: {
                     xNormalized: 0.1,
                     yNormalized: 0.2,
@@ -637,9 +644,9 @@ describe('scan cleanup workspace session detection guidance', () => {
             20_001,
         ].map(pageNumber => ({
             ...state.results[0]!,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
             pagePlanEvidence: {
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page' as const,
                 outputs: {full: {contentBox: {
@@ -652,7 +659,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 }}},
             },
             sourcePageMetadata: {
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 612,
@@ -693,17 +700,23 @@ describe('scan cleanup workspace session detection guidance', () => {
             heightNormalized: 0.6,
             rotationDegrees: 0 as const,
         };
-        const pageResult = (pageNumber: number) => ({
-            ...completed.results[0]!,
-            pageNumber,
+        const pageResult = (pageNumber: number): TScanCleanupDetectionJobState['results'][number] => ({
+            tier1Verdict: 'single-uncut-page',
+            reconciled: false,
+            clusterAgreement: 0,
+            pageNumber: requirePageNumber(pageNumber),
+            classification: 'single-uncut-page',
+            confidence: 0.9,
+            cutterXPx: null,
+            documentPrior: null,
             pagePlanEvidence: {
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 rotationDegrees: 0 as const,
                 layoutClassification: 'single-uncut-page' as const,
                 outputs: {full: {contentBox}},
             },
             sourcePageMetadata: {
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 xPoints: 0,
                 yPoints: 0,
                 widthPoints: 612,
@@ -759,7 +772,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 25,
                 completedPageNumbers: [1],
             },
-            updatedAtMs: Date.now() + 1_000,
+            updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
         await vi.waitFor(() => expect(settled.has(1)).toBe(true));
 
@@ -778,7 +791,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     4,
                 ],
             },
-            updatedAtMs: Date.now() + 2_000,
+            updatedAtMs: requireEpochMs(Date.now() + 2_000),
         });
         await vi.waitFor(() => expect(settled.size).toBe(4));
         expect([...settled].sort((left, right) => left - right)).toEqual([
@@ -792,7 +805,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         // yet, so a snapshot's results are a delta while its progress stays
         // whole: the earlier page keeps its classification and stays settled.
         harness.emitDetection({
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'running',
             progress: {
                 stage: 'detecting',
@@ -802,7 +815,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 completedPageNumbers: [1],
             },
             results: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 classification: 'two-page-spread',
                 confidence: 0.9,
                 cutterXPx: null,
@@ -811,14 +824,14 @@ describe('scan cleanup workspace session detection guidance', () => {
                 clusterAgreement: 0,
                 documentPrior: null,
             }],
-            updatedAtMs: Date.now() + 3_000,
+            updatedAtMs: requireEpochMs(Date.now() + 3_000),
         });
         await vi.waitFor(() => expect(
             mounted.session.detection.authoritativeLayoutByPage.value.get(1),
         ).toBe('two-page-spread'));
 
         harness.emitDetection({
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'running',
             progress: {
                 stage: 'detecting',
@@ -831,7 +844,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 ],
             },
             results: [{
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 classification: 'page-with-offcut',
                 confidence: 0.9,
                 cutterXPx: null,
@@ -840,7 +853,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 clusterAgreement: 0,
                 documentPrior: null,
             }],
-            updatedAtMs: Date.now() + 4_000,
+            updatedAtMs: requireEpochMs(Date.now() + 4_000),
         });
         await vi.waitFor(() => expect(
             mounted.session.detection.authoritativeLayoutByPage.value.get(2),
@@ -912,7 +925,7 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('resets an out-of-range page-scoped selection when the document is replaced without mapping', async () => {
         capability.value = capabilityHarness().value;
         const revision = ref<string | null>('revision-1');
-        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/old.pdf'));
         const totalPages = ref(6);
         const mounted = mountSession(`replacement-without-mapping-${Date.now()}`, {
             currentPage: () => 1,
@@ -934,7 +947,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.selection.updateOutputModeOverride('color');
 
         revision.value = 'revision-2';
-        sourcePath.value = '/docs/new.pdf';
+        sourcePath.value = requireDocumentRef('/docs/new.pdf');
         totalPages.value = 2;
         await nextTick();
 
@@ -950,7 +963,7 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('maps the selected page to the unique output page on replacement', async () => {
         capability.value = capabilityHarness().value;
         const revision = ref<string | null>('revision-1');
-        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/old.pdf'));
         const totalPages = ref(6);
         const pageMapping: TScanCleanupPageOutputMapping = {'5': [2]};
         const mounted = mountSession(`replacement-with-mapping-${Date.now()}`, {
@@ -973,7 +986,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.selection.updateOutputModeOverride('color');
 
         revision.value = 'revision-2';
-        sourcePath.value = '/docs/new.pdf';
+        sourcePath.value = requireDocumentRef('/docs/new.pdf');
         totalPages.value = 2;
         await nextTick();
 
@@ -989,7 +1002,7 @@ describe('scan cleanup workspace session detection guidance', () => {
     it('resets page-scoped selection when replacement mapping is ambiguous', async () => {
         capability.value = capabilityHarness().value;
         const revision = ref<string | null>('revision-1');
-        const sourcePath = ref<string | null>('/docs/old.pdf');
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/old.pdf'));
         const totalPages = ref(3);
         const pageMapping: TScanCleanupPageOutputMapping = {'2': [
             1,
@@ -1012,7 +1025,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.selection.updateOutputModeOverride('color');
 
         revision.value = 'revision-2';
-        sourcePath.value = '/docs/new.pdf';
+        sourcePath.value = requireDocumentRef('/docs/new.pdf');
         await nextTick();
 
         expect(mounted.session.selection.leader.value).toBe(1);
@@ -1076,16 +1089,16 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(documentKey);
 
         await vi.waitFor(() => expect(visibleRequests).toBe(1));
-        mounted.session.preview.pauseForRun();
+        await mounted.session.preview.pauseForRun();
         expect(mounted.session.preview.loading.value).toBe(false);
         expect(mounted.session.preview.result.value).toBeNull();
 
-        scanCleanupRun.activeJobId = 'cleanup-page-handoff';
-        scanCleanupRun.ownerDocumentRef = sourcePath;
+        scanCleanupRun.activeJobId = requireJobId('cleanup-page-handoff');
+        scanCleanupRun.ownerDocumentRef = requireDocumentRef(sourcePath);
         scanCleanupRun.ownerDocumentRevision = documentKey;
         scanCleanupRun.ownerId = mounted.session.run.ownerId;
         scanCleanupRun.jobState = {
-            jobId: 'cleanup-page-handoff',
+            jobId: requireJobId('cleanup-page-handoff'),
             status: 'running',
             progress: {
                 stage: 'rendering',
@@ -1094,7 +1107,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 33,
                 completedPageNumbers: [1],
             },
-            updatedAtMs: Date.now(),
+            updatedAtMs: requireEpochMs(Date.now()),
         };
 
         await vi.waitFor(() => expect(visibleRequests).toBe(2));
@@ -1105,7 +1118,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         // preview generation.
         scanCleanupRun.jobState = {
             ...scanCleanupRun.jobState,
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         } as TScanCleanupJobState;
         await nextTick();
         expect(visibleRequests).toBe(2);
@@ -1278,7 +1291,9 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     it('cancels a pending detail retry when the preview source disappears', async () => {
         const harness = capabilityHarness();
-        const sourcePath = ref<string | null>(`/docs/detail-retry-source-${Date.now()}.pdf`);
+        const sourcePath = ref<TDocumentRef | null>(
+            requireDocumentRef(`/docs/detail-retry-source-${Date.now()}.pdf`),
+        );
         vi.mocked(harness.value.preview).mockImplementation(async request => {
             if (request.detail) {
                 throw new Error('temporary detail failure');
@@ -1321,7 +1336,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         vi.mocked(harness.value.preview).mockImplementation(async request => (
             request.detail
-                ? null as never
+                ? {canceled: true}
                 : previewResult(request.pageNumber, 'single-uncut-page')
         ));
         capability.value = harness.value;
@@ -1399,7 +1414,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         classifications.forEach((classification, index) => {
             const pageNumber = index + 1;
             harness.emitDetection({
-                jobId: 'detect-1',
+                jobId: requireJobId('detect-1'),
                 status: 'running',
                 progress: {
                     stage: 'detecting',
@@ -1409,7 +1424,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
                 },
                 results: [{
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     classification,
                     confidence: 0.9,
                     cutterXPx: null,
@@ -1418,7 +1433,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     clusterAgreement: 0,
                     documentPrior: null,
                 }],
-                updatedAtMs: Date.now() + pageNumber,
+                updatedAtMs: requireEpochMs(Date.now() + pageNumber),
             });
         });
         await nextTick();
@@ -1446,12 +1461,12 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`analysis-eta-${Date.now()}`, {totalPages: () => 6});
 
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        const analysisStartedAtMs = Date.now() + 1_000;
+        const analysisStartedAtMs = requireEpochMs(Date.now() + 1_000);
         // Detection reports itself running before any page lands. That report
         // anchors the measurement, so the queueing ahead of it is not billed to
         // the pages that follow.
         harness.emitDetection({
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'running',
             progress: {
                 stage: 'detecting',
@@ -1465,7 +1480,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         for (let pageNumber = 1; pageNumber <= 3; pageNumber += 1) {
             harness.emitDetection({
-                jobId: 'detect-1',
+                jobId: requireJobId('detect-1'),
                 status: 'running',
                 progress: {
                     stage: 'detecting',
@@ -1475,7 +1490,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     completedPageNumbers: Array.from({length: pageNumber}, (_, page) => page + 1),
                 },
                 results: [{
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     classification: 'single-uncut-page',
                     confidence: 0.9,
                     cutterXPx: null,
@@ -1484,7 +1499,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                     clusterAgreement: 0,
                     documentPrior: null,
                 }],
-                updatedAtMs: analysisStartedAtMs + pageNumber * 1_000,
+                updatedAtMs: requireEpochMs(analysisStartedAtMs + pageNumber * 1_000),
             });
         }
         await nextTick();
@@ -1498,8 +1513,8 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = capabilityHarness().value;
         const documentKey = `run-eta-${Date.now()}`;
         const mounted = mountSession(documentKey, {totalPages: () => 6});
-        scanCleanupRun.activeJobId = 'cleanup-eta';
-        scanCleanupRun.ownerDocumentRef = `/docs/${documentKey}.pdf`;
+        scanCleanupRun.activeJobId = requireJobId('cleanup-eta');
+        scanCleanupRun.ownerDocumentRef = requireDocumentRef(`/docs/${documentKey}.pdf`);
         scanCleanupRun.ownerDocumentRevision = documentKey;
         scanCleanupRun.ownerId = mounted.session.run.ownerId;
 
@@ -1584,10 +1599,10 @@ describe('scan cleanup workspace session detection guidance', () => {
             event,
         ] of progressEvents.entries()) {
             scanCleanupRun.jobState = {
-                jobId: 'cleanup-eta',
+                jobId: requireJobId('cleanup-eta'),
                 status: 'running',
                 progress: event,
-                updatedAtMs: Date.now() + index,
+                updatedAtMs: requireEpochMs(Date.now() + index),
             };
             await nextTick();
             expect(mounted.session.run.progressEtaText.value).toBe(expectedEtaTexts[index]);
@@ -1758,7 +1773,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             .mockImplementationOnce(() => staleStart.promise)
             .mockResolvedValueOnce({
                 started: true,
-                jobId: 'detect-revision-2',
+                jobId: requireJobId('detect-revision-2'),
             });
         capability.value = harness.value;
         const mounted = mountSession(
@@ -1771,7 +1786,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         staleStart.resolve({
             started: true,
-            jobId: 'detect-revision-1',
+            jobId: requireJobId('detect-revision-1'),
         });
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
@@ -1834,7 +1849,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`monotonic-detection-${Date.now()}`);
 
         await vi.waitFor(() => expect(harness.value.subscribeDetectionJob).toHaveBeenCalledOnce());
-        const newerUpdatedAt = Date.now() + 1_000;
+        const newerUpdatedAt = requireEpochMs(Date.now() + 1_000);
         const newer = detectionState('detect-1', 'completed');
         newer.status = 'running';
         newer.results = newer.results.slice(0, 2);
@@ -1862,7 +1877,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
         subscription.resolve({
             ...detectionState('detect-1', 'queued'),
-            updatedAtMs: newerUpdatedAt - 1,
+            updatedAtMs: requireEpochMs(newerUpdatedAt - 1),
         });
         await subscription.promise;
         await nextTick();
@@ -1878,9 +1893,9 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`auto-decision-lock-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
-        const partialResultAt = Date.now() + 1_000;
+        const partialResultAt = requireEpochMs(Date.now() + 1_000);
         harness.emitDetection({
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'running',
             progress: {
                 stage: 'detecting',
@@ -1890,7 +1905,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 completedPageNumbers: [1],
             },
             results: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 classification: 'two-page-spread',
                 confidence: 0.94,
                 cutterXPx: 100,
@@ -1900,7 +1915,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 documentPrior: null,
                 recommendedOutputMode: 'bw',
                 sourcePageMetadata: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 612,
@@ -1916,11 +1931,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.run.canRun.value).toBe(true);
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-auto-lock',
+            jobId: requireJobId('cleanup-after-auto-lock'),
             outputPdfPath: '/managed/cleanup-after-auto-lock.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-auto-lock',
+            jobId: requireJobId('cleanup-after-auto-lock'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -1929,7 +1944,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 3,
+            updatedAtMs: requireEpochMs(Date.now() + 3),
         });
         const run = mounted.session.run.run();
         await vi.waitFor(() => expect(mounted.session.run.transitionText.value)
@@ -1943,7 +1958,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             ...result,
             recommendedOutputMode: result.pageNumber === 1 ? 'bw' : 'grayscale',
         }));
-        completed.updatedAtMs = partialResultAt + 1;
+        completed.updatedAtMs = requireEpochMs(partialResultAt + 1);
         harness.emitDetection(completed);
         await run;
         expect(harness.value.cancelDetection).not.toHaveBeenCalled();
@@ -1976,7 +1991,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 ...detectionState('detect-1', 'completed').results[0]!,
                 recommendedOutputMode: 'bw',
             }],
-            updatedAtMs: Date.now() + 1_000,
+            updatedAtMs: requireEpochMs(Date.now() + 1_000),
         });
         await vi.waitFor(() => expect(mounted.session.detection.progressText.value)
             .toBe('Pre-analyzing pages — 1 of 3 pages'));
@@ -2005,11 +2020,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-wait',
+            jobId: requireJobId('cleanup-after-wait'),
             outputPdfPath: '/managed/cleanup-after-wait.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-wait',
+            jobId: requireJobId('cleanup-after-wait'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2018,7 +2033,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
         const run = mounted.session.run.run();
@@ -2041,7 +2056,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const detectionSubscription = Promise.withResolvers<TScanCleanupDetectionJobState | null>();
         const cleanupStart = Promise.withResolvers<{
             started: false;
-            jobId: string;
+            jobId: TJobId;
             error: string;
             errorCode: TScanCleanupErrorCode;
         }>();
@@ -2066,7 +2081,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         detectionSubscription.resolve(detectionState('detect-1', 'completed'));
         cleanupStart.resolve({
             started: false,
-            jobId: 'stopped-test-cleanup',
+            jobId: requireJobId('stopped-test-cleanup'),
             error: 'test cleanup start stopped',
             errorCode: 'internal',
         });
@@ -2085,11 +2100,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         });
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-final-preview',
+            jobId: requireJobId('cleanup-after-final-preview'),
             outputPdfPath: '/managed/cleanup-after-final-preview.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-final-preview',
+            jobId: requireJobId('cleanup-after-final-preview'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2098,7 +2113,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
         capability.value = harness.value;
         const mounted = mountSession(`final-preview-before-run-${Date.now()}`);
@@ -2137,11 +2152,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-hidden-detection',
+            jobId: requireJobId('cleanup-after-hidden-detection'),
             outputPdfPath: '/managed/cleanup-after-hidden-detection.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-hidden-detection',
+            jobId: requireJobId('cleanup-after-hidden-detection'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2150,7 +2165,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
         const run = mounted.session.run.run();
@@ -2195,11 +2210,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         expect(mounted.session.detection.pending.value).toBe(false);
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-scheduled-detection',
+            jobId: requireJobId('cleanup-after-scheduled-detection'),
             outputPdfPath: '/managed/cleanup-after-scheduled-detection.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-scheduled-detection',
+            jobId: requireJobId('cleanup-after-scheduled-detection'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2208,7 +2223,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
         const run = mounted.session.run.run();
@@ -2232,7 +2247,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const sourceSha256 = ref<string | null>(null);
         const deferredDetection = Promise.withResolvers<{
             started: true;
-            jobId: string;
+            jobId: TJobId;
         }>();
         capability.value = harness.value;
         const mounted = mountSession(`run-during-source-identity-${Date.now()}`, {
@@ -2246,18 +2261,18 @@ describe('scan cleanup workspace session detection guidance', () => {
             .mockImplementationOnce(() => deferredDetection.promise)
             .mockResolvedValueOnce({
                 started: true,
-                jobId: 'detect-authoritative-source',
+                jobId: requireJobId('detect-authoritative-source'),
             });
         mounted.session.settings.values.outputMode = 'grayscale';
         mounted.session.settings.values.marginsMm.leftMm = 6;
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-after-source-identity',
+            jobId: requireJobId('cleanup-after-source-identity'),
             outputPdfPath: '/managed/cleanup-after-source-identity.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-after-source-identity',
+            jobId: requireJobId('cleanup-after-source-identity'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2266,7 +2281,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
         const run = mounted.session.run.run();
@@ -2277,7 +2292,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         deferredDetection.resolve({
             started: true,
-            jobId: 'detect-legacy-source',
+            jobId: requireJobId('detect-legacy-source'),
         });
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(3));
@@ -2300,7 +2315,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     it('promotes an in-flight path detection without a second native request', async () => {
         const harness = capabilityHarness();
-        const sourcePath = '/docs/identity-promotion.pdf';
+        const sourcePath = requireDocumentRef('/docs/identity-promotion.pdf');
         const sourceSha256 = ref<string | null>(null);
         capability.value = harness.value;
         const mounted = mountSession('identity-promotion', {
@@ -2333,7 +2348,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     it('retains the displayed preview raster when identity is promoted', async () => {
         const harness = capabilityHarness();
-        const sourcePath = '/docs/preview-identity-promotion.pdf';
+        const sourcePath = requireDocumentRef('/docs/preview-identity-promotion.pdf');
         const sourceSha256 = ref<string | null>(null);
         vi.mocked(harness.value.preview).mockImplementation(async request => previewResult(
             request.pageNumber,
@@ -2360,7 +2375,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     it('reuses completed detection after authoritative reopen but invalidates it on settings change', async () => {
         const harness = capabilityHarness();
-        const sourcePath = '/docs/authoritative-reopen.pdf';
+        const sourcePath = requireDocumentRef('/docs/authoritative-reopen.pdf');
         const sourceSha256 = '1'.repeat(64);
         const options = {
             documentKey: () => sourcePath,
@@ -2390,7 +2405,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         const firstHash = '2'.repeat(64);
         const secondHash = '3'.repeat(64);
-        const sourcePath = ref<string | null>('/docs/cache-alias-first.pdf');
+        const sourcePath = ref<TDocumentRef | null>(requireDocumentRef('/docs/cache-alias-first.pdf'));
         const documentKey = ref<string | null>(sourcePath.value);
         const sourceSha256 = ref<string | null>(firstHash);
         capability.value = harness.value;
@@ -2407,7 +2422,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             `${firstHash}\u0000stable-revision`,
         )).toBe(true));
 
-        sourcePath.value = '/docs/cache-alias-second.pdf';
+        sourcePath.value = requireDocumentRef('/docs/cache-alias-second.pdf');
         documentKey.value = sourcePath.value;
         sourceSha256.value = secondHash;
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
@@ -2432,7 +2447,7 @@ describe('scan cleanup workspace session detection guidance', () => {
 
     it('rejects a stale completed status synchronously when Run follows a document switch', async () => {
         const harness = capabilityHarness();
-        const sourcePath = ref('/docs/immediate-run-first.pdf');
+        const sourcePath = ref<TDocumentRef>(requireDocumentRef('/docs/immediate-run-first.pdf'));
         const documentKey = ref('immediate-run-first');
         capability.value = harness.value;
         const mounted = mountSession('immediate-run-first', {
@@ -2447,11 +2462,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-second-document',
+            jobId: requireJobId('cleanup-second-document'),
             outputPdfPath: '/managed/cleanup-second-document.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-second-document',
+            jobId: requireJobId('cleanup-second-document'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2460,10 +2475,10 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
-        sourcePath.value = '/docs/immediate-run-second.pdf';
+        sourcePath.value = requireDocumentRef('/docs/immediate-run-second.pdf');
         documentKey.value = 'immediate-run-second';
 
         // Computed identity changes before the lifecycle watcher gets its
@@ -2577,13 +2592,13 @@ describe('scan cleanup workspace session detection guidance', () => {
         const revision = ref('revision-1');
         const deferred = Promise.withResolvers<{
             started: true;
-            jobId: string;
+            jobId: TJobId;
         }>();
         vi.mocked(harness.value.detectAll)
             .mockImplementationOnce(() => deferred.promise)
             .mockResolvedValueOnce({
                 started: true,
-                jobId: 'detect-revision-2',
+                jobId: requireJobId('detect-revision-2'),
             });
         capability.value = harness.value;
         const documentKey = `revision-during-detect-all-${Date.now()}`;
@@ -2594,7 +2609,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         deferred.resolve({
             started: true,
-            jobId: 'detect-revision-1',
+            jobId: requireJobId('detect-revision-1'),
         });
 
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledTimes(2));
@@ -2618,7 +2633,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const harness = capabilityHarness();
         const revision = ref('revision-1');
         const documentKey = `persisted-run-error-${Date.now()}`;
-        const sourcePath = `/docs/${documentKey}.pdf`;
+        const sourcePath = requireDocumentRef(`/docs/${documentKey}.pdf`);
         capability.value = harness.value;
         const first = mountSession(documentKey, {documentRevision: () => revision.value});
         await vi.waitFor(() => expect(harness.value.detectAll).toHaveBeenCalledOnce());
@@ -2657,11 +2672,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         mounted.session.selection.setSettingsScope('page');
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'atomic-cleanup',
+            jobId: requireJobId('atomic-cleanup'),
             outputPdfPath: '/managed/atomic-cleanup.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'atomic-cleanup',
+            jobId: requireJobId('atomic-cleanup'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2670,7 +2685,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 3,
+            updatedAtMs: requireEpochMs(Date.now() + 3),
         });
 
         const run = mounted.session.run.run();
@@ -2701,7 +2716,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         const mounted = mountSession(`uniform-run-evidence-${Date.now()}`);
         await vi.waitFor(() => expect(mounted.session.detection.isDetecting.value).toBe(true));
         const detectionEvidence: IScanCleanupPagePlanEvidence = {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0,
             layoutClassification: 'single-uncut-page',
             automaticSplit: {
@@ -2721,11 +2736,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-with-uniform-evidence',
+            jobId: requireJobId('cleanup-with-uniform-evidence'),
             outputPdfPath: '/managed/cleanup-with-uniform-evidence.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-with-uniform-evidence',
+            jobId: requireJobId('cleanup-with-uniform-evidence'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2734,7 +2749,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 3,
+            updatedAtMs: requireEpochMs(Date.now() + 3),
         });
 
         await mounted.session.run.run();
@@ -2773,7 +2788,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         await nextTick();
         vi.mocked(harness.value.start).mockResolvedValue({
             started: false,
-            jobId: '',
+            jobId: cast<TJobId>(''),
             error: 'Scan cleanup is unavailable',
             errorCode: 'tools-unavailable',
         });
@@ -2974,11 +2989,11 @@ describe('scan cleanup workspace session detection guidance', () => {
         await vi.waitFor(() => expect(mounted.session.detection.pending.value).toBe(false));
         vi.mocked(harness.value.start).mockResolvedValue({
             started: true,
-            jobId: 'cleanup-with-detection-plans',
+            jobId: requireJobId('cleanup-with-detection-plans'),
             outputPdfPath: '/managed/cleanup-with-detection-plans.pdf',
         });
         vi.mocked(harness.value.subscribeJob).mockResolvedValue({
-            jobId: 'cleanup-with-detection-plans',
+            jobId: requireJobId('cleanup-with-detection-plans'),
             status: 'canceled',
             progress: {
                 stage: 'queued',
@@ -2987,7 +3002,7 @@ describe('scan cleanup workspace session detection guidance', () => {
                 percent: 0,
                 completedPageNumbers: [],
             },
-            updatedAtMs: Date.now() + 1,
+            updatedAtMs: requireEpochMs(Date.now() + 1),
         });
 
         await mounted.session.run.run();
@@ -3277,7 +3292,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         capability.value = harness.value;
         const mounted = mountSession(`manual-crop-detection-${Date.now()}`);
         const automaticRight = (xNormalized: number): IScanCleanupPagePlanEvidence => ({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             rotationDegrees: 0,
             layoutClassification: 'two-page-spread',
             automaticSplit: {
@@ -3430,7 +3445,7 @@ describe('scan cleanup workspace session detection guidance', () => {
             ...detectionState('detect-1', 'completed'),
             results: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     classification: 'two-page-spread',
                     confidence: 0.92,
                     cutterXPx: 0.5,
@@ -3473,7 +3488,7 @@ describe('scan cleanup workspace session detection guidance', () => {
         harness.emitDetection({
             ...detectionState('detect-1', 'completed'),
             results: [{
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 classification: 'two-page-spread',
                 confidence: 0.92,
                 cutterXPx: 0.5,
@@ -3536,10 +3551,11 @@ describe('scan cleanup workspace session detection guidance', () => {
             }},
         };
 
-        expect(createScanCleanupPreviewCacheKey(1, after, '/document.pdf'))
-            .not.toBe(createScanCleanupPreviewCacheKey(1, before, '/document.pdf'));
-        expect(createScanCleanupPreviewCacheKey(2, after, '/document.pdf'))
-            .toBe(createScanCleanupPreviewCacheKey(2, before, '/document.pdf'));
+        const documentRef = requireDocumentRef('/document.pdf');
+        expect(createScanCleanupPreviewCacheKey(1, after, documentRef))
+            .not.toBe(createScanCleanupPreviewCacheKey(1, before, documentRef));
+        expect(createScanCleanupPreviewCacheKey(2, after, documentRef))
+            .toBe(createScanCleanupPreviewCacheKey(2, before, documentRef));
     });
 
     it('invalidates a page preview cache entry when its document prior changes', () => {
@@ -3554,8 +3570,9 @@ describe('scan cleanup workspace session detection guidance', () => {
             agreementStrength: 0.8,
         };
 
-        expect(createScanCleanupPreviewCacheKey(1, options, '/document.pdf', 'rev', prior))
-            .not.toBe(createScanCleanupPreviewCacheKey(1, options, '/document.pdf', 'rev', {
+        const documentRef = requireDocumentRef('/document.pdf');
+        expect(createScanCleanupPreviewCacheKey(1, options, documentRef, 'rev', prior))
+            .not.toBe(createScanCleanupPreviewCacheKey(1, options, documentRef, 'rev', {
                 ...prior,
                 agreementStrength: 0.9,
             }));

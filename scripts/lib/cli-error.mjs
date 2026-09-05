@@ -1,5 +1,8 @@
+/** @param {unknown} error */
 export function getCliErrorMessage(error) {
-    return error instanceof Error
-        ? error.message
-        : String(error);
+    if (error instanceof Error) {
+        return error.message;
+    }
+
+    return String(error);
 }

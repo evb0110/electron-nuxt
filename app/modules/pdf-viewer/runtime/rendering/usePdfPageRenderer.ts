@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
@@ -41,11 +44,11 @@ interface IPdfAnnotationProjection {
     readonly managedAnnotationIds: Readonly<Ref<Set<string>>>;
     readonly textMarkupPresentation?: ITextMarkupPresentationController | undefined;
     replaceAnnotationUiManager(manager: AnnotationEditorUIManager): void;
-    pageCommitted(pageNumber: number): void;
+    pageCommitted(pageNumber: TPageNumber): void;
 }
 
 interface ICommittedPdfPageRaster {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     version: number;
     requestId: number;
     scale: number;
@@ -117,20 +120,20 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         },
     });
     const pageRenderState = options.pageRenderState;
-    const textLayerCleanupFns = new Map<number, () => void>();
-    const activeTextLayerAbortControllers = new Map<number, {
+    const textLayerCleanupFns = new Map<TPageNumber, () => void>();
+    const activeTextLayerAbortControllers = new Map<TPageNumber, {
         version: number;
         requestId: number;
         controller: AbortController;
     }>();
-    const activeOptionalTextLayerTasks = new Map<number, {
+    const activeOptionalTextLayerTasks = new Map<TPageNumber, {
         version: number;
         requestId: number;
         promise: Promise<void>;
     }>();
-    const queuedPrioritizedTextLayerPromotions = new Map<number, IRenderVisiblePagesOptions>();
+    const queuedPrioritizedTextLayerPromotions = new Map<TPageNumber, IRenderVisiblePagesOptions>();
     function trackOptionalTextLayerTask(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         version: number,
         requestId: number,
         task: Promise<unknown>,
@@ -153,7 +156,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             Array.from(activeOptionalTextLayerTasks.values(), task => task.promise),
         ).then(() => undefined);
     }
-    async function flushQueuedPrioritizedTextLayerPromotion(pageNumber: number) {
+    async function flushQueuedPrioritizedTextLayerPromotion(pageNumber: TPageNumber) {
         const renderOptions = queuedPrioritizedTextLayerPromotions.get(pageNumber);
         if (!renderOptions) {
             return;
@@ -178,7 +181,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         });
     }
     function trackLayerHydrationSettlement(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         task: Promise<void>,
     ) {
         return task.finally(() => {
@@ -192,7 +195,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             );
         });
     }
-    function cancelActiveTextLayerRender(pageNumber: number) {
+    function cancelActiveTextLayerRender(pageNumber: TPageNumber) {
         const active = activeTextLayerAbortControllers.get(pageNumber);
         if (!active) {
             return;
@@ -201,7 +204,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         active.controller.abort();
     }
     function cancelActiveTextLayerRenderIfCurrent(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         version: number,
         requestId: number,
     ) {
@@ -273,11 +276,11 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     watch(viewport.cancelPendingSearchRevision, (revision, previous) => {
         if (revision !== previous) searchController.invalidatePendingRequests();
     }, {flush: 'sync'});
-    function cleanupTextLayer(pageNumber: number) {
+    function cleanupTextLayer(pageNumber: TPageNumber) {
         textLayerCleanupFns.get(pageNumber)?.();
         textLayerCleanupFns.delete(pageNumber);
     }
-    function releasePageLayers(pageNumber: number) {
+    function releasePageLayers(pageNumber: TPageNumber) {
         const root = options.container.value;
         const container = getMountedPageContainer(pageNumber, root);
         clearPdfSelectionForLayerTeardown({
@@ -329,7 +332,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
     function logNonCriticalStageError(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         stage: string,
         error: unknown,
     ) {
@@ -348,7 +351,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             context: {},
         });
     }
-    function cleanupPageIfCurrentRender(pageNumber: number, version: number, requestId?: number) {
+    function cleanupPageIfCurrentRender(pageNumber: TPageNumber, version: number, requestId?: number) {
         const slot = pageRenderState.getSlot(pageNumber);
         if (
             slot.contentVersion !== version
@@ -476,7 +479,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 return;
             }
             context.annotationLayerInstance = annotation.annotationLayerInstance;
-            textLayerRenderer.scheduleOcrDebugForPage?.(pageNumber, context);
+            textLayerRenderer.scheduleOcrDebugForPage(pageNumber, context);
             if (!pageRenderState.completeRender(pageNumber, version, requestId)) {
                 return;
             }
@@ -551,7 +554,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                 {length: range.end - range.start + 1},
                 (_, index) => range.start + index,
             ))
-            .filter(pageNumber => pageNumber >= 1 && pageNumber <= numPages.value);
+            .filter(pageNumber => pageNumber >= 1 && pageNumber <= numPages.value)
+            .map(pageNumber => requirePageNumber(pageNumber, numPages.value));
         for (const pageNumber of pages) {
             if (generation !== layerPromotionGeneration || version !== options.getRenderVersion()) {
                 return;
@@ -587,7 +591,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
                     toValue(options.viewRotation ?? (() => 0)),
                 ),
             });
-            const userUnit = pageViewport.userUnit ?? 1;
+            const userUnit = pageViewport.userUnit;
             try {
                 await trackLayerHydrationSettlement(
                     pageNumber,
@@ -619,7 +623,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         }
     }
 
-    async function renderAnnotationEditorLayerForPage(pageNumber: number) {
+    async function renderAnnotationEditorLayerForPage(pageNumber: TPageNumber) {
         if (!toValue(isActive)) {
             return false;
         }
@@ -685,9 +689,9 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     }
 
     function resolveLayerPromotionDemand(pages: readonly number[]) {
-        const promotionPages = pages.filter(
-            page => pageRenderState.isLayerPromotionEligible(page),
-        );
+        const promotionPages = pages
+            .map(page => requirePageNumber(page, numPages.value))
+            .filter(page => pageRenderState.isLayerPromotionEligible(page));
         if (promotionPages.length === 0) {
             return null;
         }
@@ -712,7 +716,8 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         pages: readonly number[],
         renderOptions: IRenderVisiblePagesOptions,
     ) {
-        for (const pageNumber of pages) {
+        for (const rawPageNumber of pages) {
+            const pageNumber = requirePageNumber(rawPageNumber, numPages.value);
             const slot = pageRenderState.getSlot(pageNumber);
             if (
                 slot.textLayerReadiness === 'ready'
@@ -750,7 +755,7 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
         dispose,
         releasePageLayers,
         applySearchHighlights: searchController.applySearchHighlights,
-        hideManagedAnnotationEditors: (pageNumber?: number) => {
+        hideManagedAnnotationEditors: (pageNumber?: TPageNumber) => {
             annotationLayerRenderer.hideHiddenManagedEditors(pageNumber);
         },
         requestScrollToCurrentResult: searchController.requestScrollToCurrentResult,

@@ -1,3 +1,6 @@
+import { requireLeaseId } from '@contracts/shared';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -53,7 +56,9 @@ beforeEach(() => {
 function createSerializationHarness(options: {workingCopyPath?: string | null;} = {}) {
     return usePdfSerialization({
         pdfData: ref(null),
-        workingCopyPath: ref(options.workingCopyPath ?? null),
+        workingCopyPath: ref(options.workingCopyPath === null || options.workingCopyPath === undefined
+            ? null
+            : requireDocumentRef(options.workingCopyPath)),
         documentRevisionToken: ref(TEST_DOCUMENT_REVISION_TOKEN),
         totalPages: ref(1),
         pageLabelsDirty: ref(false),
@@ -112,7 +117,7 @@ function createStagedNativeArtifact(): ITypedStagedArtifact {
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path: '/tmp/staged-placed-image.pdf',
+        path: requireDocumentRef('/tmp/staged-placed-image.pdf'),
         size: 2 * 1024 * 1024 * 1024,
         sha256: 'c'.repeat(64),
         fileIdentity: {
@@ -127,7 +132,7 @@ function createStagedNativeArtifact(): ITypedStagedArtifact {
             fsynced: true,
             semanticScopeSha256: 'd'.repeat(64),
         },
-        leaseId: 'staged-placed-image-lease',
+        leaseId: requireLeaseId('staged-placed-image-lease'),
         revision: TEST_DOCUMENT_REVISION_TOKEN,
     };
 }
@@ -350,10 +355,10 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                 mimeType: 'image/jpeg',
                 bytes: imageBytes,
                 nativeSourceHandle: reactive({
-                    path: '/tmp/photo.jpg',
+                    path: requireDocumentRef('/tmp/photo.jpg'),
                     size: imageBytes.byteLength,
                     sha256: 'a'.repeat(64),
-                    leaseId: 'photo-lease',
+                    leaseId: requireLeaseId('photo-lease'),
                     revision: null,
                 }),
                 targetPixelWidth: 180,
@@ -470,10 +475,10 @@ describe('usePdfSerialization embedPlacedImageToPage', () => {
                     0xFF,
                 ]),
                 nativeSourceHandle: {
-                    path: '/tmp/photo.jpg',
+                    path: requireDocumentRef('/tmp/photo.jpg'),
                     size: 3,
                     sha256: 'a'.repeat(64),
-                    leaseId: 'photo-lease',
+                    leaseId: requireLeaseId('photo-lease'),
                     revision: null,
                 },
                 targetPixelWidth: 100,
@@ -1332,7 +1337,7 @@ describe('usePdfSerialization embedded shapes', () => {
 
         let currentBytes: Uint8Array = await createPdfDataWithSinglePage();
 
-        shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.startDrawing(requirePageIndex(0), 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
         shapes.continueDrawing(0.18, 0.28);
         shapes.continueDrawing(0.3, 0.4);
         const firstDraw = shapes.finishDrawing();
@@ -1371,7 +1376,7 @@ describe('usePdfSerialization embedded shapes', () => {
         expect(shapes.getDeletedEmbeddedShapeStableKeys()).toEqual([]);
         expect(shapes.hasShapes.value).toBe(false);
 
-        shapes.startDrawing(0, 'draw', 0.45, 0.3, DEFAULT_ANNOTATION_SETTINGS);
+        shapes.startDrawing(requirePageIndex(0), 'draw', 0.45, 0.3, DEFAULT_ANNOTATION_SETTINGS);
         shapes.continueDrawing(0.54, 0.38);
         shapes.continueDrawing(0.65, 0.5);
         const secondDraw = shapes.finishDrawing();

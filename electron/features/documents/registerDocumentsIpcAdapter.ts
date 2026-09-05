@@ -305,7 +305,7 @@ export function registerDocumentsIpcAdapter(
             logger.debug(`Failed to send working-copy backing status: ${getErrorMessage(error)}`);
         },
     });
-    service.onWorkingCopyBackingStatusChanged?.((statusEvent) => {
+    service.onWorkingCopyBackingStatusChanged((statusEvent) => {
         const windows = BrowserWindow.getAllWindows().filter(window => (
             statusEvent.ownerWebContentsId === undefined
             || window.webContents.id === statusEvent.ownerWebContentsId

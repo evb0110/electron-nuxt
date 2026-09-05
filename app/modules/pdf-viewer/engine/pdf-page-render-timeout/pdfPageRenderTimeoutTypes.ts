@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 export type TPageRenderStallStage =
     | 'page-load'
     | 'canvas-prepare'
@@ -7,13 +9,13 @@ export type TPageRenderStallStage =
     | 'annotation-editor-layer';
 
 export interface IPageRenderStallPayload {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     stage: TPageRenderStallStage;
     timeoutMs: number;
 }
 
 export interface IPageRenderTimeoutError extends Error {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     stage: TPageRenderStallStage;
     timeoutMs: number;
 }

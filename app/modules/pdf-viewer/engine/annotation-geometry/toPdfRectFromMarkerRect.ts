@@ -50,7 +50,7 @@ function toPdfPointFromMarkerPointInternal(
             normX = 1 - markerY;
             normY = 1 - markerX;
             break;
-        default:
+        case 0:
             break;
     }
 

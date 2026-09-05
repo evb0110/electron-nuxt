@@ -1,4 +1,8 @@
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type {
     IDocumentTextCatalogPage,
@@ -21,13 +25,12 @@ function abortErrorFromSignal(signal: AbortSignal) {
 }
 
 function createCatalogRequestId() {
-    return globalThis.crypto?.randomUUID?.()
-        ?? `ocr-catalog-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    return createRequestId('ocr-catalog');
 }
 
 async function withAbort<T>(
-    start: (requestId?: string) => Promise<T>,
-    cancelRequest: ((requestId: string) => Promise<unknown>) | undefined,
+    start: (requestId?: TRequestId) => Promise<T>,
+    cancelRequest: ((requestId: TRequestId) => Promise<unknown>) | undefined,
     signal?: AbortSignal,
 ) {
     if (!signal) {
@@ -152,7 +155,7 @@ export async function loadDocumentTextCatalogPages(
     documentRevisionToken: string,
     pageCount?: number,
     signal?: AbortSignal,
-): Promise<IDocumentTextCatalogPage[] | null> {
+): Promise<readonly IDocumentTextCatalogPage[] | null> {
     try {
         throwIfAborted(signal);
         const revision = parseDocumentRevisionToken(documentRevisionToken);

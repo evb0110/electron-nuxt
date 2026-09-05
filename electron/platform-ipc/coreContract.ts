@@ -10,6 +10,10 @@ import type {
     IWindowCloseRequest,
     IWindowCloseResponse,
 } from '@contracts/systemPlatformFeature';
+import {
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 
 export const CORE_IPC_CHANNELS = {
     diagnosticsCanary: 'automation:diagnosticsCanary',
@@ -73,11 +77,11 @@ export function encodeDiagnosticsPolicyArgument(value: unknown) {
     return `${DIAGNOSTICS_POLICY_ARGUMENT_PREFIX}${encoded}`;
 }
 
-export interface IShutdownSaveFlushRequest { requestId: string; }
+export interface IShutdownSaveFlushRequest { requestId: TRequestId; }
 
 export interface IShutdownSaveFlushResult {
     callbackCount: number;
-    requestId: string;
+    requestId: TRequestId;
     dirtyWorkingCopyPaths?: string[];
     error?: string;
     flushedWorkingCopyPaths?: string[];
@@ -99,10 +103,10 @@ function decodeShutdownPathList(value: unknown) {
 }
 
 export function decodeShutdownSaveFlushResult(value: unknown): IShutdownSaveFlushResult | null {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
     if (!isRecord(value)
-        || typeof value.requestId !== 'string'
-        || value.requestId.length < 1
-        || value.requestId.length > 256
+        || requestId === null
+        || requestId.length > 256
         || !Number.isSafeInteger(value.callbackCount)
         || (value.callbackCount as number) < 0
         || (value.callbackCount as number) > 1_024
@@ -116,7 +120,7 @@ export function decodeShutdownSaveFlushResult(value: unknown): IShutdownSaveFlus
     }
     return {
         callbackCount: value.callbackCount as number,
-        requestId: value.requestId,
+        requestId,
         ...(dirtyWorkingCopyPaths === undefined ? {} : {dirtyWorkingCopyPaths}),
         ...(flushedWorkingCopyPaths === undefined ? {} : {flushedWorkingCopyPaths}),
         ...(typeof value.error === 'string' ? {error: value.error} : {}),
@@ -124,21 +128,17 @@ export function decodeShutdownSaveFlushResult(value: unknown): IShutdownSaveFlus
 }
 
 export function decodeWindowCloseRequest(value: unknown): IWindowCloseRequest | null {
-    if (!isRecord(value)
-        || typeof value.requestId !== 'string'
-        || value.requestId.length < 1
-        || value.requestId.length > 256) {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
+    if (!isRecord(value) || requestId === null || requestId.length > 256) {
         return null;
     }
 
-    return {requestId: value.requestId};
+    return {requestId};
 }
 
 export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse | null {
-    if (!isRecord(value)
-        || typeof value.requestId !== 'string'
-        || value.requestId.length < 1
-        || value.requestId.length > 256) {
+    const requestId = isRecord(value) ? parseRequestId(value.requestId) : null;
+    if (!isRecord(value) || requestId === null || requestId.length > 256) {
         return null;
     }
 
@@ -149,7 +149,7 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
     ) {
         return {
             decision: value.decision,
-            requestId: value.requestId,
+            requestId,
         };
     }
 
@@ -166,7 +166,7 @@ export function decodeWindowCloseResponse(value: unknown): IWindowCloseResponse 
     }
 
     return {
-        requestId: value.requestId,
+        requestId,
         status: 'unavailable',
         reason: value.reason,
     };

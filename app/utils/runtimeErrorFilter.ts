@@ -1,5 +1,7 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { IDebugLogEntry } from '@contracts/electronApiCommon';
 import type {FailurePresentation} from '@app/composables/useFailureToast';
+import { createEpochMs } from '@contracts/timestamps';
 
 const UI_REPORTABLE_MESSAGE_PREFIX = '[ERROR]';
 
@@ -17,7 +19,7 @@ function normalizeRuntimeErrorMessage(value: unknown) {
     }
 
     if (value instanceof Error) {
-        return normalizeRuntimeErrorMessage(value.message);
+        return normalizeRuntimeErrorMessage(getErrorMessage(value));
     }
 
     if (
@@ -130,7 +132,7 @@ export function createDebugLogRuntimeErrorReport(entry: IDebugLogEntry, title: s
 
 function parseDebugLogTimestamp(timestamp: string) {
     const parsed = Date.parse(timestamp);
-    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+    return createEpochMs(Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0);
 }
 
 /**

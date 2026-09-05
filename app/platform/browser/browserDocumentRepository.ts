@@ -48,6 +48,10 @@ import {
 import { emitBrowserDocumentPersistenceWarning } from '@app/platform/browser/browserDocumentPersistenceWarnings';
 import {createBrowserFileContentWitness} from '@app/platform/browser/createBrowserFileContentWitness';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 
 export interface IBrowserDocumentMutation {
     write(
@@ -64,7 +68,7 @@ export interface IBrowserDocumentMutation {
 export interface IBrowserDocumentSourceMutation extends IBrowserDocumentMutation { writeSource(data: Uint8Array | ArrayBuffer): Promise<boolean>; }
 
 function createBrowserFileDocumentEntry(
-    ref: string,
+    ref: TDocumentRef,
     file: File,
     options: IRegisterFileOptions = {},
 ): IBrowserDocumentEntry {
@@ -183,8 +187,8 @@ function restoreEntryStorageState(
 }
 
 export class BrowserDocumentStore extends BrowserDocumentRecordStore {
-    private readonly fileRefs = new WeakMap<File, string>();
-    private readonly fileHandleRefs = new Map<FileSystemFileHandle, string>();
+    private readonly fileRefs = new WeakMap<File, TDocumentRef>();
+    private readonly fileHandleRefs = new Map<FileSystemFileHandle, TDocumentRef>();
 
     protected override onDocumentRemoved(ref: string) {
         this.forgetFileHandleRefs(ref);
@@ -204,12 +208,16 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     private updateFileHandleRef(ref: string, handle: FileSystemFileHandle | null) {
         this.forgetFileHandleRefs(ref);
         if (handle) {
-            this.fileHandleRefs.set(handle, ref);
+            const parsedRef = parseDocumentRef(ref);
+            if (parsedRef === null) {
+                throw new TypeError('Browser document reference is invalid');
+            }
+            this.fileHandleRefs.set(handle, parsedRef);
         }
     }
 
     private async findExistingFileHandleRef(handle: FileSystemFileHandle) {
-        let existingRef: string | null = null;
+        let existingRef: TDocumentRef | null = null;
         for (const [
             knownHandle,
             ref,
@@ -217,14 +225,14 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             let sameEntry = knownHandle === handle;
             if (!sameEntry) {
                 try {
-                    sameEntry = await knownHandle.isSameEntry?.(handle) ?? false;
+                    sameEntry = await knownHandle.isSameEntry(handle);
                 } catch {
                     sameEntry = false;
                 }
             }
             if (!sameEntry) {
                 try {
-                    sameEntry = await handle.isSameEntry?.(knownHandle) ?? false;
+                    sameEntry = await handle.isSameEntry(knownHandle);
                 } catch {
                     sameEntry = false;
                 }
@@ -259,7 +267,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         entry: IBrowserDocumentEntry,
         stageChunkBytes: ((offset: number, length: number) => Promise<Uint8Array>) | null,
         stagedFileSize: number,
-    ) {
+    ): Promise<TDocumentRef> {
         this.attachEntry(entry);
         let stagedGeneration: string | undefined;
         let stagedChunkCount = 0;
@@ -330,7 +338,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         );
     }
 
-    public getRefForFile(file: File) {
+    public getRefForFile(file: File): TDocumentRef {
         const existingRef = this.fileRefs.get(file);
         if (existingRef && this.hasLoadedEntry(existingRef)) {
             return existingRef;
@@ -350,7 +358,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
     }
 
     private async applyFileRegistrationOptions(
-        ref: string,
+        ref: TDocumentRef,
         file: File,
         options: IRegisterFileOptions,
     ) {
@@ -388,7 +396,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
     }
 
-    public async registerFile(file: File, options: IRegisterFileOptions = {}) {
+    public async registerFile(file: File, options: IRegisterFileOptions = {}): Promise<TDocumentRef> {
         return (await this.registerFileWithOwnership(file, options)).ref;
     }
 
@@ -433,7 +441,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         fileName: string,
         data: Uint8Array | ArrayBuffer,
         options: ICreateStoredDocumentOptions,
-    ) {
+    ): Promise<TDocumentRef> {
         await this.ensureMaintenance();
         const create = () => this.createStoredEntry(fileName, data, options);
         const sourceRef = options.sourceRef;
@@ -445,7 +453,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
         }
         return create();
     }
-    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string) {
+    public async cloneAsWorkingCopy(sourceRef: string, fileName?: string): Promise<TDocumentRef> {
         const sourceEntry = await this.requireEntry(sourceRef);
         const nextName = fileName ?? sourceEntry.fileName;
         try {
@@ -846,7 +854,7 @@ export class BrowserDocumentStore extends BrowserDocumentRecordStore {
             if (!entry.pendingChunkGeneration) {
                 entry.pendingChunkGeneration = createBrowserDocumentChunkGeneration();
                 entry.pendingChunkCount = 0;
-                entry.pendingChunkSize = entry.pendingChunkSize ?? entry.chunkSize ?? BROWSER_DOCUMENT_CHUNK_SIZE;
+                entry.pendingChunkSize = entry.pendingChunkSize ?? entry.chunkSize;
                 entry.pendingFileSize = 0;
             }
             const generation = entry.pendingChunkGeneration;

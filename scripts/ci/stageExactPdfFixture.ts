@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {execFile} from 'node:child_process';
 import {
     createHash,
@@ -302,9 +303,6 @@ export async function copyExactPdfFixture(
         ));
     const syncFileImpl = options.syncFileImpl ?? syncFile;
     const mode = options.mode ?? 'auto';
-    if (mode !== 'auto' && mode !== 'clone' && mode !== 'stream') {
-        throw new Error(`Unsupported exact fixture copy mode: ${String(mode)}`);
-    }
     const temporaryPath = `${targetPath}.${process.pid}.${randomUUID()}.tmp`;
 
     await mkdir(dirname(targetPath), {recursive: true});
@@ -515,6 +513,12 @@ export async function stageExactPdfFixture(
     }
 }
 
+export type TExactPdfFixtureProfileName = keyof typeof EXACT_PDF_FIXTURE_MANIFEST;
+
+function isExactPdfFixtureProfileName(value: string): value is TExactPdfFixtureProfileName {
+    return Object.hasOwn(EXACT_PDF_FIXTURE_MANIFEST, value);
+}
+
 export function resolveExactPdfFixtureExpectation(
     env: NodeJS.ProcessEnv = process.env,
 ): IExactPdfFixtureExpectation {
@@ -527,13 +531,13 @@ export function resolveExactPdfFixtureExpectation(
         ), {code: EXACT_FIXTURE_OPT_IN_REQUIRED});
     }
     const profileName = configuredProfile;
-    const profile = EXACT_PDF_FIXTURE_MANIFEST[profileName as keyof typeof EXACT_PDF_FIXTURE_MANIFEST];
-    if (!profile) {
+    if (!isExactPdfFixtureProfileName(profileName)) {
         throw new Error(
             `Unknown EVB_EXACT_FIXTURE_PROFILE '${profileName}'. `
             + `Expected one of ${Object.keys(EXACT_PDF_FIXTURE_MANIFEST).join(', ')}`,
         );
     }
+    const profile = EXACT_PDF_FIXTURE_MANIFEST[profileName];
 
     const identityOverrideKeys = [
         'EVB_EXACT_FIXTURE_BYTES',
@@ -589,7 +593,7 @@ async function main(argv = process.argv.slice(2)) {
 
 if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
     main().catch(error => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     });
 }

@@ -15,6 +15,7 @@ import {
     fileURLToPath,
     pathToFileURL,
 } from 'node:url';
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const projectRoot = dirname(scriptDir);
@@ -119,7 +120,7 @@ export async function copyPdfjsAssets({
 
 if (pathToFileURL(resolve(process.argv[1] ?? '')).href === import.meta.url) {
     copyPdfjsAssets().catch((error) => {
-        const message = error instanceof Error ? error.stack ?? error.message : String(error);
+        const message = error instanceof Error ? error.stack ?? getCliErrorMessage(error) : getCliErrorMessage(error);
         console.error(`Failed to copy PDF.js assets: ${message}`);
         process.exitCode = 1;
     });

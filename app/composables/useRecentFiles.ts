@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { IRecentFile } from '@contracts/shared';
 import { useRuntimeEnvironment } from '@app/composables/useRuntimeEnvironment';
 import {
@@ -74,7 +75,7 @@ export const useRecentFiles = () => {
             return (await getDocumentRecentFilesCapability()).recentFiles.get();
         },
         getErrorMessage(loadError) {
-            return loadError instanceof Error ? loadError.message : t('errors.recent.load');
+            return loadError instanceof Error ? getErrorMessage(loadError) : t('errors.recent.load');
         },
         shouldRetry() {
             return shouldPreferElectronRuntime.value;
@@ -99,7 +100,7 @@ export const useRecentFiles = () => {
         try {
             await (await getDocumentOpenCapability()).openDocumentDirect(file.originalPath);
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.file.open');
+            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.file.open');
         }
     }
 
@@ -109,7 +110,7 @@ export const useRecentFiles = () => {
             await (await getDocumentRecentFilesCapability()).recentFiles.remove(file.originalPath);
             await loadRecentFiles();
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.recent.remove');
+            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.remove');
         }
     }
 
@@ -137,7 +138,7 @@ export const useRecentFiles = () => {
             });
             return true;
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.recent.remove');
+            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.remove');
             return false;
         }
     }
@@ -150,7 +151,7 @@ export const useRecentFiles = () => {
             isResolved.value = true;
             clearRetryTimer();
         } catch (e) {
-            error.value = e instanceof Error ? e.message : t('errors.recent.clear');
+            error.value = e instanceof Error ? getErrorMessage(e) : t('errors.recent.clear');
         }
     }
 

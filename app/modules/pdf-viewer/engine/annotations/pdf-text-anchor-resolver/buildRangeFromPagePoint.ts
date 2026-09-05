@@ -14,14 +14,14 @@ export function buildRangeFromPagePoint(target: IPagePointTarget) {
 
     const textNode = Array
         .from(nearest.span.childNodes)
-        .flatMap(node => node instanceof Text && (node.textContent?.length ?? 0) > 0 ? [node] : [])
+        .flatMap(node => node instanceof Text && node.textContent.length > 0 ? [node] : [])
         .at(0)
         ?? null;
     if (!textNode) {
         return null;
     }
 
-    const text = textNode.textContent ?? '';
+    const text = textNode.textContent;
     if (!text.length) {
         return null;
     }

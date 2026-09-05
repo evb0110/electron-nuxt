@@ -40,7 +40,7 @@ export async function flattenLayeredManifestPage(
     const maskPath = isAffine ? parts[6]! : parts[5]!;
     const decode = isAffine ? parts[13] : undefined;
     const foregroundColor = kind === 'layered-color-jpeg'
-        ? `rgb(${parts[6]},${parts[7]},${parts[8]})`
+        ? `rgb(${parts[6] ?? '0'},${parts[7] ?? '0'},${parts[8] ?? '0'})`
         : 'black';
     const layerPath = join(pageDirectory, 'foreground.png');
     const layerInputs = foregroundPath === undefined

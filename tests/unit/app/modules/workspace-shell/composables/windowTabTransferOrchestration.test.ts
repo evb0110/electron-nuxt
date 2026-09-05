@@ -7,6 +7,9 @@ import type {
     IEditorPaneState,
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 import { collectLayoutPaneOrder } from '@app/modules/workspace-shell/window-tabs/collectLayoutPaneOrder';
 import { collectMergeTabOrder } from '@app/modules/workspace-shell/window-tabs/collectMergeTabOrder';
@@ -16,7 +19,7 @@ function createTab(id: string): ITab {
     return {
         id,
         fileName: `${id}.pdf`,
-        originalPath: `/tmp/${id}.pdf`,
+        originalPath: requireDocumentRef(`/tmp/${id}.pdf`),
         isDirty: false,
         isDjvu: false,
     };
@@ -31,7 +34,7 @@ describe('window tab transfer orchestration helpers', () => {
             ratio: 0.6,
             first: {
                 type: 'leaf',
-                paneId: 'pane-left',
+                paneId: requirePaneId('pane-left'),
             },
             second: {
                 type: 'split',
@@ -40,11 +43,11 @@ describe('window tab transfer orchestration helpers', () => {
                 ratio: 0.5,
                 first: {
                     type: 'leaf',
-                    paneId: 'pane-top-right',
+                    paneId: requirePaneId('pane-top-right'),
                 },
                 second: {
                     type: 'leaf',
-                    paneId: 'pane-bottom-right',
+                    paneId: requirePaneId('pane-bottom-right'),
                 },
             },
         };
@@ -64,27 +67,27 @@ describe('window tab transfer orchestration helpers', () => {
             ratio: 0.5,
             first: {
                 type: 'leaf',
-                paneId: 'pane-a',
+                paneId: requirePaneId('pane-a'),
             },
             second: {
                 type: 'leaf',
-                paneId: 'pane-b',
+                paneId: requirePaneId('pane-b'),
             },
         };
 
         const panes: IEditorPaneState[] = [
             {
-                paneId: 'pane-a',
+                paneId: requirePaneId('pane-a'),
                 tabIds: [
-                    'tab-1',
-                    'tab-2',
+                    requireTabId('tab-1'),
+                    requireTabId('tab-2'),
                 ],
-                activeTabId: 'tab-1',
+                activeTabId: requireTabId('tab-1'),
             },
             {
-                paneId: 'pane-b',
-                tabIds: ['tab-3'],
-                activeTabId: 'tab-3',
+                paneId: requirePaneId('pane-b'),
+                tabIds: [requireTabId('tab-3')],
+                activeTabId: requireTabId('tab-3'),
             },
         ];
 

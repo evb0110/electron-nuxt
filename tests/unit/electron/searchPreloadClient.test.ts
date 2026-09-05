@@ -5,6 +5,9 @@ import {
     vi,
 } from 'vitest';
 import type { IpcRenderer } from 'electron';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireRequestId} from '@contracts/shared';
+import type {TRequestId} from '@contracts/shared';
 import { SEARCH_PLATFORM_FEATURE } from '@contracts/searchPlatformFeature';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import {
@@ -12,6 +15,7 @@ import {
     type ISearchErrorEnvelope,
 } from '@contracts/search';
 import {encodeSerializableErrorEnvelope} from '@contracts/serializableError';
+import {cast} from '@tests/helpers/cast';
 
 const SEARCH_CHANNELS = SEARCH_PLATFORM_FEATURE.invokeChannels;
 const SEARCH_EVENT_CHANNELS = SEARCH_PLATFORM_FEATURE.eventChannels;
@@ -29,7 +33,7 @@ describe('derived Search preload client', () => {
         const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
         await client.run('  /tmp/work.pdf  ', 'needle', {
-            requestId: '  search-1  ',
+            requestId: requireRequestId('  search-1  '),
             pageCount: 12,
             matchCase: true,
             wholeWord: false,
@@ -55,7 +59,7 @@ describe('derived Search preload client', () => {
         };
         const client = createPlatformFeaturePreloadClient(ipcRenderer as IpcRenderer, SEARCH_PLATFORM_FEATURE);
 
-        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: 'x'.repeat(129)}))
+        expect(() => client.run('/tmp/work.pdf', 'needle', {requestId: cast<TRequestId>('x'.repeat(129))}))
             .toThrow('requestId exceeds maximum length (128)');
         expect(ipcRenderer.invoke).not.toHaveBeenCalled();
     });
@@ -65,7 +69,7 @@ describe('derived Search preload client', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: 123,
+            timestamp: requireEpochMs(123),
         };
         const cause = new Error(
             `Error invoking remote method '${SEARCH_CHANNELS.run}': ${encodeSerializableErrorEnvelope(envelope)}`,
@@ -94,7 +98,7 @@ describe('derived Search preload client', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: 123,
+            timestamp: requireEpochMs(123),
         };
 
         expect(findSearchErrorEnvelope({errorEnvelope: envelope})).toEqual(envelope);

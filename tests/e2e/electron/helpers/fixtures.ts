@@ -39,8 +39,10 @@ import { prependDirectoryToPath } from '@electron/native-tools/toolRegistry';
 import { resolvePlatformArchTag } from '@electron/utils/platformArch';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import { EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeImportLimit';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import { applyCombinedPdfPageLabels } from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 const FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-fixtures');
 const RUN_FIXTURE_ROOT_DIR = resolve(process.cwd(), '.devkit', 'tmp', 'e2e-run-fixtures');
@@ -300,7 +302,7 @@ async function resolveDjvusedFixtureTool() {
             }
             attempts.push(`${command}: unexpected page count ${result.stdout.trim() || '(empty)'}`);
         } catch (error) {
-            attempts.push(`${command}: ${error instanceof Error ? error.message : String(error)}`);
+            attempts.push(`${command}: ${getErrorMessage(error)}`);
         }
     }
 
@@ -485,7 +487,7 @@ function provisionLargePdfFixture(
         return {
             path: null,
             reason: `Generated ${label} large PDF fixture is not available`
-                + ` (scripts/generate-large-pdf-e2e-fixture.mjs): ${error instanceof Error ? error.message : String(error)}`,
+                + ` (scripts/generate-large-pdf-e2e-fixture.mjs): ${getErrorMessage(error)}`,
             required,
         };
     }
@@ -675,7 +677,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
     writePdfBookmarkOutlines(doc, [
         {
             title: 'Parent',
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             pageYRatio: null,
             namedDest: null,
             bold: false,
@@ -683,7 +685,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
             color: null,
             items: [{
                 title: 'Child',
-                pageIndex: 2,
+                pageIndex: requirePageIndex(2),
                 pageYRatio: null,
                 namedDest: null,
                 bold: false,
@@ -694,7 +696,7 @@ export async function createOutlinePageLabelFixturePdf(filename: string) {
         },
         {
             title: 'Appendix',
-            pageIndex: 3,
+            pageIndex: requirePageIndex(3),
             pageYRatio: null,
             namedDest: null,
             bold: false,

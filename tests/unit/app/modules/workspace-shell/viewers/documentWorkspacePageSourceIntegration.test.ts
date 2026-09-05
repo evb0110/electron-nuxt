@@ -15,6 +15,7 @@ import {
     provide,
     shallowRef,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type {IDocumentPageSource} from '@app/utils/document-viewer/source/documentPageSource';
 import {
     createDocumentOpenSurfaceSession,
@@ -76,7 +77,7 @@ vi.mock('@app/composables/useTypedI18n', () => ({useTypedI18n: () => ({t: (key: 
 
 const source: IDocumentPageSource = {
     kind: 'pdf',
-    documentRef: '/book.pdf',
+    documentRef: requireDocumentRef('/book.pdf'),
     pageCount: 3,
     getPageMetrics: vi.fn(async () => ({
         widthPoints: 500,

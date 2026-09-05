@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     MaybeRefOrGetter,
     Ref,
@@ -22,8 +24,8 @@ interface IUsePdfRendererSearchControllerOptions extends IPdfRendererSearchNavig
     searchPageMatches: MaybeRefOrGetter<Map<number, IPdfPageMatches>>;
     currentSearchMatch: MaybeRefOrGetter<IPdfSearchMatch | null>;
     currentSearchMatchNavigationId: MaybeRefOrGetter<number>;
-    scheduleRenderForSinglePage: (pageNumber: number) => void;
-    isPageRenderPending?: (pageNumber: number) => boolean;
+    scheduleRenderForSinglePage: (pageNumber: TPageNumber) => void;
+    isPageRenderPending?: (pageNumber: TPageNumber) => boolean;
 }
 
 export const usePdfRendererSearchController = (options: IUsePdfRendererSearchControllerOptions) => {

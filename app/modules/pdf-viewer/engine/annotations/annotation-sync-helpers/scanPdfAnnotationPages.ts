@@ -1,3 +1,6 @@
+import { pageNumberToPageIndex } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     ILinkAnnotation,
@@ -27,21 +30,21 @@ export interface IPdfAnnotationPageScanResult {
 }
 
 export interface IPdfAnnotationFirstPageResult {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     comments: readonly IAnnotationCommentSummary[];
     links: readonly ILinkAnnotation[];
     failed: boolean;
 }
 
 export interface IPdfAnnotationPageScanOptions {
-    pageOrder: Iterable<number>;
+    pageOrder: Iterable<TPageNumber>;
     nativeIndexReader: IPdfAnnotationIndexReader | null;
     annotationNamesByPage: ReadonlyMap<number, ReadonlyMap<string, string>> | null;
     comments: IAnnotationCommentSummary[];
     links: ILinkAnnotation[];
     summaryDeps: IPdfCommentSummaryDeps;
     loadPage: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         annotationNamesById: ReadonlyMap<string, string> | null,
     ) => Promise<IPdfPageAnnotationBundle | null>;
     waitForIdle: () => Promise<void>;
@@ -79,7 +82,8 @@ export async function scanPdfAnnotationPages(
         }
         orderIndex += 1;
 
-        let pageAnnotationNames = annotationNamesByPage?.get(pageNumber - 1) ?? null;
+        const pageIndex = pageNumberToPageIndex(pageNumber);
+        let pageAnnotationNames = annotationNamesByPage?.get(pageIndex) ?? null;
         let skipPageLoad = false;
         if (nativeIndexReader && nativeIndexAvailable) {
             try {
@@ -88,14 +92,14 @@ export async function scanPdfAnnotationPages(
                 // the old name-only call as a runtime compatibility path for
                 // readers created by older tests or bridges.
                 if (typeof nativeIndexReader.readPage === 'function') {
-                    const pageReadOrPromise = nativeIndexReader.readPage(pageNumber - 1);
+                    const pageReadOrPromise = nativeIndexReader.readPage(pageIndex);
                     const pageRead = isPromiseLike(pageReadOrPromise)
                         ? await pageReadOrPromise
                         : pageReadOrPromise;
                     pageAnnotationNames = pageRead.names;
                     skipPageLoad = !pageRead.hasAnnotations;
                 } else {
-                    pageAnnotationNames = await nativeIndexReader.readPageNames(pageNumber - 1);
+                    pageAnnotationNames = await nativeIndexReader.readPageNames(pageIndex);
                 }
             } catch (error: unknown) {
                 onNativeIndexReadFailure(error);

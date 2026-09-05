@@ -92,7 +92,7 @@ export function createPuppeteerViewerFactory({
         await browser.disconnect();
         const outcome = launcher.terminate(record);
         if (!outcome.terminated) {
-            throw new Error(`refusing to report a clean shutdown: ${outcome.reason ?? 'unknown reason'}`);
+            throw new Error(`refusing to report a clean shutdown: ${outcome.reason}`);
         }
     };
 
@@ -144,7 +144,7 @@ export function createPuppeteerViewerFactory({
                         const outcome = launcher.terminate(record);
                         return outcome.terminated
                             ? Promise.resolve()
-                            : Promise.reject(new Error(`refusing to report a clean shutdown: ${outcome.reason ?? 'unknown reason'}`));
+                            : Promise.reject(new Error(`refusing to report a clean shutdown: ${outcome.reason}`));
                     },
                 };
             } catch (error) {

@@ -3,6 +3,10 @@ import {
     isString,
 } from 'es-toolkit/predicate';
 import { trim } from 'es-toolkit/string';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 
 export const MAX_IPC_PATH_LENGTH = 4_096;
 
@@ -31,15 +35,17 @@ export function isLikelyAbsolutePath(path: string) {
         || /^[A-Za-z]:[\\/]/.test(path);
 }
 
-export function assertAbsolutePath(value: unknown, fieldName: string) {
+export function assertAbsolutePath(value: unknown, fieldName: string): TDocumentRef {
     const normalized = assertNonEmptyString(value, fieldName);
     if (!isLikelyAbsolutePath(normalized)) {
         throw new Error(`${fieldName} must be an absolute path`);
     }
-    return normalized;
+    return parseDocumentRef(normalized) ?? (() => {
+        throw new Error(`${fieldName} must be a supported document reference`);
+    })();
 }
 
-export function assertOptionalAbsolutePath(value: unknown, fieldName: string) {
+export function assertOptionalAbsolutePath(value: unknown, fieldName: string): TDocumentRef | undefined {
     if (isNil(value)) {
         return undefined;
     }
@@ -52,5 +58,7 @@ export function assertOptionalAbsolutePath(value: unknown, fieldName: string) {
     if (!isLikelyAbsolutePath(normalized)) {
         throw new Error(`${fieldName} must be an absolute path`);
     }
-    return normalized;
+    return parseDocumentRef(normalized) ?? (() => {
+        throw new Error(`${fieldName} must be a supported document reference`);
+    })();
 }

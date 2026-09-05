@@ -55,7 +55,7 @@ function estimateLegacyJsonIndexFootprint(
 
     for (const page of index.pages) {
         throwIfAborted(signal);
-        estimatedBytes += 96 + Buffer.byteLength(page.text ?? '', 'utf8');
+        estimatedBytes += 96 + Buffer.byteLength(page.text, 'utf8');
         if (!pageHasSearchGeometry(page)) {
             continue;
         }
@@ -66,7 +66,7 @@ function estimateLegacyJsonIndexFootprint(
             throwIfAborted(signal);
             geometryWordCount += 1;
             estimatedBytes += SEARCH_LEGACY_JSON_WORD_RECORD_ESTIMATE_BYTES
-                + Buffer.byteLength(word.text ?? '', 'utf8');
+                + Buffer.byteLength(word.text, 'utf8');
         }
     }
 

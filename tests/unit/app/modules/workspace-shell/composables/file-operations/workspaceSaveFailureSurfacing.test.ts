@@ -8,6 +8,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import {
     createDeps,
@@ -21,8 +22,8 @@ type TSaveFixtureDeps = ReturnType<typeof createDeps>['deps'];
 
 /** The user opened a different file while a save was still running. */
 function replaceOpenDocument(deps: TSaveFixtureDeps) {
-    deps.originalPath.value = '/tmp/other-source.pdf';
-    deps.workingCopyPath.value = '/tmp/other-work.pdf';
+    deps.originalPath.value = requireDocumentRef('/tmp/other-source.pdf');
+    deps.workingCopyPath.value = requireDocumentRef('/tmp/other-work.pdf');
     deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-other');
 }
 
@@ -270,7 +271,7 @@ describe('workspace save failure surfacing', () => {
         await service.handleSave();
         expect(service.hasSaveFailure.value).toBe(true);
 
-        deps.originalPath.value = '/tmp/another.pdf';
+        deps.originalPath.value = requireDocumentRef('/tmp/another.pdf');
 
         // The next document must not inherit a red dot it never earned.
         expect(service.hasSaveFailure.value).toBe(false);

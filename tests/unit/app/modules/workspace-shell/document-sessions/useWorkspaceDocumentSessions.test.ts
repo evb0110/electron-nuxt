@@ -9,6 +9,7 @@ import {
     ref,
     watch,
 } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { ITab } from '@app/types/tabs';
 import {
     createDefaultWorkspaceViewerCapabilities,
@@ -42,7 +43,7 @@ function createReadyRecord(fileName: string, originalPath: string, overrides: Pa
     return createWorkspaceDocumentRecord({
         tab: {
             fileName,
-            originalPath,
+            originalPath: requireDocumentRef(originalPath),
             isDirty: overrides.isDirty ?? false,
             isDjvu: overrides.isDjvu ?? false,
         },
@@ -66,7 +67,7 @@ describe('useWorkspaceDocumentSessions', () => {
             activeTabId: ref('tab-1'),
             tabs: ref([createTab({
                 fileName: 'Paper.pdf',
-                originalPath: '/tmp/Paper.pdf',
+                originalPath: requireDocumentRef('/tmp/Paper.pdf'),
             })]),
         });
 
@@ -105,7 +106,7 @@ describe('useWorkspaceDocumentSessions', () => {
         sessions.setWorkspaceDocumentRecord('tab-1', createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'Ready.pdf',
-                originalPath: '/tmp/Ready.pdf',
+                originalPath: requireDocumentRef('/tmp/Ready.pdf'),
                 isDirty: true,
                 isDjvu: false,
             },
@@ -185,7 +186,7 @@ describe('useWorkspaceDocumentSessions', () => {
             const secondTab = createTab({
                 id: 'tab-2',
                 fileName: 'Second.pdf',
-                originalPath: '/docs/second.pdf',
+                originalPath: requireDocumentRef('/docs/second.pdf'),
             });
             tabs.value = [
                 tabs.value[0]!,

@@ -10,6 +10,10 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type { IPdfValidationResult } from '@contracts/pdfConformance';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     parseDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
@@ -53,9 +57,17 @@ export type TShowSaveDialogWithExtension = (
     },
 ) => Promise<string | null>;
 
+function requireDocumentRef(value: unknown): TDocumentRef {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error('Expected an absolute document ref');
+    }
+    return documentRef;
+}
+
 function normalizeExpectedDocumentRevisionToken(options?: IPdfSerializedSaveOptions | null): TDocumentRevisionToken | null {
     const token = options?.expectedDocumentRevisionToken;
-    if (token === undefined || token === null) {
+    if (token === undefined) {
         return null;
     }
     const parsedToken = parseDocumentRevisionToken(token);
@@ -175,7 +187,7 @@ export async function savePdfAs(
     await addRecentFile(targetPath);
     updateRecentFilesMenu();
 
-    return targetPath;
+    return requireDocumentRef(targetPath);
 }
 
 export async function savePdfDataAs(
@@ -186,7 +198,7 @@ export async function savePdfDataAs(
     showSaveDialogWithExtension: TShowSaveDialogWithExtension,
     serializedSaveOptions?: IPdfSerializedSaveOptions,
 ): Promise<{
-    path: string | null;
+    path: TDocumentRef | null;
     validation: IPdfValidationResult | null;
 }> {
     const normalizedWorkingPath = typeof workingPath === 'string' ? workingPath.trim() : '';
@@ -219,7 +231,7 @@ export async function savePdfDataAs(
     }
 
     const tempPath = makeSiblingTempPath(targetPath);
-    let replaced = false;
+    let replaced = false as boolean;
     try {
         await writeFile(tempPath, payload);
         const validation = await validatePdfFile(tempPath);
@@ -232,7 +244,7 @@ export async function savePdfDataAs(
         const optimizedValidation = await optimizePdfForSaveAs(tempPath, options);
         const committedValidation = optimizedValidation ?? validation;
         const resultRef: {current: {
-            path: string | null;
+            path: TDocumentRef | null;
             validation: IPdfValidationResult;
         } | null;} = { current: null };
 
@@ -262,7 +274,7 @@ export async function savePdfDataAs(
             await addRecentFile(targetPath);
             updateRecentFilesMenu();
             resultRef.current = {
-                path: targetPath,
+                path: requireDocumentRef(targetPath),
                 validation: resultValidation,
             };
         });
@@ -299,7 +311,7 @@ export async function savePdfDialog(
 
     allowDjvuWritePath(targetPath, context.sender);
 
-    return targetPath;
+    return requireDocumentRef(targetPath);
 }
 
 export async function saveDocxAs(
@@ -325,5 +337,5 @@ export async function saveDocxAs(
 
     allowDocxWritePath(targetPath, context.sender);
 
-    return targetPath;
+    return requireDocumentRef(targetPath);
 }

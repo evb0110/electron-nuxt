@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { PDFDocument } from 'pdf-lib';
 import { clamp } from 'es-toolkit/math';
 import {
@@ -12,6 +13,7 @@ import {
 import type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     ensurePdfExtension,
     getExtension,
@@ -49,7 +51,14 @@ import {
     resolveBrowserRasterIccProfile,
 } from '@app/platform/browser-api/browserRasterImageMetadata';
 import {embedPdfImageIccProfile} from '@app/platform/browser-api/embedPdfImageIccProfile';
-import { isNativeDocumentRef } from '@app/utils/documentRef';
+import {
+    createJobId,
+    parseRequestId,
+} from '@contracts/shared';
+import {
+    isNativeLegacyDocumentRef,
+    parseDocumentRef,
+} from '@contracts/documentRef';
 import {PdfCombineCapabilityError} from '@contracts/pdfCombineErrors';
 import {createBrowserPdfCombineOutputError} from '@app/platform/browser-api/browserPdfCombineLimits';
 
@@ -77,7 +86,7 @@ function throwIfCombineAborted(signal: AbortSignal | undefined) {
 }
 
 function assertBrowserCombineSources(paths: string[]) {
-    const nativePath = paths.find(path => isNativeDocumentRef(path));
+    const nativePath = paths.find(path => isNativeLegacyDocumentRef(path));
     if (!nativePath) {
         return;
     }
@@ -154,7 +163,7 @@ export function emitBatchOpenProgress(
     startedAt: number,
     percentCap = 100,
 ) {
-    const requestId = options?.requestId?.trim();
+    const requestId = parseRequestId(options?.requestId);
     const safeTotal = Math.max(total, 0);
     const safeProcessed = safeTotal > 0
         ? clamp(processed, 0, safeTotal)
@@ -179,7 +188,7 @@ export function emitBatchOpenProgress(
 
     options?.onProgress?.(progress);
 
-    if (!requestId) {
+    if (requestId === null) {
         return;
     }
 
@@ -198,7 +207,11 @@ async function ensureBrowserCombinedPdfBudget(paths: string[], maxBytes: number)
             await yieldToBrowser();
         }
 
-        const { size } = await browserDocumentStore.stat(paths[index]!);
+        const path = paths[index];
+        if (path === undefined) {
+            throw new Error('Missing browser combine input path');
+        }
+        const { size } = await browserDocumentStore.stat(path);
         totalBytes += size;
         if (totalBytes > maxBytes) {
             throw buildBrowserLargeJobError(
@@ -238,7 +251,7 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
             retention: 'transient',
         },
     );
-    const jobId = `browser-pdf-combine-djvu-${crypto.randomUUID()}`;
+    const jobId = createJobId('browser-pdf-combine-djvu');
     const cancel = () => { void browserDjvuCapability.cancel(jobId); };
     signal?.addEventListener('abort', cancel, {once: true});
     try {
@@ -246,7 +259,9 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
         try {
             throwIfCombineAborted(signal);
             result = await runBrowserDjvuConversion(
-                path,
+                parseDocumentRef(path) ?? (() => {
+                    throw new TypeError('Browser combine path is not a document reference');
+                })(),
                 outputRef,
                 {
                     jobId,
@@ -263,9 +278,13 @@ async function createBrowserPdfFromDjvuForCombine(path: string, signal?: AbortSi
         }
 
         if (!result.success) {
-            throw new Error(result.error ?? `Failed to convert DjVu file: ${fileName}`);
+            throw new Error(result.error);
         }
-        const bookmarks = await getBrowserDjvuBookmarksForCombine(path, signal);
+        const parsedPath = parseDocumentRef(path);
+        if (parsedPath === null) {
+            throw new TypeError('Browser combine path is not a document reference');
+        }
+        const bookmarks = await getBrowserDjvuBookmarksForCombine(parsedPath, signal);
         if (bookmarks.length > 0) {
             const {PDFDocument} = await import('pdf-lib');
             const convertedBytes = await browserDocumentStore.read(outputRef);
@@ -291,7 +310,10 @@ async function createBrowserCombineInputPaths(paths: string[], signal?: AbortSig
                 await yieldToBrowser();
             }
 
-            const path = paths[index]!;
+            const path = paths[index];
+            if (path === undefined) {
+                throw new Error('Missing browser combine input path');
+            }
             const fileName = getBrowserDocumentFileName(path);
             if (!isDjvuFileName(fileName)) {
                 combinePaths.push(path);
@@ -509,7 +531,10 @@ async function createCombinedPdfFromPreparedPaths(
                 await yieldToBrowser();
             }
 
-            const path = paths[index]!;
+            const path = paths[index];
+            if (path === undefined) {
+                throw new Error('Missing browser combine input path');
+            }
             const data = await browserDocumentStore.read(path);
             inputs.push(cloneCombineWorkerInput(
                 getBrowserDocumentFileName(path),
@@ -532,8 +557,8 @@ async function createCombinedPdfFromPreparedPaths(
                 && !(
                     error instanceof Error
                     && (
-                        error.message === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME'
-                        || error.message.startsWith('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:')
+                        getErrorMessage(error) === 'ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_IMAGE_RUNTIME'
+                        || getErrorMessage(error).startsWith('ERR_BROWSER_PDF_COMBINE_WORKER_UNSUPPORTED_INPUT:')
                     )
                 )
             ) {
@@ -557,7 +582,10 @@ async function createCombinedPdfFromPreparedPaths(
             await yieldToBrowser();
         }
 
-        const path = paths[index]!;
+        const path = paths[index];
+        if (path === undefined) {
+            throw new Error('Missing browser combine input path');
+        }
         const bytes = await browserDocumentStore.read(path);
         const fileName = getBrowserDocumentFileName(path);
         const firstPageIndex = pdfDocument.getPageCount();
@@ -572,7 +600,7 @@ async function createCombinedPdfFromPreparedPaths(
             assertBrowserCombinedPdfPageCount(pdfDocument.getPageCount());
             sourceOutlines.push({
                 title: fileName,
-                pageIndex: firstPageIndex,
+                pageIndex: requirePageIndex(firstPageIndex),
                 namedDest: null,
                 bold: false,
                 italic: false,
@@ -591,7 +619,7 @@ async function createCombinedPdfFromPreparedPaths(
         assertBrowserCombinedPdfPageCount(pdfDocument.getPageCount());
         sourceOutlines.push({
             title: fileName,
-            pageIndex: firstPageIndex,
+            pageIndex: requirePageIndex(firstPageIndex),
             namedDest: null,
             bold: false,
             italic: false,

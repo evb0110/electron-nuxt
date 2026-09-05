@@ -1,3 +1,5 @@
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -22,7 +24,7 @@ function importPersistedHighlight(store: AnnotationStore) {
             id: annotationId,
             pdfRef: '12R0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
@@ -47,11 +49,11 @@ function stickyNote(id: string, text: string): IStickyNoteEntity {
     return {
         kind: 'sticky-note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1_781_000_000_000,
+        createdAt: requireEpochMs(1_781_000_000_000),
         modifiedAt: null,
         author: null,
         text,
@@ -302,7 +304,7 @@ describe('AnnotationStore saved semantic baseline', () => {
             text: 'agent-created note',
             subtype: 'FreeText',
             author: null,
-            createdAt: 1_781_000_000_000,
+            createdAt: requireEpochMs(1_781_000_000_000),
             modifiedAt: null,
             color: '#ffff00',
             uid: 'pdfjs_internal_editor_0',

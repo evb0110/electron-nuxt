@@ -31,7 +31,7 @@ const PERSISTENT_SETTINGS_COOKIE_OPTIONS = {
     maxAge: BROWSER_SETTINGS_COOKIE_MAX_AGE_SECONDS,
     sameSite: 'lax' as const,
     path: '/',
-    secure: import.meta.client && window.location?.protocol === 'https:',
+    secure: import.meta.client && window.location.protocol === 'https:',
 };
 const SETTINGS_SAVE_DEBOUNCE_MS = 400;
 let settingsPersistenceQueue: ISettingsPersistenceQueue | null = null;

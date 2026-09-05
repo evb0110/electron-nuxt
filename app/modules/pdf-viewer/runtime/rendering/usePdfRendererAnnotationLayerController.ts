@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { MaybeRefOrGetter } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import type { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
@@ -25,16 +27,16 @@ interface IUsePdfRendererAnnotationLayerControllerOptions {
     showAnnotations: MaybeRefOrGetter<boolean>;
     annotationUiManager: MaybeRefOrGetter<unknown>;
     getRenderVersion: () => number;
-    cleanupPageIfCurrentRender: (pageNumber: number, version: number, requestId?: number) => void;
-    logNonCriticalStageError: (pageNumber: number, stage: string, error: unknown) => void;
+    cleanupPageIfCurrentRender: (pageNumber: TPageNumber, version: number, requestId?: number) => void;
+    logNonCriticalStageError: (pageNumber: TPageNumber, stage: string, error: unknown) => void;
     renderSupervisor?: IPdfRenderSupervisor | undefined;
 }
 
 interface IPdfRendererAnnotationLayerController {
-    cancel(pageNumber: number): void;
+    cancel(pageNumber: TPageNumber): void;
     cancelAll(): void;
     dispose(): void;
-    register(pageNumber: number, controller: AbortController): () => void;
+    register(pageNumber: TPageNumber, controller: AbortController): () => void;
 }
 
 export const usePdfRendererAnnotationLayerController = (options: IUsePdfRendererAnnotationLayerControllerOptions) => {
@@ -49,7 +51,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
     const activeAnnotationLayerAbortControllers = new Map<number, AbortController>();
     let disposed = false;
 
-    function register(pageNumber: number, controller: AbortController) {
+    function register(pageNumber: TPageNumber, controller: AbortController) {
         activeAnnotationLayerAbortControllers.get(pageNumber)?.abort();
         activeAnnotationLayerAbortControllers.set(pageNumber, controller);
         if (disposed) {
@@ -58,13 +60,13 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
         return () => releaseAnnotationLayerAbortController(pageNumber, controller);
     }
 
-    function releaseAnnotationLayerAbortController(pageNumber: number, controller: AbortController) {
+    function releaseAnnotationLayerAbortController(pageNumber: TPageNumber, controller: AbortController) {
         if (activeAnnotationLayerAbortControllers.get(pageNumber) === controller) {
             activeAnnotationLayerAbortControllers.delete(pageNumber);
         }
     }
 
-    function cancel(pageNumber: number) {
+    function cancel(pageNumber: TPageNumber) {
         const controller = activeAnnotationLayerAbortControllers.get(pageNumber);
         if (!controller) {
             return;
@@ -89,7 +91,7 @@ export const usePdfRendererAnnotationLayerController = (options: IUsePdfRenderer
     }
 
     async function renderAnnotationLayersForPage(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         version: number,
         requestId: number,
         context: IAnnotationRenderContext,

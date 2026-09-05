@@ -34,7 +34,7 @@ function createRequestAbortController(request: IncomingMessage, response: Server
     };
     request.once('aborted', () => abort('MCP HTTP request aborted'));
     request.once('close', () => {
-        if (request.aborted || !request.complete) {
+        if (!request.complete) {
             abort('MCP HTTP request closed before its body completed');
         }
     });

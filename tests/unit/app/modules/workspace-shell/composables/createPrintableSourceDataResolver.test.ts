@@ -10,6 +10,7 @@ import {
     shallowRef,
 } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IPdfViewerSaveTransactionRequest,
     IPdfViewerSaveTransactionResult,
@@ -398,7 +399,7 @@ describe('createPrintableSourceDataResolver', () => {
         const note = application.store.createStickyNote({
             kind: 'sticky-note',
             identity: {id: asAnnotationId('print-frontier-note')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
@@ -48,6 +49,7 @@ import type {
     AnnotationApplication,
     IAnnotationSaveVerificationOptions,
 } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import { parseDocumentRef } from '@contracts/documentRef';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
 import { isPdfDocumentUsable } from '@app/utils/isPdfDocumentUsable';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
@@ -347,7 +349,13 @@ export const usePdfViewerSaveTransaction = (
                 path: string,
                 knownSize: number,
                 verificationOptions?: IAnnotationSaveVerificationOptions,
-            ) => application.verifySavePath(session, path, knownSize, verificationOptions),
+            ) => {
+                const parsedPath = parseDocumentRef(path);
+                if (parsedPath === null) {
+                    throw new TypeError('Annotation verification path must be a document reference');
+                }
+                return application.verifySavePath(session, parsedPath, knownSize, verificationOptions);
+            },
             assertCurrent: () => application.assertSaveCurrent(session, input.documentRevisionToken),
             recordMaterializedIdentityBinding: (binding: ICanonicalAnnotationIdentityBinding) =>
                 application.recordMaterializedIdentityBinding(session, binding.annotationId, binding.pdfRef),
@@ -368,7 +376,7 @@ export const usePdfViewerSaveTransaction = (
             return data;
         })();
         const settlePromise = savePromise.then(() => undefined, () => undefined);
-        let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+        let timeoutHandle = null as ReturnType<typeof setTimeout> | null;
         const timeoutPromise = new Promise<never>((_resolve, reject) => {
             timeoutHandle = setTimeout(() => {
                 timeoutHandle = null;
@@ -468,7 +476,7 @@ export const usePdfViewerSaveTransaction = (
             : [];
         try {
             const materialized = await saveDocumentWithRetry();
-            if (!materialized || !input.request.annotationSerializationPlan) {
+            if (!input.request.annotationSerializationPlan) {
                 return materialized;
             }
             const bindingResult = await bindCanonicalAnnotationIdentitiesOffThread(
@@ -710,8 +718,8 @@ export const usePdfViewerSaveTransaction = (
                 try {
                     await canonicalSave?.assertCurrent?.();
                 } catch (error) {
-                    if (error instanceof Error && error.message.includes('staleRevisionError')) {
-                        throw staleTargetError(error.message.replace(/^staleRevisionError:\s*/u, ''));
+                    if (error instanceof Error && getErrorMessage(error).includes('staleRevisionError')) {
+                        throw staleTargetError(getErrorMessage(error).replace(/^staleRevisionError:\s*/u, ''));
                     }
                     throw error;
                 }

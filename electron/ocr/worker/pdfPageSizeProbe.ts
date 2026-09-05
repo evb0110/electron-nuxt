@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {runOcrCommand} from '@electron/ocr/worker/runOcrCommand';
 import type {TWorkerLog} from '@electron/ocr/worker/types';
 import {
@@ -106,7 +107,7 @@ export async function readOcrPdfPageSizesInches(
         };
     } catch (error) {
         abortIfRequested(input.signal);
-        const message = `Native PDF page-size inspection failed; OCR resource budgeting is using conservative defaults: ${error instanceof Error ? error.message : String(error)}`;
+        const message = `Native PDF page-size inspection failed; OCR resource budgeting is using conservative defaults: ${getErrorMessage(error)}`;
         input.log?.('warn', message);
         return {
             status: 'degraded',

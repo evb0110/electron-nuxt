@@ -100,18 +100,9 @@ function fallbackForm(forms: string[], template: string, ...indices: number[]) {
     return template;
 }
 
-function getFirstDefinedForm(forms: IPluralForms) {
-    return forms.zero
-        ?? forms.one
-        ?? forms.two
-        ?? forms.few
-        ?? forms.many
-        ?? forms.other;
-}
-
 function selectPluralMessageForm(message: IPluralMessage, count: number | null, locale: string) {
     if (count === null) {
-        return message.forms.other ?? getFirstDefinedForm(message.forms);
+        return message.forms.other;
     }
 
     if (count === 0 && message.forms.zero) {
@@ -119,9 +110,7 @@ function selectPluralMessageForm(message: IPluralMessage, count: number | null, 
     }
 
     const category = getPluralCategory(locale, count);
-    return message.forms[category]
-        ?? message.forms.other
-        ?? getFirstDefinedForm(message.forms);
+    return message.forms[category] ?? message.forms.other;
 }
 
 function selectLegacyPipeForm(template: string, count: number, locale: string) {

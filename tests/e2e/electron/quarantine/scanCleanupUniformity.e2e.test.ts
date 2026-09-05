@@ -21,6 +21,8 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requireRequestId} from '@contracts/shared';
 import type {
     IScanCleanupOptions,
     TScanCleanupLayoutByPage,
@@ -868,9 +870,9 @@ async function readPreviewObservations(
             const result = await service.preview(subscriber, {
                 ownerId: `parity-${parityCase.id}`,
                 documentRevision: `${parityCase.id}-revision`,
-                requestId: `${parityCase.id}-page-${String(pageNumber)}`,
+                requestId: requireRequestId(`${parityCase.id}-page-${String(pageNumber)}`),
                 sourcePdfPath: fixturePath,
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 options: corpusOptions(parityCase, true),
                 layoutByPage: corpusLayoutByPage(parityCase, pageCount),
                 layoutDetectionComplete: true,

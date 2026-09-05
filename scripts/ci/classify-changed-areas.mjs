@@ -14,16 +14,21 @@ const diffNameOnlyArguments = [
     '-z',
 ];
 
+/** @typedef {{output: string, owner: string, paths: string[]}} IChangedArea */
+/** @typedef {{area: string, matched: boolean, owner: string}} IChangedAreaResult */
+
+/** @param {string} filePath @returns {string} */
 function normalizePath(filePath) {
     return filePath.split(path.sep).join('/').replace(/^\.\//u, '');
 }
 
+/** @param {string} filePath @param {string} pattern @returns {boolean} */
 export function matchesChangedAreaPattern(filePath, pattern) {
     const normalizedPath = normalizePath(filePath);
     const normalizedPattern = normalizePath(pattern);
     let expression = '^';
     for (let index = 0; index < normalizedPattern.length; index += 1) {
-        const character = normalizedPattern[index];
+        const character = normalizedPattern[index] ?? '';
         if (character === '*' && normalizedPattern[index + 1] === '*') {
             expression += '.*';
             index += 1;
@@ -38,6 +43,7 @@ export function matchesChangedAreaPattern(filePath, pattern) {
     return new RegExp(`${expression}$`, 'u').test(normalizedPath);
 }
 
+/** @param {string[] | null} files @param {Record<string, IChangedArea>} [policy] @returns {Record<string, IChangedAreaResult>} */
 export function classifyChangedFiles(files, policy = getCiChangedAreaPolicy()) {
     const normalizedFiles = files?.map(normalizePath).filter(Boolean) ?? null;
     return Object.fromEntries(Object.entries(policy).map(([
@@ -56,21 +62,25 @@ export function classifyChangedFiles(files, policy = getCiChangedAreaPolicy()) {
     ]));
 }
 
+/** @param {string[]} argv @param {string} name @returns {string[]} */
 function readArgValues(argv, name) {
     const prefix = `--${name}=`;
     return argv.filter(arg => arg.startsWith(prefix)).map(arg => arg.slice(prefix.length));
 }
 
+/** @param {string[]} argv @param {string} name @returns {string | undefined} */
 function readSingleArg(argv, name) {
     return readArgValues(argv, name).at(-1);
 }
 
+/** @param {string[]} arguments_ @returns {string[]} */
 function readNullDelimitedGitOutput(arguments_) {
     return execFileSync('git', arguments_, { encoding: 'utf8' })
         .split('\0')
         .filter(Boolean);
 }
 
+/** @param {{base?: string | undefined, head?: string | undefined, includeWorktree?: boolean}} options @returns {string[] | null} */
 export function getChangedFiles({
     base,
     head,
@@ -113,6 +123,7 @@ export function getChangedFiles({
     }
 }
 
+/** @param {{argv?: string[], outputFile?: string | undefined}} options @returns {Record<string, IChangedAreaResult>} */
 export function runChangedAreaClassifier({
     argv = process.argv.slice(2),
     outputFile = process.env.GITHUB_OUTPUT,

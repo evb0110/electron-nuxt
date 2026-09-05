@@ -31,6 +31,7 @@ import {
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
+import {createIsoTimestamp} from '@contracts/timestamps';
 
 const logger = createLogger('agent-codex-mcp');
 
@@ -107,7 +108,7 @@ async function createBaseStatus(): Promise<Omit<IAgentMcpIntegrationStatus, 'ena
         codexConfigured: false,
         codexRegistrationState: 'unknown',
         installUrl: CODEX_APP_INSTALL_URL,
-        lastCheckedAt: new Date().toISOString(),
+        lastCheckedAt: createIsoTimestamp(),
         ...(setupSnippets ? {setupSnippets} : {}),
         ...(setupError ? {error: setupError} : {}),
     };
@@ -196,9 +197,9 @@ async function registerCodexMcp(codexPath: string) {
         '--env',
         'ELECTRON_RUN_AS_NODE=1',
         '--env',
-        `EVB_MCP_URL=${launchConfig.env.EVB_MCP_URL}`,
+        `EVB_MCP_URL=${launchConfig.env.EVB_MCP_URL ?? '<missing>'}`,
         '--env',
-        `EVB_MCP_TOKEN=${launchConfig.env.EVB_MCP_TOKEN}`,
+        `EVB_MCP_TOKEN=${launchConfig.env.EVB_MCP_TOKEN ?? '<missing>'}`,
         '--',
         launchConfig.command,
         ...launchConfig.args,

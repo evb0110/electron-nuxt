@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IPdfSearchProgress,
     IPdfSearchResponse,
@@ -33,8 +34,11 @@ import {
 } from '@app/platform/browser-api/browserSearchCore';
 import { yieldToBrowser } from '@app/platform/browser-api/browserYield';
 import { browserDocumentStore } from '@app/platform/browserDocumentStore';
-import type { IOcrWord } from '@contracts/shared';
-import { createBrowserSafeId } from '@app/utils/browserSafe';
+import {
+    createRequestId,
+    type IOcrWord,
+    type TRequestId,
+} from '@contracts/shared';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { resolveBrowserCapabilityTier } from '@app/platform/browser/browserCapabilityTier';
 import {
@@ -113,7 +117,7 @@ interface ICreateBrowserSearchCapabilityResult {
 
 interface IIterateSearchPagesOptions {
     onPage: (page: ISearchPageData, pageCount: number) => Promise<unknown> | unknown;
-    requestId?: string;
+    requestId?: TRequestId;
     expectedPageCount?: number;
     streamDirectExtraction?: boolean;
     continueExtractionAfterStop?: boolean;
@@ -158,7 +162,7 @@ const PDFJS_TEXT_SOURCE: ISearchDocumentTextSource = {
 let searchCacheAccessSequence = 0;
 
 function isBrowserSearchCanceledError(error: unknown) {
-    return error instanceof Error && error.message === 'ERR_BROWSER_SEARCH_CANCELED';
+    return error instanceof Error && getErrorMessage(error) === 'ERR_BROWSER_SEARCH_CANCELED';
 }
 
 function hasCachedGeometryForEveryPage(cache: IPreparedSearchDocumentCache) {
@@ -251,14 +255,14 @@ async function runSearchCacheTransaction<T>(
             if (transactionError) {
                 throw transactionError instanceof Error
                     ? transactionError
-                    : new Error(String(transactionError));
+                    : new Error(getErrorMessage(transactionError));
             }
             return result;
         } catch (error) {
             await done;
             throw error instanceof Error
                 ? error
-                : new Error(String(error));
+                : new Error(getErrorMessage(error));
         }
     } finally {
         db.close();
@@ -520,9 +524,9 @@ function resetExtractedPageCache(cache: IPreparedSearchDocumentCache) {
 export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityResult {
     const searchProgressListeners = new Set<TSearchListener>();
     const searchDocumentCache = new Map<string, IPreparedSearchDocumentCache>();
-    const canceledSearchRequests = new Set<string>();
-    const activeSearchRequests = new Set<string>();
-    const activeWorkerSearchRequests = new Map<string, number>();
+    const canceledSearchRequests = new Set<TRequestId>();
+    const activeSearchRequests = new Set<TRequestId>();
+    const activeWorkerSearchRequests = new Map<TRequestId, number>();
 
     function getMemoryCacheKey(pdfPath: string, documentRevision: string) {
         return `${pdfPath}\0${documentRevision}`;
@@ -567,20 +571,20 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     const clearSearchCaches = clearSearchCachesAsync;
 
-    function startSearchRequest(requestId: string | undefined) {
+    function startSearchRequest(requestId: TRequestId | undefined) {
         if (requestId) {
             activeSearchRequests.add(requestId);
         }
     }
 
-    function consumeCancellation(requestId: string | undefined) {
+    function consumeCancellation(requestId: TRequestId | undefined) {
         if (requestId && canceledSearchRequests.has(requestId)) {
             return true;
         }
         return false;
     }
 
-    function finishSearchRequest(requestId: string | undefined) {
+    function finishSearchRequest(requestId: TRequestId | undefined) {
         if (requestId) {
             canceledSearchRequests.delete(requestId);
             activeSearchRequests.delete(requestId);
@@ -588,15 +592,15 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
     }
 
-    function isExtractionCanceled(requestId: string | undefined) {
+    function isExtractionCanceled(requestId: TRequestId | undefined) {
         return Boolean(requestId && canceledSearchRequests.has(requestId));
     }
 
-    function isSearchCanceled(requestId: string | undefined) {
+    function isSearchCanceled(requestId: TRequestId | undefined) {
         return Boolean(requestId && canceledSearchRequests.has(requestId));
     }
 
-    function emitPageProgress(requestId: string | undefined, processed: number, total: number) {
+    function emitPageProgress(requestId: TRequestId | undefined, processed: number, total: number) {
         if (!requestId) {
             return;
         }
@@ -664,7 +668,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     function createDirectSearchDocumentTextStream(
         pdfPath: string,
-        requestId: string | undefined,
+        requestId: TRequestId | undefined,
     ): IStreamedSearchDocumentText {
         return {
             pages: streamBrowserSearchDocumentPages(
@@ -678,7 +682,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
 
     function createSearchDocumentTextStream(
         pdfPath: string,
-        requestId: string | undefined,
+        requestId: TRequestId | undefined,
     ): IStreamedSearchDocumentText {
         if (!canUseBrowserSearchWorker()) {
             return createDirectSearchDocumentTextStream(pdfPath, requestId);
@@ -908,8 +912,8 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
         }
 
         if (options.streamDirectExtraction) {
-            let canceled = false;
-            let stopped = false;
+            let canceled = false as boolean;
+            let stopped = false as boolean;
             let pageCount = 0;
             try {
                 pageCount = await iterateBrowserSearchDocumentPages(
@@ -1006,7 +1010,7 @@ export function createBrowserSearchCapability(): ICreateBrowserSearchCapabilityR
             }
             validateBrowserSearchQueryCost(query, options.pageCount);
 
-            const requestId = options.requestId ?? createBrowserSafeId();
+            const requestId = options.requestId ?? createRequestId('browser-search');
             const results: IPdfSearchResult[] = [];
             let emittedResultCount = 0;
             let truncated = false;

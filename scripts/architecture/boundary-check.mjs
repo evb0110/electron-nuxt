@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+/* eslint-disable max-lines -- This single owner contains the architecture policy; checked-JavaScript annotations keep its checks typed. */
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
@@ -366,6 +367,20 @@ const SENTRY_EVENT_FACTORY_NAMES = new Set([
 ]);
 const SENTRY_BOUNDARY_IMPLEMENTATION_FILE = 'scripts/architecture/boundary-check.mjs';
 
+/** @typedef {{source: string, target: string, specifier: string}} IBoundaryEdge */
+/** @typedef {{rule: string, source: string, target: string, specifier: string, message: string}} IBoundaryViolation */
+/** @typedef {{sourceRoot: string, targetRoot: string, rule: string, message: string}} IRootBoundaryRule */
+/** @typedef {{sourceRoot: string, allowedTargetRoots: string[], rule: string, message: string}} IPackageLayerRule */
+/** @typedef {{prefix: string, allowedEntrypoints: Set<string>, rule: string, message: string}} IFeatureBoundaryRule */
+/** @typedef {{ownerRoot: string, publicEntry: string, rule: string, message: string}} IPublicOnlyEntrypointRule */
+/** @typedef {{sourceText: string, scriptKind: import('typescript').ScriptKind}} ISourceBlock */
+/** @typedef {import('typescript').Node} TNode */
+/** @typedef {import('typescript').SourceFile} TSourceFile */
+/** @typedef {{directBindings: Set<string>, namespaceBindings: Set<string>}} IPlatformRuntimeBindings */
+/** @typedef {{rule: string, target: string, specifier: string, message: string}} ISentryViolationInput */
+/** @typedef {{files: string[]}} ICycle */
+
+/** @param {IBoundaryEdge} edge */
 function checkElectronFeatureMainPrivacy(edge) {
     const targetOwner = getFeatureOwner(edge.target, 'electron/features');
     if (!targetOwner) {
@@ -391,10 +406,12 @@ function checkElectronFeatureMainPrivacy(edge) {
     });
 }
 
+/** @param {string} filePath */
 function isInsideComponentDirectory(filePath) {
     return filePath.split('/').includes('components');
 }
 
+/** @param {string} filePath */
 function checkComponentDirectoryFilePlacement(filePath) {
     if (!isInsideComponentDirectory(filePath) || filePath.endsWith('.vue')) {
         return null;
@@ -409,6 +426,7 @@ function checkComponentDirectoryFilePlacement(filePath) {
     });
 }
 
+/** @param {string} filePath */
 function checkRetiredPdfComponentPath(filePath) {
     if (!matchesRoot(filePath, 'app/components/pdf')) {
         return null;
@@ -423,6 +441,7 @@ function checkRetiredPdfComponentPath(filePath) {
     });
 }
 
+/** @param {string} filePath */
 function checkRetiredTopLevelUsePdfFilePath(filePath) {
     if (filePath !== 'app/composables/usePdfFile.ts') {
         return null;
@@ -437,6 +456,7 @@ function checkRetiredTopLevelUsePdfFilePath(filePath) {
     });
 }
 
+/** @param {string} filePath */
 function checkTopLevelPdfComposable(filePath) {
     if (
         !filePath.startsWith('app/composables/usePdf')
@@ -455,6 +475,7 @@ function checkTopLevelPdfComposable(filePath) {
     });
 }
 
+/** @param {IBoundaryEdge} edge @param {IPublicOnlyEntrypointRule} boundaryRule */
 function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
     if (!matchesRoot(edge.source, 'app') || !matchesRoot(edge.target, boundaryRule.ownerRoot)) {
         return null;
@@ -477,6 +498,7 @@ function checkPublicOnlyInternalEntrypoint(edge, boundaryRule) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkAppPagesModulePublicEntrypoint(edge) {
     if (!matchesRoot(edge.source, 'app/pages')) {
         return null;
@@ -501,6 +523,7 @@ function checkAppPagesModulePublicEntrypoint(edge) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkPlatformApiAggregateImport(edge) {
     if (edge.target !== 'packages/contracts/platformApi.ts') {
         return null;
@@ -518,6 +541,7 @@ function checkPlatformApiAggregateImport(edge) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkPdfViewerEngineLayer(edge) {
     if (!matchesRoot(edge.source, PDF_VIEWER_ENGINE_ROOT) || !matchesRoot(edge.target, PDF_VIEWER_MODULE_ROOT)) {
         return null;
@@ -536,15 +560,18 @@ function checkPdfViewerEngineLayer(edge) {
     });
 }
 
+/** @param {string} filePath */
 function isTestSource(filePath) {
     return matchesRoot(filePath, 'tests');
 }
 
+/** @param {string} filePath */
 function isOcrNativeToolBoundaryOwner(filePath) {
     return matchesRoot(filePath, 'electron/ocr')
         || matchesRoot(filePath, 'electron/features/ocr');
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkNativeToolsDomainImport(edge) {
     if (!matchesRoot(edge.source, 'electron/native-tools')) {
         return null;
@@ -562,6 +589,7 @@ function checkNativeToolsDomainImport(edge) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkOcrNativeToolBoundaryImport(edge) {
     if (!OCR_NATIVE_TOOL_BOUNDARY_TARGETS.has(edge.target)) {
         return null;
@@ -583,10 +611,12 @@ function checkOcrNativeToolBoundaryImport(edge) {
     });
 }
 
+/** @param {string} value @returns {string} */
 function escapeRegExp(value) {
     return value.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
 }
 
+/** @param {string} sourceText @param {string} baseName @returns {boolean} */
 function hasPrivateMemberAccess(sourceText, baseName) {
     const memberGroup = ANNOTATION_STORAGE_PRIVATE_MEMBERS.map(escapeRegExp).join('|');
     const base = escapeRegExp(baseName);
@@ -596,6 +626,7 @@ function hasPrivateMemberAccess(sourceText, baseName) {
     return dotAccess.test(sourceText) || optionalAccess.test(sourceText) || elementAccess.test(sourceText);
 }
 
+/** @param {string} sourceText @returns {Set<string>} */
 function collectAnnotationStorageAliases(sourceText) {
     const aliases = new Set(['annotationStorage']);
     const aliasPatterns = [
@@ -614,6 +645,7 @@ function collectAnnotationStorageAliases(sourceText) {
     return aliases;
 }
 
+/** @param {string} filePath @param {string} [sourceText] @returns {IBoundaryViolation[]} */
 function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     if (
         !matchesRoot(filePath, 'app')
@@ -637,10 +669,12 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
     })];
 }
 
+/** @param {string} filePath */
 function hasAppProductionSourceExtension(filePath) {
     return APP_PRODUCTION_SOURCE_EXTENSIONS.some(extension => filePath.endsWith(extension));
 }
 
+/** @param {string} filePath */
 function isAppProductionSource(filePath) {
     return matchesRoot(filePath, 'app')
         && hasAppProductionSourceExtension(filePath)
@@ -651,6 +685,7 @@ function isAppProductionSource(filePath) {
         && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
 }
 
+/** @param {string} filePath */
 function isProductionAppOrElectronSource(filePath) {
     return (
         matchesRoot(filePath, 'app')
@@ -664,14 +699,17 @@ function isProductionAppOrElectronSource(filePath) {
         && !/\.(?:test|spec)\.[cm]?[jt]sx?$/u.test(filePath);
 }
 
+/** @param {string} filePath */
 function isContractCompatibilityPolicyAllowedSource(filePath) {
     return CONTRACT_COMPATIBILITY_POLICY_ALLOWED_ROOTS.some(root => matchesRoot(filePath, root));
 }
 
+/** @param {string} filePath */
 function stripSourceExtension(filePath) {
     return filePath.replace(/\.[cm]?[jt]sx?$/u, '');
 }
 
+/** @param {string} sourceFile @param {string} specifier @returns {string | null} */
 function resolveSourceImportPath(sourceFile, specifier) {
     if (specifier.startsWith('@app/')) {
         return `app/${specifier.slice('@app/'.length)}`;
@@ -691,11 +729,13 @@ function resolveSourceImportPath(sourceFile, specifier) {
     return null;
 }
 
+/** @param {string} sourceFile @param {string} specifier */
 function resolvesToPlatformRuntimeHelper(sourceFile, specifier) {
     const resolvedPath = resolveSourceImportPath(sourceFile, specifier);
     return resolvedPath !== null && stripSourceExtension(resolvedPath) === PLATFORM_API_RUNTIME_HELPER_MODULE_PATH;
 }
 
+/** @param {string} filePath @param {string} [attributes] @returns {import('typescript').ScriptKind} */
 function getScriptKind(filePath, attributes = '') {
     if (attributes.includes('lang="jsx"') || attributes.includes('lang=\'jsx\'') || filePath.endsWith('.jsx')) {
         return ts.ScriptKind.JSX;
@@ -713,6 +753,7 @@ function getScriptKind(filePath, attributes = '') {
     return ts.ScriptKind.TS;
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {ISourceBlock[]} */
 function collectParsableSourceTexts(filePath, sourceText) {
     if (!filePath.endsWith('.vue')) {
         return [{
@@ -732,6 +773,7 @@ function collectParsableSourceTexts(filePath, sourceText) {
     return scriptBlocks;
 }
 
+/** @param {string} filePath @param {TSourceFile} sourceFile @returns {IPlatformRuntimeBindings} */
 function collectPlatformRuntimeGetterImports(filePath, sourceFile) {
     const directBindings = new Set();
     const namespaceBindings = new Set();
@@ -776,6 +818,7 @@ function collectPlatformRuntimeGetterImports(filePath, sourceFile) {
     };
 }
 
+/** @param {import('typescript').Expression} expression @param {Set<string>} directBindings @param {Set<string>} namespaceBindings */
 function isImportedPlatformRuntimeGetterCall(expression, directBindings, namespaceBindings) {
     if (ts.isIdentifier(expression)) {
         return directBindings.has(expression.text);
@@ -790,9 +833,11 @@ function isImportedPlatformRuntimeGetterCall(expression, directBindings, namespa
     return false;
 }
 
+/** @param {TSourceFile} sourceFile @param {Set<string>} directBindings @param {Set<string>} namespaceBindings @returns {boolean} */
 function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindings) {
     let hasCall = false;
 
+    /** @param {TNode} node */
     function visit(node) {
         if (hasCall) {
             return;
@@ -811,6 +856,7 @@ function hasPlatformRuntimeGetterCall(sourceFile, directBindings, namespaceBindi
     return hasCall;
 }
 
+/** @param {string} filePath @param {string} sourceText @returns {TSourceFile[]} */
 function parseSourceFiles(filePath, sourceText) {
     return collectParsableSourceTexts(filePath, sourceText).map((sourceBlock, index) => (
         ts.createSourceFile(
@@ -823,6 +869,7 @@ function parseSourceFiles(filePath, sourceText) {
     ));
 }
 
+/** @param {string} filePath @param {TSourceFile[]} [sourceFiles] @returns {IBoundaryViolation[]} */
 function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     if (
         !isAppProductionSource(filePath)
@@ -856,6 +903,7 @@ function checkPlatformApiRuntimeGetterCall(filePath, sourceFiles = []) {
     return [];
 }
 
+/** @param {string} specifier @returns {Set<string> | null} */
 function getContractCompatibilityPolicyNamesForSpecifier(specifier) {
     if (specifier === '@contracts' || specifier === '@contracts/index') {
         return CONTRACT_COMPATIBILITY_POLICY_AGGREGATE_IMPORTS;
@@ -863,7 +911,9 @@ function getContractCompatibilityPolicyNamesForSpecifier(specifier) {
     return CONTRACT_COMPATIBILITY_POLICY_IMPORTS.get(specifier) ?? null;
 }
 
+/** @param {string} filePath @param {TSourceFile} sourceFile @returns {IBoundaryViolation[]} */
 function collectContractCompatibilityPolicyImportViolations(filePath, sourceFile) {
+    /** @type {IBoundaryViolation[]} */
     const violations = [];
 
     sourceFile.forEachChild(node => {
@@ -957,6 +1007,7 @@ function collectContractCompatibilityPolicyImportViolations(filePath, sourceFile
     return violations;
 }
 
+/** @param {string} filePath @param {TSourceFile[]} [sourceFiles] @returns {IBoundaryViolation[]} */
 function checkContractCompatibilityPolicyImports(filePath, sourceFiles = []) {
     if (
         !isProductionAppOrElectronSource(filePath)
@@ -970,6 +1021,7 @@ function checkContractCompatibilityPolicyImports(filePath, sourceFiles = []) {
     ));
 }
 
+/** @param {string} filePath @param {string} [sourceText] @returns {IBoundaryViolation[]} */
 function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
     const expectedShim = ELECTRON_LEGACY_FEATURE_REEXPORT_SHIMS.get(filePath);
     if (!expectedShim) {
@@ -992,11 +1044,13 @@ function checkElectronLegacyFeatureReexportShim(filePath, sourceText = '') {
     })];
 }
 
+/** @param {string} filePath */
 function isSentryBoundaryExemptSource(filePath) {
     return filePath === SENTRY_BOUNDARY_IMPLEMENTATION_FILE
         || matchesRoot(filePath, 'tests');
 }
 
+/** @param {TNode | undefined} node @returns {string | null} */
 function getStaticString(node) {
     if (!node) {
         return null;
@@ -1007,6 +1061,7 @@ function getStaticString(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getImportTypeSpecifier(node) {
     if (!ts.isImportTypeNode(node) || !ts.isLiteralTypeNode(node.argument)) {
         return null;
@@ -1014,6 +1069,7 @@ function getImportTypeSpecifier(node) {
     return getStaticString(node.argument.literal);
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getImportLikeSpecifier(node) {
     if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
         return getStaticString(node.moduleSpecifier);
@@ -1037,6 +1093,7 @@ function getImportLikeSpecifier(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getMemberName(node) {
     if (ts.isIdentifier(node)) {
         return node.text;
@@ -1050,6 +1107,7 @@ function getMemberName(node) {
     return null;
 }
 
+/** @param {TNode} node @returns {string | null} */
 function getQualifiedName(node) {
     if (ts.isIdentifier(node)) {
         return node.text;
@@ -1066,6 +1124,7 @@ function getQualifiedName(node) {
     return null;
 }
 
+/** @param {string} specifier */
 function getSentryPackageName(specifier) {
     const [
         scope,
@@ -1074,10 +1133,12 @@ function getSentryPackageName(specifier) {
     return scope && packageName ? `${scope}/${packageName}` : specifier;
 }
 
+/** @param {string} specifier */
 function isSentryPackageSpecifier(specifier) {
     return specifier === '@sentry' || specifier.startsWith('@sentry/');
 }
 
+/** @param {string} value */
 function isDsnName(value) {
     const normalized = value.replaceAll('-', '_').toLowerCase();
     return normalized === 'dsn'
@@ -1085,10 +1146,12 @@ function isDsnName(value) {
         || normalized.endsWith('dsn');
 }
 
+/** @param {string} value */
 function isDsnLiteral(value) {
     return /^https?:\/\/[^/\s"'`]+@[^/\s"'`]+\/\d+(?:[/?#][^\s"'`]*)?$/u.test(value.trim());
 }
 
+/** @param {string} value */
 function isSentryUploadTokenName(value) {
     const normalized = value.replaceAll('-', '_').toLowerCase();
     return normalized === 'sentry_token'
@@ -1098,11 +1161,14 @@ function isSentryUploadTokenName(value) {
         || (normalized.includes('sentry') && normalized.includes('token'));
 }
 
+/** @param {string} value */
 function isSentryCliName(value) {
     return /^sentry[_-]?cli(?:[_-]|$)/iu.test(value);
 }
 
+/** @param {TNode} sourceFile @param {(node: TNode) => void} visitor */
 function walkSourceFile(sourceFile, visitor) {
+    /** @param {TNode} node */
     function visit(node) {
         visitor(node);
         ts.forEachChild(node, visit);
@@ -1110,6 +1176,7 @@ function walkSourceFile(sourceFile, visitor) {
     visit(sourceFile);
 }
 
+/** @param {TNode} node @param {Set<string>} [knownBindings] */
 function containsSentryCliReference(node, knownBindings = new Set()) {
     let found = false;
     walkSourceFile(node, (child) => {
@@ -1128,6 +1195,7 @@ function containsSentryCliReference(node, knownBindings = new Set()) {
     return found;
 }
 
+/** @param {TSourceFile} sourceFile @returns {Set<string>} */
 function collectSentryCliBindings(sourceFile) {
     const bindings = new Set();
     walkSourceFile(sourceFile, (node) => {
@@ -1141,6 +1209,7 @@ function collectSentryCliBindings(sourceFile) {
     return bindings;
 }
 
+/** @param {string | null} name */
 function isSentryEventConstructor(name) {
     return name === 'Sentry.Event'
         || name === 'Sentry.EventEnvelope'
@@ -1148,12 +1217,14 @@ function isSentryEventConstructor(name) {
         || name === 'SentryEventEnvelope';
 }
 
+/** @param {TNode} node */
 function hasEventConstructionInitializer(node) {
     return ts.isObjectLiteralExpression(node)
         || ts.isNewExpression(node)
         || ts.isCallExpression(node);
 }
 
+/** @param {string} filePath @param {TSourceFile[]} sourceFiles @returns {IBoundaryViolation[]} */
 function checkSentryBoundarySource(filePath, sourceFiles) {
     if (isSentryBoundaryExemptSource(filePath)) {
         return [];
@@ -1163,9 +1234,11 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
     const isReleaseTool = SENTRY_RELEASE_TOOL_ROOTS.has(filePath);
     const isCanaryTool = SENTRY_CANARY_TOOL_ROOTS.has(filePath);
     const isBuildConfig = SENTRY_BUILD_CONFIG_ROOTS.has(filePath);
+    /** @type {IBoundaryViolation[]} */
     const violations = [];
     const seen = new Set();
 
+    /** @param {ISentryViolationInput} input */
     function addViolation({
         rule,
         target,
@@ -1322,10 +1395,12 @@ function checkSentryBoundarySource(filePath, sourceFiles) {
     return violations;
 }
 
+/** @param {string} filePath @param {string} root */
 function matchesRoot(filePath, root) {
     return filePath === root || filePath.startsWith(`${root}/`);
 }
 
+/** @param {string} filePath @param {string} prefix @returns {string | null} */
 function getFeatureOwner(filePath, prefix) {
     if (!matchesRoot(filePath, prefix)) {
         return null;
@@ -1336,14 +1411,17 @@ function getFeatureOwner(filePath, prefix) {
     return featureName || null;
 }
 
+/** @param {string} filePath @param {string} prefix @param {string} owner */
 function relativeWithinOwner(filePath, prefix, owner) {
     return filePath.slice(`${prefix}/${owner}/`.length);
 }
 
+/** @param {string} relativePath @param {Set<string>} allowedSet */
 function isAllowedPublicEntrypoint(relativePath, allowedSet) {
     return allowedSet.has(relativePath) || relativePath.startsWith('public/');
 }
 
+/** @param {IBoundaryViolation} input @returns {IBoundaryViolation} */
 function createViolation({
     rule,
     source,
@@ -1360,6 +1438,7 @@ function createViolation({
     };
 }
 
+/** @param {IBoundaryEdge} edge @param {IRootBoundaryRule} boundaryRule */
 function checkRootBoundaryRule(edge, boundaryRule) {
     const {
         source,
@@ -1386,6 +1465,7 @@ function checkRootBoundaryRule(edge, boundaryRule) {
     });
 }
 
+/** @param {IBoundaryEdge} edge @param {IPackageLayerRule} layerRule */
 function checkPackageLayerRule(edge, layerRule) {
     if (!matchesRoot(edge.source, layerRule.sourceRoot) || !matchesRoot(edge.target, 'packages')) {
         return null;
@@ -1403,6 +1483,7 @@ function checkPackageLayerRule(edge, layerRule) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkPackageReverseEdge(edge) {
     if (
         !matchesRoot(edge.source, 'packages')
@@ -1427,6 +1508,7 @@ function checkPackageReverseEdge(edge) {
     });
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkPackageLayer(edge) {
     return [
         ...collectViolationsFromRules(edge, PACKAGE_LAYER_RULES, checkPackageLayerRule),
@@ -1434,6 +1516,7 @@ function checkPackageLayer(edge) {
     ].filter(Boolean);
 }
 
+/** @param {IBoundaryEdge} edge @param {IFeatureBoundaryRule} featureRule */
 function checkFeatureBoundaryRule(edge, featureRule) {
     const sourceOwner = getFeatureOwner(edge.source, featureRule.prefix);
     const targetOwner = getFeatureOwner(edge.target, featureRule.prefix);
@@ -1455,12 +1538,19 @@ function checkFeatureBoundaryRule(edge, featureRule) {
     });
 }
 
+/**
+ * @template {Record<string, unknown>} TRule
+ * @param {IBoundaryEdge} edge
+ * @param {TRule[]} rules
+ * @param {(edge: IBoundaryEdge, rule: TRule) => IBoundaryViolation | null} checkRule
+ */
 function collectViolationsFromRules(edge, rules, checkRule) {
     return rules
         .map(rule => checkRule(edge, rule))
         .filter(Boolean);
 }
 
+/** @param {IBoundaryEdge} edge */
 function checkEdge(edge) {
     return [
         ...collectViolationsFromRules(edge, ROOT_BOUNDARY_RULES, checkRootBoundaryRule),
@@ -1477,6 +1567,7 @@ function checkEdge(edge) {
     ].filter(Boolean);
 }
 
+/** @param {string} filePath */
 function checkNode(filePath) {
     return [
         checkRetiredPdfComponentPath(filePath),
@@ -1486,6 +1577,7 @@ function checkNode(filePath) {
     ].filter(Boolean);
 }
 
+/** @param {string} filePath @param {string} sourceText */
 function checkSource(filePath, sourceText) {
     const sourceFiles = parseSourceFiles(filePath, sourceText);
     return [
@@ -1497,18 +1589,22 @@ function checkSource(filePath, sourceText) {
     ];
 }
 
+/** @param {IBoundaryEdge} edge */
 export function checkArchitectureBoundaryEdge(edge) {
     return checkEdge(edge);
 }
 
+/** @param {string} filePath */
 export function checkArchitectureBoundaryNode(filePath) {
     return checkNode(filePath);
 }
 
+/** @param {string} filePath @param {string} sourceText */
 export function checkArchitectureBoundarySource(filePath, sourceText) {
     return checkSource(filePath, sourceText);
 }
 
+/** @param {IBoundaryViolation[]} violations */
 function formatViolations(violations) {
     return violations.map((violation, index) => {
         const serial = index + 1;
@@ -1521,6 +1617,7 @@ function formatViolations(violations) {
     }).join('\n');
 }
 
+/** @param {ICycle[]} cycles */
 function formatCycles(cycles) {
     return cycles.map((cycle, index) => {
         const serial = index + 1;
@@ -1531,6 +1628,7 @@ function formatCycles(cycles) {
     }).join('\n');
 }
 
+/** @param {string[]} argv @param {{projectRoot: string}} options */
 function collectRootsFromArgv(argv, {projectRoot}) {
     const roots = parseArchitectureRootsArg(argv);
     if (roots) {
@@ -1558,12 +1656,15 @@ async function run() {
         return checkSource(node.file, node.sourceText);
     });
 
-    const violations = [
+    const annotationViolations = /** @type {IBoundaryViolation[]} */ (
+        checkAnnotationDependencyGraph(graph).violations.filter(Boolean)
+    );
+    const violations = /** @type {IBoundaryViolation[]} */ ([
         ...graph.edges.flatMap(checkEdge),
         ...graph.nodes.flatMap(node => checkNode(node.file)),
         ...sourceViolations,
-        ...checkAnnotationDependencyGraph(graph).violations,
-    ];
+        ...annotationViolations,
+    ].filter(Boolean));
     const unresolvedInternalImports = graph.unresolvedInternalImports ?? [];
     const cycles = graph.cycles ?? [];
 

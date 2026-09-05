@@ -125,7 +125,12 @@ function upperBound(values: readonly number[], target: number) {
     let high = values.length;
     while (low < high) {
         const middle = low + Math.floor((high - low) / 2);
-        if (values[middle]! <= target) low = middle + 1;
+        const value = values[middle];
+        if (value === undefined) {
+            high = middle;
+            continue;
+        }
+        if (value <= target) low = middle + 1;
         else high = middle;
     }
     return low;

@@ -10,6 +10,8 @@ import {
 } from 'vitest';
 import { findAnnotationSummaryFromPoint } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/findAnnotationSummaryFromPoint';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requireEpochMs} from '@contracts/timestamps';
 
 interface IAnnotationCrudTestRect {
     height: number;
@@ -44,7 +46,7 @@ function createSummary(overrides: Partial<IAnnotationCommentSummary>): IAnnotati
         stableKey: overrides.stableKey ?? `src:pdf:0:${overrides.id ?? 'ann'}`,
         sortIndex: null,
         pageIndex: overrides.pageIndex ?? 0,
-        pageNumber: overrides.pageNumber ?? 1,
+        pageNumber: overrides.pageNumber ?? requirePageNumber(1),
         text: '',
         kindLabel: null,
         subtype: overrides.subtype ?? 'Underline',
@@ -119,7 +121,7 @@ describe('findAnnotationSummaryFromPoint', () => {
             page,
             150,
             120,
-            1,
+            requirePageNumber(1),
             [
                 createSummary({
                     id: 'older',
@@ -146,19 +148,19 @@ describe('findAnnotationSummaryFromPoint', () => {
             page,
             150,
             120,
-            1,
+            requirePageNumber(1),
             [
                 createSummary({
                     id: 'older',
                     stableKey: 'ann:0:older',
                     annotationId: 'older',
-                    modifiedAt: 100,
+                    modifiedAt: requireEpochMs(100),
                 }),
                 createSummary({
                     id: 'newer',
                     stableKey: 'ann:0:newer',
                     annotationId: 'newer',
-                    modifiedAt: 200,
+                    modifiedAt: requireEpochMs(200),
                 }),
             ],
             () => page,

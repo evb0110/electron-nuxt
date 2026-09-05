@@ -4,6 +4,8 @@ import type {
     TMarkupSubtype,
 } from '@app/types/annotations';
 import { isRecord } from '@contracts/runtimeGuards';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
 
 const REWRITABLE_SUBTYPE_HINTS = new Set<TMarkupSubtype>([
@@ -72,7 +74,7 @@ export function collectMarkupSubtypeHints(
     options: {includeContents?: boolean} = {},
 ): IMarkupSubtypeHint[] {
     const hints: IMarkupSubtypeHint[] = [];
-    const pageMarkupIndexes = new Map<number, number>();
+    const pageMarkupIndexes = new Map<TPageIndex, number>();
     for (const comment of comments) {
         const subtype = toMarkupSubtype(comment.subtype);
         if (!subtype) {
@@ -81,8 +83,9 @@ export function collectMarkupSubtypeHints(
         if (!isValidMarkerRect(comment.markerRect)) {
             continue;
         }
-        const pageMarkupIndex = pageMarkupIndexes.get(comment.pageIndex) ?? 0;
-        pageMarkupIndexes.set(comment.pageIndex, pageMarkupIndex + 1);
+        const pageIndex = requirePageIndex(comment.pageIndex);
+        const pageMarkupIndex = pageMarkupIndexes.get(pageIndex) ?? 0;
+        pageMarkupIndexes.set(pageIndex, pageMarkupIndex + 1);
         if (!shouldCollectMarkupSubtypeHint(comment, subtype)) {
             continue;
         }
@@ -93,7 +96,7 @@ export function collectMarkupSubtypeHints(
             ...(options.includeContents ? {contents: comment.text} : {}),
             id: comment.id,
             subtype,
-            pageIndex: comment.pageIndex,
+            pageIndex,
             markerRect: comment.markerRect,
             ...(comment.markupGeometry?.length
                 && comment.markupGeometry.every(isValidMarkerRect)

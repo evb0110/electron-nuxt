@@ -1,4 +1,7 @@
-import type { TEditorLayoutNode } from '@contracts/editorPanes';
+import type {
+    TEditorLayoutNode,
+    TPaneId,
+} from '@contracts/editorPanes';
 import type {
     TDocumentBackend,
     TDocumentRef,
@@ -8,6 +11,15 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import type { TDocumentInstanceId } from '@contracts/documentInstanceId';
+import type {
+    TRequestId,
+    TSessionId,
+} from '@contracts/shared';
+import type {
+    TEpochMs,
+    TIsoTimestamp,
+} from '@contracts/timestamps';
+import type {TTabId} from '@contracts/windowTabs';
 
 export type TAgentDocumentKind = 'empty' | 'pdf' | 'djvu' | 'image' | 'unknown';
 export type TAgentDocumentReadinessStatus = 'ready' | 'needs-preparation' | 'unknown' | 'empty';
@@ -96,150 +108,152 @@ export type TAgentAssistantSpeedMode = 'fast' | 'standard';
 export type TAgentWorkspaceMode = 'empty-workspace' | 'open-document' | 'documents-open-no-active-document';
 
 export interface IAgentDocumentOcrState {
-    status: TAgentOcrCoverageStatus;
-    pageCount: number;
-    textPageCount?: number;
-    missingTextPages?: number[];
-    coverage?: number;
+    readonly status: TAgentOcrCoverageStatus;
+    readonly pageCount: number;
+    readonly textPageCount?: number;
+    readonly missingTextPages?: readonly number[];
+    readonly coverage?: number;
 }
 
 export interface IAgentDocumentRecommendation {
-    id: TAgentRecommendationId;
-    title: string;
-    reason: string;
-    toolName?: string;
+    readonly id: TAgentRecommendationId;
+    readonly title: string;
+    readonly reason: string;
+    readonly toolName?: string;
 }
 
 export interface IAgentCapabilityAvailability {
-    available: boolean;
-    reason?: string;
+    readonly available: boolean;
+    readonly reason?: string;
 }
 
 export interface IAgentCapabilityPolicy {
-    internal: 'allow' | 'confirm' | 'deny';
-    external: 'allow' | 'confirm' | 'deny';
+    readonly internal: 'allow' | 'confirm' | 'deny';
+    readonly external: 'allow' | 'confirm' | 'deny';
 }
 
 export interface IAgentCapabilityDescriptor {
-    id: string;
-    domain: TAgentCapabilityDomain;
-    title: string;
-    summary: string;
-    risk: TAgentCapabilityRisk;
-    inputSchema: Record<string, unknown>;
-    outputSchema?: Record<string, unknown>;
-    availability: IAgentCapabilityAvailability;
-    policy: IAgentCapabilityPolicy;
-    resourceTemplates?: string[];
+    readonly id: string;
+    readonly domain: TAgentCapabilityDomain;
+    readonly title: string;
+    readonly summary: string;
+    readonly risk: TAgentCapabilityRisk;
+    readonly inputSchema: Readonly<Record<string, unknown>>;
+    readonly outputSchema?: Readonly<Record<string, unknown>>;
+    readonly availability: IAgentCapabilityAvailability;
+    readonly policy: IAgentCapabilityPolicy;
+    readonly resourceTemplates?: readonly string[];
 }
 
 export interface IAgentCompactCapabilityDescriptor extends Omit<IAgentCapabilityDescriptor, 'inputSchema' | 'outputSchema' | 'resourceTemplates'> {
-    hasInputSchema: boolean;
-    hasOutputSchema: boolean;
-    hasResourceTemplates: boolean;
+    readonly hasInputSchema: boolean;
+    readonly hasOutputSchema: boolean;
+    readonly hasResourceTemplates: boolean;
 }
 
 export interface IAgentDocumentReadiness {
-    status: TAgentDocumentReadinessStatus;
-    reasons: string[];
-    ocr?: IAgentDocumentOcrState;
-    recommendations: IAgentDocumentRecommendation[];
+    readonly status: TAgentDocumentReadinessStatus;
+    readonly reasons: readonly string[];
+    readonly ocr?: IAgentDocumentOcrState;
+    readonly recommendations: readonly IAgentDocumentRecommendation[];
 }
 
 export interface IAgentPaneSnapshot {
-    paneId: string;
-    tabIds: string[];
-    activeTabId: string | null;
+    readonly paneId: TPaneId;
+    readonly tabIds: readonly TTabId[];
+    readonly activeTabId: TTabId | null;
 }
 
 export interface IAgentTabSnapshot {
-    tabId: string;
-    paneId: string | null;
-    fileName: string | null;
-    originalPath: string | null;
-    originalBackend?: TDocumentBackend;
-    documentSessionKey?: string | null;
-    documentInstanceId?: TDocumentInstanceId | null;
-    documentIdentity?: IDocumentRevisionInfo | null;
-    commandTarget?: TAgentWorkspaceCommandTarget;
-    isDirty: boolean;
-    kind: TAgentDocumentKind;
-    workspaceAttached: boolean;
-    hasPdf: boolean;
-    isDjvu: boolean;
-    isOpeningDocument: boolean;
-    hasOpenError: boolean;
-    currentPage: number | null;
-    totalPages: number | null;
-    readiness: IAgentDocumentReadiness;
+    readonly tabId: TTabId;
+    readonly paneId: TPaneId | null;
+    readonly fileName: string | null;
+    readonly originalPath: TDocumentRef | null;
+    readonly originalBackend?: TDocumentBackend;
+    readonly documentSessionKey?: string | null;
+    readonly documentInstanceId?: TDocumentInstanceId | null;
+    readonly documentIdentity?: IDocumentRevisionInfo | null;
+    readonly commandTarget?: TAgentWorkspaceCommandTarget;
+    readonly isDirty: boolean;
+    readonly kind: TAgentDocumentKind;
+    readonly workspaceAttached: boolean;
+    readonly hasPdf: boolean;
+    readonly isDjvu: boolean;
+    readonly isOpeningDocument: boolean;
+    readonly hasOpenError: boolean;
+    readonly currentPage: number | null;
+    readonly totalPages: number | null;
+    readonly readiness: IAgentDocumentReadiness;
 }
 
 export interface IAgentDocumentReference {
-    tabId: string;
-    paneId: string | null;
-    fileName: string | null;
-    originalPath: TDocumentRef | null;
-    originalBackend?: TDocumentBackend;
-    documentSessionKey?: string | null;
-    documentInstanceId?: TDocumentInstanceId | null;
-    documentIdentity?: IDocumentRevisionInfo | null;
-    commandTarget?: TAgentWorkspaceCommandTarget;
-    kind: TAgentDocumentKind;
+    readonly tabId: TTabId;
+    readonly paneId: TPaneId | null;
+    readonly fileName: string | null;
+    readonly originalPath: TDocumentRef | null;
+    readonly originalBackend?: TDocumentBackend;
+    readonly documentSessionKey?: string | null;
+    readonly documentInstanceId?: TDocumentInstanceId | null;
+    readonly documentIdentity?: IDocumentRevisionInfo | null;
+    readonly commandTarget?: TAgentWorkspaceCommandTarget;
+    readonly kind: TAgentDocumentKind;
 }
 
 export type TAgentWorkspaceCommandTarget =
     | {
-        kind: 'transaction';
-        tabId: string;
-        sessionId: string;
-        documentRef: TDocumentRef | null;
-        documentBackend?: TDocumentBackend;
-        documentInstanceId?: TDocumentInstanceId | null;
-        transactionId: string;
-        documentRevisionToken?: TDocumentRevisionToken;
+        readonly kind: 'transaction';
+        readonly tabId: TTabId;
+        readonly sessionId: TSessionId;
+        readonly documentRef: TDocumentRef | null;
+        readonly documentBackend?: TDocumentBackend;
+        readonly documentInstanceId?: TDocumentInstanceId | null;
+        readonly transactionId: string;
+        readonly documentRevisionToken?: TDocumentRevisionToken;
     }
     | {
-        kind: 'revision';
-        tabId: string;
-        sessionId: string;
-        documentRef: TDocumentRef | null;
-        documentBackend?: TDocumentBackend;
-        documentInstanceId?: TDocumentInstanceId | null;
-        sessionRevision: number;
-        documentRevisionToken?: TDocumentRevisionToken;
+        readonly kind: 'revision';
+        readonly tabId: TTabId;
+        readonly sessionId: TSessionId;
+        readonly documentRef: TDocumentRef | null;
+        readonly documentBackend?: TDocumentBackend;
+        readonly documentInstanceId?: TDocumentInstanceId | null;
+        readonly sessionRevision: number;
+        readonly documentRevisionToken?: TDocumentRevisionToken;
     };
 
 export interface IAgentRecentFileSnapshot {
-    fileName: string;
-    originalPath: TDocumentRef;
-    backend?: TDocumentBackend;
-    kind: TAgentDocumentKind;
-    openedAt: string;
-    fileSize?: number;
+    readonly fileName: string;
+    readonly originalPath: TDocumentRef;
+    readonly backend?: TDocumentBackend;
+    readonly kind: TAgentDocumentKind;
+    // Agent API keeps ISO text for its renderer and server wire format.
+    readonly openedAt: TIsoTimestamp;
+    readonly fileSize?: number;
 }
 
 export interface IAgentWorkspaceSummary {
-    mode: TAgentWorkspaceMode;
-    activeDocument: IAgentDocumentReference | null;
-    documentCount: number;
-    recentFileCount: number;
-    recentFilesResolved: boolean;
+    readonly mode: TAgentWorkspaceMode;
+    readonly activeDocument: IAgentDocumentReference | null;
+    readonly documentCount: number;
+    readonly recentFileCount: number;
+    readonly recentFilesResolved: boolean;
 }
 
 export interface IAgentWorkspaceSnapshot {
-    capturedAt: string;
-    activePaneId: string | null;
-    activeTabId: string | null;
-    summary: IAgentWorkspaceSummary;
-    panes: IAgentPaneSnapshot[];
-    tabs: IAgentTabSnapshot[];
-    recentFiles: IAgentRecentFileSnapshot[];
-    layout: TEditorLayoutNode | null;
+    // Agent API keeps ISO text for its renderer and server wire format.
+    readonly capturedAt: TIsoTimestamp;
+    readonly activePaneId: TPaneId | null;
+    readonly activeTabId: TTabId | null;
+    readonly summary: IAgentWorkspaceSummary;
+    readonly panes: readonly IAgentPaneSnapshot[];
+    readonly tabs: readonly IAgentTabSnapshot[];
+    readonly recentFiles: readonly IAgentRecentFileSnapshot[];
+    readonly layout: TEditorLayoutNode | null;
 }
 
 export interface IAgentCommandExecutionScope {
     windowId: number;
-    tabId: string;
+    tabId: TTabId;
     documentRef: TDocumentRef | null;
     documentBackend?: TDocumentBackend;
     documentInstanceId?: TDocumentInstanceId | null;
@@ -248,14 +262,14 @@ export interface IAgentCommandExecutionScope {
 }
 
 export interface IAgentWorkspaceSnapshotRequest {
-    requestId: string;
+    requestId: TRequestId;
     windowId?: number;
     lastSeenRevision?: number;
     scope?: IAgentCommandExecutionScope;
 }
 
 export interface IAgentWorkspaceSnapshotResponse {
-    requestId: string;
+    requestId: TRequestId;
     windowId?: number;
     ok: boolean;
     snapshot?: IAgentWorkspaceSnapshot;
@@ -266,14 +280,14 @@ export interface IAgentWorkspaceSnapshotResponse {
 
 export interface IAgentActivateTabCommand {
     name: 'activate_tab';
-    arguments: {tabId: string;};
+    arguments: {tabId: TTabId;};
 }
 
 export interface IAgentGoToPageCommand {
     name: 'go_to_page';
     arguments: {
         page: number;
-        tabId?: string;
+        tabId?: TTabId;
     };
 }
 
@@ -281,7 +295,7 @@ export interface IAgentRunActionCommand {
     name: 'run_action';
     arguments: {
         id: string;
-        tabId?: string;
+        tabId?: TTabId;
         input?: Record<string, unknown>;
         dryRun?: boolean;
     };
@@ -291,7 +305,7 @@ export interface IAgentReadResourceCommand {
     name: 'read_resource';
     arguments: {
         uri: string;
-        tabId?: string;
+        tabId?: TTabId;
     };
 }
 
@@ -302,19 +316,19 @@ export type TAgentCommand =
     | IAgentReadResourceCommand;
 
 export interface IAgentCommandRequest {
-    requestId: string;
+    requestId: TRequestId;
     windowId?: number;
     scope?: IAgentCommandExecutionScope;
     command: TAgentCommand;
 }
 
 export interface IAgentCommandCancelRequest {
-    requestId: string;
+    requestId: TRequestId;
     windowId?: number;
 }
 
 export interface IAgentCommandResponse {
-    requestId: string;
+    requestId: TRequestId;
     windowId?: number;
     ok: boolean;
     result?: Record<string, unknown>;
@@ -327,36 +341,37 @@ export type TAgentRendererAckReason =
     | 'unknown-request';
 
 export interface IAgentRendererAck {
-    accepted: boolean;
-    reason?: TAgentRendererAckReason;
+    readonly accepted: boolean;
+    readonly reason?: TAgentRendererAckReason;
 }
 
 export interface IAgentMcpSetupSnippets {
-    codex: string;
-    claude: string;
-    cursor: string;
+    readonly codex: string;
+    readonly claude: string;
+    readonly cursor: string;
 }
 
 export interface IAgentMcpIntegrationStatus {
-    enabled: boolean;
-    serverName: string;
-    serverUrl: string;
-    serverRunning: boolean;
-    codexInstalled: boolean;
-    codexPath: string | null;
-    codexConfigured: boolean;
-    codexRegistrationState: TAgentMcpCodexRegistrationState;
-    installUrl: string;
-    lastCheckedAt: string;
-    setupSnippets?: IAgentMcpSetupSnippets;
-    error?: string;
+    readonly enabled: boolean;
+    readonly serverName: string;
+    readonly serverUrl: string;
+    readonly serverRunning: boolean;
+    readonly codexInstalled: boolean;
+    readonly codexPath: string | null;
+    readonly codexConfigured: boolean;
+    readonly codexRegistrationState: TAgentMcpCodexRegistrationState;
+    readonly installUrl: string;
+    // Agent API keeps ISO text for its renderer and server wire format.
+    readonly lastCheckedAt: TIsoTimestamp;
+    readonly setupSnippets?: IAgentMcpSetupSnippets;
+    readonly error?: string;
 }
 
 export interface IAgentMcpIntegrationUpdateResult {
-    ok: boolean;
-    cancelled?: boolean;
-    status: IAgentMcpIntegrationStatus;
-    error?: string;
+    readonly ok: boolean;
+    readonly cancelled?: boolean;
+    readonly status: IAgentMcpIntegrationStatus;
+    readonly error?: string;
 }
 
 export const AGENT_ASSISTANT_ERROR_CODES = [
@@ -372,10 +387,10 @@ export const AGENT_ASSISTANT_ERROR_CODES = [
 export type TAgentAssistantErrorCode = typeof AGENT_ASSISTANT_ERROR_CODES[number];
 
 export interface IAgentAssistantErrorEnvelope {
-    code: TAgentAssistantErrorCode;
-    message: string;
-    retryable: boolean;
-    timestamp: number;
+    readonly code: TAgentAssistantErrorCode;
+    readonly message: string;
+    readonly retryable: boolean;
+    readonly timestamp: TEpochMs;
 }
 
 export interface IAgentAssistantAccount {
@@ -444,7 +459,7 @@ export interface IAgentAssistantChatScope {
     kind: TAgentAssistantChatScopeKind;
     key: string;
     title: string | null;
-    tabId?: string | null;
+    tabId?: TTabId | null;
     documentSessionKey?: string | null;
     documentInstanceId?: TDocumentInstanceId | null;
     documentRef?: TDocumentRef | null;
@@ -517,7 +532,8 @@ export interface IAgentAssistantStatus {
     runtimeState: TAgentAssistantRuntimeState;
     mcp: IAgentAssistantMcpStatus;
     turn: IAgentAssistantTurnState;
-    lastCheckedAt: string;
+    // Agent API keeps ISO text for its renderer and server wire format.
+    lastCheckedAt: TIsoTimestamp;
     error?: string;
     errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
@@ -549,7 +565,8 @@ export interface IAgentAssistantChatMessage {
     id: string;
     role: TAgentAssistantMessageRole;
     text: string;
-    createdAt: string;
+    // Agent API keeps ISO text for its renderer and server wire format.
+    createdAt: TIsoTimestamp;
     attachments?: IAgentAssistantImageAttachment[];
     pending?: boolean;
     error?: string;
@@ -581,23 +598,23 @@ export interface IAgentAssistantStateRequest {
 }
 
 export interface IAgentAssistantInstallResult {
-    ok: boolean;
-    state: IAgentAssistantState;
-    error?: string;
-    errorEnvelope?: IAgentAssistantErrorEnvelope;
+    readonly ok: boolean;
+    readonly state: IAgentAssistantState;
+    readonly error?: string;
+    readonly errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantLoginRequest {mode: TAgentAssistantLoginMode;}
 
 export interface IAgentAssistantLoginResult {
-    ok: boolean;
-    state: IAgentAssistantState;
-    loginId?: string;
-    authUrl?: string;
-    verificationUrl?: string;
-    userCode?: string;
-    error?: string;
-    errorEnvelope?: IAgentAssistantErrorEnvelope;
+    readonly ok: boolean;
+    readonly state: IAgentAssistantState;
+    readonly loginId?: string;
+    readonly authUrl?: string;
+    readonly verificationUrl?: string;
+    readonly userCode?: string;
+    readonly error?: string;
+    readonly errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export const AGENT_ASSISTANT_PRESET_IDS = [
@@ -621,10 +638,10 @@ export interface IAgentAssistantSendMessageRequest {
 }
 
 export interface IAgentAssistantSendMessageResult {
-    ok: boolean;
-    state: IAgentAssistantState;
-    error?: string;
-    errorEnvelope?: IAgentAssistantErrorEnvelope;
+    readonly ok: boolean;
+    readonly state: IAgentAssistantState;
+    readonly error?: string;
+    readonly errorEnvelope?: IAgentAssistantErrorEnvelope;
 }
 
 export interface IAgentAssistantScopedRequest {
@@ -636,26 +653,26 @@ export interface IAgentAssistantScopedRequest {
 }
 
 export interface IAgentAssistantEvent {
-    type: TAgentAssistantEventType;
-    state?: IAgentAssistantState;
-    message?: IAgentAssistantChatMessage;
-    messageId?: string;
-    delta?: string;
-    reasoningDelta?: string;
-    turnId?: string;
-    phase?: TAgentAssistantTurnPhase;
-    toolActivity?: IAgentAssistantToolActivity;
-    lastEventAtMs?: number;
-    progress?: string;
-    error?: string;
-    errorEnvelope?: IAgentAssistantErrorEnvelope;
+    readonly type: TAgentAssistantEventType;
+    readonly state?: IAgentAssistantState;
+    readonly message?: IAgentAssistantChatMessage;
+    readonly messageId?: string;
+    readonly delta?: string;
+    readonly reasoningDelta?: string;
+    readonly turnId?: string;
+    readonly phase?: TAgentAssistantTurnPhase;
+    readonly toolActivity?: IAgentAssistantToolActivity;
+    readonly lastEventAtMs?: number;
+    readonly progress?: string;
+    readonly error?: string;
+    readonly errorEnvelope?: IAgentAssistantErrorEnvelope;
     /** Immutable identity of the document-bound turn that produced this event. */
-    binding?: IAgentAssistantEventBinding;
+    readonly binding?: IAgentAssistantEventBinding;
 }
 
 export interface IAgentAssistantEventBinding {
-    scopeFingerprint: string;
-    sessionKey: string;
-    turnGeneration: number;
-    windowId: number;
+    readonly scopeFingerprint: string;
+    readonly sessionKey: string;
+    readonly turnGeneration: number;
+    readonly windowId: number;
 }

@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import {
     getAnnotationCreationExpectedOutcome,
     type IAnnotationCreationFailureReport,
@@ -8,7 +10,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 interface IAnnotationCreationFailureInput {
     operationId: string;
     reason: TAnnotationCreationFailureReason;
-    pageNumber: number | null;
+    pageNumber: TPageNumber | null;
 }
 
 /**

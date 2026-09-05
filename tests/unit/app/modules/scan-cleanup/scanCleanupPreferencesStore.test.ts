@@ -55,7 +55,7 @@ describe('scan cleanup renderer preference store', () => {
         getScanCleanupPreferencesStore();
         await whenScanCleanupPreferencesReady();
 
-        saveScanCleanupDocumentPreferencesInStore(
+        await saveScanCleanupDocumentPreferencesInStore(
             'A'.repeat(64),
             '/documents/book.pdf',
             {outputMode: 'grayscale'},
@@ -73,7 +73,7 @@ describe('scan cleanup renderer preference store', () => {
         await whenScanCleanupPreferencesReady();
         const warning = vi.spyOn(BrowserLogger, 'warn');
 
-        saveScanCleanupDocumentPreferencesInStore(null, '/documents/book.pdf', {outputMode: 'color'});
+        await saveScanCleanupDocumentPreferencesInStore(null, '/documents/book.pdf', {outputMode: 'color'});
         await Promise.resolve();
 
         expect(capability.value.updateSettings).not.toHaveBeenCalled();
@@ -172,7 +172,7 @@ describe('scan cleanup renderer preference store', () => {
         remote.settings.readingOrder = 'rtl';
         await nextTick();
 
-        saveScanCleanupDocumentPreferencesInStore(
+        await saveScanCleanupDocumentPreferencesInStore(
             'f'.repeat(64),
             '/documents/remote-snapshot.pdf',
             {outputMode: 'color'},
@@ -183,7 +183,7 @@ describe('scan cleanup renderer preference store', () => {
             patch: {outputMode: 'color'},
         }}));
         await Promise.resolve();
-        flushScanCleanupPreferencesStore();
+        await flushScanCleanupPreferencesStore();
         await Promise.resolve();
 
         const settingsUpdates = capability.value.updateSettings.mock.calls
@@ -198,7 +198,7 @@ describe('scan cleanup renderer preference store', () => {
         const preferences = getScanCleanupPreferencesStore();
         preferences.readingOrder = 'rtl';
         await nextTick();
-        flushScanCleanupPreferencesStore();
+        await flushScanCleanupPreferencesStore();
         await vi.waitFor(() => expect(capability.value.updateSettings).toHaveBeenCalledWith({settingsPatch: {readingOrder: 'rtl'}}));
     });
 
@@ -214,7 +214,7 @@ describe('scan cleanup renderer preference store', () => {
         const preferences = getScanCleanupPreferencesStore();
         preferences.readingOrder = 'rtl';
         await nextTick();
-        flushScanCleanupPreferencesStore();
+        await expect(flushScanCleanupPreferencesStore()).rejects.toThrow('quota exceeded');
         await Promise.resolve();
         expect(capability.value.updateSettings).toHaveBeenCalledTimes(1);
 
@@ -268,7 +268,7 @@ describe('scan cleanup renderer preference store', () => {
             manualSplit: null,
         }};
         await nextTick();
-        discardScanCleanupDocumentState(documentKey, sourceSha256);
+        await discardScanCleanupDocumentState(documentKey, sourceSha256);
         app.unmount();
         host.remove();
 

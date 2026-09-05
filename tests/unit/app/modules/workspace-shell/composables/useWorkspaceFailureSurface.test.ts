@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IAnnotationCreationFailureReport} from '@app/modules/pdf-viewer/public';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -26,7 +27,7 @@ function expectedAnnotationReport(
     return {
         kind: 'expected',
         operationId,
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         reason,
         outcome: {
             kind: 'expected',
@@ -191,7 +192,7 @@ describe('useWorkspaceFailureSurface', () => {
         expect(surface.reportAnnotationFailure({
             kind: 'fault',
             operationId: 'annotation-create-1',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             reason: 'mode-switch-failed',
             failure: receipt,
         })).toBe(true);

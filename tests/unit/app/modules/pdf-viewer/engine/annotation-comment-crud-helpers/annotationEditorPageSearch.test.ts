@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -79,12 +80,12 @@ describe('annotation editor page search', () => {
             editor => editor.id ?? '',
             {
                 annotationPageIndexes: [
-                    0,
-                    PAGE_COUNT - 1,
+                    requirePageIndex(0),
+                    requirePageIndex(PAGE_COUNT - 1),
                 ],
                 mountedPageIndexes: [
-                    0,
-                    PAGE_COUNT - 1,
+                    requirePageIndex(0),
+                    requirePageIndex(PAGE_COUNT - 1),
                 ],
             },
         );
@@ -128,16 +129,16 @@ describe('annotation editor page search', () => {
         expect(findEditorByAnnotationElementId(
             harness.manager,
             PAGE_COUNT,
-            500_000,
+            requirePageIndex(500_000),
             'missing-annotation',
             {
                 annotationPageIndexes: [
-                    0,
-                    PAGE_COUNT - 1,
+                    requirePageIndex(0),
+                    requirePageIndex(PAGE_COUNT - 1),
                 ],
                 mountedPageIndexes: [
-                    0,
-                    PAGE_COUNT - 1,
+                    requirePageIndex(0),
+                    requirePageIndex(PAGE_COUNT - 1),
                 ],
             },
         )).toBeNull();

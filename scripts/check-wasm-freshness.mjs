@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import { spawnSync } from 'node:child_process';
 import {
     mkdir,
@@ -200,7 +201,7 @@ if (isDirectCliRun) {
                 : `WASM freshness check passed for ${summary}.`,
         );
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getCliErrorMessage(error));
         process.exit(1);
     }
 }

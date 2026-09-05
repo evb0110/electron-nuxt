@@ -373,7 +373,7 @@ async function terminateWorkerAfterTask(
     };
 
     let attempts = 1;
-    let escalationTimer: NodeJS.Timeout | null = null;
+    let escalationTimer = null as NodeJS.Timeout | null;
     const scheduleEscalation = () => {
         escalationTimer = setTimeout(() => {
             if (attempts >= WORKER_TERMINATION_ESCALATION_LIMIT) {
@@ -396,7 +396,7 @@ async function terminateWorkerAfterTask(
             requestTermination(attempts);
             scheduleEscalation();
         }, WORKER_TERMINATION_ESCALATION_INTERVAL_MS);
-        escalationTimer.unref?.();
+        escalationTimer.unref();
     };
 
     requestTermination(attempts);
@@ -518,7 +518,7 @@ function attachWorkerHandlers<T>({
                 ));
             });
         }, cooperativeCancelDelayMs);
-        cooperativeCancelTimer.unref?.();
+        cooperativeCancelTimer.unref();
     };
 
     const handleAbort = () => {
@@ -543,10 +543,11 @@ function attachWorkerHandlers<T>({
 
     options.signal?.addEventListener('abort', handleAbort, { once: true });
 
-    if (options.timeoutMs !== undefined) {
+    const timeoutMs = options.timeoutMs;
+    if (timeoutMs !== undefined) {
         timeout = setTimeout(() => {
-            requestCancel('timeout', new Error(`Worker task timed out after ${options.timeoutMs}ms`));
-        }, options.timeoutMs);
+            requestCancel('timeout', new Error(`Worker task timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
     }
     restartInactivityTimeout();
 

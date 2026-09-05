@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 // Automation entry point for "mark this text on this page". It resolves the
 // request to a DOM range and then hands the work to the shared selection
 // markup path, so its result carries the same typed outcome the UI sees.
@@ -21,7 +24,7 @@ interface ICreateTextMarkupFromTextRunnerOptions {
     viewerContainer: Ref<HTMLElement | null>;
     currentPage: Ref<number>;
     numPages: {value: number};
-    ensureAnnotationEditorLayerReady?: ((pageNumber: number) => Promise<void>) | undefined;
+    ensureAnnotationEditorLayerReady?: ((pageNumber: TPageNumber) => Promise<void>) | undefined;
     applySelectionMarkup: (
         withComment: boolean,
         range: Range,
@@ -65,7 +68,7 @@ export function createTextMarkupFromTextRunner(options: ICreateTextMarkupFromTex
         applySelectionMarkup,
     } = options;
 
-    function getPageContainerByNumber(pageNumber: number) {
+    function getPageContainerByNumber(pageNumber: TPageNumber) {
         return viewerContainer.value?.querySelector<HTMLElement>(
             `.page_container[data-page="${pageNumber}"]`,
         ) ?? null;
@@ -74,7 +77,10 @@ export function createTextMarkupFromTextRunner(options: ICreateTextMarkupFromTex
     return async function createTextMarkupFromText(
         textMarkupOptions: ICreateTextMarkupFromTextOptions,
     ): Promise<ICreateTextMarkupFromTextResult> {
-        const pageNumber = normalizePositiveInteger(textMarkupOptions.pageNumber, currentPage.value);
+        const pageNumber = requirePageNumber(
+            normalizePositiveInteger(textMarkupOptions.pageNumber, currentPage.value),
+            numPages.value,
+        );
         const occurrence = normalizePositiveInteger(textMarkupOptions.occurrence, 1);
         const requestedText = textMarkupOptions.text.trim();
         const subtype = resolveTextMarkupSubtype(textMarkupOptions.markup);

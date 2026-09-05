@@ -72,7 +72,7 @@ describe('asyncGuard', () => {
     });
 
     it('contains failures from intentionally detached tasks', async () => {
-        runDetached(
+        await runDetached(
             () => Promise.reject(new Error('detached boom')),
             {
                 category: 'background-diagnostic',

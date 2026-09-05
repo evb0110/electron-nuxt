@@ -1,4 +1,6 @@
 import type { IRecentFile } from '@contracts/shared';
+import { parseDocumentRef } from '@contracts/documentRef';
+import { createEpochMs } from '@contracts/timestamps';
 import { defaultRetentionForKind } from '@app/platform/browser/browserDocumentStoragePolicy';
 import type { IBrowserPersistedDocumentRecord } from '@app/platform/browser/browserDocumentTypes';
 
@@ -11,12 +13,18 @@ export function buildRecentFilesFromPersistedRecords(
             return record.kind !== 'working' && retention !== 'transient';
         })
         .sort((a, b) => b.updatedAt - a.updatedAt)
-        .map<IRecentFile>(record => ({
-            originalPath: record.ref,
-            backend: 'browser',
-            fileName: record.saveName ?? record.fileName,
-            timestamp: record.updatedAt,
-            fileSize: record.fileSize,
-            modifiedAt: record.updatedAt,
-        }));
+        .flatMap<IRecentFile>(record => {
+            const originalPath = parseDocumentRef(record.ref);
+            if (originalPath === null) {
+                return [];
+            }
+            return [{
+                originalPath,
+                backend: 'browser',
+                fileName: record.saveName ?? record.fileName,
+                timestamp: createEpochMs(record.updatedAt),
+                fileSize: record.fileSize,
+                modifiedAt: createEpochMs(record.updatedAt),
+            }];
+        });
 }

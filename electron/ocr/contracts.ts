@@ -1,7 +1,14 @@
+import { getErrorMessage } from '@electron/utils/error';
 import { uniq } from 'es-toolkit/array';
 import { AVAILABLE_OCR_LANGUAGE_CODES } from '@electron/ocr/availableLanguages';
 import { parseIntegerEnv } from '@electron/utils/parseIntegerEnv';
 import { isOneOf } from '@contracts/runtimeGuards';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    requireRequestId,
+    type TRequestId,
+} from '@contracts/shared';
+import {createEpochMs} from '@contracts/timestamps';
 import type {
     IOcrErrorEnvelope,
     IOcrSearchablePdfPage,
@@ -20,7 +27,7 @@ import {
 interface IOcrCreateSearchablePdfPayload {
     sourcePdfPath: string;
     pages: TOcrSearchablePdfPages;
-    requestId: string;
+    requestId: TRequestId;
     options: IOcrSearchablePdfOptions;
 }
 
@@ -114,7 +121,7 @@ export function* iterateOcrPageRequestBatches(
         for (let offset = 0; offset <= pageRange.lastPage - pageRange.firstPage; offset += 1) {
             const pageNumber = pageRange.firstPage + offset;
             batch.push({
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber),
                 languages,
             });
             if (batch.length === chunkPages) {
@@ -353,13 +360,14 @@ function asCreatePdfPageRequest(payload: unknown, fieldName: string): IOcrSearch
 
     const record = payload as Record<string, unknown>;
     return {
-        pageNumber: asPositiveInteger(record.pageNumber, `${fieldName}.pageNumber`),
+        pageNumber: requirePageNumber(asPositiveInteger(record.pageNumber, `${fieldName}.pageNumber`)),
         languages: asLanguages(record.languages, `${fieldName}.languages`),
     };
 }
 
 function asRequestId(value: unknown, fieldName: string) {
-    return asString(value, fieldName, MAX_REQUEST_ID_LENGTH);
+    const normalized = asString(value, fieldName, MAX_REQUEST_ID_LENGTH);
+    return requireRequestId(normalized);
 }
 
 function asPageRange(payload: unknown, fieldName: string): IOcrSearchablePdfPageRange {
@@ -520,16 +528,13 @@ export function buildOcrErrorEnvelope(
         details?: string;
     } = {},
 ): IOcrErrorEnvelope {
-    const envelope: IOcrErrorEnvelope = {
+    return {
         code,
         message,
         retryable: options.retryable ?? false,
-        timestamp: Date.now(),
+        timestamp: createEpochMs(),
+        ...(options.details ? {details: trimErrorDetails(options.details)} : {}),
     };
-    if (options.details) {
-        envelope.details = trimErrorDetails(options.details);
-    }
-    return envelope;
 }
 
 export function toOcrErrorEnvelope(
@@ -541,7 +546,7 @@ export function toOcrErrorEnvelope(
         return buildOcrErrorEnvelope(error.code, error.message, {retryable: false});
     }
     if (error instanceof Error) {
-        return buildOcrErrorEnvelope(fallbackCode, error.message || 'Unknown OCR error', { retryable });
+        return buildOcrErrorEnvelope(fallbackCode, getErrorMessage(error) || 'Unknown OCR error', { retryable });
     }
     return buildOcrErrorEnvelope(fallbackCode, 'Unknown OCR error', { retryable });
 }

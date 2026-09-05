@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -59,7 +60,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             ref(viewerContainer),
             ref(1),
             ref(20),
-            1,
+            requirePageNumber(1),
             unresolvedOptions,
         )).toBe(false);
         expect(commitGeometry).not.toHaveBeenCalled();
@@ -73,7 +74,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             ref(viewerContainer),
             ref(1),
             ref(20),
-            1,
+            requirePageNumber(1),
             options,
         )).toBe(false);
         expect(commitGeometry).not.toHaveBeenCalled();
@@ -84,7 +85,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             ref(viewerContainer),
             ref(1),
             ref(20),
-            1,
+            requirePageNumber(1),
             options,
         )).toBe(true);
         expect(commitGeometry).toHaveBeenCalledExactlyOnceWith(4, {
@@ -143,7 +144,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             // The local page projection may still lag an early navigation.
             ref(1),
             ref(20),
-            6,
+            requirePageNumber(6),
             {
                 authoritativePageNumber: 6,
                 expectedGeneration: 7,
@@ -206,7 +207,7 @@ describe('commitPdfPageSkeletonGeometry', () => {
             ref(viewerContainer),
             ref(1),
             ref(20),
-            1,
+            requirePageNumber(1),
             {
                 expectedGeneration: 8,
                 minimumScrollHeight: 478000,

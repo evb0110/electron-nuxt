@@ -17,6 +17,12 @@ import {
 import { assertMacUpdaterMetadataHashes } from './notarize-macos-dmgs.mjs';
 import { assertUpdaterArtifactIntegrity } from './assert-updater-artifact-integrity.mjs';
 
+/** @typedef {(metadataFileName: string) => string} TMetadataReader */
+/** @typedef {(artifactName: string) => {sha512: string, size: number}} TArtifactInfoReader */
+/** @typedef {{arch: string, expectsUpdaterMetadata: boolean, isPrimaryHostTarget: boolean, platform: 'mac' | 'linux' | 'win'}} IReleaseTarget */
+/** @typedef {{arch?: string | undefined, artifactsDir?: string, env?: NodeJS.ProcessEnv, platform?: string | undefined, readMetadataText?: TMetadataReader, readArtifactInfo?: TArtifactInfoReader, artifactNames?: string[], expectedVersion?: string}} IAssertBuildArtifactsOptions */
+
+/** @param {string} platform @param {string} arch @returns {IReleaseTarget} */
 function createBuildTarget(platform, arch) {
     if (![
         'mac',
@@ -32,6 +38,7 @@ function createBuildTarget(platform, arch) {
         throw new Error(`Unsupported release artifact arch "${arch}"`);
     }
 
+    const normalizedPlatform = /** @type {'mac' | 'linux' | 'win'} */ (platform);
     return {
         arch,
         expectsUpdaterMetadata: (
@@ -39,10 +46,11 @@ function createBuildTarget(platform, arch) {
             || (platform === 'win' && arch === 'x64')
         ),
         isPrimaryHostTarget: true,
-        platform,
+        platform: normalizedPlatform,
     };
 }
 
+/** @param {IAssertBuildArtifactsOptions} [options] */
 export function assertBuildArtifacts({
     arch,
     artifactsDir = 'release',
@@ -57,6 +65,11 @@ export function assertBuildArtifacts({
         throw new Error('Usage: assert-build-artifacts.mjs <artifactsDir> <platform> <arch>');
     }
 
+    /** @param {string} metadataFileName */
+    function readDefaultMetadataText(metadataFileName) {
+        return readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8');
+    }
+
     const target = createBuildTarget(platform, arch);
     const files = [...(artifactNames ?? readdirSync(resolve(process.cwd(), artifactsDir)))];
 
@@ -69,9 +82,9 @@ export function assertBuildArtifacts({
     assertPublishUpdaterMetadataPolicy(files, env);
     const hasUpdaterMetadata = assertPublishUpdaterMetadataReferences(
         files,
-        readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8')),
+        readMetadataText ?? readDefaultMetadataText,
     );
-    const metadataReader = readMetadataText ?? (metadataFileName => readFileSync(resolve(process.cwd(), artifactsDir, metadataFileName), 'utf8'));
+    const metadataReader = readMetadataText ?? readDefaultMetadataText;
     if (hasUpdaterMetadata) {
         const requiredVersion = expectedVersion
             ?? (artifactNames == null ? JSON.parse(readFileSync(resolve(process.cwd(), 'package.json'), 'utf8')).version : null);

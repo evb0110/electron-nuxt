@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     effectScope,
     ref,
@@ -87,7 +88,7 @@ describe('useAnnotationMutationVisualEffects lifecycle', () => {
         }
         state.enqueue({
             kind: 'render-page-text-markup',
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         const flush = runner.flushVisualEffects();
         await vi.waitFor(() => expect(renderVisiblePages).toHaveBeenCalledOnce());

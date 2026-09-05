@@ -79,7 +79,7 @@ function resolvePreviousSelectableAnchor(anchor: Node | null) {
     }
 
     candidate = candidate.previousSibling;
-    while (candidate && !(candidate as Element).childNodes?.length) {
+    while (candidate && !candidate.childNodes.length) {
         candidate = candidate.previousSibling;
     }
     return candidate;

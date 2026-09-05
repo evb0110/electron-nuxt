@@ -21,6 +21,7 @@ import {
 import { isAbortError } from '@electron/utils/abort';
 import { getErrorMessage } from '@electron/utils/error';
 import {openCatalog} from '@electron/ocr/ocrCatalogV4';
+import { requirePageNumber } from '@contracts/pageNumbers';
 
 const TEXT_PROBE_TIMEOUT_MS = 2 * 60 * 1000;
 const TEXT_PROBE_MAX_STDOUT_BYTES = 64 * 1024 * 1024;
@@ -64,7 +65,7 @@ async function readCurrentEvbGenerations(
             index += count;
         }
     } finally {
-        await catalog.close?.();
+        await catalog.close();
     }
     return generations;
 }
@@ -190,7 +191,7 @@ export async function selectOcrPagesForSupersession(input: {
         diagnostics.push({
             code: 'OCR_EXISTING_TEXT_SKIPPED',
             severity: 'info',
-            pageNumber: page.pageNumber,
+            pageNumber: requirePageNumber(page.pageNumber),
             message,
         });
     }

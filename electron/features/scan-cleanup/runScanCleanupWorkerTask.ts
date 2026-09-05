@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {dirname} from 'path';
 import { fileURLToPath } from 'url';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -39,7 +40,7 @@ function decodeProgress(value: unknown): TScanCleanupProgress | null {
     } catch (error) {
         logger.error(
             `Rejected scan cleanup worker progress: ${JSON.stringify(value)} `
-            + `(${error instanceof Error ? error.message : String(error)})`,
+            + `(${getErrorMessage(error)})`,
             {
                 code: 'MAIN_SCAN_CLEANUP_FAILED',
                 context: {},
@@ -104,7 +105,7 @@ export async function runScanCleanupWorkerTask(
     try {
         return await task.promise;
     } catch (error) {
-        const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+        const detail = error instanceof Error ? (error.stack ?? getErrorMessage(error)) : String(error);
         if (signal.aborted || isAbortError(error)) {
             logger.info('Scan cleanup worker task canceled');
         } else if (getWorkerTaskFailureReceipt(error) !== undefined) {

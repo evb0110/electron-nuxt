@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -11,7 +12,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: true,
             isEmptyToDocumentTransition: true,
             isViewportTransitionActive: true,
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             totalPages: 10,
             viewMode: 'single',
             visual: {
@@ -30,7 +31,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: true,
             isEmptyToDocumentTransition: true,
             isViewportTransitionActive: true,
-            pageNumber: 6,
+            pageNumber: requirePageNumber(6),
             totalPages: 10,
             viewMode: 'single',
             visual: {
@@ -49,7 +50,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: false,
             isEmptyToDocumentTransition: false,
             isViewportTransitionActive: true,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             totalPages: 10,
             viewMode: 'single',
             visual: {
@@ -68,7 +69,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
             isViewportTransitionActive: true,
-            pageNumber: 6,
+            pageNumber: requirePageNumber(6),
             totalPages: 10,
             viewMode: 'single',
             visual: {
@@ -87,7 +88,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
             isViewportTransitionActive: true,
-            pageNumber: 10,
+            pageNumber: requirePageNumber(10),
             totalPages: 10,
             viewMode: 'facing',
             visual: {
@@ -106,7 +107,7 @@ describe('PDF viewport-session visual projection', () => {
             fallbackVisible: true,
             isEmptyToDocumentTransition: false,
             isViewportTransitionActive: false,
-            pageNumber: 42,
+            pageNumber: requirePageNumber(42),
             totalPages: 100,
             viewMode: 'single',
             visual: {

@@ -67,7 +67,8 @@ function toPdfLineEndingName(style: TLineEndStyle | undefined) {
             return PDFName.of('OpenArrow');
         case 'closedArrow':
             return PDFName.of('ClosedArrow');
-        default:
+        case 'none':
+        case undefined:
             return PDFName.of('None');
     }
 }
@@ -419,7 +420,10 @@ function approximatelyEqualArray(
         return actual === expected;
     }
     return actual.length === expected.length
-        && actual.every((value, index) => approximatelyEqual(value, expected[index]!));
+        && actual.every((value, index) => {
+            const expectedValue = expected[index];
+            return expectedValue !== undefined && approximatelyEqual(value, expectedValue);
+        });
 }
 
 function readShapeOpacity(annotDict: PDFDict) {
@@ -442,7 +446,7 @@ function readShapeStrokeWidth(annotDict: PDFDict) {
 
 function readShapeLineEndings(annotDict: PDFDict) {
     const endings = annotDict.lookupMaybe(PDFName.of('LE'), PDFArray);
-    if (!(endings instanceof PDFArray)) {
+    if (!(endings instanceof PDFArray) || endings.size() < 2) {
         return [
             'none',
             'none',
@@ -452,7 +456,7 @@ function readShapeLineEndings(annotDict: PDFDict) {
     return [
         0,
         1,
-    ].map(index => (endings.get(index)?.toString() ?? '/None')
+    ].map(index => endings.get(index).toString()
         .replace(/^\//u, '')
         .toLowerCase()) as [string, string];
 }
@@ -463,7 +467,8 @@ function expectedLineEnding(style: IShapeAnnotation['lineStartStyle']) {
             return 'openarrow';
         case 'closedArrow':
             return 'closedarrow';
-        default:
+        case 'none':
+        case undefined:
             return 'none';
     }
 }
@@ -529,6 +534,8 @@ function shapeSemanticChange(
                 || !approximatelyEqualArray(readPdfRectFromDict(annotDict), rect)
                 || !approximatelyEqualArray(readPdfNumberArray(annotDict, 'Vertices'), vertices);
         }
+        case null:
+            return true;
         default:
             return true;
     }
@@ -555,8 +562,6 @@ function createShapeAnnotationDict(
             return createVertexAnnotationDict(doc, shape, 'PolyLine', pageView, pageRotation);
         case 'polygon':
             return createVertexAnnotationDict(doc, shape, 'Polygon', pageView, pageRotation);
-        default:
-            return null;
     }
 }
 
@@ -588,6 +593,7 @@ function updateEmbeddedShapeAnnotationDict(
         case 'Ink':
             updated = updateInkAnnotationDict(annotDict, doc, shape, pageView, pageRotation);
             break;
+        case null:
         default:
             break;
     }
@@ -767,17 +773,17 @@ function appendRemainingShapeAnnotations(
     for (const shape of remainingShapes) {
         const page = pages[shape.pageIndex];
         if (!page) {
-            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: page ${shape.pageIndex + 1} is missing`);
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey ?? '<unknown>'}: page ${shape.pageIndex + 1} is missing`);
         }
 
         const context = resolveShapePageContext(page);
         if (!context) {
-            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: page geometry is unavailable`);
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey ?? '<unknown>'}: page geometry is unavailable`);
         }
 
         const annotDict = createShapeAnnotationDict(doc, shape, context.pageView, context.pageRotation);
         if (!annotDict) {
-            throw new Error(`Unable to serialize shape annotation ${shape.stableKey}: annotation geometry is invalid`);
+            throw new Error(`Unable to serialize shape annotation ${shape.stableKey ?? '<unknown>'}: annotation geometry is invalid`);
         }
 
         writeManagedShapeStableKey(annotDict, shape.stableKey);

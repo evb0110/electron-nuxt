@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
 import { normalizePageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizePageRotation';
@@ -23,7 +25,7 @@ interface IPdfPageAnnotationLease {
 
 type TLeasePdfAnnotationPage = (
     doc: PDFDocumentProxy,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) => Promise<IPdfPageAnnotationLease>;
 
 interface IPdfPageAnnotationLeaseOptions {
@@ -74,7 +76,7 @@ function toTextPreviewViewport(viewport: unknown): IPdfTextPreviewViewport | nul
 
 async function loadPageTextPreviewData(
     page: Awaited<ReturnType<PDFDocumentProxy['getPage']>>,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     pageAnnotations: readonly IPdfAnnotationRecord[],
 ) {
     if (!shouldLoadTextPreviewItems(pageAnnotations)) {
@@ -109,7 +111,7 @@ async function loadPageTextPreviewData(
 
 export async function loadPdfPageAnnotations(
     doc: PDFDocumentProxy,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     annotationNamesById?: ReadonlyMap<string, string> | null,
     pageLeaseOptions?: IPdfPageAnnotationLeaseOptions,
 ): Promise<IPdfPageAnnotationBundle | null> {

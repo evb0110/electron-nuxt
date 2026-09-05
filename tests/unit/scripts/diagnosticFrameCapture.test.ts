@@ -48,7 +48,7 @@ describe('diagnostic frame capture', () => {
     it('drains accepted CDP screencast frames during stop', async () => {
         const outDir = mkdtempSync(join(tmpdir(), 'evb-frame-capture-'));
         const client = new FakeCdpClient();
-        const page = { target: () => ({ createCDPSession: async () => client }) };
+        const page = { createCDPSession: async () => client };
 
         try {
             const capture = await startDiagnosticFrameCapture(page as never, {

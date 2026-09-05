@@ -19,8 +19,13 @@ import {
     isFiniteNumber,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
-    if (!isRecord(payload) || typeof payload.requestId !== 'string'
+    const requestId = isRecord(payload) ? parseRequestId(payload.requestId) : null;
+    if (!isRecord(payload) || requestId === null
         || !isFiniteNumber(payload.processed) || !isFiniteNumber(payload.total)
         || (payload.truncated !== undefined && typeof payload.truncated !== 'boolean')
         || (payload.canceled !== undefined && typeof payload.canceled !== 'boolean')
@@ -30,7 +35,7 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
         return null;
     }
     const base: IPdfSearchProgress = {
-        requestId: payload.requestId,
+        requestId,
         processed: payload.processed,
         total: payload.total,
         ...(payload.truncated === undefined ? {} : {truncated: payload.truncated}),
@@ -51,13 +56,13 @@ function decodeSearchProgress(payload: unknown): IPdfSearchProgress | null {
         }
         return {
             ...base,
-            results: results as IPdfSearchResult[],
+            results: results.filter((result): result is IPdfSearchResult => result !== null),
             ...(rawResultsStartIndex === undefined ? {} : {resultsStartIndex: rawResultsStartIndex}),
         };
     }
     return base;
 }
-type TCancelArgs = [requestId?: string | undefined];
+type TCancelArgs = [requestId?: TRequestId | undefined];
 function decodeCancelArgs(value: unknown): TCancelArgs {
     if (!Array.isArray(value) || value.length > 1) {
         const length = Array.isArray(value) ? value.length : 0;
@@ -75,19 +80,23 @@ function decodeCancelResult(value: unknown) {
 const noArgs = s.tuple([]);
 const booleanResult = s.boolean(true);
 const searchRequest = s.fromParser(normalizePdfSearchRequestPayload,
-    () => ({pdfPath: '/tmp/fixture.pdf', query: 'needle'}));
+    () => normalizePdfSearchRequestPayload({pdfPath: '/tmp/fixture.pdf', query: 'needle'}));
 const warmIndexRequest = s.fromParser(normalizePdfSearchWarmIndexPayload,
-    () => ({pdfPath: '/tmp/fixture.pdf'}));
+    () => normalizePdfSearchWarmIndexPayload({pdfPath: '/tmp/fixture.pdf'}));
 const searchResponse = s.fromNullableDecoder(SEARCH_WIRE_CODEC.decodeResponse,
     'search response', () => ({results: [], truncated: false}));
 const searchProgress = s.declared<IPdfSearchProgress>()(
     s.fromNullableDecoder(decodeSearchProgress, 'search progress', () => ({
-        requestId: 'search-fixture', processed: 0, total: 1, status: 'running',
+        requestId: parseRequestId('search-fixture') ?? (() => {
+            throw new Error('invalid fixture request ID');
+        })(), processed: 0, total: 1, status: 'running',
     })),
 );
 const cancelArgs = {decode: decodeCancelArgs,
     encode: (value: TCancelArgs): TCancelArgs => [normalizeOptionalSearchRequestId(value[0])],
-    example: (): TCancelArgs => ['search-fixture']};
+    example: (): TCancelArgs => [parseRequestId('search-fixture') ?? (() => {
+        throw new Error('invalid fixture request ID');
+    })()]};
 export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
     path: ['search'],
     required: {browser: true, electron: true},
@@ -111,7 +120,7 @@ export const SEARCH_PLATFORM_FEATURE = definePlatformFeature({
         cancel: {
             kind: 'async', channel: 'pdf:search:cancel',
             ipc: {args: cancelArgs, result: s.fromParser(decodeCancelResult, () => ({canceled: false}))},
-            client: {mapArgs: (requestId?: string): TCancelArgs =>
+            client: {mapArgs: (requestId?: TRequestId): TCancelArgs =>
                 [normalizeOptionalSearchRequestId(requestId)]},
             main: {method: 'cancel', context: 'sender'}, browser: {method: 'cancel'}, lazy: 'forwarded',
         },

@@ -63,8 +63,6 @@ export function resolveDjvuPdfExportStrategy(
             return 'direct';
         case 'compact-djvu-aware':
             return 'compact-djvu-aware';
-        default:
-            throw new Error('Invalid DjVu PDF export strategy');
     }
 }
 
@@ -97,11 +95,11 @@ export function resolveRecommendedDjvuPdfSubsample(
         .map(normalizeDjvuPdfSubsample)
         .filter((value, index, values) => values.indexOf(value) === index)
         .sort((left, right) => left - right);
-    const candidateSubsamples = candidates.length > 0 ? candidates : [1];
+    const largestSubsample = candidates.at(-1) ?? 1;
 
-    return candidateSubsamples.find(subsample =>
+    return candidates.find(subsample =>
         estimateDjvuPdfEffectivePixels(metrics, subsample) <= DJVU_PDF_DIRECT_CONVERSION_EFFECTIVE_PIXEL_LIMIT,
-    ) ?? candidateSubsamples[candidateSubsamples.length - 1]!;
+    ) ?? largestSubsample;
 }
 
 export const BROWSER_DJVU_CONVERSION_MAX_PAGES = 500;

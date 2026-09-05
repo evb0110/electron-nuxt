@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
     readFile,
@@ -93,13 +94,13 @@ export async function readHostLockOwner(lockDirectory: string): Promise<IHostLoc
         if (isErrnoException(error) && error.code === 'ENOENT') {
             return null;
         }
-        throw new Error(`Cannot read the host lock owner ${file}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Cannot read the host lock owner ${file}: ${getErrorMessage(error)}`);
     }
     let parsed: unknown;
     try {
         parsed = JSON.parse(text);
     } catch (error) {
-        throw new Error(`The host lock owner ${file} is not valid JSON (${error instanceof Error ? error.message : String(error)}); inspect and remove it by hand.`);
+        throw new Error(`The host lock owner ${file} is not valid JSON (${getErrorMessage(error)}); inspect and remove it by hand.`);
     }
     if (!isHostLockOwner(parsed)) {
         throw new Error(`The host lock owner ${file} does not match the owner schema; inspect and remove it by hand.`);

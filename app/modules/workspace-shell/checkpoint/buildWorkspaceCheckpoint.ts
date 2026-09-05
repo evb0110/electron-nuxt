@@ -4,6 +4,7 @@ import type {
     TEditorLayoutNode,
 } from '@contracts/editorPanes';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
+import { createEpochMs } from '@contracts/timestamps';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
@@ -60,7 +61,7 @@ export function buildWorkspaceCheckpoint(
 
     return {
         version: 1,
-        capturedAt: Date.now(),
+        capturedAt: createEpochMs(),
         activePaneId: workspaceSnapshot.activePaneId,
         activeTabId: workspaceSnapshot.activeTabId,
         layout: workspaceSnapshot.layout,

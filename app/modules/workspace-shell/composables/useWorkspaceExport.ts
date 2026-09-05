@@ -1,6 +1,9 @@
 import type { Ref } from 'vue';
 import { useTimeoutFn } from '@vueuse/core';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {
     getFailureReceipt,
@@ -22,12 +25,17 @@ import {
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
 import { getErrorMessage } from '@app/utils/error';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import type { TPageSelection } from '@contracts/pageNumbers';
 import {
     createAllPageSelection,
     createExplicitPageSelection,
     materializePageSelection,
     pageSelectionCount,
+    requirePageNumber,
 } from '@contracts/pageNumbers';
 
 type TExportDialogMode = 'images' | 'multipage-tiff';
@@ -162,13 +170,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
     }
 
     function createExportRequestId() {
-        return globalThis.crypto?.randomUUID?.()
-            ?? `export-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        return createRequestId('export');
     }
 
     function subscribeExportProgress(
         imageExport: ReturnType<typeof getImageExportCapability>,
-        requestId: string,
+        requestId: TRequestId,
         format: TImageExportProgressFormat,
     ) {
         clearExportProgressSubscription();
@@ -279,7 +286,12 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
         documentWorkingCopy: ReturnType<typeof getDocumentWorkingCopyCapability>,
         outputPaths: string[],
     ) {
-        const cleanupPaths = outputPaths.filter(isBrowserDocumentRef);
+        const cleanupPaths = outputPaths.flatMap((path) => {
+            const documentRef = parseDocumentRef(path);
+            return documentRef !== null && isBrowserDocumentRef(documentRef)
+                ? [documentRef]
+                : [];
+        });
         if (cleanupPaths.length === 0) {
             return;
         }
@@ -445,7 +457,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     const startedAt = Date.now();
                     const result = await imageExport.exportPdfToImages(
                         identity.sourcePath,
-                        pageNumbers,
+                        pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
                         requestId,
                         identity.sourceKind,
                     );
@@ -493,7 +505,7 @@ export const useWorkspaceExport = (deps: IWorkspaceExportDeps) => {
                     const startedAt = Date.now();
                     const result = await imageExport.exportPdfToMultiPageTiff(
                         identity.sourcePath,
-                        pageNumbers,
+                        pageNumbers?.map(pageNumber => requirePageNumber(pageNumber, totalPages.value)),
                         requestId,
                         identity.sourceKind,
                     );

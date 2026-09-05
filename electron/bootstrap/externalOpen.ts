@@ -366,7 +366,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
                 finishStartupEmptyClaimGrace,
                 EXTERNAL_OPEN_STARTUP_EMPTY_CLAIM_GRACE_MS,
             );
-            startupEmptyClaimGraceTimer.unref?.();
+            startupEmptyClaimGraceTimer.unref();
         });
         return startupEmptyClaimGracePromise;
     }
@@ -446,7 +446,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             retryPendingFilesTimer = null;
             flushPendingFiles();
         }, EXTERNAL_OPEN_RETRY_DISPATCH_MS);
-        retryPendingFilesTimer.unref?.();
+        retryPendingFilesTimer.unref();
     }
 
     async function ensureMainWindowForExternalOpen() {
@@ -547,7 +547,7 @@ export function createExternalOpenManager(options: ICreateExternalOpenManagerOpt
             flushPendingFiles,
             Math.min(windowMs, remainingMs),
         );
-        flushPendingFilesTimer.unref?.();
+        flushPendingFilesTimer.unref();
     }
 
     function scheduleFlushPendingFiles(newPathCount = 0) {

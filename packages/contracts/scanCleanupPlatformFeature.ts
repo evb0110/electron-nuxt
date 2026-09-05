@@ -22,6 +22,8 @@ import {
     decodeScanCleanupRawPreviewEvent,
     decodeStartResult,
 } from '@contracts/scan-cleanup/ipcResultCodecs';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { createJobId } from '@contracts/shared';
 import {
     defineForwardedPlatformMethod,
     definePlatformFeature,
@@ -39,6 +41,12 @@ import {
     type IScanCleanupSettingsReadRequest,
     type IScanCleanupSettingsUpdateRequest,
 } from '@contracts/scanCleanupSettings';
+import {
+    parseJobId,
+    parseRequestId,
+    type TJobId,
+} from '@contracts/shared';
+import {createEpochMs} from '@contracts/timestamps';
 
 const owner: IScanCleanupOwnerContext = {
     ownerId: 'scan-cleanup-fixture',
@@ -65,9 +73,11 @@ const options = {
 };
 const previewRequest: IScanCleanupPreviewRequest = {
     ...owner,
-    requestId: 'preview-request-1',
+    requestId: parseRequestId('preview-request-1') ?? (() => {
+        throw new Error('invalid fixture request ID');
+    })(),
     sourcePdfPath: '/tmp/source.pdf',
-    pageNumber: 1,
+    pageNumber: requirePageNumber(1),
     options,
 };
 const cancelPreviewRequest: IScanCleanupPreviewCancelRequest = {
@@ -87,17 +97,21 @@ const queuedProgress = {
     completedPageNumbers: [],
 };
 const queuedJobState: TScanCleanupJobState = {
-    jobId: 'scan-cleanup-fixture',
+    jobId: parseJobId('scan-cleanup-fixture') ?? (() => {
+        throw new Error('invalid fixture job ID');
+    })(),
     status: 'queued',
     progress: queuedProgress,
-    updatedAtMs: 0,
+    updatedAtMs: createEpochMs(0),
 };
 const queuedDetectionState: TScanCleanupDetectionJobState = {
-    jobId: 'scan-cleanup-detect-fixture',
+    jobId: parseJobId('scan-cleanup-detect-fixture') ?? (() => {
+        throw new Error('invalid fixture job ID');
+    })(),
     status: 'queued',
     progress: queuedProgress,
     results: [],
-    updatedAtMs: 0,
+    updatedAtMs: createEpochMs(0),
 };
 const booleanResult = s.boolean();
 const nonNegativeInteger = s.number({
@@ -124,13 +138,17 @@ const cancelPreviewArgs = s.fromParser(decodeArgs(decodePreviewCancelArgs), () =
 const detectionArgs = s.fromParser(decodeArgs(decodeDetectionArgs), () => [detectionRequest]);
 const startArgs = s.fromParser(decodeArgs(decodeStartArgs), () => [startRequest]);
 const ownedJobArgs = s.fromParser(decodeArgs(decodeOwnedJobId), () => [
-    'scan-cleanup-fixture',
+    parseJobId('scan-cleanup-fixture') ?? (() => {
+        throw new Error('invalid fixture job ID');
+    })(),
     owner,
-] as [string, IScanCleanupOwnerContext]);
+] as [TJobId, IScanCleanupOwnerContext]);
 const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
     ...owner,
-    requestId: 'preview-request-1',
-    pageNumber: 1,
+    requestId: parseRequestId('preview-request-1') ?? (() => {
+        throw new Error('invalid fixture request ID');
+    })(),
+    pageNumber: requirePageNumber(1),
     totalPages: 1,
     rawImageData: new Uint8Array([1]),
     rawWidthPx: 1,
@@ -139,7 +157,7 @@ const rawPreviewEvent = s.fromParser(decodeScanCleanupRawPreviewEvent, () => ({
 const previewResult = s.fromParser(
     decodeScanCleanupPreviewResult,
     () => ({
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1),
         totalPages: 1,
         rawImageData: new Uint8Array([1]),
         rawWidthPx: 1,
@@ -160,11 +178,11 @@ const previewResult = s.fromParser(
 );
 const detectionStartResult = s.fromParser(decodeDetectionStartResult, () => ({
     started: true as const,
-    jobId: 'scan-cleanup-detect-fixture',
+    jobId: createJobId('scan-cleanup-detect-fixture'),
 }));
 const startResult = s.fromParser(decodeStartResult, () => ({
     started: true as const,
-    jobId: 'scan-cleanup-fixture',
+    jobId: createJobId('scan-cleanup-fixture'),
     outputPdfPath: '/tmp/cleaned.pdf',
 }));
 const jobState = s.fromParser(decodeScanCleanupJobState, () => null);

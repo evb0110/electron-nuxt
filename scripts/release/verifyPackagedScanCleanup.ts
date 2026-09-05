@@ -385,12 +385,12 @@ async function verifyCleanupQueuedDuringDetection(
             '.scan-cleanup-toolbar-primary-action',
         );
         return meter !== null
-            && (meter.textContent ?? '').trim().length > 0
+            && meter.textContent.trim().length > 0
             && action?.disabled === false;
     }, {timeout: 10_000});
     const queuedStatusText = await evaluateInPage(page, () =>
         document.querySelector<HTMLElement>('.scan-cleanup-run-meter')
-            ?.textContent?.trim() ?? '');
+            ?.textContent.trim() ?? '');
     if (!queuedStatusText.toLowerCase().includes('pre-analyzing')) {
         throw new Error(
             `Cleanup click did not expose a queued pre-analysis state: "${queuedStatusText}"`,
@@ -590,7 +590,7 @@ async function waitForCleanedOutput(page: Page, sourcePath: string) {
     await waitForFunctionInPage(page, (source: string) => {
         const active = (window as IWorkspaceExposeProbeWindow)
             .__evbTestApi
-            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+            ?.readActiveWorkspaceStateValues(['originalPath']);
         return typeof active?.originalPath === 'string'
             && active.originalPath !== source
             && active.originalPath.endsWith('— cleaned.pdf');
@@ -598,7 +598,7 @@ async function waitForCleanedOutput(page: Page, sourcePath: string) {
     const outputPath = await evaluateInPage(page, () => {
         const active = (window as IWorkspaceExposeProbeWindow)
             .__evbTestApi
-            ?.readActiveWorkspaceStateValues?.(['originalPath']);
+            ?.readActiveWorkspaceStateValues(['originalPath']);
         return typeof active?.originalPath === 'string' ? active.originalPath : null;
     });
     if (!outputPath) {
@@ -680,12 +680,12 @@ async function runArtifactAudit(
         });
         let auditStdout = '';
         let auditStderr = '';
-        audit.stdout?.on('data', data => {
+        audit.stdout.on('data', data => {
             const text = String(data);
             auditStdout += text;
             process.stdout.write(text);
         });
-        audit.stderr?.on('data', data => {
+        audit.stderr.on('data', data => {
             const text = String(data);
             auditStderr += text;
             process.stderr.write(text);
@@ -765,12 +765,12 @@ async function run() {
     });
     let stdout = '';
     let stderr = '';
-    child.stdout?.on('data', data => {
+    child.stdout.on('data', data => {
         const text = String(data);
         stdout += text;
         process.stdout.write(text);
     });
-    child.stderr?.on('data', data => {
+    child.stderr.on('data', data => {
         const text = String(data);
         stderr += text;
         process.stderr.write(text);

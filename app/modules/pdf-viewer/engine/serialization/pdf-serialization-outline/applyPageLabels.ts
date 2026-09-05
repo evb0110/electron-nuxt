@@ -8,7 +8,7 @@ import type { IPdfPageLabelRange } from '@app/types/pdfContracts';
 import {
     isImplicitDefaultPageLabels,
     normalizePageLabelRanges,
-} from '@app/utils/pdfPageLabels';
+} from '@app/utils/document-viewer/pageLabels';
 
 export function applyPageLabels(
     doc: PDFDocument,

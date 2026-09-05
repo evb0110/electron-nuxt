@@ -15,6 +15,7 @@ import {
     createBrowserPageOpsCapability,
 } from '@app/platform/browser-api/createBrowserPageOpsCapability';
 import { BROWSER_MAX_FULL_READ_BYTES } from '@app/platform/browser/browserDocumentConstants';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const yieldToBrowserMock = vi.hoisted(() => vi.fn(async () => {}));
 const browserDocumentStoreMock = vi.hoisted(() => ({
@@ -495,7 +496,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).rejects.toThrow(
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', requirePageNumber(1))).rejects.toThrow(
             'Inspecting page geometry is unavailable in the browser for PDFs larger than 16MB',
         );
         expect(browserPageOpsWorkerMock.run).not.toHaveBeenCalled();
@@ -516,7 +517,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).resolves.toEqual({
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', requirePageNumber(1))).resolves.toEqual({
             mediaBox: {
                 x: 0,
                 y: 0,
@@ -547,7 +548,7 @@ describe('createBrowserPageOpsCapability', () => {
 
         const pageOps = createPageOps({});
 
-        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', 1)).resolves.toEqual({
+        await expect(pageOps.getPageGeometry('browser://documents/work.pdf', requirePageNumber(1))).resolves.toEqual({
             mediaBox: {
                 x: 0,
                 y: 0,

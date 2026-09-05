@@ -1,5 +1,9 @@
 export const WASM_TARGET = 'wasm32-unknown-unknown';
 
+/** @typedef {{relativePath: string, requiredExports: string[]}} IRequiredWebWasmAsset */
+/** @typedef {{builtFileName: string, crateName: string, label: string, manifestPath: string, publicRelativePath: string, requiredExports: string[], rustflags: string[]}} IWasmArtifact */
+
+/** @type {IRequiredWebWasmAsset[]} */
 export const REQUIRED_WEB_WASM_ASSETS = [
     {
         relativePath: 'wasm/evb-pdf-image-combine.wasm',
@@ -38,6 +42,7 @@ const requiredExportsByRelativePath = new Map(
     ]),
 );
 
+/** @param {string} relativePath @returns {string[]} */
 function getRequiredExports(relativePath) {
     const requiredExports = requiredExportsByRelativePath.get(relativePath);
     if (!requiredExports) {
@@ -46,6 +51,7 @@ function getRequiredExports(relativePath) {
     return requiredExports;
 }
 
+/** @type {IWasmArtifact[]} */
 export const WASM_ARTIFACTS = [
     {
         builtFileName: 'evb_pdf_image_combine.wasm',
@@ -67,6 +73,7 @@ export const WASM_ARTIFACTS = [
     },
 ];
 
+/** @param {string} crateName @returns {IWasmArtifact} */
 export function getWasmArtifactByCrateName(crateName) {
     const artifact = WASM_ARTIFACTS.find(entry => entry.crateName === crateName);
     if (!artifact) {
@@ -75,6 +82,7 @@ export function getWasmArtifactByCrateName(crateName) {
     return artifact;
 }
 
+/** @param {NodeJS.ProcessEnv} env @param {string[]} rustflags @returns {string} */
 export function appendRustflags(env, rustflags) {
     return [
         env.RUSTFLAGS,

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import { ipcMain } from 'electron';
 import { clamp } from 'es-toolkit/math';
 import type {
@@ -9,6 +10,7 @@ import {
     type FailureReceipt,
 } from '@contracts/diagnostics/failureReceipt';
 import { isRecord } from '@contracts/runtimeGuards';
+import {stringifyJson} from '@contracts/stringifyJson';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createLogger } from '@electron/utils/createLogger';
 import { redactElectronLogText } from '@electron/utils/redactElectronLogText';
@@ -117,11 +119,11 @@ function normalizeRendererLogPrimitive(value: unknown) {
     if (valueType === 'number' || valueType === 'boolean') {
         return value;
     }
-    if (valueType === 'bigint') {
-        return `${value}n`;
+    if (typeof value === 'bigint') {
+        return `${value.toString()}n`;
     }
-    if (valueType === 'symbol') {
-        return String(value);
+    if (typeof value === 'symbol') {
+        return value.toString();
     }
     if (typeof value === 'function') {
         const functionName = value.name;
@@ -144,7 +146,7 @@ function normalizeRendererLogSpecialObject(value: object, depth: number) {
     if (value instanceof Error) {
         const normalizedError: Record<string, unknown> = {
             name: value.name,
-            message: value.message,
+            message: getErrorMessage(value),
         };
         if (depth === 0) {
             normalizedError.stack = clampString(value.stack, RENDERER_LOG_MAX_MESSAGE_CHARS);
@@ -259,7 +261,12 @@ function stringifyRendererLogData(data: unknown) {
         });
         serialized = JSON.stringify(normalized);
     } catch {
-        serialized = clampString(String(data), RENDERER_LOG_MAX_DATA_CHARS);
+        serialized = clampString(
+            typeof data === 'object' && data !== null
+                ? '[unserializable object]'
+                : stringifyJson(data) ?? '<unserializable value>',
+            RENDERER_LOG_MAX_DATA_CHARS,
+        );
     }
 
     if (!serialized) {

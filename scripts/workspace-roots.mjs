@@ -24,11 +24,13 @@ export const ALL_ARCHITECTURE_STATIC_ROOTS = [
     'server',
 ];
 
+/** @param {string} relativePath @returns {string} */
 function normalizeRelativePath(relativePath) {
     const normalized = relativePath.split(path.sep).join('/').replace(/\/+$/u, '');
     return normalized.length === 0 ? '.' : normalized;
 }
 
+/** @param {string} value @returns {string} */
 function stripYamlQuotes(value) {
     const trimmed = value.trim();
     if (
@@ -40,6 +42,7 @@ function stripYamlQuotes(value) {
     return trimmed;
 }
 
+/** @param {string[]} values @returns {string[]} */
 function uniqueOrdered(values) {
     const seen = new Set();
     return values.filter((value) => {
@@ -51,6 +54,7 @@ function uniqueOrdered(values) {
     });
 }
 
+/** @param {string} filePath @returns {boolean} */
 function isDirectory(filePath) {
     try {
         return statSync(filePath).isDirectory();
@@ -59,6 +63,7 @@ function isDirectory(filePath) {
     }
 }
 
+/** @param {string} sourceText @returns {string[]} */
 export function parseWorkspacePackagePatterns(sourceText) {
     const lines = sourceText.split(/\r?\n/u);
     const packagesLineIndex = lines.findIndex(line => line.trim() === 'packages:');
@@ -89,6 +94,7 @@ export function parseWorkspacePackagePatterns(sourceText) {
     return patterns;
 }
 
+/** @param {{projectRoot?: string}} options @returns {string[]} */
 export function getWorkspacePackagePatterns({projectRoot = process.cwd()} = {}) {
     const workspaceFilePath = path.join(projectRoot, WORKSPACE_FILE_NAME);
     if (!existsSync(workspaceFilePath)) {
@@ -100,6 +106,7 @@ export function getWorkspacePackagePatterns({projectRoot = process.cwd()} = {}) 
     return parseWorkspacePackagePatterns(readFileSync(workspaceFilePath, 'utf8'));
 }
 
+/** @param {string} pattern @param {{projectRoot: string}} options @returns {string[]} */
 function expandWorkspacePattern(pattern, {projectRoot}) {
     const normalizedPattern = normalizeRelativePath(pattern);
     if (normalizedPattern.startsWith('!')) {
@@ -148,6 +155,7 @@ function expandWorkspacePattern(pattern, {projectRoot}) {
         .sort((left, right) => left.localeCompare(right));
 }
 
+/** @param {{includeWorkspaceRoot?: boolean, projectRoot?: string}} options @returns {string[]} */
 export function getWorkspacePackageRoots({
     includeWorkspaceRoot = false,
     projectRoot = process.cwd(),
@@ -159,6 +167,7 @@ export function getWorkspacePackageRoots({
     return uniqueOrdered(roots.sort((left, right) => left.localeCompare(right)));
 }
 
+/** @param {{projectRoot?: string}} options @returns {string[]} */
 export function getFocusedArchitectureRoots({projectRoot = process.cwd()} = {}) {
     return uniqueOrdered([
         ...FOCUSED_ARCHITECTURE_STATIC_ROOTS,
@@ -166,6 +175,7 @@ export function getFocusedArchitectureRoots({projectRoot = process.cwd()} = {}) 
     ]);
 }
 
+/** @param {{projectRoot?: string}} options @returns {string[]} */
 export function getAllArchitectureRoots({projectRoot = process.cwd()} = {}) {
     return uniqueOrdered([
         ...ALL_ARCHITECTURE_STATIC_ROOTS,
