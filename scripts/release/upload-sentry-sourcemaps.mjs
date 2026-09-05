@@ -43,7 +43,7 @@ const UPLOAD_EXTENSIONS = [
 ];
 
 /** @typedef {import('../../packages/contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity} TSentryBuildIdentity */
-/** @typedef {{bundle: string, map: string, role: string, sources: string[], stagedMapPath: string}} IPrivateBundle */
+/** @typedef {{bundle: string, map: string, role: string, sources: string[], sourceFiles: IPrivateSource[], stagedMapPath: string}} IPrivateBundle */
 /** @typedef {{path: string, stagedPath: string}} IPrivateSource */
 /** @typedef {{bundles: IPrivateBundle[], identity: TSentryBuildIdentity, sources: IPrivateSource[]}} IPrivateManifest */
 /** @typedef {{bundleCount: number, destinationFingerprint: string, identity: TSentryBuildIdentity, manifestSha256: string, schemaVersion: number}} IUploadReceipt */
@@ -167,6 +167,115 @@ function sourceUploadRoots(uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
+/** @param {string} value @returns {string} */
+function normalizeSourcePath(value) {
+    let normalized = value.replaceAll('\\', '/');
+    try {
+        normalized = decodeURIComponent(normalized);
+    } catch {
+        return '';
+    }
+    return normalized
+        .replace(/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u, '')
+        .replace(/^\/+/, '')
+        .replace(/^(?:\.\.\/)+/u, '')
+        .replace(/^\.\//u, '');
+}
+
+/** @param {string} value @returns {boolean} */
+function isRelativeSourceReference(value) {
+    return value.length > 0
+        && !value.startsWith('/')
+        && !/^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(value);
+}
+
+/** @param {string} bundlePath @param {string | undefined} sourceRoot @param {string} source @returns {string | null} */
+function sourceUploadAliasPath(bundlePath, sourceRoot, source) {
+    if (typeof source !== 'string' || !isRelativeSourceReference(source)) {
+        return null;
+    }
+    const reference = typeof sourceRoot === 'string' && sourceRoot.length > 0
+        ? path.posix.join(sourceRoot, source)
+        : source;
+    if (!isRelativeSourceReference(reference)) {
+        return null;
+    }
+    const alias = path.posix.normalize(path.posix.join(
+        path.posix.dirname(bundlePath),
+        reference,
+    ));
+    if (
+        alias === '.'
+        || alias === '..'
+        || alias.startsWith('../')
+        || path.posix.isAbsolute(alias)
+    ) {
+        return null;
+    }
+    return alias;
+}
+
+/** @param {string} mapSource @param {IPrivateSource[]} sources @returns {IPrivateSource | null} */
+function findPrivateSource(mapSource, sources) {
+    const normalizedMapSource = normalizeSourcePath(mapSource);
+    if (!normalizedMapSource) {
+        return null;
+    }
+    const matches = sources.filter(source => {
+        const normalizedSource = normalizeSourcePath(source.path);
+        return normalizedMapSource === normalizedSource
+            || normalizedMapSource.endsWith(`/${normalizedSource}`);
+    });
+    return matches.length === 1 && matches[0] !== undefined ? matches[0] : null;
+}
+
+/**
+ * Source maps emitted for browser workers are relative to the public `/_nuxt`
+ * URL. Desktop canaries use the checked-in build output path instead, so a
+ * source such as `../../packages/contracts/runtimeGuards.ts` resolves under
+ * `nuxt-output/packages` in Sentry. Keep the original project-root source and
+ * add the path that Sentry resolves from the uploaded bundle.
+ *
+ * @param {string} uploadRoot
+ * @param {TSentryBuildIdentity} identity
+ * @param {IPrivateManifest} manifest
+ * @param {string} stageRoot
+ * @param {IPrivateBundle} bundle
+ * @returns {Promise<void>}
+ */
+async function prepareSourceUploadAliases(
+    uploadRoot,
+    identity,
+    manifest,
+    stageRoot,
+    bundle,
+) {
+    const mapPath = resolveInside(stageRoot, bundle.stagedMapPath, 'staged map');
+    /** @type {{sourceRoot?: unknown, sources?: unknown}} */
+    const map = JSON.parse(await readFile(mapPath, 'utf8'));
+    if (!Array.isArray(map.sources)) {
+        return;
+    }
+    const uploadBundlePath = uploadRelativePath(identity.target, bundle.bundle);
+    const sourceRoot = typeof map.sourceRoot === 'string' ? map.sourceRoot : undefined;
+    for (const mapSource of map.sources) {
+        if (typeof mapSource !== 'string') {
+            continue;
+        }
+        const source = findPrivateSource(mapSource, manifest.sources);
+        const alias = sourceUploadAliasPath(uploadBundlePath, sourceRoot, mapSource);
+        if (!source || !alias || alias === source.path) {
+            continue;
+        }
+        await copyIntoUploadRoot(
+            resolveInside(stageRoot, source.stagedPath, 'staged source alias'),
+            uploadRoot,
+            alias,
+            'upload source alias',
+        );
+    }
+}
+
 /** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {string} cliRoot @returns {string | null} */
 function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
     if (
@@ -206,6 +315,15 @@ async function prepareUploadTree({
             uploadRoot,
             source.path,
             'upload source',
+        );
+    }
+    for (const bundle of manifest.bundles) {
+        await prepareSourceUploadAliases(
+            uploadRoot,
+            identity,
+            manifest,
+            stageRoot,
+            bundle,
         );
     }
 }

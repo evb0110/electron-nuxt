@@ -229,6 +229,61 @@ describe('uploadSentrySourcemaps', () => {
         });
     });
 
+    it('adds source aliases for browser-worker maps relative to the uploaded desktop bundle', async () => {
+        const projectRoot = await mkdtemp(path.join(tmpdir(), 'evb-sentry-worker-upload-'));
+        temporaryRoots.push(projectRoot);
+        const outputRoot = 'nuxt-output/public/_nuxt';
+        await mkdir(path.join(projectRoot, outputRoot), {recursive: true});
+        await mkdir(path.join(projectRoot, 'packages/contracts'), {recursive: true});
+        await writeFile(
+            path.join(projectRoot, 'packages/contracts/runtimeGuards.ts'),
+            'export const fixtureGuard = true;\n',
+        );
+        await writeFile(
+            path.join(projectRoot, `${outputRoot}/fixture.worker.js`),
+            'throw new Error("fixture");\n//# sourceMappingURL=fixture.worker.js.map\n',
+        );
+        await writeFile(path.join(projectRoot, `${outputRoot}/fixture.worker.js.map`), JSON.stringify({
+            file: 'fixture.worker.js',
+            mappings: 'AAAA',
+            names: [],
+            sources: ['../../packages/contracts/runtimeGuards.ts'],
+            version: 3,
+        }));
+        const workerIdentity: SentryBuildIdentity = {
+            target: 'desktop',
+            release: 'evb-viewer-desktop@0.1.449-worker-fixture',
+            dist: 'macos-arm64',
+            environment: 'test',
+        };
+        await stagePrivateSourcemaps({
+            projectRoot,
+            identity: workerIdentity,
+            outputRoots: ['nuxt-output'],
+            reset: true,
+        });
+        const runCli = vi.fn(async (args: string[]) => {
+            const uploadRoot = args.at(-1)!;
+            await expect(readFile(
+                path.join(uploadRoot, 'packages/contracts/runtimeGuards.ts'),
+                'utf8',
+            )).resolves.toContain('fixtureGuard');
+            await expect(readFile(
+                path.join(uploadRoot, 'nuxt-output/packages/contracts/runtimeGuards.ts'),
+                'utf8',
+            )).resolves.toContain('fixtureGuard');
+        });
+
+        await uploadSentrySourcemaps({
+            identity: workerIdentity,
+            projectRoot,
+            environment: privateEnvironment(),
+            runCli,
+        });
+
+        expect(runCli).toHaveBeenCalledOnce();
+    });
+
     it('treats a matching private receipt as an exact-build no-op', async () => {
         const projectRoot = await createFixture();
         const runCli = vi.fn().mockResolvedValue(undefined);
