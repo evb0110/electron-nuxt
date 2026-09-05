@@ -1,0 +1,21 @@
+.github/workflows/release-supplemental.yml
+  s_8239e4d1ccfe2f::t_82c813e5c3313e 460-461,463
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_8239e4d1ccfe2f::t_84b9776464ee86 1284-1286
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "cb8e303d8180ff2f2039337b67bfe776fd688b5a",
+  "prompts": {},
+  "sessions": {
+    "s_8239e4d1ccfe2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db52d8ab-be91-4205-bacb-01c5c81152f0",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
