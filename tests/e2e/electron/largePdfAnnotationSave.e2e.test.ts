@@ -181,13 +181,6 @@ interface ICommentAtPointViewer {commentAtPoint?: (
     options?: { preferTextAnchor?: boolean },
 ) => Promise<boolean>;}
 
-interface IPdfAnnotationModifiedIdsDebugState {ids?: Set<unknown>;}
-interface IPdfAnnotationSerializableDebugState {map?: Map<unknown, unknown>;}
-interface IPdfAnnotationStorageDebugState {
-    modifiedIds?: IPdfAnnotationModifiedIdsDebugState;
-    serializable?: IPdfAnnotationSerializableDebugState;
-}
-interface IPdfDocumentDebugState {annotationStorage?: IPdfAnnotationStorageDebugState;}
 interface IAgentActionResult extends Record<string, unknown> {
     comment?: Record<string, unknown>;
     created?: boolean;
@@ -863,41 +856,23 @@ async function expectCleanAnnotationHydration(page: Page) {
             annotationDirty: boolean;
             fileDirty: boolean;
             hasAnnotationChanges: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
+            annotationDirtyEntityCount: number;
             hasPendingUnsavedChanges: boolean;
-            hasSavedPdfJsAnnotationBaselineChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[];
-            } | null;
         };}>(page, ['dirtyState']);
         const dirty = state.dirtyState;
         return {
             annotationDirty: dirty?.annotationDirty ?? null,
             fileDirty: dirty?.fileDirty ?? null,
             hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
-            hasLivePdfJsAnnotationChanges: dirty?.hasLivePdfJsAnnotationChanges ?? null,
+            annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
             hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
-            hasSavedPdfJsAnnotationBaselineChanges: dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
-            pdfJsAnnotationStorage: dirty?.pdfJsAnnotationStorage ?? null,
         };
     }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toSatisfy((state) => (
         state.annotationDirty === false
         && state.fileDirty === false
         && state.hasAnnotationChanges === false
-        && state.hasLivePdfJsAnnotationChanges === false
+        && state.annotationDirtyEntityCount === 0
         && state.hasPendingUnsavedChanges === false
-        && state.hasSavedPdfJsAnnotationBaselineChanges === false
-        && (
-            state.pdfJsAnnotationStorage === null
-            || (
-                state.pdfJsAnnotationStorage.fingerprint === 'empty'
-                && state.pdfJsAnnotationStorage.hasChanges === false
-                && state.pdfJsAnnotationStorage.ids.length === 0
-                && state.pdfJsAnnotationStorage.modifiedIds.length === 0
-                && state.pdfJsAnnotationStorage.serializableEntryKeys.length === 0
-            )
-        )
     ));
 }
 
@@ -2753,7 +2728,7 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
     const automationState = await readWorkspaceStateValues<{dirtyState?: {
         annotationDirty: boolean;
         hasAnnotationChanges: boolean;
-        hasLivePdfJsAnnotationChanges: boolean;
+        annotationDirtyEntityCount: number;
         hasPendingUnsavedChanges: boolean;
     };}>(page, ['dirtyState']);
     const workspaceDebug = await collectWorkspaceExposeDebugState(page, { requiredProperties: ['annotationComments'] });
@@ -2785,33 +2760,6 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
         };
         const annotationComments = unwrap(setupState?.annotationComments);
         const noteWindows = unwrap(setupState?.sortedAnnotationNoteWindows) ?? unwrap(setupState?.annotationNoteWindows);
-        const pdfDocument = unwrap(setupState?.pdfDocument) as IPdfDocumentDebugState | null | undefined;
-        const serializableMap = pdfDocument?.annotationStorage?.serializable?.map;
-        const storageEntries = serializableMap instanceof Map
-            ? Array.from(serializableMap.entries()).map(([
-                key,
-                value,
-            ]) => {
-                const record = value as Record<string, unknown>;
-                const popup = record?.popup as Record<string, unknown> | undefined;
-                return {
-                    key: String(key),
-                    annotationType: record?.annotationType ?? null,
-                    id: record?.id ?? null,
-                    annotationId: record?.annotationId ?? null,
-                    annotationElementId: record?.annotationElementId ?? null,
-                    parentId: record?.parentId ?? null,
-                    deleted: record?.deleted ?? null,
-                    popup: popup
-                        ? {
-                            deleted: popup.deleted ?? null,
-                            contents: popup.contents ?? null,
-                        }
-                        : null,
-                    value: record?.value ?? null,
-                };
-            })
-            : [];
         return {
             annotationDirty: unwrap(setupState?.annotationDirty) ?? null,
             hasAnnotationChanges: typeof setupState?.hasAnnotationChanges === 'function'
@@ -2832,17 +2780,13 @@ async function collectLargePdfAnnotationDebugState(page: Page) {
             annotationComments: Array.isArray(annotationComments)
                 ? annotationComments.slice(-5).map(summarizeComment)
                 : null,
-            storage: {
-                modifiedIds: Array.from(pdfDocument?.annotationStorage?.modifiedIds?.ids ?? []).map(String),
-                serializableEntries: storageEntries,
-            },
         };
     });
     return {
         ...annotationDebug,
         annotationDirty: automationState.dirtyState?.annotationDirty ?? annotationDebug.annotationDirty,
         hasAnnotationChanges: automationState.dirtyState?.hasAnnotationChanges ?? annotationDebug.hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges: automationState.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
+        annotationDirtyEntityCount: automationState.dirtyState?.annotationDirtyEntityCount ?? null,
         hasPendingUnsavedChanges: automationState.dirtyState?.hasPendingUnsavedChanges ?? null,
         componentCount: workspaceDebug.componentCount,
         componentSamples: workspaceDebug.componentSamples,
@@ -2906,7 +2850,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 annotationDirty?: boolean;
                 fileDirty?: boolean;
                 hasAnnotationChanges?: boolean;
-                hasLivePdfJsAnnotationChanges?: boolean;
+                annotationDirtyEntityCount?: number;
                 hasPendingUnsavedChanges?: boolean;
             };}>(session.page, ['dirtyState']);
             const dirty = state.dirtyState;
@@ -2915,7 +2859,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                     annotationDirty: dirty.annotationDirty,
                     fileDirty: dirty.fileDirty,
                     hasAnnotationChanges: dirty.hasAnnotationChanges,
-                    hasLivePdfJsAnnotationChanges: dirty.hasLivePdfJsAnnotationChanges,
+                    annotationDirtyEntityCount: dirty.annotationDirtyEntityCount,
                     hasPendingUnsavedChanges: dirty.hasPendingUnsavedChanges,
                 }
                 : null;
@@ -2923,7 +2867,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             annotationDirty: false,
             fileDirty: false,
             hasAnnotationChanges: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
         });
 
@@ -3490,11 +3434,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         await waitForSaveFrontierReady(freshSession.page, NOTE_TEXT_ENTRY_TIMEOUT_MS);
         interface IStickyDirtyState extends Record<string, unknown> {dirtyState?: {
             annotationDirty: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[]
-            } | null;
+            annotationDirtyEntityCount: number;
         };}
         await expect.poll(async () => {
             const [
@@ -3509,23 +3449,18 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             return {
                 annotationDirty: state.dirtyState?.annotationDirty ?? null,
                 creationFailureVisible,
-                hasLivePdfJsAnnotationChanges:
-                    state.dirtyState?.hasLivePdfJsAnnotationChanges ?? null,
-                storageEntryPresent: (state.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0) > 0,
-                storageHasChanges: state.dirtyState?.pdfJsAnnotationStorage?.hasChanges ?? null,
+                annotationDirtyEntityCount: state.dirtyState?.annotationDirtyEntityCount ?? null,
             };
         }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
             annotationDirty: true,
             creationFailureVisible: false,
-            hasLivePdfJsAnnotationChanges: true,
-            storageEntryPresent: true,
-            storageHasChanges: true,
+            annotationDirtyEntityCount: expect.any(Number),
         });
         const firstDirtyState = await readWorkspaceStateValues<IStickyDirtyState>(
             freshSession.page,
             ['dirtyState'],
         );
-        expect(firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        expect(firstDirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
         const firstLiveSession = await readVisibleStickyNoteSession(freshSession.page, firstText);
         expect(firstLiveSession.noteCount).toBeGreaterThan(0);
 
@@ -3561,13 +3496,8 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                     annotationDirty: boolean;
                     fileDirty: boolean;
                     hasAnnotationChanges: boolean;
-                    hasLivePdfJsAnnotationChanges: boolean;
+                    annotationDirtyEntityCount: number;
                     hasPendingUnsavedChanges: boolean;
-                    hasSavedPdfJsAnnotationBaselineChanges: boolean;
-                    pdfJsAnnotationStorage: {
-                        hasChanges: boolean;
-                        ids: string[];
-                    } | null;
                 };}>(freshSession.page, ['dirtyState']),
             ]);
             const dirty = workspace.dirtyState;
@@ -3576,14 +3506,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 currentPage: toolbar?.currentPage ?? null,
                 fileDirty: dirty?.fileDirty ?? null,
                 hasAnnotationChanges: dirty?.hasAnnotationChanges ?? null,
-                hasLivePdfJsAnnotationChanges: dirty?.hasLivePdfJsAnnotationChanges ?? null,
+                annotationDirtyEntityCount: dirty?.annotationDirtyEntityCount ?? null,
                 hasPendingUnsavedChanges: dirty?.hasPendingUnsavedChanges ?? null,
-                hasSavedPdfJsAnnotationBaselineChanges:
-                    dirty?.hasSavedPdfJsAnnotationBaselineChanges ?? null,
                 notePresent: liveSession.noteCount > 0,
-                storageEntryPreserved: dirty?.pdfJsAnnotationStorage?.ids.some(
-                    id => firstDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.includes(id) === true,
-                ) ?? false,
                 textPreserved: liveSession.text === firstText,
             };
         }, {timeout: NOTE_TEXT_ENTRY_TIMEOUT_MS}).toEqual({
@@ -3591,11 +3516,9 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             currentPage: stickyPageNumber,
             fileDirty: false,
             hasAnnotationChanges: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
-            hasSavedPdfJsAnnotationBaselineChanges: false,
             notePresent: true,
-            storageEntryPreserved: true,
             textPreserved: true,
         });
 
@@ -3651,17 +3574,11 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         const secondDirtyState = await readWorkspaceStateValues<{dirtyState?: {
             annotationDirty: boolean;
             hasAnnotationChanges: boolean;
-            hasLivePdfJsAnnotationChanges: boolean;
-            pdfJsAnnotationStorage: {
-                hasChanges: boolean;
-                ids: string[]
-            } | null;
+            annotationDirtyEntityCount: number;
         };}>(restartedSession.page, ['dirtyState']);
         expect(secondDirtyState.dirtyState?.annotationDirty).toBe(true);
         expect(secondDirtyState.dirtyState?.hasAnnotationChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.hasChanges).toBe(true);
-        expect(secondDirtyState.dirtyState?.pdfJsAnnotationStorage?.ids.length ?? 0).toBeGreaterThan(0);
+        expect(secondDirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
         await installStagedArtifactCapture(restartedSession.page);
         const secondSaveStartedAt = Date.now();
         const secondSavePromise = saveViaVisibleToolbarWithDeadline(
@@ -4310,10 +4227,10 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             editorHydrationDebugState,
             editorHydrationDomState,
         })).toBe(false);
-        expect(editorHydrationDebugState.hasLivePdfJsAnnotationChanges, JSON.stringify({
+        expect(editorHydrationDebugState.annotationDirtyEntityCount, JSON.stringify({
             editorHydrationDebugState,
             editorHydrationDomState,
-        })).toBe(false);
+        })).toBe(0);
         expect(editorHydrationDomState.activeTool, JSON.stringify({
             editorHydrationDebugState,
             editorHydrationDomState,

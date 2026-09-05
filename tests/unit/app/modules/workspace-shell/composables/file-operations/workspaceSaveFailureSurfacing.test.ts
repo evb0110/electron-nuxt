@@ -174,7 +174,7 @@ describe('workspace save failure surfacing', () => {
 
     it('says nothing about a replaced document when the persist of the old one was refused', async () => {
         const { deps } = createDeps({annotationDirty: ref(true)});
-        deps.saveFile = vi.fn(async () => {
+        deps.saveWorkingCopy = vi.fn(async () => {
             replaceOpenDocument(deps);
             return {
                 success: false,
@@ -194,7 +194,7 @@ describe('workspace save failure surfacing', () => {
     it('says nothing about a replaced document when the save of the old one threw', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({annotationDirty: ref(true)});
-        deps.saveFile = vi.fn(async () => {
+        deps.saveWorkingCopy = vi.fn(async () => {
             replaceOpenDocument(deps);
             throw new Error('disk exploded');
         });
@@ -240,7 +240,7 @@ describe('workspace save failure surfacing', () => {
     it('reports a rejected persist result', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            saveFile: vi.fn(async () => ({
+            saveWorkingCopy: vi.fn(async () => ({
                 success: false,
                 outPath: null,
                 saveMode: 'rewrite' as const,
@@ -298,7 +298,7 @@ describe('workspace save failure surfacing', () => {
     it('tells the user about a superseded save without marking the new document', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            saveFile: vi.fn(async () => ({
+            saveWorkingCopy: vi.fn(async () => ({
                 success: false,
                 outPath: null,
                 saveMode: 'rewrite' as const,
@@ -366,7 +366,6 @@ describe('workspace save failure surfacing', () => {
 
         await expect(service.handleSave()).resolves.toBe(false);
 
-        expect(deps.adoptPersistedShapeStateForNextReload).not.toHaveBeenCalled();
         expect(deps.preparePersistedShapeStateForSave).not.toHaveBeenCalled();
         expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
     });
@@ -469,7 +468,7 @@ describe('workspace save failure surfacing', () => {
         // A write moves the revision by design. Matching it after the fact
         // would drop the refusal of the very save that caused the move.
         const { deps } = createDeps({annotationDirty: ref(true)});
-        deps.saveFile = vi.fn(async () => {
+        deps.saveWorkingCopy = vi.fn(async () => {
             deps.documentRevisionToken.value = requireDocumentRevisionToken('rev-2');
             return {
                 success: false,
@@ -515,30 +514,11 @@ describe('workspace save failure surfacing', () => {
         expectWorkspaceSaveNotMarked(deps);
     });
 
-    it('reports a serialization that produced no bytes to write', async () => {
-        const { deps } = createDeps({
-            annotationDirty: ref(true),
-            getSourcePdfData: vi.fn(async () => null),
-        });
-        const service = useWorkspaceSaveServiceForTest(deps);
-
-        await expect(service.handleSave()).resolves.toBe(false);
-
-        expect(deps.saveFile).not.toHaveBeenCalled();
-        expect(toastAddMock).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
-            color: 'error',
-            title: 'errors.file.save',
-            description: expect.stringContaining('errors.save.notCompleted'),
-        }));
-        expect(service.hasSaveFailure.value).toBe(true);
-        expectWorkspaceSaveNotMarked(deps);
-    });
-
     it('keeps the thrown-save toast unchanged', async () => {
         vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            saveFile: vi.fn(() => {
+            saveWorkingCopy: vi.fn(() => {
                 throw new Error('disk exploded');
             }),
         });

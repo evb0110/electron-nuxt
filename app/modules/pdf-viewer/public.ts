@@ -25,12 +25,6 @@ export { usePdfPlacedImagePersistence } from '@app/modules/pdf-viewer/runtime/co
 export type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
 export { isPdfPlacedImageNativePathResult } from '@app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence';
 export type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
-export {
-    collectLivePdfJsAnnotationChangeFingerprint,
-    collectLivePdfJsAnnotationChangeIds,
-    resetLivePdfJsAnnotationStorageModifiedState,
-} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
-export type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 export {annotationIdForSummary} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 export {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 export type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -52,7 +46,6 @@ export { isNoteEligibleComment } from '@app/modules/pdf-viewer/engine/annotation
 export { PENDING_ANNOTATION_ENRICHMENT_STATE } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 export type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 export { isShapeTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isShapeTool';
-export { resolveAnnotationCommentTextMarkupColor } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor';
 export { markerRectFromPoint } from '@app/modules/pdf-viewer/engine/annotations/pdf-page-point-resolver/markerRectFromPoint';
 export { resolveVisiblePageLabelsDuringMetadataRefresh } from '@app/modules/pdf-viewer/engine/page-labels/resolveVisiblePageLabelsDuringMetadataRefresh';
 export { capturePdfRegionAsPngBlob } from '@app/modules/pdf-viewer/engine/pdf-region-capture/capturePdfRegionAsPngBlob';

@@ -30,7 +30,6 @@ import {
     rebaseAnnotationPersistenceIdentity,
 } from '@app/modules/pdf-viewer/annotations/domain/annotationPersistenceIdentityLedger';
 import {ExternalIdentityIndex} from '@app/modules/pdf-viewer/annotations/domain/externalIdentityIndex';
-import {estimateRetainedAnnotationBytes} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/estimateAnnotationSnapshotBytes';
 import {
     LocalAnnotationHistoryAuthority,
     type IAnnotationHistoryAuthority,
@@ -38,6 +37,68 @@ import {
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 
 export type {IAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
+
+const ANNOTATION_OBJECT_BYTES = 32;
+const ANNOTATION_SLOT_BYTES = 8;
+const ANNOTATION_STRING_BYTES = 16;
+const ANNOTATION_COLLECTION_BYTES = 48;
+const ANNOTATION_MAX_ESTIMATE_DEPTH = 12;
+
+function estimateAnnotationValueBytes(value: unknown, depth: number, seen: WeakSet<object>): number {
+    if (value === null || value === undefined) {
+        return 8;
+    }
+    if (typeof value === 'string') {
+        return ANNOTATION_STRING_BYTES + value.length * 2;
+    }
+    if (typeof value !== 'object') {
+        return 8;
+    }
+    if (depth >= ANNOTATION_MAX_ESTIMATE_DEPTH || seen.has(value)) {
+        return ANNOTATION_OBJECT_BYTES;
+    }
+    seen.add(value);
+    if (ArrayBuffer.isView(value)) {
+        return ANNOTATION_OBJECT_BYTES + value.byteLength;
+    }
+    if (Array.isArray(value)) {
+        return ANNOTATION_OBJECT_BYTES + Array.from(value as readonly unknown[]).reduce<number>(
+            (total, entry) => total + ANNOTATION_SLOT_BYTES + estimateAnnotationValueBytes(entry, depth + 1, seen),
+            0,
+        );
+    }
+    if (value instanceof Map) {
+        let total = ANNOTATION_COLLECTION_BYTES;
+        value.forEach((entry: unknown, key: unknown) => {
+            total += ANNOTATION_SLOT_BYTES + estimateAnnotationValueBytes(entry, depth + 1, seen);
+            total += estimateAnnotationValueBytes(key, depth + 1, seen);
+        });
+        return total;
+    }
+    if (value instanceof Set) {
+        let total = ANNOTATION_COLLECTION_BYTES;
+        value.forEach((entry: unknown) => {
+            total += ANNOTATION_SLOT_BYTES + estimateAnnotationValueBytes(entry, depth + 1, seen);
+        });
+        return total;
+    }
+    return Object.entries(value).reduce(
+        (total, [
+            key,
+            entry,
+        ]) => total + ANNOTATION_SLOT_BYTES + key.length * 2
+            + estimateAnnotationValueBytes(entry, depth + 1, seen),
+        ANNOTATION_OBJECT_BYTES,
+    );
+}
+
+export function estimateRetainedAnnotationBytes(records: readonly unknown[]): number {
+    const seen = new WeakSet<object>();
+    return records.reduce<number>(
+        (total: number, record: unknown) => total + estimateAnnotationValueBytes(record, 0, seen),
+        ANNOTATION_OBJECT_BYTES,
+    );
+}
 
 /** A foreign record is displayed and preserved by the writer, never edited here. */
 export interface IPdfForeignAnnotationRecord {

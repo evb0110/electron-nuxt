@@ -25,7 +25,6 @@ export interface INativePdfSaveTransactionOptions {
     dirtyState: NonNullable<IPdfViewerSaveTransactionRequest['dirtyState']>;
     documentStructure: NonNullable<IPdfViewerSaveTransactionRequest['documentStructure']>;
     forceWriterSave?: boolean;
-    savedPdfjsAnnotationFingerprint?: string | null;
 };
 
 function createCapabilityFailure(detail: string): NativePdfSaveRequiredError {

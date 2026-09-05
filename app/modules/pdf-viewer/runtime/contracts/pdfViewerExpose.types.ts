@@ -20,10 +20,7 @@ import type {
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import type { TDocumentSidebarTab } from '@app/utils/document-viewer/sidebar/documentSidebarTabs';
 import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
-import type {
-    IPdfAnnotationStorageDebugState,
-    IPdfLiveAnnotationChangeSummary,
-} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
+import type {IPdfAnnotationStorageDebugState} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 /** @deprecated Use the format-neutral document sidebar tab contract. */
@@ -102,7 +99,6 @@ export interface IDocumentViewerExpose {
 }
 
 export interface IPdfViewerLoadExpose {
-    preserveNextSourceReloadVisibleContent?: (request?: {pageToRestore?: number | null;}) => void;
     applyFitWidthToCurrentPage?: () => Promise<boolean>;
     waitForViewerLoadSettled?: () => Promise<void>;
     ensurePageMetricsInRange?: (startPage: number, endPage: number) => Promise<boolean>;
@@ -145,8 +141,8 @@ export interface IPdfViewerAnnotationCommandExpose {
     annotationHistoryMutationVersion?: number | undefined;
     annotationHistoryResetVersion?: number | undefined;
     hasCanonicalAnnotationChanges?: (() => boolean) | undefined;
+    getAnnotationDirtyEntityCount?: (() => number) | undefined;
     hasCanonicalShapeChanges?: (() => boolean) | undefined;
-    collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
     getAnnotationStorageDebugState?: (() => IPdfAnnotationStorageDebugState) | undefined;
     getDeletedCanonicalAnnotationIds?: (() => string[]) | undefined;
     getDeletedPersistedCanonicalAnnotationCount?: (() => number) | undefined;

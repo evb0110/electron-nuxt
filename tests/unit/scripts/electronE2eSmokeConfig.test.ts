@@ -407,9 +407,7 @@ describe('electron e2e Vitest project topology', () => {
         expect(largePdfSource).not.toContain('EVB_E2E_LARGE_PDF_WINDOW_MODE');
         expect(largePdfSource).not.toContain('windowMode');
         expect(largePdfSource).toContain('createElectronE2ESessionFixture({');
-        expect(largePdfSource).toContain('state.pdfJsAnnotationStorage === null');
-        expect(largePdfSource).toContain('state.pdfJsAnnotationStorage.fingerprint === \'empty\'');
-        expect(largePdfSource).toContain('state.pdfJsAnnotationStorage.hasChanges === false');
+        expect(largePdfSource).toContain('state.annotationDirtyEntityCount === 0');
         expect(largePdfSource).toContain('.pdf-annotation-editor-layer');
         expect(largePdfSource).toContain('qpdfDictionaryContainsText(annotationObject, \'Contents\', expectedText)');
         expect(largePdfSource).not.toContain('qpdfObjectContainsText');

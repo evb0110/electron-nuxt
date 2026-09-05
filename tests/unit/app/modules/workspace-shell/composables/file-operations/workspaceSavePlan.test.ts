@@ -14,11 +14,8 @@ const CLEAN_DIRTY_STATE: IWorkspaceSaveDirtyState = {
     annotationChanges: false,
     annotationDirty: false,
     bookmarks: false,
-    livePdfJsAnnotations: false,
     pageLabels: false,
     pendingDeletes: false,
-    preservedAnnotationSource: false,
-    savedPdfjsAnnotationBaseline: false,
     shapes: false,
 };
 
@@ -117,7 +114,7 @@ describe('workspaceSavePlan', () => {
             kind: 'serialized',
             destination: 'original',
             body: {
-                source: 'live-pdfjs',
+                source: 'working-copy',
                 forceRewrite: true,
                 requiresLargeFileGuard: true,
             },
@@ -133,8 +130,7 @@ describe('workspaceSavePlan', () => {
         expect(plan).toMatchObject({
             kind: 'native-mutation',
             serializedFallback: {
-                source: 'live-pdfjs',
-                preserveLoadedSource: true,
+                source: 'working-copy',
                 requiresLargeFileGuard: true,
             },
         });
@@ -154,27 +150,12 @@ describe('workspaceSavePlan', () => {
 
     it('keeps managed shape writes on the native writer path', () => {
         const plan = buildPlan({
-            dirtyState: dirtyState({preservedAnnotationSource: true}),
+            dirtyState: dirtyState({shapes: true}),
             hasManagedShapes: true,
             canPersistNativeMutations: true,
         });
 
         expect(plan).toMatchObject({kind: 'native-mutation'});
-    });
-
-    it('lets the classifier decide whether saved PDF.js baseline changes are natively replayable', () => {
-        const plan = buildPlan({
-            dirtyState: dirtyState({savedPdfjsAnnotationBaseline: true}),
-            canPersistNativeMutations: true,
-        });
-
-        expect(plan).toMatchObject({
-            kind: 'native-mutation',
-            serializedFallback: {
-                source: 'live-pdfjs',
-                preserveLoadedSource: false,
-            },
-        });
     });
 
     it('uses the optimization variant only for optimize-copy requests', () => {

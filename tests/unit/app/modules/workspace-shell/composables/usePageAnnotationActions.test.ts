@@ -28,10 +28,6 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 import { createTestDomRect } from '@tests/helpers/domGeometryTestHarness';
 import {TEST_PDF_SAVE_BYTE_ROUTE_DECISION} from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
-const { resolveAnnotationCommentTextMarkupColor } = vi.hoisted(() => ({resolveAnnotationCommentTextMarkupColor: vi.fn(() => null as string | null)}));
-
-vi.mock('@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor', () => ({resolveAnnotationCommentTextMarkupColor}));
-
 function createComment(stableKeySeed: string): IAnnotationCommentSummary {
     return {
         appAnnotationId: `anno-${stableKeySeed}`,
@@ -276,8 +272,6 @@ function createHarness() {
         deleteEmbeddedAnnotationDeferred: vi.fn(),
         undeleteEmbeddedAnnotationDeferred: vi.fn(),
         isNativeFreeTextNoteSaved: vi.fn(() => false),
-        markPreservedAnnotationSourceDirty: vi.fn(),
-        setPreservedAnnotationSourceDirty: vi.fn(),
         getAnnotationCommentsSnapshot: vi.fn((): IAnnotationCommentSummary[] => []),
         getAnnotationCommentsStatusSnapshot: vi.fn((): TAnnotationCommentsStatus => 'loading'),
         getEmbeddedMutationBaseData: vi.fn(async () => Uint8Array.of(6, 6)),
@@ -295,8 +289,6 @@ function createHarness() {
 }
 
 beforeEach(() => {
-    resolveAnnotationCommentTextMarkupColor.mockReset();
-    resolveAnnotationCommentTextMarkupColor.mockReturnValue(null);
     vi.stubGlobal('useTypedI18n', () => ({
         t: (key: string) => key,
         setLocale: vi.fn(async () => {}),
@@ -707,45 +699,8 @@ describe('usePageAnnotationActions', () => {
                 }),
                 '#ef4444',
             );
-            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(true);
-            expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenCalledWith(false);
         },
     );
-
-    it('uses rendered materialized color as undo baseline when the cached comment has no color', () => {
-        const {
-            deps,
-            viewer,
-            viewerContainer,
-            actions,
-        } = createHarness();
-        viewerContainer.value = {
-            addEventListener: vi.fn(),
-            removeEventListener: vi.fn(),
-            querySelector: vi.fn(() => null),
-        };
-        resolveAnnotationCommentTextMarkupColor.mockReturnValue('#ef4444');
-        const comment = createComment('context-color-rendered-baseline');
-        comment.subtype = 'Highlight';
-        comment.color = null;
-        deps.annotationContextMenu.value.comment = comment;
-
-        actions.handleContextTextMarkupColorUpdate('#22c55e');
-
-        expect(viewer.registerAnnotationHistoryCommand).toHaveBeenCalledOnce();
-        const historyCommand = viewer.registerAnnotationHistoryCommand.mock.calls[0]?.[0];
-        historyCommand?.undo();
-        expect(viewer.updateTextMarkupAnnotationColor).toHaveBeenLastCalledWith(
-            expect.objectContaining({
-                stableKey: comment.stableKey,
-                color: '#22c55e',
-                colorEdited: false,
-            }),
-            '#ef4444',
-        );
-        expect(deps.setPreservedAnnotationSourceDirty).toHaveBeenLastCalledWith(false);
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-    });
 
     it('keeps rapid materialized text markup color updates latest-wins without reload', () => {
         const {

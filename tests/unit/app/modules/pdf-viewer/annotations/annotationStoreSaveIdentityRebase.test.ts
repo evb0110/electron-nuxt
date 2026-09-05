@@ -3,7 +3,10 @@ import {
     expect,
     it,
 } from 'vitest';
-import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
+import {
+    AnnotationStore,
+    estimateRetainedAnnotationBytes,
+} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {
@@ -18,7 +21,6 @@ import {
     asAnnotationId,
     toLegacyShapeAnnotation,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {estimateRetainedAnnotationBytes} from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/estimateAnnotationSnapshotBytes';
 
 function stickyNote(id: string, _legacyEditorId: string): INoteEntity {
     return {

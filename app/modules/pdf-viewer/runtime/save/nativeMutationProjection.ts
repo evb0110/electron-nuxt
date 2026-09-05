@@ -437,7 +437,7 @@ function deriveCanonicalSaveInputs(
     const liveAnnotationChanges = resolveLiveAnnotationChanges(
         plan,
         capabilities.liveAnnotationChanges,
-        capabilities.dirtyState?.hasLivePdfJsAnnotationChanges === true,
+        false,
     );
     const replayableCanonicalStickyNoteStableKeys = new Set(
         changedEntities
@@ -950,32 +950,12 @@ function buildClassifiedNativeMutationProjection(
         markup,
         placedImageGeometryUpdates,
     });
+    void projectedNativeAnnotationIds;
     const nativeNoteMutationCount = noteTextUpdates.length
         + freeTextNotes.length
         + (capabilities.nativeTextBoxes === undefined ? freeTextEditors.length : textBoxes.length)
         + annotationDeletes.length
         + noteGeometryUpdates.length;
-    const savedLiveAnnotationAliasesAreNativelyReplayable = (
-        canonical.liveAnnotationChanges.hasChanges
-        && !canonical.liveAnnotationChanges.hasUnknownChanges
-        && projectedNativeAnnotationIds.size > 0
-        && [...canonical.liveAnnotationChanges.ids].every(id =>
-            projectedNativeAnnotationIds.has(id))
-    );
-    const liveAnnotationWorkCoveredByNativeMutations = (
-        canonical.liveAnnotationChanges.hasChanges
-        && !canonical.liveAnnotationChanges.hasUnknownChanges
-        && canonical.liveAnnotationChanges.ids.size > 0
-        && [...canonical.liveAnnotationChanges.ids].every(id =>
-            projectedNativeAnnotationIds.has(id))
-    );
-    if (
-        admitted.dirtyState.savedPdfjsAnnotationBaselineDirty
-        && !savedLiveAnnotationAliasesAreNativelyReplayable
-    ) {
-        return 'saved-pdfjs-baseline-dirty-requires-materialization';
-    }
-
     if (capabilities.forceWriterSave && nativeNoteMutationCount === 0 && !hasMarkupMutations
         && placedImageGeometryUpdates.length === 0) {
         return 'writer-save-required';
@@ -989,12 +969,6 @@ function buildClassifiedNativeMutationProjection(
     }
     if (canonical.pendingDeletes.length > 0 && !hasExactNativeDeleteCoverage) {
         return 'pending-deletes-not-covered-by-native-mutations';
-    }
-    if (
-        admitted.dirtyState.hasLivePdfJsAnnotationChanges
-        && !liveAnnotationWorkCoveredByNativeMutations
-    ) {
-        return 'live-pdfjs-annotation-work-not-covered-by-native-mutations';
     }
     if (annotationWorkDirty && nativeNoteMutationCount === 0 && !hasMarkupMutations
         && placedImageGeometryUpdates.length === 0) {

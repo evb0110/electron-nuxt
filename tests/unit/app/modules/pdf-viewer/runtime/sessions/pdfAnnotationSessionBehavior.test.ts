@@ -123,6 +123,18 @@ describe('PDF annotation session authority', () => {
         expect(source).toMatch(/rendering\.renderVisiblePages/);
         expect(source).not.toMatch(/rendering\.renderAnnotationEditorLayerForPage/);
         expect(source).toContain('usePdfAnnotationEditorSurface');
+        expect(source).not.toContain('shouldSuppressSidebarComment');
+    });
+
+    it('allows direct path parses to acquire their revision before publishing', () => {
+        const watcher = read(sessionPath).match(
+            /watch\(\(\) => \[\s*options\.workingCopyPath\.value,[\s\S]*?immediate: true,\s*\}\);/,
+        )?.[0];
+
+        expect(watcher).toBeDefined();
+        expect(watcher).toContain('if (!documentSession.pdfDocument.value)');
+        expect(watcher).not.toContain('!options.documentRevisionToken.value');
+        expect(read(sessionPath)).toContain('getDocumentFilesCapability().getDocumentRevision(parsePath)');
     });
 
     it('commits current writer results and ignores stale store mutations', () => {

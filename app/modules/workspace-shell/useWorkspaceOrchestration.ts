@@ -1,4 +1,3 @@
-/* eslint-disable max-lines -- The workspace coordinator owns lifecycle and output identity wiring. */
 import type {
     ComputedRef,
     Ref,
@@ -14,7 +13,6 @@ import {
 } from '@app/modules/pdf-viewer/public';
 import { usePageAnnotationActions } from '@app/modules/workspace-shell/composables/usePageAnnotationActions';
 import {deleteAnnotationById} from '@app/modules/workspace-shell/annotations/deleteAnnotationById';
-import {shouldClearPreservedAnnotationSourceDirty} from '@app/modules/workspace-shell/annotations/shouldClearPreservedAnnotationSourceDirty';
 import { usePageSaveOrchestration } from '@app/modules/workspace-shell/composables/usePageSaveOrchestration';
 import { useUnencryptedSaveNotice } from '@app/modules/workspace-shell/composables/useUnencryptedSaveNotice';
 import { useShutdownSaveFlushReporting } from '@app/modules/workspace-shell/composables/useShutdownSaveFlushReporting';
@@ -238,9 +236,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const {
         pageLabelState,
         bookmarkState,
-        clearPreservedSourceReloadMetadata,
         consumePreservedSourceReloadMetadata,
-        preserveMetadataForNextSourceReload,
         workspaceUndoTimeline,
         workspaceCommandSink,
     } = metadataSession;
@@ -319,10 +315,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closeAnnotationContextMenu,
         showAnnotationContextMenu,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
-        hasPreservedLivePdfjsAnnotationSession,
-        getSavedPdfJsAnnotationFingerprint,
         annotationTool,
         annotationKeepActive,
         annotationSettings,
@@ -375,44 +367,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         void annotationComments.value;
         return pdfViewerRef.value?.getDeletedCanonicalAnnotationIds?.() ?? [];
     });
-    const preservedAnnotationSourceDirty = ref(false);
     function applyAnnotationComments(comments: IAnnotationCommentSummary[]) {
         applyAnnotationCommentsFromSession(comments);
     }
 
-    function markPreservedAnnotationSourceDirty() {
-        preservedAnnotationSourceDirty.value = true;
-    }
-
-    function setPreservedAnnotationSourceDirty(dirty: boolean) {
-        preservedAnnotationSourceDirty.value = dirty;
-    }
-
-    function hasPreservedAnnotationSourceChanges() { return preservedAnnotationSourceDirty.value; }
-
-    function reconcilePreservedAnnotationSourceDirty() {
-        if (shouldClearPreservedAnnotationSourceDirty({
-            isDirty: preservedAnnotationSourceDirty.value,
-            hasSavedPdfJsFingerprint: getSavedPdfJsAnnotationFingerprint() !== null,
-            hasLivePdfJsChanges: hasLivePdfJsAnnotationChanges(),
-        })) {
-            preservedAnnotationSourceDirty.value = false;
-        }
-    }
-
-    function markAnnotationSavedAndClearPreservedSource(opts?: { preserveLivePdfjsSession?: boolean }) {
-        markAnnotationSaved(opts);
-        preservedAnnotationSourceDirty.value = false;
-    }
-
-    function resetAnnotationTrackingAndPreservedSource() {
-        preservedAnnotationSourceDirty.value = false;
-        resetAnnotationTracking();
-    }
-
-    watch(workingCopyPath, () => {
-        preservedAnnotationSourceDirty.value = false;
-    });
 
     const hasReactiveAnnotationChanges = computed(() => {
         // Canonical annotation storage is intentionally framework-agnostic.
@@ -429,9 +387,8 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || isDirty.value
         || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
-        || hasSavedPdfJsAnnotationBaselineChanges()
+        || false
         || pendingEmbeddedAnnotationDeleteCount.value > 0
-        || preservedAnnotationSourceDirty.value
         || pageLabelsDirty.value
         || bookmarksDirty.value
     ));
@@ -440,7 +397,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         || hasActivePdfJsEditorDraft.value
         || hasReactiveAnnotationChanges.value
         || pendingEmbeddedAnnotationDeleteCount.value > 0
-        || preservedAnnotationSourceDirty.value
     ));
     const hasPendingTabChanges = hasPendingUnsavedChanges;
     const statusOriginalPath = computed(() => deps.pendingDocumentPath?.value ?? originalPath.value);
@@ -485,19 +441,12 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationNoteWindowsCount: computed(() => annotationNoteWindows.value.length),
         pendingEmbeddedAnnotationDeleteCount,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
-        getSavedPdfJsAnnotationFingerprint,
-        hasPreservedAnnotationSourceChanges,
-        reconcilePreservedAnnotationSourceDirty,
-        markAnnotationSaved: markAnnotationSavedAndClearPreservedSource,
+        markAnnotationSaved,
         getAnnotationSaveStateToken,
         markPageLabelsSaved,
         getPageLabelsSaveStateToken: getPageLabelsRevision,
         markBookmarksSaved,
         getBookmarksSaveStateToken: getBookmarksRevision,
-        preserveMetadataForNextSourceReload,
-        clearPreservedSourceReloadMetadata,
         isDirty,
         hasPendingUnsavedChanges,
         validatePdfPath: path => getDocumentPdfCapability().validatePdfPath(path),
@@ -598,7 +547,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         sidebarTab,
         annotationTool,
         annotationEditorState,
-        hasLivePdfJsAnnotationChanges: computed(() => hasLivePdfJsAnnotationChanges()),
         appAnnotationUndoDepth,
         hasOpenAnnotationNotes,
         canUndoHistory: workspaceUndoTimeline.canUndoTimeline,
@@ -651,10 +599,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
     const saveAnnotationsForPageMutation = createPageMutationWriterSave({
         annotationDirty,
         hasAnnotationChanges,
-        hasLivePdfJsAnnotationChanges,
-        hasSavedPdfJsAnnotationBaselineChanges,
         pendingEmbeddedAnnotationDeleteCount,
-        preservedAnnotationSourceDirty,
         workingCopyPath,
         documentRevisionToken,
         pdfViewerRef,
@@ -688,8 +633,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         saveAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
-        markPreservedAnnotationSourceDirty,
-        setPreservedAnnotationSourceDirty,
         getAnnotationCommentsSnapshot: () => annotationComments.value,
         getAnnotationCommentsStatusSnapshot: () => annotationCommentsStatus.value,
         getEmbeddedMutationBaseData: pageSaveOrchestration.getEmbeddedMutationBaseData,
@@ -711,17 +654,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         payload?: Parameters<typeof handleAnnotationModified>[0],
     ) {
         handleAnnotationModified(payload);
-        if (
-            hasPreservedLivePdfjsAnnotationSession()
-            && (
-                annotationDirty.value
-                || hasAnnotationChanges()
-                || hasLivePdfJsAnnotationChanges()
-                || hasSavedPdfJsAnnotationBaselineChanges()
-            )
-        ) {
-            markPreservedAnnotationSourceDirty();
-        }
         requestThumbnailInvalidation([currentPage.value]);
     }
 
@@ -976,7 +908,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pageLabels,
         pageLabelRanges,
         pageLabelsDirty,
-        resetAnnotationTracking: resetAnnotationTrackingAndPreservedSource,
+        resetAnnotationTracking,
         resetSearchCache,
         closeSearch,
         closeAnnotationContextMenu,
@@ -1185,7 +1117,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
             handleInsertImageFromFile: () => insertImageFromFileAt(currentPage.value, 0.5, 0.5),
             handlePasteImageFromClipboard: () => pasteImageFromClipboardAt(currentPage.value, 0.5, 0.5),
             handleAnnotationModified: handleAnnotationModifiedWithThumbnailInvalidation,
-            hasPreservedAnnotationSourceChanges,
             pendingEmbeddedAnnotationDeleteCount,
         },
         documentControls,

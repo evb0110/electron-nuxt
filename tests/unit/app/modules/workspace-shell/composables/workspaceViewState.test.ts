@@ -32,7 +32,6 @@ function createState(options?: {
             hasSomethingToRedo: false,
             hasSelectedEditor: false,
         }),
-        hasLivePdfJsAnnotationChanges: ref(false),
         appAnnotationUndoDepth: ref(0),
         hasOpenAnnotationNotes: ref(options?.hasOpenAnnotationNotes ?? false),
         canUndoHistory: ref(false),

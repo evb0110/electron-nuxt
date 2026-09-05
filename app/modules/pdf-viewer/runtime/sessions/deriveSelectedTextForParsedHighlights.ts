@@ -21,7 +21,7 @@ export async function deriveSelectedTextForParsedHighlights({
 }: {
     documentSession: TPdfDocumentSession;
     result: IPdfAnnotationParseResult;
-    transition: IPdfDocumentTransition;
+    transition: Pick<IPdfDocumentTransition, 'isCurrent'>;
     signal?: AbortSignal;
 }) {
     const highlightsByPage = new Map<number, TParsedHighlight[]>();

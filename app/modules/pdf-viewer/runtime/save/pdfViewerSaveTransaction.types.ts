@@ -22,11 +22,6 @@ import type {
 } from '@contracts/electronApiDocuments';
 import type {IPdfLiveAnnotationChangeSummary} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import type {TDocumentRef} from '@contracts/documentRef';
-export interface ICanonicalAnnotationIdentityBinding {
-    readonly annotationId: string;
-    readonly pdfRef: string;
-}
-
 export type TPdfViewerSaveTransactionMode =
     | 'persist'
     | 'print'
@@ -136,8 +131,6 @@ export interface IPdfViewerSaveTransactionDocumentStructure {
 export interface IPdfViewerSaveTransactionDirtyState {
     annotationDirty: boolean;
     hasAnnotationChanges: boolean;
-    hasLivePdfJsAnnotationChanges: boolean;
-    savedPdfjsAnnotationBaselineDirty: boolean;
     shapeStateDirty: boolean;
 }
 
@@ -172,8 +165,6 @@ export interface IPdfViewerSaveTransactionRequest {
     saveFlowMode?: 'save' | 'save_as';
     forceRewrite?: boolean;
     forceWriterSave?: boolean;
-    /** Exact saved fingerprint for a preserved live PDF.js session. */
-    savedPdfjsAnnotationFingerprint?: string | null;
     includeManagedShapes?: boolean;
     rewriteShapeState?: boolean;
     planOnly?: boolean;
@@ -208,7 +199,6 @@ export interface IPdfViewerSaveTransactionResult {
     verifyAnnotationSave?(bytes: Uint8Array): Promise<void>;
     verifyAnnotationSavePath?(path: string, knownSize: number): Promise<void>;
     assertAnnotationSaveCurrent?(): Promise<void> | void;
-    recordMaterializedIdentityBinding?(binding: ICanonicalAnnotationIdentityBinding): void;
     commitAnnotationSave?(): void;
     /**
      * Executes the exact classifier-owned fallback captured by a plan-only

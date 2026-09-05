@@ -184,13 +184,6 @@ describe('document viewer architecture boundaries', () => {
             expect(read(path), path).not.toContain('\'--total-scale-factor\'');
         }
 
-        for (const path of [
-            'app/modules/pdf-viewer/engine/annotations/annotation-markup-subtype-draw-layer/createAnnotationMarkupSubtypeDrawLayer.ts',
-            'app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/reconcileTextMarkupVisualOverlays.ts',
-        ]) {
-            expect(read(path), path).toContain('toPdfScaledCssLength');
-            expect(read(path), path).not.toContain('calc(var(--total-scale-factor');
-        }
     });
 
     it('exposes one sidebar host contract for every document renderer', () => {

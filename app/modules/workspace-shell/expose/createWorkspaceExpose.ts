@@ -141,9 +141,7 @@ export interface ICreateWorkspaceExposeDeps extends
     annotationDirty: Ref<boolean>;
     isDirty?: Ref<boolean>;
     hasAnnotationChanges?: () => boolean;
-    hasLivePdfJsAnnotationChanges?: () => boolean;
-    hasSavedPdfJsAnnotationBaselineChanges?: () => boolean;
-    hasPreservedAnnotationSourceChanges?: () => boolean;
+    getAnnotationDirtyEntityCount?: () => number;
     hasPendingUnsavedChanges?: ComputedRef<boolean>;
     pendingEmbeddedAnnotationDeleteCount?: ComputedRef<number>;
     pageLabelsDirty?: Ref<boolean>;
@@ -402,8 +400,6 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
 
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
-        const annotationStorageDebugState = deps.pdfAutomationViewerRef?.value?.getAnnotationStorageDebugState?.();
-        const livePdfJsAnnotationChanges = deps.pdfAutomationViewerRef?.value?.collectLiveAnnotationChanges?.();
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
@@ -419,24 +415,10 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                 bookmarksDirty: deps.bookmarksDirty?.value ?? false,
                 fileDirty: deps.isDirty?.value ?? false,
                 hasAnnotationChanges: deps.hasAnnotationChanges?.() ?? false,
-                hasLivePdfJsAnnotationChanges: deps.hasLivePdfJsAnnotationChanges?.() ?? false,
+                annotationDirtyEntityCount: deps.getAnnotationDirtyEntityCount?.() ?? 0,
                 hasPendingUnsavedChanges: deps.hasPendingUnsavedChanges?.value ?? false,
-                hasPreservedAnnotationSourceChanges: deps.hasPreservedAnnotationSourceChanges?.() ?? false,
-                hasSavedPdfJsAnnotationBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges?.() ?? false,
                 pageLabelsDirty: deps.pageLabelsDirty?.value ?? false,
                 pendingEmbeddedAnnotationDeleteCount: deps.pendingEmbeddedAnnotationDeleteCount?.value ?? 0,
-                pdfJsAnnotationStorage: livePdfJsAnnotationChanges
-                    ? {
-                        fingerprint: livePdfJsAnnotationChanges.fingerprint,
-                        hasChanges: livePdfJsAnnotationChanges.hasChanges,
-                        hasUnknownChanges: livePdfJsAnnotationChanges.hasUnknownChanges,
-                        ids: [...livePdfJsAnnotationChanges.ids],
-                        reported: annotationStorageDebugState?.reported ?? false,
-                        modifiedIds: [...annotationStorageDebugState?.modifiedIds ?? []],
-                        serializableEntryKeys: [...annotationStorageDebugState?.serializableEntryKeys ?? []],
-                        replayableEditorNoteIds: [...livePdfJsAnnotationChanges.replayableEditorNoteIds],
-                    }
-                    : null,
             },
             originalPath: deps.originalPath.value,
             pdfSourceState: {
@@ -708,7 +690,7 @@ export function createWorkspaceExposeFromOwners(
         handlePageReorder: options.handlePageReorder,
         handlePageMove: options.handlePageMove,
         pdfAutomationViewerRef: viewerShell.pdfViewerRef,
-        hasPreservedAnnotationSourceChanges: annotationSession.hasPreservedAnnotationSourceChanges,
+        getAnnotationDirtyEntityCount: () => viewerShell.pdfViewerRef.value?.getAnnotationDirtyEntityCount?.() ?? 0,
         handleOcrComplete: payload => saveWorkflow.handleOcrComplete(
             payload as Parameters<typeof saveWorkflow.handleOcrComplete>[0],
         ),

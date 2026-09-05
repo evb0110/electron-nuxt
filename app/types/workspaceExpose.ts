@@ -285,22 +285,10 @@ export interface IWorkspaceAutomationStateSnapshot {
         bookmarksDirty: boolean;
         fileDirty: boolean;
         hasAnnotationChanges: boolean;
-        hasLivePdfJsAnnotationChanges: boolean;
+        annotationDirtyEntityCount: number;
         hasPendingUnsavedChanges: boolean;
-        hasPreservedAnnotationSourceChanges: boolean;
-        hasSavedPdfJsAnnotationBaselineChanges: boolean;
         pageLabelsDirty: boolean;
         pendingEmbeddedAnnotationDeleteCount: number;
-        pdfJsAnnotationStorage: {
-            fingerprint: string;
-            hasChanges: boolean;
-            hasUnknownChanges: boolean;
-            ids: string[];
-            reported: boolean;
-            modifiedIds: string[];
-            replayableEditorNoteIds: string[];
-            serializableEntryKeys: string[];
-        } | null;
     };
     originalPath: TDocumentRef | null;
     pdfSourceState?: {
