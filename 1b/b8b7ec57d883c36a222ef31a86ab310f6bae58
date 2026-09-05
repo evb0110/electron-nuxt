@@ -1,0 +1,229 @@
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_52b85f52e159ef::t_65474da27685eb 210,416
+  s_52b85f52e159ef::t_f18ad50c0c3b9a 211-213,415,417-424,427
+tests/unit/scripts/stress/stressDeterministicDriver.test.ts
+  s_52b85f52e159ef::t_8248d41298d2db 2-3,6,18-19,21-23,27,30-31,33-41,135-138,140-143,145-147,149-157,159-171,184-185,187
+  s_52b85f52e159ef::t_46cc6b622f7caa 139,158,172-173,175-183
+  s_52b85f52e159ef::t_68be8eed2f4736 20,32,144
+  s_52b85f52e159ef::t_74e63cee92b6dc 148
+  s_52b85f52e159ef::t_5a3b5034bf61c7 174
+  s_52b85f52e159ef::t_8cf6fe063ad35a 186
+public/pdfjs/images/annotation-insert.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-10
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_52b85f52e159ef::t_61c39e64bf545e 40
+  s_52b85f52e159ef::t_4f1894e94d356c 22
+  s_52b85f52e159ef::t_f9b70a1edff119 457,463
+  s_52b85f52e159ef::t_075dfe3aa78781 458-462,466-468
+public/pdfjs/images/annotation-pushpin.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-7
+tests/unit/scripts/electronRunSharedRendererLifecycle.test.ts
+  s_52b85f52e159ef::t_eb8aa2667d3e15 1-64,68-84
+  s_52b85f52e159ef::t_18a7ab631f46f5 65-67
+tests/unit/scripts/stress/viewerAnnotationsCreation.test.ts
+  s_52b85f52e159ef::t_d86c7425a71974 107
+  s_52b85f52e159ef::t_3b690858360623 44,64-67,78,125-126,132-133
+  s_52b85f52e159ef::t_5d22269bcc447e 1-11,13-41,45,58-59,70-74,110,112-113,115,137-138
+  s_52b85f52e159ef::t_5b1325f712c220 46-53
+  s_52b85f52e159ef::t_70a8c2c8ded58c 75
+  s_52b85f52e159ef::t_7291eb9a836786 63
+  s_52b85f52e159ef::t_3d5bf9365501b9 100-104
+  s_52b85f52e159ef::t_0faf5e42a68e4c 79-80,82-84
+  s_52b85f52e159ef::t_2fb4536318b3b9 96-99
+  s_52b85f52e159ef::t_cb7bd5f3a59c7f 42,61-62
+  s_52b85f52e159ef::t_19081eb5bc855e 76,85-95,105-106,127-131
+  s_52b85f52e159ef::t_63c3997cabc091 12,43,55-56,60,68-69,77,108,111,114,116-124,135-136
+  s_52b85f52e159ef::t_d252d74673e1e7 57,109
+  s_52b85f52e159ef::t_cd1af72dda1412 54,81,134
+public/pdfjs/images/annotation-comment.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-16
+tests/unit/scripts/syncPdfjsViewerCss.test.ts
+  s_52b85f52e159ef::t_2fb4f3d94e0eae 74
+  s_52b85f52e159ef::t_11cfa597d4d87f 11,19,71-73,75-86
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.test.ts
+  s_52b85f52e159ef::t_dc6ca9dab00b35 5
+  s_52b85f52e159ef::t_d4d9bd12d409df 212-242
+  s_cf09a11bf9eebf::t_390eadd7107663 243
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_52b85f52e159ef::t_d831021246c4ce 1272
+  s_52b85f52e159ef::t_aa99d8f48956e0 139-143,1269
+  s_52b85f52e159ef::t_1e7da63b614b63 1331,1357,1376-1388,1390-1400
+  s_52b85f52e159ef::t_d193596962a96e 1271,1273-1275,1302,1327,1332,1345-1346,1367-1369,1375,1389,1401-1403
+  s_52b85f52e159ef::t_862b2f0915f98b 1370-1372
+  s_52b85f52e159ef::t_d22b147988aae8 1300-1301,1315-1317,1334-1344,1349-1352,1354-1356
+  s_52b85f52e159ef::t_5ab74fca68dbfc 1333
+  s_52b85f52e159ef::t_3e7c6bcb43ca81 1347-1348,1353,1358-1365
+scripts/stress/stressDeterministicDriver.ts
+  s_52b85f52e159ef::t_5e3c9f4e89ce12 11,353
+  s_52b85f52e159ef::t_1021e39d317f66 349,352,357
+  s_52b85f52e159ef::t_a7ac03182628ed 350-351
+  s_52b85f52e159ef::t_6152c73f3a2a42 342-345,356
+electron/preload/readHostResourceProfileArgument.ts
+  s_52b85f52e159ef::t_bb8cd749bf93c9 8-28,50-51
+public/pdfjs/images/annotation-key.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-11
+public/pdfjs/images/annotation-check.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-11
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts
+  s_52b85f52e159ef::t_d4d9bd12d409df 24,100,104-119,199
+app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts
+  s_52b85f52e159ef::t_7308ba36103376 979,989
+docs/research/stress-report-fixes-2026-09-05.md
+  s_52b85f52e159ef::t_7f50de8ded5849 97-144
+  s_52b85f52e159ef::t_b8381bf7c2dc94 55-58,71,76-77,93-94
+  s_52b85f52e159ef::t_94b522fcbdc8d3 2,7,82
+  s_52b85f52e159ef::t_0cdf07642d2fb9 1,3-6,9-54,59-70,72-75,78-81,83-88,95-96
+  s_52b85f52e159ef::t_a79f435618acc0 8
+  s_52b85f52e159ef::t_546554849c47d0 89-92
+tests/e2e/electron/globalSetup.ts
+  s_52b85f52e159ef::t_2590fc9668df39 3,5,23-24,27-28
+tests/unit/app/modules/workspace-shell/composables/workspaceExposeContract.test.ts
+  s_52b85f52e159ef::t_e0b67a18d0ddc3 148
+tests/unit/scripts/electronRunRendererReadiness.test.ts
+  s_52b85f52e159ef::t_55e307965076b6 18-42
+  s_52b85f52e159ef::t_59b23c9b7921a6 10,49-60
+  s_52b85f52e159ef::t_5e9f1b4da39bfc 1-5,12-15
+  s_52b85f52e159ef::t_aaea2380904cda 44
+  s_52b85f52e159ef::t_9a4f312ba9c3a4 6-9,11,16-17,43,45-48,61-62
+app/modules/pdf-viewer/runtime/sessions/createPdfAnnotationSession.ts
+  s_52b85f52e159ef::t_d4d9bd12d409df 418
+tests/unit/electron/preloadReadHostResourceProfileArgument.test.ts
+  s_52b85f52e159ef::t_bb8cd749bf93c9 1-72
+tests/unit/app/modules/workspace-shell/composables/createWorkspaceExpose.test.ts
+  s_52b85f52e159ef::t_cab8b6cea9f7b0 98,182-189
+  s_cf09a11bf9eebf::t_feb431bded7bc8 190-191
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreBulkImport.test.ts
+  s_52b85f52e159ef::t_15b557087689b4 82
+  s_52b85f52e159ef::t_38ad36f7b93ac3 142-150
+  s_52b85f52e159ef::t_af97a0b6f79fa2 110-116,125-126,129-134
+  s_52b85f52e159ef::t_4f4402c71185e1 1-53,65-81,83-107,167-168
+  s_52b85f52e159ef::t_6dee4674fd00cf 128
+  s_52b85f52e159ef::t_83d6e66086bc8e 55-59,117-124,127
+  s_52b85f52e159ef::t_8121e03ba748d5 54,60-64,108-109,135-141,151-166
+tests/unit/electron/sessionManagerAutomationArgs.test.ts
+  s_52b85f52e159ef::t_55e307965076b6 699
+tests/unit/scripts/stress/viewerCoreOpenFlow.test.ts
+  s_52b85f52e159ef::t_232939b62e0296 1-14,19-48,53-66,68-73,76,78-82,88-111,120-134
+  s_52b85f52e159ef::t_83385be9775a5d 15-18,49-52,67,74-75,77,83-87,112-119
+tests/unit/app/modules/pdf-viewer/annotations/annotationApplication.test.ts
+  s_52b85f52e159ef::t_6321af721fd518 1161-1164,1176-1179
+  s_52b85f52e159ef::t_c5d2f78df56d4a 1153-1160,1165-1175,1180-1185
+public/pdfjs/images/annotation-help.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-26
+tests/unit/app/composables/pdfEmbeddedShapeRefresh.test.ts
+  s_52b85f52e159ef::t_84d2eb17336a96 304-305,307-308,317-322
+  s_52b85f52e159ef::t_d054030751362f 306
+  s_52b85f52e159ef::t_207ff480acf38e 309-316
+app/modules/workspace-shell/expose/createWorkspaceExpose.ts
+  s_52b85f52e159ef::t_cab8b6cea9f7b0 134,406-408,440
+public/pdfjs/images/annotation-paperclip.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-6
+tests/unit/app/modules/pdf-viewer/runtime/annotations/useAnnotationEditorBridge.test.ts
+  s_52b85f52e159ef::t_3eec571f4b67b1 465-504,506-507,509-515
+  s_52b85f52e159ef::t_c32b86c90800fd 508
+  s_52b85f52e159ef::t_f1cb64eb3d9d0b 505
+scripts/stress/runExternalStressOperator.ts
+  s_52b85f52e159ef::t_aea37ef90b389b 105-106
+tests/unit/scripts/stress/runStress.test.ts
+  s_52b85f52e159ef::t_01a719e5f02df3 39-40,59,191-195,494-495
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_52b85f52e159ef::t_4eba6c44c711aa 48
+  s_52b85f52e159ef::t_c6ea26496aeed3 572-575
+app/modules/pdf-viewer/annotations/domain/annotationStore.ts
+  s_52b85f52e159ef::t_6dee4674fd00cf 526-533
+  s_52b85f52e159ef::t_2ab66ec7bbd06f 1281
+  s_52b85f52e159ef::t_e1b24ebc8d534a 986
+  s_52b85f52e159ef::t_d59a6a35ae3d4f 1285-1292
+  s_52b85f52e159ef::t_cc5c0cc90a8f87 1028-1032,1036-1058,1060-1089,1091-1094
+  s_52b85f52e159ef::t_4c50dfb31031ea 540
+  s_52b85f52e159ef::t_e69ada481dd7c4 109,129,163-174,176-179,184,198-199,219-226,228-229,979
+  s_52b85f52e159ef::t_e049beffac9fdc 108,175,181,185,189-191,197,218,227,230,912-917,976-978,980
+  s_52b85f52e159ef::t_451cc9862f1fed 233,1282-1284
+  s_52b85f52e159ef::t_8012628889aad7 127-128,152-162,180,186-188,192,217
+  s_52b85f52e159ef::t_e9465377dbf9be 182
+scripts/stress/runStress.ts
+  s_52b85f52e159ef::t_da3065da3a347c 15,532,534-537,541,550-551,555
+  s_52b85f52e159ef::t_0a319790e43719 533,539,552-554
+  s_52b85f52e159ef::t_651b6951d6d941 2,125-126
+  s_52b85f52e159ef::t_702a66d1d2f9c7 632-637
+tests/unit/e2e/electronFixturePolicy.test.ts
+  s_52b85f52e159ef::t_690fb2c4a8ef30 26,569
+tests/e2e/electron/helpers/viewerCore.ts
+  s_52b85f52e159ef::t_f67e6594444208 644-649,654-657,662,664-665
+app/services/pdfjs/pdfViewerFacade.ts
+  s_52b85f52e159ef::t_54ddb5f80975bb 147
+  s_52b85f52e159ef::t_b2ebb3322a023b 148
+public/pdfjs/images/annotation-noicon.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-7
+public/pdfjs/images/annotation-newparagraph.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-11
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts
+  s_52b85f52e159ef::t_902b32ad875a8e 649,653
+  s_52b85f52e159ef::t_d805711855affc 650-652,654
+public/pdfjs/images/annotation-note.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-42
+app/types/workspaceExpose.ts
+  s_52b85f52e159ef::t_2fe8bcb27adfbd 301-302,305
+  s_52b85f52e159ef::t_0418ebb3d365f2 303-304
+tests/unit/scripts/stress/runExternalStressOperator.test.ts
+  s_52b85f52e159ef::t_512623cd5025af 104-105
+  s_52b85f52e159ef::t_7c72ea6680fe5c 107
+  s_52b85f52e159ef::t_aea37ef90b389b 106
+scripts/electron-run/rendererReadiness.ts
+  s_52b85f52e159ef::t_9a4f312ba9c3a4 22,323-324,343
+  s_52b85f52e159ef::t_eabdb900fc3c30 322,325,346-350,447
+  s_52b85f52e159ef::t_55e307965076b6 159,163-180
+  s_52b85f52e159ef::t_b8c9622a75b23c 326-328
+  s_52b85f52e159ef::t_e34c77ab4fa242 329-342
+  s_52b85f52e159ef::t_a160152459582d 443-444
+  s_cf09a11bf9eebf::t_c5f05584a80768 344-345
+app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom.ts
+  s_52b85f52e159ef::t_ddf789c7fb427b 28-45,47-49,143-165,183-190,208,211,237-246,259,261
+public/pdfjs/images/annotation-paragraph.svg
+  s_52b85f52e159ef::t_dfd7d136110958 1-16
+tests/unit/app/modules/pdf-viewer/annotations/annotationStoreBatch.test.ts
+  s_52b85f52e159ef::t_82be6d0bb95629 46-52,73-76,78-85
+  s_52b85f52e159ef::t_1cb66240bd7f09 1-45,53-72,77,86-87
+scripts/electron-run/electronRunE2ESharedRenderer.ts
+  s_52b85f52e159ef::t_ec3a3f33bd19f3 1-13,78-95,97-106,108-110,119,122-129
+  s_52b85f52e159ef::t_955a4b4cfc4022 96
+  s_52b85f52e159ef::t_0a319790e43719 107,111-118,120-121
+  s_b412fd4cd3f576::t_037bd8b32dd850 130
+tests/unit/app/services/pdfjs/pdfViewerFacade.test.ts
+  s_52b85f52e159ef::t_0d5cc8ad712844 125
+  s_52b85f52e159ef::t_b2ebb3322a023b 21,87,96-106
+scripts/sync-pdfjs-viewer-css.mjs
+  s_52b85f52e159ef::t_06f72934746a3f 213-222,265
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1bb8b7ec57d883c36a222ef31a86ab310f6bae58",
+  "prompts": {},
+  "sessions": {
+    "s_52b85f52e159ef": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07029-1be2-7da2-bde1-2edc3d4abdca",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
