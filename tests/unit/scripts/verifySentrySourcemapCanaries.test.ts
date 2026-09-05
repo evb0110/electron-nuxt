@@ -269,6 +269,40 @@ describe('verifySentrySourcemapCanaries', () => {
         expect(sleep).toHaveBeenNthCalledWith(2, 2_000);
     });
 
+    it('uses processed-event symbolication when release-path lookup is incomplete', async () => {
+        const root = await setupReceipt();
+        const debugIdProcess = debugPayload().exceptions[0]!.frames[0]!.debug_id_process;
+        const fetchImpl = vi.fn(async (url: RequestInfo | URL) => new Response(
+            JSON.stringify(String(url).includes('/source-map-debug/')
+                ? debugPayload({exceptions: [{frames: [{
+                    debug_id_process: debugIdProcess,
+                    release_process: {
+                        abs_path: evidence.codeFile,
+                        matching_source_file_names: [evidence.codeFile],
+                        matching_source_map_name: null,
+                        source_file_lookup_result: 'unsuccessful',
+                        source_map_lookup_result: 'unsuccessful',
+                    },
+                }]}]})
+                : eventPayload()),
+            {
+                headers: {'content-type': 'application/json'},
+                status: 200,
+            },
+        ));
+
+        await expect(verifySentrySourcemapCanaries({
+            environment: environment(),
+            fetchImpl,
+            projectRoot: root,
+            sleep: vi.fn(async () => undefined),
+        })).resolves.toMatchObject({
+            failureCount: 0,
+            verifiedCount: 1,
+        });
+        expect(fetchImpl).toHaveBeenCalledTimes(2);
+    });
+
     it('rejects terminal event identity mismatches without retrying', async () => {
         const cases = [
             {
@@ -377,21 +411,24 @@ describe('verifySentrySourcemapCanaries', () => {
 
     it('writes a sanitized failure receipt and rejects unresolved symbolication', async () => {
         const root = await setupReceipt();
-        const fetchImpl = vi.fn(async () => new Response(
-            JSON.stringify(debugPayload({exceptions: [{frames: [{
-                debug_id_process: {
-                    debug_id: evidence.debugId,
-                    uploaded_source_file_with_correct_debug_id: true,
-                    uploaded_source_map_with_correct_debug_id: true,
-                },
-                release_process: {
-                    abs_path: evidence.codeFile,
-                    matching_source_file_names: ['~/_nuxt/example.js'],
-                    matching_source_map_name: '~/_nuxt/example.js.map',
-                    source_file_lookup_result: 'missing',
-                    source_map_lookup_result: 'missing',
-                },
-            }]}]})),
+        const unresolvedDebugPayload = debugPayload({exceptions: [{frames: [{
+            debug_id_process: {
+                debug_id: evidence.debugId,
+                uploaded_source_file_with_correct_debug_id: true,
+                uploaded_source_map_with_correct_debug_id: true,
+            },
+            release_process: {
+                abs_path: evidence.codeFile,
+                matching_source_file_names: ['~/_nuxt/example.js'],
+                matching_source_map_name: null,
+                source_file_lookup_result: 'unsuccessful',
+                source_map_lookup_result: 'unsuccessful',
+            },
+        }]}]});
+        const fetchImpl = vi.fn(async (url: RequestInfo | URL) => new Response(
+            JSON.stringify(String(url).includes('/source-map-debug/')
+                ? unresolvedDebugPayload
+                : eventPayload({context: null})),
             {
                 headers: {'content-type': 'application/json'},
                 status: 200,
@@ -411,7 +448,7 @@ describe('verifySentrySourcemapCanaries', () => {
             })),
             'canary-verification-receipt.json',
         ), 'utf8');
-        expect(receiptText).toContain('could not find the uploaded source file and map');
+        expect(receiptText).toContain('symbolicated frame has no source context');
         expect(receiptText).not.toContain('private-verification-token');
     });
 });

@@ -97,9 +97,10 @@ jobs:
     outputs:
       artifact_ready: ${{ steps.artifact_status.outputs.artifact_ready }}
     runs-on: ${{ inputs.os }}
-    # Shared by every release target; the slowest (Windows ARM64 with MSYS2
-    # bundling) measures about 30 minutes, the Linux x64 lane about 15.
-    timeout-minutes: 45
+    # Shared by every release target. Source-map canary processing is remote
+    # work and can outlive packaging by several minutes; keep a bounded margin
+    # so a valid symbolication proof is not killed at the old 45-minute limit.
+    timeout-minutes: 60
 
     steps:
       - name: Checkout

@@ -1071,8 +1071,9 @@ describe('CI topology policy', () => {
             pr_native_build_safety: 35, // measured 18.9m cold-cache
             pr_native_pdf_integration: 25, // tiny native/qpdf/copyFileAtomic fixture
             // Calls build-target.yml, whose one timeout is shared with every
-            // release target; the Linux x64 lane itself measures ~15m.
-            pr_packaged_linux: 45,
+            // release target; remote source-map processing needs a bounded
+            // margin after the Linux x64 package smoke.
+            pr_packaged_linux: 60,
             pr_quality: 20, // measured 13.4m
             pr_rust_tests_arm64: 20, // measured 9.6m
             pr_scan_cleanup_heavy: 25, // measured 10.1m cold-cache

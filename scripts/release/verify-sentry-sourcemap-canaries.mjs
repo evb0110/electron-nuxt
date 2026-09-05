@@ -195,17 +195,6 @@ function debugFrames(payload) {
         .flatMap(exception => Array.isArray(exception?.frames) ? exception.frames : []);
 }
 
-function expectedArtifactName(codeFile) {
-    if (!codeFile.startsWith('http://') && !codeFile.startsWith('https://')) {
-        return codeFile;
-    }
-    return `~/${new URL(codeFile).pathname.replace(/^\/+/, '')}`;
-}
-
-function expectedArtifactMapName(codeFile) {
-    return `${expectedArtifactName(codeFile)}.map`;
-}
-
 function inspectDebugPayload(payload, identity, evidence) {
     if (payload?.release !== identity.release || payload?.dist !== identity.dist) {
         return {
@@ -216,14 +205,11 @@ function inspectDebugPayload(payload, identity, evidence) {
     }
     const expectedCodeFile = evidence.codeFile
         ?? getCanaryCodeFile(identity, evidence.bundle);
-    const artifactName = expectedArtifactName(expectedCodeFile);
-    const mapArtifactName = expectedArtifactMapName(expectedCodeFile);
     const frame = debugFrames(payload).find(candidate => {
+        const debugIdProcess = candidate?.debug_id_process;
         const releaseProcess = candidate?.release_process;
-        return releaseProcess?.abs_path === expectedCodeFile
-            && Array.isArray(releaseProcess?.matching_source_file_names)
-            && releaseProcess.matching_source_file_names.includes(artifactName)
-            && releaseProcess.matching_source_map_name === mapArtifactName;
+        return debugIdProcess?.debug_id === evidence.debugId
+            && releaseProcess?.abs_path === expectedCodeFile;
     });
     if (!frame) {
         return {
@@ -233,7 +219,6 @@ function inspectDebugPayload(payload, identity, evidence) {
         };
     }
     const debugIdProcess = frame.debug_id_process;
-    const releaseProcess = frame.release_process;
     if (
         debugIdProcess?.debug_id !== evidence.debugId
         || debugIdProcess?.uploaded_source_file_with_correct_debug_id !== true
@@ -245,16 +230,12 @@ function inspectDebugPayload(payload, identity, evidence) {
             reason: 'uploaded Debug ID does not match the canary receipt',
         };
     }
-    if (
-        releaseProcess?.source_file_lookup_result !== 'found'
-        || releaseProcess?.source_map_lookup_result !== 'found'
-    ) {
-        return {
-            ok: false,
-            terminal: false,
-            reason: 'Sentry could not find the uploaded source file and map',
-        };
-    }
+    // Sentry can report the Debug ID lookup as complete while its separate
+    // release-path lookup still reports no matching map. The processed event
+    // is the authoritative second proof in that case. Requiring both release
+    // lookup fields to be "found" caused every valid event to retry until the
+    // release job timed out, even though Sentry had already symbolicated it.
+    // Do not turn this endpoint's release-path result into a false negative.
     return {ok: true};
 }
 
