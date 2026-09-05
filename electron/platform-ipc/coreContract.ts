@@ -16,18 +16,13 @@ export const CORE_IPC_CHANNELS = {
     rendererReady: 'app:rendererReady',
 } as const;
 
-export const DIAGNOSTICS_CANARY_ACTIONS = [
+const DIAGNOSTICS_CANARY_ACTIONS = [
     'main-error',
     'crash-main',
     'main-health',
 ] as const;
 
 export type TDiagnosticsCanaryAction = typeof DIAGNOSTICS_CANARY_ACTIONS[number];
-
-export interface IDiagnosticsCanaryMainHealth {
-    preference: 'denied' | 'granted' | 'unknown';
-    transportReady: boolean;
-}
 
 export function decodeDiagnosticsCanaryAction(value: unknown): TDiagnosticsCanaryAction | null {
     return typeof value === 'string'
