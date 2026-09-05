@@ -1,0 +1,22 @@
+tests/e2e/electron/helpers/viewerAnnotations.ts
+  s_b412fd4cd3f576::t_8f10a4542c5d9a 1374-1376
+  s_b412fd4cd3f576::t_a894ccd1705c28 1377
+tests/unit/scripts/stress/viewerAnnotationsCreation.test.ts
+  s_b412fd4cd3f576::t_a894ccd1705c28 73,135
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "1d00d209c7d8abb0b1c384219d7a700875b290ac",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
