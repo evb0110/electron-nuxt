@@ -49,6 +49,7 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/modules/workspace-shell/composables/useAppShellResilience.ts',
     'app/modules/workspace-shell/useWorkspaceOrchestration.ts',
     'app/pages/electron.vue',
+    'electron/features/documents/main/documentSaveUtilityProcess.ts',
     'electron/main.ts',
     'electron/preload.ts',
     'electron/ocr/worker/runProductionOcrQualityCase.ts',
