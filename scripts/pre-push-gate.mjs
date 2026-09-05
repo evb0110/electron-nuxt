@@ -32,12 +32,18 @@ const WASM_WORKSPACE_MANIFEST_PATHS = new Set([
     'native/Cargo.toml',
     'native/rust-toolchain.toml',
 ]);
+// Vitest intersects --project with named paths instead of adding to them, and a
+// path that matches no selected project is dropped without an error. The topology
+// test lives in unit-policy, so omitting that project made this step exit 0 while
+// silently running only the syntax test.
 const PRE_PUSH_WORKFLOW_TEST_ARGS = [
     'exec',
     'vitest',
     'run',
     '--project',
     'unit-scripts',
+    '--project',
+    'unit-policy',
     'tests/unit/scripts/githubActionsSyntax.test.ts',
     'tests/unit/scripts/ciTopologyPolicy.test.ts',
 ];
