@@ -1,0 +1,45 @@
+.fallow-dupes-baseline.json
+  s_b412fd4cd3f576::t_f8a0b8b5fd8cae 40,42
+scripts/checkZeroExecutionCoverage.ts
+  s_3e4a192066773e::t_67530778a0412c 52
+tests/unit/app/composables/installNuxtStateTestStubs.ts
+  s_3e4a192066773e::t_caaa8291177936 4
+tests/unit/app/composables/useUiScale.test.ts
+  s_3e4a192066773e::t_15877dc253ada5 1-163
+tests/unit/app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint.test.ts
+  s_3e4a192066773e::t_9880e289d7cb11 1-141
+tests/unit/scripts/checkZeroExecutionCoverage.test.ts
+  s_55e4a7278e5472::t_298ad9ab3964aa 157-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "39f6f3e2c980f40421a44fbb1b42cf3587e6552c",
+  "prompts": {},
+  "sessions": {
+    "s_3e4a192066773e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30f39d2d-9e1c-4eef-8840-2d62537b8816",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_55e4a7278e5472": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07212-2830-77a0-a312-a16312e03861",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
