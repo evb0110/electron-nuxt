@@ -8,6 +8,8 @@ export const numberedFixtureId = 'F01-numbered-12p';
 
 export const metadataFixtureId = 'F02-metadata-6p';
 
+export const fontsFixtureId = 'F04-fonts-languages';
+
 export const numberedFixturePackId = 'F01';
 
 /**
@@ -35,6 +37,30 @@ export async function stageFixtureCopy(context: ICaseContext, fixtureId: string,
 
 export async function fileSha256(context: ICaseContext, filePath: string) {
     return sha256Hex(await context.fs.readBytes(filePath));
+}
+
+/**
+ * Copy a produced file into the manifest-covered evidence tree when it exists.
+ * Cases call this from cleanup paths so a failed operation still leaves the
+ * bytes that were produced before the failure. Missing files stay missing and
+ * are reported by the host oracle that declared them required.
+ */
+export async function captureArtifactIfPresent(
+    context: ICaseContext,
+    sourcePath: string,
+    evidenceFileName: string,
+) {
+    if (!await context.fs.exists(sourcePath)) {
+        context.log(`${context.testId}: evidence source ${sourcePath} was not present`);
+        return null;
+    }
+    try {
+        await context.captureArtifact(sourcePath, evidenceFileName);
+        return evidenceFileName.replaceAll('\\', '/');
+    } catch (error) {
+        context.log(`${context.testId}: could not capture ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    }
 }
 
 export async function writeJsonEvidence(context: ICaseContext, fileName: string, payload: unknown) {

@@ -146,6 +146,27 @@ describe('UTM bundle location', () => {
         expect(calls[0]?.at(-1)).toBe(path.join('/Volumes/WindowsTests/images/golden.utm', UTM_BUNDLE_CONFIG_FILE));
     });
 
+    it('reads the bundle display name out of the UTM configuration plist', async () => {
+        const runner: ICommandRunner = {run: (command, args) => {
+            calls.push([
+                command,
+                ...args,
+            ]);
+            return Promise.resolve({
+                exitCode: 0,
+                stdout: 'Windows test clone\n',
+                stderr: '',
+                timedOut: false,
+                signal: null,
+            });
+        }};
+
+        const reader = createPlutilBundleIdentityReader(runner);
+
+        expect(await reader.readVmName('/Volumes/WindowsTests/images/clone.utm')).toBe('Windows test clone');
+        expect(calls[0]).toContain('Information.Name');
+    });
+
     it('returns null when plutil cannot read the bundle', async () => {
         const runner: ICommandRunner = {run: () => Promise.resolve({
             exitCode: 1,

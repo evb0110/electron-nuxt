@@ -24,6 +24,7 @@ export const windowsTestRejectionReasons = [
     'evidence-manifest-hash-mismatch',
     'evidence-file-missing',
     'evidence-file-hash-mismatch',
+    'case-evidence-missing',
     'heartbeat-missing',
     'heartbeat-stale',
     'worker-session-not-interactive',
@@ -215,6 +216,18 @@ function validateEvidence(
         entry.relativePath,
         entry,
     ]));
+    const manifestPaths = new Set(parsed.entries.map(entry => entry.relativePath));
+    for (const caseResult of result.cases) {
+        for (const evidenceFile of caseResult.evidenceFiles) {
+            if (manifestPaths.has(evidenceFile)) {
+                continue;
+            }
+            rejections.push(infrastructureRejection(
+                'case-evidence-missing',
+                `Case ${caseResult.testId} claims evidence file ${evidenceFile}, but the manifest does not list it.`,
+            ));
+        }
+    }
     for (const entry of parsed.entries) {
         const match = observed.get(entry.relativePath);
         if (match === undefined) {

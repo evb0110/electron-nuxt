@@ -22,6 +22,7 @@ import {
     normalizePageMetrics,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
 import {
+    getLayoutContentHeight,
     getLayoutPhysicalScrollSegment,
     PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
@@ -718,8 +719,16 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         return getPageRowBounds(layout, virtualWindowEnd.value)?.end ?? virtualWindowEnd.value;
     });
 
+    const virtualScrollHeight = computed(() => {
+        const layout = pageLayout.value;
+        return virtualizedContinuousMode.value && layout
+            ? physicalScrollSegment.value?.height ?? getLayoutContentHeight(layout)
+            : 0;
+    });
+
     return {
         pageHeightEstimate,
+        virtualScrollHeight,
         pageLayout,
         getPageLayoutScale,
         getPageScale,

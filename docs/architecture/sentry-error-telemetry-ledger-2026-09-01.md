@@ -124,7 +124,7 @@ hardened and provisioned it on 2026-09-04:
 | Plan | Sponsored Business |
 | Data region | European Union |
 | Projects | Exactly `evb-viewer-desktop` and `evb-viewer-web` |
-| Events | Zero |
+| Events | Production web and test desktop diagnostics active; Nitro disabled |
 | Included errors | 5 million per usage period |
 | Pay-as-you-go | $0 limit, no payment method |
 | Generative AI features | Disabled; Seer unconfigured |

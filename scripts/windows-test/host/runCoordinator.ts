@@ -36,6 +36,7 @@ import type {
     IFixtureManifestSource,
     IWindowsTestSuiteResolver,
 } from '@scripts/windows-test/host/capabilityRegistry';
+import type { IWindowsCapabilityEnvironment } from '@scripts/windows-test/registry/capabilityRegistry';
 import type { IWindowsTestClock } from '@scripts/windows-test/host/hostClock';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import {
@@ -55,6 +56,7 @@ import { createTransitionRecorder } from '@scripts/windows-test/host/runTransiti
 import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 import type { IWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 import { utmBundlePathForName } from '@scripts/windows-test/images/vmBundleLocator';
+import { WINDOWS_HOST_ORACLE_RESULTS_FILE } from '@scripts/windows-test/oracles/windowsHostOracleDispatcher';
 import {
     WindowsTestIdentityGuardError,
     assertDestructiveTarget,
@@ -92,8 +94,23 @@ export function defaultWindowsTestRunDeadlines(): IWindowsTestRunDeadlines {
 
 export interface IWindowsTestStagedInput {
     hostPath: string;
-    guestPath: string;
+    /** Path relative to the run-scoped guest staging directory. */
+    guestRelativePath: string;
     sha256: string;
+}
+
+export interface IWindowsTestHostOracleEvaluationInput {
+    runId: string;
+    environmentId: string;
+    evidenceDirectory: string;
+    resultsFile: string;
+    result: IWindowsTestResult;
+}
+
+export interface IWindowsTestHostOracleEvaluationResult {
+    outcome: TWindowsTestOutcome;
+    humanReviewRequired: boolean;
+    errors: readonly string[];
 }
 
 export interface IWindowsTestRunRequest {
@@ -116,6 +133,10 @@ export interface IWindowsTestRunDependencies {
     hostId: string;
     randomRunSuffix(): string;
     stagedInputs?: readonly IWindowsTestStagedInput[];
+    /** Optional guarded clone implementation for UTM versions that place clones elsewhere. */
+    cloneVm?(cloneName: string): Promise<void>;
+    /** Run host-side output oracles only after guest evidence has validated. */
+    evaluateHostOracles?(input: IWindowsTestHostOracleEvaluationInput): Promise<IWindowsTestHostOracleEvaluationResult>;
     identityGuard?: IWindowsTestIdentityGuardDependencies;
     deadlines?: Partial<IWindowsTestRunDeadlines>;
     hashFile?(filePath: string): Promise<string>;
@@ -163,13 +184,44 @@ function abort(
     });
 }
 
-function isSafeEvidencePath(relativePath: string) {
+function isSafeRelativePath(relativePath: string) {
     if (relativePath.length === 0 || path.isAbsolute(relativePath) || /^[a-zA-Z]:/u.test(relativePath)) {
         return false;
     }
     return !relativePath
         .split(/[\\/]/u)
         .some(segment => segment === '..' || segment === '');
+}
+
+function guestStagingPath(runStagingDir: string, relativePath: string) {
+    if (!isSafeRelativePath(relativePath)) {
+        throw new Error(`The staged guest path ${relativePath} is not a safe relative path.`);
+    }
+    return `${runStagingDir}\\${relativePath.split('/').join('\\')}`;
+}
+
+function inferUtmEnvironment(environment: string): IWindowsCapabilityEnvironment | null {
+    const match = /^utm-[^-]+-(arm64|x64)-app-(arm64|x64)$/u.exec(environment);
+    if (match === null) {
+        return null;
+    }
+    const [
+        , osArch,
+        appArch,
+    ] = match;
+    if (osArch !== 'arm64' && osArch !== 'x64') {
+        return null;
+    }
+    if (appArch !== 'arm64' && appArch !== 'x64') {
+        return null;
+    }
+    return {
+        id: environment,
+        osArch,
+        appArch,
+        kind: 'utm',
+        primary: false,
+    };
 }
 
 function readEvidenceEntries(manifestText: string | null): IWindowsTestEvidenceEntry[] {
@@ -192,7 +244,7 @@ function readEvidenceEntries(manifestText: string | null): IWindowsTestEvidenceE
     return entries.filter((entry): entry is IWindowsTestEvidenceEntry => typeof entry === 'object'
         && entry !== null
         && typeof (entry as IWindowsTestEvidenceEntry).relativePath === 'string'
-        && isSafeEvidencePath((entry as IWindowsTestEvidenceEntry).relativePath));
+        && isSafeRelativePath((entry as IWindowsTestEvidenceEntry).relativePath));
 }
 
 function classifyTests(result: IWindowsTestResult | null) {
@@ -386,6 +438,38 @@ export async function executeWindowsTestRun(
                 );
             }
 
+            const environmentDefinition = dependencies.suiteResolver.resolveEnvironment === undefined
+                ? inferUtmEnvironment(request.environment)
+                : await dependencies.suiteResolver.resolveEnvironment(request.environment);
+            if (environmentDefinition === null) {
+                abort(
+                    'unsupported',
+                    'queued',
+                    `Environment "${request.environment}" is not declared in the Windows capability registry; refusing to run an unqualified target.`,
+                );
+            }
+            if (environmentDefinition.kind !== 'utm') {
+                abort(
+                    'unsupported',
+                    'queued',
+                    `Environment "${request.environment}" has kind "${environmentDefinition.kind}"; this local runner only executes UTM environments.`,
+                );
+            }
+            if (environmentDefinition.osArch !== dependencies.imageManifest.osArch) {
+                abort(
+                    'unsupported',
+                    'queued',
+                    `Environment "${request.environment}" expects ${environmentDefinition.osArch} Windows but the qualified image is ${dependencies.imageManifest.osArch}.`,
+                );
+            }
+            if (environmentDefinition.appArch !== candidate.appArch) {
+                abort(
+                    'unsupported',
+                    'queued',
+                    `Environment "${request.environment}" expects an ${environmentDefinition.appArch} app but the candidate is ${candidate.appArch}.`,
+                );
+            }
+
             const selection = await dependencies.suiteResolver.resolveSuite(request.suite, request.environment);
             uncoveredObligations = [...selection.uncoveredObligations];
             humanReviewRequired = selection.humanReviewObligations.length > 0;
@@ -421,7 +505,11 @@ export async function executeWindowsTestRun(
             // Set before cloning so teardown looks for the clone even when the
             // clone command or the UUID diff fails part-way.
             cloneBundlePath = utmBundlePathForName(config.testImageRoot, cloneName);
-            await utmctl.clone(config.goldenVmId, cloneName);
+            if (dependencies.cloneVm === undefined) {
+                await utmctl.clone(config.goldenVmId, cloneName);
+            } else {
+                await dependencies.cloneVm(cloneName);
+            }
             const after = await utmctl.list();
             clonedVmId = selectClonedVmId(before, after);
             policy = withOwnedCloneAllowlisted(policy, clonedVmId);
@@ -451,41 +539,49 @@ export async function executeWindowsTestRun(
             }
             await recorder.record('guest-ready', 'The guest agent answered a supervised ping.');
 
-            const bootIdText = await guest.readGuestText(
-                clonedVmId,
-                windowsTestGuestLayout.bootIdFile,
-                deadlines.commandTimeoutMs,
-            );
-            const bootId = bootIdText === null ? '' : bootIdText.trim();
-            if (bootId.length === 0) {
-                abort(
-                    'infrastructure-failed',
-                    'guest-ready',
-                    'The guest never published a boot ID, so no result could be tied to this boot.',
-                );
-            }
-
+            let bootId = '';
+            const startedAtMs = Date.parse(startedAt);
             const heartbeat = await pollUntil(
                 clock,
                 deadlines.guestReadyToDesktopReadyMs,
                 deadlines.pollIntervalMs,
                 async () => {
+                    // Read the boot token on every poll. The worker replaces a
+                    // copied golden-image token when its logon task starts, and
+                    // retaining the first QGA read would make the fresh
+                    // heartbeat look stale forever.
+                    const bootIdText = await guest.readGuestText(
+                        clonedVmId ?? '',
+                        windowsTestGuestLayout.bootIdFile,
+                        deadlines.commandTimeoutMs,
+                    );
+                    const currentBootId = bootIdText === null ? '' : bootIdText.trim();
+                    if (currentBootId.length === 0) {
+                        return null;
+                    }
+                    bootId = currentBootId;
                     const observed = await guest.readHeartbeat(clonedVmId ?? '', deadlines.commandTimeoutMs);
                     if (observed === null) {
                         return null;
                     }
+                    const heartbeatUpdatedAtMs = Date.parse(observed.updatedAt);
+                    const freshSinceRunStart = Number.isFinite(startedAtMs)
+                        && Number.isFinite(heartbeatUpdatedAtMs)
+                        && heartbeatUpdatedAtMs >= startedAtMs;
                     const usable = observed.bootId === bootId
                         && observed.worker.interactive
                         && observed.worker.sessionId !== 0
                         && !observed.locked;
-                    return usable ? observed : null;
+                    return usable && freshSinceRunStart ? observed : null;
                 },
             );
             if (heartbeat === null) {
                 abort(
                     'infrastructure-failed',
                     'guest-ready',
-                    'The guest worker never reported an interactive unlocked desktop for this boot; a Session 0 or locked session cannot execute a user journey.',
+                    bootId.length === 0
+                        ? 'The guest never published a boot ID, so no result could be tied to this boot.'
+                        : 'The guest worker never reported a fresh interactive unlocked desktop for this boot; a copied heartbeat, Session 0 or locked session cannot execute a user journey.',
                 );
             }
             if (heartbeat.guestTestMarker !== dependencies.imageManifest.guestTestMarker) {
@@ -497,7 +593,15 @@ export async function executeWindowsTestRun(
             }
             await recorder.record('desktop-ready', `Interactive desktop confirmed in session ${heartbeat.worker.sessionId}.`);
 
-            const artifactGuestPath = `${windowsTestGuestLayout.stagingDir}\\${candidate.fileName}`;
+            // UTM's file-push operation opens the destination directly. Create
+            // the run-scoped tree first because the golden image only contains
+            // the shared staging root.
+            await guest.ensureDirectory(
+                clonedVmId,
+                `${guestPaths.stagingDir}\\fixtures`,
+                deadlines.commandTimeoutMs,
+            );
+            const artifactGuestPath = guestStagingPath(guestPaths.stagingDir, candidate.fileName);
             await guest.stageFile(clonedVmId, candidate.artifactPath, artifactGuestPath, deadlines.stageFileMs);
             const artifactVerified = await guest.verifyStagedFileHash(
                 clonedVmId,
@@ -512,11 +616,20 @@ export async function executeWindowsTestRun(
                     `The staged artifact did not hash to ${candidate.sha256} inside the guest.`,
                 );
             }
-            for (const input of dependencies.stagedInputs ?? []) {
-                await guest.stageFile(clonedVmId, input.hostPath, input.guestPath, deadlines.stageFileMs);
+            const stagedInputs = dependencies.stagedInputs ?? [];
+            if (!stagedInputs.some(input => input.guestRelativePath === 'fixtures/manifest.json')) {
+                abort(
+                    'infrastructure-failed',
+                    'desktop-ready',
+                    'The prepared fixture manifest was not supplied for staging; run windows:test:prepare before the suite.',
+                );
+            }
+            for (const input of stagedInputs) {
+                const guestPath = guestStagingPath(guestPaths.stagingDir, input.guestRelativePath);
+                await guest.stageFile(clonedVmId, input.hostPath, guestPath, deadlines.stageFileMs);
                 const verified = await guest.verifyStagedFileHash(
                     clonedVmId,
-                    input.guestPath,
+                    guestPath,
                     input.sha256,
                     deadlines.commandTimeoutMs,
                 );
@@ -524,7 +637,7 @@ export async function executeWindowsTestRun(
                     abort(
                         'infrastructure-failed',
                         'desktop-ready',
-                        `The staged input ${input.guestPath} did not hash to ${input.sha256} inside the guest.`,
+                        `The staged input ${input.guestRelativePath} did not hash to ${input.sha256} inside the guest.`,
                     );
                 }
             }
@@ -631,6 +744,37 @@ export async function executeWindowsTestRun(
                         reason: result.failureReason ?? `The guest reported ${result.outcome}.`,
                     });
                 }
+                if (dependencies.evaluateHostOracles !== undefined) {
+                    const oracleResultsFile = path.join(runLayout.runDir, WINDOWS_HOST_ORACLE_RESULTS_FILE);
+                    try {
+                        const oracleRun = await dependencies.evaluateHostOracles({
+                            runId,
+                            environmentId: request.environment,
+                            evidenceDirectory: runLayout.evidenceDir,
+                            resultsFile: oracleResultsFile,
+                            result,
+                        });
+                        messages.push(`Host oracle report: ${oracleResultsFile}`);
+                        humanReviewRequired = humanReviewRequired || oracleRun.humanReviewRequired;
+                        outcome = combineOutcomes(outcome, oracleRun.outcome);
+                        if (oracleRun.outcome !== 'passed') {
+                            failures.push({
+                                outcome: oracleRun.outcome,
+                                phase: 'collecting',
+                                reason: oracleRun.errors.length > 0
+                                    ? oracleRun.errors.join(' ')
+                                    : `Host oracles reported ${oracleRun.outcome}.`,
+                            });
+                        }
+                    } catch (error) {
+                        failures.push({
+                            outcome: 'infrastructure-failed',
+                            phase: 'collecting',
+                            reason: `Host oracle dispatch failed: ${error instanceof Error ? error.message : String(error)}.`,
+                        });
+                        outcome = combineOutcomes(outcome, 'infrastructure-failed');
+                    }
+                }
             } else {
                 for (const rejection of validation.rejections) {
                     failures.push({
@@ -662,17 +806,48 @@ export async function executeWindowsTestRun(
         if (cloneBundlePath !== null) {
             try {
                 const registered = await utmctl.list();
-                const ownedVmId = clonedVmId ?? registered.find(entry => entry.name === cloneName)?.uuid.toLowerCase() ?? null;
+                const registrationsWithExpectedName = registered.filter(entry => entry.name === cloneName);
+                const ownedVmId = (clonedVmId ?? registrationsWithExpectedName[0]?.uuid ?? null)?.toLowerCase() ?? null;
                 if (ownedVmId === null) {
                     // The clone command failed before UTM registered anything.
                     cloneBundlePath = null;
                 } else {
+                    const registrationsWithOwnedUuid = registered.filter(
+                        entry => entry.uuid.toLowerCase() === ownedVmId,
+                    );
+                    if (registrationsWithOwnedUuid.length !== 1
+                        || registrationsWithExpectedName.length !== 1
+                        || registrationsWithExpectedName[0] !== registrationsWithOwnedUuid[0]) {
+                        throw new WindowsTestIdentityGuardError(
+                            'registered-vm-mismatch',
+                            `Refusing teardown: the registered VM UUID and name do not identify clone ${cloneName}.`,
+                        );
+                    }
                     if (clonedVmId === null) {
                         policy = withOwnedCloneAllowlisted(policy, ownedVmId);
                     }
+                    // Re-read the owned bundle identity immediately before each
+                    // stop. UTM registration can change while a run is active,
+                    // so the check that protected start cannot be reused for
+                    // teardown.
+                    const assertOwnedClone = () => assertDestructiveTarget(
+                        {
+                            vmId: ownedVmId,
+                            bundlePath: cloneBundlePath ?? '',
+                        },
+                        policy,
+                        dependencies.identityGuard,
+                    );
+                    await assertOwnedClone();
                     await utmctl.stop(ownedVmId, 'request');
-                    const status = await utmctl.status(ownedVmId);
-                    if (status !== 'stopped') {
+                    const stopped = await pollUntil(
+                        clock,
+                        deadlines.cancelGraceMs,
+                        deadlines.pollIntervalMs,
+                        async () => (await utmctl.status(ownedVmId)) === 'stopped' ? true : null,
+                    );
+                    if (stopped === null) {
+                        await assertOwnedClone();
                         await utmctl.stop(ownedVmId, 'force');
                     }
                     const alreadyRetained = registered.filter(entry => entry.name.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)

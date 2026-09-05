@@ -92,8 +92,10 @@ export const windowsTestGuestLayout = {
 
 export function windowsTestGuestRunPaths(runId: string) {
     const runRoot = `${windowsTestGuestLayout.workDir}\\${runId}`;
+    const stagingDir = `${windowsTestGuestLayout.stagingDir}\\${runId}`;
     return {
         runRoot,
+        stagingDir,
         jobFile: `${windowsTestGuestLayout.inboxDir}\\${runId}.job.json`,
         readyMarkerFile: `${windowsTestGuestLayout.inboxDir}\\${runId}.ready`,
         cancelFile: `${windowsTestGuestLayout.inboxDir}\\${runId}.cancel`,

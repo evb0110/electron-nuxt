@@ -456,8 +456,10 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
                 // Non-wheel resize and toolbar transitions still need this final
                 // projection because they do not own that atomic cursor intent.
                 await nextTick();
-                const restored = applyResizeAnchorPreview?.(resizeAnchor.semanticAnchor) ?? false;
-                if (!restored) {
+                const restored = applyResizeAnchorPreview === undefined
+                    ? false
+                    : applyResizeAnchorPreview(resizeAnchor.semanticAnchor);
+                if (restored === false) {
                     await Promise.resolve(scrollToPage(resizeAnchor.page, {
                         preferExactDom: true,
                         suppressRenderAfterSnap: true,

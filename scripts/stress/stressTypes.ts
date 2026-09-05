@@ -8,7 +8,7 @@ export type TStressHostProfileId =
     | 'slow-c'
     | 'forced-low';
 
-export type TStressOperatorProfile = 'pixel' | 'semantic';
+export type TStressOperatorProfile = 'pixel' | 'semantic' | 'external';
 
 export type TStressScenarioKind = 'deterministic' | 'operator';
 
@@ -346,6 +346,7 @@ export interface IStressCalibrationProbe {
     rafP95Ms: number | null;
     jsHeapSizeLimitBytes: number | null;
     diskRead64MiBMs: number | null;
+    /** Legacy artifact field name; this is the effective tier reported by the app. */
     detectedTier: THostResourceTier | null;
 }
 

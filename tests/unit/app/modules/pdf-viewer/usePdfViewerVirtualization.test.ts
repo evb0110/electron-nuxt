@@ -125,6 +125,50 @@ function createPagedHarness(options?: {
 }
 
 describe('usePdfViewerVirtualization', () => {
+    it('keeps the full scroll extent through a disjoint navigation handoff', () => {
+        const currentPage = ref(1);
+        const navigationAnchorPage = ref<number | null>(241);
+        const visibleRange = ref({
+            start: 1,
+            end: 1,
+        });
+        const effectiveScale = ref(3.8);
+        const continuousScroll = ref(true);
+        const virtualization = usePdfViewerVirtualization({
+            performancePolicy: normalPerformancePolicy,
+            bufferPages: computed(() => 2),
+            viewMode: computed(() => 'single'),
+            numPages: ref(241),
+            currentPage,
+            continuousScroll: computed(() => continuousScroll.value),
+            basePageWidth: ref(612),
+            basePageHeight: ref(792),
+            pageMetrics: ref([]),
+            pageMetricsVersion: ref(0),
+            effectiveScale,
+            scaledMargin: ref(20),
+            visibleRange,
+            navigationAnchorPage,
+            resizeTransitionAnchorPage: ref(null),
+            zoomVirtualizationFreeze: ref(null),
+        });
+        const expectedHeight = 241 * 792 * 3.8 + 242 * 20;
+        expect(virtualization.virtualPageSegments.value).toHaveLength(2);
+        expect(virtualization.virtualScrollHeight.value).toBeCloseTo(expectedHeight);
+        visibleRange.value = {
+            start: 241,
+            end: 241,
+        };
+        currentPage.value = 241;
+        navigationAnchorPage.value = null;
+        expect(virtualization.virtualPageSegments.value).toHaveLength(1);
+        expect(virtualization.virtualScrollHeight.value).toBeCloseTo(expectedHeight);
+        effectiveScale.value = 1;
+        expect(virtualization.virtualScrollHeight.value).toBe(241 * 792 + 242 * 20);
+        continuousScroll.value = false;
+        expect(virtualization.virtualScrollHeight.value).toBe(0);
+    });
+
     it('keeps virtualization enabled for facing spread modes and aligns render rows', () => {
         const virtualization = createVirtualizationHarness('facing');
 
@@ -756,6 +800,7 @@ describe('usePdfViewerVirtualization', () => {
         );
         expect(leadingHeight).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
         expect(trailingHeight).toBeLessThan(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
+        expect(virtualization.virtualScrollHeight.value).toBe(PDF_VIEWER_SCROLL_SEGMENT_MAX_HEIGHT);
     });
 
     it('ignores a zoom freeze that would hide the active navigation anchor', () => {

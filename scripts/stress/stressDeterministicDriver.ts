@@ -1,9 +1,13 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import type {
     CDPSession,
     Page,
 } from 'puppeteer-core';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
-import { runWithElectronE2EDeadline } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import {
+    ElectronE2ETimeoutError,
+    runWithElectronE2EDeadline,
+} from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 import { createFreeTextAnnotation } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openDjvuInApp,
@@ -37,6 +41,7 @@ export interface IStressDeterministicDriverOptions {
     fixtures: Map<TStressFixtureId, IStressFixtureRecord>;
     stepTimeoutMs: number;
     log: (line: string) => void;
+    signal?: AbortSignal;
     onStepComplete?: (record: IStressStepRecord) => Promise<void> | void;
 }
 
@@ -78,7 +83,7 @@ interface IWheelProbeWindow extends Window {__evbStressWheelProbe?: {
  * global typings that the scripts tsconfig cannot see, so this counts scroll
  * events and DOM mutations on the active viewport until a quiet window passes.
  */
-async function wheelActiveViewportAndSettle(page: Page, deltaY: number, timeoutMs: number) {
+async function wheelActiveViewportAndSettle(page: Page, deltaY: number, timeoutMs: number, signal: AbortSignal) {
     const rect = await evaluateInPage(page, (selector: string) => {
         const viewport = document.querySelector<HTMLElement>(selector);
         if (!viewport) {
@@ -123,11 +128,13 @@ async function wheelActiveViewportAndSettle(page: Page, deltaY: number, timeoutM
     if (!rect) {
         throw new Error('no active document viewport for wheel scrolling');
     }
+    signal.throwIfAborted();
     await page.mouse.move(rect.x, rect.y);
+    signal.throwIfAborted();
     await page.mouse.wheel({deltaY});
     const deadline = Date.now() + timeoutMs;
     for (;;) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await delay(100, undefined, {signal});
         const finalize = Date.now() >= deadline;
         const state = await evaluateInPage(page, (quietMs: number, finalize: boolean) => {
             const probe = (window as IWheelProbeWindow).__evbStressWheelProbe;
@@ -170,24 +177,24 @@ function resolvePageTarget(target: number | 'last' | 'middle', totalPages: numbe
     return Math.min(Math.max(1, target), Math.max(1, totalPages));
 }
 
-async function waitForOpenError(page: Page, timeoutMs: number) {
+async function waitForOpenError(page: Page, timeoutMs: number, signal: AbortSignal) {
     const deadline = Date.now() + timeoutMs;
     while (Date.now() < deadline) {
         const snapshot = await getWorkspaceToolbarSnapshot(page).catch(() => null);
         if (snapshot?.hasOpenError) {
             return true;
         }
-        await new Promise(resolve => setTimeout(resolve, 250));
+        await delay(250, undefined, {signal});
     }
     return false;
 }
 
-async function pressSearchShortcut(page: Page, query: string) {
+async function pressSearchShortcut(page: Page, query: string, signal: AbortSignal) {
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     await page.keyboard.down(modifier);
     await page.keyboard.press('KeyF');
     await page.keyboard.up(modifier);
-    await new Promise(resolve => setTimeout(resolve, 400));
+    await delay(400, undefined, {signal});
     const focusedInput = await evaluateInPage(page, () => {
         const active = document.activeElement;
         return active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement;
@@ -195,7 +202,9 @@ async function pressSearchShortcut(page: Page, query: string) {
     if (!focusedInput) {
         return {searchInputFocused: false};
     }
+    signal.throwIfAborted();
     await page.keyboard.type(query, {delay: 5});
+    signal.throwIfAborted();
     await page.keyboard.press('Enter');
     return {searchInputFocused: true};
 }
@@ -209,11 +218,12 @@ interface IStepContext {
     log: (line: string) => void;
 }
 
-async function executeStep(context: IStepContext, step: TStressStep): Promise<Record<string, unknown>> {
+async function executeStep(context: IStepContext, step: TStressStep, signal: AbortSignal): Promise<Record<string, unknown>> {
     const {
         page,
         session,
     } = context;
+    signal.throwIfAborted();
     switch (step.kind) {
         case 'phase':
             return {phase: step.name};
@@ -227,7 +237,7 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             }
             if (step.expect === 'open-error') {
                 await triggerOpenPathInApp(page, fixture.path, context.stepTimeoutMs);
-                const surfaced = await waitForOpenError(page, Math.min(30_000, context.stepTimeoutMs));
+                const surfaced = await waitForOpenError(page, Math.min(30_000, context.stepTimeoutMs), signal);
                 if (!surfaced) {
                     throw new Error('expected an open error but none surfaced');
                 }
@@ -252,6 +262,7 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             const totalPages = await readTotalPages(page);
             const visited: number[] = [];
             for (const target of step.pages) {
+                signal.throwIfAborted();
                 const pageNumber = resolvePageTarget(target, totalPages);
                 await scrollViewerToPage(page, pageNumber);
                 visited.push(pageNumber);
@@ -262,6 +273,7 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             const totalPages = await readTotalPages(page);
             const pages = planRandomPages(totalPages, step.count, step.seed);
             for (const pageNumber of pages) {
+                signal.throwIfAborted();
                 await scrollViewerToPage(page, pageNumber);
             }
             return {pages};
@@ -271,7 +283,8 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             let mutations = 0;
             let finalScrollTop = 0;
             for (let index = 0; index < step.count; index += 1) {
-                const settlement = await wheelActiveViewportAndSettle(page, step.deltaY, step.settleTimeoutMs ?? 10_000);
+                signal.throwIfAborted();
+                const settlement = await wheelActiveViewportAndSettle(page, step.deltaY, step.settleTimeoutMs ?? 10_000, signal);
                 scrollEvents += settlement.scrollEventCount;
                 mutations += settlement.mutationCount;
                 finalScrollTop = settlement.finalScrollTop;
@@ -286,6 +299,7 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             const repeat = step.repeat ?? 1;
             let called = 0;
             for (let index = 0; index < repeat; index += 1) {
+                signal.throwIfAborted();
                 const result = await callWorkspaceCommand(page, step.name);
                 if (!result.called) {
                     throw new Error(`workspace command ${step.name} was not callable`);
@@ -306,7 +320,9 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             const tabCount = await evaluateInPage(page, () => document.querySelectorAll('.tab-list .tab[data-tab-id]').length);
             let switches = 0;
             for (let round = 0; round < step.rounds; round += 1) {
+                signal.throwIfAborted();
                 for (let index = 0; index < tabCount; index += 1) {
+                    signal.throwIfAborted();
                     await activateWorkspaceTab(session, index);
                     await waitForWorkspaceToolbarIdle(page, {timeoutMs: context.stepTimeoutMs});
                     switches += 1;
@@ -324,6 +340,7 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
         case 'freeText': {
             const totalPages = Math.max(1, await readTotalPages(page));
             for (let index = 0; index < step.count; index += 1) {
+                signal.throwIfAborted();
                 const pageNumber = 1 + (index % totalPages);
                 await createFreeTextAnnotation(page, `${step.text} ${index + 1}`, {
                     x: 0.2 + (index % 5) * 0.12,
@@ -337,9 +354,9 @@ async function executeStep(context: IStepContext, step: TStressStep): Promise<Re
             await waitForWorkspaceToolbarIdle(page, {timeoutMs: context.stepTimeoutMs});
             return {};
         case 'search':
-            return pressSearchShortcut(page, step.query);
+            return pressSearchShortcut(page, step.query, signal);
         case 'idle':
-            await new Promise(resolve => setTimeout(resolve, step.ms));
+            await delay(step.ms, undefined, {signal});
             return {ms: step.ms};
         case 'gc':
             await context.cdp.send('HeapProfiler.collectGarbage');
@@ -377,9 +394,9 @@ export async function runStressDeterministicSteps(steps: readonly TStressStep[],
                 error: null,
                 detail: {},
             };
-            if (abortRemaining) {
+            if (abortRemaining || options.signal?.aborted) {
                 record.status = 'skipped';
-                record.error = 'skipped after a failed open step';
+                record.error = 'skipped after a failed open, deadline or cancellation';
                 records.push(record);
                 continue;
             }
@@ -388,12 +405,15 @@ export async function runStressDeterministicSteps(steps: readonly TStressStep[],
                 record.detail = await runWithElectronE2EDeadline(
                     `stress step ${index} ${step.kind}`,
                     step.kind === 'idle' ? step.ms + 5_000 : options.stepTimeoutMs,
-                    () => executeStep(context, step),
+                    signal => executeStep(context, step, options.signal ? AbortSignal.any([
+                        signal,
+                        options.signal,
+                    ]) : signal),
                 );
             } catch (error) {
                 record.status = 'failed';
                 record.error = error instanceof Error ? error.message : String(error);
-                if (step.kind === 'open' && step.expect !== 'open-error') {
+                if (error instanceof ElectronE2ETimeoutError || (step.kind === 'open' && step.expect !== 'open-error')) {
                     abortRemaining = true;
                 }
                 options.log(`step ${index} failed: ${record.error}`);

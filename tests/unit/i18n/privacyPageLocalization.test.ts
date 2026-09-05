@@ -102,16 +102,15 @@ describe('privacy localization', () => {
         }
     });
 
-    it('keeps locale modules as thin consumers of the shared privacy tree', () => {
+    it('keeps the privacy tree out of Nuxt locale compilation', () => {
         for (const locale of LOCALE_CODES) {
             const source = readFileSync(
                 resolve(landingLocaleDirectory, localeFileName(locale)),
                 'utf8',
             );
 
-            expect(source).toContain('import { PRIVACY_MESSAGES } from \'@i18n-core\';');
-            expect(source).toMatch(/privacy: PRIVACY_MESSAGES\[/u);
-            expect(source).not.toContain('\n    privacy: {');
+            expect(source).not.toContain('PRIVACY_MESSAGES');
+            expect(source).not.toMatch(/\bprivacy\s*:/u);
         }
     });
 });

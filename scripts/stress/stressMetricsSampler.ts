@@ -4,6 +4,7 @@ import type { WriteStream } from 'node:fs';
 import { promisify } from 'node:util';
 import type { Page } from 'puppeteer-core';
 import { collectDescendantPidsUnix } from '@scripts/electron-run/electronRunProcessTree';
+import { runWithElectronE2EDeadline } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
 import { percentile } from '@scripts/stress/percentile';
 import type {
     IStressMetricSample,
@@ -214,9 +215,9 @@ async function installProbe(page: Page) {
 /** Best effort: a crashed or navigated page has already lost the probe. */
 async function teardownProbe(page: Page) {
     try {
-        await page.evaluate((key: string) => {
+        await runWithElectronE2EDeadline('stress probe teardown', 5_000, () => page.evaluate((key: string) => {
             (window as IProbeWindow)[key as typeof PROBE_KEY]?.teardown();
-        }, PROBE_KEY);
+        }, PROBE_KEY));
     } catch {
         // Nothing left to tear down.
     }

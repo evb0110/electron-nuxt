@@ -241,7 +241,10 @@ describe('guest worker bundle options', () => {
             external: ['puppeteer-core'],
         })).toMatchObject({
             minify: true,
-            external: ['puppeteer-core'],
+            external: [
+                '@napi-rs/canvas',
+                'puppeteer-core',
+            ],
         });
     });
 });

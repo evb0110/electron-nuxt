@@ -203,12 +203,25 @@ function stubClock(): IGuestClock {
     };
 }
 
-function stubExec(probe: Record<string, unknown>): IGuestCommandRunner {
+function stubExec(
+    probe: Record<string, unknown>,
+    onInstall = () => undefined,
+    onProbe = () => undefined,
+): IGuestCommandRunner {
     return { run: (command, args) => {
         if (args.some(argument => argument.endsWith('probe-identity.ps1'))) {
+            onProbe();
             return Promise.resolve({
                 exitCode: 0,
                 stdout: JSON.stringify(probe),
+                stderr: '',
+            });
+        }
+        if (args.some(argument => argument.endsWith('install-nsis-per-user.ps1'))) {
+            onInstall();
+            return Promise.resolve({
+                exitCode: 0,
+                stdout: JSON.stringify({installed: true}),
                 stderr: '',
             });
         }
@@ -246,7 +259,7 @@ describe('guest worker mailbox loop', () => {
     });
 
     it('returns without a result when no ready marker ever appears', async () => {
-        const staged = await stageGuest({ writeReadyMarker: false });
+        const staged = await stageGuest({writeReadyMarker: false});
         const summary = await runGuestWorker({
             fs,
             exec: stubExec(probePayload()),
@@ -263,6 +276,84 @@ describe('guest worker mailbox loop', () => {
             reason: 'no ready marker appeared in the guest inbox',
         });
         expect(await fs.exists(staged.paths.resultFile)).toBe(false);
+    });
+
+    it('refreshes the idle identity until a desktop that was initially locked becomes usable', async () => {
+        const staged = await stageGuest({
+            job: buildJob({tests: ['WIN-SAVE-01']}),
+            writeReadyMarker: false,
+        });
+        await fs.remove(staged.paths.readyMarkerFile);
+        let probeCalls = 0;
+        const exec: IGuestCommandRunner = {run: (command, args) => {
+            if (args.some(argument => argument.endsWith('probe-identity.ps1'))) {
+                probeCalls += 1;
+                return Promise.resolve({
+                    exitCode: 0,
+                    stdout: JSON.stringify(probePayload({logonUiPresent: probeCalls === 1})),
+                    stderr: '',
+                });
+            }
+            if (args.some(argument => argument.endsWith('install-nsis-per-user.ps1'))) {
+                return Promise.resolve({
+                    exitCode: 0,
+                    stdout: JSON.stringify({installed: true}),
+                    stderr: '',
+                });
+            }
+            return Promise.reject(new Error(`unexpected command ${command} ${args.join(' ')}`));
+        }};
+        const originalListNames = fs.listNames;
+        let listCalls = 0;
+        const delayedReadyFs = {
+            ...fs,
+            listNames: async (directoryPath: string) => {
+                listCalls += 1;
+                if (listCalls === 2) {
+                    await fs.writeText(staged.paths.readyMarkerFile, '');
+                }
+                return originalListNames(directoryPath);
+            },
+        };
+
+        const summary = await runGuestWorker({
+            fs: delayedReadyFs,
+            exec,
+            clock: stubClock(),
+            paths: staged.layout,
+            adapters: refusingAdapters,
+            env: { EVB_WINDOWS_TEST_APP_EXECUTABLE: staged.executablePath },
+            caseDefinitions: [passingCase('WIN-SAVE-01', [])],
+            waitForJobMs: 5_000,
+            pollIntervalMs: 10,
+            heartbeatIntervalMs: 0,
+        });
+
+        expect(probeCalls).toBeGreaterThan(1);
+        expect(summary.result?.outcome).toBe('passed');
+        expect(summary.result?.worker.interactive).toBe(true);
+    });
+
+    it('throttles idle identity probes to the heartbeat interval', async () => {
+        const staged = await stageGuest({writeReadyMarker: false});
+        let probeCalls = 0;
+        const summary = await runGuestWorker({
+            fs,
+            exec: stubExec(probePayload(), () => undefined, () => {
+                probeCalls += 1;
+            }),
+            clock: stubClock(),
+            paths: staged.layout,
+            adapters: refusingAdapters,
+            env: {EVB_WINDOWS_TEST_APP_EXECUTABLE: staged.executablePath},
+            waitForJobMs: 50,
+            pollIntervalMs: 10,
+            heartbeatIntervalMs: 20,
+        });
+
+        expect(summary.result).toBeNull();
+        expect(probeCalls).toBeGreaterThan(1);
+        expect(probeCalls).toBeLessThanOrEqual(3);
     });
 
     it('writes a schema-valid infrastructure-failed result when the job is rejected', async () => {
@@ -326,9 +417,12 @@ describe('guest worker mailbox loop', () => {
 
     it('refuses a locked session and an input desktop that is not Default (I9)', async () => {
         const staged = await stageGuest();
+        let installCalls = 0;
         const locked = await runGuestWorker({
             fs,
-            exec: stubExec(probePayload({ logonUiPresent: true })),
+            exec: stubExec(probePayload({logonUiPresent: true}), () => {
+                installCalls += 1;
+            }),
             clock: stubClock(),
             paths: staged.layout,
             adapters: refusingAdapters,
@@ -337,6 +431,7 @@ describe('guest worker mailbox loop', () => {
         });
 
         expect(locked.reason).toContain('locked');
+        expect(installCalls).toBe(0);
     });
 
     it('refuses an installed executable that is not the expected architecture', async () => {
@@ -419,9 +514,14 @@ describe('guest worker mailbox loop', () => {
 
         const heartbeat: unknown = JSON.parse(await fs.readText(staged.layout.heartbeatFile));
         expect(heartbeat).toMatchObject({
-            pid: 9_876,
+            schemaVersion: WINDOWS_TEST_SCHEMA_VERSION,
             bootId,
-            runId,
+            guestTestMarker,
+            locked: false,
+            worker: {
+                workerPid: 4321,
+                workerStartTime: '2026-09-04T12:00:00.0000000Z',
+            },
             lastState: 'complete',
         });
     });

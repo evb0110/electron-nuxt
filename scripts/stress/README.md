@@ -17,7 +17,7 @@ pnpm run stress -- --list                       # scenarios, host profiles, fixt
 pnpm run stress:fixtures                        # generate fixtures into .devkit/stress/fixtures
 pnpm run stress -- --dry-run --profile slow-a   # resolve the plan without Electron
 pnpm run stress -- --kind deterministic --profile slow-a
-pnpm run stress -- --scenario op-explore-many-pages --model claude-sonnet-5
+pnpm run stress -- --scenario op-explore-many-pages --operator external
 pnpm run stress -- --calibrate-only --profile slow-a
 pnpm run stress -- --kind deterministic --update-baseline
 pnpm run stress:replay -- --actions .devkit/stress/runs/<run-id>/op-tab-juggle/actions.jsonl
@@ -29,9 +29,32 @@ the unit tests under `tests/unit/scripts/stress` drive the whole CLI with a
 mocked Electron session and mocked model responses.
 
 `pnpm run stress` builds the Electron main bundle first, exactly like the E2E
-lane. Operator scenarios need `ANTHROPIC_API_KEY` in the environment. The key
-never reaches a file; a missing key fails before Electron starts unless
-`--dry-run` is set.
+lane. Operator scenarios default to `--operator external`. The existing agent
+uses its installed computer-use tools. The runner makes no model API calls and
+needs no API key. It does not select or launch a model for you.
+
+Run the command as a background terminal task so the agent can operate the app
+while the runner waits. Each `EXTERNAL OPERATOR READY` line names an
+`operator-request.json`. Read its task card, resolve the exact session app,
+perform the steps with computer use, then atomically write the requested JSON
+report. The task card supplies the report shape, unique request ID, file paths,
+PID, CDP endpoint and deadline. Repeat for each scenario until the runner exits.
+The runner owns the visible session, sampling, host profile and teardown.
+
+A missing, malformed, stale or blocked report fails the scenario. `app_broken`
+is an application failure. Only a completed report plus passing oracles counts
+as a pass. The report is operator testimony, not independent proof that every
+requested interaction occurred. A completed report must reference a screenshot and an action log. The runner
+checks that every evidence path names a nonempty regular file inside the
+scenario directory. It cannot verify the truth of the reported actions.
+Agent turns, actions and subscription usage are not measured by the runner.
+Direct computer-use actions cannot be replayed by `stress:replay`.
+
+The optional `--operator pixel` and `--operator semantic` modes explicitly use
+the paid Anthropic API and require `ANTHROPIC_API_KEY`. Use them only when that
+separate API workflow is intended. A missing key fails before Electron starts.
+See [the operator instructions](../../docs/stress-operator-runbook.md) for the
+complete no-key campaign.
 
 ## Host profiles
 
@@ -58,7 +81,8 @@ open fixtures by path, jump pages, fire wheel bursts, run viewer commands,
 cycle tabs, split the view, add free-text notes, save, search, force garbage
 collection and wait. Each step has a hard timeout and records its duration.
 
-Operator scenarios pair a fixture set with a task card. The pixel profile gives
+Operator scenarios pair a fixture set with a task card. External mode hands it
+to the current agent. The optional API pixel profile gives
 the model the Anthropic computer toolset and executes every action through
 Puppeteer over the Chrome DevTools Protocol. The semantic profile gives a model
 without computer use a small set of JSON tools (`observe`, `click`,
@@ -66,11 +90,14 @@ without computer use a small set of JSON tools (`observe`, `click`,
 collected from the DOM. Both profiles share `open_document`, `wait_for_idle`,
 `app_state` and `report`.
 
-Guards per scenario: 40 turns, 2.50 USD, 12 minutes, 4 tool calls per turn,
+API guards per scenario: 40 turns, 2.50 USD, 12 minutes, 4 tool calls per turn,
 and a freeze halt once five screenshots in a row, each taken after a
 state-changing action, are identical (the third already produces a `ui-frozen`
 finding). Guards per run: 40 USD and 3 hours. Unknown model prices disable the
-cost guards and say so in the summary.
+cost guards and say so in the summary. External mode enforces the scenario
+deadline and watches for renderer crashes while the shared sampler records
+responsiveness and memory. It does not enforce the outer agent's turn or cost
+budget, or the API driver's screenshot freeze detector.
 
 ## Fixtures
 
@@ -92,7 +119,10 @@ touched.
     manifest.json   scenario, profile, fixtures, working copies
     metrics.jsonl   process RSS, JS heap, heartbeat gaps, long tasks, frame gaps
     result.json     steps, findings, operator report
-    actions.jsonl   operator tool calls with usage (operator scenarios)
+    operator-request.json  external session handoff, marked closed afterward
+    operator-report-<id>.json  external agent report
+    task-card.txt   scenario instructions and exact session target
+    actions.jsonl   API operator tool calls with usage
     screenshots/    the operator's screenshots (operator scenarios)
     working/        copies of fixtures the scenario may modify
 ```
@@ -121,7 +151,7 @@ numbers; the runner skips the update and exits 1 when the run verdict is not
 
 ## Replay
 
-`stress:replay` reads an operator `actions.jsonl`, replays the executed tool
+`stress:replay` reads an API operator `actions.jsonl`, replays the executed tool
 calls in order without a model, and reports the first step whose app-state
 hash diverges from the recording. Use it to turn an operator finding into a
 deterministic reproduction before filing it.

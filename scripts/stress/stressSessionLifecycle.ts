@@ -6,7 +6,10 @@ import {
 } from '@scripts/electron-run/electronRunProcessTree';
 import { getSessionInfo } from '@scripts/electron-run/electronRunSessionArtifacts';
 import { sessionDir } from '@scripts/electron-run/electronRunSessionPaths';
-import { startElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import {
+    startElectronE2ESession,
+    startHostVisibleElectronE2ESession,
+} from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
 import { applyStressHostProfile } from '@scripts/stress/applyStressHostProfile';
 import type { IAppliedStressHostProfile } from '@scripts/stress/applyStressHostProfile';
@@ -39,10 +42,11 @@ export function buildStressSessionName(scenarioId: string) {
  * arguments, and a fresh user-data dir keeps tab-restore state from one
  * scenario out of the next.
  */
-export async function startStressSession(scenarioId: string, profile: IStressHostProfile, log: (line: string) => void): Promise<IStressSessionHandle> {
+export async function startStressSession(scenarioId: string, profile: IStressHostProfile, log: (line: string) => void, visible = false): Promise<IStressSessionHandle> {
     const name = buildStressSessionName(scenarioId);
     log(`starting Electron session ${name} with profile ${profile.id}`);
-    const session = await startElectronE2ESession(name, {
+    const startSession = visible ? startHostVisibleElectronE2ESession : startElectronE2ESession;
+    const session = await startSession(name, {
         clean: true,
         extraEnv: buildStressProfileSessionEnv(profile),
     });

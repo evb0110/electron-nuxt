@@ -21,7 +21,10 @@ import type * as TStressCalibration from '@scripts/stress/stressCalibration';
 import type * as TStressFixtures from '@scripts/stress/stressFixtures';
 import type * as TStressOracles from '@scripts/stress/stressOracles';
 import type * as TStressReport from '@scripts/stress/stressReport';
-import { STRESS_SCENARIOS } from '@scripts/stress/stressScenarioRegistry';
+import {
+    DEFAULT_STRESS_RUN_BUDGET,
+    STRESS_SCENARIOS,
+} from '@scripts/stress/stressScenarioRegistry';
 import type {
     IStressBaseline,
     IStressCalibrationRecord,
@@ -42,6 +45,7 @@ const mocks = vi.hoisted(() => ({
     listLeakedPdfWorkDirs: vi.fn(async () => []),
     runQpdfIntegrityCheck: vi.fn(),
     runStressOperatorScenario: vi.fn(),
+    runExternalStressOperator: vi.fn(),
     stressBaselinePath: vi.fn(),
 }));
 
@@ -67,6 +71,7 @@ vi.mock('@scripts/stress/stressOracles', async importOriginal => ({
     listLeakedPdfWorkDirs: mocks.listLeakedPdfWorkDirs,
     runQpdfIntegrityCheck: mocks.runQpdfIntegrityCheck,
 }));
+vi.mock('@scripts/stress/runExternalStressOperator', () => ({runExternalStressOperator: mocks.runExternalStressOperator}));
 vi.mock('@scripts/stress/runStressOperatorScenario', () => ({runStressOperatorScenario: mocks.runStressOperatorScenario}));
 vi.mock('@scripts/stress/stressReport', async importOriginal => ({
     ...await importOriginal<typeof TStressReport>(),
@@ -214,6 +219,8 @@ describe('runStress main', () => {
             actionRecords: [],
             artifacts: {},
         });
+        mocks.runExternalStressOperator.mockImplementation(mocks.runStressOperatorScenario);
+        mocks.collectStressAppState.mockReset().mockResolvedValue(null);
         mocks.stressBaselinePath.mockReturnValue(baselinePath);
     });
 
@@ -227,6 +234,7 @@ describe('runStress main', () => {
                 process.off(signal, listener);
             }
         }
+        vi.useRealTimers();
         vi.unstubAllEnvs();
         vi.restoreAllMocks();
         await rm(workDir, {
@@ -283,6 +291,8 @@ describe('runStress main', () => {
         await expect(runStress([
             '--scenario',
             operatorScenario.id,
+            '--operator',
+            'pixel',
             '--model',
             'claude-haiku-4-5-20251001',
         ])).rejects.toThrow('no computer-use support');
@@ -290,6 +300,8 @@ describe('runStress main', () => {
         await expect(runStress([
             '--scenario',
             operatorScenario.id,
+            '--operator',
+            'pixel',
         ])).rejects.toThrow('ANTHROPIC_API_KEY is not set');
     });
 
@@ -303,6 +315,8 @@ describe('runStress main', () => {
         ]);
 
         expect(code).toBe(0);
+        expect(process.listenerCount('SIGINT')).toBe(signalListenerCounts.SIGINT);
+        expect(process.listenerCount('SIGTERM')).toBe(signalListenerCounts.SIGTERM);
         const run = await readRun();
         expect(run.verdict).toBe('passed');
         expect(run.calibration?.profileId).toBe('baseline');
@@ -323,9 +337,11 @@ describe('runStress main', () => {
         expect(Object.keys(baseline.scenarios)).toEqual([WORKING_COPY_SCENARIO]);
     });
 
-    it('runs an operator scenario through the driver and records its report', async () => {
+    it('runs an API operator scenario through the driver and records its report', async () => {
         vi.stubEnv('ANTHROPIC_API_KEY', 'test-key');
         const code = await runStress([
+            '--operator',
+            'pixel',
             '--scenario',
             operatorScenario.id,
             '--out',
@@ -337,6 +353,120 @@ describe('runStress main', () => {
         const run = await readRun();
         expect(run.scenarios[0]?.operator?.report?.outcome).toBe('completed');
         expect(run.totals.costUsd).toBeCloseTo(0.05);
+    });
+
+    it.each([
+        'completed',
+        'blocked',
+        'missing',
+    ] as const)('runs the default external operator without a key and fails closed for %s', async outcome => {
+        vi.stubEnv('ANTHROPIC_API_KEY', '');
+        mocks.runExternalStressOperator.mockResolvedValue({
+            turns: 0,
+            actions: 0,
+            costUsd: null,
+            report: outcome === 'missing' ? null : {
+                outcome,
+                stepsDone: ['opened file'],
+                problem: outcome === 'blocked' ? 'cannot operate' : null,
+                slowestAction: null,
+                finalPage: 1,
+            },
+            stopReason: outcome === 'missing' ? 'external operator deadline exceeded' : `report: ${outcome}`,
+            frozenScreenshotStreak: 0,
+            actionRecords: [],
+            artifacts: {},
+        });
+        expect(await runStress([
+            '--scenario',
+            operatorScenario.id,
+            '--out',
+            runDir,
+        ])).toBe(outcome === 'completed' ? 0 : 1);
+        expect(mocks.runStressOperatorScenario).not.toHaveBeenCalled();
+        expect(mocks.startStressSession).toHaveBeenLastCalledWith(operatorScenario.id, expect.anything(), expect.any(Function), true);
+        const run = await readRun();
+        expect(run.scenarios[0]?.status).toBe(outcome === 'completed' ? 'passed' : 'infra-failed');
+        expect(run.scenarios[0]?.operator?.model).toBe('external-agent');
+    });
+
+    it('classifies a renderer crash as an app failure even when the external operator cannot report', async () => {
+        vi.stubEnv('ANTHROPIC_API_KEY', '');
+        const sampler = await mocks.startStressMetricsSampler();
+        sampler.stop.mockResolvedValue({
+            ...metricsSummary(),
+            rendererCrashed: true,
+            crashReason: 'crashed',
+        });
+        mocks.runExternalStressOperator.mockResolvedValue({
+            turns: 0,
+            actions: 0,
+            costUsd: null,
+            report: null,
+            stopReason: 'renderer crashed',
+            frozenScreenshotStreak: 0,
+            actionRecords: [],
+            artifacts: {},
+        });
+        expect(await runStress([
+            '--scenario',
+            operatorScenario.id,
+            '--out',
+            runDir,
+        ])).toBe(1);
+        const result = (await readRun()).scenarios[0];
+        expect(result?.status).toBe('failed');
+        expect(result?.infraError).toBeNull();
+        expect(result?.findings.some(finding => finding.oracle === 'renderer-crash')).toBe(true);
+    });
+
+    it('caps an external scenario to the whole-run time remaining after calibration', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const startedAt = Date.now();
+        const stop = vi.fn(async () => ({ leakedPids: [] }));
+        mocks.startStressSession.mockImplementation(async () => {
+            vi.setSystemTime(startedAt + DEFAULT_STRESS_RUN_BUDGET.deadlineMs - 100);
+            return {
+                ...createHandle(),
+                stop,
+            };
+        });
+        mocks.runExternalStressOperator.mockImplementation(() => new Promise<never>(() => {}));
+        expect(await runStress([
+            '--scenario',
+            operatorScenario.id,
+            '--out',
+            runDir,
+        ])).toBe(1);
+        expect(mocks.runExternalStressOperator).toHaveBeenCalledWith(expect.objectContaining({
+            deadlineAt: startedAt + DEFAULT_STRESS_RUN_BUDGET.deadlineMs,
+            budgets: expect.objectContaining({ deadlineMs: 100 }),
+        }));
+        expect(stop).toHaveBeenCalledTimes(2);
+        expect((await readRun()).scenarios[0]?.infraError).toContain('timed out');
+    });
+
+    it('still closes the session when the final renderer state read hangs', async () => {
+        vi.useFakeTimers({ toFake: ['Date'] });
+        const startedAt = Date.now();
+        const stop = vi.fn(async () => ({ leakedPids: [] }));
+        mocks.startStressSession.mockImplementation(async () => {
+            vi.setSystemTime(startedAt + DEFAULT_STRESS_RUN_BUDGET.deadlineMs - 20);
+            return {
+                ...createHandle(),
+                stop,
+            };
+        });
+        mocks.collectStressAppState.mockImplementationOnce(() => new Promise<never>(() => {}));
+        await runStress([
+            '--scenario',
+            operatorScenario.id,
+            '--out',
+            runDir,
+        ]);
+        expect(mocks.collectStressAppState).toHaveBeenCalledOnce();
+        expect(stop).toHaveBeenCalledTimes(2);
+        expect((await readRun()).scenarios).toHaveLength(1);
     });
 
     it('stops before scenarios when calibration cannot complete', async () => {

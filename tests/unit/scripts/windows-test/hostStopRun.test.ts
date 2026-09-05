@@ -19,7 +19,10 @@ import {
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
 import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
 import { requestWindowsTestStop } from '@scripts/windows-test/host/stopRun';
-import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
+import type {
+    IUtmVmListEntry,
+    IUtmctlClient,
+} from '@scripts/windows-test/host/utmctlClient';
 
 const GOLDEN_VM_ID = '11111111-2222-4333-8444-555555555555';
 const TEST_VM_ID = '22222222-3333-4444-8555-666666666666';
@@ -29,13 +32,21 @@ const RUN_ID = '20260904T120000Z-0123456789ab';
 const LIVE_PID = 4_242;
 const DEAD_PID = 5_555;
 const LIVE_START_TIME = 'Fri Sep  4 12:00:00 2026';
+const CLONE_NAME = `evb-win-test-${RUN_ID}`;
 
-function createFakeUtmctl(options: {statusAfterStop?: string} = {}) {
+function createFakeUtmctl(options: {
+    statusAfterStop?: string;
+    registered?: IUtmVmListEntry[];
+} = {}) {
     const calls: string[] = [];
     const client: IUtmctlClient & {calls: string[]} = {
         calls,
         version: () => Promise.resolve('utmctl version 4.7.5 (118)'),
-        list: () => Promise.resolve([]),
+        list: () => Promise.resolve(options.registered ?? [{
+            uuid: CLONE_VM_ID,
+            status: 'stopped',
+            name: CLONE_NAME,
+        }]),
         status: (vmId) => {
             calls.push(`status ${vmId}`);
             return Promise.resolve(options.statusAfterStop ?? 'stopped');
@@ -135,7 +146,11 @@ async function createStopHarness(options: IHarnessOptions = {}) {
                 sleep: () => Promise.resolve(),
             },
             nowIso: () => '2026-09-04T12:30:00.000Z',
-            identityGuard: {resolvePath: target => Promise.resolve(target)},
+            identityGuard: {
+                resolvePath: target => Promise.resolve(target),
+                readVmId: () => Promise.resolve(CLONE_VM_ID),
+                readVmName: () => Promise.resolve(CLONE_NAME),
+            },
         }),
     };
 }
@@ -245,6 +260,42 @@ describe('windows test stop request', () => {
 
         expect(result.exitCode).toBe(0);
         expect(harness.utmctl.calls).toContain(`stop force ${CLONE_VM_ID}`);
+    });
+
+    it('refuses stale recovery when the registered UUID has another name', async () => {
+        const harness = await createStopHarness({
+            lease: lease(),
+            utmctl: createFakeUtmctl({registered: [{
+                uuid: CLONE_VM_ID,
+                status: 'stopped',
+                name: 'unrelated-vm',
+            }]}),
+        });
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(3);
+        expect(result.messages.join(' ')).toContain('registered UUID has an unexpected name');
+        expect(harness.utmctl.calls).toEqual([]);
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
+    });
+
+    it('refuses stale recovery when the expected run name belongs to another UUID', async () => {
+        const harness = await createStopHarness({
+            lease: lease(),
+            utmctl: createFakeUtmctl({registered: [{
+                uuid: TEST_VM_ID,
+                status: 'stopped',
+                name: CLONE_NAME,
+            }]}),
+        });
+
+        const result = await harness.stop();
+
+        expect(result.exitCode).toBe(3);
+        expect(result.messages.join(' ')).toContain('lease UUID is not registered');
+        expect(harness.utmctl.calls).toEqual([]);
+        expect(await exists(harness.layout.leaseFile)).toBe(true);
     });
 
     it('refuses to stop a personal VM named by a stale lease', async () => {

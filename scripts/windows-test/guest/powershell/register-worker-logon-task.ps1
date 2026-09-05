@@ -17,8 +17,8 @@
     Usage (elevated PowerShell on the image being provisioned):
         powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
             -File register-worker-logon-task.ps1 `
-            -UserName EVB\tester -NodeExecutable C:\evb-test\node\node.exe `
-            -WorkerScript C:\evb-test\worker\guestWorker.cjs -GuestRoot C:\evb-test
+            -UserName EVB\tester -NodeExecutable C:\EVBViewerTests\node\node.exe `
+            -WorkerScript C:\EVBViewerTests\worker\guestWorker.cjs -GuestRoot C:\EVBViewerTests
 
     Exit codes: 0 success, 2 missing input, 3 registration failed.
 #>
@@ -33,7 +33,7 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$WorkerScript,
 
-    [string]$GuestRoot = 'C:\evb-test',
+    [string]$GuestRoot = 'C:\EVBViewerTests',
 
     [string]$TaskName = 'EVB Windows Test Worker',
 

@@ -10,6 +10,8 @@ import {
 } from '@scripts/windows-test/cli/windowsTestCliIo';
 import type { IWindowsTestCliIo } from '@scripts/windows-test/cli/windowsTestCliIo';
 import type { IWindowsTestDoctorReport } from '@scripts/windows-test/host/doctor';
+import { resolveWindowsTestLauncher } from '@scripts/windows-test/host/doctor';
+import { createProcessCommandRunner } from '@scripts/windows-test/host/utmctlClient';
 import { runWindowsTestDoctorOnHost } from '@scripts/windows-test/host/hostRunner';
 import type { IWindowsTestDoctorHostOptions } from '@scripts/windows-test/host/hostRunner';
 
@@ -42,7 +44,7 @@ export async function runWindowsTestDoctorCli(
     const report = await execute({
         dataRoot: parsed.args.dataRoot,
         env,
-        launcherPath: process.argv[1] ?? process.execPath,
+        launcherPath: await resolveWindowsTestLauncher(env, createProcessCommandRunner()),
     });
     if (parsed.args.json) {
         io.write(JSON.stringify(report, null, 4));

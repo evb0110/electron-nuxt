@@ -49,8 +49,19 @@ export const GUEST_POWERSHELL_COMMAND = [
     'Bypass',
 ] as const;
 
+// The path is supplied over stdin, never interpolated into the command. This
+// keeps directory creation safe for every guest path the host derives from a
+// run id or a prepared fixture name.
+const GUEST_MAKE_DIRECTORY_COMMAND = [
+    '$ErrorActionPreference = \'Stop\'',
+    '$path = [Console]::In.ReadToEnd().Trim()',
+    'if ([string]::IsNullOrWhiteSpace($path)) { exit 2 }',
+    'New-Item -ItemType Directory -LiteralPath $path -Force | Out-Null',
+].join('; ');
+
 export interface IWindowsTestGuestChannel {
     ping(vmId: string, timeoutMs: number): Promise<boolean>;
+    ensureDirectory(vmId: string, guestPath: string, timeoutMs: number): Promise<void>;
     readHeartbeat(vmId: string, timeoutMs: number): Promise<IWindowsTestWorkerHeartbeat | null>;
     stageFile(vmId: string, hostPath: string, guestPath: string, timeoutMs: number): Promise<void>;
     stageText(vmId: string, contents: string, guestPath: string, timeoutMs: number): Promise<void>;
@@ -95,6 +106,19 @@ export function createUtmctlGuestChannel(options: {
             // Transport health only: a guest-ready probe never implies that any
             // test work succeeded.
             return outcome.transportFailure === null && outcome.exitCode === 0;
+        },
+        ensureDirectory: async (vmId, guestPath, timeoutMs) => {
+            const outcome = await options.client.exec(vmId, [
+                ...GUEST_POWERSHELL_COMMAND,
+                '-Command',
+                GUEST_MAKE_DIRECTORY_COMMAND,
+            ], {
+                timeoutMs,
+                input: `${guestPath}\n`,
+            });
+            if (outcome.transportFailure !== null || outcome.exitCode !== 0) {
+                throw new Error(`Could not create guest directory ${guestPath}: ${outcome.stderr.trim()}`);
+            }
         },
         readHeartbeat: async (vmId, timeoutMs) => {
             const text = await readGuestText(vmId, windowsTestGuestLayout.heartbeatFile, timeoutMs);

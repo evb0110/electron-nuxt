@@ -20,10 +20,27 @@ describe('parseStressCliOptions', () => {
         const options = parseStressCliOptions([]);
         expect(options.profile).toBe('baseline');
         expect(options.model).toBe(DEFAULT_STRESS_OPERATOR_MODEL);
-        expect(options.operatorProfile).toBe('pixel');
+        expect(options.operatorProfile).toBe('external');
         expect(options.scenarioIds).toEqual([]);
         expect(options.maxRunCostUsd).toBeNull();
         expect(options.dryRun).toBe(false);
+    });
+
+    it('accepts the leading separator forwarded by pnpm run for both CLIs', () => {
+        expect(parseStressCliOptions([
+            '--',
+            '--kind',
+            'operator',
+        ]).kind).toBe('operator');
+        expect(parseStressReplayCliOptions([
+            '--',
+            '--actions',
+            '/run/actions.jsonl',
+        ]).actionsPath).toBe('/run/actions.jsonl');
+        expect(() => parseStressCliOptions([
+            '--list',
+            '--',
+        ])).toThrow('unknown option');
     });
 
     it('accepts repeated and comma-separated values plus --flag=value', () => {

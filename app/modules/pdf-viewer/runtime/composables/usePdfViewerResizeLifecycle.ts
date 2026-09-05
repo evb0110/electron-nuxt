@@ -32,7 +32,7 @@ export interface IBuildResizeAnchorContextOptions {
 
 interface IUsePdfViewerResizeLifecycleOptions {
     submitResizeIntent: (anchor?: IPdfSemanticAnchor | null) => void;
-    applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => unknown) | undefined;
+    applyResizeAnchorPreview?: ((anchor?: IPdfSemanticAnchor | null) => boolean | null) | undefined;
     captureViewportAnchor?: (() => IPdfSemanticAnchor | null) | undefined;
     viewerContainer: Ref<HTMLElement | null>;
     isLoading: Ref<boolean>;

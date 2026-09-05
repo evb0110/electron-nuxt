@@ -112,6 +112,11 @@ describe('createPdfSearchMatchScroller', () => {
                     wholeWord: true,
                     useRegex: false,
                 },
+                matches: [
+                    {start: 100},
+                    {start: 200},
+                    {start: 300},
+                ],
             }),
             scrollToCurrentMatch: () => false,
             scheduleRenderForSinglePage: vi.fn(),
@@ -126,7 +131,45 @@ describe('createPdfSearchMatchScroller', () => {
             matchIndex: 12,
             searchQuery: 'needle',
             searchOptions: {wholeWord: true},
+            expectedPageMatchCount: 3,
         }});
+    });
+
+    it('omits expected page match count for reversed native ranges', () => {
+        const revealSearchNavigationTarget = vi.fn();
+        const scroller = createPdfSearchMatchScroller({
+            getContainer: () => null,
+            getCurrentSearchMatch: () => ({
+                pageIndex: 0,
+                pageMatchIndex: 0,
+                matchIndex: 12,
+                startOffset: 42,
+                endOffset: 48,
+                excerpt: {
+                    prefix: true,
+                    suffix: true,
+                    before: 'before ',
+                    match: 'needle',
+                    after: ' after',
+                },
+            }),
+            getCurrentSearchPageMatches: () => ({
+                searchQuery: 'needle',
+                matches: [
+                    {start: 100},
+                    {start: 20},
+                ],
+            }),
+            scrollToCurrentMatch: () => false,
+            scheduleRenderForSinglePage: vi.fn(),
+            revealSearchNavigationTarget,
+        });
+
+        scroller.requestScrollToMatch(0);
+
+        const textAnchor = revealSearchNavigationTarget.mock.calls[0]?.[1]?.textAnchor;
+        expect(textAnchor).toBeDefined();
+        expect(textAnchor).not.toHaveProperty('expectedPageMatchCount');
     });
 
     it('uses the authority-compatible page fallback', () => {

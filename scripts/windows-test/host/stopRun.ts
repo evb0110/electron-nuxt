@@ -23,6 +23,7 @@ import { WINDOWS_TEST_CLONE_NAME_PREFIX } from '@scripts/windows-test/host/runCo
 import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
 import { utmBundlePathForName } from '@scripts/windows-test/images/vmBundleLocator';
 import {
+    WindowsTestIdentityGuardError,
     assertDestructiveTarget,
     destructivePolicyFromConfig,
     withOwnedCloneAllowlisted,
@@ -60,6 +61,28 @@ async function stopOwnedClone(
         destructivePolicyFromConfig(dependencies.config),
         vmId,
     );
+    const registered = await dependencies.utmctl.list();
+    const normalizedVmId = vmId.toLowerCase();
+    const registeredWithVmId = registered.filter(entry => entry.uuid.toLowerCase() === normalizedVmId);
+    const registeredVm = registeredWithVmId[0];
+    const registeredWithExpectedName = registered.filter(entry => entry.name === cloneName);
+    if (registeredVm === undefined
+        || registeredVm.name !== cloneName
+        || registeredWithVmId.length !== 1
+        || registeredWithExpectedName.length !== 1
+        || registeredWithExpectedName[0] !== registeredVm) {
+        const detail = registeredVm === undefined
+            ? 'the lease UUID is not registered'
+            : registeredVm.name !== cloneName
+                ? 'the registered UUID has an unexpected name'
+                : registeredWithVmId.length !== 1
+                    ? 'the registered UUID is ambiguous'
+                    : 'the expected run name is ambiguous';
+        throw new WindowsTestIdentityGuardError(
+            'registered-vm-mismatch',
+            `Refusing stale-owner recovery: ${detail}.`,
+        );
+    }
     // The guard runs before the stop so a lease that names a personal machine
     // can never be acted upon (invariant I1).
     await assertDestructiveTarget(

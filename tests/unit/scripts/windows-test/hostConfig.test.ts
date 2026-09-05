@@ -53,6 +53,9 @@ function validConfig(overrides: Record<string, unknown> = {}) {
 }
 
 describe('windows test host configuration', () => {
+    it('can register an unqualified host without claiming launcher consent', () => {
+        expect(parseWindowsTestHostConfig(validConfig({qualifiedLaunchers: []}), CONFIG_FILE).qualifiedLaunchers).toEqual([]);
+    });
     it('accepts a complete configuration and normalizes UUID case', () => {
         const config = parseWindowsTestHostConfig(
             validConfig({
@@ -94,9 +97,16 @@ describe('windows test host configuration', () => {
         )).toThrow(/field "retention\.minFreeBytes" must be a non-negative integer/u);
     });
 
-    it('refuses an empty allowlist, non-UUID entries and relative paths', () => {
-        expect(() => parseWindowsTestHostConfig(validConfig({allowedTestVmIds: []}), CONFIG_FILE))
-            .toThrow(/must list at least one allowlisted test VM UUID/u);
+    it('allows a fresh host with no disposable clones yet', () => {
+        expect(parseWindowsTestHostConfig(validConfig({allowedTestVmIds: []}), CONFIG_FILE).allowedTestVmIds).toEqual([]);
+    });
+
+    it('refuses a golden image in the destructive allowlist', () => {
+        expect(() => parseWindowsTestHostConfig(validConfig({allowedTestVmIds: [GOLDEN_VM_ID]}), CONFIG_FILE))
+            .toThrow(/must not include the golden image/u);
+    });
+
+    it('refuses non-UUID entries and relative paths', () => {
         expect(() => parseWindowsTestHostConfig(validConfig({allowedTestVmIds: ['Windows 11 Test']}), CONFIG_FILE))
             .toThrow(/are not VM UUIDs/u);
         expect(() => parseWindowsTestHostConfig(validConfig({testImageRoot: 'images'}), CONFIG_FILE))

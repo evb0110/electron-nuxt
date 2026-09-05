@@ -16,6 +16,7 @@ import type {
     ICommandRunOptions,
     ICommandRunner,
 } from '@scripts/windows-test/host/utmctlClient';
+import { createUtmctlGuestChannel } from '@scripts/windows-test/host/guestChannel';
 
 const TEST_VM_ID = '11111111-2222-4333-8444-555555555555';
 
@@ -230,5 +231,28 @@ describe('utmctl client commands', () => {
         ]);
         expect(calls[0]?.options.input).toBe('{}');
         expect(calls[1]?.options.stdoutFilePath).toBe('/tmp/result.json');
+    });
+
+    it('creates run-scoped guest directories with the path supplied as stdin data', async () => {
+        const {
+            calls,
+            runner,
+        } = fakeRunner([]);
+        const client = createUtmctlClient({runner});
+        const guest = createUtmctlGuestChannel({
+            client,
+            temporaryFilePath: () => '/tmp/unused-guest-read',
+        });
+
+        await guest.ensureDirectory(
+            TEST_VM_ID,
+            'C:\\EVBViewerTests\\staging\\run-01\\fixtures',
+            1_234,
+        );
+
+        expect(calls[0]?.args).toContain('--input');
+        expect(calls[0]?.args.at(-1)).toContain('New-Item -ItemType Directory -LiteralPath $path -Force');
+        expect(calls[0]?.options.input).toBe('C:\\EVBViewerTests\\staging\\run-01\\fixtures\n');
+        expect(calls[0]?.options.timeoutMs).toBe(1_234);
     });
 });

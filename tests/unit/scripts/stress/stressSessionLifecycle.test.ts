@@ -18,6 +18,7 @@ import {
 
 const mocks = vi.hoisted(() => ({
     startElectronE2ESession: vi.fn(),
+    startHostVisibleElectronE2ESession: vi.fn(),
     getSessionInfo: vi.fn(),
     sessionDir: vi.fn((name: string) => `/sessions/${name}`),
     isProcessAlive: vi.fn(),
@@ -27,7 +28,10 @@ const mocks = vi.hoisted(() => ({
     sweepLeakedSessionProcesses: vi.fn(),
 }));
 
-vi.mock('@tests/e2e/electron/helpers/startElectronE2ESession', () => ({startElectronE2ESession: mocks.startElectronE2ESession}));
+vi.mock('@tests/e2e/electron/helpers/startElectronE2ESession', () => ({
+    startElectronE2ESession: mocks.startElectronE2ESession,
+    startHostVisibleElectronE2ESession: mocks.startHostVisibleElectronE2ESession,
+}));
 vi.mock('@scripts/electron-run/electronRunSessionArtifacts', () => ({getSessionInfo: mocks.getSessionInfo}));
 vi.mock('@scripts/electron-run/electronRunSessionPaths', () => ({sessionDir: mocks.sessionDir}));
 vi.mock('@scripts/electron-run/electronRunProcessTree', () => ({
@@ -96,6 +100,19 @@ describe('startStressSession', () => {
         expect(handle.userDataDir).toBe(join('/sessions/stress-open-xlarge', 'electron-user-data'));
         expect(handle.applied).toBe(applied);
         expect(log).toHaveBeenCalledWith(expect.stringContaining(`electron pid ${ELECTRON_PID}`));
+    });
+
+    it('uses the visible lifecycle only for an external operator', async () => {
+        const session = createSession();
+        const applied = createApplied();
+        mocks.startHostVisibleElectronE2ESession.mockResolvedValue(session);
+        mocks.applyStressHostProfile.mockResolvedValue(applied);
+        const handle = await startStressSession('operator', resolveStressHostProfile('baseline'), vi.fn(), true);
+        expect(mocks.startHostVisibleElectronE2ESession).toHaveBeenCalledOnce();
+        expect(mocks.startElectronE2ESession).not.toHaveBeenCalled();
+        await handle.stop();
+        expect(session.stop).toHaveBeenCalledOnce();
+        expect(applied.release).toHaveBeenCalledOnce();
     });
 
     it('stops the app and kills a surviving Electron when the profile cannot be applied', async () => {

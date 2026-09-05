@@ -17,6 +17,8 @@ export const SOURCE_ISOLATION_ORACLE_VERSION = 'node-crypto-sha256';
 export interface ISourceIsolationExpectation {
     /** The source hash captured before the operation under test. */
     expectedSourceSha256: string;
+    /** Require the operation to replace the source bytes instead of preserving them. */
+    sourceMustChange?: boolean;
     /** Sidecar or journal files that must exist when the operation settles. */
     expectedSidecarFiles?: readonly string[];
     /** Working copies, journals and temp files that must not survive. */
@@ -59,10 +61,11 @@ export async function evaluateSourceIsolation(
             observations: { sourcePath: input.sourcePath },
         });
     }
-    if (actualSourceSha256 !== expectation.expectedSourceSha256) {
-        failures.push(
-            `source hashes to ${actualSourceSha256}, expected ${expectation.expectedSourceSha256}`,
-        );
+    const sourceChanged = actualSourceSha256 !== expectation.expectedSourceSha256;
+    if (expectation.sourceMustChange === true ? !sourceChanged : sourceChanged) {
+        failures.push(expectation.sourceMustChange === true
+            ? `source hash stayed ${actualSourceSha256}, but the operation was expected to replace it`
+            : `source hashes to ${actualSourceSha256}, expected ${expectation.expectedSourceSha256}`);
     }
     const presentSidecars: string[] = [];
     for (const sidecar of expectation.expectedSidecarFiles ?? []) {
@@ -86,10 +89,14 @@ export async function evaluateSourceIsolation(
         oracleVersion: SOURCE_ISOLATION_ORACLE_VERSION,
         status: failures.length === 0 ? 'passed' : 'failed',
         detail: failures.length === 0
-            ? 'The source hash is unchanged and the sidecar and residue expectations hold.'
+            ? expectation.sourceMustChange === true
+                ? 'The source hash changed and the sidecar and residue expectations hold.'
+                : 'The source hash is unchanged and the sidecar and residue expectations hold.'
             : failures.join('; '),
         observations: {
             actualSourceSha256,
+            expectedSourceSha256: expectation.expectedSourceSha256,
+            sourceChanged,
             presentSidecars,
             survivingResidue,
         },

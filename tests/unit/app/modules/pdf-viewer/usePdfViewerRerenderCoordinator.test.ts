@@ -1693,6 +1693,49 @@ describe('usePdfViewerRerenderCoordinator', () => {
     });
 
     it.each([
+        [
+            'deferred',
+            null,
+            false,
+        ],
+        [
+            'unavailable',
+            false,
+            true,
+        ],
+    ] as const)('handles a %s resize preview without changing fallback ownership', async (
+        _outcome,
+        previewOutcome,
+        shouldFallback,
+    ) => {
+        const resizeAnchor = createResizeAnchor(8);
+        const reRenderAllVisiblePages = createReRenderAllVisiblePagesMock();
+        const applyResizeAnchorPreview = vi.fn(() => previewOutcome);
+        const scrollToPage = vi.fn(() => true);
+        const {reRenderVisiblePagesAndSyncCurrentPage} = usePdfViewerRerenderCoordinator(createDeps({
+            reRenderAllVisiblePages,
+            applyResizeAnchorPreview,
+            scrollToPage,
+        }));
+
+        await reRenderVisiblePagesAndSyncCurrentPage({
+            source: 'resize-settle',
+            stabilize: true,
+            resizeAnchor,
+        });
+
+        expect(applyResizeAnchorPreview).toHaveBeenCalledWith(resizeAnchor.semanticAnchor);
+        if (shouldFallback) {
+            expect(scrollToPage).toHaveBeenCalledWith(resizeAnchor.page, {
+                preferExactDom: true,
+                suppressRenderAfterSnap: true,
+            });
+        } else {
+            expect(scrollToPage).not.toHaveBeenCalled();
+        }
+    });
+
+    it.each([
         PDF_RERENDER_SOURCE.ZoomGestureChange,
         PDF_RERENDER_SOURCE.ZoomModeChange,
     ])('preserves the wheel cursor content point through %s raster settlement', async (source) => {

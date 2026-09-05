@@ -26,6 +26,7 @@ interface ICurrentSearchMatch {
 interface ICurrentSearchPageMatches {
     searchQuery: string;
     searchOptions?: ISearchMatchOptions;
+    matches?: ReadonlyArray<{start: number}>;
 }
 
 interface ICurrentSearchMatchMarkerRect {
@@ -69,6 +70,14 @@ interface IPdfSearchMatchScrollerDeps {
 
 function clampRatio(value: number) {
     return Math.min(1, Math.max(0, value));
+}
+
+function arePageMatchesInSearchOrder(pageMatches: ICurrentSearchPageMatches | null) {
+    const matches = pageMatches?.matches;
+    return matches !== undefined && matches.every((match, index) => (
+        index === 0
+        || match.start >= matches[index - 1]!.start
+    ));
 }
 
 function resolveCurrentMatchMarkerRect(
@@ -131,6 +140,9 @@ function resolveCurrentMatchTextAnchor(
         return null;
     }
 
+    const expectedPageMatchCount = arePageMatchesInSearchOrder(pageMatches)
+        ? pageMatches!.matches!.length
+        : undefined;
     return {
         text: excerpt.match,
         ...(excerpt.before ? {prefix: excerpt.before} : {}),
@@ -139,6 +151,7 @@ function resolveCurrentMatchTextAnchor(
         ...(currentMatch.matchIndex === undefined ? {} : {matchIndex: currentMatch.matchIndex}),
         ...(pageMatches?.searchQuery ? {searchQuery: pageMatches.searchQuery} : {}),
         ...(pageMatches?.searchOptions ? {searchOptions: pageMatches.searchOptions} : {}),
+        ...(expectedPageMatchCount === undefined ? {} : {expectedPageMatchCount}),
         searchRange: {
             startOffset,
             endOffset,

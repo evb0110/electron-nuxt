@@ -193,10 +193,50 @@ Closure gates:
 - 2026-09-04: CodeRabbit CLI pass 1 against `main` on the Mac returned 24 findings. Nineteen were applied: `ps` sampling made asynchronous, probe teardown on sampler stop, nullable worker and long-task gaps instead of `-1` sentinels, transcript and action streams closed in a `finally`, the interrupt handler stops whichever session is live, cgroup limits parsed and compared with the declared 1 CPU and 3 GiB, the wheel probe finalises on the same deadline check it reports, `--update-baseline` skipped on a non-passing verdict, baseline durations keep a twenty-sample history with real p50 and p95, a zero baseline p95 regresses on the absolute rule, the tool-call cap interpolated into the system prompt, per-entry error handling for crash reports, a three-state integrity result with an info finding for skipped checks, atomic baseline writes, tolerant `actions.jsonl` parsing, zoom regions clamped to the viewport, session cleanup when a profile fails to apply, the freeze streak counted from one with shared thresholds, and the replay tool reading its input once. Five were declined and are listed under declined proposals. Unit tests cover every applied change.
 - 2026-09-04: CodeRabbit CLI pass 2 against `main` returned 12 findings, none caused by the pass-1 fixes. Ten were applied: the sampler's stop waits at most ten seconds for an in-flight sample, console and page error counts no longer stop at the fifty stored messages, a failed viewport or throttle setup detaches its CDP session, the freeze count in the system prompt comes from the shared constant, `qpdf --check` gets a five-minute timeout, replay records must carry an object `input` and a string-or-null toolset name, session stop logs instead of throwing when a kill fails, the README names which oracles fail a scenario and what slow-b reports on macOS, and the plan separates baseline files from run artifacts. Two repeated pass-1 declines (parser dedup, closing the tab after a failed open) stay declined.
 - 2026-09-05: the first push to `main` (`b310848ce`) failed CI's Quality Gates job on two CI-only checks. The zero-execution coverage tripwire listed five stress files with no executed lines (`applyStressHostProfile`, `replayStress`, `runStress`, `runStressOperatorScenario`, `stressSessionLifecycle`), and the duplicate-code check flagged the two argv loops in `stressCliOptions`. Fix: both CLIs export their entry function (`runStress`, `replayStress`) and only self-invoke when tsx launched the file directly, the argv walk is one helper, and five new unit tests drive the runner, the replay CLI, the operator loop (canned Messages API responses through the injectable client), the session lifecycle, and the CDP profile application with mocked Electron and mocked tool execution. `pnpm run test:coverage` with the tripwire and `pnpm run fallow:dupes` were run locally before the second push.
-- No stress run has executed. Every unchecked gate above waits on one.
+- At the original implementation handoff, no stress run had executed. The 2026-09-05 takeover began the real Mac campaign; qualification still requires the per-package evidence above.
+
+## Existing-agent operator correction, 2026-09-05
+
+The original API-only operator did not match the requested workflow. The
+runner now defaults to `--operator external`: the agent already running in
+Codex or T3 uses its computer-use tools on a visible isolated session. The
+runner publishes an exact session target and task card, samples metrics,
+validates the operator report and evaluates the shared oracles. It makes no
+model API calls. The pixel and semantic API drivers remain explicit options.
+
+External reports carry a fresh request ID and a unique report filename. A
+missing, malformed, stale or blocked report cannot pass. A confirmed renderer
+crash remains an application failure even if the operator cannot report.
+The runner marks the handoff closed after it ends. It cannot measure the
+outer agent's turns, actions or subscription usage, and native computer-use
+actions do not produce an API replay recording. Screenshots and chronological
+operator notes provide the interaction evidence instead.
+
+The documented `pnpm run stress -- ...` command also exposed a CLI defect:
+the package manager forwards the leading separator. Both stress parsers now
+accept it. The run entry point removes its signal listeners when it returns.
+Scenario deadlines include setup and cannot extend beyond the remaining
+whole-run budget. A timed-out deterministic step cancels its loop and skips
+later steps so abandoned input cannot overlap the next action. Operator
+cancellation stops further API requests and tools. Forced-low calibration
+reads the effective app tier from the host bridge, not browser hardware hints.
+The artifact field keeps its legacy name `detectedTier` for compatibility.
+
+Use [the operator runbook](../stress-operator-runbook.md) for the corrected
+campaign, including isolated targeting and per-scenario report submission.
+Unrelated Electron processes and a missing Anthropic key are not blockers for
+this workflow.
 
 ## Closure rule
 
 A package moves to Qualified only when every closure gate links to a run
 directory's `summary.md` and `run.json` recorded here with the git SHA and
 profile. A rerun gets a new run id and never replaces a failed result.
+
+Takeover validation: all 147 stress tests in 21 files pass, scoped scripts
+typechecking and ESLint pass, and the duplicate-code gate passes. Three
+CodeRabbit CLI passes completed; the third followed a new major deadline
+finding in pass two. Review fixes include cancellation and validated screenshot
+and action-log evidence. The Mac baseline and corrected slow-a deterministic
+runs each finished with six passes and three failures. The remaining campaign
+and visible operator acceptance are recorded in the local campaign report.

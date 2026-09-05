@@ -1,12 +1,23 @@
+import type { IElectronE2ESession } from '@tests/e2e/electron/helpers/startElectronE2ESession';
+import type * as TWorkspaceExpose from '@tests/e2e/electron/helpers/workspaceExpose';
 import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     createSeededRandom,
     planRandomPages,
+    runStressDeterministicSteps,
 } from '@scripts/stress/stressDeterministicDriver';
+
+const mocks = vi.hoisted(() => ({ callWorkspaceCommand: vi.fn() }));
+vi.mock('@tests/e2e/electron/helpers/workspaceExpose', async importOriginal => ({
+    ...await importOriginal<typeof TWorkspaceExpose>(),
+    callWorkspaceCommand: mocks.callWorkspaceCommand,
+    waitForWorkspaceToolbarIdle: vi.fn(async () => undefined),
+}));
 
 describe('stress deterministic driver randomness', () => {
     it('replays the same sequence for the same seed', () => {
@@ -34,5 +45,69 @@ describe('stress deterministic driver randomness', () => {
             1,
             1,
         ]);
+    });
+});
+
+describe('stress deterministic deadline cancellation', () => {
+    it('cancels an active idle wait without leaving its timer running', async () => {
+        const controller = new AbortController();
+        const detach = vi.fn(async () => undefined);
+        const session = Object.assign(Object.create(null) as IElectronE2ESession, { page: { createCDPSession: async () => ({ detach }) } });
+        const run = runStressDeterministicSteps([
+            {
+                kind: 'idle',
+                ms: 60_000,
+            },
+            {
+                kind: 'phase',
+                name: 'later',
+            },
+        ], {
+            session,
+            fixtures: new Map(),
+            stepTimeoutMs: 100,
+            signal: controller.signal,
+            log: () => undefined,
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        controller.abort();
+        expect((await run).map(record => record.status)).toEqual([
+            'failed',
+            'skipped',
+        ]);
+        expect(detach).toHaveBeenCalledOnce();
+    });
+
+    it('skips later steps and stops a timed-out command loop before its next action', async () => {
+        let finishCommand = (_result: { called: boolean }) => {};
+        mocks.callWorkspaceCommand.mockImplementation(() => new Promise<{ called: boolean }>(resolve => { finishCommand = resolve; }));
+        const detach = vi.fn(async () => undefined);
+        const session = Object.assign(Object.create(null) as IElectronE2ESession, { page: { createCDPSession: async () => ({ detach }) } });
+        const records = await runStressDeterministicSteps([
+            {
+                kind: 'command',
+                name: 'handleZoomIn',
+                repeat: 2,
+            },
+            {
+                kind: 'phase',
+                name: 'must-not-run',
+            },
+        ], {
+            session,
+            fixtures: new Map(),
+            stepTimeoutMs: 10,
+            log: () => undefined,
+        });
+        expect(records.map(record => record.status)).toEqual([
+            'failed',
+            'skipped',
+        ]);
+        expect(detach).toHaveBeenCalledOnce();
+        finishCommand({ called: true });
+        for (let turn = 0; turn < 5; turn += 1) {
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect(mocks.callWorkspaceCommand).toHaveBeenCalledOnce();
     });
 });

@@ -244,8 +244,7 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
         if (signal.aborted || options.zoomMode.value === 'custom') {
             return;
         }
-        scale.invalidateScaleCache();
-        scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
+        scale.invalidateScaleCache(); scale.computeFitWidthScale(options.viewerContainer.value, {page: pageNumber});
         setupPagePlaceholders();
         await nextTick();
     }
@@ -659,7 +658,8 @@ export const createPdfViewportSession = (options: ICreatePdfViewportSessionOptio
             scale.scaledMargin.value,
             scrollOptions,
         );
-        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber) || singlePageScroll.applyOpeningViewportAnchor(pageNumber)
+        const committed = singlePageScroll.commitCurrentViewportIfSettled(pageNumber)
+            || singlePageScroll.applyOpeningViewportAnchor(pageNumber) === true
             && singlePageScroll.commitCurrentViewportIfSettled(pageNumber);
         logPdfRenderTrace('pdf-reload-viewport-reanchor', {
             pageNumber,

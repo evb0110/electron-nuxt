@@ -2,10 +2,12 @@ import { createHash } from 'node:crypto';
 import {
     mkdir,
     mkdtemp,
+    rm,
     writeFile,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { loadWindowsTestImageManifest } from '@scripts/windows-test/images/imageManifest';
 import {
     describe,
     expect,
@@ -19,6 +21,7 @@ import {
 import {
     createLaunchctlSessionProbe,
     parseUtmctlVersion,
+    resolveWindowsTestLauncher,
     runWindowsTestDoctor,
 } from '@scripts/windows-test/host/doctor';
 import type {
@@ -153,6 +156,36 @@ async function createDoctorHarness(options: IHarnessOptions = {}) {
         ...options.config,
     };
 
+    await mkdir(layout.baselinesDir, { recursive: true });
+    await mkdir(path.join(layout.toolsCacheDir, 'worker'), { recursive: true });
+    await writeFile(path.join(layout.fixturesCacheDir, 'manifest.json'), '{}');
+    await writeFile(path.join(layout.toolsCacheDir, 'worker', 'guestWorker.cjs'), 'worker');
+    await writeFile(path.join(layout.baselinesDir, `${config.goldenImageId}.json`), JSON.stringify({
+        schemaVersion: 1,
+        imageId: config.goldenImageId,
+        vmId: config.goldenVmId,
+        bundlePath: path.join(layout.baselinesDir, 'golden.utm'),
+        createdAt: '2026-09-05T00:00:00Z',
+        windowsBuild: 'test-build',
+        osArch: 'arm64',
+        utmVersion: '4.7.5',
+        qemuVersion: '10.0.2',
+        driverVersions: {},
+        disks: [{
+            diskId: 'system',
+            purpose: 'system',
+            resetPolicy: 'restore-from-baseline',
+        }],
+        guestTestMarker: 'test-marker',
+        qualifiedAt: '2026-09-04T00:00:00Z',
+        qualification: {
+            qualifiedBy: 'unit-test',
+            runnerVersion: 'test',
+            coldResetCycles: 3,
+            notes: 'fixture',
+        },
+    }));
+
     const utmctl = options.utmctl ?? createFakeUtmctl();
     const dependencies: IWindowsTestDoctorDependencies = {
         layout,
@@ -181,6 +214,17 @@ function checkById(report: IWindowsTestDoctorReport, id: string) {
 }
 
 describe('windows test doctor', () => {
+    it('finds the enclosing app through the CLI process ancestry', async () => {
+        const runner: ICommandRunner = { run: async (_command, args) => ({
+            exitCode: 0,
+            stdout: args[1] === '100' ? '200 node\n' : '1 /Applications/T3 Code (Nightly).app/Contents/MacOS/T3 Code (Nightly)\n',
+            stderr: '',
+            timedOut: false,
+            signal: null,
+        }) };
+        expect(await resolveWindowsTestLauncher({}, runner, 100)).toBe('/Applications/T3 Code (Nightly).app');
+        expect(await resolveWindowsTestLauncher({ EVB_WINDOWS_TESTS_LAUNCHER: LAUNCHER }, runner, 100)).toBe(LAUNCHER);
+    });
     it('reports every check green on a healthy host and never touches a VM', async () => {
         const harness = await createDoctorHarness();
 
@@ -195,6 +239,10 @@ describe('windows test doctor', () => {
             'cache-directory-artifacts',
             'cache-directory-fixtures',
             'cache-directory-tools',
+            'golden-image-manifest',
+            'golden-image-qualified',
+            'fixture-manifest',
+            'guest-worker-bundle',
             'golden-image-stopped',
             'allowlist-sane',
             'test-image-root',
@@ -207,6 +255,31 @@ describe('windows test doctor', () => {
             'list',
             `status ${GOLDEN_VM_ID}`,
         ]);
+    });
+
+    it('refuses readiness when the golden manifest or prepared bundle is missing', async () => {
+        const harness = await createDoctorHarness();
+        await rm(path.join(harness.layout.baselinesDir, `${harness.config.goldenImageId}.json`));
+        await rm(path.join(harness.layout.toolsCacheDir, 'worker', 'guestWorker.cjs'));
+        const report = await harness.run();
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'golden-image-manifest')?.ok).toBe(false);
+        expect(checkById(report, 'guest-worker-bundle')?.ok).toBe(false);
+    });
+
+    it('keeps a registered but unqualified lab image red', async () => {
+        const harness = await createDoctorHarness();
+        const manifestPath = path.join(harness.layout.baselinesDir, `${harness.config.goldenImageId}.json`);
+        const manifest = await loadWindowsTestImageManifest(manifestPath);
+        await writeFile(manifestPath, JSON.stringify({
+            ...manifest,
+            qualifiedAt: null,
+            qualification: null,
+        }));
+        const report = await harness.run();
+        expect(report.ok).toBe(false);
+        expect(checkById(report, 'golden-image-manifest')?.ok).toBe(true);
+        expect(checkById(report, 'golden-image-qualified')?.ok).toBe(false);
     });
 
     it('fails the session check from an SSH shell without asking launchctl', async () => {
@@ -239,6 +312,19 @@ describe('windows test doctor', () => {
         expect(checkById(report, 'utmctl-present')?.ok).toBe(true);
         expect(checkById(report, 'automation-consent')?.ok).toBe(false);
         expect(checkById(report, 'automation-consent')?.remedy).toContain('Automation');
+    });
+
+    it('reports version-probe consent denial without suggesting UTM installation', async () => {
+        const harness = await createDoctorHarness({utmctl: createFakeUtmctl({versionError: new Error('OSStatus -1743')})});
+        const report = await harness.run();
+        expect(checkById(report, 'automation-consent')?.detail).toContain(LAUNCHER);
+        expect(checkById(report, 'automation-consent')?.remedy).toContain('Automation');
+        expect(checkById(report, 'utmctl-present')).toBeNull();
+    });
+
+    it('accepts an empty disposable allowlist before the first clone', async () => {
+        const harness = await createDoctorHarness({config: {allowedTestVmIds: []}});
+        expect(checkById(await harness.run(), 'allowlist-sane')?.ok).toBe(true);
     });
 
     it('stops after the cache checks when the configuration cannot be loaded', async () => {

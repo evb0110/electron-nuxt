@@ -20,7 +20,7 @@ import {
     withOwnedCloneAllowlisted,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type {
-    IWindowsTestDestructivePolicy ,
+    IWindowsTestDestructivePolicy,
     WindowsTestIdentityGuardError,
 } from '@scripts/windows-test/images/vmIdentityGuard';
 import type { IWindowsTestHostConfig } from '@scripts/windows-test/host/hostConfig';
@@ -35,6 +35,17 @@ function listEntry(uuid: string, name: string) {
         uuid,
         status: 'stopped',
         name,
+    };
+}
+
+function identityDependencies(
+    vmId = ALLOWED_VM_ID,
+    vmName = 'evb-win-test-clone',
+) {
+    return {
+        resolvePath: (target: string) => Promise.resolve(target),
+        readVmId: () => Promise.resolve(vmId),
+        readVmName: () => Promise.resolve(vmName),
     };
 }
 
@@ -78,6 +89,7 @@ describe('destructive VM identity guard', () => {
                 bundlePath: path.join(imageRoot, 'clone.utm'),
             },
             policy,
+            identityDependencies(ALLOWED_VM_ID),
         )).resolves.toMatchObject({vmId: ALLOWED_VM_ID});
     });
 
@@ -151,6 +163,64 @@ describe('destructive VM identity guard', () => {
         expect((error as WindowsTestIdentityGuardError).refusal).toBe('vm-id-not-allowlisted');
     });
 
+    it('refuses a bundle whose configuration UUID does not match the requested VM', async () => {
+        const error = await assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+            policy,
+            identityDependencies(CLONE_VM_ID),
+        ).catch((thrown: unknown) => thrown);
+
+        expect((error as WindowsTestIdentityGuardError).refusal).toBe('bundle-vm-id-mismatch');
+        expect((error as Error).message).toContain('bundle config UUID does not match');
+    });
+
+    it('refuses the personal VM display name from bundle configuration', async () => {
+        const error = await assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+            policy,
+            identityDependencies(ALLOWED_VM_ID, 'Windows'),
+        ).catch((thrown: unknown) => thrown);
+
+        expect((error as WindowsTestIdentityGuardError).refusal).toBe('bundle-display-name-denied');
+        expect((error as Error).message).toContain('personal VM display name');
+    });
+
+    it('refuses a bundle whose configuration identity cannot be read', async () => {
+        const error = await assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+            policy,
+            identityDependencies(ALLOWED_VM_ID, ''),
+        ).catch((thrown: unknown) => thrown);
+
+        expect((error as WindowsTestIdentityGuardError).refusal).toBe('bundle-identity-unreadable');
+    });
+
+    it('refuses a bundle when its display name cannot be read', async () => {
+        const error = await assertDestructiveTarget(
+            {
+                vmId: ALLOWED_VM_ID,
+                bundlePath: path.join(imageRoot, 'clone.utm'),
+            },
+            policy,
+            {
+                resolvePath: (target: string) => Promise.resolve(target),
+                readVmId: () => Promise.resolve(ALLOWED_VM_ID),
+                readVmName: () => Promise.reject(new Error('plutil failed')),
+            },
+        ).catch((thrown: unknown) => thrown);
+
+        expect((error as WindowsTestIdentityGuardError).refusal).toBe('bundle-identity-unreadable');
+    });
+
     it('widens the allowlist only with the clone it just observed', async () => {
         const widened = withOwnedCloneAllowlisted(policy, CLONE_VM_ID);
 
@@ -160,6 +230,7 @@ describe('destructive VM identity guard', () => {
                 bundlePath: path.join(imageRoot, 'clone.utm'),
             },
             widened,
+            identityDependencies(CLONE_VM_ID),
         )).resolves.toMatchObject({vmId: CLONE_VM_ID});
         expect(() => withOwnedCloneAllowlisted(policy, GOLDEN_VM_ID)).toThrow(/golden/u);
         expect(() => withOwnedCloneAllowlisted(policy, PERSONAL_VM_ID)).toThrow(/denied/u);

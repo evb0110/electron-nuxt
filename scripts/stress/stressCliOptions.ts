@@ -33,8 +33,8 @@ export const STRESS_CLI_USAGE = `Usage: pnpm run stress -- [options]
   --tag <tag>               run every scenario carrying the tag (repeatable)
   --kind deterministic|operator
   --profile <id>            host profile: ${STRESS_HOST_PROFILE_IDS.join(', ')} (default baseline)
-  --model <id>              operator model (default ${DEFAULT_STRESS_OPERATOR_MODEL})
-  --operator pixel|semantic operator tool profile (default pixel)
+  --model <id>              API operator model (default ${DEFAULT_STRESS_OPERATOR_MODEL}); external uses the current agent
+  --operator external|pixel|semantic (default external; pixel/semantic use the paid API)
   --thinking                enable adaptive thinking for the operator model
   --out <dir>               run directory (default .devkit/stress/runs/<run-id>)
   --update-baseline         write docs/benchmarks/stress/<profile>.json when every scenario passed
@@ -61,6 +61,9 @@ type TCliFlagHandler = (flag: string, takeValue: () => string, arg: string) => v
 function forEachCliFlag(argv: readonly string[], handle: TCliFlagHandler) {
     for (let index = 0; index < argv.length; index += 1) {
         const arg = argv[index] ?? '';
+        if (index === 0 && arg === '--') {
+            continue;
+        }
         const separator = arg.indexOf('=');
         const flag = separator === -1 ? arg : arg.slice(0, separator);
         const inlineValue = separator === -1 ? undefined : arg.slice(separator + 1);
@@ -109,7 +112,7 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
         kind: null,
         profile: 'baseline',
         model: DEFAULT_STRESS_OPERATOR_MODEL,
-        operatorProfile: 'pixel',
+        operatorProfile: 'external',
         thinking: false,
         out: null,
         updateBaseline: false,
@@ -148,8 +151,8 @@ export function parseStressCliOptions(argv: readonly string[]): IStressCliOption
                 break;
             case '--operator': {
                 const operator = takeValue();
-                if (operator !== 'pixel' && operator !== 'semantic') {
-                    throw new Error('--operator must be pixel or semantic');
+                if (operator !== 'external' && operator !== 'pixel' && operator !== 'semantic') {
+                    throw new Error('--operator must be external, pixel or semantic');
                 }
                 options.operatorProfile = operator;
                 break;

@@ -158,6 +158,7 @@ describe('package scripts', () => {
             'validate',
             'validate:integration',
             'validate:nightly',
+            'windows:test:prepare',
             'build:strict',
             'release:verify',
             'release:verify:checks',
@@ -174,7 +175,7 @@ describe('package scripts', () => {
         expect(required.every(name => Boolean(scripts[name]))).toBe(true);
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
-        // OCR-quality, and xlarge-PDF gates.
+        // OCR-quality, xlarge-PDF gates, and Windows lab input preparation.
         expect(Object.keys(scripts).length).toBeLessThanOrEqual(119);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')

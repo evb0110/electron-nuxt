@@ -1,5 +1,3 @@
-import { PRIVACY_MESSAGES } from '@i18n-core';
-
 export default {
     app: {
         title: 'EVB Viewer',
@@ -24,7 +22,6 @@ export default {
             linkLabel: 'Meer over Sentry voor open source',
         },
     },
-    privacy: PRIVACY_MESSAGES['nl'],
     home: {
         seo: {
             title: 'EVB Viewer web-app en desktopdownloads',

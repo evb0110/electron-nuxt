@@ -173,6 +173,14 @@ describe('createCapabilityFileSuiteResolver', () => {
             expect(everything.tests).not.toContain(testId);
             expect(byId.has(testId ?? '')).toBe(true);
         }
+
+        await expect(resolver.resolveEnvironment?.(PRIMARY_ENVIRONMENT)).resolves.toMatchObject({
+            id: PRIMARY_ENVIRONMENT,
+            osArch: 'arm64',
+            appArch: 'arm64',
+            kind: 'utm',
+        });
+        await expect(resolver.resolveEnvironment?.('missing-environment')).resolves.toBeNull();
     });
 
     it('names a missing registry file instead of returning an empty selection', async () => {

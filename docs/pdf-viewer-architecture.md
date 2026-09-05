@@ -67,6 +67,14 @@ target, waits for its text layer, and applies the final viewport position once.
 Request-scoped text readiness is published as soon as text rendering succeeds;
 annotation readiness remains a separate, later layer-hydration state.
 
+A resize that arrives during navigation inherits the pending semantic target,
+including its exact text range and readiness requirement. Its sampled outgoing
+anchor cannot replace that target. Resize previews defer to pending navigation;
+the rerender coordinator must not turn that deferral into a page-only fallback.
+Search highlighting preserves page-local occurrence identity when native results are ordered and
+rendered match counts agree, even when their text offsets differ. See
+`docs/research/search-match-navigation-2026-09-05.md` for the reproduced failures.
+
 The search sidebar reveals virtual rows from their logical row heights. Group
 expansion exposes the inserted match span with the nearest list scroll. Result
 selection uses the same calculation and leaves an already visible row in place.

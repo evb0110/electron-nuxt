@@ -35,6 +35,8 @@ import {
     resolveWheelTargetPage,
 } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
 import {getPageScrollBounds} from '@app/modules/pdf-viewer/runtime/navigation/singlePageScrollGeometry';
+import {getCurrentSpreadRenderedBoundsFromDom} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/getCurrentSpreadRenderedBoundsFromDom';
+import {HORIZONTAL_SCROLL_CLAMP_EPSILON_PX} from '@app/modules/pdf-viewer/engine/pdf-horizontal-scroll-clamp/resolvePageBoundedHorizontalScroll';
 import {resolveRetainedPdfNavigationAnchor} from '@app/modules/pdf-viewer/engine/pdf-navigation-anchor-retention/resolveRetainedPdfNavigationAnchor';
 import {logPdfRenderTrace} from '@app/utils/pdfRenderTrace';
 import {runGuardedTask} from '@app/utils/asyncGuard';
@@ -79,17 +81,10 @@ export function shouldSubmitRequestedCurrentPage(
     committedPage: number,
     pendingPage: number | null,
 ) {
-    // The outer page model is also the projection sink for committed viewer
-    // pages. While navigation is pending it can briefly contain an older commit.
-    // Explicit commands enter through submitPageNavigation, so a prop echo must not supersede newer internal
-    // intent. Once idle, the prop remains the initial/restore command channel.
+    // Explicit page commands remain authoritative while the outer page model catches up.
     return pendingPage === null && requestedPage !== committedPage;
 }
 
-/**
- * Production viewport authority adapter. Every navigation/scroll commit is
- * resolved from an immutable layout snapshot and written once by the authority.
- */
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
     let intentSequence = 0;
     let navigationIntentSequence = 0;
@@ -159,7 +154,17 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     ) {
         const container = options.viewerContainer.value;
         if (container && hasMeasurableMountedPage(container, anchor.page)) {
-            return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
+            const scroll = resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
+            const spread = getCurrentSpreadRenderedBoundsFromDom({
+                container,
+                pageNumber: anchor.page,
+                viewMode: options.viewMode.value,
+                totalPages: options.numPages.value,
+            });
+            scroll.left = spread && spread.width <= container.clientWidth + HORIZONTAL_SCROLL_CLAMP_EPSILON_PX
+                ? 0
+                : scroll.left;
+            return scroll;
         }
         return resolveScrollForViewport(snapshot, anchor);
     }
@@ -646,7 +651,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const inheritedNavigation = queuedNavigation?.request
             ?? viewportAuthority.getActiveNavigationRequest();
         const absorbedNavigation = navigationRuntimeReady.value
-            && state.anchor === undefined
+            && (state.anchor === undefined || kind === 'resize')
             && state.viewportPoint === undefined
             ? inheritedNavigation
             : undefined;
@@ -656,7 +661,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const inheritedResolvedTarget = viewportAuthority.activeIntent.value
             ? resolvedTargets.get(viewportAuthority.activeIntent.value.id)
             : null;
-        const anchor = state.anchor ?? (container && snapshot && state.viewportPoint
+        const anchor = (absorbedNavigation ? undefined : state.anchor) ?? (container && snapshot && state.viewportPoint
             ? resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value, {
                 x: state.viewportPoint.x / Math.max(1, container.clientWidth),
                 y: state.viewportPoint.y / Math.max(1, container.clientHeight),
@@ -720,12 +725,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         });
     }
 
-    /**
-     * The anchor a fit/zoom/view-mode change inherits when nothing else claims
-     * one. The pre-change pixel offset is about to stop describing anything, so
-     * the semantic page the viewport authority already committed is what the
-     * new geometry has to be built around.
-     */
+    // Geometry changes retain the committed page instead of reinterpreting an old pixel offset.
     function resolveGeometryChangeAnchor(
         snapshot: IPdfViewportGeometry,
         kind: TPdfViewportIntentKind,
@@ -736,10 +736,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             Math.max(1, options.numPages.value),
         );
         if (kind === 'fit') {
-            // Fit replaces every row's height, so the pre-fit offset - and the
-            // point fractions read from it - describe nothing under the new
-            // metrics. Land on the top of the page the user was on rather than
-            // reinterpreting that offset and travelling hundreds of pages.
+            // Fit replaces row heights, so retain the committed page instead of the old pixel offset.
             return getRequestAnchor(undefined, semanticPage);
         }
         const liveAnchor = resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value);
@@ -785,6 +782,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function applyViewportAnchorPreview(anchor: IPdfSemanticAnchor | null | undefined) {
+        if (queuedNavigation || viewportAuthority.getActiveNavigationRequest()) {
+            return null;
+        }
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         if (!anchor || !container || !snapshot) {

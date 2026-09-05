@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { realpathSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -24,7 +25,7 @@ import { createUia3PowerShellAdapter } from '@scripts/windows-test/guest/native-
 import { createWinappCliAdapter } from '@scripts/windows-test/guest/native-ui/winappCliAdapter';
 import { createPuppeteerViewerFactory } from '@scripts/windows-test/guest/viewer/createPuppeteerViewerFactory';
 
-const DEFAULT_GUEST_ROOT = 'C:\\evb-test';
+const DEFAULT_GUEST_ROOT = 'C:\\EVBViewerTests';
 
 const DEFAULT_WAIT_FOR_JOB_MS = 15 * 60 * 1_000;
 
@@ -77,8 +78,14 @@ export async function guestWorkerMain(argv: readonly string[], env: NodeJS.Proce
         : rootArgument.slice('--root='.length);
     const waitArgument = argv.find(argument => argument.startsWith('--wait-ms='));
     const layout = guestLayoutForRoot(root, WINDOWS_GUEST_PATH_SEPARATOR);
+    // A cloned image may contain the golden image's last boot-id file. Replace
+    // the boot identity and heartbeat at worker startup so the host can never
+    // accept a copied heartbeat from before this VM boot.
+    const fs = createNodeGuestFileSystem();
+    await fs.remove(layout.heartbeatFile);
+    await fs.writeTextDurable(layout.bootIdFile, `boot-${randomUUID()}\n`);
     const summary = await runGuestWorker({
-        fs: createNodeGuestFileSystem(),
+        fs,
         exec: createNodeGuestCommandRunner(),
         clock: nodeGuestClock,
         paths: layout,

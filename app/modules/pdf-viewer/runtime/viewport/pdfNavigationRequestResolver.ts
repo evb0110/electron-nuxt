@@ -17,6 +17,17 @@ export interface IResolvedPdfNavigationTarget {
     rect: IAnnotationMarkerRect | null;
 }
 
+function rangeMatchesSearchText(range: Range | null, text: string, matchCase: boolean) {
+    if (!range) {
+        return false;
+    }
+    const rangeText = range.toString().normalize('NFC');
+    const targetText = text.normalize('NFC');
+    return matchCase
+        ? rangeText === targetText
+        : rangeText.toLocaleLowerCase() === targetText.toLocaleLowerCase();
+}
+
 function normalizedPointRect(top: number): IAnnotationMarkerRect {
     return {
         left: 0.5,
@@ -96,10 +107,21 @@ export function resolveTextAnchorRect(
     const spans = Array.from(textLayer.querySelectorAll<HTMLElement>('span'));
     if (target.searchRange) {
         const exactRange = createTextLayerRangeForSearchMatch(textLayer, target.searchRange);
-        const range = exactRange && exactRange.toString().normalize('NFC').toLocaleLowerCase()
-            === target.text.normalize('NFC').toLocaleLowerCase()
-            ? exactRange
-            : createTextLayerRangeForSearchOccurrence(textLayer, target);
+        const matchCase = target.searchOptions?.matchCase ?? false;
+        const pageLocalRange = Number.isSafeInteger(target.pageMatchIndex)
+            && Number.isSafeInteger(target.expectedPageMatchCount)
+            ? createTextLayerRangeForSearchOccurrence(textLayer, target)
+            : null;
+        const range = pageLocalRange && rangeMatchesSearchText(pageLocalRange, target.text, matchCase)
+            ? pageLocalRange
+            : rangeMatchesSearchText(exactRange, target.text, matchCase)
+                ? exactRange
+                : createTextLayerRangeForSearchOccurrence(textLayer, {
+                    text: target.text,
+                    pageMatchIndex: target.pageMatchIndex,
+                    searchQuery: target.searchQuery,
+                    searchOptions: target.searchOptions,
+                });
         const rects = range
             ? Array.from(range.getClientRects?.() ?? []).filter(rect => rect.width > 0 || rect.height > 0)
             : [];

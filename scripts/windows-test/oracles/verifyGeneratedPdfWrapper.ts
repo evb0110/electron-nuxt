@@ -131,8 +131,15 @@ export async function runVerifyGeneratedPdf(
         return createOracleResult({
             oracleId: GENERATED_PDF_VERIFIER_ORACLE_ID,
             oracleVersion: GENERATED_PDF_VERIFIER_VERSION,
-            status: processResult.exitCode === 0 ? 'inconclusive' : 'failed',
-            detail: 'The verifier produced no parsable report.',
+            // A verifier crash or a malformed diagnostic response says
+            // nothing about the PDF. Only a valid report with an incompatible
+            // classification is a product failure. Keep runner failures
+            // infrastructure/inconclusive so they cannot masquerade as a
+            // product rejection.
+            status: 'inconclusive',
+            detail: processResult.exitCode === 0
+                ? 'The verifier produced no parsable report.'
+                : `The verifier exited ${processResult.exitCode} without a parsable report; the oracle did not run to completion.`,
             observations: {
                 exitCode: processResult.exitCode,
                 stdout: processResult.stdout.slice(0, 2000),

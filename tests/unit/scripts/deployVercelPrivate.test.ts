@@ -33,6 +33,10 @@ interface IPrivateDeployModule {
     ) => string[];
     assertServedSentryBundleParity: (options: Record<string, unknown>) => Promise<boolean>;
     extractVercelDeploymentUrl: (output: string) => string | null;
+    extractVercelDeploymentIdentity: (output: string, options?: {
+        expectedAliasUrl?: string;
+        expectedProjectName?: string;
+    }) => string;
     parsePrivateDeployOptions: (rawArgs?: string[]) => {
         deployArgs: string[];
         deployTarget: string;
@@ -45,6 +49,10 @@ interface IPrivateDeployModule {
         projectRoot?: string;
     }) => IPreparedPrivateDeploySource;
     quoteWindowsShellArg: (arg: string) => string;
+    resolveProductionAcceptanceUrls: (options: {
+        deployTarget: string;
+        env: Record<string, string | undefined>;
+    }) => string[];
     runPrivateVercelDeploy: (options?: Record<string, unknown>) => Promise<number>;
 }
 
@@ -53,10 +61,12 @@ const {
     buildVercelRollbackArgs,
     buildPrivateDeployArgs,
     extractVercelDeploymentUrl,
+    extractVercelDeploymentIdentity,
     parsePrivateDeployOptions,
     promoteLandingVercelOutput,
     preparePrivateDeploySource,
     quoteWindowsShellArg,
+    resolveProductionAcceptanceUrls,
     runPrivateVercelDeploy,
 } = await import(
     pathToFileURL(resolve(process.cwd(), 'scripts/deployVercelPrivate.mjs')).href
@@ -81,7 +91,10 @@ function createProjectFixture() {
     );
     writeFileSync(path.join(projectRoot, '.env.local'), 'SECRET=value\n');
     writeFileSync(path.join(projectRoot, '.env.example'), 'SAFE=value\n');
-    writeFileSync(path.join(projectRoot, '.vercel', 'project.json'), '{"projectId":"project"}\n');
+    writeFileSync(
+        path.join(projectRoot, '.vercel', 'project.json'),
+        '{"projectId":"project","projectName":"fixture-project"}\n',
+    );
     writeFileSync(
         path.join(projectRoot, 'package.json'),
         '{"name":"fixture","version":"1.2.3","scripts":{"build":"viewer-build"}}\n',
@@ -89,7 +102,7 @@ function createProjectFixture() {
     writeFileSync(path.join(projectRoot, 'app', 'index.ts'), 'export const app = true;\n');
     writeFileSync(
         path.join(projectRoot, 'landing', '.vercel', 'project.json'),
-        '{"projectId":"landing-project"}\n',
+        '{"projectId":"landing-project","projectName":"fixture-landing"}\n',
     );
     writeFileSync(path.join(projectRoot, 'landing', 'app', 'index.ts'), 'export const landing = true;\n');
     writeFileSync(path.join(projectRoot, 'landing', 'package.json'), '{"name":"landing"}\n');
@@ -109,6 +122,13 @@ function createProjectFixture() {
     writeFileSync(
         path.join(projectRoot, 'scripts', 'stageDesktopRendererSourcemaps.mjs'),
         'export const stageDesktopRendererSourcemapsIfEnabled = () => null;\n',
+    );
+    writeFileSync(
+        path.join(projectRoot, 'scripts', 'promoteLandingVercelOutput.mjs'),
+        readFileSync(
+            path.resolve(process.cwd(), 'scripts', 'promoteLandingVercelOutput.mjs'),
+            'utf8',
+        ),
     );
     writeFileSync(
         path.join(projectRoot, 'scripts', 'release', 'stage-desktop-renderer-sourcemaps.mjs'),
@@ -210,6 +230,11 @@ describe('private Vercel deployment source', () => {
                 prepared.sourceRoot,
                 'scripts',
                 'stageDesktopRendererSourcemaps.mjs',
+            ))).toBe(true);
+            expect(existsSync(path.join(
+                prepared.sourceRoot,
+                'scripts',
+                'promoteLandingVercelOutput.mjs',
             ))).toBe(true);
             expect(existsSync(path.join(
                 prepared.sourceRoot,
@@ -537,15 +562,22 @@ describe('private Vercel deployment source', () => {
             args: string[];
             command: string
         }> = [];
+        const fetchedUrls: string[] = [];
 
         try {
             await expect(runPrivateVercelDeploy({
                 command: 'vercel-test',
-                env: {CI: 'true'},
-                fetchImpl: async () => ({
-                    ok: false,
-                    status: 503,
-                }),
+                env: {
+                    CI: 'true',
+                    EVB_DEPLOY_ACCEPTANCE_URL: 'https://health.example/status',
+                },
+                fetchImpl: async (url: string) => {
+                    fetchedUrls.push(url);
+                    return {
+                        ok: false,
+                        status: 503,
+                    };
+                },
                 projectRoot,
                 rawArgs: ['--prod'],
                 spawnSyncImpl: (command: string, args: string[]) => {
@@ -556,21 +588,33 @@ describe('private Vercel deployment source', () => {
                     return calls.length === 1
                         ? {
                             stderr: '',
-                            stdout: 'Production: https://evb-viewer-test.vercel.app\n',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_previous","name":"fixture-project"}\n',
                             status: 0,
                         }
-                        : {status: 0};
+                        : calls.length === 2
+                            ? {
+                                stderr: '',
+                                stdout: 'Production: https://evb-viewer-test.vercel.app\n',
+                                status: 0,
+                            }
+                            : {status: 0};
                 },
             })).rejects.toThrow('The failed deployment was rolled back.');
 
             expect(calls.map(call => call.args)).toEqual([
+                [
+                    'inspect',
+                    'https://web.evb-viewer.com/',
+                    '--json',
+                ],
                 expect.arrayContaining(['deploy']),
                 [
                     'rollback',
-                    'https://evb-viewer-test.vercel.app',
+                    'dpl_previous',
                     '--yes',
                 ],
             ]);
+            expect(fetchedUrls).toEqual(['https://health.example/status']);
         } finally {
             rmSync(projectRoot, {
                 force: true,
@@ -581,16 +625,237 @@ describe('private Vercel deployment source', () => {
         }
     });
 
-    it('extracts deployment URLs and builds an explicit rollback command', () => {
+    it.each([
+        {
+            inspectResult: {
+                stderr: 'inspect unavailable',
+                stdout: '',
+                status: 1,
+            },
+            message: 'refusing a production deploy without a rollback target',
+            name: 'a failed inspect command',
+        },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: 'not-json',
+                status: 0,
+            },
+            message: 'did not return valid JSON',
+            name: 'malformed inspect JSON',
+        },
+        {
+            inspectResult: {
+                stderr: '',
+                stdout: '{"aliases":["web.evb-viewer.com"],"name":"fixture-project"}',
+                status: 0,
+            },
+            message: 'did not identify the current production deployment',
+            name: 'inspect JSON without a deployment identity',
+        },
+    ])('refuses production before deploy for $name', async ({
+        inspectResult,
+        message,
+    }) => {
+        const projectRoot = createProjectFixture();
+        const calls: string[][] = [];
+
+        try {
+            await expect(runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                projectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    calls.push(args);
+                    return inspectResult;
+                },
+            })).rejects.toThrow(message);
+
+            expect(calls).toEqual([[
+                'inspect',
+                'https://web.evb-viewer.com/',
+                '--json',
+            ]]);
+        } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('serializes production deploys so a failed follower rolls back to the successful leader', async () => {
+        const firstProjectRoot = createProjectFixture();
+        const secondProjectRoot = createProjectFixture();
+        const firstCalls: string[][] = [];
+        const secondCalls: string[][] = [];
+        let releaseFirstAcceptance!: () => void;
+        let markFirstAcceptanceStarted!: () => void;
+        let markFollowerSpawned!: () => void;
+        let leaderAcceptanceReleased = false;
+        let followerSpawnedAfterLeaderRelease = false;
+        const firstAcceptanceGate = new Promise<void>(resolve => {
+            releaseFirstAcceptance = resolve;
+        });
+        const firstAcceptanceStarted = new Promise<void>(resolve => {
+            markFirstAcceptanceStarted = resolve;
+        });
+        const followerSpawned = new Promise<void>(resolve => {
+            markFollowerSpawned = resolve;
+        });
+
+        try {
+            const firstDeploy = runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: async () => {
+                    markFirstAcceptanceStarted();
+                    await firstAcceptanceGate;
+                    return {
+                        ok: true,
+                        status: 200,
+                    };
+                },
+                projectRoot: firstProjectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    firstCalls.push(args);
+                    return firstCalls.length === 1
+                        ? {
+                            stderr: '',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_original","name":"fixture-project"}\n',
+                            status: 0,
+                        }
+                        : {
+                            stderr: '',
+                            stdout: 'Production: https://leader.vercel.app\n',
+                            status: 0,
+                        };
+                },
+            });
+            await firstAcceptanceStarted;
+
+            const secondDeploy = runPrivateVercelDeploy({
+                command: 'vercel-test',
+                env: {CI: 'true'},
+                fetchImpl: async () => ({
+                    ok: false,
+                    status: 503,
+                }),
+                projectRoot: secondProjectRoot,
+                rawArgs: ['--prod'],
+                spawnSyncImpl: (_command: string, args: string[]) => {
+                    if (secondCalls.length === 0) {
+                        followerSpawnedAfterLeaderRelease = leaderAcceptanceReleased;
+                        markFollowerSpawned();
+                    }
+                    secondCalls.push(args);
+                    if (secondCalls.length === 1) {
+                        return {
+                            stderr: '',
+                            stdout: '{"aliases":["web.evb-viewer.com"],"id":"dpl_leader","name":"fixture-project"}\n',
+                            status: 0,
+                        };
+                    }
+                    if (secondCalls.length === 2) {
+                        return {
+                            stderr: '',
+                            stdout: 'Production: https://follower.vercel.app\n',
+                            status: 0,
+                        };
+                    }
+                    return {status: 0};
+                },
+            });
+            leaderAcceptanceReleased = true;
+            releaseFirstAcceptance();
+
+            await expect(firstDeploy).resolves.toBe(0);
+            await followerSpawned;
+            await expect(secondDeploy).rejects.toThrow('The failed deployment was rolled back.');
+            expect(followerSpawnedAfterLeaderRelease).toBe(true);
+            expect(firstCalls).toHaveLength(2);
+            expect(secondCalls).toEqual([
+                [
+                    'inspect',
+                    'https://web.evb-viewer.com/',
+                    '--json',
+                ],
+                expect.arrayContaining(['deploy']),
+                [
+                    'rollback',
+                    'dpl_leader',
+                    '--yes',
+                ],
+            ]);
+        } finally {
+            releaseFirstAcceptance();
+            for (const projectRoot of [
+                firstProjectRoot,
+                secondProjectRoot,
+            ]) {
+                rmSync(projectRoot, {
+                    force: true,
+                    maxRetries: 5,
+                    recursive: true,
+                    retryDelay: 20,
+                });
+            }
+        }
+    }, 10_000);
+
+    it('extracts deployment identities and builds an explicit rollback command', () => {
         expect(extractVercelDeploymentUrl('ready at https://viewer-abc.vercel.app')).toBe(
             'https://viewer-abc.vercel.app',
         );
-        expect(buildVercelRollbackArgs('https://viewer-abc.vercel.app')).toEqual([
+        expect(extractVercelDeploymentIdentity('{"id":"dpl_previous"}')).toBe('dpl_previous');
+        expect(extractVercelDeploymentIdentity('{"url":"viewer-old.vercel.app"}')).toBe(
+            'https://viewer-old.vercel.app',
+        );
+        expect(extractVercelDeploymentIdentity('{"url":"httpx://viewer-old.vercel.app"}')).toBe(
+            'https://httpx://viewer-old.vercel.app',
+        );
+        expect(() => extractVercelDeploymentIdentity(
+            '{"aliases":["other.example"],"id":"dpl_other","name":"other-project"}',
+            {
+                expectedAliasUrl: 'https://web.evb-viewer.com/',
+                expectedProjectName: 'fixture-project',
+            },
+        )).toThrow('different project');
+        expect(() => extractVercelDeploymentIdentity(
+            '{"aliases":["other.example"],"id":"dpl_other","name":"fixture-project"}',
+            {
+                expectedAliasUrl: 'https://web.evb-viewer.com/',
+                expectedProjectName: 'fixture-project',
+            },
+        )).toThrow('does not own the production alias');
+        expect(buildVercelRollbackArgs('dpl_previous')).toEqual([
             'rollback',
-            'https://viewer-abc.vercel.app',
+            'dpl_previous',
             '--yes',
         ]);
-        expect(() => buildVercelRollbackArgs('')).toThrow('deployment URL is required');
+        expect(() => buildVercelRollbackArgs('')).toThrow('previous deployment is required');
+    });
+
+    it('accepts production through public aliases unless an override is configured', () => {
+        expect(resolveProductionAcceptanceUrls({
+            deployTarget: 'viewer',
+            env: {},
+        })).toEqual(['https://web.evb-viewer.com/']);
+        expect(resolveProductionAcceptanceUrls({
+            deployTarget: 'landing',
+            env: {},
+        })).toEqual(['https://evb-viewer.com/']);
+        expect(resolveProductionAcceptanceUrls({
+            deployTarget: 'viewer',
+            env: {EVB_DEPLOY_ACCEPTANCE_URL: 'https://one.example, https://two.example/path'},
+        })).toEqual([
+            'https://one.example/',
+            'https://two.example/path',
+        ]);
     });
 
     it('preserves the landing workspace and uses its separate project linkage', () => {
@@ -621,7 +886,7 @@ describe('private Vercel deployment source', () => {
                 'utf8',
             )).scripts.build).toBe(
                 'pnpm --dir landing run build'
-                + ' && node scripts/deployVercelPrivate.mjs --promote-landing-output',
+                + ' && node scripts/promoteLandingVercelOutput.mjs',
             );
         } finally {
             prepared?.cleanup();
@@ -668,6 +933,47 @@ describe('private Vercel deployment source', () => {
                 path.join(projectRoot, '.vercel', 'output', 'functions', 'index-isr.func'),
             )).toBe('./__fallback.func');
         } finally {
+            rmSync(projectRoot, {
+                force: true,
+                maxRetries: 5,
+                recursive: true,
+                retryDelay: 20,
+            });
+        }
+    });
+
+    it('runs the landing promotion inside the sanitized deploy source', () => {
+        const projectRoot = createProjectFixture();
+        let prepared: IPreparedPrivateDeploySource | undefined;
+
+        try {
+            prepared = preparePrivateDeploySource({
+                deployTarget: 'landing',
+                projectRoot,
+            });
+            const landingOutputRoot = path.join(
+                prepared.sourceRoot,
+                'landing',
+                '.vercel',
+                'output',
+            );
+            mkdirSync(path.join(landingOutputRoot, 'static'), {recursive: true});
+            writeFileSync(path.join(landingOutputRoot, 'config.json'), '{"version":3}\n');
+            writeFileSync(path.join(landingOutputRoot, 'static', 'index.html'), 'landing\n');
+
+            execFileSync(
+                process.execPath,
+                ['scripts/promoteLandingVercelOutput.mjs'],
+                {cwd: prepared.sourceRoot},
+            );
+
+            expect(existsSync(path.join(prepared.sourceRoot, 'scripts', 'release'))).toBe(false);
+            expect(readFileSync(
+                path.join(prepared.sourceRoot, '.vercel', 'output', 'static', 'index.html'),
+                'utf8',
+            )).toBe('landing\n');
+        } finally {
+            prepared?.cleanup();
             rmSync(projectRoot, {
                 force: true,
                 maxRetries: 5,

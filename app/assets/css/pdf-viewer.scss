@@ -602,6 +602,18 @@ html.pdf-resizing-nesw .pdfViewer.is-text-selection-mode:not(.pdfViewer--resize-
     display: flex;
     flex-direction: column;
 
+    /* Keep the scroll extent stable while Vue replaces disjoint page windows.
+     * Page unmount hooks can force layout before the spacer update finishes. */
+    &::after {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: var(--pdf-virtual-scroll-height, 0);
+        pointer-events: none;
+    }
+
     &.pdfViewer--mode-facing,
     &.pdfViewer--mode-facing-first-single {
         width: max-content;

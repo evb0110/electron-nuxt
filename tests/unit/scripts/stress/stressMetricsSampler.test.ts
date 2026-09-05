@@ -1,9 +1,21 @@
 import {
+    mkdtemp,
+    readFile,
+    rm,
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Page } from 'puppeteer-core';
+import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
-import { summarizeStressMetricSamples } from '@scripts/stress/stressMetricsSampler';
+import {
+    startStressMetricsSampler,
+    summarizeStressMetricSamples,
+} from '@scripts/stress/stressMetricsSampler';
 import type {
     IStressMetricSample,
     IStressProbeTotals,
@@ -148,5 +160,40 @@ describe('summarizeStressMetricSamples', () => {
         expect(summary.droppedFrameRatio).toBeCloseTo(0.25);
         expect(summary.rendererCrashed).toBe(true);
         expect(summary.crashReason).toBe('oom');
+    });
+});
+
+
+describe('stress sampler teardown', () => {
+    it('closes its stream when probe cleanup hangs in a frozen renderer', async () => {
+        const directory = await mkdtemp(join(tmpdir(), 'stress-sampler-'));
+        vi.useFakeTimers();
+        try {
+            const evaluate = vi.fn().mockResolvedValueOnce(undefined).mockImplementation(() => new Promise<never>(() => {}));
+            const off = vi.fn();
+            const page = Object.assign(Object.create(null) as Page, {
+                evaluate,
+                on: vi.fn(),
+                off,
+            });
+            const outputPath = join(directory, 'metrics.jsonl');
+            const sampler = await startStressMetricsSampler({
+                page,
+                electronPid: null,
+                outputPath,
+            });
+            const stopped = sampler.stop();
+            await vi.advanceTimersByTimeAsync(5_001);
+            expect((await stopped).sampleCount).toBe(0);
+            expect(off).toHaveBeenCalledTimes(3);
+            expect(await readFile(outputPath, 'utf8')).toBe('');
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            vi.useRealTimers();
+            await rm(directory, {
+                recursive: true,
+                force: true,
+            });
+        }
     });
 });
