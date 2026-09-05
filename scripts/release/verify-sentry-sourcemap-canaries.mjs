@@ -8,7 +8,6 @@ import {
     assertSameSentryBuildIdentity,
     assertSentryBuildIdentity,
 } from '../../packages/contracts/diagnostics/releaseIdentity.js';
-import {getErrorMessage} from '../../packages/contracts/getErrorMessage.js';
 import {
     CANARY_RECEIPT_SCHEMA_VERSION,
     CANARY_EVENT_VERSION,
@@ -28,6 +27,10 @@ const VERIFY_RETRY_MAX_MS = 5_000;
 const VERIFY_REQUEST_TIMEOUT_MS = 30_000;
 const VERIFY_CONCURRENCY = 6;
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
+
+function getErrorMessage(error) {
+    return error instanceof Error ? error.message : String(error);
+}
 
 class SentryApiError extends Error {
     constructor(kind, status, cause) {

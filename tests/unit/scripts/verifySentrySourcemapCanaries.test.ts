@@ -1,3 +1,4 @@
+import {execFileSync} from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
@@ -7,6 +8,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {
     afterEach,
     describe,
@@ -172,6 +174,24 @@ afterEach(async () => {
 });
 
 describe('verifySentrySourcemapCanaries', () => {
+    it('loads as a standalone Node release script', () => {
+        const output = execFileSync(
+            process.execPath,
+            [
+                '--input-type=module',
+                '-e',
+                'await import(process.argv[1]); process.stdout.write("loaded")',
+                pathToFileURL(path.resolve(
+                    process.cwd(),
+                    'scripts/release/verify-sentry-sourcemap-canaries.mjs',
+                )).href,
+            ],
+            {encoding: 'utf8'},
+        );
+
+        expect(output).toBe('loaded');
+    });
+
     it('verifies source-map lookup and processed source context for every event', async () => {
         const root = await setupReceipt();
         const fetchImpl = vi.fn(async (url: RequestInfo | URL, _init?: RequestInit) => new Response(
