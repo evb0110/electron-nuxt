@@ -1,0 +1,21 @@
+scripts/release/policy.mjs
+  s_3e4a192066773e::t_12acf24ce9b30f 303
+tests/unit/scripts/changedAreaClassifier.test.ts
+  s_3e4a192066773e::t_02a0cb21d8b07e 129
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "61f3dc35d9ec5bb1c80e0573181e772b2be49ed8",
+  "prompts": {},
+  "sessions": {
+    "s_3e4a192066773e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30f39d2d-9e1c-4eef-8840-2d62537b8816",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

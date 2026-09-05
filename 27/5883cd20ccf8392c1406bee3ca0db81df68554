@@ -1,0 +1,19 @@
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_3e4a192066773e::t_8730995e8e6f2d 768-773
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "275883cd20ccf8392c1406bee3ca0db81df68554",
+  "prompts": {},
+  "sessions": {
+    "s_3e4a192066773e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30f39d2d-9e1c-4eef-8840-2d62537b8816",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
