@@ -1,0 +1,22 @@
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_0852135e63ded3 19
+  s_b412fd4cd3f576::t_0a20cb8fe43390 178-182
+.fallowrc.json
+  s_b412fd4cd3f576::t_0a20cb8fe43390 36-38
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "60bfb98b7388ad5592ee5712681ee34f53059a6c",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
