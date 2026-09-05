@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
+import {
+    createWriteStream,
+    existsSync,
+} from 'node:fs';
 import {
     readFile,
     rm,
@@ -10,9 +13,38 @@ import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isVmUuid } from '@scripts/windows-test/contracts/windowsTestContracts';
-import { windowsTestGuestLayout } from '@scripts/windows-test/contracts/windowsTestPaths';
+import {
+    resolveWindowsTestDataRoot,
+    windowsTestGuestLayout,
+} from '@scripts/windows-test/contracts/windowsTestPaths';
 
 export const DEFAULT_UTMCTL_PATH = '/Applications/UTM.app/Contents/MacOS/utmctl';
+
+export const STANDALONE_UTMCTL_RELATIVE_PATH = path.join(
+    'caches',
+    'tools',
+    'utmctl-probe',
+    'utmctl',
+);
+
+export interface IDefaultUtmctlPathOptions {
+    dataRoot?: string;
+    env?: NodeJS.ProcessEnv;
+    fileExists?: (filePath: string) => boolean;
+}
+
+/**
+ * Prefer the prepared copy because the executable inside UTM.app registers as
+ * a foreground application and creates a second Dock icon for each poll.
+ * Before preparation, retain the bundled path so doctor can report that the
+ * host still needs preparation instead of failing with an opaque ENOENT.
+ */
+export function resolveDefaultUtmctlPath(options: IDefaultUtmctlPathOptions = {}) {
+    const dataRoot = options.dataRoot ?? resolveWindowsTestDataRoot(options.env);
+    const preparedPath = path.join(dataRoot, STANDALONE_UTMCTL_RELATIVE_PATH);
+    const fileExists = options.fileExists ?? existsSync;
+    return fileExists(preparedPath) ? preparedPath : DEFAULT_UTMCTL_PATH;
+}
 
 // Captured from `utmctl help <subcommand>` of the installed UTM 4.7.5 build 118.
 // Keeping them in one injectable record lets a different UTM build be qualified
@@ -315,6 +347,9 @@ export interface IUtmctlExecOutcome {
 export interface IUtmctlClientOptions {
     runner: ICommandRunner;
     utmctlPath?: string;
+    dataRoot?: string;
+    env?: NodeJS.ProcessEnv;
+    fileExists?: (filePath: string) => boolean;
     spelling?: TUtmctlCommandSpelling;
     defaultTimeoutMs?: number;
     temporaryFilePath?: (label: string) => string;
@@ -557,7 +592,11 @@ function isMissingGuestFile(text: string) {
 }
 
 export function createUtmctlClient(options: IUtmctlClientOptions): IUtmctlClient {
-    const utmctlPath = options.utmctlPath ?? DEFAULT_UTMCTL_PATH;
+    const utmctlPath = options.utmctlPath ?? resolveDefaultUtmctlPath({
+        ...(options.dataRoot === undefined ? {} : {dataRoot: options.dataRoot}),
+        ...(options.env === undefined ? {} : {env: options.env}),
+        ...(options.fileExists === undefined ? {} : {fileExists: options.fileExists}),
+    });
     const spelling = options.spelling ?? defaultUtmctlCommandSpelling;
     const defaultTimeoutMs = options.defaultTimeoutMs ?? DEFAULT_TIMEOUT_MS;
     const temporaryFilePath = options.temporaryFilePath

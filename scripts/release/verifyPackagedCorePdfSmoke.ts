@@ -41,10 +41,11 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
+    waitForLivePdfJsAnnotationChange,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
-import {createFreeTextAnnotation} from '@tests/e2e/electron/helpers/viewerAnnotations';
+import {createFreeTextAnnotationWithPointer} from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {installPageEvaluationShims} from '@tests/e2e/electron/helpers/pageRuntime';
 import {getWorkspaceToolbarSnapshot} from '@tests/e2e/electron/helpers/workspaceExpose';
 import {readPdfAnnotationSummary} from '@tests/e2e/electron/helpers/fixtures';
@@ -278,10 +279,19 @@ async function run() {
 
         await openAnnotationsTab(page, OPERATION_TIMEOUT_MS);
         const annotationText = `Packaged smoke annotation ${Date.now()}`;
-        if (await createFreeTextAnnotation(page, annotationText) < 1) {
+        if (await createFreeTextAnnotationWithPointer(
+            page,
+            annotationText,
+            {
+                x: 0.4,
+                y: 0.3,
+            },
+            1,
+            OPERATION_TIMEOUT_MS,
+        ) < 1) {
             throw new Error('Packaged smoke failed to create a FreeText annotation');
         }
-        await page.keyboard.press('Escape');
+        await waitForLivePdfJsAnnotationChange(page, OPERATION_TIMEOUT_MS);
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
         await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
