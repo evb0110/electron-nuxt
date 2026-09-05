@@ -1,0 +1,28 @@
+.github/workflows/build-target.yml
+  s_b412fd4cd3f576::t_f93ed93bf7946d 100-103
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_b412fd4cd3f576::t_f93ed93bf7946d 1074-1076
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_f93ed93bf7946d 272-305,415,419-430
+  s_b412fd4cd3f576::t_219b6121ecae5d 416-418,431
+  s_b412fd4cd3f576::t_360b1d1d67168e 414,451
+scripts/release/verify-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_f93ed93bf7946d 209,211-212,233-237
+  s_b412fd4cd3f576::t_38cbeecb8d68cf 238
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "632a9e6b5c804ac11d7fe87689e17148143da7b9",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
