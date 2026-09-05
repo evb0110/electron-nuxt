@@ -26,6 +26,7 @@ import {
     readPdfAnnotationDetails,
     readPdfHasEncryptDictionary,
     readPdfAnnotationSummary,
+    readPdfPageSnapshots,
 } from '@tests/e2e/electron/helpers/fixtures';
 import {
     startElectronE2ESession,
@@ -464,6 +465,50 @@ describe('Electron E2E - save pipeline diagnostics', () => {
             timeoutMs: SAVE_TIMEOUT_MS,
         });
         expect(await readPdfHasEncryptDictionary(suppressedPath)).toBe(false);
+    }, E2E_TIMEOUT_MS);
+
+    it('writes Optimize As Copy to the chosen destination without changing the source', async () => {
+        const sourcePath = await createMultiPageTextFixturePdf(
+            `optimize-as-copy-source-${Date.now()}.pdf`,
+            2,
+        );
+        const destinationPath = sourcePath.replace(
+            '-source.pdf',
+            '-destination.pdf',
+        );
+        const sourceBeforeBytes = await readFile(sourcePath);
+        const sourceBeforeHash = hashBytes(sourceBeforeBytes);
+        session = await startElectronE2ESession(`e2e-optimize-as-copy-${Date.now()}`, {
+            clean: true,
+            extraEnv: {EVB_E2E_SAVE_DIALOG_PATH: destinationPath},
+            initialOpenPaths: [sourcePath],
+        });
+        await waitForOpenedPdf(session.page, sourcePath);
+
+        await expect(callWorkspaceCommand<boolean>(
+            session.page,
+            'handleOptimizePdfForInteraction',
+        )).resolves.toEqual({
+            called: true,
+            value: true,
+        });
+        await session.page.waitForFunction(
+            () => Array.from(document.querySelectorAll('button'))
+                .some(button => button.textContent?.trim() === 'Save Optimized Copy'),
+            {timeout: SAVE_TIMEOUT_MS},
+        );
+        await session.page.evaluate(() => Array.from(document.querySelectorAll('button'))
+            .find(button => button.textContent?.trim() === 'Save Optimized Copy')
+            ?.click());
+
+        await expect.poll(() => existsSync(destinationPath), {timeout: SAVE_TIMEOUT_MS}).toBe(true);
+        const destinationBytes = await readFile(destinationPath);
+        expect(destinationBytes.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+        expect(await readPdfPageSnapshots(destinationPath)).toEqual(
+            await readPdfPageSnapshots(sourcePath),
+        );
+        expect(await hashFile(sourcePath)).toBe(sourceBeforeHash);
+        await expect(readFile(sourcePath)).resolves.toEqual(sourceBeforeBytes);
     }, E2E_TIMEOUT_MS);
 
     // Canonical note creation is live before the store-to-Rust save projection

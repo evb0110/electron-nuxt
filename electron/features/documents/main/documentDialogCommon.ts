@@ -99,6 +99,12 @@ export async function showSaveDialogWithExtension(
     context: IDocumentsDialogContext,
     options: ISaveDialogOptions,
 ) {
+    const automationTargetPath = process.env.EVB_AUTOMATION_USER_DATA_DIR
+        && process.env.EVB_E2E_SAVE_DIALOG_PATH?.trim();
+    if (automationTargetPath) {
+        return automationTargetPath;
+    }
+
     const dialogOptions = {
         title: options.title,
         defaultPath: normalizeSaveDefaultPath(options.defaultPath, options.extension),
