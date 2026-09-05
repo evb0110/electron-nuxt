@@ -300,6 +300,7 @@ const GATE_POLICY_MANIFEST = Object.freeze({
                 'scripts/bundle-*.sh',
                 'scripts/build-*.mjs',
                 'scripts/build-*.sh',
+                'scripts/build-warning-allowlist.json',
                 'scripts/cargo-artifacts.mjs',
                 'scripts/check-build-*.mjs',
                 'scripts/check-drizzle-schema.mjs',
