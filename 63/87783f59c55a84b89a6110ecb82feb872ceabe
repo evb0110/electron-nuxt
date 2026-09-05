@@ -1,0 +1,36 @@
+scripts/windows-test/host/utmInputCaptureProbe.swift
+  s_cf09a11bf9eebf::t_12e9ac9a0d4f29 155,158-167,172
+scripts/windows-test/host/utmInputCapture.ts
+  s_cf09a11bf9eebf::t_12e9ac9a0d4f29 172-174,193-194
+  s_b412fd4cd3f576::t_077525c38d7dfd 195
+docs/agents/utm-windows-tests.md
+  s_cf09a11bf9eebf::t_429a4f178d923d 51-57
+tests/unit/scripts/windows-test/utmInputCapture.test.ts
+  s_cf09a11bf9eebf::t_12e9ac9a0d4f29 92-102,161-171,236-237
+docs/windows-tests/setup-and-repair.md
+  s_cf09a11bf9eebf::t_429a4f178d923d 249-253,256-257,267
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6387783f59c55a84b89a6110ecb82feb872ceabe",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
