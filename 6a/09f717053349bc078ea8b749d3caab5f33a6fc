@@ -1,0 +1,389 @@
+app/app.vue
+  s_b412fd4cd3f576::t_93a05d91a1815f 479
+app/components/AppTooltip.vue
+  s_b412fd4cd3f576::t_11131f932a46e1 97
+app/components/document-viewer/DocumentSearchResultItem.vue
+  s_b412fd4cd3f576::t_3b7aa65da6ef16 51
+app/components/document-viewer/DocumentSearchResults.vue
+  s_b412fd4cd3f576::t_77277059c0ecec 167
+app/components/document-viewer/DocumentThumbnailList.vue
+  s_b412fd4cd3f576::t_63f261547f078b 108-109
+app/components/settings/SettingsContent.vue
+  s_b412fd4cd3f576::t_b2d8c50e71b6b0 319,375
+app/composables/useAnalytics.ts
+  s_b412fd4cd3f576::t_3846e0e2b9bcec 371
+app/composables/useFailureToast.ts
+  s_b412fd4cd3f576::t_8bba2c1f24b27f 62
+app/composables/useSettings.ts
+  s_b412fd4cd3f576::t_147f56c91a4fd2 34
+app/composables/useToolbarOverflow.ts
+  s_b412fd4cd3f576::t_1f8f01a170450d 255
+app/composables/useTypedI18n.ts
+  s_b412fd4cd3f576::t_8404d5b267c73c 69
+app/composables/useUiScale.ts
+  s_b412fd4cd3f576::t_ef8ee34798fe03 53
+app/modules/agent-panel/components/AgentAssistantPanel.vue
+  s_b412fd4cd3f576::t_ffdc859a48b984 700-701,703
+app/modules/agent-panel/composables/useAgentAssistantPanelController.ts
+  s_b412fd4cd3f576::t_53191e26ebf6bf 156,164
+app/modules/agent-panel/utils/assistantSelectionState.ts
+  s_b412fd4cd3f576::t_aec9fe01738f95 30,39,78
+app/modules/native-pdf-viewer/components/NativePdfViewer.vue
+  s_b412fd4cd3f576::t_5334a49b389572 193
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_b412fd4cd3f576::t_b5617f4ed116ec 512
+app/modules/pdf-viewer/annotations/annotationApplication.ts
+  s_b412fd4cd3f576::t_0bdedb9dc47c5c 373,407
+app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationEditorBridge.ts
+  s_b412fd4cd3f576::t_8b57ab2ceed262 267
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_b412fd4cd3f576::t_2c854075771691 917
+app/modules/pdf-viewer/components/PdfPageContextMenu.vue
+  s_b412fd4cd3f576::t_190436bd77f6f2 154
+app/modules/pdf-viewer/components/PdfThumbnails.vue
+  s_b412fd4cd3f576::t_d846d49bda7356 806
+app/modules/pdf-viewer/components/PdfViewer.vue
+  s_b412fd4cd3f576::t_44cd64041669ee 125,214,241,244-245,257,466
+app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue
+  s_b412fd4cd3f576::t_9e28e3ade851fa 161
+app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/resolveAnnotationCommentTextMarkupColor.ts
+  s_b412fd4cd3f576::t_56f37f56b38cc9 154,179,183,191-193,227
+app/modules/pdf-viewer/engine/annotations/domain/annotationEntity.ts
+  s_b412fd4cd3f576::t_a0002c911a1d62 138
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPagePoint.ts
+  s_b412fd4cd3f576::t_e57e5ac8874b79 24
+app/modules/pdf-viewer/engine/annotations/pdf-text-anchor-resolver/buildRangeFromPageText.ts
+  s_b412fd4cd3f576::t_586f5819cd4846 61
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts
+  s_b412fd4cd3f576::t_086dff00ac0dca 203-204
+app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations.ts
+  s_b412fd4cd3f576::t_cf814f9fe6743b 273-274
+app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursor.ts
+  s_b412fd4cd3f576::t_8bf16a1f5613b7 18
+app/modules/pdf-viewer/engine/pdf-image-placement-sizing/getImagePlacementResizeCursorStyle.ts
+  s_b412fd4cd3f576::t_7bb9839d42b802 41
+app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotDom.ts
+  s_b412fd4cd3f576::t_1c351ebcc350a8 109,114,119
+app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot.ts
+  s_b412fd4cd3f576::t_0acbfdb4935856 42
+app/modules/pdf-viewer/engine/pdf-scroll-visibility/getViewportVisibilityFromDom.ts
+  s_b412fd4cd3f576::t_25feaaf6db72f4 46
+app/modules/pdf-viewer/engine/pdf-shape-overlay-interactions/usePdfShapeOverlayInteractions.ts
+  s_b412fd4cd3f576::t_173ae2206ba61c 141,201,248,251,371
+app/modules/pdf-viewer/engine/search/pdfSearchHighlightCss.ts
+  s_b412fd4cd3f576::t_9b805a5701bf1e 25
+app/modules/pdf-viewer/engine/serialization/pdf-serialization-embedded-notes/applyEmbeddedAnnotationDeletes.ts
+  s_b412fd4cd3f576::t_6dd3d6d65d8c31 24,30,45
+app/modules/pdf-viewer/engine/serialization/pdf-serialization-free-text/applyNewFreeTextNoteAnnotations.ts
+  s_b412fd4cd3f576::t_3805a9074e011b 110,226,342,363
+app/modules/pdf-viewer/engine/serialization/pdf-serialization-placed-images/applyPlacedImage.ts
+  s_b412fd4cd3f576::t_5be025c4ee3c53 142
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMarkerViewModel.ts
+  s_b412fd4cd3f576::t_a7379e26c69833 40
+app/modules/pdf-viewer/runtime/annotations/useAnnotationMutationService.ts
+  s_b412fd4cd3f576::t_c472b7d54ac612 105
+app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent.ts
+  s_b412fd4cd3f576::t_eb1c31fb0c14fe 111-112
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer.ts
+  s_b412fd4cd3f576::t_e3b0ca9bddae4c 262
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts
+  s_b412fd4cd3f576::t_bfcd6c8e1dd8ab 358,362,366-367,984
+app/modules/pdf-viewer/runtime/composables/usePdfSearch.ts
+  s_b412fd4cd3f576::t_fbcaff71ce9330 380
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_b412fd4cd3f576::t_762978671e6f46 420
+app/modules/pdf-viewer/runtime/rendering/createHiddenAnnotationLayerController.ts
+  s_b412fd4cd3f576::t_570b480e531ae4 79
+app/modules/pdf-viewer/runtime/rendering/createPdfSearchHighlightRefresh.ts
+  s_b412fd4cd3f576::t_df434aeedbb163 98
+app/modules/pdf-viewer/runtime/rendering/usePdfPageRenderer.ts
+  s_b412fd4cd3f576::t_1db5ba8d77caa5 482,594
+app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave.ts
+  s_b412fd4cd3f576::t_c034e3f1427936 32,71
+app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes.ts
+  s_b412fd4cd3f576::t_8b7f739bc55765 21,30
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_b412fd4cd3f576::t_9bbe715fc44d9c 923,1165
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_b412fd4cd3f576::t_0bdfb713e80780 1-4,285,303,319,687,940,1013,1027-1028
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_b412fd4cd3f576::t_ad8b500396b1c5 324
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_b412fd4cd3f576::t_7d0f3f1a5d4d57 196
+app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver.ts
+  s_b412fd4cd3f576::t_1ed25eecfcfd5a 156
+app/modules/pdf-viewer/thumbnails/createPdfThumbnailScrollController.ts
+  s_b412fd4cd3f576::t_bcaa243635efa5 159
+app/modules/scan-cleanup/components/preview/PreviewShell.vue
+  s_b412fd4cd3f576::t_e3ff66a5ba4a05 761
+app/modules/scan-cleanup/composables/useScanCleanupDetectionSession.ts
+  s_b412fd4cd3f576::t_76b5f28fecac1b 1097
+app/modules/scan-cleanup/composables/useScanCleanupPreviewZoom.ts
+  s_b412fd4cd3f576::t_a0133a6d021636 240,261,285
+app/modules/scan-cleanup/composables/useScanCleanupRunSession.ts
+  s_b412fd4cd3f576::t_137bb599af55cc 198
+app/modules/scan-cleanup/composables/useScanCleanupWorkspaceSession.ts
+  s_b412fd4cd3f576::t_844c8bb550d9be 264,309,329-330
+app/modules/workspace-shell/agent/createDocumentAgentAnnotationNoteActions.ts
+  s_b412fd4cd3f576::t_5f7a4cf4aaa3da 146
+app/modules/workspace-shell/agent/createDocumentAgentPageImageCapture.ts
+  s_b412fd4cd3f576::t_28363ab4da08b6 187
+app/modules/workspace-shell/components/DocumentSourceSidebar.vue
+  s_b412fd4cd3f576::t_13e977b5fa522b 108
+app/modules/workspace-shell/components/DocumentViewerChassis.vue
+  s_b412fd4cd3f576::t_01172587b78cb0 457-458
+app/modules/workspace-shell/components/DocumentWorkspace.vue
+  s_b412fd4cd3f576::t_e79476a734251a 1450
+app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings.ts
+  s_b412fd4cd3f576::t_b9c6966e42f821 76,78
+app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview.ts
+  s_b412fd4cd3f576::t_a48312eee69cee 400
+app/modules/workspace-shell/composables/useAppShellDirectionalTabs.ts
+  s_b412fd4cd3f576::t_8dacc9850ee0ce 381
+app/modules/workspace-shell/composables/useAppShellTabLifecycle.ts
+  s_b412fd4cd3f576::t_047fb270dc9a39 213
+app/modules/workspace-shell/composables/useAppShellWorkspaceRouting.ts
+  s_b412fd4cd3f576::t_9c227914a9cd2b 152-155
+app/modules/workspace-shell/composables/useExternalFileDrop.ts
+  s_b412fd4cd3f576::t_50178655c385d7 214-215
+app/modules/workspace-shell/composables/useMenuSync.ts
+  s_b412fd4cd3f576::t_b6d8e001992984 45,55
+app/modules/workspace-shell/composables/useMetadataSession.ts
+  s_b412fd4cd3f576::t_6213d96c5fdcf4 91,93
+app/modules/workspace-shell/composables/usePageAnnotationActions.ts
+  s_b412fd4cd3f576::t_6a123a3de6806c 209,225,382,401,444,1132
+app/modules/workspace-shell/composables/usePageOpsHandlers.ts
+  s_b412fd4cd3f576::t_af277f2cdd6bdb 237
+app/modules/workspace-shell/composables/useTabsShellBindings.ts
+  s_b412fd4cd3f576::t_c23a009aa3962c 554
+app/modules/workspace-shell/composables/useWorkspaceDocumentLifecycleEffects.ts
+  s_b412fd4cd3f576::t_deb2c62bb9f640 135,142,145
+app/modules/workspace-shell/viewers/createWorkspaceViewerUpdateHandlers.ts
+  s_b412fd4cd3f576::t_80073585c0701f 47
+app/modules/workspace-shell/viewers/useDocumentPageSourceRuntime.ts
+  s_b412fd4cd3f576::t_7ed8d8b686a774 591
+app/platform/browser-api/browserDurableDjvuJobs.ts
+  s_b412fd4cd3f576::t_1b8b7f88f9f4b0 156,218
+app/platform/browser-api/createBrowserImageExportCapability.ts
+  s_b412fd4cd3f576::t_3a6237806933fb 237,332
+app/platform/browser-api/createCombinedPdfFromPaths.ts
+  s_b412fd4cd3f576::t_cb758fd8a1fdba 281
+app/platform/browser-api/createDjvuWorkerFromPath.ts
+  s_b412fd4cd3f576::t_ac94da72ac5c7b 161
+app/platform/browser-api/extractBrowserSearchPageText.ts
+  s_b412fd4cd3f576::t_18c54cabc83793 61
+app/platform/browser-api/streamingImagePdfWriter.ts
+  s_b412fd4cd3f576::t_839c2129ad4b95 208
+app/utils/exportTextAsDocx.ts
+  s_b412fd4cd3f576::t_1762cbd855c286 78
+app/utils/failureReporter.ts
+  s_b412fd4cd3f576::t_70376c53bae535 251
+app/utils/ocr/extractPdfText.ts
+  s_b412fd4cd3f576::t_616fa9a64f78c9 18
+app/utils/performanceProfile.ts
+  s_b412fd4cd3f576::t_553aaad253a8e4 86
+electron/bootstrap/externalOpen.ts
+  s_b412fd4cd3f576::t_1a94ae37d5e52a 369,449,550
+electron/bootstrap/requestShutdownSaveFlush.ts
+  s_b412fd4cd3f576::t_f56cbe8cc2fcbf 94
+electron/bootstrap/runInitSequence.ts
+  s_b412fd4cd3f576::t_f29125d110fade 164
+electron/bootstrap/shutdown.ts
+  s_b412fd4cd3f576::t_4b6aef0bfd3452 165,320
+electron/djvu/exportPaths.ts
+  s_b412fd4cd3f576::t_f0fa6fe0434c78 112-114,131
+electron/features/agent/assistantChatPersistence.ts
+  s_b412fd4cd3f576::t_3ea5505798b519 825
+electron/features/agent/assistantPresetWorkflows.ts
+  s_b412fd4cd3f576::t_9204eb1d419035 68
+electron/features/agent/codexAppServerClient.ts
+  s_b412fd4cd3f576::t_cc275e9bb84f09 307
+electron/features/agent/codexAssistant.ts
+  s_b412fd4cd3f576::t_62ffa26ff2bc77 1173
+electron/features/agent/mcpServer.ts
+  s_b412fd4cd3f576::t_8cd2071658f4ae 367-368
+electron/features/diagnostics/mainFailureReporter.ts
+  s_b412fd4cd3f576::t_0a334dbe991051 227
+electron/features/djvu/main/ddjvuConversion.ts
+  s_b412fd4cd3f576::t_7989a8a09c0235 507,553
+electron/features/djvu/main/djvuArtifactManifest.ts
+  s_b412fd4cd3f576::t_7f079e1099aafd 204
+electron/features/djvu/main/probeNativeNetpbm.ts
+  s_b412fd4cd3f576::t_d5723e7c942b61 77
+electron/features/documents/createDocumentsPreloadFileClient.ts
+  s_b412fd4cd3f576::t_6515985bcfc40f 950
+electron/features/documents/main/acquireNativePdfPreviewAdmission.ts
+  s_b412fd4cd3f576::t_1b6f7b5ff7ac4d 25
+electron/features/documents/main/buildPrintablePdfPath.ts
+  s_b412fd4cd3f576::t_21ec7fee98eb99 107
+electron/features/documents/main/documentFileReadHandlers.ts
+  s_b412fd4cd3f576::t_f866c127446316 348
+electron/features/documents/main/documentSaveUtilityProcess.ts
+  s_b412fd4cd3f576::t_0f043ca07dbacc 107
+electron/features/documents/main/documentSaveUtilityProtocol.ts
+  s_b412fd4cd3f576::t_44400d120b0196 141,144,149-150,154,156
+electron/features/documents/main/docxExportStream.ts
+  s_b412fd4cd3f576::t_c33ad89574509a 98,182
+electron/features/documents/main/fingerprintFileWithUtilityProcess.ts
+  s_b412fd4cd3f576::t_023579157e817f 89
+electron/features/documents/main/handleOptimizePdfAsCopy.ts
+  s_b412fd4cd3f576::t_964edeb7d4fd0e 133
+electron/features/documents/main/managedTempFileHandles.ts
+  s_b412fd4cd3f576::t_8dde11a159dc32 275
+electron/features/documents/main/pdfAnnotationIndex.ts
+  s_b412fd4cd3f576::t_bfc1a503400603 481,751
+electron/features/documents/main/pdfEmbeddedShapeIndex.ts
+  s_b412fd4cd3f576::t_555a4eaebfe754 532,800
+electron/features/documents/main/print.ts
+  s_b412fd4cd3f576::t_affc0b72a313a3 88
+electron/features/documents/main/serializedPdfPersistence.ts
+  s_b412fd4cd3f576::t_c1ac6781d30cd4 297,394
+electron/features/documents/registerDocumentsIpcAdapter.ts
+  s_b412fd4cd3f576::t_56c88cf4bab869 308
+electron/features/scan-cleanup/detectionResultStoreRegistry.ts
+  s_b412fd4cd3f576::t_1098f8396db0c2 44
+electron/features/scan-cleanup/worker/runScanCleanupSidecar.ts
+  s_b412fd4cd3f576::t_553017a795c432 194,318
+electron/features/search/main/ipc.ts
+  s_b412fd4cd3f576::t_63bc649c5b6c1d 50,304,426
+electron/features/search/main/searchWorkerService.ts
+  s_b412fd4cd3f576::t_6a36ca13a86801 517,585,661,697
+electron/file-access/docxExportPaths.ts
+  s_b412fd4cd3f576::t_ead2bfaaf8f522 100-102,119
+electron/file-access/openPathCapabilities.ts
+  s_b412fd4cd3f576::t_c6c6801be52b95 117-119,134
+electron/file-access/workingCopyDirectory.ts
+  s_b412fd4cd3f576::t_59b718b50fdd03 75-76
+electron/file-access/workingCopyStore.ts
+  s_b412fd4cd3f576::t_0050eac5e93044 179,516
+electron/hostEnvironment.ts
+  s_b412fd4cd3f576::t_7bff584e1e2403 87,178,321
+electron/image/pdfConversion.ts
+  s_b412fd4cd3f576::t_8dfc554ec4835e 656
+electron/image/tryCreatePdfWithNativeImageCombiner.ts
+  s_b412fd4cd3f576::t_c79ab005147169 663-664,672,699,714,732
+electron/main.ts
+  s_b412fd4cd3f576::t_be49af440742ea 650-652,732
+electron/native-tools/runNativeCommand.ts
+  s_b412fd4cd3f576::t_d4343477bcb1cd 152,360,364,436,560-561
+electron/ocr/createOcrWorker.worker.ts
+  s_b412fd4cd3f576::t_5c3804293830e2 43
+electron/ocr/createPendingResultFileStore.ts
+  s_b412fd4cd3f576::t_4ae3ada4c37c08 151
+electron/ocr/documentTextCatalog.ts
+  s_b412fd4cd3f576::t_a6445d8c750f21 283
+electron/ocr/jobManager.ts
+  s_b412fd4cd3f576::t_b42d771c9e3b6f 636
+electron/ocr/languageModels.ts
+  s_b412fd4cd3f576::t_c6bb8153c8a96f 221,244
+electron/ocr/ocrJobWorkerLifecycle.ts
+  s_b412fd4cd3f576::t_770fc435dba469 327,414
+electron/ocr/prepareLanguageModelsForJob.modelPrep.ts
+  s_b412fd4cd3f576::t_a266a591df1d0f 46
+electron/ocr/runOcr.ts
+  s_b412fd4cd3f576::t_57768091cb5b1b 127,136,138,153,159,215
+electron/ocr/worker/main.ts
+  s_b412fd4cd3f576::t_177ea98e39cba9 241
+electron/ocr/worker/ocrJobStorageBudget.ts
+  s_b412fd4cd3f576::t_5f2717f5a77486 194
+electron/ocr/worker/pdfAssembler.ts
+  s_b412fd4cd3f576::t_d63b0330d5b481 145
+electron/ocr/worker/selectOcrPagesForSupersession.ts
+  s_b412fd4cd3f576::t_73db8052f4cd62 68
+electron/ocr/worker/tesseractRunner.ts
+  s_b412fd4cd3f576::t_e527fb251aede1 252,334,338,347,349,570
+electron/operation-lifecycle/createMainJobRegistry.ts
+  s_b412fd4cd3f576::t_a342138f2580b1 301
+electron/operation-lifecycle/mainOperationLifecycle.ts
+  s_b412fd4cd3f576::t_c26842e5501ff8 77
+electron/preload/installViteOutdatedOptimizeDepRecovery.ts
+  s_b412fd4cd3f576::t_fcc72c8d2909fb 277,352-353
+electron/preload/ipcClient.ts
+  s_b412fd4cd3f576::t_a0f19f0263213a 101
+electron/recentFiles.ts
+  s_b412fd4cd3f576::t_cf148c8d85fc75 210
+electron/search/extractTextFromPdf.ts
+  s_b412fd4cd3f576::t_4c2bfdd8a50e4f 213,270
+electron/search/extractTextWithPdfjs.ts
+  s_b412fd4cd3f576::t_026d68da052e36 227,316
+electron/search/indexBuilder.ts
+  s_b412fd4cd3f576::t_32d5fef2e634a3 375,395
+electron/search/nativeSearch.ts
+  s_b412fd4cd3f576::t_6dbc77990a6374 664
+electron/search/stringifyLegacyJsonSearchIndex.ts
+  s_b412fd4cd3f576::t_29bce0d80d93bf 58,69
+electron/search/worker.ts
+  s_b412fd4cd3f576::t_d2ee817d348530 545
+electron/search/worker/ensureSearchIndex.ts
+  s_b412fd4cd3f576::t_d6afb48e466727 136,266
+electron/security/csp.ts
+  s_b412fd4cd3f576::t_acdd4ceec379aa 145
+electron/updates.ts
+  s_b412fd4cd3f576::t_8351f70012ffa8 180,1161,1180
+electron/updates/checkMacCodeSignature.ts
+  s_b412fd4cd3f576::t_e66aeea99bb143 39,41
+electron/updates/fetchLatestReleaseMetadataVersion.ts
+  s_b412fd4cd3f576::t_9876cb68230ccf 41,81
+electron/utils/createIpcProgressPump.ts
+  s_b412fd4cd3f576::t_fd8a1518f50f85 109,147
+electron/utils/createLogger.ts
+  s_b412fd4cd3f576::t_e7b0bb374edb67 399
+electron/utils/printHandoff.ts
+  s_b412fd4cd3f576::t_e4c921e2c4a794 184,363,366,744,779,836,883,1073
+electron/utils/processTree.ts
+  s_b412fd4cd3f576::t_375ab95f3108be 148
+electron/utils/workerTask.ts
+  s_b412fd4cd3f576::t_255354daea1278 399,521
+electron/window.ts
+  s_b412fd4cd3f576::t_258d38ef6456be 521
+electron/window/rendererReady.ts
+  s_b412fd4cd3f576::t_b8a3543567b5ae 109
+electron/window/windowCloseHandshake.ts
+  s_b412fd4cd3f576::t_2f16886712fe9a 129
+electron/workspaceCheckpointStore.ts
+  s_b412fd4cd3f576::t_79596990ee6a23 118,526
+eslint.shared.mjs
+  s_b412fd4cd3f576::t_35351eaaa28175 68-71
+packages/contracts/diagnostics/canonicalAppFrames.ts
+  s_b412fd4cd3f576::t_dff39e26335a50 141
+packages/contracts/documentsPersistenceSchemas.ts
+  s_b412fd4cd3f576::t_facdffc961843a 43
+packages/contracts/pageNumbers.ts
+  s_b412fd4cd3f576::t_7cfdf664a1d41f 1365-1375
+packages/contracts/scanCleanupPageOverrides.ts
+  s_b412fd4cd3f576::t_b60e6f50e1a857 40
+packages/contracts/search.ts
+  s_b412fd4cd3f576::t_95fafb71defda7 1029
+scripts/validation-gates.mjs
+  s_b412fd4cd3f576::t_1339d87a90a5f2 57-59,1447
+server/plugins/diagnostics.ts
+  s_b412fd4cd3f576::t_701abf50920065 26
+server/utils/serverFailureReporter.ts
+  s_b412fd4cd3f576::t_badf35226983f2 229,382
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_b412fd4cd3f576::t_b1b01dc1ca6452 757-778
+tests/unit/contracts/pageNumbers.test.ts
+  s_b412fd4cd3f576::t_0fe71b8cf0c111 9,104-115
+tests/unit/scripts/validationGatePolicy.test.ts
+  s_b412fd4cd3f576::t_92add28dc0a687 271
+tests/unit/scripts/windows-test/ocrPageMarkerOracle.test.ts
+  s_b412fd4cd3f576::t_c29f3afafc6ed8 91
+tests/unit/scripts/windows-test/windowsHostOracleDispatcher.test.ts
+  s_b412fd4cd3f576::t_46f86b0e19bdb5 263,275
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6a09f717053349bc078ea8b749d3caab5f33a6fc",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
