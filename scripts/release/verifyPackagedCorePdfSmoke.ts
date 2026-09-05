@@ -378,7 +378,11 @@ async function run() {
         console.log('Packaged core-PDF smoke passed: open, annotation save, metadata-preserving rotate, source isolation, and search.');
     } catch (error) {
         primaryError = error instanceof Error ? error : new Error(String(error));
-        await capturePackagedCorePdfFailureArtifacts(browser, error);
+        try {
+            await capturePackagedCorePdfFailureArtifacts(browser, error);
+        } catch (captureError) {
+            recordCleanupError(captureError);
+        }
     } finally {
         try {
             await closeBrowserGracefully(browser);
