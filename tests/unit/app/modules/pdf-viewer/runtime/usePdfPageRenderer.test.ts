@@ -105,6 +105,10 @@ function createHarness() {
             cancelPendingSearchRevision: ref(0),
             viewportWritePort: {},
             singlePageScroll: {
+                viewportAuthority: {
+                    phase: ref('idle'),
+                    activeIntent: ref(null),
+                },
                 scrollToPage: vi.fn(),
                 beginSearchNavigation: vi.fn(),
                 revealSearchNavigationTarget: vi.fn(),

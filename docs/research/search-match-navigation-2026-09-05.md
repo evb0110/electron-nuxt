@@ -123,3 +123,38 @@ very large documents. The generated fixture then passed without the experiment.
   selections include multiple occurrences on the last page at 380% zoom.
 - Both Electron runs check highlight geometry after settling, painted highlight
   pixels, pointer hit targets, and one semantic placement per selection.
+
+## Highlight color handoff follow-up
+
+The 09:57 recording showed two remaining transition defects. The outgoing
+current match changed from orange to yellow before departure. Some destination
+pages also appeared before their orange current highlight. The earlier
+regression checked settled geometry and could not detect these frames.
+
+The strengthened Electron regression samples every animation frame around each
+pointer selection. Before the fix it recorded pre-commit frames with no orange
+highlight on either the outgoing or destination page.
+
+Highlight refresh followed the sidebar's requested selection immediately and
+ran in animation-frame slices. Navigation waited for the target text layer but
+did not coordinate that selection change with the viewport write. The renderer
+now retains a separate painted selection until the viewport authority enters
+its synchronous `applying` phase. It refreshes the previous and destination
+pages in that same turn, before the scroll write, and invalidates older refresh
+slices. Other search results remain yellow after the handoff.
+
+The request carries the search navigation ID through resize absorption, so a
+newer same-page occurrence cannot inherit an older request's highlight commit.
+Clearing search cancels search-owned navigation while preserving destinations
+from other controls. Tests cover delayed readiness, same-page duplicate
+selection, supersession, and clearing the query.
+
+The full Electron search-match suite passed on both the supplied 383-page PDF
+and generated 241-page fixture at 380% zoom. Each repeated pointer selection
+checks every sampled frame for premature outgoing demotion or missing orange
+on arrival, as well as the existing settled geometry and single-scroll checks.
+
+Follow-up validation passed both type checks, affected lint, 489 related unit
+tests across 49 files, and the dead-code and duplication gates. CodeRabbit
+completed its review with two trivial suggestions and no correctness findings.
+The existing refresh scheduling and the explicit OCR test setup were retained.

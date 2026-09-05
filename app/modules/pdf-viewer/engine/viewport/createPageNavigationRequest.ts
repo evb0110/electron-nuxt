@@ -37,6 +37,7 @@ export type TPdfNavigationTarget =
     };
 
 export interface IPdfNavigationRequest {
+    searchNavigationId?: number | undefined;
     target: TPdfNavigationTarget;
     alignment: 'page-top' | 'rect-center' | 'keep-visible';
     readiness: 'metrics' | 'page-canvas' | 'text-layer' | 'annotation-editor';

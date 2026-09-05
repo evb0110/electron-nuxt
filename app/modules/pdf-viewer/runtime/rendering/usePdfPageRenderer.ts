@@ -15,6 +15,7 @@ import { runGuardedTask } from '@app/utils/asyncGuard';
 import { usePdfTextLayerRenderer } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import { usePdfRendererSearchController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererSearchController';
+import { usePdfSearchHighlightHandoff } from '@app/modules/pdf-viewer/runtime/rendering/usePdfSearchHighlightHandoff';
 import { createPdfRendererPageDom } from '@app/modules/pdf-viewer/runtime/rendering/pdf-renderer-page-dom/createPdfRendererPageDom';
 import { usePdfRendererAnnotationLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController';
 import { usePdfRendererTextLayerController } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController';
@@ -83,9 +84,18 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
     const outputScale = options.outputScale
         ?? (typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
     const renderSupervisor = options.renderSupervisor ?? createPdfRenderSupervisor();
+    const highlightHandoff = usePdfSearchHighlightHandoff({
+        currentSearchMatch,
+        navigationId: currentSearchMatchNavigationId,
+        authority: viewport.singlePageScroll.viewportAuthority,
+        applyHighlights: pages => {
+            const root = options.container.value;
+            if (root) textLayerRenderer.applySearchHighlightHandoff(root, pages);
+        },
+    });
     const textLayerRenderer = usePdfTextLayerRenderer({
         searchPageMatches,
-        currentSearchMatch,
+        currentSearchMatch: highlightHandoff.currentHighlightMatch,
         workingCopyPath,
         documentRevisionToken,
         effectiveScale: viewport.scale.effectiveScale,
@@ -231,7 +241,10 @@ export const usePdfPageRenderer = (options: IUsePdfPageRendererOptions) => {
             viewport.singlePageScroll.beginSearchNavigation(pageNumber);
         },
         revealSearchNavigationTarget: (pageNumber, revealOptions) =>
-            viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, revealOptions),
+            viewport.singlePageScroll.revealSearchNavigationTarget(pageNumber, {
+                ...revealOptions,
+                searchNavigationId: toValue(currentSearchMatchNavigationId),
+            }),
         endSearchNavigation: () => viewport.singlePageScroll.endSearchNavigation(),
         beginSearchTransaction: (pageNumber, searchOptions) => (
             viewport.transactionController.beginTransaction({

@@ -127,6 +127,9 @@ export const usePdfRendererSearchController = (options: IUsePdfRendererSearchCon
                 return;
             }
 
+            if (!toValue(currentSearchMatch)) {
+                searchMatchScroller.invalidatePendingRequests();
+            }
             applySearchHighlights();
         },
     );

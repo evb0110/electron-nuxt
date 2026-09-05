@@ -432,6 +432,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             request.alignment = 'page-top';
         }
         if (source === 'search') {
+            request.searchNavigationId = scrollOptions?.searchNavigationId;
             request.readiness = 'text-layer';
             request.postArrival = 'search-highlight';
         } else if (source === 'annotation') {
@@ -901,10 +902,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         observeNativeUserScroll();
     }
 
-    function cancelDestinationNavigationTarget() {
-        wheelFlipGate.reset();
+    function cancelDestinationNavigationTarget(source?: IPdfNavigationRequest['source']) {
         const activeIntent = viewportAuthority.activeIntent.value;
-        const hasDestinationDemand = queuedNavigation !== null || activeIntent?.navigation !== undefined;
+        const queuedMatches = queuedNavigation !== null && (!source || queuedNavigation.request.source === source);
+        const activeMatches = activeIntent?.navigation !== undefined && (!source || activeIntent.navigation.source === source);
+        const hasDestinationDemand = queuedMatches || activeMatches;
+        if (!source || hasDestinationDemand) wheelFlipGate.reset();
         logPdfRenderTrace('navigation-destination-intent-cancelled', () => ({
             retainedPage: retainedNavigationAnchorPage.value,
             pendingPage: viewportAuthority.pendingTargetPage.value,
@@ -917,14 +920,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!hasDestinationDemand) {
             return;
         }
-        clearQueuedNavigation();
-        // This boundary cancels a destination command, not the viewport
-        // authority itself. Zoom/fit/resize intents own semantic anchors and
-        // must survive reactive zoom-mode watchers; suspending one here leaves
-        // the old pixel offset under new geometry and reinterprets page 7 as
-        // page 1. Only an intent that actually carries navigation demand is a
-        // destination eligible for cancellation.
-        if (activeIntent?.navigation !== undefined) {
+        if (queuedMatches || queuedNavigation === null) clearQueuedNavigation();
+        // Preserve geometry-only transitions and destinations owned by another source.
+        if (activeMatches) {
             viewportAuthority.suspend();
         }
     }
@@ -1167,7 +1165,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ...scrollOptions,
             navigationSource: 'search',
         }),
-        endSearchNavigation: () => undefined,
+        endSearchNavigation: () => cancelDestinationNavigationTarget('search'),
         cancelProgrammaticNavigation,
         cancelDestinationNavigationTarget,
         retireStaleViewportIntent,

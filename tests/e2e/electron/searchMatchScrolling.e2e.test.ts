@@ -804,9 +804,41 @@ describe('Electron E2E - PDF search match scrolling', () => {
                 const y = box.top + box.height / 2;
                 const diagnosticWindow = window as Window & {__clearPdfRenderTrace?: () => void};
                 diagnosticWindow.__clearPdfRenderTrace?.();
+                const viewer = document.querySelector<HTMLElement>('.editor-pane.is-active #pdf-viewer')!;
+                const oldPage = viewer.querySelector('.pdf-search-highlight--current, .pdf-word-box--current')
+                    ?.closest<HTMLElement>('.page_container')?.dataset.page;
+                const targetPage = row.dataset.pageNumber;
+                const frames: Array<{
+                    committed: boolean;
+                    outgoingOrange: boolean;
+                    targetOrange: boolean
+                }> = [];
+                const monitor = window as Window & {
+                    __matchHandoffFrames?: typeof frames;
+                    __stopMatchHandoff?: boolean
+                };
+                monitor.__matchHandoffFrames = frames;
+                monitor.__stopMatchHandoff = false;
+                const sample = () => {
+                    if (monitor.__stopMatchHandoff || monitor.__matchHandoffFrames !== frames) {
+                        return;
+                    }
+                    const trace = (window as Window & {__getPdfRenderTrace?: () => Array<{event: string}>})
+                        .__getPdfRenderTrace?.() ?? [];
+                    if (oldPage && oldPage !== targetPage) {
+                        frames.push({
+                            committed: trace.some(entry => entry.event === 'navigation-viewport-authority-applied'),
+                            outgoingOrange: !!viewer.querySelector(`.page_container[data-page="${oldPage}"] .pdf-search-highlight--current, .page_container[data-page="${oldPage}"] .pdf-word-box--current`),
+                            targetOrange: !!viewer.querySelector(`.page_container[data-page="${targetPage}"] .pdf-search-highlight--current, .page_container[data-page="${targetPage}"] .pdf-word-box--current`),
+                        });
+                    }
+                    requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
                 return {
                     x,
                     y,
+                    monitored: !!oldPage && oldPage !== targetPage,
                     hit: row.contains(document.elementFromPoint(x, y)),
                     text: row.querySelector('.document-search-result-highlight')?.textContent ?? '',
                 };
@@ -877,6 +909,23 @@ describe('Electron E2E - PDF search match scrolling', () => {
             await new Promise(resolve => setTimeout(resolve, 500));
             const state = await readState();
             expect(state.visible, `settled page ${targetPage} match ${targetMatch}: ${JSON.stringify(state)}`).toBe(true);
+            const handoffFrames = await session.page.evaluate(() => {
+                const monitor = window as Window & {
+                    __matchHandoffFrames?: Array<{
+                        committed: boolean;
+                        outgoingOrange: boolean;
+                        targetOrange: boolean
+                    }>;
+                    __stopMatchHandoff?: boolean;
+                };
+                monitor.__stopMatchHandoff = true;
+                return monitor.__matchHandoffFrames ?? [];
+            });
+            if (clicked.monitored) {
+                expect(handoffFrames.some(frame => frame.committed)).toBe(true);
+            }
+            expect(handoffFrames.filter(frame => !frame.committed && !frame.outgoingOrange), 'Outgoing orange disappears before viewport commit').toEqual([]);
+            expect(handoffFrames.filter(frame => frame.committed && !frame.targetOrange), 'Destination arrives before orange highlight').toEqual([]);
             expect(Math.abs(state.centerDelta!), JSON.stringify(state)).toBeLessThan(120);
             expect(normalizeMatchText(state.text)).toBe(normalizeMatchText(clicked.text));
             expect(state.appliedCount, JSON.stringify({
