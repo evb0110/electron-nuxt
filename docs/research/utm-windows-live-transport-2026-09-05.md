@@ -470,3 +470,27 @@ The process table had no dedicated Windows test coordinator to restart. The
 only long-lived `tsx` processes were the existing Electron and Nuxt development
 session, which was left running. The transport check therefore used a fresh
 CLI process so the updated `utmctlClient.ts` was loaded from disk.
+
+## Host input ownership acceptance
+
+The UTM window was inspected through its supported Accessibility controls. Its
+`Capture Input` checkbox reported value `0`, and UTM's help text identified
+Command+Option as the supported release chord. The checked-in probe uses that
+chord and re-reads the checkbox. It never presses the checkbox. The first
+attempt to release an already-off control returned `before: 0`, `after: 0`, and
+`hostInputAvailable: true`.
+
+Two fresh CLI runs then started disposable clones from the stopped golden image,
+completed WIN-PRINT-01, passed every host oracle, and tore the clones down:
+
+| Run | Reset path | Result | Input evidence |
+| --- | --- | --- | --- |
+| `20260905T130111Z-c46c356e37b2` | Cold clone from stopped golden image | Passed, exit 0 | `runs/20260905T130111Z-c46c356e37b2/input-capture-launch.json`, `input-capture-cleanup.json` |
+| `20260905T131030Z-531f4a3b421d` | Repeated cold clone from stopped golden image | Passed, exit 0 | `runs/20260905T131030Z-531f4a3b421d/input-capture-launch.json`, `input-capture-cleanup.json` |
+
+All four records report `after: 0` and `hostInputAvailable: true`. The second
+run's clone was also removed, and the registered lab golden image is stopped.
+The host input guard runs after every owned `start`, before guest work begins,
+and in test, stop, teardown, and error cleanup paths. Image and launcher
+qualification remain unset because the broader M0 and M1 reset and review
+gates still require their own evidence.

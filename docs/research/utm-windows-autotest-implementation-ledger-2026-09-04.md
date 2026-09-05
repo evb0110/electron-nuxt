@@ -496,6 +496,16 @@ This closes the first real M1 case only. M0a and M0b remain In progress, and M1
 remains unqualified until the three cold-reset cycles, repeated-run and
 two-terminal gates, later-day stability, and human review are recorded here.
 
+The host-input invariant is now enforced in the production launcher and stop
+paths. The Accessibility probe reads UTM's `Capture Input` checkbox, releases
+it only with the supported Command+Option chord, and fails closed if the value
+remains on. Runs `20260905T130111Z-c46c356e37b2` and
+`20260905T131030Z-531f4a3b421d` each started a fresh clone from the stopped
+golden image, passed WIN-PRINT-01 and all host oracles, and recorded
+`before: 0`, `after: 0`, and `hostInputAvailable: true` at launch and cleanup.
+These records prove the input guard across repeated cold resets, but do not
+close the broader qualification gates.
+
 ## Closure rule
 
 To move a package to Qualified:

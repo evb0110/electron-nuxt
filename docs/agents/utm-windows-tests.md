@@ -43,6 +43,17 @@ a macOS race; these operations cannot be made atomic. Inspect retained evidence
 before restarting a failed clone. A clone that stops while the host awaits a
 result fails as infrastructure rather than waiting for the entire job deadline.
 
+Input ownership is a hard invariant. The harness never captures host keyboard
+or mouse input. Before a clone test starts, the launcher reads the UTM
+Accessibility checkbox for that clone and requires `Capture Input` to be off.
+If the checkbox is on, the launcher sends UTM's supported Command+Option release
+chord and reads the checkbox again. A remaining on state, an unavailable UTM
+window, or an unavailable Accessibility control fails the run before guest input
+begins. The harness never presses the Capture Input checkbox. After every test,
+stop request, teardown, and error path it releases the chord again and hides a
+focused UTM window so the launcher that started the run receives host input.
+Launch and cleanup probe records live under `runs/<RUN_ID>/input-capture-*.json`.
+
 Exit codes are stable and the only thing CI or a script should branch on:
 
 | Code | Meaning |
@@ -86,6 +97,10 @@ separately. Do not mark that review done from a machine result.
 - The first result of a run is never replaced. A rerun gets a new run ID.
 - Cleanup kills only processes identified by PID, start time and executable.
   Never kill Electron, QEMU, UTM or PowerShell processes by name.
+- Keep UTM input capture off. Guest automation uses the Windows UI driver over
+  the guest channel, not the host keyboard or mouse. Do not click the UTM
+  Capture Input control, add a host input injection shortcut, or accept a run
+  without launch and cleanup probe evidence.
 - Run broad host validation separately from timed VM acceptance. Use bounded
   test concurrency, such as `--maxWorkers=2`, on this shared workstation. Do
   not stop other agents' processes to make a VM timing result pass.

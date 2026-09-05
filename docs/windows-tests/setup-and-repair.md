@@ -18,6 +18,7 @@ outside the checkout.
 | Candidate | A hash-verified NSIS installer registered in the config or passed with `--artifact` | File exists and its SHA-256 matches |
 | Printed page markers | Tesseract available to the host runner for rasterized print outputs | Missing OCR makes marker verification inconclusive, never passing |
 | Python oracle | `python3` with Pillow for the generated-PDF verifier | Missing tooling makes the render oracle inconclusive, never passing |
+| Host input ownership | UTM `Capture Input` is off for the active lab window | Accessibility probe reads the checkbox before launch and after cleanup; a remaining on state blocks the run |
 
 Set `EVB_WINDOWS_TESTS_ROOT` only for tests or a second lab root. The default
 root is the one above.
@@ -234,6 +235,26 @@ Host PowerShell transport has a 180-second command deadline. It is separate
 from the 30-second native UI step deadline. A live transport probe took 57
 seconds on this lab, and the old shared deadline stopped a real staging run.
 
+### Host input ownership
+
+The Windows lane keeps the host keyboard and mouse available throughout a run.
+The launcher compiles and runs the checked-in macOS Accessibility probe
+`scripts/windows-test/host/utmInputCaptureProbe.swift`. After every owned clone
+starts, it finds that clone's UTM window by the registered display name and
+reads the supported `Capture Input` toolbar checkbox. A checked control is
+released with UTM's documented Command+Option chord, then read again. The
+launcher does not click the checkbox and does not send guest keyboard or mouse
+events through the host.
+
+An absent window, ambiguous UTM process, missing checkbox, or checked state that
+survives the chord is an infrastructure failure. The cleanup path repeats the
+release and hides a focused UTM window. The probe records `before`, `after`,
+UTM PID, frontmost PID, and `hostInputAvailable` in
+`runs/<RUN_ID>/input-capture-launch.json` and
+`runs/<RUN_ID>/input-capture-cleanup.json`. Repeat the check after a cold reset
+and keep both records with the run evidence. Never proceed from a screenshot or
+from a unit-test result alone.
+
 ## Repair
 
 | Symptom | Cause | Repair |
@@ -241,6 +262,7 @@ seconds on this lab, and the old shared deadline stopped a real staging run.
 | `doctor` reports `automation-consent-missing` with OSStatus -1743 | The current launcher has no Automation permission for UTM | Open System Settings, Privacy and Security, Automation, allow the launcher to control UTM; run doctor from that launcher; add it to `qualifiedLaunchers` only after its documented live qualification passes |
 | A second UTM Dock icon appears and disappears while polling | The bundled CLI registers as a foreground application | Run preparation and use the verified standalone CLI. Do not edit UTM.app, re-sign it, or change TCC. See the [live transport report](../research/utm-windows-live-transport-2026-09-05.md). |
 | UTM closes during a run | Host application crash or exit | Preserve the crash report and run evidence. The runner refuses commands after the pinned UTM process disappears or changes. Reopen UTM normally, inspect the stopped clone, and use a new run ID. |
+| Host shortcuts stop working or `Capture Input` is checked | The UTM display window captured host devices | Release Command+Option in the active lab window. Run doctor and inspect the input-capture records. The launcher will release the supported chord and fail closed if the checkbox remains on. It never clicks that checkbox. |
 | Windows sounds occur during testing | Endpoint mute is insufficient or the audio service policy changed | Run the marker-checked administrator audio provisioning helper in the lab, then cold boot and verify `Audiosrv` is Disabled and Stopped. Worker startup refuses a failed check. |
 | Print output is Letter instead of the A4 fixture geometry | Microsoft Print to PDF kept its Windows default paper size | Run `configure-test-printer.ps1 -Configure -GuestRoot C:\EVBViewerTests` as the lab administrator, then cold boot and confirm `state\printer-policy.json` reports `A4`. Worker startup refuses printer drift. |
 | `status` reports VM not found for a registered UUID | UTM compares UUID arguments as case-sensitive strings | The transport must pass uppercase UUIDs for every operation; retain case-insensitive ownership checks. |

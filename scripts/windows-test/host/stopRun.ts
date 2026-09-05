@@ -21,6 +21,7 @@ import type { IHostLockDependencies } from '@scripts/windows-test/host/hostLock'
 import type { IHostProcessIdentityProbe } from '@scripts/windows-test/host/hostProcessIdentity';
 import { WINDOWS_TEST_CLONE_NAME_PREFIX } from '@scripts/windows-test/host/runCoordinator';
 import type { IUtmctlClient } from '@scripts/windows-test/host/utmctlClient';
+import type { IUtmInputCaptureGuard } from '@scripts/windows-test/host/utmInputCapture';
 import { utmBundlePathForName } from '@scripts/windows-test/images/vmBundleLocator';
 import {
     WindowsTestIdentityGuardError,
@@ -43,6 +44,7 @@ export interface IWindowsTestStopDependencies {
     lock: IHostLockDependencies;
     nowIso(): string;
     identityGuard?: IWindowsTestIdentityGuardDependencies;
+    inputCapture?: IUtmInputCaptureGuard;
 }
 
 export interface IWindowsTestStopResult {
@@ -93,6 +95,7 @@ async function stopOwnedClone(
         policy,
         dependencies.identityGuard,
     );
+    await dependencies.inputCapture?.ensureReleased(vmId);
     await dependencies.utmctl.stop(vmId, 'request');
     const status = await dependencies.utmctl.status(vmId).catch(() => 'unknown');
     if (status !== 'stopped') {

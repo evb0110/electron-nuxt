@@ -70,7 +70,12 @@ import {
     createProcessCommandRunner,
     createUtmctlClient,
 } from '@scripts/windows-test/host/utmctlClient';
-import type { ICommandRunner } from '@scripts/windows-test/host/utmctlClient';
+import type {
+    ICommandRunner,
+    IUtmctlClient,
+} from '@scripts/windows-test/host/utmctlClient';
+import {createUtmInputCaptureGuard} from '@scripts/windows-test/host/utmInputCapture';
+import type {IUtmInputCaptureGuard} from '@scripts/windows-test/host/utmInputCapture';
 import {
     resolvePreparedStandaloneUtmctl,
     standaloneUtmctlPaths,
@@ -82,7 +87,8 @@ import { runWindowsHostOracles } from '@scripts/windows-test/oracles/windowsHost
 interface IProductionUtmTransport {
     runner: IUtmAppleEventRunner;
     processProbe: ReturnType<typeof createProcessIdentityProbe>;
-    utmctl: ReturnType<typeof createUtmctlClient>;
+    utmctl: IUtmctlClient;
+    inputCapture: IUtmInputCaptureGuard;
 }
 
 export const WINDOWS_TEST_CAPABILITY_REGISTRY_RELATIVE_PATH = path.join('tests', 'windows', 'capabilities.json');
@@ -201,7 +207,11 @@ function utmProcessDoctorFailure(error: unknown): IWindowsTestDoctorReport {
 
 function createProductionUtmTransport(
     utmctlPath: string,
-    options: {validateUtmctlPath?: () => Promise<string>;} = {},
+    options: {
+        validateUtmctlPath?: () => Promise<string>;
+        layout?: ReturnType<typeof windowsTestHostLayout>;
+        deniedVmIds?: readonly string[];
+    } = {},
 ): IProductionUtmTransport {
     const rawRunner = createProcessCommandRunner();
     const validatedRunner: ICommandRunner = {run: async (command, args, runOptions) => {
@@ -220,13 +230,35 @@ function createProductionUtmTransport(
         processProbe,
         utmctlPath,
     });
+    const rawUtmctl = createUtmctlClient({
+        runner,
+        utmctlPath,
+    });
+    const inputCapture = createUtmInputCaptureGuard({
+        runner,
+        utmctl: rawUtmctl,
+        ...(options.layout === undefined ? {} : {layout: options.layout}),
+        ...(options.deniedVmIds === undefined ? {} : {deniedVmIds: options.deniedVmIds}),
+    });
+    const utmctl: IUtmctlClient = {
+        ...rawUtmctl,
+        start: async vmId => {
+            await rawUtmctl.start(vmId);
+            await inputCapture.ensureReleased(vmId);
+        },
+        stop: async (vmId, mode) => {
+            try {
+                await rawUtmctl.stop(vmId, mode);
+            } finally {
+                await inputCapture.restoreHostInput();
+            }
+        },
+    };
     return {
         runner,
         processProbe,
-        utmctl: createUtmctlClient({
-            runner,
-            utmctlPath,
-        }),
+        utmctl,
+        inputCapture,
     };
 }
 
@@ -343,7 +375,10 @@ export async function executeWindowsTestRunOnHost(
     } catch (error) {
         return infrastructureReport(error instanceof Error ? error.message : String(error));
     }
-    const transport = createProductionUtmTransport(utmctlPath);
+    const transport = createProductionUtmTransport(utmctlPath, {
+        layout,
+        deniedVmIds: config.personalVmIdsDenied,
+    });
     try {
         await transport.runner.assertUtmProcess();
     } catch (error) {
@@ -383,76 +418,80 @@ export async function executeWindowsTestRunOnHost(
     const probe = transport.processProbe;
     const repositoryRoot = options.repositoryRoot ?? defaultRepositoryRoot();
 
-    return executeWindowsTestRun(
-        {
-            suite: options.suite,
-            environment: options.environment ?? config.environment,
-            tests: options.tests,
-        },
-        {
-            config: {
-                ...config,
-                candidate,
+    try {
+        return await executeWindowsTestRun(
+            {
+                suite: options.suite,
+                environment: options.environment ?? config.environment,
+                tests: options.tests,
             },
-            layout,
-            utmctl,
-            guest,
-            clock,
-            suiteResolver: createCapabilityFileSuiteResolver(
-                path.join(repositoryRoot, WINDOWS_TEST_CAPABILITY_REGISTRY_RELATIVE_PATH),
-            ),
-            fixtureManifest: createFileFixtureManifestSource(
-                path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
-            ),
-            imageManifest,
-            stagedInputs,
-            evaluateHostOracles: input => runWindowsHostOracles({
-                ...input,
-                repositoryRoot,
-            }),
-            cloneVm: async cloneName => {
-                if (!cloneName.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)) {
-                    throw new Error(`The disposable clone name ${cloneName} does not use the expected prefix.`);
-                }
-                const runId = cloneName.slice(WINDOWS_TEST_CLONE_NAME_PREFIX.length);
-                if (!isWindowsTestRunId(runId)) {
-                    throw new Error(`The disposable clone name ${cloneName} does not contain a valid run identifier.`);
-                }
-                inputMedia = await buildWindowsTestInputMedia({
-                    outputPath: path.join(layout.runsDir, runId, 'input-media.iso'),
-                    sources: [
-                        {
-                            hostPath: candidate.artifactPath,
-                            sha256: candidate.sha256,
-                        },
-                        ...stagedInputs.map(input => ({
-                            hostPath: input.hostPath,
-                            sha256: input.sha256,
-                        })),
-                    ],
-                    runner,
-                });
-                await createTestClone({
-                    config,
-                    manifest: imageManifest,
-                    cloneName,
-                    inputMediaPath: inputMedia.isoPath,
-                    runner,
-                    utmctl,
-                });
-            },
-            lock: {
-                hostId: hostname(),
-                pid: process.pid,
+            {
+                config: {
+                    ...config,
+                    candidate,
+                },
+                layout,
+                utmctl,
+                guest,
+                clock,
+                suiteResolver: createCapabilityFileSuiteResolver(
+                    path.join(repositoryRoot, WINDOWS_TEST_CAPABILITY_REGISTRY_RELATIVE_PATH),
+                ),
+                fixtureManifest: createFileFixtureManifestSource(
+                    path.join(layout.fixturesCacheDir, WINDOWS_TEST_FIXTURE_MANIFEST_FILE_NAME),
+                ),
+                imageManifest,
+                stagedInputs,
+                evaluateHostOracles: input => runWindowsHostOracles({
+                    ...input,
+                    repositoryRoot,
+                }),
+                cloneVm: async cloneName => {
+                    if (!cloneName.startsWith(WINDOWS_TEST_CLONE_NAME_PREFIX)) {
+                        throw new Error(`The disposable clone name ${cloneName} does not use the expected prefix.`);
+                    }
+                    const runId = cloneName.slice(WINDOWS_TEST_CLONE_NAME_PREFIX.length);
+                    if (!isWindowsTestRunId(runId)) {
+                        throw new Error(`The disposable clone name ${cloneName} does not contain a valid run identifier.`);
+                    }
+                    inputMedia = await buildWindowsTestInputMedia({
+                        outputPath: path.join(layout.runsDir, runId, 'input-media.iso'),
+                        sources: [
+                            {
+                                hostPath: candidate.artifactPath,
+                                sha256: candidate.sha256,
+                            },
+                            ...stagedInputs.map(input => ({
+                                hostPath: input.hostPath,
+                                sha256: input.sha256,
+                            })),
+                        ],
+                        runner,
+                    });
+                    await createTestClone({
+                        config,
+                        manifest: imageManifest,
+                        cloneName,
+                        inputMediaPath: inputMedia.isoPath,
+                        runner,
+                        utmctl,
+                    });
+                },
+                lock: {
+                    hostId: hostname(),
+                    pid: process.pid,
+                    probe,
+                    nowIso: () => clock.nowIso(),
+                    sleep: milliseconds => clock.sleep(milliseconds),
+                },
                 probe,
-                nowIso: () => clock.nowIso(),
-                sleep: milliseconds => clock.sleep(milliseconds),
+                hostId: hostname(),
+                randomRunSuffix: () => randomBytes(6).toString('hex'),
             },
-            probe,
-            hostId: hostname(),
-            randomRunSuffix: () => randomBytes(6).toString('hex'),
-        },
-    );
+        );
+    } finally {
+        await transport.inputCapture.restoreHostInput();
+    }
 }
 
 export interface IWindowsTestDoctorHostOptions {
@@ -471,7 +510,11 @@ export async function runWindowsTestDoctorOnHost(
     } catch (error) {
         return standaloneUtmctlDoctorFailure(error);
     }
-    const transport = createProductionUtmTransport(utmctlPath);
+    const config = await loadWindowsTestHostConfig(layout.configFile).catch(() => null);
+    const transport = createProductionUtmTransport(utmctlPath, {
+        layout,
+        ...(config === null ? {} : {deniedVmIds: config.personalVmIdsDenied}),
+    });
     try {
         await transport.runner.assertUtmProcess();
     } catch (error) {
@@ -487,14 +530,49 @@ export async function runWindowsTestDoctorOnHost(
         launcherPath: options.launcherPath,
         hashFile: async filePath => createHash('sha256').update(await readFile(filePath)).digest('hex'),
     });
+    let inputCaptureCheck: IWindowsTestDoctorCheck = {
+        id: 'utm-input-capture',
+        ok: false,
+        detail: 'The host configuration was unavailable, so the UTM Capture Input control could not be checked.',
+        remedy: 'Run doctor from the logged-in host session after preparing the lab; the test launcher will fail closed if Capture Input cannot be released.',
+    };
+    if (config !== null) {
+        const goldenStopped = report.checks.find(check => check.id === 'golden-image-stopped')?.ok === true;
+        try {
+            const result = await transport.inputCapture.ensureReleased(config.goldenVmId);
+            inputCaptureCheck = {
+                id: 'utm-input-capture',
+                ok: result.after === 0,
+                detail: `Capture Input for ${result.windowTitle} is ${result.after === 0 ? 'off' : 'on'}; host input ${result.frontmostPid === result.utmPid ? 'remains focused by UTM' : 'is available'}.`,
+                remedy: 'Release capture with UTM Command+Option, then rerun doctor. The harness refuses to start a test while capture remains enabled.',
+            };
+        } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            const noTargetWindow = /target(?: window|WindowUnavailable)/iu.test(detail);
+            const noUtmProcess = /UTM process count/iu.test(detail);
+            inputCaptureCheck = {
+                id: 'utm-input-capture',
+                ok: goldenStopped && (noTargetWindow || noUtmProcess),
+                detail: goldenStopped && noTargetWindow
+                    ? 'The stopped golden image has no active UTM display window to inspect; the launch guard will check Capture Input after every clone start.'
+                    : `The UTM Capture Input control could not be verified: ${detail}`,
+                remedy: 'Keep the lab window registered in UTM, release capture with Command+Option if needed, and rerun doctor from the logged-in Aqua session.',
+            };
+        } finally {
+            await transport.inputCapture.restoreHostInput().catch(() => undefined);
+        }
+    }
     return {
         ...report,
-        checks: report.checks.map(check => check.id === 'utmctl-present'
-            ? {
-                ...check,
-                detail: `${check.detail} Transport: ${utmctlPath}.`,
-            }
-            : check),
+        checks: [
+            ...report.checks.map(check => check.id === 'utmctl-present'
+                ? {
+                    ...check,
+                    detail: `${check.detail} Transport: ${utmctlPath}.`,
+                }
+                : check),
+            inputCaptureCheck,
+        ],
     };
 }
 
@@ -522,27 +600,36 @@ export async function requestWindowsTestStopOnHost(
         };
     }
     const utmctlPath = standaloneUtmctlPaths(layout).executable;
-    const transport = createProductionUtmTransport(utmctlPath, {validateUtmctlPath: async () => resolvePreparedStandaloneUtmctl({layout})});
+    const transport = createProductionUtmTransport(utmctlPath, {
+        layout,
+        deniedVmIds: config.personalVmIdsDenied,
+        validateUtmctlPath: async () => resolvePreparedStandaloneUtmctl({layout}),
+    });
     const clock = createSystemClock();
     const probe = transport.processProbe;
-    return requestWindowsTestStop(
-        {
-            runId: options.runId,
-            reason: options.reason,
-        },
-        {
-            layout,
-            config,
-            utmctl: transport.utmctl,
-            probe,
-            lock: {
-                hostId: hostname(),
-                pid: process.pid,
-                probe,
-                nowIso: () => clock.nowIso(),
-                sleep: milliseconds => clock.sleep(milliseconds),
+    try {
+        return await requestWindowsTestStop(
+            {
+                runId: options.runId,
+                reason: options.reason,
             },
-            nowIso: () => clock.nowIso(),
-        },
-    );
+            {
+                layout,
+                config,
+                utmctl: transport.utmctl,
+                inputCapture: transport.inputCapture,
+                probe,
+                lock: {
+                    hostId: hostname(),
+                    pid: process.pid,
+                    probe,
+                    nowIso: () => clock.nowIso(),
+                    sleep: milliseconds => clock.sleep(milliseconds),
+                },
+                nowIso: () => clock.nowIso(),
+            },
+        );
+    } finally {
+        await transport.inputCapture.restoreHostInput();
+    }
 }
