@@ -1,0 +1,411 @@
+app/modules/pdf-viewer/runtime/composables/usePdfHistory.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 22
+app/modules/pdf-viewer/runtime/composables/pdf/pdfTextLayerRendererTypes.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 33
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRendererAnnotationLayerController.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 54
+app/modules/pdf-viewer/engine/pdf-reload-waiter/createPdfReloadWaiter.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 12
+app/modules/pdf-viewer/runtime/navigation/pdfSinglePageScrollTypes.ts
+  s_c65ee76d4700c8::t_0be844de47e439 24
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController.ts
+  s_c65ee76d4700c8::t_0be844de47e439 19
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationHistoryDocumentSwap.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 67,74
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/scripts/depGraph.test.ts
+  s_c65ee76d4700c8::t_fa97baa1af4d92 57-59,61-69,71-73,75,84
+  s_c65ee76d4700c8::t_5e5dadb8f5f4c8 2,10,40-55,86,96,109,122,137,153,193,214,229,252
+  s_c65ee76d4700c8::t_2c7b5adca38cdb 228,230-250
+  s_c65ee76d4700c8::t_9805413176b836 76-83
+  s_c65ee76d4700c8::t_74504af91d3e6e 74
+  s_c65ee76d4700c8::t_59bb33fd68e283 60
+  s_c65ee76d4700c8::t_b7ef1d368a264c 70
+  s_c65ee76d4700c8::t_6143d4e912aafc 213,215-227
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererTextLayerController.ts
+  s_c65ee76d4700c8::t_0be844de47e439 16
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerInitialRenderRecovery.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 82
+app/utils/pdfPrint.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,182,209,228
+app/modules/pdf-viewer/engine/pdf-page-render-coordinator/coordinatedPdfPageRender.ts
+  s_c65ee76d4700c8::t_0be844de47e439 2-4,17,32,56,67,129,178
+tests/unit/app/modules/pdf-viewer/composables/usePdfHistory.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 28,318,334,343-344
+tests/unit/app/modules/pdf-viewer/composables/usePdfTextLayerRenderer.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 137,185,235,271,308,344,972,977
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfCanvasRenderer.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 18,215,258,373
+app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 304
+  s_c65ee76d4700c8::t_6ba7b95781cb05 578-579
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineToolbarState.test.ts
+  s_c65ee76d4700c8::t_88889e0c18b8ee 2,53
+  s_c65ee76d4700c8::t_efa1e494297b41 50
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/engine/ocr/pdf-word-box-geometry/transformOcrWordToViewport.ts
+  s_c65ee76d4700c8::t_0be844de47e439 14
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 100
+app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer.ts
+  s_c65ee76d4700c8::t_0be844de47e439 3-5,31-32,35,109,147,149
+  s_c65ee76d4700c8::t_d95c007d44bfad 2,49-52,55-57
+  s_c65ee76d4700c8::t_b7ef1d368a264c 6
+tests/unit/app/modules/pdf-viewer/engine/createBookmarkIdentityFactory.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,65,75
+  s_c65ee76d4700c8::t_b7ef1d368a264c 15
+tests/unit/app/modules/pdf-viewer/runtime/usePdfViewerTransactionController.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 212
+app/modules/pdf-viewer/components/PdfOutlineItem.vue
+  s_c65ee76d4700c8::t_0be844de47e439 148
+  s_c65ee76d4700c8::t_3fb09eb7ecdffe 127
+  s_c65ee76d4700c8::t_b7ef1d368a264c 126
+app/platform/browser-api/browserSearch.worker.ts
+  s_c65ee76d4700c8::t_185208a2c7fb10 1
+tests/unit/app/modules/pdf-viewer/thumbnails/thumbnailAnnotationSuppression.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,97,245
+app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 42
+app/modules/pdf-viewer/engine/pdf-document-source/pdfDocumentSource.ts
+  s_c65ee76d4700c8::t_8277e08074bc92 378-380
+  s_c65ee76d4700c8::t_754fc06ae39816 23-29,31-58,60-85,92-136
+  s_c65ee76d4700c8::t_507c8010ee5685 664,673
+  s_c65ee76d4700c8::t_0b9b0504726133 142
+  s_c65ee76d4700c8::t_d95c007d44bfad 30,59,86-91,688-689
+  s_c65ee76d4700c8::t_9805413176b836 164,166,376-377
+  s_c65ee76d4700c8::t_02745d648e9950 1,674
+  s_c65ee76d4700c8::t_d3f93fab10dd04 140
+  s_c65ee76d4700c8::t_159d4c051e5cf3 17
+  s_c65ee76d4700c8::t_09a470f6a3dfb2 145,153,172,243
+  s_c65ee76d4700c8::t_b3845186fd6931 692,697,707
+  s_c65ee76d4700c8::t_b7ef1d368a264c 18-22,137-139,141
+  s_c65ee76d4700c8::t_a5cdc3c25e3e2d 16
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRendererTextLayerController.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 30,81
+tests/unit/pdf-viewer/coordinatedPdfPageRender.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 42
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/services/pdfjs/pdfViewerFacade.ts
+  s_c65ee76d4700c8::t_3d0eec8fba5d93 8
+  s_c65ee76d4700c8::t_9805413176b836 21,82-91,94-95,188-190
+  s_c65ee76d4700c8::t_d95c007d44bfad 18,62
+  s_c65ee76d4700c8::t_7bd3773a18fb50 92-93,191
+  s_c65ee76d4700c8::t_d94cd6ec956b45 157,160,163
+  s_c65ee76d4700c8::t_de828594f09c5c 17,19-20,22-23,40,53-54,58,64-65,67,76
+app/modules/pdf-viewer/runtime/composables/pdf/usePageLabelState.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,5
+  s_c65ee76d4700c8::t_0be844de47e439 20,67,186
+app/modules/workspace-shell/components/WorkspacePdfToolbarView.vue
+  s_c65ee76d4700c8::t_b7ef1d368a264c 260
+  s_c65ee76d4700c8::t_3fb09eb7ecdffe 261
+  s_c65ee76d4700c8::t_0be844de47e439 344
+tests/unit/app/modules/pdf-viewer/runtime/sessions/annotationDocumentIdentity.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_88889e0c18b8ee 2,299,303
+  s_c65ee76d4700c8::t_efa1e494297b41 296,300
+  s_c65ee76d4700c8::t_0be844de47e439 82
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfSessionTopology.test.ts
+  s_c65ee76d4700c8::t_d55ae99eafe3e9 90
+app/modules/pdf-viewer/runtime/rendering/pdfRendererTypes.ts
+  s_c65ee76d4700c8::t_0be844de47e439 2-4,78,97,111
+app/platform/browser-api/createBrowserImageExportCapability.ts
+  s_c65ee76d4700c8::t_553c8916baccf6 1
+  s_c65ee76d4700c8::t_0be844de47e439 197,238,278,309,481,497
+app/modules/pdf-viewer/engine/pdf-outline-navigation/navigateToBookmarkDestination.ts
+  s_c65ee76d4700c8::t_0be844de47e439 8
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent.ts
+  s_c65ee76d4700c8::t_0be844de47e439 122,195
+  s_c65ee76d4700c8::t_3d0eec8fba5d93 1
+  s_c65ee76d4700c8::t_9805413176b836 69,107,184,189
+app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 44,55
+app/modules/pdf-viewer/thumbnails/pdfThumbnailComponentContract.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 16
+tests/unit/app/composables/useDocxExport.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 89,156,175,196,214,250,299
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRenderViewModel.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 39
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/pdfNavigationRequestResolver.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 93
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync.ts
+  s_c65ee76d4700c8::t_0be844de47e439 49
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/workspace-shell/composables/file-operations/workspaceSaveTransactionRequest.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 27
+tests/unit/app/modules/pdf-viewer/engine/createRenderTaskHiddenAnnotationOperationsFilter.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 11,57
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/save/nativeTextBoxMutations.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 17,96
+app/utils/document-viewer/source/createPdfPageSource.ts
+  s_c65ee76d4700c8::t_d94cd6ec956b45 15,17
+  s_c65ee76d4700c8::t_b7ef1d368a264c 2-5
+tests/unit/app/composables/pdfReloadWaiter.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 28,43,61,86,113
+tests/unit/electron/ocrDocumentTextCatalogAgreement.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 198
+tests/unit/app/platform/browserSearchText.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,42,51,74,83,98,107
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerLoadingState.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 22
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntimeOptions.ts
+  s_c65ee76d4700c8::t_0be844de47e439 19
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineItemCoverage.test.ts
+  s_c65ee76d4700c8::t_e3fcc8aa1cc3f0 1-14,16-25,27-30,35-84,89-92,97-101
+  s_c65ee76d4700c8::t_687164e5114fea 15
+  s_c65ee76d4700c8::t_61029822f072d5 26
+  s_c65ee76d4700c8::t_93f2ee37e1c6eb 31-34,85-88,93-96
+app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts
+  s_c65ee76d4700c8::t_0be844de47e439 61,68
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1-2
+tests/unit/app/services/pdf-save/nativeTextBoxMutations.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 57
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/workspace-shell/composables/usePdfFileNativeMutations.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 10
+app/modules/pdf-viewer/runtime/composables/usePdfViewerLoadingState.ts
+  s_c65ee76d4700c8::t_0be844de47e439 12
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/utils/document-viewer/createPdfPageSource.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 20
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/utils/exportTextAsDocx.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 60
+app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes.ts
+  s_c65ee76d4700c8::t_0be844de47e439 56,100
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 1536
+app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 125
+tests/unit/app/utils/pdfOutlineHelpers.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,29,37-38,44,49,54
+app/modules/pdf-viewer/runtime/rendering/usePdfRendererAnnotationLayerController.ts
+  s_c65ee76d4700c8::t_0be844de47e439 14
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/usePdfViewerActivationRestore.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 42-43,155
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/engine/pdfPageRasterScheduler.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,38,66,88,111,123,231,296,315,374,414,429,455,514,646,680,730,884,959,971,1030,1038,1086,1101,1136,1198,1243,1292,1307,1363,1381,1433,1475
+app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createHiddenAnnotationOperationsFilter.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,72,111
+app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 44
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 137,288,373,496
+app/modules/ocr-panel/components/OcrPopup.vue
+  s_c65ee76d4700c8::t_0be844de47e439 475
+  s_c65ee76d4700c8::t_3fb09eb7ecdffe 386
+  s_c65ee76d4700c8::t_b7ef1d368a264c 385
+app/modules/ocr-panel/runtime/useOcrPopupPresenter.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 219
+app/modules/workspace-shell/composables/useWorkspaceAnnotationSession.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 18
+tests/unit/app/modules/pdf-viewer/engine/createHiddenAnnotationOperationsFilter.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 21,66,80,100
+app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts
+  s_c65ee76d4700c8::t_af7a74967dec4f 1-5
+  s_c65ee76d4700c8::t_0be844de47e439 57,339,346,353,786,788,1228,1255
+  s_c65ee76d4700c8::t_9805413176b836 45-47,56
+tests/unit/app/modules/pdf-viewer/usePdfViewerCurrentPageSync.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 42,63,127,173
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/components/PdfOutline.vue
+  s_c65ee76d4700c8::t_3fb09eb7ecdffe 122
+  s_c65ee76d4700c8::t_0be844de47e439 166,724,732,765,792
+  s_c65ee76d4700c8::t_b7ef1d368a264c 121,131
+tests/unit/app/modules/workspace-shell/composables/useMetadataSession.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,13
+  s_c65ee76d4700c8::t_0be844de47e439 28
+app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1-5
+  s_c65ee76d4700c8::t_0be844de47e439 53,58,120,306,388,411,506,523,538,1161
+  s_c65ee76d4700c8::t_6824a29b5a8fc5 1001
+app/modules/pdf-viewer/runtime/lifecycle/usePdfViewerActivationRestore.ts
+  s_c65ee76d4700c8::t_0be844de47e439 20
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,7
+scripts/architecture/dep-graph.mjs
+  s_c65ee76d4700c8::t_d95c007d44bfad 213-233,617,664-667
+  s_c65ee76d4700c8::t_6143d4e912aafc 195-212,608,616,658,662-663,668-669,676
+app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,6
+  s_c65ee76d4700c8::t_0be844de47e439 41,63
+tests/unit/app/modules/pdf-viewer/renderPdfDocumentPageSourceAbort.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,31,41
+tests/unit/app/composables/pdfWordBoxGeometry.test.ts
+  s_c65ee76d4700c8::t_93f2ee37e1c6eb 28,33,37-40,59,66-71,75-78
+  s_c65ee76d4700c8::t_61029822f072d5 46
+  s_c65ee76d4700c8::t_0d661d9a4f485f 29-32
+  s_c65ee76d4700c8::t_e3fcc8aa1cc3f0 9-10,15,18-27,34-36,41-45,47-58,60-65,72-74,79-84
+app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext.ts
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,37-38
+app/platform/browser-api/extractBrowserSearchPageText.ts
+  s_c65ee76d4700c8::t_553c8916baccf6 1
+  s_c65ee76d4700c8::t_0be844de47e439 13-14,18
+tests/unit/app/services/pdfjs/documentAdapter.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 9-10
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/engine/coordinatedPdfPageRender.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 93,136,178,221-222,264,352,389,416,471,504,533,564,609,653,700,740,793
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/composables/usePdfWordBoxes.ts
+  s_c65ee76d4700c8::t_0be844de47e439 109
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/components/pdfOutlineBookmarkIdentity.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 23
+  s_c65ee76d4700c8::t_0be844de47e439 1-4,164,175,190
+app/modules/pdf-viewer/engine/pdf-viewer-transaction/isPdfViewerPagedTargetFitRenderHandoffConsumable.ts
+  s_c65ee76d4700c8::t_0be844de47e439 6
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/ocr-panel/useOcrPopupPresenter.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 175,320,392
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerZoomRerenderQueue.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 66
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/contracts/createPdfViewerEventAdapter.ts
+  s_c65ee76d4700c8::t_0be844de47e439 27
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 83
+tests/unit/app/modules/pdf-viewer/usePdfViewerFitWidthController.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 31,79,127
+app/modules/pdf-viewer/engine/annotation-highlight-geometry/buildTextLineBoxesFromTextContent.ts
+  s_c65ee76d4700c8::t_1e1e42ed0bea28 129
+  s_c65ee76d4700c8::t_0be844de47e439 2-5,35,46,126-128,133,137
+app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,4
+  s_c65ee76d4700c8::t_0be844de47e439 78,208,296,326,531
+app/modules/pdf-viewer/components/PdfSidebar.vue
+  s_c65ee76d4700c8::t_0be844de47e439 162
+  s_c65ee76d4700c8::t_3fb09eb7ecdffe 112
+  s_c65ee76d4700c8::t_b7ef1d368a264c 111
+tests/unit/app/modules/pdf-viewer/composables/useOcrTextContent.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 45
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 110,316,466,575,683,775,899,1016,1122,1286,1364,1493
+app/utils/isPdfDocumentUsable.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 11
+  s_c65ee76d4700c8::t_9805413176b836 5,8
+tests/unit/app/modules/pdf-viewer/engine/annotationHighlightGeometry.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 119,230,309
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel.ts
+  s_c65ee76d4700c8::t_0be844de47e439 2-4,25-26
+app/utils/pdfOutlineHelpers.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 13
+  s_c65ee76d4700c8::t_0be844de47e439 2-4,282,309,338,368,403,422,450,619,627
+tests/unit/app/modules/pdf-viewer/composables/usePageLabelState.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1,15
+  s_c65ee76d4700c8::t_0be844de47e439 34,137,141,148,181,209,248,266,295,319,366
+app/services/pdfjs/isPdfDocumentOperational.ts
+  s_c65ee76d4700c8::t_0be844de47e439 7,11,20,38
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfRenderingSessionBehavior.test.ts
+  s_c65ee76d4700c8::t_8277e08074bc92 643
+tests/unit/app/modules/workspace-shell/composables/usePageSaveOrchestration.test.ts
+  s_c65ee76d4700c8::t_0be844de47e439 54
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/composables/useOcr.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 843
+app/modules/pdf-viewer/runtime/renderPdfDocumentPageSource.ts
+  s_c65ee76d4700c8::t_0be844de47e439 13
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+scripts/architecture/boundary-check.mjs
+  s_c65ee76d4700c8::t_d9bf979ce4603f 2,842-855
+  s_c65ee76d4700c8::t_b3865b16937491 1533-1535
+  s_c65ee76d4700c8::t_9805413176b836 857-861,868-869,873-874,877-904,1527-1532
+  s_c65ee76d4700c8::t_c70e2e2022a0d6 856,862-867,870-872,875-876,905-908,1584
+tests/unit/app/modules/pdf-viewer/runtime/skeleton/usePdfSkeletonInsets.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 50,73,86
+app/modules/pdf-viewer/engine/pdf-hidden-annotation-operations/createRenderTaskHiddenAnnotationOperationsFilter.ts
+  s_c65ee76d4700c8::t_0be844de47e439 12,48
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+app/modules/workspace-shell/composables/useWorkspaceViewerShellState.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 143
+app/platform/browser-api/browserSearchCore.ts
+  s_c65ee76d4700c8::t_553c8916baccf6 1
+  s_c65ee76d4700c8::t_0be844de47e439 16
+app/modules/pdf-viewer/thumbnails/usePdfThumbnailRenderRuntime.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1-4
+  s_c65ee76d4700c8::t_0be844de47e439 67,69,188,322,581
+app/modules/workspace-shell/composables/useMetadataSession.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 15
+app/modules/pdf-viewer/engine/pdf-page-raster-scheduler/pdfPageRasterScheduler.ts
+  s_c65ee76d4700c8::t_0b9b0504726133 5-6
+  s_c65ee76d4700c8::t_0be844de47e439 2-4,7,60,64,967,970,988
+app/composables/useDocxExport.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 28
+app/modules/workspace-shell/composables/usePageSaveOrchestration.ts
+  s_c65ee76d4700c8::t_0be844de47e439 41
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+tests/unit/app/modules/pdf-viewer/runtime/sessions/pdfViewportSessionBehavior.test.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 82,85
+app/modules/pdf-viewer/runtime/composables/usePdfViewerZoomRerenderQueue.ts
+  s_c65ee76d4700c8::t_b7ef1d368a264c 1
+  s_c65ee76d4700c8::t_0be844de47e439 62
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "c646085e477b200e30b10998e9748080aa60d8fc",
+  "prompts": {},
+  "sessions": {
+    "s_c65ee76d4700c8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a070b6-b5e1-76c3-a675-46d39974af99",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
