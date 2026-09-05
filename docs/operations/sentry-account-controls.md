@@ -101,7 +101,7 @@ names and their runtime purpose here, never their values.
 | Resolved-issue deletion | Weekly operator procedure | First cycle found zero resolved issues to delete, verified 2026-09-05 |
 | Quota alerts | Personal error-quota notifications at 80 and 100 percent; pay-as-you-go disabled | Owner verified 2026-09-05; the account UI offers only `100% and 80%` or `100%` |
 | Source-map access review | Debug-file access Owner; source fetching disabled after upload | Owner verified 2026-09-04 |
-| Removal procedure | Tested without sending a production event | Partial macOS arm64 rehearsal verified 2026-09-04; omitted packaged behaviors remain recorded in the runbook |
+| Removal procedure | Tested without sending a production event | Full macOS arm64 source-and-package removal rehearsal verified 2026-09-05; the runbook records the separate pre-existing renderer-settle test failure reproduced on the untouched baseline |
 
 Sentry derived a user geography from ingress metadata on the first closed test
 events even though IP storage was prevented and no user or request field was
