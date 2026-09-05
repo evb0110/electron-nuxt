@@ -1,0 +1,31 @@
+tests/unit/app/plugins/packagedDiagnosticsCanary.test.ts
+  s_b412fd4cd3f576::t_4bd0ecca2a8954 1-28,47-94
+  s_b412fd4cd3f576::t_d18f9d942fbced 29-46
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_b412fd4cd3f576::t_ec4c5ea49a47a8 1
+  s_b412fd4cd3f576::t_a6a2fd2b357e17 7,15,83,455-468
+tests/unit/scripts/verifyPackagedDiagnosticsSmoke.test.ts
+  s_b412fd4cd3f576::t_4bd0ecca2a8954 1-14
+  s_b412fd4cd3f576::t_523afcea95278a 15-17
+app/types/electron.d.ts
+  s_b412fd4cd3f576::t_a6a2fd2b357e17 8,12-15
+  s_b412fd4cd3f576::t_3b2acb076d1d3d 16
+electron/platform-ipc/coreContract.ts
+  s_b412fd4cd3f576::t_a6a2fd2b357e17 19
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "2acd81a48c78200e8343c92cb0e6b58548087a7e",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
