@@ -457,7 +457,6 @@ export const usePdfViewerFeatureController = (
         applyFitWidthToCurrentPage,
         waitForViewerLoadSettled: documentSession.waitForLoadSettled,
         renderVisiblePages: renderingSession.renderVisiblePages,
-        preserveNextSourceReloadVisibleContent: viewportSession.preserveNextSourceReloadVisibleContent,
         renderLoadedPdfPagesForBrowserPrint,
         startImagePlacement,
         clearPendingImagePlacement,

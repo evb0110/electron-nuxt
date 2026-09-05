@@ -355,7 +355,7 @@ function assertValidAnnotationSerializationPlan(steps: readonly IAnnotationMutat
 export interface IAnnotationReopenReader {reopen(bytes: Uint8Array): Promise<readonly AnnotationEntity[]>;}
 
 /** Privacy-safe stand-in for annotation text: presence, length, and a digest. */
-export interface IAnnotationTextFingerprint {
+interface IAnnotationTextFingerprint {
     readonly present: boolean;
     readonly length: number;
     readonly hash: string;
@@ -366,7 +366,7 @@ export interface IAnnotationTextFingerprint {
  * annotation text is reduced to {@link IAnnotationTextFingerprint}, and
  * geometry to counts and a bounded coordinate delta.
  */
-export interface IAnnotationVerificationDiagnostic {
+interface IAnnotationVerificationDiagnostic {
     readonly annotationId: string;
     readonly kind: AnnotationEntity['kind'];
     /** What the reopened file turned out to hold, which is the other half of a kind mismatch. */
@@ -420,7 +420,7 @@ function describeVerificationFailures(failures: readonly string[]) {
         : named.join('; ');
 }
 
-export class AnnotationReopenVerificationError extends Error {
+class AnnotationReopenVerificationError extends Error {
     constructor(
         message: string,
         /** A bounded sample of the failures, not necessarily all of them. */

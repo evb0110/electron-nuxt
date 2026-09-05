@@ -219,10 +219,7 @@ const APP_PRODUCTION_SOURCE_EXTENSIONS = [
     '.vue',
 ];
 
-const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set([
-    'app/modules/pdf-viewer/runtime/save/liveAnnotationChanges.ts',
-    'app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts',
-]);
+const ANNOTATION_STORAGE_PRIVATE_ACCESS_ALLOWED_FILES = new Set(['app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics.ts']);
 
 const ANNOTATION_STORAGE_PRIVATE_MEMBERS = [
     'serializable',
@@ -651,7 +648,7 @@ function checkAnnotationStoragePrivateAccess(filePath, sourceText = '') {
         source: filePath,
         target: filePath,
         specifier: 'source',
-        message: 'PDF.js annotationStorage dirty-state members must be accessed through the annotation save bridge.',
+        message: 'PDF.js annotationStorage internals may only be read by the retained runtime diagnostics module.',
     })];
 }
 

@@ -357,8 +357,6 @@ describe('useWorkspaceSplitPayload', () => {
                 dirtyState: {
                     annotationDirty: true,
                     hasAnnotationChanges: true,
-                    hasLivePdfJsAnnotationChanges: false,
-                    savedPdfjsAnnotationBaselineDirty: false,
                     shapeStateDirty: false,
                 },
                 documentStructure: {

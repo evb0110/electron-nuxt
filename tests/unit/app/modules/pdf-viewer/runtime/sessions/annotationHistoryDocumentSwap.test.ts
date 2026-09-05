@@ -85,6 +85,13 @@ function mountAnnotationSession() {
                 numPages: ref(1),
                 registerDisposable: vi.fn(),
                 subscribe: vi.fn(() => vi.fn()),
+                captureFence: vi.fn(() => ({
+                    loadToken: 0,
+                    documentVersion: 0,
+                    documentRevision: null,
+                    openSurfaceGeneration: 0,
+                })),
+                isCurrent: vi.fn(() => true),
             }),
             viewport: cast<TPdfViewportSession>({
                 currentPage: ref(1),

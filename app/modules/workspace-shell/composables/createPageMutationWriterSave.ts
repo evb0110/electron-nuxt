@@ -16,10 +16,7 @@ interface IPageMutationSaveViewer {runSaveTransaction(request: IPdfViewerSaveTra
 export function createPageMutationWriterSave(deps: {
     annotationDirty: Readonly<Ref<boolean>>;
     hasAnnotationChanges: () => boolean;
-    hasLivePdfJsAnnotationChanges: () => boolean;
-    hasSavedPdfJsAnnotationBaselineChanges: () => boolean;
     pendingEmbeddedAnnotationDeleteCount: Readonly<Ref<number>>;
-    preservedAnnotationSourceDirty: Readonly<Ref<boolean>>;
     workingCopyPath: Readonly<Ref<TDocumentRef | null>>;
     documentRevisionToken: Readonly<Ref<TDocumentRevisionToken | null>>;
     pdfViewerRef: Readonly<Ref<IPageMutationSaveViewer | null>>;
@@ -31,10 +28,8 @@ export function createPageMutationWriterSave(deps: {
     return async function saveAnnotationsForPageMutation() {
         const hasPendingAnnotations = deps.annotationDirty.value
             || deps.hasAnnotationChanges()
-            || deps.hasLivePdfJsAnnotationChanges()
-            || deps.hasSavedPdfJsAnnotationBaselineChanges()
             || deps.pendingEmbeddedAnnotationDeleteCount.value > 0
-            || deps.preservedAnnotationSourceDirty.value;
+            ;
         if (!hasPendingAnnotations) {
             return true;
         }

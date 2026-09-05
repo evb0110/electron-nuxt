@@ -27,7 +27,6 @@ interface IWorkspaceViewStateDeps {
     sidebarTab: Ref<TPdfSidebarTab>;
     annotationTool: Ref<TAnnotationTool>;
     annotationEditorState: Ref<IAnnotationEditorState>;
-    hasLivePdfJsAnnotationChanges: Ref<boolean>;
     appAnnotationUndoDepth: Ref<number>;
     hasOpenAnnotationNotes: Ref<boolean>;
     canUndoHistory: Ref<boolean>;
@@ -62,17 +61,9 @@ export const useWorkspaceViewState = (deps: IWorkspaceViewStateDeps) => {
         deps.annotationEditorState.value.hasAppAnnotationUndoHistory === true
         || deps.annotationEditorState.value.hasAppAnnotationRedoHistory === true
     ));
-    const hasLivePdfJsAnnotationUndoState = computed(() => (
-        deps.hasLivePdfJsAnnotationChanges.value
-        && (
-            deps.annotationEditorState.value.hasSomethingToUndo
-            || deps.annotationEditorState.value.hasSomethingToRedo
-        )
-    ));
     const isAnnotationUndoContext = computed(
         () => isAuthoringAnnotationTool(deps.annotationTool.value)
             || hasAppAnnotationHistoryUndoState.value
-            || hasLivePdfJsAnnotationUndoState.value
             || deps.annotationEditorState.value.hasSomethingToRedo
             || deps.appAnnotationUndoDepth.value > 0,
     );

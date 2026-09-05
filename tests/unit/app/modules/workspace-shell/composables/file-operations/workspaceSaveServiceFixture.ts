@@ -54,9 +54,6 @@ type TFileOperationsSaveControllerTestDeps =
         markAnnotationSaved: IWorkspaceSaveDependencies['annotations']['markSaved'];
         getAnnotationSaveStateToken?: IWorkspaceSaveDependencies['annotations']['getSaveStateToken'];
         hasAnnotationChanges: IWorkspaceSaveDependencies['annotations']['hasChanges'];
-        hasLivePdfJsAnnotationChanges?: IWorkspaceSaveDependencies['annotations']['hasLivePdfJsChanges'];
-        hasSavedPdfJsAnnotationBaselineChanges?: IWorkspaceSaveDependencies['annotations']['hasSavedPdfJsBaselineChanges'];
-        hasPreservedAnnotationSourceChanges?: IWorkspaceSaveDependencies['annotations']['hasPreservedSourceChanges'];
         hasPendingAnnotationDeletes?: IWorkspaceSaveDependencies['annotations']['hasPendingDeletes'];
         annotationNoteWindowsCount: IWorkspaceSaveDependencies['annotations']['openNoteCount'];
         persistAllAnnotationNotes: IWorkspaceSaveDependencies['annotations']['persistOpenNotes'];
@@ -96,8 +93,6 @@ type TFileOperationsSaveControllerTestDeps =
         markShapeStateSaved?: IWorkspaceSaveDependencies['shapes']['markSaved'];
         preparePersistedShapeStateForSave?: IWorkspaceSaveDependencies['shapes']['preparePersistedState'];
         restorePreparedPersistedShapeState?: IWorkspaceSaveDependencies['shapes']['restorePreparedState'];
-        adoptPersistedShapeStateForNextReload?: IWorkspaceSaveDependencies['shapes']['adoptPersistedStateOnReload'];
-        clearPendingPersistedShapeStateForNextReload?: IWorkspaceSaveDependencies['shapes']['clearPendingPersistedState'];
         loadRecentFiles: IWorkspaceSaveDependencies['lifecycle']['loadRecentFiles'];
         preparePostSaveReload?: IWorkspaceSaveDependencies['lifecycle']['preparePostSaveReload'];
         runWithDocumentOperationLease?: NonNullable<IWorkspaceSaveDependencies['runWithDocumentOperationLease']>;
@@ -156,15 +151,6 @@ function createSaveDependencies(
                 ? {getSaveStateToken: deps.getAnnotationSaveStateToken}
                 : {}),
             hasChanges: deps.hasAnnotationChanges,
-            ...(deps.hasLivePdfJsAnnotationChanges
-                ? {hasLivePdfJsChanges: deps.hasLivePdfJsAnnotationChanges}
-                : {}),
-            ...(deps.hasSavedPdfJsAnnotationBaselineChanges
-                ? {hasSavedPdfJsBaselineChanges: deps.hasSavedPdfJsAnnotationBaselineChanges}
-                : {}),
-            ...(deps.hasPreservedAnnotationSourceChanges
-                ? {hasPreservedSourceChanges: deps.hasPreservedAnnotationSourceChanges}
-                : {}),
             ...(deps.hasPendingAnnotationDeletes
                 ? {hasPendingDeletes: deps.hasPendingAnnotationDeletes}
                 : {}),
@@ -225,12 +211,6 @@ function createSaveDependencies(
                 : {}),
             ...(deps.restorePreparedPersistedShapeState
                 ? {restorePreparedState: deps.restorePreparedPersistedShapeState}
-                : {}),
-            ...(deps.adoptPersistedShapeStateForNextReload
-                ? {adoptPersistedStateOnReload: deps.adoptPersistedShapeStateForNextReload}
-                : {}),
-            ...(deps.clearPendingPersistedShapeStateForNextReload
-                ? {clearPendingPersistedState: deps.clearPendingPersistedShapeStateForNextReload}
                 : {}),
         },
         lifecycle: {

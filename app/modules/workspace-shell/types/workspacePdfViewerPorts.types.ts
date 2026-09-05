@@ -52,8 +52,7 @@ export interface IWorkspacePdfViewerAnnotationChangesPort extends
         'runSaveTransaction'
     >,
     Pick<IPdfViewerAnnotationCommandExpose,
-        'collectLiveAnnotationChanges'
-        | 'hasCanonicalShapeChanges'
+        'hasCanonicalShapeChanges'
     > {}
 
 export interface IWorkspacePdfViewerAnnotationNotesPort extends Pick<IPdfViewerAnnotationCommentExpose,
@@ -92,7 +91,6 @@ export interface IWorkspacePdfViewerAgentPort extends
 export interface IWorkspacePdfViewerExposeAutomationPort extends
     Partial<Pick<IPdfViewerAnnotationCommandExpose,
         'commentAtPoint'
-        | 'collectLiveAnnotationChanges'
         | 'getAnnotationStorageDebugState'
         | 'highlightSelection'
     >>,

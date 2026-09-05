@@ -686,13 +686,6 @@ export async function collectStickyNoteDebugState(page: Page) {
                 ?? unwrap(setupState['annotationNoteWindows'])
             )
             : null;
-        const pdfDocument = setupState
-            ? unwrap(setupState['pdfDocument']) as {annotationStorage?: {
-                modifiedIds?: {ids?: Set<unknown>;};
-                serializable?: {map?: Map<unknown, unknown>;};
-            };} | null | undefined
-            : null;
-        const serializableMap = pdfDocument?.annotationStorage?.serializable?.map;
 
         return {
             comments,
@@ -732,30 +725,6 @@ export async function collectStickyNoteDebugState(page: Page) {
                     };
                 })
                 : null,
-            annotationStorage: {
-                modifiedIds: Array.from(pdfDocument?.annotationStorage?.modifiedIds?.ids ?? []).map(String),
-                serializableEntries: serializableMap instanceof Map
-                    ? Array.from(serializableMap.entries()).map(([
-                        key,
-                        value,
-                    ]) => ({
-                        key: String(key),
-                        value: value && typeof value === 'object'
-                            ? Object.fromEntries(Object.entries(value as Record<string, unknown>)
-                                .filter(([
-                                    , entryValue,
-                                ]) => (
-                                    entryValue === null
-                                    || [
-                                        'string',
-                                        'number',
-                                        'boolean',
-                                    ].includes(typeof entryValue)
-                                )))
-                            : String(value),
-                    }))
-                    : [],
-            },
         };
     });
     return {
@@ -767,11 +736,7 @@ export async function collectStickyNoteDebugState(page: Page) {
 
 
 export interface IAnnotationOwnershipDebugState {
-    annotationStorage: {
-        reported: boolean;
-        modifiedIds: string[];
-        serializableEntryKeys: string[];
-    };
+    annotationDirtyEntityCount: number;
     canonicalEntities: Array<{
         id: string;
         kind: string;
@@ -780,15 +745,10 @@ export interface IAnnotationOwnershipDebugState {
     legacyEditorLayerCount: number;
     staticLinkHrefs: string[];
     staticNonLinkAnnotationCount: number;
-    storageAvailable: boolean;
     workspaceState: Record<string, unknown>;
 }
 
-interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {dirtyState?: {pdfJsAnnotationStorage?: {
-    reported?: boolean;
-    modifiedIds?: string[];
-    serializableEntryKeys?: string[];
-} | null;};}
+interface IAnnotationOwnershipWorkspaceState extends Record<string, unknown> {dirtyState?: {annotationDirtyEntityCount?: number;};}
 
 export async function collectAnnotationOwnershipDebugState(page: Page): Promise<IAnnotationOwnershipDebugState> {
     await installWorkspaceExposeProbe(page);
@@ -817,11 +777,6 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
         }));
 
         return {
-            annotationStorage: {
-                reported: false,
-                modifiedIds: [],
-                serializableEntryKeys: [],
-            },
             canonicalEntities,
             legacyEditorLayerCount: document.querySelectorAll(
                 '.editor-pane.is-active .page_container[data-page="1"] .annotation-editor-layer, '
@@ -833,18 +788,11 @@ export async function collectAnnotationOwnershipDebugState(page: Page): Promise<
             staticNonLinkAnnotationCount: Array.from(
                 staticLayer?.querySelectorAll<HTMLElement>('[data-annotation-id]') ?? [],
             ).filter(element => !element.closest('.linkAnnotation')).length,
-            storageAvailable: false,
         };
     });
-    const storage = workspaceState.dirtyState?.pdfJsAnnotationStorage;
     return {
         ...result,
-        annotationStorage: {
-            reported: storage?.reported === true,
-            modifiedIds: storage?.modifiedIds ?? [],
-            serializableEntryKeys: storage?.serializableEntryKeys ?? [],
-        },
-        storageAvailable: storage !== null && storage !== undefined,
+        annotationDirtyEntityCount: workspaceState.dirtyState?.annotationDirtyEntityCount ?? 0,
         workspaceState,
     };
 }

@@ -53,7 +53,6 @@ interface IUsePdfViewerPublicApiControllerOptions {
             bufferOverride?: number;
         },
     ) => Promise<void>;
-    preserveNextSourceReloadVisibleContent: NonNullable<IPdfViewerExpose['preserveNextSourceReloadVisibleContent']>;
     renderLoadedPdfPagesForBrowserPrint: NonNullable<IPdfViewerExpose['renderLoadedPdfPagesForBrowserPrint']>;
     startImagePlacement: IPdfViewerExpose['startImagePlacement'];
     clearPendingImagePlacement: IPdfViewerExpose['clearPendingImagePlacement'];
@@ -145,12 +144,6 @@ export const usePdfViewerPublicApiController = (
         ensurePageMetricsInRange: documentSession.ensurePageMetricsInRange,
         getPageMetricsSnapshot: () => cloneSparsePageMetrics(documentSession.pageMetrics.value),
         waitForViewerLoadSettled: options.waitForViewerLoadSettled,
-        preserveNextSourceReloadVisibleContent: options.preserveNextSourceReloadVisibleContent,
-        adoptPersistedManagedShapesOnNextImport: annotationRuntime.adoptPersistedManagedShapesOnNextImport,
-        clearPendingManagedShapeImportAdoption: annotationRuntime.clearPendingManagedShapeImportAdoption,
-        ensureManagedShapeBaselineReady: annotationRuntime.ensureManagedShapeBaselineReady,
-        preparePersistedManagedShapesForSave: annotationRuntime.preparePersistedManagedShapesForSave,
-        restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
         clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
@@ -272,8 +265,8 @@ export const usePdfViewerPublicApiController = (
         annotationHistoryMutationVersion: annotationSession.appAnnotationHistory.annotationHistoryMutationVersion,
         annotationHistoryResetVersion: annotationSession.appAnnotationHistory.annotationHistoryResetVersion,
         hasCanonicalAnnotationChanges: annotationRuntime.hasCanonicalAnnotationChanges,
+        getAnnotationDirtyEntityCount: () => annotationSession.annotationApplication.value.store.dirtyEntities().length,
         hasCanonicalShapeChanges: annotationRuntime.hasCanonicalShapeChanges,
-        collectLiveAnnotationChanges: annotationRuntime.collectLiveAnnotationChanges,
         getAnnotationStorageDebugState: () => collectPdfJsAnnotationStorageDebugState(
             documentSession.pdfDocument.value,
         ),

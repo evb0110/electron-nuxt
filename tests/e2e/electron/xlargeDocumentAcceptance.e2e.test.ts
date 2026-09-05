@@ -1794,25 +1794,13 @@ xlargeDescribe('Electron E2E - xlarge document acceptance', () => {
             telemetry.rendererPlacementSampling = await readRendererPlacementSampling(sessionB.page);
             const dirtyState = await readWorkspaceStateValues<{
                 annotationDirty?: boolean;
-                dirtyState?: {pdfJsAnnotationStorage?: {
-                    reported?: boolean;
-                    modifiedIds?: string[];
-                    serializableEntryKeys?: string[];
-                } | null;};
+                dirtyState?: {annotationDirtyEntityCount?: number;};
             }>(sessionB.page, [
                 'annotationDirty',
                 'dirtyState',
             ]);
             expect(dirtyState.annotationDirty).toBe(true);
-            const pdfJsAnnotationStorage = dirtyState.dirtyState?.pdfJsAnnotationStorage;
-            expect(pdfJsAnnotationStorage).not.toBeNull();
-            expect(pdfJsAnnotationStorage).toBeDefined();
-            if (!pdfJsAnnotationStorage) {
-                throw new Error('PDF.js annotation storage probe was unavailable');
-            }
-            expect(pdfJsAnnotationStorage.reported).toBe(true);
-            expect(pdfJsAnnotationStorage.modifiedIds).toEqual([]);
-            expect(pdfJsAnnotationStorage.serializableEntryKeys).toEqual([]);
+            expect(dirtyState.dirtyState?.annotationDirtyEntityCount ?? 0).toBeGreaterThan(0);
             await waitForDetachedEditorLayers(sessionB.page);
 
             if (activeHeartbeat) {

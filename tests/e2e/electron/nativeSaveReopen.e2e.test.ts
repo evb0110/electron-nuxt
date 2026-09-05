@@ -63,7 +63,7 @@ interface IDisplayRect {
 interface IAnnotationDirtyState {
     annotationDirty?: boolean;
     fileDirty?: boolean;
-    hasLivePdfJsAnnotationChanges?: boolean;
+    annotationDirtyEntityCount?: number;
     hasPendingUnsavedChanges?: boolean;
 }
 
@@ -603,13 +603,13 @@ describe('Electron E2E - native save and reopen', () => {
             await readWorkspaceStateValues<{dirtyState?: {
                 annotationDirty?: boolean;
                 fileDirty?: boolean;
-                hasLivePdfJsAnnotationChanges?: boolean;
+                annotationDirtyEntityCount?: number;
                 hasPendingUnsavedChanges?: boolean;
             };}>(session!.page, ['dirtyState'])
         ).dirtyState, {timeout: 20_000}).toMatchObject({
             annotationDirty: false,
             fileDirty: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
         });
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
@@ -917,7 +917,7 @@ describe('Electron E2E - native save and reopen', () => {
         ).toMatchObject({
             annotationDirty: false,
             fileDirty: false,
-            hasLivePdfJsAnnotationChanges: false,
+            annotationDirtyEntityCount: 0,
             hasPendingUnsavedChanges: false,
         });
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText).toBe(1);

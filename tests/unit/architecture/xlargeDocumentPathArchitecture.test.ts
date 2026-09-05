@@ -127,18 +127,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Remove the whole-document load when shape import consumes the native path index or bounded page data.',
     },
     {
-        module:
-      'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Annotation enrichment page caps, but no maximum byte classifier in this helper',
-        reason:
-      'The browser and in-memory annotation identity fallback reparses PDF.js bytes as a complete document.',
-        removalCondition:
-      'Remove the load when all desktop path sources use the native annotation index and browser-only use is isolated.',
-    },
-    {
         module: 'packages/pdf-core/pdfPrintLayout.ts',
         primitive: 'PDFDocument.load',
         occurrences: 2,
@@ -159,18 +147,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'Structural inspection accepts bytes directly and does not classify path size at this layer.',
         removalCondition:
       'Remove the whole-document load when structural inspection consumes bounded qpdf/native results.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
-        primitive: 'PDF.js getData',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Annotation enrichment page caps, but no maximum byte classifier in this helper',
-        reason:
-      'The browser and in-memory annotation identity fallback asks PDF.js for the whole document.',
-        removalCondition:
-      'Remove getData when browser-only enrichment no longer shares the desktop path flow.',
     },
     {
         module: 'electron/image/tryCreatePdfWithNativeImageCombiner.ts',
@@ -600,20 +576,6 @@ describe('xlarge document path architecture', () => {
     });
 
     it('keeps native and worker failures fail-closed for desktop paths', () => {
-        const annotationPreparationSource = readSource(
-            'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/preparePdfAnnotationNameRead.ts',
-        );
-        const annotationNativeBranchStart = annotationPreparationSource.indexOf(
-            'if (nativePdfSource)',
-        );
-        const annotationRendererFallbackStart = annotationPreparationSource.indexOf(
-            'const {collectPdfAnnotationNamesByPage}',
-            annotationNativeBranchStart,
-        );
-        const annotationNativeBranch = annotationPreparationSource.slice(
-            annotationNativeBranchStart,
-            annotationRendererFallbackStart,
-        );
         const shapeWorkerSource = readSource(
             'app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/embeddedShapeAnnotationsWorkerClient.ts',
         );
@@ -629,16 +591,6 @@ describe('xlarge document path architecture', () => {
         const cropLocalSource = readSource('electron/features/page-ops/main/cropLocal.ts');
         const nativeCropSource = readSource('electron/features/page-ops/main/nativeCrop.ts');
 
-        expect(annotationNativeBranchStart).toBeGreaterThanOrEqual(0);
-        expect(annotationRendererFallbackStart).toBeGreaterThan(
-            annotationNativeBranchStart,
-        );
-        expect(annotationNativeBranch).toContain(
-            'annotationNameSkipReason: \'unreadable-source\'',
-        );
-        expect(annotationNativeBranch).not.toContain(
-            'collectPdfAnnotationNamesByPage',
-        );
         const nativeShapeBranchStart = shapeWorkerSource.indexOf(
             'if (isNativeEmbeddedShapeIndexSource(path))',
         );

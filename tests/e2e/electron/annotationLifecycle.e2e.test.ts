@@ -262,7 +262,7 @@ async function releaseManagedImageHandle(page: Page, leaseId: string) {
     }, leaseId);
 }
 
-interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}
+interface IAnnotationDirtyStateSnapshot extends Record<string, unknown> {dirtyState?: {hasAnnotationChanges?: boolean;};}
 
 async function waitForActiveTabDirtyState(page: Page, expectedDirty: boolean) {
     const startedAt = Date.now();
@@ -1148,7 +1148,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         }, {timeout: 20_000});
 
         const initial = await collectAnnotationOwnershipDebugState(page);
-        expect(initial.storageAvailable).toBe(true);
+        expect(initial.annotationDirtyEntityCount).toBe(0);
         expect(initial.canonicalEntities).toHaveLength(5);
         expect(initial.canonicalEntities.map(entity => entity.kind).sort()).toEqual([
             'note',
@@ -1160,9 +1160,6 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(initial.legacyEditorLayerCount).toBe(0);
         expect(initial.staticNonLinkAnnotationCount).toBe(0);
         expect(initial.staticLinkHrefs).toEqual(['https://example.com/evb-viewer-surface']);
-        expect(initial.annotationStorage.reported).toBe(true);
-        expect(initial.annotationStorage.modifiedIds).toEqual([]);
-        expect(initial.annotationStorage.serializableEntryKeys).toEqual([]);
 
         const clickEntity = async (kind: string) => {
             const point = await page.evaluate((entityKind: string) => {
@@ -1254,9 +1251,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         ));
 
         const afterInteraction = await collectAnnotationOwnershipDebugState(page);
-        expect(afterInteraction.annotationStorage.reported).toBe(true);
-        expect(afterInteraction.annotationStorage.modifiedIds).toEqual([]);
-        expect(afterInteraction.annotationStorage.serializableEntryKeys).toEqual([]);
+        expect(afterInteraction.annotationDirtyEntityCount).toBe(0);
     }, 90_000);
 
     it('supports keyboard editing for every canonical kind and atomic mixed selection history', async () => {
@@ -1957,7 +1952,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(realpathSync(String(firstCommit.detail.path))).toBe(realpathSync(fixturePath));
         await waitForActiveTabDirtyState(page, false);
         const cleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(cleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        expect(cleanState.dirtyState?.hasAnnotationChanges).toBe(false);
         const firstSaveDebug = await collectStickyNoteDebugState(page);
         const firstSaveStickyNotes = (firstSaveDebug.annotationComments ?? [])
             .filter(comment => comment.hasNote === true);
@@ -2004,11 +1999,10 @@ describe('Electron E2E - Annotation Lifecycle', () => {
         expect(realpathSync(String(secondCommit.detail.path))).toBe(realpathSync(fixturePath));
         await waitForActiveTabDirtyState(page, false);
         const secondCleanState = await readWorkspaceStateValues<IAnnotationDirtyStateSnapshot>(page, ['dirtyState']);
-        expect(secondCleanState.dirtyState?.hasLivePdfJsAnnotationChanges).toBe(false);
+        expect(secondCleanState.dirtyState?.hasAnnotationChanges).toBe(false);
         const secondSaveDebug = await collectStickyNoteDebugState(page);
         const secondSaveStickyNotes = (secondSaveDebug.annotationComments ?? [])
             .filter(comment => comment.hasNote === true);
-        expect(secondSaveDebug.annotationStorage.modifiedIds).toEqual([]);
         expect(secondSaveStickyNotes).toHaveLength(1);
         expect(secondSaveStickyNotes[0]?.text).toBe(secondText);
         expect(await getFreeTextEditorCount(page)).toBe(firstSaveEditorCount);

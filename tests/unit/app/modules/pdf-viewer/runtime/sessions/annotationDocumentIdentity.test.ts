@@ -16,10 +16,8 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type {
-    IAnnotationCommentSummary,
-    TAnnotationStableKey,
-} from '@app/types/annotations';
+import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
 
@@ -39,32 +37,6 @@ const lastModified = 1_735_689_600_000;
 
 function createPick(bytes: Uint8Array<ArrayBuffer>) {
     return new File([bytes], 'shared-name.pdf', {lastModified});
-}
-
-function createComment(id: string): IAnnotationCommentSummary {
-    return {
-        source: 'editor',
-        id,
-        stableKey: `ann:0:${id}` as TAnnotationStableKey,
-        pageIndex: 0,
-        pageNumber: 1,
-        text: 'note',
-        subtype: 'Highlight',
-        author: null,
-        createdAt: null,
-        modifiedAt: null,
-        color: '#ffff00',
-        uid: id,
-        annotationId: null,
-        annotationName: null,
-        hasNote: false,
-        markerRect: {
-            left: 0.1,
-            top: 0.2,
-            width: 0.3,
-            height: 0.04,
-        },
-    };
 }
 
 function createPlacedImageComment(annotationId: string): IAnnotationCommentSummary {
@@ -119,6 +91,13 @@ function mountAnnotationSession(initial: {
                 numPages: ref(0),
                 registerDisposable: vi.fn(),
                 subscribe: vi.fn(() => vi.fn()),
+                captureFence: vi.fn(() => ({
+                    loadToken: 0,
+                    documentVersion: 0,
+                    documentRevision: null,
+                    openSurfaceGeneration: 0,
+                })),
+                isCurrent: vi.fn(() => true),
             },
             viewport: {
                 currentPage: ref(1),
@@ -196,8 +175,28 @@ function mountAnnotationSession(initial: {
         canonicalAnnotationIds: () => activeSession.annotationApplication.value.store
             .list()
             .map(entity => entity.identity.id),
-        ingest: (id: string) => activeSession.annotationApplication.value
-            .replaceFromDocumentSummaries([createComment(id)]),
+        ingest: (id: string) => activeSession.annotationApplication.value.store.createTextMarkup({
+            kind: 'text-markup',
+            identity: {id: asAnnotationId(id)},
+            pageIndex: 0,
+            revision: 0,
+            persistedRevision: -1,
+            deleted: false,
+            createdAt: null,
+            modifiedAt: null,
+            author: null,
+            subtype: 'Highlight',
+            contents: 'note',
+            selectedText: null,
+            quadPoints: [{
+                left: 0.1,
+                top: 0.2,
+                width: 0.3,
+                height: 0.04,
+            }],
+            color: '#ffff00',
+            opacity: 1,
+        }),
         syncPlacedImages: (annotationIds: readonly string[]) => activeSession.annotationCommentModel
             .applyFromSync(annotationIds.map(createPlacedImageComment)),
         projectedComments: () => activeSession.annotationApplication.value.listCommentSummaries(),

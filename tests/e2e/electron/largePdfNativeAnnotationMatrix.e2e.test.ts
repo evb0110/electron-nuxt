@@ -936,16 +936,9 @@ async function dragCanonicalEntity(
     });
 }
 
-async function assertPdfJsStorageEmpty(page: Page) {
-    const state = await readWorkspaceStateValues<{dirtyState?: {pdfJsAnnotationStorage?: {
-        ids?: string[];
-        modifiedIds?: string[];
-        serializableEntryKeys?: string[];
-    } | null;}}>(page, ['dirtyState']);
-    const storage = state.dirtyState?.pdfJsAnnotationStorage;
-    expect(storage?.ids ?? []).toEqual([]);
-    expect(storage?.modifiedIds ?? []).toEqual([]);
-    expect(storage?.serializableEntryKeys ?? []).toEqual([]);
+async function assertAnnotationStoreClean(page: Page) {
+    const state = await readWorkspaceStateValues<{dirtyState?: {annotationDirtyEntityCount?: number;}}>(page, ['dirtyState']);
+    expect(state.dirtyState?.annotationDirtyEntityCount ?? 0).toBe(0);
 }
 
 async function saveCanonicalRevision(page: Page, documentPath: string, label: string) {
@@ -1325,7 +1318,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(addedShapes.filter(entry => entry.pdfSubtype === 'Circle')).toHaveLength(1);
         expect(addedShapes.filter(entry => entry.pdfSubtype === 'Line')).toHaveLength(2);
         expect(addedShapes.filter(entry => entry.pdfSubtype === 'Ink')).toHaveLength(1);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
         await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
@@ -1335,7 +1328,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(reopenedEntities.filter(entity => entity.kind === 'text-box')).not.toHaveLength(0);
         expect(reopenedEntities.filter(entity => entity.kind === 'text-markup')).toHaveLength(4);
         expect(reopenedEntities.filter(entity => entity.kind === 'shape')).toHaveLength(5);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         for (const kind of [
             'note',
@@ -1394,7 +1387,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(countAnnotationSubtype(secondIndex.entries, 'Text')).toBe(countAnnotationSubtype(firstIndex.entries, 'Text'));
         expect(countAnnotationSubtype(secondIndex.entries, 'FreeText')).toBe(countAnnotationSubtype(firstIndex.entries, 'FreeText'));
         expect(pageShapes(secondShapes)).toHaveLength(pageShapes(firstShapes).length);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
         await scrollViewerToPage(session.page, MATRIX_PAGE_NUMBER);
@@ -1403,7 +1396,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         expect(reopenedEntities.filter(entity => entity.kind === 'shape')).toHaveLength(5);
         expect(reopenedEntities.filter(entity => entity.id === shapeToDelete.id)).toHaveLength(0);
         expect(reopenedEntities.filter(entity => entity.kind === 'text-markup')).toHaveLength(4);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         expect(textBoxId).toMatch(/^anno_/u);
         expect(note.id).toMatch(/^anno_/u);
@@ -1471,7 +1464,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             generationNumber: stampEntry.generationNumber,
         });
         expect(stampObject).toContain('/Subtype /Stamp');
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
         await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
@@ -1498,7 +1491,7 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
             && entry.subtype === 'Stamp'
             && entry.name === stampEntry.name
         ))).toHaveLength(1);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
         await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
@@ -1518,13 +1511,13 @@ largePdfDescribe('Electron E2E - exact large PDF canonical annotation matrix', (
         const deletedIndex = await readAnnotationIndex(session.page, deletedWorkingCopyPath);
         expect(deletedIndex.revisionToken).toBe(deletedSaveToken);
         expect(deletedIndex.entries.filter(entry => entry.name === stampEntry.name)).toHaveLength(0);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
 
         session = await hardRestartAfterSave(sessionFixture, session, documentPath);
         await scrollViewerToPage(session.page, PLACED_IMAGE_PAGE_NUMBER);
         await openAnnotationsTab(session.page, 30_000);
         expect((await readCanonicalEntities(session.page, PLACED_IMAGE_PAGE_NUMBER))
             .filter(entity => entity.kind === 'placed-image')).toHaveLength(0);
-        await assertPdfJsStorageEmpty(session.page);
+        await assertAnnotationStoreClean(session.page);
     }, MATRIX_TIMEOUT_MS);
 });

@@ -4,11 +4,40 @@ import type {
 } from 'vue';
 import type {IAnnotationCommentSummary} from '@app/types/annotations';
 import type {AnnotationApplication} from '@app/modules/pdf-viewer/annotations/annotationApplication';
-import { reportAnnotationCreationFailure } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/reportAnnotationCreationFailure';
 import type {
     IAnnotationCreationFailureReport,
     TAnnotationCreationOutcome,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import {getAnnotationCreationExpectedOutcome} from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
+import {BrowserLogger} from '@app/utils/browserLogger';
+
+function reportAnnotationCreationFailure(
+    report: ((failure: IAnnotationCreationFailureReport) => void) | undefined,
+    input: {
+        operationId: string;
+        reason: IAnnotationCreationFailureReport['reason'];
+        pageNumber: number | null
+    },
+) {
+    const outcome = getAnnotationCreationExpectedOutcome(input.reason);
+    if (outcome) {
+        report?.({
+            ...input,
+            kind: 'expected',
+            outcome,
+        });
+        return;
+    }
+    const failure = BrowserLogger.error('annotations', 'Annotation creation failed', {reason: input.reason}, {
+        code: 'RENDERER_ANNOTATION_OPERATION_FAILED',
+        context: {},
+    });
+    report?.({
+        ...input,
+        kind: 'fault',
+        failure,
+    });
+}
 
 export function findCanonicalAnnotationComment(
     application: AnnotationApplication,

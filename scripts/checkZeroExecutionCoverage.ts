@@ -45,9 +45,6 @@ export const NON_UNIT_COVERAGE_ENTRYPOINTS = [
     'app/app.vue',
     'app/modules/pdf-viewer/components/PdfViewer.vue',
     'app/modules/pdf-viewer/components/annotations/PdfAnnotationNoteWindow.vue',
-    // The live annotation surface and page lifecycle are exercised by the
-    // Electron blocking smoke and xlarge acceptance suites.
-    'app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/usePdfViewerAnnotationRuntimeBridge.ts',
     'app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue',
     // Worker entrypoints execute in browser/Electron worker bundles and are
     // covered by the corresponding save, image, or page-ops acceptance lanes.

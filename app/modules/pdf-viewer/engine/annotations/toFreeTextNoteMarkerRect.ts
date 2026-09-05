@@ -12,7 +12,7 @@ import { isAnnotationMarkerRect } from '@app/modules/pdf-viewer/engine/annotatio
  * non-degenerate rect the import path can classify back as a marker, not a
  * shape anything draws.
  */
-export const POINT_NOTE_MARKER_SIZE = 0.0016;
+const POINT_NOTE_MARKER_SIZE = 0.0016;
 
 export function toFreeTextNoteMarkerRect(
     value: IAnnotationCommentSummary['markerRect'],

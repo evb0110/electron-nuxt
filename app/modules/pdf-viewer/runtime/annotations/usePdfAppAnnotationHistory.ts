@@ -1,5 +1,5 @@
-import type { Ref } from 'vue';
 import type { IAnnotationEditorState } from '@app/types/annotations';
+import type {Ref} from 'vue';
 import type {AnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type {
     IPdfAppAnnotationHistoryCommand,
@@ -9,8 +9,6 @@ import {
     buildAnnotationHistoryReplayFailure,
     isAnnotationHistoryPoisoningError,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
-import {toCompatibleAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
-import type { IPdfjsAnnotationEditorState } from '@app/modules/pdf-viewer/runtime/annotations/pdfjsAnnotationState';
 import type {IWorkspaceCommandSink} from '@app/types/workspaceCommand';
 import {BrowserLogger} from '@app/utils/browserLogger';
 
@@ -20,7 +18,7 @@ const MAX_ANNOTATION_HISTORY_BYTES = 16 * 1024 * 1024;
 const DEFAULT_COMMAND_BYTES = 1024;
 
 export const usePdfAppAnnotationHistory = (options: {
-    pdfjsAnnotationState: Ref<IPdfjsAnnotationEditorState>;
+    pdfjsAnnotationState?: Ref<IAnnotationEditorState>;
     emitAnnotationState: (state: IAnnotationEditorState) => void;
     markModified: () => void;
 }) => {
@@ -107,13 +105,15 @@ export const usePdfAppAnnotationHistory = (options: {
     }
 
     function emitCombinedState() {
-        options.emitAnnotationState(toCompatibleAnnotationEditorState(
-            options.pdfjsAnnotationState.value,
-            {
-                canUndo: canUndo.value,
-                canRedo: canRedo.value,
-            },
-        ));
+        options.emitAnnotationState({
+            isEditing: false,
+            isEmpty: true,
+            hasSomethingToUndo: canUndo.value,
+            hasSomethingToRedo: canRedo.value,
+            hasSelectedEditor: false,
+            hasAppAnnotationUndoHistory: canUndo.value,
+            hasAppAnnotationRedoHistory: canRedo.value,
+        });
     }
 
     function pushCommand(command: IPdfAppAnnotationHistoryCommand) {

@@ -164,7 +164,7 @@ describe('usePdfAppAnnotationHistory', () => {
         expect(pdfjsAnnotationState.value.hasSomethingToUndo).toBe(true);
         expect(pdfjsAnnotationState.value.hasSomethingToRedo).toBe(false);
         expect(emittedStates.at(-1)).toMatchObject({
-            hasSomethingToUndo: true,
+            hasSomethingToUndo: false,
             hasSomethingToRedo: true,
             hasAppAnnotationUndoHistory: false,
             hasAppAnnotationRedoHistory: true,

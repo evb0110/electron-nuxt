@@ -20,7 +20,6 @@ import type { IPdfPlacedImageFinalizePayload } from '@app/types/pdfImagePlacemen
 import {
     getShapeRect,
     isPdfPlacedImageNativePathResult,
-    resolveAnnotationCommentTextMarkupColor,
     annotationIdForSummary,
 } from '@app/modules/pdf-viewer/public';
 import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
@@ -116,8 +115,6 @@ interface IPageAnnotationActionsDeps {
     saveAnnotationsForPageMutation?: () => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     invalidateThumbnailPages?: (pages: number[]) => void;
-    markPreservedAnnotationSourceDirty?: () => void;
-    setPreservedAnnotationSourceDirty?: (dirty: boolean) => void;
     getAnnotationCommentsSnapshot?: () => IAnnotationCommentSummary[];
     getAnnotationCommentsStatusSnapshot?: () => TAnnotationCommentsStatus;
     getEmbeddedMutationBaseData: () => Promise<Uint8Array | null>;
@@ -546,11 +543,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
             comment: nextComment,
         };
         invalidateAnnotationPage(nextComment);
-        if (deps.setPreservedAnnotationSourceDirty) {
-            deps.setPreservedAnnotationSourceDirty(colorEdited);
-        } else if (colorEdited) {
-            deps.markPreservedAnnotationSourceDirty?.();
-        }
         if (!didUpdate) {
             BrowserLogger.debug('annotations', 'Context-menu text markup color state updated before DOM repaint', () => ({
                 annotationId: comment.annotationId ?? null,
@@ -570,7 +562,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         if (!container) {
             return null;
         }
-        return resolveAnnotationCommentTextMarkupColor(container, comment);
+        return comment.color ?? null;
     }
 
     function updateTextMarkupColorWithHistory(

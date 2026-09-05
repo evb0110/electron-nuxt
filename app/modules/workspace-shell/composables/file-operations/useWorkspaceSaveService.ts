@@ -35,7 +35,6 @@ import type {
     IPdfViewerSaveTransactionResult,
     INativePdfMutationProjection,
 } from '@app/modules/pdf-viewer/public';
-import { resetLivePdfJsAnnotationStorageModifiedState } from '@app/modules/pdf-viewer/public';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import { runWithoutDocumentOperationLease } from '@app/utils/runWithoutDocumentOperationLease';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -103,13 +102,9 @@ export interface IWorkspaceSaveDependencies {
     unencryptedSaveNotice?: IUnencryptedSaveNoticeDependencies;
     annotations: {
         dirty: Ref<boolean>;
-        markSaved: (opts?: {preserveLivePdfjsSession?: boolean}) => void;
+        markSaved: () => void;
         getSaveStateToken?: () => unknown;
         hasChanges: () => boolean;
-        hasLivePdfJsChanges?: () => boolean;
-        hasSavedPdfJsBaselineChanges?: () => boolean;
-        getSavedPdfJsAnnotationFingerprint?: () => string | null;
-        hasPreservedSourceChanges?: () => boolean;
         hasPendingDeletes?: () => boolean;
         openNoteCount: Ref<number>;
         persistOpenNotes: () => Promise<boolean>;
@@ -139,8 +134,6 @@ export interface IWorkspaceSaveDependencies {
         markSaved?: (prepared?: unknown) => void;
         preparePersistedState?: (data?: Uint8Array) => Promise<unknown>;
         restorePreparedState?: (snapshot: unknown) => Promise<void> | void;
-        adoptPersistedStateOnReload?: () => void;
-        clearPendingPersistedState?: () => void;
     };
     persistence: {
         validatePdfPath: (path: TDocumentRef) => Promise<IPdfSaveResult['validation']>;
@@ -314,12 +307,6 @@ async function validateWorkingCopy(
     return isTargetCurrent(plan, deps) ? null : 'document-changed';
 }
 
-function armPersistedShapeState(plan: TWorkspaceSavePlan, deps: IWorkspaceSaveDependencies) {
-    if (plan.dirtyState.shapes) {
-        deps.shapes.adoptPersistedStateOnReload?.();
-    }
-}
-
 async function restorePreparedShapeState(
     snapshot: unknown,
     deps: IWorkspaceSaveDependencies,
@@ -339,7 +326,6 @@ async function executeWorkingCopySave(
         if (validationFailure) {
             return notSavedBeforeWrite(validationFailure, plan.target.expectedRevisionToken, reloadWaiter);
         }
-        armPersistedShapeState(plan, deps);
         const opts = {
             saveMode: getSaveMode(plan),
             expectedWorkingPath: plan.target.expectedWorkingPath,
@@ -448,10 +434,6 @@ async function executeSerializedBytesSave(
                 );
             }
         }
-        if (shapeStateWasPrimed) {
-            armPersistedShapeState(plan, deps);
-        }
-
         const changedObjectRefs = saveTransaction.serializedResult?.changedObjectRefs;
         const commitCallbacks: IPdfSerializedCommitCallbacks = {
             ...(saveTransaction.verifyAnnotationSave
@@ -738,16 +720,7 @@ async function executeNativeMutationSave(
         }
     }
     if (projection.hasShapeMutations && canMarkShapeStateSaved) {
-        deps.shapes.adoptPersistedStateOnReload?.();
-    }
-    if (persisted.materializedIdentityBindings?.length) {
-        const recordMaterializedIdentityBinding = saveTransaction.recordMaterializedIdentityBinding;
-        if (!recordMaterializedIdentityBinding) {
-            throw new Error('Native save returned identity bindings without an annotation save session');
-        }
-        for (const binding of persisted.materializedIdentityBindings) {
-            recordMaterializedIdentityBinding(binding);
-        }
+        deps.shapes.markSaved?.(preparedShapeStateSnapshot);
     }
     saveTransaction.commitAnnotationSave?.();
 
@@ -900,10 +873,7 @@ function completeSuccessfulSaveState(
     const annotationUnchanged = !deps.annotations.getSaveStateToken
         || Object.is(deps.annotations.getSaveStateToken(), baseline.annotations);
     if (annotationUnchanged || policy.allowAnnotationSaveStateRefresh === true) {
-        if (policy.resetAnnotationStorage) {
-            resetLivePdfJsAnnotationStorageModifiedState(deps.pdf.document.value);
-        }
-        deps.annotations.markSaved({preserveLivePdfjsSession: policy.preserveLivePdfjsSession});
+        deps.annotations.markSaved();
     }
 
     const pageLabelsUnchanged = !deps.metadata.getPageLabelsSaveStateToken
@@ -923,9 +893,6 @@ function completeSuccessfulSaveState(
         // Passing it makes the clean mark refusable when a replacement store
         // now owns the viewer.
         deps.shapes.markSaved?.(preparedShapeState);
-        if (!policy.preserveLivePdfjsSession) {
-            deps.shapes.clearPendingPersistedState?.();
-        }
     }
 }
 
@@ -944,7 +911,6 @@ async function completeWorkspaceSave(
             } : {}),
         });
         result.reloadWaiter?.cancel();
-        deps.shapes.clearPendingPersistedState?.();
         return false;
     }
 
@@ -969,11 +935,8 @@ function collectDirtyState(deps: IWorkspaceSaveDependencies): IWorkspaceSaveDirt
         annotationDirty: deps.annotations.dirty.value,
         annotationChanges: deps.annotations.hasChanges(),
         bookmarks: deps.metadata.bookmarksDirty.value,
-        livePdfJsAnnotations: deps.annotations.hasLivePdfJsChanges?.() ?? false,
         pageLabels: deps.metadata.pageLabelsDirty.value,
         pendingDeletes: deps.annotations.hasPendingDeletes?.() ?? false,
-        preservedAnnotationSource: deps.annotations.hasPreservedSourceChanges?.() ?? false,
-        savedPdfjsAnnotationBaseline: deps.annotations.hasSavedPdfJsBaselineChanges?.() ?? false,
         shapes: deps.shapes.hasChanges(),
     };
 }
