@@ -1,0 +1,39 @@
+scripts/windows-test/host/utmctlClient.ts
+  s_b0e72f95ac5699::t_df95067eff13d8 2-5
+  s_b0e72f95ac5699::t_484c101523e138 7,10,14-38
+  s_b0e72f95ac5699::t_e7749478be8d41 283-285,310,314
+  s_b0e72f95ac5699::t_d2d78648b3c6e7 311-313
+  s_b0e72f95ac5699::t_16b933f09850c2 39
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_b0e72f95ac5699::t_cf48752c6174da 3,39-41,45-46,111,113-116,142-145
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_b0e72f95ac5699::t_dc96b95b9efdb4 1,9,15,135-159,165-168
+docs/windows-tests/setup-and-repair.md
+  s_b0e72f95ac5699::t_a12be8178c1088 48-50,203
+scripts/windows-test/host/prepareWindowsTestHost.ts
+  s_b0e72f95ac5699::t_c3677edd086e54 22-26,32-33,58-67,146
+scripts/windows-test/host/hostRunner.ts
+  s_b0e72f95ac5699::t_03d0af3dc074de 264-268,340-344,386-390
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_b0e72f95ac5699::t_c3677edd086e54 10,14-23,35,43,45-52
+scripts/windows-test/host/standaloneUtmctl.ts
+  s_b0e72f95ac5699::t_cce4b1f3bdd2a5 1-245
+tests/unit/scripts/windows-test/standaloneUtmctl.test.ts
+  s_b0e72f95ac5699::t_d1d800ef1a43cf 1-84
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "90b69e19ad1ee8490d8d12d17c851e6345b08e21",
+  "prompts": {},
+  "sessions": {
+    "s_b0e72f95ac5699": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07141-4a55-73a2-ad79-85fccdf786d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
