@@ -1,0 +1,76 @@
+app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts
+  s_af846ae066e4fa::t_fb95750b86d400 10,344-346,348-359
+  s_af846ae066e4fa::t_860049eed1bd68 532,534-535
+  s_af846ae066e4fa::t_3c16aa2563878a 347,371-374,377-380,384,386
+  s_af846ae066e4fa::t_7592446fbdeeed 1
+  s_af846ae066e4fa::t_4d91cd4b8fb8d6 360
+tests/unit/app/modules/pdf-viewer/runtime/pdfViewerFeatureControllerWiring.test.ts
+  s_af846ae066e4fa::t_c7f21bf41b4a54 3,33-44,47-54,164,166-171,176-187
+  s_af846ae066e4fa::t_64d7f6f0e5c411 165,188-190
+  s_af846ae066e4fa::t_73edaf45ab8c81 7,29-32
+  s_af846ae066e4fa::t_7a1ddc8d506751 28
+  s_af846ae066e4fa::t_860049eed1bd68 172-175
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_af846ae066e4fa::t_1c42ce98349ba4 1-4,230,310,322-324,330,573
+tests/e2e/electron/helpers/fixtures.ts
+  s_af846ae066e4fa::t_733ed4d32e6036 662-663,678
+  s_af846ae066e4fa::t_91d3d4ded1a4a5 576-578,580-661,664-677,679-684,686-688
+  s_af846ae066e4fa::t_0407fde703965b 685
+  s_af846ae066e4fa::t_d9ea2c17e884a5 579
+tests/e2e/electron/viewerSmoke.e2e.test.ts
+  s_af846ae066e4fa::t_59bac87e1954cf 1171
+  s_af846ae066e4fa::t_91d3d4ded1a4a5 7,249-292
+  s_af846ae066e4fa::t_04af9df723b0e5 13,1150-1170,1172-1175,1180-1194,1199-1206,1208-1220
+  s_af846ae066e4fa::t_0407fde703965b 1176-1179
+  s_af846ae066e4fa::t_1b43ca99c7ba47 1195,1197
+  s_af846ae066e4fa::t_f2b9c82a2bd067 1196,1198
+  s_af846ae066e4fa::t_d03e90f00f32f6 1207
+  s_af846ae066e4fa::t_4f2654b57e09b5 294-299
+  s_af846ae066e4fa::t_c044aa697afe2f 300-326
+  s_af846ae066e4fa::t_94ce01d9b4666f 293
+  s_af846ae066e4fa::t_5719d991de83ce 1221
+app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate.ts
+  s_af846ae066e4fa::t_7a1ddc8d506751 14-17
+  s_af846ae066e4fa::t_fb95750b86d400 1-5,11-13,18-20
+  s_af846ae066e4fa::t_fcedb233e9888a 6-10
+tests/unit/app/modules/pdf-viewer/runtime/usePdfRenderViewModel.test.ts
+  s_af846ae066e4fa::t_2b6f9f093cb6ed 15,33,66,301-305,321-322,330
+  s_af846ae066e4fa::t_a005fbc3e678cf 291-294
+  s_af846ae066e4fa::t_a00fc18a65f1f4 14,31-32,64-65,288-290,295-300,306-311,315,319,323
+  s_af846ae066e4fa::t_56ff6048356cbc 312-314,316-318,320,324-329
+  s_af846ae066e4fa::t_ae52b4a17a925b 12
+app/modules/pdf-viewer/runtime/navigation/shouldShowPdfViewportPageSkeleton.ts
+  s_af846ae066e4fa::t_1c42ce98349ba4 1,25-28,30
+tests/unit/app/modules/pdf-viewer/usePdfViewportViewModel.test.ts
+  s_af846ae066e4fa::t_251b09079aafbb 251-254
+  s_af846ae066e4fa::t_37aa320ed6a263 222-250,255-289,291-293,298-303
+  s_af846ae066e4fa::t_a8ffebfd2bd11f 290,294-297
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_af846ae066e4fa::t_3060e8a4195ace 136-143,150
+  s_af846ae066e4fa::t_a5324ea6616fb5 1,206-214,218
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_af846ae066e4fa::t_7a4a30e8f5ddac 129-185,197-200,211-212
+  s_af846ae066e4fa::t_03f831c5bf270c 186-187,196
+  s_af846ae066e4fa::t_093da3e46c6778 188-195,202-209
+  s_af846ae066e4fa::t_55a3e2cc0add33 201,210
+tests/unit/app/modules/pdf-viewer/runtime/projectPdfViewportSessionVisual.test.ts
+  s_af846ae066e4fa::t_03f831c5bf270c 125,140
+  s_af846ae066e4fa::t_c33fcef8095718 129,138
+  s_af846ae066e4fa::t_7a4a30e8f5ddac 123-124,126-128,130-137,139,141
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "6239d24dc857cb7265ceb0110402da282e82f5ea",
+  "prompts": {},
+  "sessions": {
+    "s_af846ae066e4fa": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07269-ff43-7251-bf41-590a27aa3a57",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

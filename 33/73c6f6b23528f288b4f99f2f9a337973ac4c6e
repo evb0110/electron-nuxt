@@ -1,0 +1,21 @@
+packages/contracts/getErrorMessage.js
+  s_b412fd4cd3f576::t_4af624385df888 1-6
+scripts/release/verify-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_4af624385df888 11
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "3373c6f6b23528f288b4f99f2f9a337973ac4c6e",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
