@@ -155,6 +155,18 @@ function cliUploadRoots(identity, uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
+/** @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {string[]} */
+function sourceUploadRoots(uploadRoot, manifest) {
+    const roots = new Set();
+    for (const source of manifest.sources) {
+        const [topLevel] = source.path.split('/');
+        if (topLevel) {
+            roots.add(path.join(uploadRoot, topLevel));
+        }
+    }
+    return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
+}
+
 /** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {string} cliRoot @returns {string | null} */
 function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
     if (
@@ -337,12 +349,25 @@ export async function uploadSentrySourcemaps({
             manifest,
         });
         try {
-            for (const cliRoot of cliUploadRoots(normalizedIdentity, uploadRoot, manifest)) {
+            const cliRoots = cliUploadRoots(normalizedIdentity, uploadRoot, manifest);
+            const sourceRoots = normalizedIdentity.target === 'web'
+                ? sourceUploadRoots(uploadRoot, manifest)
+                : [];
+            const sourceOwner = cliRoots.find(cliRoot => (
+                cliRoot === path.join(uploadRoot, 'vercel/output/static')
+            )) ?? cliRoots[0];
+            for (const cliRoot of cliRoots) {
                 const urlPrefix = cliUploadUrlPrefix(
                     normalizedIdentity,
                     uploadRoot,
                     cliRoot,
                 );
+                const paths = cliRoot === sourceOwner
+                    ? [
+                        cliRoot,
+                        ...sourceRoots,
+                    ]
+                    : [cliRoot];
                 await runCli([
                     'sourcemaps',
                     'upload',
@@ -366,7 +391,7 @@ export async function uploadSentrySourcemaps({
                         '--url-prefix',
                         urlPrefix,
                     ]),
-                    cliRoot,
+                    ...paths,
                 ], {token});
             }
         } catch {

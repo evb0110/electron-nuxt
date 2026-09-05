@@ -188,7 +188,7 @@ describe('uploadSentrySourcemaps', () => {
                 'private-web-project',
             ]);
             expect(args).not.toContain('private-desktop-project');
-            const staticRoot = args.at(-1)!;
+            const staticRoot = args.find(argument => argument.endsWith('/vercel/output/static'))!;
             expect(await readFile(path.join(
                 staticRoot,
                 '_nuxt/example.js',
@@ -219,7 +219,9 @@ describe('uploadSentrySourcemaps', () => {
             '--url-prefix',
             '~/',
         ]);
-        expect(cliArgs.at(-1)).toContain('vercel/output/static');
+        const staticRoot = cliArgs.find(argument => argument.endsWith('/vercel/output/static'));
+        expect(staticRoot).toBeTypeOf('string');
+        expect(cliArgs).toContain(path.join(staticRoot!, '../../../app'));
         expect(receipt).toMatchObject({
             bundleCount: 1,
             identity: webIdentity,
