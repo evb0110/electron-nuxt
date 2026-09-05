@@ -1,3 +1,4 @@
+import path from 'node:path';
 import {
     describe,
     expect,
@@ -5,11 +6,13 @@ import {
 } from 'vitest';
 import {
     DEFAULT_UTMCTL_PATH,
+    STANDALONE_UTMCTL_RELATIVE_PATH,
     UtmctlTransportError,
     classifyUtmctlTransportFailure,
     createUtmctlClient,
     detectsAutomationConsentFailure,
     parseUtmctlListOutput,
+    resolveDefaultUtmctlPath,
 } from '@scripts/windows-test/host/utmctlClient';
 import type {
     ICommandResult,
@@ -129,12 +132,40 @@ describe('utmctl transport failure classification', () => {
 });
 
 describe('utmctl client commands', () => {
+    it('uses the prepared standalone executable when preparation created it', async () => {
+        const dataRoot = '/tmp/evb-windows-tests';
+        const preparedPath = path.join(dataRoot, STANDALONE_UTMCTL_RELATIVE_PATH);
+        const {
+            calls,
+            runner,
+        } = fakeRunner([]);
+        const client = createUtmctlClient({
+            runner,
+            dataRoot,
+            fileExists: filePath => filePath === preparedPath,
+        });
+
+        await client.list();
+
+        expect(calls[0]?.command).toBe(preparedPath);
+    });
+
+    it('keeps the bundled executable as the pre-preparation fallback', () => {
+        expect(resolveDefaultUtmctlPath({
+            dataRoot: '/tmp/evb-windows-tests',
+            fileExists: () => false,
+        })).toBe(DEFAULT_UTMCTL_PATH);
+    });
+
     it('spells stop, clone and delete with the qualified UTM flags', async () => {
         const {
             calls,
             runner,
         } = fakeRunner([]);
-        const client = createUtmctlClient({runner});
+        const client = createUtmctlClient({
+            runner,
+            utmctlPath: DEFAULT_UTMCTL_PATH,
+        });
 
         await client.stop(TEST_VM_ID, 'request');
         await client.stop(TEST_VM_ID, 'force');

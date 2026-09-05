@@ -261,7 +261,11 @@ export async function executeWindowsTestRunOnHost(
     });
 
     const runner = createProcessCommandRunner();
-    const utmctl = createUtmctlClient({runner});
+    const utmctl = createUtmctlClient({
+        runner,
+        dataRoot: layout.root,
+        env: options.env,
+    });
     const guest = createUtmctlGuestChannel({
         client: utmctl,
         temporaryFilePath: label => path.join(tmpdir(), `evb-windows-test-${label}-${randomBytes(8).toString('hex')}`),
@@ -333,7 +337,11 @@ export async function runWindowsTestDoctorOnHost(
     const runner = createProcessCommandRunner();
     return runWindowsTestDoctor({
         layout,
-        utmctl: createUtmctlClient({runner}),
+        utmctl: createUtmctlClient({
+            runner,
+            dataRoot: layout.root,
+            env: options.env,
+        }),
         sessionProbe: createLaunchctlSessionProbe(runner),
         env: options.env,
         launcherPath: options.launcherPath,
@@ -375,7 +383,11 @@ export async function requestWindowsTestStopOnHost(
         {
             layout,
             config,
-            utmctl: createUtmctlClient({runner}),
+            utmctl: createUtmctlClient({
+                runner,
+                dataRoot: layout.root,
+                env: options.env,
+            }),
             probe,
             lock: {
                 hostId: hostname(),

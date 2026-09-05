@@ -45,6 +45,9 @@ EVBViewerWindowsTests/
    `caches/tools/worker/guestWorker.cjs`, copies its PowerShell helpers, and
    generates seven fixtures, copies four tracked fixtures, and writes `caches/fixtures/manifest.json`. It preserves
    existing configuration and refuses to change inputs while a run lease exists.
+   It also copies the installed `utmctl` to
+   `caches/tools/utmctl-probe/utmctl`; the runner uses that copy so polling does
+   not create a foreground UTM Dock icon.
    It does not create a VM or qualify Windows automation.
 
 2. Create a `config.json` like the one below. Placeholder
@@ -197,6 +200,7 @@ outbox until the result or the deadline. The summary and evidence stay under
 | Symptom | Cause | Repair |
 | --- | --- | --- |
 | `doctor` reports `automation-consent-missing` with OSStatus -1743 | The current launcher has no Automation permission for UTM | Open System Settings, Privacy and Security, Automation, allow the launcher to control UTM; run `utmctl list` from that launcher; add it to `qualifiedLaunchers` |
+| A second UTM Dock icon appears while polling | The bundled CLI registers as a foreground application | Run `pnpm windows:test:prepare` and keep the prepared standalone copy at `caches/tools/utmctl-probe/utmctl`; the client selects it automatically when present |
 | Exit 6 with an active run ID | Another coordinator owns the lease | Wait, or `pnpm windows:test:stop -- --run RUN_ID` from any terminal |
 | Exit 6 but no coordinator process exists | Stale lease after a crash or host reboot | `pnpm windows:test:stop -- --run RUN_ID` performs stale-owner recovery under the host lock; it stops only the owned clone |
 | Exit 3 "desktop not ready" | Guest is locked, in Session 0, or the logon task did not run | Sign in to the test user in the UTM window, confirm the task exists, then rerun |
