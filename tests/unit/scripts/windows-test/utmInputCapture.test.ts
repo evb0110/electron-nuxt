@@ -89,6 +89,17 @@ function probeResult(action: 'release' | 'restore', after = 0, windowTitle = CLO
     };
 }
 
+function focusedProbeResult(action: 'release' | 'restore', windowTitle = CLONE_NAME) {
+    return {
+        windowTitle,
+        before: 0,
+        after: 0,
+        frontmostPid: 202,
+        utmPid: 202,
+        action,
+    };
+}
+
 describe('UTM input-capture guard', () => {
     it('releases capture with the supported chord and records launch and cleanup evidence', async () => {
         const root = await mkdtemp(path.join(tmpdir(), 'evb-utm-input-capture-'));
@@ -145,6 +156,17 @@ describe('UTM input-capture guard', () => {
         });
 
         await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/remained enabled/u);
+    });
+
+    it('fails closed when UTM remains focused after the launch check', async () => {
+        const fake = fakeRunner([focusedProbeResult('release')]);
+        const guard = createUtmInputCaptureGuard({
+            runner: fake.runner,
+            utmctl: fakeUtmctl(),
+            probeExecutablePath: '/tmp/utm-input-capture-probe',
+        });
+
+        await expect(guard.ensureReleased(GOLDEN_VM_ID)).rejects.toThrow(/remained focused/u);
     });
 
     it('records an off state across repeated disposable cold-reset lifecycles', async () => {
@@ -211,6 +233,8 @@ describe('UTM input-capture guard', () => {
         expect(source).toContain('postToPid');
         expect(source).toContain('let commandKey: CGKeyCode = 55');
         expect(source).toContain('let optionKey: CGKeyCode = 58');
+        expect(source).toContain('arguments.action == "release" || arguments.action == "restore"');
+        expect(source).toContain('hideApplication(pid)');
         expect(source).not.toContain('AXPress');
     });
 });

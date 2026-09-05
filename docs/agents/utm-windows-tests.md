@@ -48,10 +48,13 @@ or mouse input. Before a clone test starts, the launcher reads the UTM
 Accessibility checkbox for that clone and requires `Capture Input` to be off.
 If the checkbox is on, the launcher sends UTM's supported Command+Option release
 chord and reads the checkbox again. A remaining on state, an unavailable UTM
-window, or an unavailable Accessibility control fails the run before guest input
-begins. The harness never presses the Capture Input checkbox. After every test,
-stop request, teardown, and error path it releases the chord again and hides a
-focused UTM window so the launcher that started the run receives host input.
+window, an unavailable Accessibility control, or a focused UTM process after the
+check fails the run before guest input begins. The release probe hides a focused
+UTM window and the guard requires both `after: 0` and
+`hostInputAvailable: true`. The harness never presses the Capture Input
+checkbox. After every test, stop request, teardown, and error path it releases
+the chord again and hides a focused UTM window so the launcher that started the
+run receives host input.
 Launch and cleanup probe records live under `runs/<RUN_ID>/input-capture-*.json`.
 
 Exit codes are stable and the only thing CI or a script should branch on:
