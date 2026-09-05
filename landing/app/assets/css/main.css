@@ -787,7 +787,7 @@ a {
   align-items: center;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 0.75rem 2rem;
+  gap: 1rem 2rem;
   padding-top: 0.75rem;
   border-top: 1px solid color-mix(in srgb, var(--landing-border) 70%, transparent);
 }

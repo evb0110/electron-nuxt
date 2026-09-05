@@ -1,22 +1,25 @@
 <template>
   <div class="sentry-acknowledgement">
-    <img
-      class="sentry-wordmark"
-      :src="SENTRY_WORDMARK_PATH"
-      alt="Sentry"
-      width="200"
-      height="44"
-      loading="lazy"
-      decoding="async"
+    <a
+      class="sentry-wordmark-link"
+      href="https://sentry.io/for/open-source/"
+      target="_blank"
+      rel="noopener noreferrer"
+      :aria-label="t('footer.sentryAcknowledgement.linkLabel')"
     >
+      <img
+        class="sentry-wordmark"
+        :src="SENTRY_WORDMARK_PATH"
+        alt="Sentry"
+        width="200"
+        height="44"
+        loading="lazy"
+        decoding="async"
+      >
+    </a>
 
     <p class="sentry-acknowledgement-copy">
       {{ t('footer.sentryAcknowledgement.message') }}
-      <a
-        href="https://sentry.io/for/open-source/"
-        target="_blank"
-        rel="noopener noreferrer"
-      >{{ t('footer.sentryAcknowledgement.linkLabel') }}</a>.
     </p>
   </div>
 </template>
@@ -35,16 +38,32 @@ const { t } = useTypedI18n();
   align-items: center;
   gap: 0.7rem;
   min-width: 0;
-  max-width: 36rem;
   color: var(--landing-muted);
+}
+
+/* The wordmark carries the open-source-program link, so the credit holds one
+   line instead of trailing a second link that wrapped on its own. */
+.sentry-wordmark-link {
+  display: block;
+  flex: 0 0 auto;
+  border-radius: 0.3rem;
+}
+
+.sentry-wordmark-link:hover .sentry-wordmark {
+  opacity: 0.72;
+}
+
+.sentry-wordmark-link:focus-visible {
+  outline: 0.15rem solid var(--landing-accent);
+  outline-offset: 0.2rem;
 }
 
 .sentry-wordmark {
   display: block;
-  flex: 0 0 auto;
   width: 5.5rem;
   max-width: min(34vw, 5.5rem);
   height: auto;
+  transition: opacity 0.15s;
 }
 
 /* The wordmark loads through <img>, so currentColor resolves to black inside
@@ -57,27 +76,13 @@ html.dark .sentry-wordmark {
   background: #fff;
 }
 
-/* Balanced lines keep the trailing link from breaking into a one-word last
-   line, which is what the single-column footer used to do. */
 .sentry-acknowledgement-copy {
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   margin: 0;
   font-size: 0.78rem;
   line-height: 1.45;
   text-wrap: balance;
-}
-
-.sentry-acknowledgement-copy a {
-  color: var(--landing-accent);
-  text-decoration: underline;
-  text-underline-offset: 0.18rem;
-}
-
-.sentry-acknowledgement-copy a:focus-visible {
-  outline: 0.15rem solid var(--landing-accent);
-  outline-offset: 0.18rem;
-  border-radius: 0.15rem;
 }
 
 @media (width <= 40rem) {
