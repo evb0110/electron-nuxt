@@ -11,5 +11,5 @@ interface IResolveStablePdfDeleteFallbackOptions {
 export function resolveStablePdfDeleteFallback(options: IResolveStablePdfDeleteFallbackOptions) {
     const annotationId = annotationIdForSummary(options.comment);
     const exactMatches = options.candidates.filter(candidate => annotationIdForSummary(candidate) === annotationId);
-    return exactMatches.length === 1 ? exactMatches[0]! : null;
+    return exactMatches.length === 1 ? exactMatches[0] ?? null : null;
 }

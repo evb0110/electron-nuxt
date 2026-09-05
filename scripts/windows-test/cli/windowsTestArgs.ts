@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import path from 'node:path';
 import { isOneOf } from '@contracts/runtimeGuards';
 import {
@@ -151,7 +152,7 @@ function readRunScope(raw: IRawArgs) {
     }
     const runId = raw.values.get('--run') ?? null;
     if (runId !== null && !isWindowsTestRunId(runId)) {
-        return new Error(`--run must be a run ID such as 20260904T120000Z-0123456789ab, received "${runId}".`);
+        return new Error(`--run must be a run ID such as 20260904T120000Z-0123456789ab, received ${JSON.stringify(runId)}.`);
     }
     return {
         dataRoot,
@@ -179,7 +180,7 @@ export function parseWindowsTestArgs(argv: readonly string[]): TWindowsTestArgsP
     }
     const dataRoot = readDataRoot(raw);
     if (dataRoot instanceof Error) {
-        return failure(dataRoot.message);
+        return failure(getErrorMessage(dataRoot));
     }
     const suite = raw.values.get('--suite') ?? 'smoke';
     if (!isOneOf(windowsTestSuites, suite)) {
@@ -225,7 +226,7 @@ export function parseWindowsTestDoctorArgs(argv: readonly string[]): TWindowsTes
     }
     const dataRoot = readDataRoot(raw);
     if (dataRoot instanceof Error) {
-        return failure(dataRoot.message);
+        return failure(getErrorMessage(dataRoot));
     }
     return {
         ok: true,
@@ -254,7 +255,7 @@ export function parseWindowsTestReportArgs(argv: readonly string[]): TWindowsTes
     }
     const scope = readRunScope(raw);
     if (scope instanceof Error) {
-        return failure(scope.message);
+        return failure(getErrorMessage(scope));
     }
     const {
         dataRoot,
@@ -289,7 +290,7 @@ export function parseWindowsTestStopArgs(argv: readonly string[]): TWindowsTestA
     }
     const scope = readRunScope(raw);
     if (scope instanceof Error) {
-        return failure(scope.message);
+        return failure(getErrorMessage(scope));
     }
     const {
         dataRoot,

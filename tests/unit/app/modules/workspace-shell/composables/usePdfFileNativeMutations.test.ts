@@ -9,7 +9,10 @@ import { ref } from 'vue';
 import { usePdfFile } from '@app/modules/workspace-shell/composables/usePdfFile';
 import type { IPdfConformanceProfile } from '@app/types/pdfContracts';
 import type { IPdfNativeMutationSet } from '@contracts/electronApiDocuments';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePdfDateString } from '@contracts/pdfDateString';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import {requireDocumentRevisionToken} from '@contracts';
 
 const analyticsMock = vi.hoisted(() => ({
@@ -37,7 +40,7 @@ const documentsMock = vi.hoisted(() => ({
             warnings: [],
         },
         stagedOutput: {
-            path: '/tmp/staged-native.pdf',
+            path: requireDocumentRef('/tmp/staged-native.pdf'),
             size: 4,
             sha256: 'a'.repeat(64),
             leaseId: 'staged-native-lease',
@@ -54,7 +57,7 @@ const documentsMock = vi.hoisted(() => ({
         },
     })),
     createManagedTempFileHandle: vi.fn(async () => ({
-        path: '/tmp/work.pdf',
+        path: requireDocumentRef('/tmp/work.pdf'),
         size: 4,
         sha256: 'b'.repeat(64),
         leaseId: 'working-copy-expectation-lease',
@@ -63,8 +66,8 @@ const documentsMock = vi.hoisted(() => ({
     getDocumentRevision: vi.fn(async () => ({
         authority: 'main-working-copy' as const,
         contentRevision: 2,
-        documentRef: '/tmp/work.pdf',
-        mintedAt: 2,
+        documentRef: requireDocumentRef('/tmp/work.pdf'),
+        mintedAt: requireEpochMs(2),
         token: requireDocumentRevisionToken('drt1:test:native-committed'),
         version: 1,
     })),
@@ -140,24 +143,24 @@ describe('usePdfFile native mutations', () => {
         };
         const mutations = {markup};
 
-        pdfFile.workingCopyPath.value = '/tmp/work.pdf';
-        pdfFile.originalPath.value = '/tmp/source.pdf';
+        pdfFile.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
+        pdfFile.originalPath.value = requireDocumentRef('/tmp/source.pdf');
         pdfFile.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:markup-base');
         pdfFile.pdfConformanceProfile.value = UNSIGNED_PROFILE;
 
         const result = await pdfFile.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
-            expectedWorkingPath: '/tmp/work.pdf',
-            modifiedAt: 'D:20260609133855+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/work.pdf'),
+            modifiedAt: requirePdfDateString('D:20260609103855Z'),
         });
 
         expect(result?.success).toBe(true);
         expect(documentsMock.createManagedTempFileHandle).not.toHaveBeenCalled();
         expect(documentsMock.applyPdfNativeMutationsToWorkingCopy).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
+            requireDocumentRef('/tmp/work.pdf'),
             mutations,
-            'D:20260609133855+03\'00\'',
+            requirePdfDateString('D:20260609103855Z'),
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('drt1:test:markup-base')},
         );
         expect(documentsMock.commitStagedPdfNativeMutations).toHaveBeenCalledWith(
@@ -194,8 +197,8 @@ describe('usePdfFile native mutations', () => {
             }],
         }};
 
-        pdfFile.workingCopyPath.value = '/tmp/work.pdf';
-        pdfFile.originalPath.value = '/tmp/source.pdf';
+        pdfFile.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
+        pdfFile.originalPath.value = requireDocumentRef('/tmp/source.pdf');
         pdfFile.pdfConformanceProfile.value = UNSIGNED_PROFILE;
         await pdfFile.loadPdfFromData(initialBytes);
         pdfFile.documentRevisionToken.value = requireDocumentRevisionToken('drt1:test:loaded-base');
@@ -206,8 +209,8 @@ describe('usePdfFile native mutations', () => {
         const result = await pdfFile.trySavePdfNativeMutations(mutations, {
             saveMode: 'rewrite',
             preserveLoadedSource: true,
-            expectedWorkingPath: '/tmp/work.pdf',
-            modifiedAt: 'D:20260609133855+03\'00\'',
+            expectedWorkingPath: requireDocumentRef('/tmp/work.pdf'),
+            modifiedAt: requirePdfDateString('D:20260609103855Z'),
         });
 
         expect(result?.success).toBe(true);

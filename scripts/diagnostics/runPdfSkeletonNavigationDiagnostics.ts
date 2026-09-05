@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import assert from 'node:assert/strict';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -202,7 +203,7 @@ async function collectNavigationDiagnosticsSnapshot(session: IElectronE2ESession
         return {
             pageControlsText: visiblePageControls?.innerText ?? '',
             scrollTop: viewer?.scrollTop ?? null,
-            visibleRangeText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
+            visibleRangeText: visibleCurrentPageLabel?.textContent.trim() ?? null,
             visiblePages,
         };
     });
@@ -286,7 +287,7 @@ async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: numb
                 };
                 return Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                     .some((element) => {
-                        return element.textContent?.trim() === String(targetPage)
+                        return element.textContent.trim() === String(targetPage)
                             && isVisibleElement(element);
                     });
             }, { timeout: 15_000 }, pageNumber),
@@ -294,8 +295,8 @@ async function waitForToolbarPage(session: IElectronE2ESession, pageNumber: numb
     } catch (error) {
         const snapshot = await collectNavigationDiagnosticsSnapshot(session).catch(() => null);
         const waitErrors = error instanceof AggregateError
-            ? error.errors.map((entry: unknown) => entry instanceof Error ? entry.message : String(entry))
-            : [error instanceof Error ? error.message : String(error)];
+            ? error.errors.map((entry: unknown) => getErrorMessage(entry))
+            : [getErrorMessage(error)];
         throw new Error(`Timed out waiting for toolbar page ${pageNumber}: ${JSON.stringify({
             currentPage: snapshot?.toolbarSnapshot?.currentPage ?? null,
             pageControlsText: snapshot?.pageControlsText ?? null,
@@ -319,7 +320,7 @@ async function waitForToolbarPageAtLeast(session: IElectronE2ESession, pageNumbe
             };
             const visibleCurrentPageLabel = Array.from(document.querySelectorAll<HTMLElement>('.page-controls-current-primary'))
                 .find(isVisibleElement);
-            const currentPage = Number.parseInt(visibleCurrentPageLabel?.textContent?.trim() ?? '', 10);
+            const currentPage = Number.parseInt(visibleCurrentPageLabel?.textContent.trim() ?? '', 10);
             return Number.isFinite(currentPage) && currentPage >= targetPage;
         }, { timeout: 15_000 }, pageNumber);
     } catch (error) {
@@ -329,7 +330,7 @@ async function waitForToolbarPageAtLeast(session: IElectronE2ESession, pageNumbe
             pageControlsText: snapshot?.pageControlsText ?? null,
             totalPages: snapshot?.toolbarSnapshot?.totalPages ?? null,
             visibleRangeText: snapshot?.visibleRangeText ?? null,
-            waitError: error instanceof Error ? error.message : String(error),
+            waitError: getErrorMessage(error),
         })}`);
     }
 }
@@ -410,7 +411,7 @@ async function navigateForwardWithNextButton(context: IPdfDiagnosticsContext, st
     const { session } = context;
     for (let step = 0; step < steps; step += 1) {
         const currentPage = await session.page.evaluate(() => {
-            const text = document.querySelector<HTMLElement>('.page-controls-current-primary')?.textContent?.trim() ?? '';
+            const text = document.querySelector<HTMLElement>('.page-controls-current-primary')?.textContent.trim() ?? '';
             return Number.parseInt(text, 10);
         });
         await context.navigation.clickToolbarButton('Next Page', {nextButtonFallback: true});
@@ -459,7 +460,7 @@ async function sampleNavigation(
             });
         return {
             sampledAtMs: Date.now() - sampleStartedAtMs,
-            currentPageText: visibleCurrentPageLabel?.textContent?.trim() ?? null,
+            currentPageText: visibleCurrentPageLabel?.textContent.trim() ?? null,
             skeletonPages,
             renderedPages,
             canvasPages,
@@ -548,7 +549,7 @@ async function runToolbarPageInputDiagnostic(context: IPdfDiagnosticsContext) {
 
     const lastSample = samples.at(-1);
     assert.deepEqual(lastSample?.skeletonPages, []);
-    assert.ok((lastSample?.canvasPages.length ?? 0) > 0);
+    assert.ok(lastSample.canvasPages.length > 0);
 }
 
 async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext) {
@@ -607,9 +608,9 @@ async function runRapidNextToLastPageDiagnostic(context: IPdfDiagnosticsContext)
     const lastSample = samples.at(-1);
     assert.deepEqual(lastSample?.skeletonPages, []);
     assert.equal(finalSnapshot?.toolbarSnapshot?.currentPage, totalPages);
-    assert.equal(finalSnapshot?.toolbarSnapshot?.fitMode, 'height');
-    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === totalPages && page.hasSkeleton), false);
-    assert.equal(finalSnapshot?.visiblePages.some(page => page.page === totalPages && page.hasCanvas), true);
+    assert.equal(finalSnapshot.toolbarSnapshot.fitMode, 'height');
+    assert.equal(finalSnapshot.visiblePages.some(page => page.page === totalPages && page.hasSkeleton), false);
+    assert.equal(finalSnapshot.visiblePages.some(page => page.page === totalPages && page.hasCanvas), true);
 }
 
 export const pdfSkeletonNavigationScenario = {
@@ -637,7 +638,7 @@ export const runPdfSkeletonNavigationDiagnostics = () => (
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
     await runPdfSkeletonNavigationDiagnostics().catch((error: unknown) => {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     });
 }

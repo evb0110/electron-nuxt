@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TPdfViewMode } from '@contracts/shared';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TDocumentViewportVisualOwner } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
@@ -6,7 +9,7 @@ export function shouldShowPdfViewportPageSkeleton(options: {
     fallbackVisible: boolean;
     isEmptyToDocumentTransition: boolean;
     isViewportTransitionActive: boolean;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     totalPages: number;
     viewMode: TPdfViewMode;
     visual: TDocumentViewportVisualOwner;
@@ -21,7 +24,7 @@ export function shouldShowPdfViewportPageSkeleton(options: {
     const visual = options.visual;
     const visualRow = visual.kind === 'page' && options.totalPages > 0
         ? getPageRowBoundsForViewMode({
-            pageNumber: visual.pageNumber,
+            pageNumber: requirePageNumber(visual.pageNumber, options.totalPages),
             totalPages: options.totalPages,
             viewMode: options.viewMode,
         })
@@ -46,14 +49,7 @@ export function shouldShowPdfViewportPageSkeleton(options: {
             // skeleton in either phase creates two concurrent page frames.
             return !options.isEmptyToDocumentTransition;
         }
-        if (
-            visual.presentation === 'cold-shell'
-            || visual.presentation === 'prepared-shell'
-            || visual.presentation === 'canvas'
-            || visual.presentation === 'error'
-        ) {
-            return false;
-        }
+        return false;
     }
     if (options.isEmptyToDocumentTransition) {
         // The viewport session is the sole presentation owner while opening.

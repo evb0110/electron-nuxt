@@ -3,6 +3,7 @@ import { joinGuestPath } from '@scripts/windows-test/guest/guestPaths';
 import { sha256Hex } from '@scripts/windows-test/guest/guestRuntime';
 import type { ICaseContext } from '@scripts/windows-test/guest/cases/caseContext';
 import { CaseDeadlineError } from '@scripts/windows-test/guest/cases/caseContext';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 export const numberedFixtureId = 'F01-numbered-12p';
 
@@ -58,7 +59,7 @@ export async function captureArtifactIfPresent(
         await context.captureArtifact(sourcePath, evidenceFileName);
         return evidenceFileName.replaceAll('\\', '/');
     } catch (error) {
-        context.log(`${context.testId}: could not capture ${sourcePath}: ${error instanceof Error ? error.message : String(error)}`);
+        context.log(`${context.testId}: could not capture ${sourcePath}: ${getErrorMessage(error)}`);
         return null;
     }
 }

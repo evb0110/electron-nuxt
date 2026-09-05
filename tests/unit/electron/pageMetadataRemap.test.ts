@@ -19,6 +19,7 @@ import {
     applyPageMetadataRemap,
     remapPageMetadata,
 } from '@electron/features/page-ops/main/pageMetadataRemap';
+import {requirePageIndex} from '@contracts/pageNumbers';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 
 const mocks = vi.hoisted(() => ({
@@ -35,7 +36,7 @@ vi.mock('@electron/pdf/nativeToolPaths', () => ({getPdfNativeToolPaths: () => mo
 
 const bookmark = (title: string, pageIndex: number | null, items: IPdfBookmarkEntry[] = []): IPdfBookmarkEntry => ({
     title,
-    pageIndex,
+    pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
     namedDest: pageIndex === null ? 'named' : null,
     bold: false,
     italic: false,

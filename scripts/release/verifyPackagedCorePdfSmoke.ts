@@ -18,6 +18,8 @@ import puppeteer from 'puppeteer-core';
 import type {Page} from 'puppeteer-core';
 import type {IPageOpsMetadataSnapshot} from '@contracts/electronApiPageOps';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     applyCombinedPdfPageLabels,
     inspectPdfCombineCatalog,
@@ -59,7 +61,7 @@ type TConnectedBrowser = Awaited<ReturnType<typeof puppeteer.connect>>;
 const PACKAGED_SMOKE_BOOKMARKS: IPdfBookmarkEntry[] = [
     {
         title: 'First page',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
@@ -68,7 +70,7 @@ const PACKAGED_SMOKE_BOOKMARKS: IPdfBookmarkEntry[] = [
     },
     {
         title: 'Second page',
-        pageIndex: 1,
+        pageIndex: requirePageIndex(1),
         namedDest: null,
         bold: false,
         italic: false,
@@ -247,14 +249,17 @@ async function run() {
             'pipe',
         ],
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
+    child.stdout.pipe(process.stdout);
+    child.stderr.pipe(process.stderr);
 
     let browser: TConnectedBrowser | null = null;
     let primaryError: Error | null = null;
-    let cleanupError: Error | null = null;
+    // Collected instead of held in a captured let. Flow analysis does not see an
+    // assignment made inside recordCleanupError, so a later read narrows to the
+    // null initializer and reports a live branch as dead.
+    const cleanupErrors: Error[] = [];
     const recordCleanupError = (error: unknown): void => {
-        cleanupError ??= error instanceof Error ? error : new Error(String(error));
+        cleanupErrors.push(error instanceof Error ? error : new Error(String(error)));
     };
     try {
         const browserWSEndpoint = await waitForPackagedCdpEndpoint(
@@ -284,8 +289,8 @@ async function run() {
         });
         page.on('pageerror', (error) => {
             const errorDetails = error instanceof Error
-                ? error.stack ?? error.message
-                : String(error);
+                ? error.stack ?? getErrorMessage(error)
+                : getErrorMessage(error);
             const renderedError = `[packaged-renderer:pageerror] ${errorDetails}`;
             rendererFailures.push(renderedError);
             console.error(renderedError);
@@ -423,15 +428,16 @@ async function run() {
             recordCleanupError(error);
         }
 
-        if (cleanupError && primaryError) {
-            console.error('Packaged smoke cleanup failed after the primary failure:', cleanupError);
+        const [firstCleanupError] = cleanupErrors;
+        if (firstCleanupError && primaryError) {
+            console.error('Packaged smoke cleanup failed after the primary failure:', firstCleanupError);
         }
     }
 
     if (primaryError) {
         throw primaryError;
     }
-    const finalCleanupError = cleanupError;
+    const [finalCleanupError] = cleanupErrors;
     if (finalCleanupError) {
         throw new Error(String(finalCleanupError));
     }

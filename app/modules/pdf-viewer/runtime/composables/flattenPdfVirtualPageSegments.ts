@@ -1,9 +1,11 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { IPdfVirtualPageSegment } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization';
 
 export type TPdfVirtualPageItem = {
     key: `page:${number}`;
     kind: 'page';
-    page: number;
+    page: TPageNumber;
 } | {
     key: `spacer:${number}`;
     kind: 'spacer';
@@ -18,7 +20,7 @@ export function flattenPdfVirtualPageSegments(
     segments: readonly IPdfVirtualPageSegment[],
     options: {
         initialPageShell?: boolean;
-        initialPageShellPage?: number;
+        initialPageShellPage?: TPageNumber;
     } = {},
 ): TPdfVirtualPageItem[] {
     const items: TPdfVirtualPageItem[] = [];
@@ -26,11 +28,14 @@ export function flattenPdfVirtualPageSegments(
     // projections with the same segment order. It is not a global counter.
     let spacerIndex = 0;
     for (const segment of segments) {
-        const pages: TPdfVirtualPageItem[] = segment.pages.map(page => ({
-            key: `page:${page}`,
-            kind: 'page',
-            page,
-        }));
+        const pages: TPdfVirtualPageItem[] = segment.pages.map(page => {
+            const pageNumber = requirePageNumber(page);
+            return {
+                key: `page:${pageNumber}`,
+                kind: 'page',
+                page: pageNumber,
+            };
+        });
         if (!segment.spacerBeforeStyle) {
             items.push(...pages);
             continue;
@@ -51,7 +56,7 @@ export function flattenPdfVirtualPageSegments(
     if (items.length > 0 || options.initialPageShell !== true) {
         return items;
     }
-    const page = Math.max(1, Math.trunc(options.initialPageShellPage ?? 1));
+    const page = requirePageNumber(Math.max(1, Math.trunc(options.initialPageShellPage ?? 1)));
     return [{
         key: `page:${page}`,
         kind: 'page',

@@ -216,9 +216,6 @@ async function computeEstimateSizes(
     // First/last pages (covers, end matter) are typically much smaller than content pages.
     const samplePage = Math.max(1, Math.floor(pageCount * 0.33));
     const samplePageSize = await getDjvuPageSizeForViewing(djvuPath, samplePage, {signal});
-    if (!samplePageSize) {
-        throw new Error(`Unable to determine DjVu estimate sample dimensions for page ${samplePage}`);
-    }
 
     const presets = [
         {

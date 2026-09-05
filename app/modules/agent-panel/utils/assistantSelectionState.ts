@@ -27,7 +27,7 @@ export function modelForSelection(
 export function speedModesForProviderStatus(providerStatus: IAgentAssistantProviderStatus) {
     return providerStatus.id === 'codex'
         ? [...ASSISTANT_SPEED_MODES]
-        : providerStatus.availableSpeedModes ?? [ASSISTANT_DEFAULT_SPEED_MODE];
+        : providerStatus.availableSpeedModes;
 }
 
 function effortsForProviderModel(
@@ -36,7 +36,7 @@ function effortsForProviderModel(
 ) {
     return modelOption?.reasoningEfforts
         ? modelOption.reasoningEfforts.map(effort => effort.id)
-        : providerStatus.availableEfforts ?? [];
+        : providerStatus.availableEfforts;
 }
 
 function defaultEffortForProviderModel(
@@ -55,7 +55,7 @@ function defaultEffortForProviderModel(
     if (defaultOption && efforts.includes(defaultOption)) {
         return defaultOption;
     }
-    return efforts[0] ?? providerStatus.defaultEffort ?? ASSISTANT_DEFAULT_EFFORT;
+    return efforts[0] ?? providerStatus.defaultEffort;
 }
 
 export function createSelectedAssistantStatus(
@@ -75,7 +75,7 @@ export function createSelectedAssistantStatus(
         : defaultEffortForProviderModel(providerStatus, providerEfforts, selectedModelOption);
     const selectedSpeedModeValue = providerSpeedModes.includes(speedMode)
         ? speedMode
-        : providerStatus.defaultSpeedMode ?? ASSISTANT_DEFAULT_SPEED_MODE;
+        : providerStatus.defaultSpeedMode;
     const providers = baseStatus.providers.map(candidate => (candidate.id === providerStatus.id
         ? {
             ...candidate,
@@ -159,7 +159,7 @@ export function providerDefaultSpeedMode(
     provider: TAgentAssistantProviderId,
 ): TAgentAssistantSpeedMode {
     const providerStatus = providers.find(candidate => candidate.id === provider);
-    if (providerStatus?.id === 'codex' && providerStatus.availableSpeedModes && !providerStatus.availableSpeedModes.includes('fast')) {
+    if (providerStatus?.id === 'codex' && !providerStatus.availableSpeedModes.includes('fast')) {
         return ASSISTANT_DEFAULT_SPEED_MODE;
     }
     return providerStatus?.activeSpeedMode

@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import type { IAgentAssistantState } from '@contracts/agent';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
+import { requireIsoTimestamp } from '@contracts/timestamps';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
 import { cast } from '@tests/helpers/cast';
@@ -99,13 +100,13 @@ function createAssistantState(): IAgentAssistantState {
                 lastEventAtMs: null,
                 usage: null,
             },
-            lastCheckedAt: '2026-07-10T00:00:00.000Z',
+            lastCheckedAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
         },
         messages: [{
             id: 'message-1',
             role: 'assistant',
             text: 'Ready',
-            createdAt: '2026-07-10T00:00:00.000Z',
+            createdAt: requireIsoTimestamp('2026-07-10T00:00:00.000Z'),
         }],
     };
 }

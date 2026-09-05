@@ -18,6 +18,7 @@ import {
 } from '@scripts/windows-test/fixtures/generateNumberedFixture';
 import {METADATA_FIXTURE_PAGE_COUNT} from '@scripts/windows-test/fixtures/generateMetadataFixture';
 import {findOracleDescriptor} from '@scripts/windows-test/oracles/oracleRegistry';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type { TOcrProcessRunner } from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
 import {
     combineOracleStatuses,
@@ -411,7 +412,7 @@ function decorateResult(
 
 function unsupportedOracleError(caseId: string, oracleId: string) {
     const descriptor = findOracleDescriptor(oracleId);
-    if (descriptor === undefined || descriptor === null) {
+    if (descriptor === null) {
         return `Case ${caseId} requires unknown host oracle ${oracleId}.`;
     }
     if (descriptor.side !== 'host') {
@@ -458,7 +459,7 @@ function checkPlanShape(plan: IWindowsHostOraclePlan) {
             errors.push(`Case ${plan.caseId} declares host oracle ${oracleId} without a target.`);
         }
         const descriptor = findOracleDescriptor(oracleId);
-        if (descriptor === undefined || descriptor === null || descriptor.side !== 'host') {
+        if (descriptor === null || descriptor.side !== 'host') {
             errors.push(unsupportedOracleError(plan.caseId, oracleId));
         } else if (!IMPLEMENTED_HOST_ORACLE_IDS.has(oracleId)) {
             errors.push(unsupportedOracleError(plan.caseId, oracleId));
@@ -531,7 +532,7 @@ async function evaluatePdfTarget(
     try {
         bytes = new Uint8Array(await readFile(absolutePath));
     } catch (error) {
-        return [`Case ${plan.caseId} artifact ${target.artifactPath} could not be read: ${error instanceof Error ? error.message : String(error)}.`];
+        return [`Case ${plan.caseId} artifact ${target.artifactPath} could not be read: ${getErrorMessage(error)}.`];
     }
     const oracleIds = new Set(target.oracleIds);
     if (oracleIds.has('page-count')) {
@@ -608,7 +609,7 @@ async function evaluateSourceIsolationTarget(
         const baseline = new Uint8Array(await readFile(baselinePath));
         expectedSourceSha256 = createHash('sha256').update(baseline).digest('hex');
     } catch (error) {
-        return [`Case ${plan.caseId} could not hash source baseline ${target.baselineArtifactPath}: ${error instanceof Error ? error.message : String(error)}.`];
+        return [`Case ${plan.caseId} could not hash source baseline ${target.baselineArtifactPath}: ${getErrorMessage(error)}.`];
     }
     const expectation = {
         expectedSourceSha256,

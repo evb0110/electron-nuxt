@@ -44,7 +44,7 @@ const SUBSYSTEM_PATTERNS: Array<[TMainSubsystem, RegExp]> = [
 
 export function classifyUnhandledRejectionSubsystem(reason: unknown): TMainSubsystem {
     const details = reason instanceof Error
-        ? `${reason.message}\n${reason.stack ?? ''}`
+        ? `${getErrorMessage(reason)}\n${reason.stack ?? ''}`
         : getErrorMessage(reason);
     return SUBSYSTEM_PATTERNS.find(([
         , pattern,

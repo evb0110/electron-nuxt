@@ -1,40 +1,45 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { TPdfViewMode } from '@app/types/pdfContracts';
 import { clamp } from 'es-toolkit/math';
 
-function clampPageNumber(pageNumber: number, totalPages: number) {
-    return clamp(Math.floor(pageNumber), 1, totalPages);
+function clampPageNumber(pageNumber: TPageNumber, totalPages: number) {
+    return requirePageNumber(clamp(Math.floor(pageNumber), 1, totalPages), totalPages);
 }
 
-function resolveSinglePageRowBounds(pageNumber: number) {
+function resolveSinglePageRowBounds(pageNumber: TPageNumber) {
     return {
         start: pageNumber,
         end: pageNumber,
     };
 }
 
-function resolveFacingRowBounds(pageNumber: number, totalPages: number) {
-    const rowStart = pageNumber % 2 === 0 ? pageNumber - 1 : pageNumber;
-    const rowEnd = rowStart === totalPages ? rowStart : Math.min(totalPages, rowStart + 1);
+function resolveFacingRowBounds(pageNumber: TPageNumber, totalPages: number) {
+    const rowStart = requirePageNumber(pageNumber % 2 === 0 ? pageNumber - 1 : pageNumber, totalPages);
+    const rowEnd = rowStart === totalPages
+        ? rowStart
+        : requirePageNumber(Math.min(totalPages, rowStart + 1), totalPages);
     return {
         start: rowStart,
         end: rowEnd,
     };
 }
 
-function resolveFacingFirstSingleRowBounds(pageNumber: number, totalPages: number) {
+function resolveFacingFirstSingleRowBounds(pageNumber: TPageNumber, totalPages: number) {
     if (pageNumber === 1 || (pageNumber === totalPages && totalPages % 2 === 0)) {
         return resolveSinglePageRowBounds(pageNumber);
     }
 
-    const rowStart = pageNumber % 2 === 0 ? pageNumber : pageNumber - 1;
+    const rowStart = requirePageNumber(pageNumber % 2 === 0 ? pageNumber : pageNumber - 1, totalPages);
     return {
         start: rowStart,
-        end: Math.min(totalPages, rowStart + 1),
+        end: requirePageNumber(Math.min(totalPages, rowStart + 1), totalPages),
     };
 }
 
 function resolveSpreadRowBounds(
-    pageNumber: number,
+    pageNumber: TPageNumber,
     viewMode: TPdfViewMode,
     totalPages: number,
 ) {
@@ -49,7 +54,7 @@ function resolveSpreadRowBounds(
 }
 
 export function getPageRowBoundsForViewMode(options: {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     viewMode: TPdfViewMode;
     totalPages: number;
 }) {
@@ -57,13 +62,13 @@ export function getPageRowBoundsForViewMode(options: {
 }
 
 export function getPageNumbersForViewMode(options: {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     viewMode: TPdfViewMode;
     totalPages: number;
 }) {
     const bounds = getPageRowBoundsForViewMode(options);
     return Array.from(
         {length: Math.max(0, bounds.end - bounds.start + 1)},
-        (_, index) => bounds.start + index,
+        (_, index) => requirePageNumber(bounds.start + index, options.totalPages),
     );
 }

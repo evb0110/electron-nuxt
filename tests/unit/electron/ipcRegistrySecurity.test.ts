@@ -92,7 +92,7 @@ const mocks = vi.hoisted(() => {
         updateRecentFilesMenu: vi.fn(),
         agentService,
         createAgentService: vi.fn(() => agentService),
-        createDocumentsService: vi.fn(() => ({})),
+        createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
         registerDocumentRevisionEventBridge: vi.fn(),
         registerDocumentRevisionInvalidationEffects: vi.fn(),
         allowOpenPath: vi.fn(),

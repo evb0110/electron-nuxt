@@ -1,3 +1,5 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     describe,
     expect,
@@ -107,7 +109,7 @@ function drawLocalShape(projection: ReturnType<typeof createShapeProjection>, to
         shapes,
         application,
     } = projection;
-    shapes.startDrawing(0, tool, 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+    shapes.startDrawing(requirePageIndex(0), tool, 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
     shapes.continueDrawing(0.15, 0.25);
     shapes.continueDrawing(0.25, 0.35);
     const created = shapes.finishDrawing();
@@ -147,7 +149,7 @@ describe('useAnnotationShapes', () => {
             color: '#ff0000',
         });
         expect(projection.shapes.getShapeById('embedded-shape-1')?.color).toBe('#ff0000');
-        expect(projection.shapes.getShapesForPage(0)).toHaveLength(1);
+        expect(projection.shapes.getShapesForPage(requirePageIndex(0))).toHaveLength(1);
     });
 
     it('does not mark imported embedded shapes as dirty until they change', () => {
@@ -172,7 +174,7 @@ describe('useAnnotationShapes', () => {
         const note = projection.application.value.store.createStickyNote({
             kind: 'sticky-note',
             identity: {id: asAnnotationId('shape-dirty-note')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -302,7 +304,7 @@ describe('useAnnotationShapes', () => {
     it('creates draw strokes as local Ink polyline drafts before they enter the store', () => {
         const projection = createShapeProjection();
 
-        projection.shapes.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        projection.shapes.startDrawing(requirePageIndex(0), 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
         projection.shapes.continueDrawing(0.15, 0.25);
         projection.shapes.continueDrawing(0.25, 0.35);
 
@@ -334,7 +336,7 @@ describe('useAnnotationShapes', () => {
 
         try {
             const projection = createShapeProjection();
-            projection.shapes.startDrawing(0, 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+            projection.shapes.startDrawing(requirePageIndex(0), 'rectangle', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
 
             vi.setSystemTime(new Date('2026-05-25T10:01:00Z'));
             projection.shapes.continueDrawing(0.3, 0.4);
@@ -349,7 +351,7 @@ describe('useAnnotationShapes', () => {
             projection.application.value.replaceShapeGeometry(entity.identity.id, {
                 ...entity.geometry,
                 color: '#ff0000',
-                modifiedAt: Date.now(),
+                modifiedAt: requireEpochMs(Date.now()),
             });
 
             const updated = projection.shapes.getShapeById(created!.id);

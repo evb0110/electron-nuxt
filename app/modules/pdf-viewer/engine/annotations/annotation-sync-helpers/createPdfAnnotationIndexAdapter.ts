@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import {
     PDF_ANNOTATION_INDEX_MAX_CHUNK_BYTES,
     type IPdfAnnotationIndexChunk,
@@ -6,6 +8,7 @@ import {
 } from '@contracts/electronApiDocuments';
 import type {TDocumentRef} from '@contracts/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TSessionId} from '@contracts/shared';
 import {formatPdfJsAnnotationRef} from '@app/utils/pdfAnnotationRefs';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
 import {getDocumentFilesCapability} from '@app/utils/platformDocuments';
@@ -14,12 +17,12 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 
 interface IPdfAnnotationIndexFiles {
     readPdfAnnotationIndexChunk: (
-        sessionId: string,
+        sessionId: TSessionId,
         offset: number,
         options?: {chunkBytes?: number},
     ) => Promise<IPdfAnnotationIndexChunk>;
-    releasePdfAnnotationIndex: (sessionId: string) => Promise<boolean>;
-    cancelPdfAnnotationIndex: (sessionId: string) => Promise<{canceled: boolean}>;
+    releasePdfAnnotationIndex: (sessionId: TSessionId) => Promise<boolean>;
+    cancelPdfAnnotationIndex: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
 }
 
 /**
@@ -33,9 +36,9 @@ export interface IPdfAnnotationIndexReader {
     // still visits every page, but it must not retain one Promise and Map per
     // page until the renderer gets a chance to collect them.
     readPage: (
-        pageIndex: number,
+        pageIndex: TPageIndex,
     ) => IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead>;
-    readPageNames: (pageIndex: number) => Promise<ReadonlyMap<string, string>>;
+    readPageNames: (pageIndex: TPageIndex) => Promise<ReadonlyMap<string, string>>;
     cancel: () => Promise<void>;
     release: () => Promise<void>;
 }
@@ -192,7 +195,7 @@ function createReader(
         addChunkEntries(pendingNamesByPage, indexedPages, chunk);
     }
 
-    function consumePageRead(pageIndex: number): IPdfAnnotationIndexPageRead {
+    function consumePageRead(pageIndex: TPageIndex): IPdfAnnotationIndexPageRead {
         const names = pendingNamesByPage.get(pageIndex);
         const hasAnnotations = indexedPages.has(pageIndex);
         pendingNamesByPage.delete(pageIndex);
@@ -206,7 +209,7 @@ function createReader(
         };
     }
 
-    async function readPageAsync(pageIndex: number): Promise<IPdfAnnotationIndexPageRead> {
+    async function readPageAsync(pageIndex: TPageIndex): Promise<IPdfAnnotationIndexPageRead> {
         while (
             !done
             && highestIndexedPage <= pageIndex
@@ -217,7 +220,7 @@ function createReader(
         return consumePageRead(pageIndex);
     }
 
-    function readPage(pageIndex: number): IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead> {
+    function readPage(pageIndex: TPageIndex): IPdfAnnotationIndexPageRead | Promise<IPdfAnnotationIndexPageRead> {
         if (!Number.isSafeInteger(pageIndex) || pageIndex < 0) {
             return EMPTY_ANNOTATION_INDEX_PAGE_READ;
         }
@@ -228,7 +231,7 @@ function createReader(
         return readPageAsync(pageIndex);
     }
 
-    async function readPageNames(pageIndex: number) {
+    async function readPageNames(pageIndex: TPageIndex) {
         const pageRead = readPage(pageIndex);
         return (isPromiseLike(pageRead) ? await pageRead : pageRead).names;
     }

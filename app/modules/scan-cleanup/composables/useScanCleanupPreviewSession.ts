@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import {
     isScanCleanupErrorEnvelope,
     resolveScanCleanupEffectiveOutputMode,
@@ -17,6 +18,11 @@ import {
     SERIALIZABLE_ERROR_PREFIX,
 } from '@contracts/serializableError';
 import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPlacementAnchorsByPage} from '@contracts/scanCleanupPageOverrides';
 import {
     attachScanCleanupPageOverrideDefaults,
@@ -122,7 +128,10 @@ export function createScanCleanupPreviewCacheKey(
     // move when another page's content box does.
     placementAnchors: IScanCleanupPreviewRequest['placementAnchors'] | null = null,
 ) {
-    const pageOverride = getScanCleanupPageOverride(previewOptions.pageOverrides, pageNumber);
+    const pageOverride = getScanCleanupPageOverride(
+        previewOptions.pageOverrides,
+        requirePageNumber(pageNumber),
+    );
     // The visible page's classification decides its own output count, while
     // the main process's canvas signature changes only when the shared
     // rectangle actually moves. Document-wide overrides remain separate
@@ -243,12 +252,12 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // rasters and in-flight preview work remain valid.
     const lifecycleGeneration = ref(0);
     let userPresentationGeneration = 0;
-    let activeVisibleRequestId: string | null = null;
+    let activeVisibleRequestId: TRequestId | null = null;
     // Keep the bounded in-flight window keyed by request. A page can have two
     // attempts during a cancellation retry, so an array of page numbers would
     // remove the wrong entry when the older attempt settles last.
-    const inFlightPreviewPages = new Map<string, number>();
-    const inFlightPreviewRequestIds = new Set<string>();
+    const inFlightPreviewPages = new Map<TRequestId, number>();
+    const inFlightPreviewRequestIds = new Set<TRequestId>();
     // A base preview pushes its page's raster the moment it exists and leaves
     // it out of the result it resolves with, so the bytes cross once. They wait
     // here for the result they belong to — which two callers can share, when a
@@ -256,7 +265,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     // its two neighbours and the one still rendering. A retained entry is the
     // same buffer the cached result holds, so it costs nothing while that page
     // is cached.
-    const streamedRawByRequest = new Map<string, IScanCleanupRawPreviewEvent>();
+    const streamedRawByRequest = new Map<TRequestId, IScanCleanupRawPreviewEvent>();
     const STREAMED_RAW_PAGES_MAX = 4;
 
     function retainedRawForPage(pageNumber: number) {
@@ -359,7 +368,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
      */
     function withStreamedRaw(
         previewResult: TScanCleanupPreviewWireResult,
-        requestId: string,
+        requestId: TRequestId,
     ): IScanCleanupPreviewResult | null {
         if (isCanceledPreview(previewResult)) {
             return null;
@@ -446,7 +455,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     );
 
     function resolveOutputModeRecommendation(pageNumber: number) {
-        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+        const pageOverride = getScanCleanupPageOverride(
+            options.settings.pageOverrides,
+            requirePageNumber(pageNumber),
+        );
         if (
             options.settings.preserveOriginalQuality
             || options.settings.outputMode !== 'auto'
@@ -470,7 +482,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     function nextRequestId() {
         // The request ID only correlates streamed/raw responses. Keep it opaque
         // and fixed-size instead of embedding the potentially large cache key.
-        return crypto.randomUUID();
+        return createRequestId('scan-cleanup-preview');
     }
 
     function cachePreview(key: string, previewResult: IScanCleanupPreviewResult) {
@@ -537,6 +549,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     async function pauseForRun() {
+        const previewPending = () => !resultCurrent.value && loading.value;
         // Detection changes the cache identity from provisional to final. If
         // that change landed immediately before Clean Up, let its visible
         // generation finish once before canceling preview work; otherwise the
@@ -550,7 +563,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             && getScanCleanupCapability()
         ) {
             schedule(true);
-            if (!resultCurrent.value && loading.value) {
+            if (previewPending()) {
                 await new Promise<void>(resolve => {
                     const stop = watch([
                         resultCurrent,
@@ -574,7 +587,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     function scheduleAdjacentPrefetch(
         previewResult: IScanCleanupPreviewResult,
         previewOptions: IScanCleanupOptions,
-        previewSourcePath: string,
+        previewSourcePath: TDocumentRef,
     ) {
         const adjacentPages = [
             previewResult.pageNumber + 1,
@@ -596,7 +609,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     sourcePdfPath: previewSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     options: previewOptions,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
                     ...(outputModeRecommendation === undefined
@@ -719,7 +732,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     sourcePdfPath: requestSourcePath,
                     ownerId: options.ownerId,
                     documentRevision: options.documentRevision.value,
-                    pageNumber: requestPage,
+                    pageNumber: requirePageNumber(requestPage),
                     options: requestOptions,
                     visible: true,
                     ...(documentPrior === undefined ? {} : {documentPrior}),
@@ -781,8 +794,8 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 }
                 const envelope = findSerializableErrorEnvelope(caught, isScanCleanupErrorEnvelope);
                 error.value = envelope?.message
-                    ?? (caught instanceof Error && !caught.message.includes(SERIALIZABLE_ERROR_PREFIX)
-                        ? caught.message
+                    ?? (caught instanceof Error && !getErrorMessage(caught).includes(SERIALIZABLE_ERROR_PREFIX)
+                        ? getErrorMessage(caught)
                         : t('scanCleanup.preview.unavailable'));
                 errorCode.value = envelope?.code ?? 'internal';
             } finally {
@@ -814,7 +827,10 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
     }
 
     function resolveDetailOutputMode(pageNumber = options.previewPage.value) {
-        const pageOverride = getScanCleanupPageOverride(options.settings.pageOverrides, pageNumber);
+        const pageOverride = getScanCleanupPageOverride(
+            options.settings.pageOverrides,
+            requirePageNumber(pageNumber),
+        );
         const renderedOutputMode = result.value?.pageNumber === pageNumber
             ? result.value.outputs[0]?.metadata.outputMode
                 ?? result.value.pageMetadata.recommendedOutputMode
@@ -918,7 +934,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                 sourcePdfPath: requestSourcePath,
                 ownerId: options.ownerId,
                 documentRevision: options.documentRevision.value,
-                pageNumber: requestPage,
+                pageNumber: requirePageNumber(requestPage),
                 options: requestOptions,
                 ...(documentPrior === undefined ? {} : {documentPrior}),
                 ...(softAlphaForegroundRecommendation === undefined
@@ -933,9 +949,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
                     outputMode,
                 },
             }));
-            const next = wireResult === null
-                ? null
-                : withStreamedRaw(wireResult, requestId);
+            const next = withStreamedRaw(wireResult, requestId);
             if (requestSequence !== detailSequence || baseKey !== cacheKey()) {
                 return;
             }
@@ -958,7 +972,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
             displayedDetailSourceKey = sourceKey;
         } catch (caught) {
             const normalizedMessage = caught instanceof Error
-                ? caught.message
+                ? getErrorMessage(caught)
                     .replace(/^Error invoking remote method '[^']+':\s*/u, '')
                     .replace(/^(?:Error:\s*)+/u, '')
                     .trim()
@@ -1017,7 +1031,7 @@ export const useScanCleanupPreviewSession = (options: IUseScanCleanupPreviewSess
         else cancel(false);
     }, {immediate: true});
     watch(options.lifecycleDocumentKey, (key, previousKey) => {
-        if (previousKey !== undefined && isScanCleanupLifecycleIdentityPromotion(
+        if (previousKey !== null && isScanCleanupLifecycleIdentityPromotion(
             previousKey,
             key,
             options.sourcePath.value,

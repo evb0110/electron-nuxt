@@ -229,10 +229,11 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
     const isCapturingRegion = computed(() => pdfViewerRef.value?.isCapturingRegion ?? false);
 
     function handleCaptureRegion() {
-        if (!pdfViewerRef.value || isDjvuMode.value) {
+        const viewer = pdfViewerRef.value;
+        if (!viewer || isDjvuMode.value) {
             return;
         }
-        void runDetached(() => pdfViewerRef.value!.captureRegionToClipboard(), {
+        void runDetached(() => viewer.captureRegionToClipboard(), {
             category: 'user-visible-operation',
             scope: 'workspace',
             message: 'Failed to capture PDF region',

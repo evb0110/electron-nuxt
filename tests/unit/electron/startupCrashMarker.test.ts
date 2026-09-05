@@ -8,6 +8,7 @@ import {
     vi,
 } from 'vitest';
 import type {DiagnosticEventId} from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 import {
     decodeStartupCrashMarkerRecord,
     type StartupCrashMarkerRecord,
@@ -101,7 +102,7 @@ function createMarker(overrides: Partial<StartupCrashMarkerRecord> = {}): Startu
         eventId: EVENT_ID,
         code: 'MAIN_STARTUP_CRASH',
         frames: [],
-        timestamp: 1_735_689_600_000,
+        timestamp: requireEpochMs(1_735_689_600_000),
         release: RELEASE,
         dist: DIST,
         ...overrides,

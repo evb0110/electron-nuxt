@@ -16,6 +16,7 @@ import {
     installWorkspaceExposeProbe,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 const TOOL_LABEL_TO_ID: Record<string, string> = {
     'Draw': 'draw',
@@ -1028,7 +1029,7 @@ export async function createFreeTextAnnotation(page: Page, text: string, positio
     if (!editorReady) {
         const debugState = await collectFreeTextCreationDebugState(page, pageNumber);
         const baseMessage = lastEditorWaitError instanceof Error
-            ? lastEditorWaitError.message
+            ? getErrorMessage(lastEditorWaitError)
             : 'Failed to create FreeText editor';
         throw new Error(`${baseMessage} (${JSON.stringify(debugState)})`);
     }
@@ -1272,7 +1273,7 @@ export async function createFreeTextAnnotationWithPointer(
         await clickAnnotationTool(page, 'Text', timeoutMs);
         await waitForAnnotationEditorMode(page, 'freetextEditing', timeoutMs, pageNumber);
     } catch (error) {
-        throw new Error(`FreeText tool activation failed${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`FreeText tool activation failed${pageNumber ? ` on page ${pageNumber}` : ''}: ${getErrorMessage(error)}`);
     }
 
     const point = await page.evaluate(async ({
@@ -1365,7 +1366,7 @@ export async function createFreeTextAnnotationWithPointer(
             await createdEditorHandle.dispose();
         }
     } catch (error) {
-        throw new Error(`Strict FreeText pointer click did not create an editor${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Strict FreeText pointer click did not create an editor${pageNumber ? ` on page ${pageNumber}` : ''}: ${getErrorMessage(error)}`);
     }
     if (!createdEditorId) {
         throw new Error(`Strict FreeText pointer click did not expose an editor id${pageNumber ? ` on page ${pageNumber}` : ''}`);
@@ -1399,7 +1400,7 @@ export async function createFreeTextAnnotationWithPointer(
             targetPageNumber: pageNumber ?? null,
         });
     } catch (error) {
-        throw new Error(`Strict FreeText editor did not receive text${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Strict FreeText editor did not receive text${pageNumber ? ` on page ${pageNumber}` : ''}: ${getErrorMessage(error)}`);
     }
     await page.keyboard.press('Escape');
 

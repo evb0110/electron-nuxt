@@ -1,5 +1,10 @@
+import { getErrorMessage } from '@app/utils/error';
 import { uniq } from 'es-toolkit/array';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {
+    pageNumberToPageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type {
     IDjvuConvertOptions,
     IDjvuInfo,
@@ -13,6 +18,10 @@ import {
     resolveDjvuPdfExportStrategy,
 } from '@contracts/djvuConversionPolicy';
 import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createJobId,
+    type TJobId,
+} from '@contracts/shared';
 import {
     BROWSER_DOCUMENT_CHUNK_SIZE,
     browserDocumentStore,
@@ -132,7 +141,7 @@ function classifyBrowserDjvuExpectedOutcome(error: unknown): ExpectedOutcome | u
         return createBrowserDjvuExpectedOutcome('validation-rejected');
     }
 
-    if (error instanceof Error && error.message.trim().toLowerCase() === 'djvu conversion canceled') {
+    if (error instanceof Error && getErrorMessage(error).trim().toLowerCase() === 'djvu conversion canceled') {
         return createBrowserDjvuExpectedOutcome('canceled');
     }
     return undefined;
@@ -513,7 +522,7 @@ async function mapDjvuContentsToPdfBookmarks(
             title: item.description,
             pageIndex:
                 typeof pageNumber === 'number' && pageNumber > 0
-                    ? pageNumber - 1
+                    ? pageNumberToPageIndex(requirePageNumber(pageNumber))
                     : null,
             namedDest: null,
             bold: false,
@@ -879,7 +888,7 @@ export async function runBrowserDjvuConversion(
     outputPath: TDocumentRef,
     options: IDjvuConvertOptions,
 ) {
-    const jobId = options.jobId ?? `djvu-convert-${crypto.randomUUID()}`;
+    const jobId: TJobId = options.jobId ?? createJobId('djvu-convert');
     const abortController = createDjvuJob(jobId);
 
     try {
@@ -949,8 +958,8 @@ export async function runBrowserDjvuConversion(
             return {
                 success: false as const,
                 jobId,
-                error: error instanceof Error && error.message.trim().length > 0
-                    ? error.message
+                error: error instanceof Error && getErrorMessage(error).trim().length > 0
+                    ? getErrorMessage(error)
                     : 'Invalid DjVu PDF conversion settings',
                 expected: createBrowserDjvuExpectedOutcome('validation-rejected'),
             };
@@ -1051,9 +1060,7 @@ export async function runBrowserDjvuConversion(
             return {
                 success: false as const,
                 jobId,
-                error: error instanceof Error
-                    ? error.message
-                    : 'DjVu conversion failed',
+                error: error instanceof Error ? getErrorMessage(error) : 'DjVu conversion failed',
                 expected,
             };
         }
@@ -1067,10 +1074,8 @@ export async function runBrowserDjvuConversion(
             success: false as const,
             jobId,
             error:
-                error instanceof Error
-                    ? error.message
-                    : 'DjVu conversion failed',
-            ...(failure === undefined ? {} : {failure}),
+                error instanceof Error ? getErrorMessage(error) : 'DjVu conversion failed',
+            failure,
         };
     } finally {
         cleanupDjvuJob(jobId);

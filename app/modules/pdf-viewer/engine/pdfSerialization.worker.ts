@@ -27,8 +27,7 @@ async function handleRequest(
 ) {
     switch (request.type) {
         case 'save':
-            return await serializePdfEdits(request.payload.data, request.payload.payload)
-                ?? request.payload.data;
+            return serializePdfEdits(request.payload.data, request.payload.payload);
         case 'updateEmbeddedText':
             return updateEmbeddedAnnotationText(
                 request.payload.data,
@@ -56,8 +55,6 @@ async function handleRequest(
                 identityBindings,
             };
         }
-        default:
-            throw new Error(`Unsupported PDF serialization worker request: ${(request as TSerializationWorkerRequest).type}`);
     }
 }
 
@@ -77,7 +74,7 @@ self.addEventListener('message', async (event: MessageEvent<TSerializationWorker
                 ? transferableData
                 : {
                     ...data,
-                    data: transferableData!,
+                    data: toTransferableUint8Array(data.data),
                 };
             const response = {
                 id: request.id,

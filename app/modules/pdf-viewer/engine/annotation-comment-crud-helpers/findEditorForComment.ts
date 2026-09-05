@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfjsEditor } from '@app/types/pdfjs';
@@ -9,20 +12,20 @@ import {
 import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 
 interface IFindEditorForCommentOptions {
-    annotationPageIndexes?: Iterable<number> | null;
-    mountedPageIndexes?: Iterable<number> | null;
+    annotationPageIndexes?: Iterable<TPageIndex> | null;
+    mountedPageIndexes?: Iterable<TPageIndex> | null;
 }
 
 function getEditorIds(
     editor: IPdfjsEditor,
-    pageIndex: number,
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+    pageIndex: TPageIndex,
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string,
 ) {
     return new Set([
         getEditorIdentity(editor, pageIndex),
         editor.uid,
         editor.annotationElementId,
-        editor.id === null || editor.id === undefined
+        editor.id === undefined
             ? null
             : String(editor.id),
     ].filter((value): value is string => Boolean(value)));
@@ -32,7 +35,7 @@ export function findEditorForComment(
     uiManager: AnnotationEditorUIManager | null,
     numPages: number,
     comment: IAnnotationCommentSummary,
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string,
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string,
     options: IFindEditorForCommentOptions = {},
 ) {
     if (!uiManager || numPages <= 0) {
@@ -50,8 +53,8 @@ export function findEditorForComment(
             continue;
         }
         const pageIndex = Number.isSafeInteger(byGlobalId.parentPageIndex)
-            ? byGlobalId.parentPageIndex as number
-            : comment.pageIndex;
+            ? requirePageIndex(Number(byGlobalId.parentPageIndex))
+            : requirePageIndex(comment.pageIndex);
         const editorIds = getEditorIds(byGlobalId, pageIndex, getEditorIdentity);
         if (candidateIds.some(id => editorIds.has(id))) {
             return byGlobalId;
@@ -62,7 +65,7 @@ export function findEditorForComment(
         annotationPageIndexes: options.annotationPageIndexes,
         mountedPageIndexes: options.mountedPageIndexes,
         numPages,
-        preferredPageIndex: comment.pageIndex,
+        preferredPageIndex: requirePageIndex(comment.pageIndex),
     })) {
         for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
             const editorIds = getEditorIds(normalizedEditor, pageIndex, getEditorIdentity);

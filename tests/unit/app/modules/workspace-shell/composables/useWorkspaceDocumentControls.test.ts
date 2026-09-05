@@ -9,7 +9,10 @@ import {
     computed,
     ref,
 } from 'vue';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 
@@ -49,8 +52,8 @@ const openedOutcome: TDocumentOpenOutcome = {
     status: 'opened',
     result: {
         kind: 'pdf',
-        originalPath: '/tmp/source.pdf',
-        workingPath: '/tmp/working.pdf',
+        originalPath: requireDocumentRef('/tmp/source.pdf'),
+        workingPath: requireDocumentRef('/tmp/working.pdf'),
     },
 };
 
@@ -128,7 +131,7 @@ describe('useWorkspaceDocumentControls', () => {
 
         expect(mocks.pageOpsDeps?.onExtractedDocument).toBeTypeOf('function');
 
-        await mocks.pageOpsDeps?.onExtractedDocument?.('C:\\Users\\andrej\\Downloads\\extract.pdf');
+        await mocks.pageOpsDeps?.onExtractedDocument?.(requireDocumentRef('C:\\Users\\andrej\\Downloads\\extract.pdf'));
 
         expect(options.emitOpenInNewTab).toHaveBeenCalledWith('C:\\Users\\andrej\\Downloads\\extract.pdf');
     });

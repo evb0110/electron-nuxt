@@ -25,6 +25,8 @@ import type * as NodeCrypto from 'node:crypto';
 import type * as FsPromises from 'fs/promises';
 import type * as DocumentRevisionSidecarModule from '@electron/file-access/documentRevisionSidecar';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 
 let tempRoot = '';
 
@@ -77,7 +79,7 @@ describe('documentRevisionStore', () => {
 
         expect(revision).toMatchObject({
             version: 1,
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             authority: 'electron-working-copy',
             contentRevision: 1,
         });
@@ -641,12 +643,12 @@ describe('documentRevisionStore', () => {
         const nextSidecar = {
             sidecarVersion: 1 as const,
             version: 1 as const,
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             authority: 'electron-working-copy' as const,
             token: requireDocumentRevisionToken('drt1:journal:2:pending'),
             contentRevision: revision.contentRevision + 1,
-            mintedAt: Date.now(),
-            updatedAt: Date.now(),
+            mintedAt: requireEpochMs(Date.now()),
+            updatedAt: requireEpochMs(Date.now()),
         };
         stageWorkingCopyRevisionSidecarCommit(workingPath, nextSidecar, 'save-sync');
 
@@ -714,12 +716,12 @@ describe('documentRevisionStore', () => {
             const recoveredSidecar = {
                 sidecarVersion: 1 as const,
                 version: 1 as const,
-                documentRef: workingPath,
+                documentRef: requireDocumentRef(workingPath),
                 authority: 'electron-working-copy' as const,
                 token: requireDocumentRevisionToken('drt1:journal:2:recovered'),
                 contentRevision: 2,
-                mintedAt: Date.now(),
-                updatedAt: Date.now(),
+                mintedAt: requireEpochMs(Date.now()),
+                updatedAt: requireEpochMs(Date.now()),
             };
             stageWorkingCopyRevisionSidecarCommit(workingPath, recoveredSidecar, 'save-sync');
             writeFileSync(`${workingPath}.evb-revision.json`, '{corrupt revision');
@@ -846,12 +848,12 @@ describe('documentRevisionStore', () => {
             writeFileSync(`${workingPath}.evb-revision.json`, JSON.stringify({
                 sidecarVersion: 1,
                 version: 1,
-                documentRef: workingPath,
+                documentRef: requireDocumentRef(workingPath),
                 authority: 'electron-working-copy',
                 token: requireDocumentRevisionToken('drt1:inaccessible:1:revision'),
                 contentRevision: 1,
-                mintedAt: Date.now(),
-                updatedAt: Date.now(),
+                mintedAt: requireEpochMs(Date.now()),
+                updatedAt: requireEpochMs(Date.now()),
             }));
             writeFileSync(`${workingPath}.evb-pages.json`, JSON.stringify({
                 version: 2,
@@ -935,12 +937,12 @@ describe('documentRevisionStore', () => {
         const newerSidecar = {
             sidecarVersion: 1 as const,
             version: 1 as const,
-            documentRef: workingPath,
+            documentRef: requireDocumentRef(workingPath),
             authority: 'electron-working-copy' as const,
             token: requireDocumentRevisionToken('drt1:journal:3:current'),
             contentRevision: 3,
-            mintedAt: Date.now(),
-            updatedAt: Date.now(),
+            mintedAt: requireEpochMs(Date.now()),
+            updatedAt: requireEpochMs(Date.now()),
         };
         const staleSidecar = {
             ...newerSidecar,

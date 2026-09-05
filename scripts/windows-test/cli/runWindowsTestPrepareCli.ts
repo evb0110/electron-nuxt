@@ -10,6 +10,7 @@ import { prepareWindowsTestHost } from '@scripts/windows-test/host/prepareWindow
 import type { TStandaloneUtmctlSignatureVerifier } from '@scripts/windows-test/host/standaloneUtmctl';
 import { createProcessCommandRunner } from '@scripts/windows-test/host/utmctlClient';
 import { isDirectCliInvocation } from '@scripts/windows-test/cli/windowsTestCliIo';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 export interface IWindowsTestPrepareCliDependencies {
     standaloneUtmctlSourcePath?: string;
@@ -27,7 +28,7 @@ export async function runWindowsTestPrepareCli(
         return 0;
     }
     if (args.length > 0) {
-        process.stderr.write(`Unknown preparation argument: ${args[0]}\n`);
+        process.stderr.write(`Unknown preparation argument: ${args[0] ?? ''}\n`);
         return 1;
     }
     const clock = createSystemClock();
@@ -53,7 +54,7 @@ export async function runWindowsTestPrepareCli(
         process.stdout.write(`${JSON.stringify(result, null, 4)}\nPrepared runner files only. Follow docs/windows-tests/setup-and-repair.md for the lab image, then run windows:test:doctor.\n`);
         return 0;
     } catch (error) {
-        process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+        process.stderr.write(`${getErrorMessage(error)}\n`);
         return 3;
     }
 }

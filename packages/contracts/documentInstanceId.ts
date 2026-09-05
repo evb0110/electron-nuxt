@@ -1,17 +1,24 @@
-import type { Tagged } from 'type-fest';
+import {
+    createBrandedId,
+    isBrandedString,
+    parseBranded,
+} from '@contracts/brand';
+import type {TBrand} from '@contracts/brand';
 
-export type TDocumentInstanceId = Tagged<string, 'DocumentInstanceId'>;
+export type TDocumentInstanceId = TBrand<string, 'DocumentInstanceId'>;
 
 const DOCUMENT_INSTANCE_ID_MAX_LENGTH = 512;
+
+export function isDocumentInstanceId(value: unknown): value is TDocumentInstanceId {
+    return isBrandedString<'DocumentInstanceId'>(value, DOCUMENT_INSTANCE_ID_MAX_LENGTH);
+}
 
 export function parseDocumentInstanceId(value: unknown): TDocumentInstanceId | null {
     if (typeof value !== 'string') {
         return null;
     }
     const normalized = value.trim();
-    return normalized.length > 0 && normalized.length <= DOCUMENT_INSTANCE_ID_MAX_LENGTH
-        ? normalized as TDocumentInstanceId
-        : null;
+    return parseBranded(normalized, isDocumentInstanceId);
 }
 
 export function requireDocumentInstanceId(value: unknown): TDocumentInstanceId {
@@ -20,4 +27,8 @@ export function requireDocumentInstanceId(value: unknown): TDocumentInstanceId {
         throw new TypeError('Document instance ID must be a non-empty string');
     }
     return parsed;
+}
+
+export function createDocumentInstanceId(prefix = 'document'): TDocumentInstanceId {
+    return createBrandedId(prefix, isDocumentInstanceId);
 }

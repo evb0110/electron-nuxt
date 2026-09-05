@@ -23,6 +23,7 @@ import {
     join,
 } from 'path';
 import { tmpdir } from 'os';
+import {requireRequestId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({
     getPdfPageCount: vi.fn(),
@@ -143,7 +144,7 @@ describe('pdfOptimization', () => {
         const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
 
         await expect(optimizePdfToFile(inputPath, outputPath, {preset: 'lossless'}, {
-            requestId: 'opt-1',
+            requestId: requireRequestId('opt-1'),
             onProgress: payload => progress.push(payload),
         })).resolves.toMatchObject({
             path: outputPath,
@@ -183,7 +184,7 @@ describe('pdfOptimization', () => {
         const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
 
         await expect(optimizePdfToFile(inputPath, outputPath, {preset: 'smallScanned'}, {
-            requestId: 'opt-2',
+            requestId: requireRequestId('opt-2'),
             onProgress: payload => progress.push(payload),
         })).resolves.toMatchObject({
             path: outputPath,
@@ -272,7 +273,7 @@ describe('pdfOptimization', () => {
         const { optimizePdfToFile } = await import('@electron/features/documents/main/pdfOptimization');
 
         await optimizePdfToFile(inputPath, outputPath, {preset: 'smallScanned'}, {
-            requestId: 'cancel-opt',
+            requestId: requireRequestId('cancel-opt'),
             signal: controller.signal,
             cancelGroup: 'pdf-optimize:cancel-opt',
         });
@@ -340,7 +341,7 @@ describe('pdfOptimization', () => {
             '/tmp/input.pdf',
             '/tmp/output.pdf',
             {preset: 'giant'} as never,
-            {requestId: 'opt-3'},
+            {requestId: requireRequestId('opt-3')},
         )).rejects.toThrow('Invalid PDF optimize options');
     });
 });

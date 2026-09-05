@@ -29,6 +29,7 @@ export function resolveLocalCoverageChangeScope({cwd = process.cwd()} = {}) {
     }
 }
 
+/** @param {string} id @param {string} scriptName @param {Record<string, unknown>} options */
 function pnpmStage(id, scriptName, options = {}) {
     return {
         args: [

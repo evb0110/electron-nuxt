@@ -1,3 +1,5 @@
+import { getErrorMessage } from '@electron/utils/error';
+import { stringifyJson } from '@contracts/stringifyJson';
 import { dialog } from 'electron';
 import type { BrowserWindow } from 'electron';
 import {
@@ -32,7 +34,18 @@ interface ISaveDialogOptions {
 const activeDialogSenderIds = new Set<number>();
 
 export function errorWithDetails(fallbackMessage: string, details: unknown): Error {
-    const detailText = details instanceof Error ? details.message : String(details ?? '').trim();
+    let detailText = '';
+    if (details instanceof Error) {
+        detailText = getErrorMessage(details);
+    } else if (typeof details === 'string') {
+        detailText = details.trim();
+    } else if (details !== null && details !== undefined) {
+        try {
+            detailText = stringifyJson(details) ?? '<unserializable details>';
+        } catch {
+            detailText = '<unserializable details>';
+        }
+    }
     if (!detailText) {
         return new Error(fallbackMessage);
     }

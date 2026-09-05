@@ -23,6 +23,7 @@ interface IPersistOcrPageCheckpointOptions {
 export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpointOptions) {
     const checkpointTempPdf = `${options.checkpointPdfPath}.${process.pid}.${randomUUID()}.tmp`;
     const checkpointTempJson = `${options.checkpointJsonPath}.${process.pid}.${randomUUID()}.tmp`;
+    const isAborted = () => options.signal.aborted;
     const ocrPdfSize = (await stat(options.sourcePdfPath)).size;
     const releaseReservation = await options.storageBudget.reserve(ocrPdfSize);
     try {
@@ -43,9 +44,9 @@ export async function persistOcrPageCheckpoint(options: IPersistOcrPageCheckpoin
             pdfSha256: await options.sha256File(checkpointTempPdf),
         };
         await writeFile(checkpointTempJson, JSON.stringify(checkpoint), 'utf8');
-        if (options.signal.aborted) throw abortErrorFromSignal(options.signal);
+        if (isAborted()) throw abortErrorFromSignal(options.signal);
         await rename(checkpointTempPdf, options.checkpointPdfPath);
-        if (options.signal.aborted) throw abortErrorFromSignal(options.signal);
+        if (isAborted()) throw abortErrorFromSignal(options.signal);
         await rename(checkpointTempJson, options.checkpointJsonPath);
     } finally {
         await Promise.all([

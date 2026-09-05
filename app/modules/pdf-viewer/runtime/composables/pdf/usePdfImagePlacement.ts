@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import { computeInitialImagePlacementDimensions } from '@app/modules/pdf-viewer/engine/pdf-image-placement-sizing/computeInitialImagePlacementDimensions';
@@ -86,7 +89,7 @@ function getInitialImagePlacementDimensions(
     });
 }
 
-function getPageContainer(container: HTMLElement | null, pageNumber: number) {
+function getPageContainer(container: HTMLElement | null, pageNumber: TPageNumber) {
     return container?.querySelector<HTMLElement>(
         `.page_container[data-page="${pageNumber}"]`,
     ) ?? null;
@@ -98,10 +101,10 @@ function resolvePlacementPageNumber(
     pageCount: number,
 ) {
     if (!Number.isFinite(requestedPageNumber)) {
-        return Math.max(1, fallbackPageNumber);
+        return requirePageNumber(Math.max(1, fallbackPageNumber), pageCount);
     }
 
-    return clamp(Math.floor(Number(requestedPageNumber)), 1, pageCount);
+    return requirePageNumber(clamp(Math.floor(Number(requestedPageNumber)), 1, pageCount), pageCount);
 }
 
 function resolvePlacementCoordinate(value: number | null | undefined) {
@@ -198,7 +201,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     }
 
     function getImagePlacementTarget(optionsOverride?: {
-        pageNumber?: number | null;
+        pageNumber?: TPageNumber | null;
         pageX?: number | null;
         pageY?: number | null;
     }): IImagePlacementTarget {
@@ -223,7 +226,7 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     async function startImagePlacement(
         file: File,
         optionsOverride?: {
-            pageNumber?: number | null;
+            pageNumber?: TPageNumber | null;
             pageX?: number | null;
             pageY?: number | null;
             stableKey?: string;
@@ -309,7 +312,10 @@ export const usePdfImagePlacement = (options: IUsePdfImagePlacementOptions) => {
     }
 
     function getPendingImagePlacementTargetPixels(placement: IPdfImagePlacementDraft) {
-        const pageContainer = getPageContainer(viewerContainer.value, placement.pageNumber);
+        const pageContainer = getPageContainer(
+            viewerContainer.value,
+            requirePageNumber(placement.pageNumber, numPages.value),
+        );
         const canvas = pageContainer?.querySelector<HTMLCanvasElement>('.page_canvas canvas') ?? null;
         const devicePixelRatioValue = resolveDevicePixelRatio();
         const renderedPagePixelWidth = canvas?.width

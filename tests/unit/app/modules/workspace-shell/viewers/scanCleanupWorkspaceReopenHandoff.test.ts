@@ -14,8 +14,16 @@ import type {
     IScanCleanupCapability,
     TScanCleanupJobState,
 } from '@contracts/electronApiScanCleanup';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    requireJobId,
+    type TJobId,
+} from '@contracts/shared';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     createDocumentPageSourceLifecycle,
     type IDocumentPageSourceTransition,
@@ -41,8 +49,8 @@ describe('scan-cleanup workspace reopen handoff', () => {
     });
 
     it('keeps scan invalidation owned until the generated document supersedes the source', async () => {
-        const sourceRef = '/source/book.pdf' as TDocumentRef;
-        const outputRef = '/managed/book-cleaned.pdf' as TDocumentRef;
+        const sourceRef = requireDocumentRef('/source/book.pdf');
+        const outputRef = requireDocumentRef('/managed/book-cleaned.pdf');
         const src = ref<TDocumentRef | null>(sourceRef);
         const revision = ref(requireDocumentRevisionToken('scan-source-revision'));
         const scope = effectScope();
@@ -79,16 +87,16 @@ describe('scan-cleanup workspace reopen handoff', () => {
             subscribeDetectionJob: vi.fn(),
             start: vi.fn(async () => ({
                 started: true as const,
-                jobId: 'scan-handoff-job',
+                jobId: requireJobId('scan-handoff-job'),
                 outputPdfPath: outputRef,
             })),
             cancel: vi.fn(async () => true),
             getJobState: vi.fn(async () => null),
-            subscribeJob: vi.fn(async jobId => ({
+            subscribeJob: vi.fn(async (jobId: TJobId) => ({
                 jobId,
                 status: 'running' as const,
                 progress: progress(),
-                updatedAtMs: 1,
+                updatedAtMs: requireEpochMs(1),
             })),
             reconnectJob: vi.fn(async () => null),
             pruneGeneratedOutputs: vi.fn(async () => 0),
@@ -103,7 +111,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
         const coordinator = await import('@app/modules/scan-cleanup/runtime/scanCleanupRunCoordinator');
         const cleanup = coordinator.installScanCleanupRunCoordinator({
             openGeneratedPdf: async (path) => {
-                src.value = path as TDocumentRef;
+                src.value = requireDocumentRef(path);
                 revision.value = requireDocumentRevisionToken('scan-output-revision');
                 await nextTick();
                 await reopenCommitted.promise;
@@ -122,7 +130,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 options: expect.anything() as never,
             });
             jobStateListener({
-                jobId: 'scan-handoff-job',
+                jobId: requireJobId('scan-handoff-job'),
                 status: 'completed',
                 outputPdfPath: outputRef,
                 summary: {
@@ -138,7 +146,7 @@ describe('scan-cleanup workspace reopen handoff', () => {
                 },
                 partial: false,
                 progress: progress(1),
-                updatedAtMs: 2,
+                updatedAtMs: requireEpochMs(2),
             });
 
             await vi.waitFor(() => expect(transitions).toHaveLength(2));

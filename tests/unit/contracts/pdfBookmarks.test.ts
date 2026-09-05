@@ -8,12 +8,19 @@ import {
     PDFName,
 } from 'pdf-lib';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import {
+    requirePageIndex,
+    type TPageIndex,
+} from '@contracts/pageNumbers';
 import { writePdfBookmarkOutlines } from '@pdf-core';
+import {cast} from '@tests/helpers/cast';
 
 function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
     return {
         title,
-        pageIndex,
+        pageIndex: pageIndex < 0
+            ? cast<TPageIndex>(pageIndex)
+            : requirePageIndex(pageIndex),
         namedDest: null,
         bold: false,
         italic: false,

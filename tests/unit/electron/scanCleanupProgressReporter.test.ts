@@ -8,6 +8,7 @@ import type {
     TScanCleanupSummary,
     TScanCleanupSummaryWarningEvent,
 } from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     createEmptyScanCleanupSummary,
     createScanCleanupProgressReporter,
@@ -212,12 +213,12 @@ describe('scan cleanup summary warning events', () => {
 
         reportScanCleanupSummaryWarningEvent(summary, {
             event: {code: 'matched-canvas-margins-reduced'},
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             half: 'left',
         }, report);
         reportScanCleanupSummaryWarningEvent(summary, {
             event: {code: 'matched-canvas-margins-unavailable'},
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         }, report);
 
         expect(summary.warningEvents).toEqual([
@@ -246,7 +247,7 @@ describe('scan cleanup summary warning events', () => {
         reportScanCleanupSummaryWarningEvent(summary, {event: {code: 'matched-canvas-dropped'}}, () => undefined);
         reportScanCleanupSummaryWarningEvent(summary, {
             event: {code: 'matched-canvas-margins-reduced'},
-            pageNumber: 3,
+            pageNumber: requirePageNumber(3),
         }, () => undefined);
 
         expect(summary.warningEvents).toEqual([

@@ -1,3 +1,8 @@
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
 export interface IAnnotationUiManagerWithAnnotationRenderGuards {
     renderAnnotationElement?: (annotation: unknown) => unknown;
     setMissingCanvas?: (
@@ -5,7 +10,7 @@ export interface IAnnotationUiManagerWithAnnotationRenderGuards {
         annotationElementId: string,
         canvas: HTMLCanvasElement,
     ) => unknown;
-    getEditors?: (pageIndex: number) => Iterable<unknown>;
+    getEditors?: (pageIndex: TPageIndex) => Iterable<unknown>;
     getActive?: () => unknown;
     setActiveEditor?: (editor: unknown | null) => unknown;
 }
@@ -29,7 +34,7 @@ export type TAnnotationEditorLayerFailureReason =
     | 'stale-document';
 
 export interface IAnnotationEditorLayerPageFailure {
-    pageNumber: number;
+    pageNumber: TPageNumber;
     reason: TAnnotationEditorLayerFailureReason;
     attempts: number;
     lastFailedAt: number;

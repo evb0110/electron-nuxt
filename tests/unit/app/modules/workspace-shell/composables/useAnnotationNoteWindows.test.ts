@@ -15,6 +15,7 @@ import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import { ANNOTATION_NOTE_SAVE_DEBOUNCE_MS } from '@app/constants/timeouts';
 import { useAnnotationNoteWindows } from '@app/modules/workspace-shell/composables/useAnnotationNoteWindows';
+import { requireEpochMs } from '@contracts/timestamps';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
     const comment: IAnnotationCommentSummary = {
@@ -161,12 +162,12 @@ describe('useAnnotationNoteWindows', () => {
 
     it('preserves a note creation timestamp when saving through a synchronized summary without one', () => {
         const opened = createComment({
-            createdAt: 111,
+            createdAt: requireEpochMs(111),
             modifiedAt: null,
         });
         const syncedWithoutCreatedAt = createComment({
             createdAt: null,
-            modifiedAt: 222,
+            modifiedAt: requireEpochMs(222),
         });
         const {
             deps,
@@ -587,12 +588,12 @@ describe('useAnnotationNoteWindows', () => {
         const original = createComment({
             text: 'Open note text',
             markerRect: originalRect,
-            modifiedAt: 100,
+            modifiedAt: requireEpochMs(100),
         });
         const moved = createComment({
             text: 'Open note text',
             markerRect: movedRect,
-            modifiedAt: 200,
+            modifiedAt: requireEpochMs(200),
         });
         const {
             deps,

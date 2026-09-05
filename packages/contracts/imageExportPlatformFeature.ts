@@ -1,7 +1,14 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+import { requirePageNumber } from '@contracts/pageNumbers';
+
 import type {
     IImageExportProgress,
     TDocumentImageExportSourceKind,
 } from '@contracts/electronApiDocuments';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import {
     definePlatformFeature,
     runtimeSchema as s,
@@ -13,6 +20,11 @@ import {
     isFiniteNumber,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    parseRequestId,
+    requireRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 
 const MAX_COLLECTION_ITEMS = 100_000;
 /** Must match IMAGE_EXPORT_MAX_OUTPUT_PATHS in the main image-export resource limits. */
@@ -20,9 +32,9 @@ const IMAGE_EXPORT_MAX_OUTPUT_PATHS = 100_000;
 const IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH = 128;
 
 type TImageExportArgs = [
-    workingCopyPath: string,
-    pageNumbers: number[] | undefined,
-    requestId: string | undefined,
+    workingCopyPath: TDocumentRef,
+    pageNumbers: TPageNumber[] | undefined,
+    requestId: TRequestId | undefined,
     sourceKind: TDocumentImageExportSourceKind | undefined,
 ];
 
@@ -36,13 +48,19 @@ function decodeOptionalPageNumbers(value: unknown) {
     if (value.length > MAX_COLLECTION_ITEMS) {
         throw new Error(`pageNumbers exceeds maximum item count (${MAX_COLLECTION_ITEMS})`);
     }
-    if (value.some(page => typeof page !== 'number' || !Number.isSafeInteger(page) || page < 1)) {
+    const pageValues: unknown[] = value;
+    const pageNumbers = pageValues.filter((page): page is number => (
+        typeof page === 'number'
+        && Number.isSafeInteger(page)
+        && page >= 1
+    ));
+    if (pageNumbers.length !== pageValues.length) {
         throw new Error('pageNumbers must contain positive safe integers');
     }
-    if (new Set(value).size !== value.length) {
+    if (new Set(pageNumbers).size !== pageNumbers.length) {
         throw new Error('pageNumbers must contain unique pages');
     }
-    return value as number[];
+    return pageNumbers.map(page => requirePageNumber(page));
 }
 
 function decodeOptionalRequestId(value: unknown) {
@@ -59,7 +77,7 @@ function decodeOptionalRequestId(value: unknown) {
     if (requestId.length > IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH) {
         throw new Error(`requestId exceeds maximum length (${IMAGE_EXPORT_REQUEST_ID_MAX_LENGTH})`);
     }
-    return requestId;
+    return requireRequestId(requestId);
 }
 
 function decodeExportArgs(value: unknown): TImageExportArgs {
@@ -67,9 +85,9 @@ function decodeExportArgs(value: unknown): TImageExportArgs {
         throw new Error(`expected 1-4 arguments, received ${Array.isArray(value) ? value.length : 0}`);
     }
     const items: unknown[] = value;
-    const workingCopyPath = items[0];
-    if (typeof workingCopyPath !== 'string' || workingCopyPath.trim().length === 0) {
-        throw new Error('workingCopyPath must be a non-empty string');
+    const workingCopyPath = parseDocumentRef(items[0]);
+    if (workingCopyPath === null) {
+        throw new Error('workingCopyPath must be an absolute document reference');
     }
     const requestId = decodeOptionalRequestId(items[2]);
     const sourceKind = items[3];
@@ -94,7 +112,7 @@ function decodeOutputPaths(value: unknown) {
     if (value.length > IMAGE_EXPORT_MAX_OUTPUT_PATHS) {
         throw new Error(`outputPaths exceeds maximum item count (${IMAGE_EXPORT_MAX_OUTPUT_PATHS})`);
     }
-    return value as string[];
+    return value.filter((path): path is string => typeof path === 'string');
 }
 
 function decodeImagesResult(value: unknown) {
@@ -124,9 +142,12 @@ function decodeMultiPageTiffResult(value: unknown) {
 }
 
 function decodeImageExportProgress(value: unknown): IImageExportProgress | null {
+    if (!isRecord(value)) {
+        return null;
+    }
+    const requestId = parseRequestId(value.requestId);
     if (
-        !isRecord(value)
-        || typeof value.requestId !== 'string'
+        requestId === null
         || (value.format !== 'images' && value.format !== 'multipage-tiff')
         || (value.phase !== 'rendering' && value.phase !== 'combining')
         || !isFiniteNumber(value.processed)
@@ -144,7 +165,7 @@ function decodeImageExportProgress(value: unknown): IImageExportProgress | null 
         return null;
     }
     return {
-        requestId: value.requestId,
+        requestId,
         format: value.format,
         phase: value.phase,
         processed: value.processed,
@@ -158,15 +179,21 @@ function decodeImageExportProgress(value: unknown): IImageExportProgress | null 
 const exportArgs = s.fromParser<TImageExportArgs>(
     decodeExportArgs,
     () => [
-        '/tmp/fixture.pdf',
-        [1],
-        'image-export-fixture',
+        parseDocumentRef('/tmp/fixture.pdf') ?? (() => {
+            throw new Error('invalid fixture document reference');
+        })(),
+        [requirePageNumber(1)],
+        parseRequestId('image-export-fixture') ?? (() => {
+            throw new Error('invalid fixture request ID');
+        })(),
         'pdf',
     ],
 );
 const progress = s.declared<IImageExportProgress>()(
     s.fromNullableDecoder(decodeImageExportProgress, 'image export progress', () => ({
-        requestId: 'image-export-fixture',
+        requestId: parseRequestId('image-export-fixture') ?? (() => {
+            throw new Error('invalid fixture request ID');
+        })(),
         format: 'images',
         phase: 'rendering',
         processed: 0,
@@ -204,9 +231,9 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: 30 * 60 * 1_000,
             },
             client: {mapArgs: (
-                workingCopyPath: string,
-                pageNumbers?: number[],
-                requestId?: string,
+                workingCopyPath: TDocumentRef,
+                pageNumbers?: TPageNumber[],
+                requestId?: TRequestId,
                 sourceKind?: TDocumentImageExportSourceKind,
             ): TImageExportArgs => [
                 workingCopyPath,
@@ -234,9 +261,9 @@ export const IMAGE_EXPORT_PLATFORM_FEATURE = definePlatformFeature({
                 timeoutMs: 30 * 60 * 1_000,
             },
             client: {mapArgs: (
-                workingCopyPath: string,
-                pageNumbers?: number[],
-                requestId?: string,
+                workingCopyPath: TDocumentRef,
+                pageNumbers?: TPageNumber[],
+                requestId?: TRequestId,
                 sourceKind?: TDocumentImageExportSourceKind,
             ): TImageExportArgs => [
                 workingCopyPath,

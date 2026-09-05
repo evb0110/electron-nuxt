@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import { createHash } from 'node:crypto';
 import {
     open,
@@ -59,6 +60,25 @@ const TRANSIENT_TRANSFER_ERROR_CODES = new Set([
     'EHOSTUNREACH',
 ]);
 
+/** @typedef {Pick<import('@aws-sdk/client-s3').S3Client, 'send'>} TMirrorClient */
+/** @typedef {{name: string, size: number, sha256: string}} IMirrorAsset */
+/** @typedef {{schemaVersion: number, release: {tag: string}, assets: IMirrorAsset[]}} IMirrorManifest */
+/** @typedef {{channelKey: string, releasePrefix: string}} IMirrorPaths */
+/** @typedef {{sha256: string, size: number}} IObjectDigest */
+/** @typedef {{body: string, etag?: string | undefined, sha256: string, size: number, tag: string}} IStableChannel */
+/** @typedef {{Key?: string | undefined}} IMirrorObject */
+/** @typedef {{artifactDirectory?: string | undefined, drill?: boolean | undefined, releaseTag?: string | undefined, publishChannel?: boolean | undefined, environment?: NodeJS.ProcessEnv | undefined, client?: TMirrorClient | undefined, uploadRetryDelayMs?: number | undefined, partBytes?: number | undefined}} IPublishMirrorOptions */
+/** @typedef {{environment?: NodeJS.ProcessEnv | undefined, prefix?: string | undefined, client?: TMirrorClient | undefined}} ICleanupMirrorOptions */
+/** @typedef {{[Symbol.asyncIterator]?: () => AsyncIterator<unknown>, transformToByteArray?: () => Promise<Uint8Array>, transformToString?: () => Promise<string>}} IMirrorBody */
+/** @typedef {{[Symbol.asyncIterator]: () => AsyncIterator<unknown>}} IAsyncMirrorBody */
+/** @typedef {{name?: unknown, code?: unknown, $metadata?: {httpStatusCode?: unknown}, stableChannelMutationAttempted?: unknown}} IMirrorError */
+
+/** @param {unknown} error @returns {error is IMirrorError} */
+function isMirrorError(error) {
+    return typeof error === 'object' && error !== null;
+}
+
+/** @param {IPublishMirrorOptions} options @returns {Promise<{assets: IMirrorAsset[], manifest: string, prunedTags: string[]}>} */
 export async function publishReleaseMirror({
     artifactDirectory,
     drill = false,
@@ -147,7 +167,7 @@ export async function publishReleaseMirror({
         IMMUTABLE_CACHE_CONTROL,
     );
 
-    let prunedTags = [];
+    let prunedTags = /** @type {string[]} */ ([]);
     if (publishChannel) {
         // Publish the mutable channel pointer last, after every immutable object
         // has been uploaded and verified. Clients cannot discover a partial release.
@@ -178,7 +198,10 @@ export async function publishReleaseMirror({
         } catch (error) {
             if (previousChannel && (
                 stableChannelMutationAttempted
-                || error?.stableChannelMutationAttempted === true
+                || (typeof error === 'object'
+                    && error !== null
+                    && 'stableChannelMutationAttempted' in error
+                    && error.stableChannelMutationAttempted === true)
             )) {
                 try {
                     await restoreStableChannel(
@@ -190,7 +213,7 @@ export async function publishReleaseMirror({
                     );
                 } catch (rollbackError) {
                     throw new Error(
-                        `Mirror publication failed and stable-channel rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`,
+                        `Mirror publication failed and stable-channel rollback failed: ${getCliErrorMessage(rollbackError)}`,
                         {cause: error},
                     );
                 }
@@ -211,6 +234,7 @@ export async function publishReleaseMirror({
     };
 }
 
+/** @param {NodeJS.ProcessEnv} environment @param {string} name @returns {string} */
 export function requireEnvironment(environment, name) {
     const value = environment[name]?.trim();
     if (!value) {
@@ -219,6 +243,7 @@ export function requireEnvironment(environment, name) {
     return value;
 }
 
+/** @param {NodeJS.ProcessEnv} [environment] @param {{drill?: boolean}} [options] @returns {IMirrorPaths} */
 export function resolveMirrorPaths(environment = process.env, {drill = false} = {}) {
     const releasePrefix = environment.MIRROR_RELEASE_PREFIX?.trim() || RELEASE_PREFIX;
     const channelKey = environment.MIRROR_CHANNEL_KEY?.trim() || CHANNEL_KEY;
@@ -250,20 +275,26 @@ export function resolveMirrorPaths(environment = process.env, {drill = false} = 
     };
 }
 
+/** @param {ICleanupMirrorOptions} options @returns {Promise<{deletedKeys: string[]}>} */
 export async function cleanupMirrorPrefix({
     environment = process.env,
     prefix,
     client: providedClient,
 }) {
+    if (!prefix) {
+        throw new Error('A mirror cleanup prefix is required');
+    }
     const cleanupPrefix = validateDrillCleanupPrefix(prefix);
     const {
         bucket,
         client,
     } = createMirrorClient(environment, providedClient);
     const objects = await listAllReleaseObjects(client, bucket, cleanupPrefix);
-    const keys = objects
-        .map(object => object.Key)
-        .filter(key => typeof key === 'string' && key.startsWith(cleanupPrefix));
+    const keys = objects.flatMap(object => (
+        typeof object.Key === 'string' && object.Key.startsWith(cleanupPrefix)
+            ? [object.Key]
+            : []
+    ));
 
     await deleteMirrorObjects(client, bucket, keys, 'Mirror cleanup');
 
@@ -273,6 +304,7 @@ export async function cleanupMirrorPrefix({
 
 export {hashFile};
 
+/** @param {NodeJS.ProcessEnv} environment @param {TMirrorClient | undefined} [providedClient] @returns {{bucket: string, client: TMirrorClient}} */
 export function createMirrorClient(environment, providedClient) {
     const endpoint = requireEnvironment(environment, 'MIRROR_S3_ENDPOINT');
     const bucket = requireEnvironment(environment, 'MIRROR_S3_BUCKET');
@@ -300,6 +332,7 @@ export function createMirrorClient(environment, providedClient) {
     };
 }
 
+/** @param {string} prefix @returns {string} */
 function validateDrillCleanupPrefix(prefix) {
     if (typeof prefix !== 'string' || !prefix.startsWith(DRILL_PREFIX) || !MIRROR_PREFIX_PATTERN.test(prefix)) {
         throw new Error(`Refusing to clean a non-drill mirror prefix: ${prefix ?? ''}`);
@@ -307,6 +340,7 @@ function validateDrillCleanupPrefix(prefix) {
     return prefix;
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<boolean>} */
 async function objectMatches(client, bucket, key, expectedSize, expectedSha256) {
     const result = await client.send(new GetObjectCommand({
         Bucket: bucket,
@@ -316,30 +350,39 @@ async function objectMatches(client, bucket, key, expectedSize, expectedSha256) 
     return actual.size === expectedSize && actual.sha256 === expectedSha256;
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<void>} */
 async function verifyUpload(client, bucket, key, expectedSize, expectedSha256) {
     if (!await objectMatches(client, bucket, key, expectedSize, expectedSha256)) {
         throw new Error(`Mirror verification failed for ${key}`);
     }
 }
 
+/** @param {unknown} body @returns {Promise<IObjectDigest>} */
 async function hashObjectBody(body) {
     if (!body) {
         throw new Error('Mirror object response has no body');
     }
     const hash = createHash('sha256');
     let size = 0;
-    if (typeof body[Symbol.asyncIterator] === 'function') {
-        for await (const chunk of body) {
-            const bytes = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    const objectBody = typeof body === 'object' && body !== null
+        ? /** @type {IMirrorBody} */ (body)
+        : null;
+    if (objectBody && typeof objectBody[Symbol.asyncIterator] === 'function') {
+        for await (const chunk of /** @type {IAsyncMirrorBody} */ (objectBody)) {
+            const bytes = Buffer.isBuffer(chunk) || typeof chunk === 'string'
+                ? Buffer.from(chunk)
+                : Buffer.from(/** @type {Uint8Array} */ (chunk));
             hash.update(bytes);
             size += bytes.byteLength;
         }
-    } else if (typeof body.transformToByteArray === 'function') {
-        const bytes = Buffer.from(await body.transformToByteArray());
+    } else if (objectBody && typeof objectBody.transformToByteArray === 'function') {
+        const bytes = Buffer.from(await objectBody.transformToByteArray());
         hash.update(bytes);
         size = bytes.byteLength;
     } else if (typeof body === 'string' || Buffer.isBuffer(body) || ArrayBuffer.isView(body)) {
-        const bytes = Buffer.from(body);
+        const bytes = typeof body === 'string' || Buffer.isBuffer(body)
+            ? Buffer.from(body)
+            : Buffer.from(/** @type {Uint8Array} */ (body));
         hash.update(bytes);
         size = bytes.byteLength;
     } else {
@@ -351,6 +394,7 @@ async function hashObjectBody(body) {
     };
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<'match' | 'mismatch' | 'missing'>} */
 async function immutableUploadState(client, bucket, key, expectedSize, expectedSha256) {
     try {
         const result = await client.send(new HeadObjectCommand({
@@ -364,13 +408,15 @@ async function immutableUploadState(client, bucket, key, expectedSize, expectedS
             ? 'match'
             : 'mismatch';
     } catch (error) {
-        if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NotFound') {
+        if (isMirrorError(error)
+            && (error.$metadata?.httpStatusCode === 404 || error.name === 'NotFound')) {
             return 'missing';
         }
         throw error;
     }
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {() => Promise<unknown>} upload @param {number} expectedSize @param {string} expectedSha256 @returns {Promise<void>} */
 async function putImmutableObject(client, bucket, key, upload, expectedSize, expectedSha256) {
     try {
         await upload();
@@ -386,6 +432,7 @@ async function putImmutableObject(client, bucket, key, upload, expectedSize, exp
     await verifyUpload(client, bucket, key, expectedSize, expectedSha256);
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, sha256: string, size: number}} file @param {{partBytes: number, retryDelayMs: number}} upload @returns {Promise<void>} */
 async function putImmutableFile(client, bucket, key, {
     filePath,
     name,
@@ -422,7 +469,7 @@ async function putImmutableFile(client, bucket, key, {
             if (attempt === UPLOAD_ATTEMPTS || !isTransientTransferError(error)) {
                 throw error;
             }
-            const reason = error instanceof Error ? error.message : String(error);
+            const reason = getCliErrorMessage(error);
             console.warn(
                 `Upload of ${name} failed after ${elapsedSeconds(startedAt)}s (${reason}); `
                 + `retrying (${attempt + 1}/${UPLOAD_ATTEMPTS}).`,
@@ -432,6 +479,7 @@ async function putImmutableFile(client, bucket, key, {
     }
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, sha256: string, size: number}} parameters @returns {Promise<void>} */
 async function uploadWhole(client, bucket, key, {
     filePath,
     name,
@@ -453,6 +501,7 @@ async function uploadWhole(client, bucket, key, {
 // One HTTP request per part keeps a stalled connection from costing more
 // than one part's timeout, and the conditional completion keeps the object
 // immutable exactly like the single-request path.
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {{filePath: string, name: string, partBytes: number, partCount: number, sha256: string, size: number}} parameters @returns {Promise<void>} */
 async function uploadMultipart(client, bucket, key, {
     filePath,
     name,
@@ -494,12 +543,14 @@ async function uploadMultipart(client, bucket, key, {
     }
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @param {{file: import('node:fs/promises').FileHandle, partBytes: number, partCount: number, size: number}} parameters @returns {Promise<{ETag: string, PartNumber: number}[]>} */
 async function uploadParts(client, bucket, key, uploadId, {
     file,
     partBytes,
     partCount,
     size,
 }) {
+    /** @type {{ETag: string, PartNumber: number}[]} */
     const parts = new Array(partCount);
     let nextIndex = 0;
     let failed = false;
@@ -544,6 +595,7 @@ async function uploadParts(client, bucket, key, uploadId, {
     return parts;
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} uploadId @returns {Promise<void>} */
 async function abortMultipartUpload(client, bucket, key, uploadId) {
     try {
         await client.send(new AbortMultipartUploadCommand({
@@ -552,29 +604,35 @@ async function abortMultipartUpload(client, bucket, key, uploadId) {
             UploadId: uploadId,
         }));
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
+        const reason = getCliErrorMessage(error);
         console.warn(`Could not abort multipart upload ${uploadId} for ${key} (${reason}); the bucket lifecycle rule reclaims it.`);
     }
 }
 
+/** @param {number} startedAt @returns {string} */
 function elapsedSeconds(startedAt) {
     return ((Date.now() - startedAt) / 1000).toFixed(1);
 }
 
+/** @param {unknown} error @returns {boolean} */
 function isTransientTransferError(error) {
-    const status = error?.$metadata?.httpStatusCode;
-    return error?.name === 'TimeoutError'
-        || TRANSIENT_TRANSFER_ERROR_CODES.has(error?.code)
-        || (typeof status === 'number' && status >= 500);
+    const status = isMirrorError(error) ? error.$metadata?.httpStatusCode : undefined;
+    return isMirrorError(error) && (error.name === 'TimeoutError'
+        || TRANSIENT_TRANSFER_ERROR_CODES.has(String(error.code))
+        || (typeof status === 'number' && status >= 500));
 }
 
+/** @param {unknown} error @returns {boolean} */
 function isConditionalWriteConflict(error) {
-    return error?.$metadata?.httpStatusCode === 409
-        || error?.$metadata?.httpStatusCode === 412
-        || error?.name === 'ConditionalRequestConflict'
-        || error?.name === 'PreconditionFailed';
+    return isMirrorError(error) && (
+        error.$metadata?.httpStatusCode === 409
+        || error.$metadata?.httpStatusCode === 412
+        || error.name === 'ConditionalRequestConflict'
+        || error.name === 'PreconditionFailed'
+    );
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} key @param {string} body @param {string} cacheControl @returns {Promise<void>} */
 async function putImmutableJson(client, bucket, key, body, cacheControl) {
     const size = Buffer.byteLength(body);
     const sha256 = createHash('sha256').update(body).digest('hex');
@@ -597,6 +655,7 @@ async function putImmutableJson(client, bucket, key, body, cacheControl) {
     })), size, sha256);
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} body @param {string} releaseTag @param {NodeJS.ProcessEnv} environment @param {string} channelKey @param {RegExp} releaseTagPattern @returns {Promise<boolean>} */
 async function publishStableChannel(
     client,
     bucket,
@@ -609,17 +668,17 @@ async function publishStableChannel(
     const sha256 = createHash('sha256').update(body).digest('hex');
     const size = Buffer.byteLength(body);
     let stableChannelMutationAttempted = false;
+    /** @param {unknown} error @returns {unknown} */
     const markStableChannelMutation = (error) => {
         if (!stableChannelMutationAttempted) {
             return error;
         }
-        if (error && typeof error === 'object') {
+        if (isMirrorError(error)) {
             error.stableChannelMutationAttempted = true;
             return error;
         }
         const wrapped = new Error(String(error), {cause: error});
-        wrapped.stableChannelMutationAttempted = true;
-        return wrapped;
+        return Object.assign(wrapped, {stableChannelMutationAttempted: true});
     };
     for (let attempt = 1; attempt <= 5; attempt += 1) {
         const current = await readStableChannel(
@@ -674,8 +733,10 @@ async function publishStableChannel(
             await delay(25 * attempt);
         }
     }
+    throw new Error('Stable mirror channel publication exhausted its retry budget');
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} channelKey @param {RegExp} releaseTagPattern @returns {Promise<IStableChannel | null>} */
 async function readStableChannel(client, bucket, channelKey, releaseTagPattern) {
     let response;
     try {
@@ -684,7 +745,8 @@ async function readStableChannel(client, bucket, channelKey, releaseTagPattern) 
             Key: channelKey,
         }));
     } catch (error) {
-        if (error?.$metadata?.httpStatusCode === 404 || error?.name === 'NoSuchKey') {
+        if (isMirrorError(error)
+            && (error.$metadata?.httpStatusCode === 404 || error.name === 'NoSuchKey')) {
             return null;
         }
         throw error;
@@ -712,6 +774,7 @@ async function readStableChannel(client, bucket, channelKey, releaseTagPattern) 
     };
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {IStableChannel} previousChannel @param {string} channelKey @param {RegExp} releaseTagPattern @returns {Promise<void>} */
 async function restoreStableChannel(client, bucket, previousChannel, channelKey, releaseTagPattern) {
     const current = await readStableChannel(
         client,
@@ -739,23 +802,31 @@ async function restoreStableChannel(client, bucket, previousChannel, channelKey,
     await verifyUpload(client, bucket, channelKey, previousChannel.size, previousChannel.sha256);
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} protectedTag @param {string} releasePrefix @param {RegExp} releaseTagPattern @returns {Promise<string[]>} */
 async function pruneOldReleases(client, bucket, protectedTag, releasePrefix, releaseTagPattern) {
     const objects = await listAllReleaseObjects(client, bucket, releasePrefix);
-    const tags = [...new Set(objects.map(object => object.Key?.slice(releasePrefix.length).split('/')[0]).filter(Boolean))]
+    const tags = [...new Set(objects.flatMap(object => {
+        const tag = object.Key?.slice(releasePrefix.length).split('/')[0];
+        return tag ? [tag] : [];
+    }))]
         .filter(tag => releaseTagPattern.test(tag))
         .sort(compareReleaseTags)
         .reverse();
     const retainedTags = new Set(tags.slice(0, RETAINED_RELEASE_COUNT));
     retainedTags.add(protectedTag);
     const staleTags = tags.filter(tag => !retainedTags.has(tag));
-    const staleKeys = objects
-        .map(object => object.Key)
-        .filter(key => key && staleTags.some(tag => key.startsWith(`${releasePrefix}${tag}/`)));
+    const staleKeys = objects.flatMap(object => {
+        const key = object.Key;
+        return key && staleTags.some(tag => key.startsWith(`${releasePrefix}${tag}/`))
+            ? [key]
+            : [];
+    });
 
     await deleteMirrorObjects(client, bucket, staleKeys, 'Mirror pruning');
     return staleTags;
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string[]} keys @param {string} label @returns {Promise<void>} */
 async function deleteMirrorObjects(client, bucket, keys, label) {
     for (let index = 0; index < keys.length; index += 1_000) {
         const batch = keys.slice(index, index + 1_000);
@@ -766,16 +837,19 @@ async function deleteMirrorObjects(client, bucket, keys, label) {
                 Quiet: true,
             },
         }));
-        if ((result.Errors ?? []).length > 0) {
-            throw new Error(`${label} failed for ${result.Errors.map(error => error.Key ?? 'unknown').join(', ')}`);
+        const errors = result.Errors ?? [];
+        if (errors.length > 0) {
+            throw new Error(`${label} failed for ${errors.map(error => error.Key ?? 'unknown').join(', ')}`);
         }
     }
 }
 
+/** @param {TMirrorClient} client @param {string} bucket @param {string} releasePrefix @returns {Promise<IMirrorObject[]>} */
 async function listAllReleaseObjects(client, bucket, releasePrefix) {
-    const objects = [];
+    const objects = /** @type {IMirrorObject[]} */ ([]);
     let continuationToken;
     do {
+        /** @type {import('@aws-sdk/client-s3').ListObjectsV2CommandOutput} */
         const page = await client.send(new ListObjectsV2Command({
             Bucket: bucket,
             Prefix: releasePrefix,
@@ -787,11 +861,12 @@ async function listAllReleaseObjects(client, bucket, releasePrefix) {
     return objects;
 }
 
+/** @param {string} left @param {string} right @returns {number} */
 export function compareReleaseTags(left, right) {
     const leftVersion = parseReleaseVersion(left);
     const rightVersion = parseReleaseVersion(right);
     for (let index = 0; index < 3; index++) {
-        const comparison = leftVersion.core[index] - rightVersion.core[index];
+        const comparison = (leftVersion.core[index] ?? 0) - (rightVersion.core[index] ?? 0);
         if (comparison !== 0) {
             return comparison;
         }
@@ -826,10 +901,12 @@ export function compareReleaseTags(left, right) {
     return 0;
 }
 
+/** @param {string} tag @returns {number[]} */
 export function versionParts(tag) {
     return parseReleaseVersion(tag).core;
 }
 
+/** @param {string} tag @returns {{core: number[], prerelease: string[]}} */
 function parseReleaseVersion(tag) {
     const match = /^v(\d+)\.(\d+)\.(\d+)(?:[-.]([0-9A-Za-z][0-9A-Za-z.-]*))?$/u.exec(tag);
     if (!match) {
@@ -845,6 +922,7 @@ function parseReleaseVersion(tag) {
     };
 }
 
+/** @param {string} filename @returns {string} */
 export function contentTypeFor(filename) {
     const extension = basename(filename).toLowerCase().split('.').at(-1);
     return ({
@@ -856,7 +934,7 @@ export function contentTypeFor(filename) {
         json: 'application/json',
         yml: 'text/yaml; charset=utf-8',
         zip: 'application/zip',
-    })[extension] ?? 'application/octet-stream';
+    })[extension ?? ''] ?? 'application/octet-stream';
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {

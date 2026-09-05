@@ -12,24 +12,40 @@ const METERS_PER_INCH = 0.0254;
 const CM_PER_INCH = 2.54;
 export const BROWSER_RASTER_MAX_ICC_PROFILE_BYTES = 16 * 1024 * 1024;
 
+function readByte(data: Uint8Array, offset: number) {
+    const value = data[offset];
+    if (value === undefined) {
+        throw new RangeError('ERR_BROWSER_IMAGE_DATA_TRUNCATED');
+    }
+    return value;
+}
+
 function u16be(data: Uint8Array, offset: number) {
-    return (data[offset]! << 8) | data[offset + 1]!;
+    return (readByte(data, offset) << 8) | readByte(data, offset + 1);
 }
 
 function u16le(data: Uint8Array, offset: number) {
-    return data[offset]! | (data[offset + 1]! << 8);
+    return readByte(data, offset) | (readByte(data, offset + 1) << 8);
 }
 
 function u24le(data: Uint8Array, offset: number) {
-    return data[offset]! | (data[offset + 1]! << 8) | (data[offset + 2]! << 16);
+    return readByte(data, offset)
+        | (readByte(data, offset + 1) << 8)
+        | (readByte(data, offset + 2) << 16);
 }
 
 function u32be(data: Uint8Array, offset: number) {
-    return ((data[offset]! << 24) | (data[offset + 1]! << 16) | (data[offset + 2]! << 8) | data[offset + 3]!) >>> 0;
+    return ((readByte(data, offset) << 24)
+        | (readByte(data, offset + 1) << 16)
+        | (readByte(data, offset + 2) << 8)
+        | readByte(data, offset + 3)) >>> 0;
 }
 
 function u32le(data: Uint8Array, offset: number) {
-    return (data[offset]! | (data[offset + 1]! << 8) | (data[offset + 2]! << 16) | (data[offset + 3]! << 24)) >>> 0;
+    return (readByte(data, offset)
+        | (readByte(data, offset + 1) << 8)
+        | (readByte(data, offset + 2) << 16)
+        | (readByte(data, offset + 3) << 24)) >>> 0;
 }
 
 function readPng(data: Uint8Array): IBrowserRasterImageMetadata | null {
@@ -94,7 +110,7 @@ export async function resolveBrowserRasterIccProfile(metadata: IBrowserRasterIma
     const reader = stream.getReader();
     const chunks: Uint8Array[] = [];
     let profileBytes = 0;
-    while (true) {
+    for (;;) {
         const {
             done,
             value,
@@ -164,7 +180,7 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
     }> = [];
     while (offset + 4 <= data.length) {
         if (data[offset] !== 0xff) break;
-        const marker = data[offset + 1]!;
+        const marker = readByte(data, offset + 1);
         if (marker === 0xda || marker === 0xd9) break;
         const length = u16be(data, offset + 2);
         if (length < 2 || offset + 2 + length > data.length) break;
@@ -174,7 +190,7 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
             && length >= 14
             && String.fromCharCode(...data.subarray(payload, payload + 5)) === 'JFIF\0'
         ) {
-            const units = data[payload + 7]!;
+            const units = readByte(data, payload + 7);
             const density = Math.max(u16be(data, payload + 8), u16be(data, payload + 10));
             if (units === 1 && density > 0) dpi = density;
             if (units === 2 && density > 0) dpi = Math.round(density * CM_PER_INCH);
@@ -186,8 +202,8 @@ function readJpeg(data: Uint8Array): IBrowserRasterImageMetadata | null {
             && String.fromCharCode(...data.subarray(payload, payload + 12)) === 'ICC_PROFILE\0'
         ) {
             iccChunks.push({
-                sequence: data[payload + 12]!,
-                total: data[payload + 13]!,
+                sequence: readByte(data, payload + 12),
+                total: readByte(data, payload + 13),
                 data: data.slice(payload + 14, offset + 2 + length),
             });
         } else if (

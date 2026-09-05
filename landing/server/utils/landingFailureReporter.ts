@@ -8,6 +8,7 @@ import {
     type DiagnosticRecord,
     type FailureSeverity,
 } from '@contracts/diagnostics/diagnosticRecord';
+import {createEpochMs} from '@contracts/timestamps';
 import type {
     CaptureFailureInput,
     FailureReceipt,
@@ -24,7 +25,7 @@ export function createLandingFailureReporter(
 ): ILandingFailureReporter {
     const capture = <C extends DiagnosticCode>(input: CaptureFailureInput<C>): FailureReceipt => {
         const definition = DIAGNOSTIC_DEFINITIONS[input.code];
-        const occurredAt = Date.now();
+        const occurredAt = createEpochMs(Date.now());
         const severity: FailureSeverity = input.severity ?? definition.defaultSeverity;
         const eventId = createDiagnosticEventId();
         const record: DiagnosticRecord<C> = {

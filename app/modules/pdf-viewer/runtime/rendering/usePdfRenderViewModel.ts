@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -22,7 +24,7 @@ interface IUsePdfRenderViewModelOptions {
     src: ComputedRef<TPdfSource | null>;
     isLoading: Ref<boolean>;
     pdfDocument: ShallowRef<PDFDocumentProxy | null>;
-    getPage: (pageNumber: number) => Promise<PDFPageProxy>;
+    getPage: (pageNumber: TPageNumber) => Promise<PDFPageProxy>;
     openSurface: Pick<IDocumentOpenSurfaceSession, 'snapshot' | 'viewportSession'>;
     isVisualReloadTransitionActive: Ref<boolean>;
     suppressLoadingOverlay: ComputedRef<boolean>;
@@ -108,6 +110,6 @@ export const usePdfRenderViewModel = (options: IUsePdfRenderViewModelOptions) =>
         visibleLinksByPage,
         shouldShowPageSkeleton,
         isPageRenderFailed: options.isPageRenderFailed,
-        markPageRendered: (_pageNumber: number) => {},
+        markPageRendered: (_pageNumber: TPageNumber) => {},
     };
 };

@@ -1,4 +1,5 @@
 import {open} from 'fs/promises';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     COMPACT_SEARCH_INDEX_HEADER_SIZE,
     COMPACT_SEARCH_INDEX_MAGIC,
@@ -119,7 +120,7 @@ export function parseCompactSearchIndexPageRecords(
         }
         seenPageNumbers.add(pageNumber);
         records.push({
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
             textUtf16Length,
             byteOffset,
             byteLength,

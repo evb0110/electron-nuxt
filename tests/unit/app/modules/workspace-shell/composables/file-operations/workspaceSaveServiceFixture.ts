@@ -15,6 +15,8 @@ import type {
 import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/public';
 import type {IWorkspaceSaveDependencies} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
 import {useWorkspaceSaveService} from '@app/modules/workspace-shell/composables/file-operations/useWorkspaceSaveService';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
 import {
     asAnnotationId,
@@ -246,7 +248,7 @@ function canonicalEntityFromSummary(
     const text = pendingTexts.get(summary.stableKey) ?? summary.text;
     const common = {
         identity,
-        pageIndex: summary.pageIndex,
+        pageIndex: requirePageIndex(summary.pageIndex),
         revision: 1,
         persistedRevision: 0,
         deleted,
@@ -345,7 +347,10 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         bookmarkItems: ref([]),
         totalPages: ref(1),
         untitledBookmarkLabel: 'Untitled',
-        pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
+        pdfDocument: shallowRef(cast({annotationStorage: {
+            modifiedIds: {ids: new Set<string>()},
+            resetModified,
+        }})),
         saveDocument: vi.fn(async () => new Uint8Array([1])),
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         validatePdfPath: vi.fn(async () => ({
@@ -468,7 +473,7 @@ export function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSu
         subtype: overrides.subtype ?? 'Typewriter',
         author: overrides.author ?? 'Tester',
         modifiedAt: null,
-        createdAt: overrides.createdAt ?? 1781009077000,
+        createdAt: overrides.createdAt ?? requireEpochMs(1781009077000),
         color: overrides.color ?? 'rgba(255, 204, 0, 0.8)',
         uid: overrides.uid ?? 'pdfjs_internal_editor_0',
         annotationId: overrides.annotationId ?? null,
@@ -499,8 +504,8 @@ export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {})
         strokeWidth: overrides.strokeWidth ?? 3,
         source: overrides.source ?? 'local',
         stableKey: overrides.stableKey ?? 'evb-shape:shape-1',
-        createdAt: overrides.createdAt ?? 1781009077000,
-        modifiedAt: overrides.modifiedAt ?? 1781009087000,
+        createdAt: overrides.createdAt ?? requireEpochMs(1781009077000),
+        modifiedAt: overrides.modifiedAt ?? requireEpochMs(1781009087000),
         ...overrides,
     };
 }

@@ -1,5 +1,9 @@
 import { isRecord } from '@contracts/runtimeGuards';
-import type { TDocumentBackend } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentBackend,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { parseDocumentInstanceId } from '@contracts/documentInstanceId';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import type {
@@ -14,6 +18,8 @@ import type {
     TWindowTabTransferTarget,
     TWindowTabsAction,
 } from '@contracts/windowTabs';
+import {parseSessionId} from '@contracts/shared';
+import {parseTabId} from '@contracts/windowTabs';
 
 function normalizeNonEmptyString(value: unknown) {
     if (typeof value !== 'string') {
@@ -25,6 +31,13 @@ function normalizeNonEmptyString(value: unknown) {
 
 function isNullableString(value: unknown): value is string | null {
     return value === null || typeof value === 'string';
+}
+
+function decodeNullableDocumentRef(value: unknown): TDocumentRef | null | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    return value === null ? null : parseDocumentRef(value);
 }
 
 function isPositiveWindowId(value: unknown): value is number {
@@ -58,9 +71,11 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
     const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
         ? value.documentInstanceId
         : parseDocumentInstanceId(value.documentInstanceId);
+    const originalPath = decodeNullableDocumentRef(value.originalPath);
     if (
         !isNullableString(value.fileName)
-        || !isNullableString(value.originalPath)
+        || originalPath === undefined
+        || originalPath === null && value.originalPath !== null
         || documentInstanceId === null && value.documentInstanceId !== null
         || typeof value.isDirty !== 'boolean'
         || typeof value.isDjvu !== 'boolean'
@@ -71,7 +86,7 @@ function decodeTransferredTabState(value: unknown): ITransferredTabState | null 
 
     return {
         fileName: value.fileName,
-        originalPath: value.originalPath,
+        originalPath: originalPath ?? null,
         ...(originalBackend === undefined ? {} : {originalBackend}),
         ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
         isDirty: value.isDirty,
@@ -90,8 +105,9 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
 
     if (value.kind === 'djvu') {
         const sourceBackend = decodeOptionalDocumentBackend(value.sourceBackend);
+        const sourcePath = parseDocumentRef(value.sourcePath);
         if (
-            typeof value.sourcePath !== 'string'
+            sourcePath === null
             || !isOptionalPositiveInteger(value.currentPage)
             || !isOptionalPositiveInteger(value.totalPages)
             || sourceBackend === null
@@ -100,7 +116,7 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
         }
         return {
             kind: 'djvu',
-            sourcePath: value.sourcePath,
+            sourcePath,
             ...(sourceBackend === undefined ? {} : {sourceBackend}),
             ...(value.currentPage === undefined ? {} : { currentPage: value.currentPage }),
             ...(value.totalPages === undefined ? {} : { totalPages: value.totalPages }),
@@ -109,11 +125,14 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
 
     const originalBackend = decodeOptionalDocumentBackend(value.originalBackend);
     const snapshotBackend = decodeOptionalDocumentBackend(value.snapshotBackend);
+    const originalPath = decodeNullableDocumentRef(value.originalPath);
+    const snapshotPath = parseDocumentRef(value.snapshotPath);
     if (
         value.kind !== 'pdfSnapshot'
         || typeof value.fileName !== 'string'
-        || !isNullableString(value.originalPath)
-        || typeof value.snapshotPath !== 'string'
+        || originalPath === undefined
+        || originalPath === null && value.originalPath !== null
+        || snapshotPath === null
         || typeof value.isDirty !== 'boolean'
         || !isOptionalPositiveInteger(value.currentPage)
         || !isOptionalPositiveInteger(value.totalPages)
@@ -126,9 +145,9 @@ function decodeSplitPayload(value: unknown): TSplitPayload | null {
     return {
         kind: 'pdfSnapshot',
         fileName: value.fileName,
-        originalPath: value.originalPath,
+        originalPath: originalPath ?? null,
         ...(originalBackend === undefined ? {} : {originalBackend}),
-        snapshotPath: value.snapshotPath,
+        snapshotPath,
         ...(snapshotBackend === undefined ? {} : {snapshotBackend}),
         isDirty: value.isDirty,
         ...(value.currentPage === undefined ? {} : { currentPage: value.currentPage }),
@@ -160,10 +179,11 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
         return null;
     }
 
-    const sessionId = normalizeNonEmptyString(value.sessionId);
+    const sessionId = parseSessionId(value.sessionId);
     const documentRevisionToken = value.documentRevisionToken === undefined
         ? undefined
         : parseDocumentRevisionToken(value.documentRevisionToken);
+    const documentRef = decodeNullableDocumentRef(value.documentRef);
     const documentInstanceId = value.documentInstanceId === undefined || value.documentInstanceId === null
         ? value.documentInstanceId
         : parseDocumentInstanceId(value.documentInstanceId);
@@ -171,7 +191,8 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
     if (
         sessionId === null
         || !isNonNegativeInteger(value.sessionRevision)
-        || !isNullableString(value.documentRef)
+        || documentRef === undefined
+        || documentRef === null && value.documentRef !== null
         || documentInstanceId === null && value.documentInstanceId !== null
         || documentRevisionToken === null
         || documentBackend === null
@@ -182,7 +203,7 @@ function decodeTransferSession(value: unknown): IWindowTabTransferSessionState |
     return {
         sessionId,
         sessionRevision: value.sessionRevision,
-        documentRef: value.documentRef,
+        documentRef,
         ...(documentBackend === undefined ? {} : {documentBackend}),
         ...(documentInstanceId === undefined ? {} : {documentInstanceId}),
         ...(documentRevisionToken === undefined ? {} : {documentRevisionToken}),
@@ -257,7 +278,7 @@ export function decodeWindowTabsAction(value: unknown): TWindowTabsAction | null
     }
     const tabId = value.tabId === undefined
         ? undefined
-        : normalizeNonEmptyString(value.tabId);
+        : parseTabId(value.tabId);
     if (tabId === null) {
         return null;
     }

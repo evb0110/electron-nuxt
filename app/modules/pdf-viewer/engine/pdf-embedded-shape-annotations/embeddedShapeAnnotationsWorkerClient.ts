@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type {
@@ -6,6 +7,7 @@ import type {
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TSessionId } from '@contracts/shared';
 import { importEmbeddedShapeAnnotations } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-annotations/importEmbeddedShapeAnnotations';
 import {
     assertEmbeddedShapeImportSize,
@@ -67,12 +69,12 @@ interface IEmbeddedShapeIndexFiles {
         options: {expectedDocumentRevisionToken: TDocumentRevisionToken},
     ) => Promise<IPdfEmbeddedShapeIndexSession>;
     readPdfEmbeddedShapeIndexChunk?: (
-        sessionId: string,
+        sessionId: TSessionId,
         offset: number,
         options?: {chunkBytes?: number},
     ) => Promise<IPdfEmbeddedShapeIndexChunk>;
-    releasePdfEmbeddedShapeIndex?: (sessionId: string) => Promise<boolean>;
-    cancelPdfEmbeddedShapeIndex?: (sessionId: string) => Promise<{canceled: boolean}>;
+    releasePdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<boolean>;
+    cancelPdfEmbeddedShapeIndex?: (sessionId: TSessionId) => Promise<{canceled: boolean}>;
     getDocumentRevision?: (path: TDocumentRef) => Promise<{token: TDocumentRevisionToken}>;
 }
 
@@ -197,21 +199,15 @@ function copyNativeShapePoints(
     if (points === null) {
         return undefined;
     }
-    if (!Array.isArray(points)) {
-        throw new Error(`Native embedded shape index ${fieldName} must be an array or null`);
-    }
     return points.map((point, index) => ({
-        x: assertFiniteValue(point?.x, `${fieldName}[${index}].x`),
-        y: assertFiniteValue(point?.y, `${fieldName}[${index}].y`),
+        x: assertFiniteValue(point.x, `${fieldName}[${index}].x`),
+        y: assertFiniteValue(point.y, `${fieldName}[${index}].y`),
     }));
 }
 
 function copyNativeShapeStrokes(strokes: IPdfEmbeddedShapeIndexEntry['strokes']) {
     if (strokes === null) {
         return undefined;
-    }
-    if (!Array.isArray(strokes)) {
-        throw new Error('Native embedded shape index strokes must be an array or null');
     }
     return strokes.map((stroke, index) => copyNativeShapePoints(
         stroke,
@@ -226,7 +222,7 @@ function shapeIdForNativeEntry(entry: IPdfEmbeddedShapeIndexEntry, annotationId:
 
 /** Convert one native marker-space entry without loading the source PDF. */
 function mapPdfEmbeddedShapeIndexEntry(entry: IPdfEmbeddedShapeIndexEntry): IShapeAnnotation {
-    if (!entry || typeof entry !== 'object') {
+    if (typeof entry !== 'object') {
         throw new Error('Native embedded shape index entry must be an object');
     }
     const pageIndex = assertSafeIndex(entry.pageIndex, 'pageIndex');
@@ -315,7 +311,7 @@ function nativeShapeIndexFailure(error: unknown) {
     }
     return new EmbeddedShapeImportCapabilityError(
         'native-index-failed',
-        `Native embedded shape index failed: ${error instanceof Error ? error.message : String(error)}`,
+        `Native embedded shape index failed: ${getErrorMessage(error)}`,
     );
 }
 
@@ -331,7 +327,7 @@ function getNativeEmbeddedShapeIndexFiles(path: TDocumentRef, expectedRevision: 
         files = getDocumentFilesCapability();
     } catch (error) {
         throw nativeShapeIndexCapabilityError(
-            `Native embedded shape index capability is unavailable: ${error instanceof Error ? error.message : String(error)}`,
+            `Native embedded shape index capability is unavailable: ${getErrorMessage(error)}`,
         );
     }
     if (
@@ -536,8 +532,9 @@ function createEmbeddedShapeImportWorker(
 
         worker.onmessage = (event: MessageEvent<IEmbeddedShapeImportWorkerResponse>) => {
             const response = event.data;
-            if (response.ok && Array.isArray(response.shapes)) {
-                settle(() => resolve(response.shapes!));
+            const shapes = response.shapes;
+            if (response.ok && Array.isArray(shapes)) {
+                settle(() => resolve(shapes));
                 return;
             }
             settle(() => reject(reportWorkerFailure(new Error(response.error ?? 'Embedded PDF shape import worker failed'))));

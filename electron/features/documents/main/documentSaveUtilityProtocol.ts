@@ -138,22 +138,22 @@ export function getDocumentSaveUtilityReusePlan(
     const artifact = request.stagedArtifact;
     const receiptReuseEnabled = process.platform !== 'win32'
         && artifact?.receiptVersion === 1
-        && artifact?.fileIdentity.platform === 'posix';
+        && artifact.fileIdentity.platform === 'posix';
     const changedObjectRefs = request.changedObjectRefs ?? [];
     const nativeIncrementalCheck = receiptReuseEnabled
-        && artifact?.validations.semanticCheck === true
+        && artifact.validations.semanticCheck === true
         && artifact.validations.semanticScopeSha256
             === createNativeIncrementalMutationSemanticScopeSha256();
     return {
         fingerprint: receiptReuseEnabled,
-        tailCheck: receiptReuseEnabled && artifact?.validations.tailCheck === true,
-        qpdfCheck: receiptReuseEnabled && artifact?.validations.qpdfCheck === true,
+        tailCheck: receiptReuseEnabled && artifact.validations.tailCheck === true,
+        qpdfCheck: receiptReuseEnabled && artifact.validations.qpdfCheck === true,
         nativeIncrementalCheck,
         changedObjectRefsCheck: receiptReuseEnabled
             && changedObjectRefs.length > 0
-            && artifact?.validations.changedObjectRefsSha256
+            && artifact.validations.changedObjectRefsSha256
                 === createChangedObjectRefsSha256(changedObjectRefs),
-        fileSync: receiptReuseEnabled && artifact?.validations.fsynced === true,
+        fileSync: receiptReuseEnabled && artifact.validations.fsynced === true,
     };
 }
 

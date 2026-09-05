@@ -66,7 +66,7 @@ const tooltipProps = computed(() => {
     if (text !== undefined) props.text = text;
     if (content !== undefined) props.content = content;
     if (arrow !== undefined) props.arrow = arrow;
-    if (portal !== undefined) props.portal = portal;
+    props.portal = portal;
     if (tooltipClass !== undefined) props.class = tooltipClass;
     if (defaultOpen !== undefined) props.defaultOpen = defaultOpen;
     if (open !== undefined) props.open = open;
@@ -94,7 +94,7 @@ function refreshReferenceElement() {
 }
 
 function hasUsefulText(element: HTMLElement) {
-    return (element.innerText ?? '').trim().length > 0;
+    return element.innerText.trim().length > 0;
 }
 
 function isElementOverflowing(element: Element) {

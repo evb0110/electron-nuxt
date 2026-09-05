@@ -472,12 +472,12 @@ async function openPathInApp(
                 openBaselineEventId = await getLatestAutomationEventId(page);
                 const openResult = await runWithExecutionContextRetry(page, async () => {
                     return evaluateInPage(page, async (path: string) => {
-                        const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                        const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                         if (typeof automationGrant === 'function') {
                             await automationGrant(path);
                         }
 
-                        const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                        const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                         if (typeof openFileDirect !== 'function') {
                             return false;
                         }
@@ -551,12 +551,12 @@ export async function triggerOpenPathInApp(page: Page, path: string, timeoutMs =
             await waitForRendererBindings(page, Math.min(remainingMs, 8_000));
             const openResult = await runWithExecutionContextRetry(page, async () => {
                 return evaluateInPage(page, async (path: string) => {
-                    const automationGrant = (window as IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
+                    const automationGrant = (window as typeof globalThis & IE2EWindow & IAutomationFileOpenGrantApi).__allowRendererFileOpenForAutomation;
                     if (typeof automationGrant === 'function') {
                         await automationGrant(path);
                     }
 
-                    const openFileDirect = (window as IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
+                    const openFileDirect = (window as typeof globalThis & IE2EWindow & { __openFileDirect?: (value: string) => Promise<boolean> }).__openFileDirect;
                     if (typeof openFileDirect !== 'function') {
                         return false;
                     }

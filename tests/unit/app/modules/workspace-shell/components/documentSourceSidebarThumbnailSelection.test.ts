@@ -15,6 +15,7 @@ import {
     shallowRef,
 } from 'vue';
 import type {PropType} from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type {IDocumentBookmarkTreeItem} from '@app/utils/document-viewer/bookmarks/documentBookmarks';
 import type {
     IDocumentPageSource,
@@ -122,7 +123,7 @@ function createSurfaceLease(): IDocumentSurfaceLease {
 function createSource(): IDocumentPageSource {
     return {
         kind: 'djvu',
-        documentRef: 'test.djvu',
+        documentRef: requireDocumentRef('/tmp/test.djvu'),
         pageCount: 4,
         outlineProvider: {getOutline: () => Promise.resolve([{
             title: 'Part two',

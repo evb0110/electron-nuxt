@@ -16,6 +16,11 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePaneId} from '@contracts/editorPanes';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
+import type {IWorkspaceCheckpoint} from '@contracts/workspaceCheckpoint';
 
 import {
     acknowledgeWorkspaceCheckpoint,
@@ -125,26 +130,26 @@ vi.mock('@electron/file-access/workingCopyStore', () => ({
 vi.mock('@electron/file-access/workingCopyCleanup', () => ({blockStaleWorkingCopyDirectoryCleanup: state.blockCleanup}));
 
 const workingCopyRef = '/tmp/evb-working/draft.pdf';
-const checkpoint = {
+const checkpoint: IWorkspaceCheckpoint = {
     version: 1 as const,
-    capturedAt: 123,
-    activePaneId: 'pane-1',
-    activeTabId: 'tab-1',
+    capturedAt: requireEpochMs(123),
+    activePaneId: requirePaneId('pane-1'),
+    activeTabId: requireTabId('tab-1'),
     layout: {
         type: 'leaf' as const,
-        paneId: 'pane-1',
+        paneId: requirePaneId('pane-1'),
     },
     panes: [{
-        paneId: 'pane-1',
-        tabIds: ['tab-1'],
-        activeTabId: 'tab-1',
+        paneId: requirePaneId('pane-1'),
+        tabIds: [requireTabId('tab-1')],
+        activeTabId: requireTabId('tab-1'),
     }],
     tabs: [{
-        tabId: 'tab-1',
-        paneId: 'pane-1',
+        tabId: requireTabId('tab-1'),
+        paneId: requirePaneId('pane-1'),
         fileName: 'draft.pdf',
-        sourceRef: '/documents/draft.pdf',
-        workingCopyRef,
+        sourceRef: requireDocumentRef('/documents/draft.pdf'),
+        workingCopyRef: requireDocumentRef(workingCopyRef),
         isDirty: true,
         isDjvu: false,
         currentPage: 2,
@@ -196,7 +201,7 @@ describe('workspace checkpoint store', () => {
             ...checkpoint,
             tabs: [{
                 ...checkpoint.tabs[0]!,
-                sourceRef: workingCopyRef,
+                sourceRef: requireDocumentRef(workingCopyRef),
             }],
         }, 11);
 
@@ -217,7 +222,7 @@ describe('workspace checkpoint store', () => {
                 ...checkpoint,
                 tabs: [{
                     ...checkpoint.tabs[0]!,
-                    sourceRef: workingCopyRef,
+                    sourceRef: requireDocumentRef(workingCopyRef),
                 }],
             },
         }));
@@ -234,7 +239,7 @@ describe('workspace checkpoint store', () => {
             ...checkpoint,
             tabs: [{
                 ...checkpoint.tabs[0]!,
-                sourceRef: workingCopyRef,
+                sourceRef: requireDocumentRef(workingCopyRef),
             }],
         }, 11)).rejects.toThrow('no canonical source mapping');
     });

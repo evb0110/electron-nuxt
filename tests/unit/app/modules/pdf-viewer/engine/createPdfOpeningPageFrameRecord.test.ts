@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -14,7 +15,7 @@ describe('createPdfOpeningPageFrameRecord', () => {
         };
         const record = createPdfOpeningPageFrameRecord({
             generation: 18,
-            pageNumber: 7,
+            pageNumber: requirePageNumber(7),
             zoom: 3.5,
             zoomMode: 'custom',
             style: sourceStyle,

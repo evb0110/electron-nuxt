@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IPdfConformanceProfile,
     TPdfSaveMode,
@@ -235,7 +236,7 @@ export function createDocumentConformance(
                     void startPdfSaveRestrictionAnalysis(pending.path, pending.requestId).catch((error) => {
                         BrowserLogger.warn('pdf-file', 'Deferred PDF save restriction analysis failed', {
                             path: pending.path,
-                            error: error instanceof Error ? error.message : String(error),
+                            error: getErrorMessage(error),
                         });
                     });
                 }

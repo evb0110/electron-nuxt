@@ -1,3 +1,8 @@
+import {
+    pageNumberToPageIndex,
+    parsePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import { getEditorsOnPage } from '@app/services/pdfjs/annotationEditorAdapter';
 import type { IEditorTargetMatch } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/editorTargetMatch';
@@ -5,7 +10,7 @@ import type { IEditorTargetMatch } from '@app/modules/pdf-viewer/engine/annotati
 export function findEditorFromTarget(
     uiManager: AnnotationEditorUIManager | null,
     target: HTMLElement,
-    currentPage: number,
+    currentPage: TPageNumber,
 ): IEditorTargetMatch | null {
     if (!uiManager) {
         return null;
@@ -24,9 +29,9 @@ export function findEditorFromTarget(
 
     const pageContainer = editorElement.closest<HTMLElement>('.page_container');
     const pageNumber = pageContainer?.dataset.page
-        ? Number(pageContainer.dataset.page)
+        ? parsePageNumber(Number(pageContainer.dataset.page)) ?? currentPage
         : currentPage;
-    const pageIndex = Math.max(0, pageNumber - 1);
+    const pageIndex = pageNumberToPageIndex(pageNumber);
 
     for (const normalizedEditor of getEditorsOnPage(uiManager, pageIndex)) {
         const editorDiv = normalizedEditor.div;

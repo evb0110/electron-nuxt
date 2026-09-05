@@ -153,6 +153,7 @@ describe('package scripts', () => {
             'lint:clean',
             'typecheck',
             'typecheck:clean',
+            'check:tests:as-never',
             'test:unit',
             'validate:iteration',
             'validate',
@@ -176,7 +177,7 @@ describe('package scripts', () => {
         // Keep the public surface bounded while retaining explicit operator
         // entry points for the affected scan-cleanup, canonical-identity,
         // OCR-quality, xlarge-PDF gates, and Windows lab input preparation.
-        expect(Object.keys(scripts).length).toBeLessThanOrEqual(119);
+        expect(Object.keys(scripts).length).toBeLessThanOrEqual(120);
         expect(Object.keys(scripts).filter(name => (
             name.startsWith('test:e2e:') && name.endsWith(':no-build')
         ))).toEqual([]);

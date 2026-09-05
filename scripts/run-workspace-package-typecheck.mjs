@@ -7,8 +7,14 @@ import { fileURLToPath } from 'node:url';
 import { getWorkspacePackageRoots } from './workspace-roots.mjs';
 import { withTypecheckNodeHeap } from './typecheckNodeEnv.mjs';
 
+/** @type {Record<string, string>} */
 export const TYPECHECK_EXEMPT_WORKSPACE_PACKAGES = {'packages/electron-worker-bundles': 'JavaScript-only worker bundle manifest package with checked-in type declarations.'};
 
+/** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => void} TRunCommand */
+/** @typedef {{args: string[], command: string}} ITypecheckCommand */
+/** @typedef {{packageRoot: string, reason: string}} ITypecheckSkip */
+
+/** @param {string} command @param {string[]} args @param {import('node:child_process').ExecFileSyncOptions} [options] */
 function defaultRun(command, args, options = {}) {
     execFileSync(command, args, {
         cwd: process.cwd(),
@@ -17,10 +23,12 @@ function defaultRun(command, args, options = {}) {
     });
 }
 
+/** @param {string} filePath @returns {string} */
 function toPosixPath(filePath) {
     return filePath.split(path.sep).join('/');
 }
 
+/** @param {{cold?: boolean, projectRoot?: string, projects?: string[]}} options @returns {{command: ITypecheckCommand, skipped: ITypecheckSkip[]}} */
 export function getWorkspacePackageTypecheckPlan({
     cold = false,
     projectRoot = process.cwd(),
@@ -35,6 +43,7 @@ export function getWorkspacePackageTypecheckPlan({
             project,
         ]),
     ];
+    /** @type {ITypecheckSkip[]} */
     const skipped = [];
 
     for (const packageRoot of getWorkspacePackageRoots({ projectRoot })) {
@@ -67,6 +76,7 @@ export function getWorkspacePackageTypecheckPlan({
     };
 }
 
+/** @param {{cold?: boolean, projectRoot?: string, projects?: string[], runCommand?: TRunCommand, stdout?: NodeJS.WriteStream}} options */
 export function runWorkspacePackageTypecheck({
     cold = false,
     projectRoot = process.cwd(),
@@ -110,10 +120,11 @@ if (isDirectCliRun) {
     const projectArgs = args.filter(argument => argument !== '--cold');
     const projects = [];
     for (let index = 0; index < projectArgs.length; index += 2) {
-        if (projectArgs[index] !== '-p' || projectArgs[index + 1] === undefined) {
+        const project = projectArgs[index + 1];
+        if (projectArgs[index] !== '-p' || project === undefined) {
             throw new Error('Usage: node scripts/run-workspace-package-typecheck.mjs [--cold] [-p <tsconfig> ...]');
         }
-        projects.push(projectArgs[index + 1]);
+        projects.push(project);
     }
     runWorkspacePackageTypecheck({
         cold,

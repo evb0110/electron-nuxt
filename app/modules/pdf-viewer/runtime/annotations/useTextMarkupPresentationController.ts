@@ -1,3 +1,9 @@
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     ComputedRef,
     Ref,
@@ -27,11 +33,11 @@ const PRESENTATION_ESCALATION_DELAYS_MS = [
     800,
 ] as const;
 
-interface ITextMarkupEditorPresentation {pageNumber: number;}
+interface ITextMarkupEditorPresentation {pageNumber: TPageNumber;}
 
 interface ITextMarkupEditorPresentationRead<TEditorPresentation extends ITextMarkupEditorPresentation> {
     editors: readonly TEditorPresentation[];
-    unresolvedPageNumbers: readonly number[];
+    unresolvedPageNumbers: readonly TPageNumber[];
 }
 
 export type TTextMarkupPresentationSignal =
@@ -49,7 +55,7 @@ export type TTextMarkupPresentationSignal =
     | { kind: 'editors-changed' }
     | {
         kind: 'page-layer-committed';
-        pageNumber: number;
+        pageNumber: TPageNumber;
     };
 
 type TCommentColorMutation = Extract<TTextMarkupPresentationSignal, {kind: 'comment-color-mutated'}>;
@@ -64,7 +70,7 @@ interface IUseTextMarkupPresentationControllerOptions<TEditorPresentation extend
     isActive: ComputedRef<boolean>;
     presentEditor: (editor: TEditorPresentation) => boolean;
     readEditorPresentation: (
-        pageNumbers?: readonly number[],
+        pageNumbers?: readonly TPageNumber[],
     ) => ITextMarkupEditorPresentationRead<TEditorPresentation>;
     resetEditorPresentation: () => void;
     viewerContainer: Ref<HTMLElement | null>;
@@ -82,10 +88,10 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
     options: IUseTextMarkupPresentationControllerOptions<TEditorPresentation>,
 ): ITextMarkupPresentationController => {
     const supervisor = createPdfRenderSupervisor();
-    const pendingPages = new Set<number>();
+    const pendingPages = new Set<TPageNumber>();
     const pendingMutations = new Map<string, TCommentColorMutation>();
-    const firedAttemptsByPage = new Map<number, number>();
-    const armedTimersByPage = new Map<number, IPdfRenderSupervisorTimer>();
+    const firedAttemptsByPage = new Map<TPageNumber, number>();
+    const armedTimersByPage = new Map<TPageNumber, IPdfRenderSupervisorTimer>();
     let pendingAllPages = false;
     let generation = 0;
     let frameHandle: number | null = null;
@@ -110,27 +116,27 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         return color && color.length > 0 ? color : null;
     }
 
-    function isPageSurfaceMounted(container: HTMLElement, pageNumber: number) {
+    function isPageSurfaceMounted(container: HTMLElement, pageNumber: TPageNumber) {
         return Boolean(container.querySelector(
             `${pdfViewerDomSelectors.pageContainer}[data-page="${String(pageNumber)}"]`,
         ));
     }
 
     function getMountedPageNumbers(container: HTMLElement) {
-        const pageNumbers = new Set<number>();
+        const pageNumbers = new Set<TPageNumber>();
         const pageContainers = container.querySelectorAll<HTMLElement>(
             `${pdfViewerDomSelectors.pageContainer}[data-page]`,
         );
         for (const pageContainer of pageContainers) {
-            const pageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
-            if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
+            const pageNumber = parsePageNumber(Number.parseInt(pageContainer.dataset.page ?? '', 10));
+            if (pageNumber !== null) {
                 pageNumbers.add(pageNumber);
             }
         }
         return [...pageNumbers];
     }
 
-    function clearEscalation(pageNumber: number, resetBudget = false) {
+    function clearEscalation(pageNumber: TPageNumber, resetBudget = false) {
         supervisor.clearTimer(armedTimersByPage.get(pageNumber));
         armedTimersByPage.delete(pageNumber);
         if (resetBudget) {
@@ -143,7 +149,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         firedAttemptsByPage.clear();
     }
 
-    function escalate(pageNumber: number) {
+    function escalate(pageNumber: TPageNumber) {
         if (!options.isActive.value || armedTimersByPage.has(pageNumber)) {
             return;
         }
@@ -179,6 +185,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         color: string | null,
         sourceColor?: string | null,
     ) {
+        const pageNumber = requirePageNumber(comment.pageNumber);
         const displayColor = resolveDisplayColor(comment, color);
         const applied = !displayColor || applyAnnotationCommentTextMarkupColor(
             container,
@@ -189,24 +196,25 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
                 suppressNativeTextMarkupDecoration: true,
             },
         );
-        return !applied && isPageSurfaceMounted(container, comment.pageNumber)
-            ? comment.pageNumber
+        return !applied && isPageSurfaceMounted(container, pageNumber)
+            ? pageNumber
             : null;
     }
 
     function applyPresentation(
         container: HTMLElement,
-        pageNumber: number | null,
+        pageNumber: TPageNumber | null,
         mutations: Map<string, TCommentColorMutation>,
     ) {
-        const unresolvedPages = new Set<number>();
+        const unresolvedPages = new Set<TPageNumber>();
         const comments = options.annotationCommentsCache.value;
         const foldedMutations = new Map<string, TCommentColorMutation>();
         for (const comment of comments) {
+            const commentPageNumber = requirePageNumber(comment.pageNumber);
             if (
                 !isRepairableTextMarkupComment(comment)
-                || (pageNumber !== null && comment.pageNumber !== pageNumber)
-                || !isPageSurfaceMounted(container, comment.pageNumber)
+                || (pageNumber !== null && commentPageNumber !== pageNumber)
+                || !isPageSurfaceMounted(container, commentPageNumber)
             ) {
                 continue;
             }
@@ -239,7 +247,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
         editorRead.unresolvedPageNumbers.forEach(unresolvedPage => unresolvedPages.add(unresolvedPage));
         editorRead.editors.forEach((entry) => {
             if (!options.presentEditor(entry)) {
-                unresolvedPages.add(entry.pageNumber);
+                unresolvedPages.add(requirePageNumber(entry.pageNumber));
             }
         });
         return unresolvedPages;
@@ -289,7 +297,7 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             : pages.reduce((accumulated, pageNumber) => {
                 applyPresentation(container, pageNumber, mutations).forEach(page => accumulated.add(page));
                 return accumulated;
-            }, new Set<number>());
+            }, new Set<TPageNumber>());
         mutations.forEach((mutation) => {
             const unresolvedPage = applyCommentColorMutation(container, mutation);
             if (unresolvedPage !== null) {
@@ -304,7 +312,10 @@ export const useTextMarkupPresentationController = <TEditorPresentation extends 
             ])
             : new Set([
                 ...pages,
-                ...Array.from(mutations.values(), mutation => mutation.comment.pageNumber),
+                ...Array.from(
+                    mutations.values(),
+                    mutation => requirePageNumber(mutation.comment.pageNumber),
+                ),
             ]);
         attemptedPages.forEach((pageNumber) => {
             if (!unresolvedPages.has(pageNumber)) {

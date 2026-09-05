@@ -1,3 +1,5 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
+import type {TBrand} from '@contracts/brand';
 import type {
     IPlatformApiDescriptor,
     IPlatformMethodDescriptor,
@@ -8,6 +10,7 @@ export interface IRuntimeSchema<T> {
     decode: (value: unknown) => T;
     encode: {bivarianceHack(value: T): unknown}['bivarianceHack'];
     example: () => T;
+    decodeAt?: (value: unknown, path: string) => T;
 }
 
 export type TInferSchema<T> = T extends {decode: (...args: never[]) => unknown}
@@ -31,31 +34,272 @@ type TPlatformBrowserSpec = {method: string} | {
     reason: 'unsupported-backend' | 'requires-native-backend' | 'not-implemented';
 };
 
-const fail = (message: string): never => {
-    throw new Error(message);
+const fail = (message: string, path = ''): never => {
+    throw new Error(path.length === 0 ? message : `${path}: ${message}`);
+};
+
+const propertyPath = (path: string, key: string) => {
+    if (path.length === 0) {
+        return key;
+    }
+    return /^[A-Za-z_$][\w$]*$/u.test(key)
+        ? `${path}.${key}`
+        : `${path}[${JSON.stringify(key)}]`;
+};
+
+const indexPath = (path: string, index: number) => `${path}[${String(index)}]`;
+
+const isUnknownArray = (value: unknown): value is unknown[] => Array.isArray(value);
+
+const isObjectRecord = (value: unknown): value is Record<string, unknown> =>
+    typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const throwWithPath = (error: unknown, path: string): never => {
+    if (path.length === 0) {
+        throw error;
+    }
+    const message = getErrorMessage(error);
+    if (
+        message === path
+        || message.startsWith(`${path}:`)
+        || message.startsWith(`${path}.`)
+        || message.startsWith(`${path}[`)
+    ) {
+        throw error;
+    }
+    throw new Error(`${path}: ${message}`);
+};
+
+const decodeWithPath = <T>(itemSchema: IRuntimeSchema<T>, value: unknown, path: string): T => {
+    try {
+        if (itemSchema.decodeAt !== undefined) {
+            return itemSchema.decodeAt(value, path);
+        }
+        return itemSchema.decode(value);
+    } catch (error) {
+        return throwWithPath(error, path);
+    }
 };
 
 const schema = <T>(
-    decode: (value: unknown) => T,
+    decodeAt: (value: unknown, path: string) => T,
     example: () => T,
-    encode: (value: T) => unknown = decode,
-): IRuntimeSchema<T> => ({
-    decode,
-    encode,
-    example,
-});
+    encode: (value: T) => unknown = value => decodeAt(value, ''),
+): IRuntimeSchema<T> => {
+    const decode = (value: unknown) => {
+        try {
+            return decodeAt(value, '');
+        } catch (error) {
+            return throwWithPath(error, '');
+        }
+    };
+    const decodeWithContext = (value: unknown, path: string) => {
+        try {
+            return decodeAt(value, path);
+        } catch (error) {
+            return throwWithPath(error, path);
+        }
+    };
+    return {
+        decode,
+        encode,
+        example,
+        decodeAt: decodeWithContext,
+    };
+};
+
+function branded<TBase, TName extends string>(
+    itemSchema: IRuntimeSchema<TBase>,
+    guard: (value: TBase) => value is TBrand<TBase, TName>,
+    message: string,
+): IRuntimeSchema<TBrand<TBase, TName>> {
+    const decode = (value: unknown, path: string) => {
+        const decoded = decodeWithPath(itemSchema, value, path);
+        return guard(decoded) ? decoded : fail(message, path);
+    };
+    const example = () => {
+        const candidate = itemSchema.example();
+        return guard(candidate) ? candidate : fail(message, '');
+    };
+    return schema<TBrand<TBase, TName>>(
+        decode,
+        example,
+        value => itemSchema.encode(value),
+    );
+}
+
+type TTupleSchema = ReadonlyArray<IRuntimeSchema<unknown>>;
+type TTupleValue<TSchemas extends TTupleSchema> = {-readonly [TKey in keyof TSchemas]: TInferSchema<TSchemas[TKey]>};
+
+function tuple<const TSchemas extends TTupleSchema>(schemas: TSchemas): IRuntimeSchema<TTupleValue<TSchemas>>;
+function tuple(schemas: TTupleSchema): IRuntimeSchema<unknown[]> {
+    const rebuild = (value: unknown, encode: boolean, path: string): unknown[] => {
+        if (!isUnknownArray(value)) {
+            return fail(`expected ${schemas.length} arguments, received 0`, path);
+        }
+        if (value.length !== schemas.length) {
+            fail(`expected ${schemas.length} arguments, received ${value.length}`, path);
+        }
+        return schemas.map((itemSchema, index) => encode
+            ? itemSchema.encode(value[index])
+            : decodeWithPath(itemSchema, value[index], indexPath(path, index)));
+    };
+    return schema<unknown[]>(
+        (value, path) => rebuild(value, false, path),
+        () => schemas.map(itemSchema => itemSchema.example()),
+        value => rebuild(value, true, ''),
+    );
+}
+
+function oneOf<const TValues extends readonly TSchemaPrimitive[]>(
+    values: TValues,
+    message = 'expected one of the declared values',
+): IRuntimeSchema<TValues[number]> {
+    const decode = (value: unknown, path: string) => {
+        const isDeclaredValue = (candidate: unknown): candidate is TValues[number] =>
+            values.some(declaredValue => declaredValue === candidate);
+        return isDeclaredValue(value) ? value : fail(message, path);
+    };
+    const [exampleValue] = values;
+    if (exampleValue === undefined) {
+        throw new Error('oneOf requires at least one declared value');
+    }
+    return schema<TValues[number]>(decode, () => exampleValue);
+}
+
+function literal<TValue extends TSchemaPrimitive>(value: TValue): IRuntimeSchema<TValue> {
+    return oneOf([value]);
+}
+
+function record<T>(itemSchema: IRuntimeSchema<T>): IRuntimeSchema<Record<string, T>> {
+    const decode = (value: unknown, path: string): Record<string, T> => {
+        if (!isObjectRecord(value)) {
+            return fail('expected an object', path);
+        }
+        const result: Record<string, T> = {};
+        for (const [
+            key,
+            item,
+        ] of Object.entries(value)) {
+            // Plain assignment would route a decoded "__proto__" key through the
+            // Object.prototype setter, silently dropping it and reparenting result.
+            Object.defineProperty(result, key, {
+                configurable: true,
+                enumerable: true,
+                value: decodeWithPath(itemSchema, item, propertyPath(path, key)),
+                writable: true,
+            });
+        }
+        return result;
+    };
+    return schema<Record<string, T>>(
+        decode,
+        () => ({}),
+        value => Object.fromEntries(Object.entries(value).map(([
+            key,
+            item,
+        ]) => [
+            key,
+            itemSchema.encode(item),
+        ])),
+    );
+}
+
+function object<const TShape extends TSchemaObject>(
+    shape: TShape,
+    options?: {
+        exact?: boolean;
+        message?: string;
+    },
+): IRuntimeSchema<TDecodedSchemaObject<TShape>>;
+function object(
+    shape: TSchemaObject,
+    options: {
+        exact?: boolean;
+        message?: string
+    } = {},
+): IRuntimeSchema<Record<string, unknown>> {
+    const rebuild = (value: unknown, encode: boolean, path: string): Record<string, unknown> => {
+        if (!isObjectRecord(value)) {
+            return fail(options.message ?? 'expected an object', path);
+        }
+        if (
+            options.exact === true
+            && Object.keys(value).some(key => !Object.hasOwn(shape, key))
+        ) {
+            return fail(options.message ?? 'unexpected object field', path);
+        }
+        const result: Record<string, unknown> = {};
+        for (const [
+            key,
+            itemSchema,
+        ] of Object.entries(shape)) {
+            const item: unknown = encode
+                ? itemSchema.encode(value[key])
+                : decodeWithPath(itemSchema, value[key], propertyPath(path, key));
+            if (item !== undefined) {
+                result[key] = item;
+            }
+        }
+        return result;
+    };
+    return schema<Record<string, unknown>>(
+        (value, path) => rebuild(value, false, path),
+        () => rebuild(Object.fromEntries(
+            Object.entries(shape).map(([
+                key,
+                itemSchema,
+            ]) => [
+                key,
+                itemSchema.example(),
+            ]),
+        ), false, ''),
+        value => rebuild(value, true, ''),
+    );
+}
+
+function union<const TSchemas extends ReadonlyArray<IRuntimeSchema<TSchemaValue>>>(
+    schemas: TSchemas,
+    message?: string,
+): IRuntimeSchema<TInferSchema<TSchemas[number]>>;
+function union(
+    schemas: ReadonlyArray<IRuntimeSchema<unknown>>,
+    message = 'value did not match any declared schema',
+): IRuntimeSchema<unknown> {
+    const decode = (value: unknown, path: string): unknown => {
+        for (const itemSchema of schemas) {
+            try {
+                const decoded: unknown = decodeWithPath(itemSchema, value, path);
+                return decoded;
+            } catch {
+                continue;
+            }
+        }
+        return fail(message, path);
+    };
+    const [exampleSchema] = schemas;
+    if (exampleSchema === undefined) {
+        throw new Error('union requires at least one schema');
+    }
+    return schema<unknown>(decode, () => exampleSchema.example());
+}
+
+function trustedDirect<T>(example: () => T): IRuntimeSchema<T>;
+function trustedDirect(example: () => unknown): IRuntimeSchema<unknown> {
+    return schema(value => value, example);
+}
 
 export const runtimeSchema = {
     boolean(example = false) {
-        const decode = (value: unknown) => typeof value === 'boolean'
+        const decode = (value: unknown, path: string) => typeof value === 'boolean'
             ? value
-            : fail('expected a boolean IPC result');
+            : fail('expected a boolean IPC result', path);
         return schema<boolean>(decode, () => example);
     },
     string(example = '') {
-        const decode = (value: unknown) => typeof value === 'string'
+        const decode = (value: unknown, path: string) => typeof value === 'string'
             ? value
-            : fail('expected a string');
+            : fail('expected a string', path);
         return schema<string>(decode, () => example);
     },
     number(options: {
@@ -64,17 +308,19 @@ export const runtimeSchema = {
         max?: number;
         message?: string
     } = {}) {
-        const decode = (value: unknown) => {
+        const decode = (value: unknown, path: string) => {
+            if (typeof value !== 'number') {
+                return fail(options.message ?? 'expected a finite number', path);
+            }
             if (
-                typeof value !== 'number'
-                || !Number.isFinite(value)
+                !Number.isFinite(value)
                 || (options.integer === true && !Number.isSafeInteger(value))
                 || (options.min !== undefined && value < options.min)
                 || (options.max !== undefined && value > options.max)
             ) {
-                fail(options.message ?? 'expected a finite number');
+                return fail(options.message ?? 'expected a finite number', path);
             }
-            return value as number;
+            return value;
         };
         return schema<number>(decode, () => options.min ?? 0);
     },
@@ -82,44 +328,28 @@ export const runtimeSchema = {
         values: TValues,
         message = 'expected one of the declared values',
     ) {
-        const decode = (value: unknown) => values.includes(value as TValues[number])
-            ? value as TValues[number]
-            : fail(message);
-        return schema<TValues[number]>(decode, () => values[0]!);
+        return oneOf(values, message);
+    },
+    literal<TValue extends TSchemaPrimitive>(value: TValue) {
+        return literal(value);
     },
     undefined() {
-        const decode = (value: unknown) => value === undefined
+        const decode = (value: unknown, path: string) => value === undefined
             ? undefined
-            : fail('expected an undefined IPC result');
+            : fail('expected an undefined IPC result', path);
         return schema(decode, () => undefined);
     },
-    tuple<const TSchemas extends ReadonlyArray<IRuntimeSchema<unknown>>>(schemas: TSchemas) {
-        type TValue = {-readonly [TKey in keyof TSchemas]: TInferSchema<TSchemas[TKey]>};
-        const rebuild = (value: unknown, encode: boolean) => {
-            if (!Array.isArray(value) || value.length !== schemas.length) {
-                fail(`expected ${schemas.length} arguments, received ${Array.isArray(value) ? value.length : 0}`);
-            }
-            const items = value as unknown[];
-            return schemas.map((itemSchema, index) => encode
-                ? itemSchema.encode(items[index] as never)
-                : itemSchema.decode(items[index])) as TValue;
-        };
-        return schema(
-            value => rebuild(value, false),
-            () => schemas.map(itemSchema => itemSchema.example()) as TValue,
-            value => rebuild(value, true),
-        );
-    },
+    tuple,
     optional<T>(itemSchema: IRuntimeSchema<T>): IRuntimeSchema<T | undefined> {
         return schema<T | undefined>(
-            value => value === undefined ? undefined : itemSchema.decode(value),
+            (value, path) => value === undefined ? undefined : decodeWithPath(itemSchema, value, path),
             () => undefined,
             value => value === undefined ? undefined : itemSchema.encode(value),
         );
     },
     nullable<T>(itemSchema: IRuntimeSchema<T>): IRuntimeSchema<T | null> {
         return schema<T | null>(
-            value => value === null ? null : itemSchema.decode(value),
+            (value, path) => value === null ? null : decodeWithPath(itemSchema, value, path),
             () => null,
             value => value === null ? null : itemSchema.encode(value),
         );
@@ -128,9 +358,16 @@ export const runtimeSchema = {
         itemSchema: IRuntimeSchema<T>,
         example: readonly T[] = [],
     ): IRuntimeSchema<T[]> {
-        const decode = (value: unknown) => Array.isArray(value)
-            ? value.map(item => itemSchema.decode(item))
-            : fail('expected an array');
+        const decode = (value: unknown, path: string) => {
+            if (!isUnknownArray(value)) {
+                return fail('expected an array', path);
+            }
+            return value.map((item, index) => decodeWithPath(
+                itemSchema,
+                item,
+                indexPath(path, index),
+            ));
+        };
         return schema<T[]>(
             decode,
             () => example.map(item => itemSchema.decode(item)),
@@ -140,6 +377,13 @@ export const runtimeSchema = {
     fromParser<T>(parse: (value: unknown) => T, example: () => T) {
         return schema(parse, example);
     },
+    branded<TBase, TName extends string>(
+        itemSchema: IRuntimeSchema<TBase>,
+        guard: (value: TBase) => value is TBrand<TBase, TName>,
+        message: string,
+    ) {
+        return branded(itemSchema, guard, message);
+    },
     object<const TShape extends TSchemaObject>(
         shape: TShape,
         options: {
@@ -147,54 +391,19 @@ export const runtimeSchema = {
             message?: string
         } = {},
     ): IRuntimeSchema<TDecodedSchemaObject<TShape>> {
-        type TValue = TDecodedSchemaObject<TShape>;
-        const rebuild = (value: unknown, encode: boolean) => {
-            if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-                fail(options.message ?? 'expected an object');
-            }
-            const source = value as Record<string, unknown>;
-            if (
-                options.exact === true
-                && Object.keys(source).some(key => !Object.hasOwn(shape, key))
-            ) {
-                fail(options.message ?? 'unexpected object field');
-            }
-            const result: Record<string, unknown> = {};
-            for (const [
-                key,
-                itemSchema,
-            ] of Object.entries(shape)) {
-                const item: unknown = encode
-                    ? itemSchema.encode(source[key])
-                    : itemSchema.decode(source[key]);
-                if (item !== undefined) {
-                    result[key] = item;
-                }
-            }
-            return result as TValue;
-        };
-        return schema<TValue>(
-            value => rebuild(value, false),
-            () => rebuild(Object.fromEntries(
-                Object.entries(shape).map(([
-                    key,
-                    itemSchema,
-                ]) => [
-                    key,
-                    itemSchema.example(),
-                ]),
-            ), false),
-            value => rebuild(value, true),
-        );
+        return object(shape, options);
+    },
+    record<T>(itemSchema: IRuntimeSchema<T>) {
+        return record(itemSchema);
     },
     refine<T>(
         itemSchema: IRuntimeSchema<T>,
         predicate: (value: T) => boolean,
         message: string,
     ): IRuntimeSchema<T> {
-        const decode = (value: unknown) => {
-            const decoded = itemSchema.decode(value);
-            return predicate(decoded) ? decoded : fail(message);
+        const decode = (value: unknown, path: string) => {
+            const decoded = decodeWithPath(itemSchema, value, path);
+            return predicate(decoded) ? decoded : fail(message, path);
         };
         return schema<T>(
             decode,
@@ -202,33 +411,15 @@ export const runtimeSchema = {
             value => itemSchema.encode(value),
         );
     },
-    union<const TSchemas extends ReadonlyArray<IRuntimeSchema<TSchemaValue>>>(
-        schemas: TSchemas,
-        message = 'value did not match any declared schema',
-    ) {
-        type TValue = TInferSchema<TSchemas[number]>;
-        const decode = (value: unknown): TValue => {
-            for (const itemSchema of schemas) {
-                try {
-                    return itemSchema.decode(value) as TValue;
-                } catch {
-                    continue;
-                }
-            }
-            return fail(message);
-        };
-        return schema<TValue>(decode, () => schemas[0]!.example() as TValue);
-    },
+    union,
     fromNullableDecoder<T>(decodeNullable: (value: unknown) => T | null, label: string, example: () => T) {
-        const decode = (value: unknown) => decodeNullable(value) ?? fail(`invalid ${label}`);
+        const decode = (value: unknown, path: string) => decodeNullable(value) ?? fail(`invalid ${label}`, path);
         return schema(decode, example);
     },
     declared<T>() {
         return (declaredSchema: IRuntimeSchema<T>) => declaredSchema;
     },
-    trustedDirect<T>(example: () => T) {
-        return schema(value => value as T, example);
-    },
+    trustedDirect,
 };
 
 export function argsSchema<TArgs extends unknown[]>(
@@ -272,6 +463,31 @@ type TForwardedPlatformMethod<
     readonly lazy: 'forwarded';
 } & (TOptional extends true ? {readonly optionalWhenImplemented: true} : Record<never, never>);
 
+interface IForwardedPlatformMethodDefinition {
+    name: string;
+    channel: string;
+    args: IRuntimeSchema<unknown[]>;
+    result: IRuntimeSchema<unknown>;
+    main: string;
+    optionalWhenImplemented?: boolean;
+}
+
+interface IWideForwardedPlatformMethod {
+    kind: 'async';
+    channel: string;
+    ipc: {
+        args: IRuntimeSchema<unknown[]>;
+        result: IRuntimeSchema<unknown>;
+    };
+    main: {
+        method: string;
+        context: 'sender';
+    };
+    browser: {method: string};
+    lazy: 'forwarded';
+    optionalWhenImplemented?: boolean;
+}
+
 export function defineForwardedPlatformMethod<
     const TName extends string,
     const TChannel extends string,
@@ -286,7 +502,9 @@ export function defineForwardedPlatformMethod<
     result: TResult;
     main: TMain;
     optionalWhenImplemented?: TOptional;
-}): TForwardedPlatformMethod<TName, TChannel, TArgs, TResult, TMain, TOptional> {
+}): TForwardedPlatformMethod<TName, TChannel, TArgs, TResult, TMain, TOptional>;
+export function defineForwardedPlatformMethod(definition: IForwardedPlatformMethodDefinition): IWideForwardedPlatformMethod;
+export function defineForwardedPlatformMethod(definition: IForwardedPlatformMethodDefinition): IWideForwardedPlatformMethod {
     return {
         kind: 'async',
         channel: definition.channel,
@@ -299,9 +517,9 @@ export function defineForwardedPlatformMethod<
             context: 'sender',
         },
         browser: {method: definition.name},
-        ...(definition.optionalWhenImplemented === true ? {optionalWhenImplemented: true as const} : {}),
+        ...(definition.optionalWhenImplemented === true ? {optionalWhenImplemented: true} : {}),
         lazy: 'forwarded',
-    } as TForwardedPlatformMethod<TName, TChannel, TArgs, TResult, TMain, TOptional>;
+    };
 }
 
 export function defineForwardedPlatformEvent<
@@ -576,19 +794,20 @@ export type TAnyDefinedPlatformFeature = IDefinedPlatformFeature<TMethods, TEven
 
 export function definePlatformFeature<const M extends TMethods, const E extends TEvents>(
     definition: IFeatureInput<M, E>,
-) {
-    type TFeature = IDefinedPlatformFeature<M, E>;
-    const events = definition.events ?? {} as E;
+): IDefinedPlatformFeature<M, E>;
+export function definePlatformFeature(
+    definition: IFeatureInput<TMethods, TEvents>,
+): IDefinedPlatformFeature<TMethods, TEvents> {
+    const events = definition.events ?? {};
     const seen = new Set<string>();
     const invokeChannels: Record<string, string> = {};
     const eventChannels: Record<string, string> = {};
-    const ipcCodecs: Record<string, {
-        encodeArgs: (value: unknown[]) => unknown[];
-        decodeArgs: (value: readonly unknown[]) => unknown[];
-        decodeResult: (value: unknown) => unknown;
-    }> = {};
+    const ipcCodecs: Record<string, IPlatformFeatureCodec> = {};
     const methods: IPlatformMethodDescriptor[] = [];
-    const fixtureMethods: Array<TFeature['fixtureMethods'][number]> = [];
+    const fixtureMethods: Array<{
+        descriptor: IPlatformMethodDescriptor;
+        example: () => unknown;
+    }> = [];
     const addChannel = (channel: string) => {
         if (seen.has(channel)) {
             fail(`Duplicate platform feature channel: ${channel}`);
@@ -637,7 +856,13 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
         addChannel(spec.channel);
         invokeChannels[name] = spec.channel;
         ipcCodecs[spec.channel] = {
-            encodeArgs: value => spec.ipc.args.encode(value) as unknown[],
+            encodeArgs: value => {
+                const encoded = spec.ipc.args.encode(value);
+                if (!isUnknownArray(encoded)) {
+                    return fail(`Platform feature argument encoder returned a non-array: ${spec.channel}`);
+                }
+                return encoded;
+            },
             decodeArgs: value => spec.ipc.args.decode(value),
             decodeResult: spec.ipc.result.decode,
         };
@@ -661,7 +886,9 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
             invokeChannels[spec.subscription.main.method] = spec.subscription.channel;
             const noArgs = runtimeSchema.tuple([]);
             ipcCodecs[spec.subscription.channel] = {
-                encodeArgs: value => noArgs.encode(value as []) as unknown[],
+                encodeArgs: value => {
+                    return noArgs.decode(value);
+                },
                 decodeArgs: noArgs.decode,
                 decodeResult: runtimeSchema.undefined().decode,
             };
@@ -678,10 +905,10 @@ export function definePlatformFeature<const M extends TMethods, const E extends 
             }],
             methods,
         },
-        invokeChannels: invokeChannels as TFeature['invokeChannels'],
+        invokeChannels,
         invokeChannelSet: new Set(Object.values(invokeChannels)),
-        eventChannels: eventChannels as TFeature['eventChannels'],
-        ipcCodecs: Object.assign({} as TFeature['ipcCodecs'], ipcCodecs),
+        eventChannels,
+        ipcCodecs: Object.assign({}, ipcCodecs),
         fixtureMethods,
-    } satisfies TFeature;
+    };
 }

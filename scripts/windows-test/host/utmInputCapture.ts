@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {randomUUID} from 'node:crypto';
 import {
     rm,
@@ -45,7 +46,7 @@ function parseProbeResult(text: string): IUtmInputCaptureProbeResult {
     try {
         parsed = JSON.parse(text.trim());
     } catch (error) {
-        throw new Error(`The UTM input-capture probe returned invalid JSON: ${error instanceof Error ? error.message : String(error)}.`);
+        throw new Error(`The UTM input-capture probe returned invalid JSON: ${getErrorMessage(error)}.`);
     }
     if (typeof parsed !== 'object' || parsed === null) {
         throw new Error('The UTM input-capture probe returned a non-object result.');
@@ -189,7 +190,7 @@ export function createUtmInputCaptureGuard(options: IUtmInputCaptureGuardOptions
             }
             await record('cleanup', result);
         } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
+            const detail = getErrorMessage(error);
             if (!/(?:target window|UTM process count|not listed)/iu.test(detail)) {
                 throw error;
             }

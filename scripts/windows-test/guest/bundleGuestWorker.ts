@@ -119,7 +119,7 @@ export async function bundleGuestWorker(options: IBundleGuestWorkerOptions) {
         outFile: buildOptions.outfile ?? options.outFile,
         errors: result.errors.length,
         warnings: result.warnings.length,
-        bytes: Object.values(result.metafile?.outputs ?? {})
+        bytes: Object.values(result.metafile.outputs)
             .reduce((total, output) => total + output.bytes, 0),
     };
 }

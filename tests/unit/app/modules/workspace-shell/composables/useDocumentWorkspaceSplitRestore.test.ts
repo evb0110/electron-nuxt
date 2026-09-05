@@ -14,6 +14,7 @@ import {
 } from 'vue';
 import type { Component } from 'vue';
 import type { TSplitPayload } from '@contracts/windowTabs';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     cleanupSplitPayloadSnapshot: vi.fn(),
@@ -69,8 +70,8 @@ describe('useDocumentWorkspaceSplitRestore', () => {
         const payload: TSplitPayload = {
             kind: 'pdfSnapshot',
             fileName: 'sample.pdf',
-            originalPath: '/tmp/sample.pdf',
-            snapshotPath: '/tmp/split-snapshot.pdf',
+            originalPath: requireDocumentRef('/tmp/sample.pdf'),
+            snapshotPath: requireDocumentRef('/tmp/split-snapshot.pdf'),
             isDirty: false,
             currentPage: 3,
             totalPages: 9,
@@ -148,7 +149,7 @@ describe('useDocumentWorkspaceSplitRestore', () => {
     it('preseeds DjVu cached payload paging before restore', async () => {
         const payload: TSplitPayload = {
             kind: 'djvu',
-            sourcePath: '/tmp/sample.djvu',
+            sourcePath: requireDocumentRef('/tmp/sample.djvu'),
             currentPage: 5,
             totalPages: 12,
         };
@@ -219,7 +220,7 @@ describe('useDocumentWorkspaceSplitRestore', () => {
     it('does not retry a failed DjVu payload in a loop within one mount', async () => {
         const payload: TSplitPayload = {
             kind: 'djvu',
-            sourcePath: '/tmp/sample.djvu',
+            sourcePath: requireDocumentRef('/tmp/sample.djvu'),
             currentPage: 5,
             totalPages: 12,
         };

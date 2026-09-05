@@ -1,3 +1,4 @@
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
     beforeEach,
@@ -306,17 +307,17 @@ describe('useAnnotationSync', () => {
         expect(resolveIdentity(null)).toBe('no-document');
         expect(resolveAnnotationSnapshotDocumentIdentity({
             originalPath: '/documents/original.pdf',
-            workingCopyPath: '/managed/working.pdf',
+            workingCopyPath: requireDocumentRef('/managed/working.pdf'),
             source: first,
         })).toBe('source:/documents/original.pdf');
         expect(resolveAnnotationSnapshotDocumentIdentity({
             originalPath: null,
-            workingCopyPath: '/managed/working.pdf',
+            workingCopyPath: requireDocumentRef('/managed/working.pdf'),
             source: first,
         })).toBe('path:/managed/working.pdf');
         expect(resolveIdentity({
             kind: 'path',
-            path: '/documents/source.pdf',
+            path: requireDocumentRef('/documents/source.pdf'),
             size: 4,
         })).toBe('path:/documents/source.pdf');
     });
@@ -1587,7 +1588,7 @@ describe('useAnnotationSync', () => {
             });
             const queuedInventory = sync.syncAnnotationComments();
 
-            await sync.flushEditorCommentsForSave();
+            sync.flushEditorCommentsForSave();
 
             expect(setAnnotations).toHaveBeenCalledTimes(1);
             expect(setAnnotations).toHaveBeenLastCalledWith(

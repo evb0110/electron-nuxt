@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { STRESS_HOST_PROFILE_IDS } from '@scripts/stress/stressHostProfiles';
@@ -97,7 +98,7 @@ export async function runStressCliMain(main: (argv: string[]) => Promise<number>
     try {
         process.exitCode = await main(argv.slice(2));
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 2;
     }
 }

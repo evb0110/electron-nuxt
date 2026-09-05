@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -42,7 +43,7 @@ describe('browserDjvuCapability routing', () => {
     });
 
     it('refuses an absolute path without a native bridge before worker or file access', async () => {
-        await expect(browserDjvuCapability.getPageSizes('/tmp/native.djvu'))
+        await expect(browserDjvuCapability.getPageSizes(requireDocumentRef('/tmp/native.djvu')))
             .rejects.toMatchObject({
                 code: 'native-unavailable',
                 name: 'PdfCombineCapabilityError',
@@ -58,7 +59,7 @@ describe('browserDjvuCapability routing', () => {
     it('keeps browser document references on the browser worker route', async () => {
         mocks.createWorker.mockResolvedValue({terminate: vi.fn()});
 
-        await expect(browserDjvuCapability.getPageSizes('browser://documents/book.djvu'))
+        await expect(browserDjvuCapability.getPageSizes(requireDocumentRef('browser://documents/book.djvu')))
             .resolves.toEqual([{
                 dpi: 300,
                 height: 200,

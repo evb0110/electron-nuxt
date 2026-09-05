@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 // PDF.js-private editor bookkeeping. Creating an annotation editor is
 // asynchronous and pdf.js exposes no handle to the one it just made, so the
 // bridge diffs the page's editors around the call to find it.
@@ -6,11 +8,11 @@ import { isEditorCommentDeleted } from '@app/modules/pdf-viewer/annotations/brid
 
 export interface IEditorSnapshot {editorsBeforeIds: Set<string>;}
 
-type TGetEditorsForPage = (pageIndex: number) => IPdfjsEditor[];
-type TGetEditorIdentity = (editor: IPdfjsEditor, pageIndex: number) => string;
+type TGetEditorsForPage = (pageIndex: TPageIndex) => IPdfjsEditor[];
+type TGetEditorIdentity = (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;
 
 export function captureEditorSnapshot(
-    pageIndex: number,
+    pageIndex: TPageIndex,
     getEditorsForPage: TGetEditorsForPage,
     getEditorIdentity: TGetEditorIdentity,
 ): IEditorSnapshot {
@@ -19,7 +21,7 @@ export function captureEditorSnapshot(
 }
 
 export function pickCreatedEditorCandidate(
-    pageIndex: number,
+    pageIndex: TPageIndex,
     snapshot: IEditorSnapshot,
     getEditorsForPage: TGetEditorsForPage,
     getEditorIdentity: TGetEditorIdentity,

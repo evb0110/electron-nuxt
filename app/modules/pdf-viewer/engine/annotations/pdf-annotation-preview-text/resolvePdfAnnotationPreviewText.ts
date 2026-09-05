@@ -41,14 +41,49 @@ function hasUsableViewport(viewport: IPdfTextPreviewViewport | null | undefined)
     );
 }
 
-function matrixTransform(left: number[], right: number[]) {
+function matrixTransform(
+    left: number[],
+    right: number[],
+): readonly [number, number, number, number, number, number] | null {
+    const [
+        leftA,
+        leftB,
+        leftC,
+        leftD,
+        leftE,
+        leftF,
+    ] = left;
+    const [
+        rightA,
+        rightB,
+        rightC,
+        rightD,
+        rightE,
+        rightF,
+    ] = right;
+    if (
+        leftA === undefined
+        || leftB === undefined
+        || leftC === undefined
+        || leftD === undefined
+        || leftE === undefined
+        || leftF === undefined
+        || rightA === undefined
+        || rightB === undefined
+        || rightC === undefined
+        || rightD === undefined
+        || rightE === undefined
+        || rightF === undefined
+    ) {
+        return null;
+    }
     return [
-        left[0]! * right[0]! + left[2]! * right[1]!,
-        left[1]! * right[0]! + left[3]! * right[1]!,
-        left[0]! * right[2]! + left[2]! * right[3]!,
-        left[1]! * right[2]! + left[3]! * right[3]!,
-        left[0]! * right[4]! + left[2]! * right[5]! + left[4]!,
-        left[1]! * right[4]! + left[3]! * right[5]! + left[5]!,
+        leftA * rightA + leftC * rightB,
+        leftB * rightA + leftD * rightB,
+        leftA * rightC + leftC * rightD,
+        leftB * rightC + leftD * rightD,
+        leftA * rightE + leftC * rightF + leftE,
+        leftB * rightE + leftD * rightF + leftF,
     ];
 }
 
@@ -148,9 +183,12 @@ function toTextItemMarkerRect(
     }
 
     const tx = matrixTransform(viewport.transform, transform);
+    if (!tx) {
+        return null;
+    }
     const scale = Math.abs(viewport.scale ?? 1) || 1;
     const fontHeight = Math.max(
-        Math.hypot(tx[2]!, tx[3]!),
+        Math.hypot(tx[2], tx[3]),
         Math.abs(item.height ?? 0) * scale,
     );
     const width = Math.abs(item.width ?? 0) * scale;
@@ -159,8 +197,8 @@ function toTextItemMarkerRect(
     }
 
     return normalizeMarkerRect({
-        left: tx[4]! / viewport.width,
-        top: (tx[5]! - fontHeight) / viewport.height,
+        left: tx[4] / viewport.width,
+        top: (tx[5] - fontHeight) / viewport.height,
         width: width / viewport.width,
         height: fontHeight / viewport.height,
     });

@@ -13,6 +13,10 @@ import {
     isDesktopDiagnosticDist,
     type DesktopDiagnosticDist,
 } from '@contracts/diagnostics/desktopDiagnosticDists.js';
+import {
+    isEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 export {DESKTOP_DIAGNOSTIC_DIST_IDENTITIES} from '@contracts/diagnostics/desktopDiagnosticDists.js';
 export type {DesktopDiagnosticDist} from '@contracts/diagnostics/desktopDiagnosticDists.js';
@@ -27,7 +31,7 @@ export interface StartupCrashMarkerRecord {
     eventId: DiagnosticEventId;
     code: 'MAIN_STARTUP_CRASH';
     frames: readonly CanonicalAppFrame[];
-    timestamp: number;
+    timestamp: TEpochMs;
     release: string;
     dist: DesktopDiagnosticDist;
 }
@@ -87,12 +91,6 @@ function isSafeDist(value: unknown): value is DesktopDiagnosticDist {
         && isDesktopDiagnosticDist(value);
 }
 
-function isSafeTimestamp(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
-
 export function decodeStartupCrashMarkerRecord(
     value: unknown,
 ): StartupCrashMarkerRecord | null {
@@ -128,7 +126,7 @@ export function decodeStartupCrashMarkerRecord(
             || !isUnknownArray(value.frames)
             || value.frames.length > STARTUP_CRASH_MARKER_MAX_FRAMES
             || !hasOnlyArrayIndices(value.frames)
-            || !isSafeTimestamp(value.timestamp)
+            || !isEpochMs(value.timestamp)
             || !isSafeRelease(value.release)
             || !isSafeDist(value.dist)
         ) {

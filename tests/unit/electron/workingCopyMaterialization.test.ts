@@ -621,7 +621,9 @@ describe('workingCopyMaterialization', () => {
             ownerWebContentsId: 7,
             reason: 'save',
         })).rejects.toMatchObject({code: 'WORKING_COPY_REGISTRATION_CHANGED'});
-        await replacementRegistration;
+        if (replacementRegistration !== null) {
+            await Promise.resolve(replacementRegistration);
+        }
         removeProgressListener();
         expect(existsSync(firstFixture.workingPath)).toBe(false);
         expect(getWorkingCopyBackingEntry(firstFixture.workingPath, 7)).toMatchObject({

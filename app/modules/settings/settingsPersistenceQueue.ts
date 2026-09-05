@@ -62,7 +62,7 @@ export function createSettingsPersistenceQueue(
     const retryInitialDelayMs = options.retryInitialDelayMs ?? SETTINGS_SAVE_RETRY_INITIAL_DELAY_MS;
     const retryMaxDelayMs = options.retryMaxDelayMs ?? SETTINGS_SAVE_RETRY_MAX_DELAY_MS;
     let saveInFlight: Promise<boolean> | null = null;
-    let saveDirty = false;
+    let dirtyRevision = 0;
     let saveRetryTimer: TSettingsSaveTimer | null = null;
     let saveRetryDelayMs = retryInitialDelayMs;
 
@@ -90,8 +90,8 @@ export function createSettingsPersistenceQueue(
     }
 
     async function runSaveQueue() {
-        while (true) {
-            saveDirty = false;
+        for (;;) {
+            const revision = dirtyRevision;
             const payload = sanitizeSettings(options.getSettingsSnapshot());
             const patch = buildSettingsPatch(options.getLastSavedSettings(), payload);
             try {
@@ -102,13 +102,12 @@ export function createSettingsPersistenceQueue(
                 saveRetryDelayMs = retryInitialDelayMs;
             } catch (error) {
                 options.onSaveError(error);
-                saveDirty = true;
                 scheduleSaveRetry();
                 setStatus('retry-pending', error);
                 return false;
             }
 
-            if (!saveDirty) {
+            if (dirtyRevision === revision) {
                 setStatus('idle');
                 return true;
             }
@@ -117,7 +116,7 @@ export function createSettingsPersistenceQueue(
 
     async function save() {
         if (saveInFlight) {
-            saveDirty = true;
+            dirtyRevision += 1;
             return saveInFlight;
         }
 

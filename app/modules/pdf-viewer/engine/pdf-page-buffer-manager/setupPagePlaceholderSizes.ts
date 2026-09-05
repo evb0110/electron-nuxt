@@ -1,3 +1,6 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import {
     buildPdfPageScaleStyle,
@@ -29,14 +32,16 @@ export function setupPagePlaceholderSizes(
     containerRoot: HTMLElement,
     pageMetrics: IPdfPageMetric[],
     scale: number,
-    getScaleForPage: ((pageNumber: number) => number) | undefined = undefined,
+    getScaleForPage: ((pageNumber: TPageNumber) => number) | undefined = undefined,
 ) {
     const containers = containerRoot.querySelectorAll<HTMLDivElement>('.page_container');
     containers.forEach((container) => {
-        const pageNumber = Number.parseInt(container.dataset.page ?? '', 10);
-        const metric = Number.isFinite(pageNumber)
-            ? pageMetrics[pageNumber - 1]
-            : null;
+        const parsedPageNumber = Number.parseInt(container.dataset.page ?? '', 10);
+        const pageNumber = parsePageNumber(parsedPageNumber);
+        if (pageNumber === null) {
+            return;
+        }
+        const metric = pageMetrics[pageNumber - 1];
         if (!metric) {
             return;
         }

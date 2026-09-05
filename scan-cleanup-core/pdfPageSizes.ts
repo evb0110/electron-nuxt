@@ -895,7 +895,7 @@ async function readPdfInfoBoxes(
         maxStdoutBytes: PDFINFO_BASE_STDOUT_BYTES + pageCount * 1024,
         rejectOnStdoutTruncation: true,
         ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.log ? {log: options.log} : {}),
+        log: options.log,
     });
     return result.stdout;
 }
@@ -926,7 +926,7 @@ async function* readNativePageSizeChunks(
             maxStdoutBytes: PDF_PAGE_OPS_STDOUT_BYTES,
             rejectOnStdoutTruncation: true,
             ...(options.signal ? {signal: options.signal} : {}),
-            ...(options.log ? {log: options.log} : {}),
+            log: options.log,
         });
         if (options.signal?.aborted) {
             throw options.signal.reason instanceof Error
@@ -991,7 +991,7 @@ async function* readPdfInfoPageSizeChunks(
         timeoutMs: PAGE_SIZES_TIMEOUT_MS,
         commandLabel: 'pdfinfo(page-sizes)',
         ...(options.signal ? {signal: options.signal} : {}),
-        ...(options.log ? {log: options.log} : {}),
+        log: options.log,
     };
     const overview = await options.runCommand(binary, [pdfPath], {
         ...commandOptions,
@@ -1061,7 +1061,7 @@ async function readWithPageOps(pdfPath: string, options: IReadPdfPageSizesOption
             : resolveSuspiciousCropBoxPageSizes(attached);
     } catch (error) {
         if (options.signal?.aborted) throw error;
-        options.log?.(
+        options.log(
             'warn',
             `pdfinfo could not expose MediaBox geometry for suspicious CropBox recovery; retaining page-ops geometry: ${getErrorMessage(error)}`,
         );
@@ -1095,7 +1095,7 @@ export async function* readPdfPageSizeChunks(
             return;
         } catch (error) {
             if (options.signal?.aborted || !options.pdfinfoBinary) throw error;
-            options.log?.(
+            options.log(
                 'warn',
                 `evb-pdf-page-ops could not report page geometry, falling back to bounded pdfinfo windows: ${getErrorMessage(error)}`,
             );
@@ -1260,7 +1260,7 @@ export class PdfPageSizeStore implements IPdfPageSizeStore {
         onChunk: (chunk: IPdfPageSizeChunk) => Promise<void> | void,
     ) {
         let nextChunkIndex = 0;
-        while (true) {
+        for (;;) {
             const result = await reader.next();
             if (result.done) {
                 if (this._pageCount === null) {
@@ -1393,7 +1393,7 @@ export async function readPdfPageSizes(
             return await readWithPageOps(pdfPath, options, options.pdfPageOpsBinary);
         } catch (error) {
             if (options.signal?.aborted || !options.pdfinfoBinary) throw error;
-            options.log?.(
+            options.log(
                 'warn',
                 `evb-pdf-page-ops could not report page geometry, falling back to pdfinfo: ${getErrorMessage(error)}`,
             );

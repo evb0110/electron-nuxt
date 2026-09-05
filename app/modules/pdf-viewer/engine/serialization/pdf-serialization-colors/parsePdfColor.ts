@@ -9,10 +9,16 @@ export function parsePdfColor(color: string | undefined): [number, number, numbe
     if (/^#[\da-f]{3}(?:[\da-f]{3})?$/iu.test(trimmed)) {
         const clean = trimmed.slice(1);
         if (clean.length === 3) {
+            const red = clean[0];
+            const green = clean[1];
+            const blue = clean[2];
+            if (red === undefined || green === undefined || blue === undefined) {
+                return null;
+            }
             return [
-                Number.parseInt(clean[0]! + clean[0]!, 16) / 255,
-                Number.parseInt(clean[1]! + clean[1]!, 16) / 255,
-                Number.parseInt(clean[2]! + clean[2]!, 16) / 255,
+                Number.parseInt(red + red, 16) / 255,
+                Number.parseInt(green + green, 16) / 255,
+                Number.parseInt(blue + blue, 16) / 255,
             ];
         }
         return [
@@ -31,9 +37,17 @@ export function parsePdfColor(color: string | undefined): [number, number, numbe
     if (values.some(value => !Number.isFinite(value))) {
         return null;
     }
+    const [
+        red,
+        green,
+        blue,
+    ] = values;
+    if (red === undefined || green === undefined || blue === undefined) {
+        return null;
+    }
     return [
-        values[0]!,
-        values[1]!,
-        values[2]!,
+        red,
+        green,
+        blue,
     ];
 }

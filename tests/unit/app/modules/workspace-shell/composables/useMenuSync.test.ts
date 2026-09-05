@@ -9,11 +9,13 @@ import {
     nextTick,
     ref,
 } from 'vue';
+import type { ITab } from '@app/types/tabs';
 import { useMenuSync } from '@app/modules/workspace-shell/composables/useMenuSync';
 import { workspaceHasPdf } from '@app/modules/workspace-shell/state/workspaceHasPdf';
 import { createWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
 import { createDefaultWorkspaceViewerCapabilities } from '@app/types/workspaceExpose';
 import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronPlatformApiFixture';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     setMenuDocumentState: vi.fn(async () => {}),
@@ -320,10 +322,10 @@ describe('useMenuSync', () => {
         useMenuSync({
             activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
+            tabs: ref<ITab[]>([{
                 id: 'tab-1',
                 fileName: 'dictionary.pdf',
-                originalPath: '/documents/dictionary.pdf',
+                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
                 isDirty: false,
                 isDjvu: false,
             }]),
@@ -348,7 +350,7 @@ describe('useMenuSync', () => {
         const activeDocumentRecord = ref(createWorkspaceDocumentRecord({
             tab: {
                 fileName: 'dictionary.pdf',
-                originalPath: '/documents/dictionary.pdf',
+                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
@@ -367,10 +369,10 @@ describe('useMenuSync', () => {
         useMenuSync({
             activeDocumentRecord,
             activeTabId: ref<string | null>('tab-1'),
-            tabs: ref([{
+            tabs: ref<ITab[]>([{
                 id: 'tab-1',
                 fileName: 'dictionary.pdf',
-                originalPath: '/documents/dictionary.pdf',
+                originalPath: requireDocumentRef('/documents/dictionary.pdf'),
                 isDirty: false,
                 isDjvu: false,
             }]),

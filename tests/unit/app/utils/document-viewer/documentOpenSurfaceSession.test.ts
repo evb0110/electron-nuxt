@@ -12,6 +12,7 @@ import {
 } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentOpenSurfaceRenderFence } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const DEFAULT_LAYOUT_GEOMETRY = {
     width: 612,
@@ -132,7 +133,7 @@ function createViewportCommit(fence: IDocumentOpenSurfaceRenderFence) {
 function createPageSource(documentRef: string): IDocumentPageSource {
     return {
         kind: 'pdf',
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         pageCount: 1,
         getPageMetrics: vi.fn(async () => ({
             widthPoints: 612,
@@ -1593,9 +1594,9 @@ describe('document open surface session', () => {
 
     it('retires the previous opening page source before publishing its replacement', () => {
         const session = createDocumentOpenSurfaceSession();
-        const generation = beginSurface(session, 'dictionary.pdf', 'open-intent:source');
-        const firstSource = createPageSource('dictionary.pdf');
-        const secondSource = createPageSource('dictionary.pdf');
+        const generation = beginSurface(session, '/tmp/dictionary.pdf', 'open-intent:source');
+        const firstSource = createPageSource('/tmp/dictionary.pdf');
+        const secondSource = createPageSource('/tmp/dictionary.pdf');
         const retireFirst = vi.fn();
         const retireSecond = vi.fn();
 

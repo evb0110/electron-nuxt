@@ -3,6 +3,10 @@ import type {
     IAgentWorkspaceSnapshot,
     TAgentCommand,
 } from '@contracts/agent';
+import {
+    parseTabId,
+    type TTabId,
+} from '@contracts/windowTabs';
 import { parseAgentResourceUri } from '@contracts/agentResourceUri';
 import { isRecord } from '@contracts/runtimeGuards';
 import type {
@@ -274,7 +278,7 @@ function getDocumentPageReadOptions(
     };
 }
 
-function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: string) {
+function selectDocumentsFromSnapshot(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
     const tabs = tabId
         ? snapshot.tabs.filter(tab => tab.tabId === tabId)
         : snapshot.tabs;
@@ -320,7 +324,7 @@ function createOpenDocumentsResponse(snapshot: IAgentWorkspaceSnapshot) {
     };
 }
 
-function getTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: string) {
+function getTargetTab(snapshot: IAgentWorkspaceSnapshot, tabId?: TTabId) {
     const resolvedTabId = tabId ?? snapshot.activeTabId;
     if (!resolvedTabId) {
         throw new Error('No active tab is available.');
@@ -724,7 +728,11 @@ async function readMcpResource(
     }
 
     const snapshot = await options.getWorkspaceSnapshot(windowId);
-    const tab = getTargetTab(snapshot, tabId);
+    const parsedTabId = parseTabId(tabId);
+    if (parsedTabId === null) {
+        throw new Error(`Invalid tab id in EVB document resource URI: ${parsed.uri}`);
+    }
+    const tab = getTargetTab(snapshot, parsedTabId);
     if (resourceKind === 'text-status' || resourceKind === 'ocr-status') {
         const inspectDocumentText = getRequiredCapability(options.inspectDocumentText, 'resources/read text-status');
         const result = await inspectDocumentText({

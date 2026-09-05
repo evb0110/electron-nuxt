@@ -1,3 +1,4 @@
+/** @type {Record<string, string>} */
 const PLATFORM_ALIASES = {
     darwin: 'darwin',
     linux: 'linux',
@@ -8,6 +9,7 @@ const PLATFORM_ALIASES = {
     windows: 'win32',
 };
 
+/** @type {Record<string, string>} */
 const ARCH_ALIASES = {
     aarch64: 'arm64',
     amd64: 'x64',
@@ -16,6 +18,7 @@ const ARCH_ALIASES = {
     x86_64: 'x64',
 };
 
+/** @type {Record<string, string>} */
 const RUST_TARGET_BY_PLATFORM_ARCH = {
     'darwin-arm64': 'aarch64-apple-darwin',
     'darwin-x64': 'x86_64-apple-darwin',
@@ -25,6 +28,7 @@ const RUST_TARGET_BY_PLATFORM_ARCH = {
     'win32-x64': 'x86_64-pc-windows-msvc',
 };
 
+/** @param {unknown} value @returns {string} */
 export function normalizeNativeTargetPlatform(value) {
     const platform = PLATFORM_ALIASES[String(value ?? '').toLowerCase()];
     if (!platform) {
@@ -34,6 +38,7 @@ export function normalizeNativeTargetPlatform(value) {
     return platform;
 }
 
+/** @param {unknown} value @returns {string} */
 export function normalizeNativeTargetArch(value) {
     const arch = ARCH_ALIASES[String(value ?? '').toLowerCase()];
     if (!arch) {
@@ -43,6 +48,7 @@ export function normalizeNativeTargetArch(value) {
     return arch;
 }
 
+/** @param {{arch?: string, platform?: string}} options @returns {{arch: string, platform: string}} */
 export function getHostNativeTarget({
     arch = process.arch,
     platform = process.platform,
@@ -53,6 +59,7 @@ export function getHostNativeTarget({
     };
 }
 
+/** @param {NodeJS.ProcessEnv} [env] @param {{arch: string, platform: string}} [hostTarget] */
 export function getRequestedNativeRustTarget(
     env = process.env,
     hostTarget = getHostNativeTarget(),

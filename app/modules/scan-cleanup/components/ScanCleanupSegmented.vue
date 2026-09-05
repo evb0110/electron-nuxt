@@ -55,7 +55,11 @@ function focusOption(index: number) {
         return;
     }
     const boundedIndex = (index + count) % count;
-    select(props.items[boundedIndex]!.value);
+    const item = props.items[boundedIndex];
+    if (!item) {
+        return;
+    }
+    select(item.value);
     void nextTick(() => group.value?.querySelectorAll<HTMLButtonElement>('[role="radio"]')[boundedIndex]?.focus());
 }
 

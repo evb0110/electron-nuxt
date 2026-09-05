@@ -10,6 +10,9 @@ import {useDocumentWorkspaceScanCleanupSurface} from '@app/modules/workspace-she
 import type {IDocumentWorkspaceProps} from '@app/modules/workspace-shell/composables/createDocumentWorkspaceCommandBindings';
 import type {IWorkspaceDocumentIdentity} from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import type {ITabViewSessionState} from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requireJobId } from '@contracts/shared';
 import {
     scanCleanupAutoDetectionCanceledDocuments,
     scanCleanupDetectionSessionCache,
@@ -21,9 +24,9 @@ function identity(overrides: Partial<IWorkspaceDocumentIdentity> = {}): IWorkspa
     return {
         documentSessionKey: 'session-1',
         documentInstanceId: null,
-        documentRef: '/docs/current.pdf',
-        originalPath: '/docs/current.pdf',
-        workingCopyPath: '/work/current.pdf',
+        documentRef: requireDocumentRef('/docs/current.pdf'),
+        originalPath: requireDocumentRef('/docs/current.pdf'),
+        workingCopyPath: requireDocumentRef('/work/current.pdf'),
         fileName: 'current.pdf',
         isDjvu: false,
         revisionInfo: null,
@@ -61,7 +64,7 @@ function detectionCacheEntry() {
         results: [],
         signatures: new Map<number, string>(),
         state: {
-            jobId: 'detect-1',
+            jobId: requireJobId('detect-1'),
             status: 'completed' as const,
             progress: {
                 stage: 'detecting' as const,
@@ -71,7 +74,7 @@ function detectionCacheEntry() {
                 completedPageNumbers: [1],
             },
             results: [],
-            updatedAtMs: 0,
+            updatedAtMs: requireEpochMs(0),
         },
         totalPages: 1,
     };

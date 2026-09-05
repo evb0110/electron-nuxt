@@ -2,8 +2,10 @@ import type { IRecentFile } from '@contracts/shared';
 import { take } from 'es-toolkit/array';
 import {
     inferDocumentRefBackend,
+    parseDocumentRef,
     type TDocumentBackend,
 } from '@contracts/documentRef';
+import { parseEpochMs } from '@contracts/timestamps';
 import {
     getOptionalNumber,
     getOptionalString,
@@ -28,11 +30,12 @@ function normalizeRecentFileBackend(value: unknown, originalPath: unknown): TDoc
     if (value === 'browser' || value === 'electron') {
         return value;
     }
-    if (typeof originalPath !== 'string') {
+    const documentRef = parseDocumentRef(originalPath);
+    if (documentRef === null) {
         return null;
     }
 
-    const inferred = inferDocumentRefBackend(originalPath);
+    const inferred = inferDocumentRefBackend(documentRef);
     return inferred === 'unknown' ? null : inferred;
 }
 
@@ -48,22 +51,28 @@ function normalizeRecentFileTuple(value: unknown): IRecentFile | null {
     const fileSize = tuple[3];
     const backend = normalizeRecentFileBackend(tuple[4], originalPath);
     const modifiedAt = tuple[5];
+    const documentRef = parseDocumentRef(originalPath);
+    const parsedTimestamp = parseEpochMs(timestamp);
+    const parsedModifiedAt = modifiedAt === undefined || modifiedAt === null
+        ? undefined
+        : parseEpochMs(modifiedAt);
     if (
-        typeof originalPath !== 'string'
+        documentRef === null
         || typeof fileName !== 'string'
-        || typeof timestamp !== 'number'
+        || parsedTimestamp === null
         || backend === null
+        || parsedModifiedAt === null
     ) {
         return null;
     }
 
     return {
-        originalPath,
+        originalPath: documentRef,
         backend,
         fileName,
-        timestamp,
+        timestamp: parsedTimestamp,
         ...(typeof fileSize === 'number' ? {fileSize} : {}),
-        ...(typeof modifiedAt === 'number' ? {modifiedAt} : {}),
+        ...(parsedModifiedAt === undefined ? {} : {modifiedAt: parsedModifiedAt}),
     };
 }
 
@@ -161,19 +170,25 @@ function normalizeRecentFile(value: unknown): IRecentFile | null {
     const fileName = getOptionalString(value, 'fileName');
     const timestamp = getOptionalNumber(value, 'timestamp');
     const backend = normalizeRecentFileBackend(value.backend, originalPath);
-    if (!originalPath || !fileName || timestamp === null || backend === null) {
+    const documentRef = parseDocumentRef(originalPath);
+    const parsedTimestamp = parseEpochMs(timestamp);
+    if (!documentRef || !fileName || parsedTimestamp === null || backend === null) {
         return null;
     }
 
     const fileSize = getOptionalNumber(value, 'fileSize');
     const modifiedAt = getOptionalNumber(value, 'modifiedAt');
+    const parsedModifiedAt = modifiedAt === null ? null : parseEpochMs(modifiedAt);
+    if (parsedModifiedAt === null && modifiedAt !== null) {
+        return null;
+    }
     return {
-        originalPath,
+        originalPath: documentRef,
         backend,
         fileName,
-        timestamp,
+        timestamp: parsedTimestamp,
         ...(fileSize === null ? {} : {fileSize}),
-        ...(modifiedAt === null ? {} : {modifiedAt}),
+        ...(parsedModifiedAt === null ? {} : {modifiedAt: parsedModifiedAt}),
     };
 }
 

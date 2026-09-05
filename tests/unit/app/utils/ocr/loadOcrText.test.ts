@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const resolveDocumentTextCatalogMock = vi.hoisted(() => vi.fn());
 const resolveDocumentTextCatalogWindowMock = vi.hoisted(() => vi.fn());
@@ -60,7 +61,7 @@ describe('loadOcrText', () => {
     });
 
     it('reads all canonical pages through the production catalog capability', async () => {
-        await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toContain('Page 17');
+        await expect(loadOcrText(requireDocumentRef('/tmp/work.pdf'), TEST_DOCUMENT_REVISION)).resolves.toContain('Page 17');
         expect(resolveDocumentTextCatalogMock).toHaveBeenCalledWith('/tmp/work.pdf', TEST_DOCUMENT_REVISION);
     });
 
@@ -71,19 +72,19 @@ describe('loadOcrText', () => {
             pages: [],
             contentDigest: 'empty',
         });
-        await expect(loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION)).resolves.toBeNull();
+        await expect(loadOcrText(requireDocumentRef('/tmp/work.pdf'), TEST_DOCUMENT_REVISION)).resolves.toBeNull();
     });
 
     it('opens only the first bounded window for a lazy 100,001-page DOCX stream', async () => {
         const pageStream = await prepareDocumentTextCatalogTextPages(
-            '/tmp/work.pdf',
+            requireDocumentRef('/tmp/work.pdf'),
             TEST_DOCUMENT_REVISION,
             100_001,
         );
         expect(pageStream).not.toBeNull();
         expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledTimes(1);
         expect(resolveDocumentTextCatalogWindowMock).toHaveBeenCalledWith(
-            '/tmp/work.pdf',
+            requireDocumentRef('/tmp/work.pdf'),
             TEST_DOCUMENT_REVISION,
             1,
             64,
@@ -119,7 +120,7 @@ describe('loadOcrText', () => {
         resolveDocumentTextCatalogWindowMock.mockReturnValueOnce(windowPromise);
 
         const preparing = prepareDocumentTextCatalogTextPages(
-            '/tmp/work.pdf',
+            requireDocumentRef('/tmp/work.pdf'),
             TEST_DOCUMENT_REVISION,
             100_001,
             controller.signal,
@@ -165,7 +166,7 @@ describe('loadOcrText', () => {
         resolveDocumentTextCatalogWindowMock.mockReturnValueOnce(windowPromise);
 
         const preparing = prepareDocumentTextCatalogTextPages(
-            '/tmp/work.pdf',
+            requireDocumentRef('/tmp/work.pdf'),
             TEST_DOCUMENT_REVISION,
             100_001,
             controller.signal,
@@ -217,7 +218,7 @@ describe('loadOcrText', () => {
         });
         resolveDocumentTextCatalogMock.mockReturnValueOnce(snapshotPromise);
 
-        const loading = loadOcrText('/tmp/work.pdf', TEST_DOCUMENT_REVISION, controller.signal);
+        const loading = loadOcrText(requireDocumentRef('/tmp/work.pdf'), TEST_DOCUMENT_REVISION, controller.signal);
         await vi.waitFor(() => expect(resolveDocumentTextCatalogMock).toHaveBeenCalledTimes(1));
         controller.abort(new DOMException('DOCX export was canceled.', 'AbortError'));
 

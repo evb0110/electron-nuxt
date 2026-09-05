@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { readFileSync } from 'node:fs';
 import { open } from 'node:fs/promises';
 import type { Page } from 'puppeteer-core';
@@ -262,10 +263,14 @@ export function evaluateCgroupConstraint(limits: IStressCgroupLimits, hint: IStr
     } else if (!withinTolerance(limits.memoryBytes, hint.expectedMemoryBytes)) {
         problems.push(`memory.max is ${(limits.memoryBytes / 1024 / 1024).toFixed(0)} MiB, profile expects ${(hint.expectedMemoryBytes / 1024 / 1024).toFixed(0)} MiB`);
     }
+    const cpuDetail = limits.cpus === null ? 'unlimited' : `${limits.cpus} CPUs`;
+    const memoryDetail = limits.memoryBytes === null
+        ? 'unlimited'
+        : `${(limits.memoryBytes / 1024 / 1024).toFixed(0)} MiB`;
     return {
         verified: problems.length === 0,
         detail: problems.length === 0
-            ? `cgroup limits match the profile (${limits.cpus} CPUs, ${(limits.memoryBytes ?? 0) / 1024 / 1024} MiB)`
+            ? `cgroup limits match the profile (${cpuDetail}, ${memoryDetail})`
             : problems.join('; '),
     };
 }
@@ -301,7 +306,7 @@ export function readOwnCgroupConstraint(platform: NodeJS.Platform, hint: IStress
     } catch (error) {
         return {
             verified: false,
-            detail: `cgroup read failed: ${error instanceof Error ? error.message : String(error)}`,
+            detail: `cgroup read failed: ${getErrorMessage(error)}`,
         };
     }
 }

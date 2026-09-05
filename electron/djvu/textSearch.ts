@@ -15,7 +15,10 @@ import {
     validateSearchQuery,
     type IResolvedSearchMatchOptions,
 } from '@pdf-core';
-import type { IOcrWord } from '@contracts/shared';
+import type {
+    IOcrWord,
+    TRequestId,
+} from '@contracts/shared';
 import {
     createAbortError,
     isAbortError,
@@ -100,7 +103,7 @@ export interface ISearchDjvuTextOptions {
     onProgress?: ((progress: IPdfSearchProgress) => void) | undefined;
     pageCount: number;
     query: string;
-    requestId: string;
+    requestId: TRequestId;
     signal?: AbortSignal | undefined;
 }
 
@@ -428,7 +431,7 @@ export function createDjvuTextSExpressionParser(options: IDjvuTextParserOptions)
 async function streamDjvuTextPages(filePath: string, options: IDjvuTextStreamOptions) {
     const { djvused } = getDjvuNativeToolPaths();
     const internalController = new AbortController();
-    let internalStop = false;
+    let internalStop = false as boolean;
     const parseFailure: {error: Error | null} = {error: null};
     const stop = () => {
         internalStop = true;
@@ -533,10 +536,10 @@ export async function searchDjvuText(
     options: ISearchDjvuTextOptions,
 ): Promise<IPdfSearchResponse> {
     validateSearchQuery(options.query, options.matchOptions);
-    const results: IPdfSearchResponse['results'] = [];
+    const results: Array<IPdfSearchResponse['results'][number]> = [];
     let processed = 0;
     let truncated = false;
-    let pendingProgressResults: IPdfSearchResponse['results'] = [];
+    let pendingProgressResults: Array<IPdfSearchResponse['results'][number]> = [];
     let progressResultsStartIndex = 0;
 
     function emitProgress(force = false) {
@@ -609,7 +612,7 @@ export async function searchDjvuText(
 }
 
 export async function detectDjvuHasText(filePath: string, signal?: AbortSignal) {
-    let hasText = false;
+    let hasText = false as boolean;
     const localController = new AbortController();
     const relayAbort = () => localController.abort(createAbortError());
     signal?.addEventListener('abort', relayAbort, {once: true});

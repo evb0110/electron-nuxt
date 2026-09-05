@@ -27,6 +27,7 @@ import type {
 import type {IPdfPageSizeStore} from '@scan-cleanup-core/pdfPageSizes';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import type {IScanCleanupDetectionResult} from '@contracts/electronApiScanCleanup';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 const roots: string[] = [];
 
@@ -59,7 +60,7 @@ describe('file-backed scan-cleanup result store', () => {
             IScanCleanupDetectionResult['outputModeDiagnostics']
         >;
         const result: IScanCleanupDetectionResult = {
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             revision: 1,
             classification: 'single-uncut-page',
             confidence: 1,
@@ -71,7 +72,7 @@ describe('file-backed scan-cleanup result store', () => {
             recommendedOutputMode: 'grayscale',
             outputModeDiagnostics,
             pagePlanEvidence: {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 rotationDegrees: 0,
                 layoutClassification: 'single-uncut-page',
                 outputs: {},

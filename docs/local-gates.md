@@ -129,6 +129,35 @@ size and mtime of every file under `dist-electron`, `nuxt-output`, and
 build when the marker is fresh or a matching all-gates receipt exists, and
 rebuilds otherwise.
 
+## Two type checkers
+
+`pnpm typecheck` runs two compilers, and a diagnostic can appear in only one
+of them.
+
+`scripts/run-nuxt-typecheck.mjs` runs vue-tsc on TypeScript 6 over the Nuxt
+project. That pass owns `app/` and the `.vue` files, because single-file
+components need the Vue language service and the tsconfig that Nuxt
+generates. It also sees `packages/` through the app's imports.
+
+`scripts/run-workspace-package-typecheck.mjs` runs the TypeScript 7 native
+compiler (`scripts/run-ts7-typecheck.mjs`) over `electron/`, `tests/`,
+`server/`, `scripts/` (the TypeScript project and the checked-JavaScript
+project), and every workspace package that ships its own `tsconfig.json`.
+Test files are only ever checked here, so a fixture that fails under TS7
+does not show up in the Nuxt pass, and a `.vue` type error never shows up
+here.
+
+Shared code under `packages/` is checked twice only where both passes reach
+it. vue-tsc reaches a package through the app's import graph; TS7 reaches
+one that ships its own `tsconfig.json`, or that some other checked project
+imports. `packages/contracts` meets both. `packages/electron-worker-bundles`
+has no `tsconfig.json` and is imported only from `electron/`, so the Nuxt
+pass never sees it. Keep shared code free of Vue and Nuxt imports, and when
+the two compilers disagree (contextual typing of callback parameters is the
+usual case), change the code so both accept it rather than loosening a
+compiler option on one side. Type coverage floors (`typecheck:coverage`)
+come from the TS7 side only.
+
 ## Type coverage and native tests
 
 `typecheck:coverage` runs its four projects (app, electron, tests, scripts)

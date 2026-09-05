@@ -7,6 +7,7 @@ import {
 import {execFileSync} from 'node:child_process';
 import {
     copyFile,
+    mkdir,
     mkdtemp,
     rm,
     writeFile,
@@ -102,20 +103,26 @@ describe('immutable GitHub release assets', () => {
     it('loads without the optional S3 mirror dependency in a clean checkout', async () => {
         const directory = await mkdtemp(join(tmpdir(), 'evb-release-asset-import-'));
         directories.push(directory);
-        const releaseDirectory = join(process.cwd(), 'scripts', 'release');
+        const scriptsDirectory = join(process.cwd(), 'scripts');
+        const copiedScripts = [
+            'release/ensure-github-release-assets.mjs',
+            'release/policy.mjs',
+            'release/publish-release-mirror.mjs',
+            'release/release-hash.mjs',
+            'release/releaseTag.mjs',
+            'lib/cli-error.mjs',
+        ];
         await Promise.all([
-            'ensure-github-release-assets.mjs',
-            'policy.mjs',
-            'publish-release-mirror.mjs',
-            'release-hash.mjs',
-            'releaseTag.mjs',
-        ].map(name => copyFile(join(releaseDirectory, name), join(directory, name))));
+            mkdir(join(directory, 'release')),
+            mkdir(join(directory, 'lib')),
+        ]);
+        await Promise.all(copiedScripts.map(name => copyFile(join(scriptsDirectory, name), join(directory, name))));
 
         const output = execFileSync(process.execPath, [
             '--input-type=module',
             '--eval',
             'await import(process.argv[1]); process.stdout.write("loaded")',
-            pathToFileURL(join(directory, 'ensure-github-release-assets.mjs')).href,
+            pathToFileURL(join(directory, 'release', 'ensure-github-release-assets.mjs')).href,
         ], {encoding: 'utf8'});
 
         expect(output).toBe('loaded');

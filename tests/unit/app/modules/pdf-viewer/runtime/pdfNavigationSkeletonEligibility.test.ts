@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -9,7 +10,7 @@ import { shouldShowPdfNavigationSkeleton } from '@app/modules/pdf-viewer/runtime
 describe('shouldShowPdfNavigationSkeleton', () => {
     it('keeps the ordinary visible-range skeleton decision authoritative', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 20,
+            pageNumber: requirePageNumber(20),
             navigationAnchorPage: null,
             totalPages: 100,
             viewMode: 'single',
@@ -20,8 +21,8 @@ describe('shouldShowPdfNavigationSkeleton', () => {
 
     it('does not let a stale skeleton decision cover visually ready content', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 20,
-            navigationAnchorPage: 20,
+            pageNumber: requirePageNumber(20),
+            navigationAnchorPage: requirePageNumber(20),
             totalPages: 100,
             viewMode: 'single',
             isPageRendered: vi.fn(() => true),
@@ -31,8 +32,8 @@ describe('shouldShowPdfNavigationSkeleton', () => {
 
     it('allows the active continuous navigation target while visibleRange catches up', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 13,
-            navigationAnchorPage: 13,
+            pageNumber: requirePageNumber(13),
+            navigationAnchorPage: requirePageNumber(13),
             totalPages: 100,
             viewMode: 'single',
             isPageRendered: vi.fn(() => false),
@@ -42,8 +43,8 @@ describe('shouldShowPdfNavigationSkeleton', () => {
 
     it('does not show a navigation skeleton once the target page has rendered', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 13,
-            navigationAnchorPage: 13,
+            pageNumber: requirePageNumber(13),
+            navigationAnchorPage: requirePageNumber(13),
             totalPages: 100,
             viewMode: 'single',
             isPageRendered: vi.fn(() => true),
@@ -53,8 +54,8 @@ describe('shouldShowPdfNavigationSkeleton', () => {
 
     it('includes the full active row in facing modes', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 10,
-            navigationAnchorPage: 9,
+            pageNumber: requirePageNumber(10),
+            navigationAnchorPage: requirePageNumber(9),
             totalPages: 100,
             viewMode: 'facing',
             isPageRendered: vi.fn(() => false),
@@ -64,8 +65,8 @@ describe('shouldShowPdfNavigationSkeleton', () => {
 
     it('suppresses an ordinary skeleton from an adjacent row during navigation', () => {
         expect(shouldShowPdfNavigationSkeleton({
-            pageNumber: 63,
-            navigationAnchorPage: 64,
+            pageNumber: requirePageNumber(63),
+            navigationAnchorPage: requirePageNumber(64),
             totalPages: 100,
             viewMode: 'single',
             isPageRendered: vi.fn(() => false),

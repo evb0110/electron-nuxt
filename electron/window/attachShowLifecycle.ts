@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import type { ILogger } from '@electron/utils/createLogger';
 import type { BrowserWindow } from 'electron';
 import {
@@ -54,7 +55,7 @@ export function attachShowLifecycle(
             windowWebContents.removeListener('did-start-navigation', onStartNavigation);
             windowWebContents.removeListener('did-finish-load', onFinishLoad);
         } catch (error) {
-            options.logger.warn(`Failed to cleanup startup show listeners for window ${windowId}: ${error instanceof Error ? error.message : String(error)}`);
+            options.logger.warn(`Failed to cleanup startup show listeners for window ${windowId}: ${getErrorMessage(error)}`);
         }
         deleteWindowRendererReadyCallback(windowId);
     };

@@ -50,6 +50,7 @@ import {
     readWorkspaceStateValues,
     type IWorkspaceExposeProbeWindow,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 const NOTE_TEXT_ENTRY_TIMEOUT_MS = 20_000;
 const TOOLTIP_HIDDEN_QUIET_WINDOW_MS = 400;
@@ -1467,7 +1468,7 @@ describe('Electron E2E - Annotation Lifecycle', () => {
             secondCommit = await saveViaVisibleToolbar(page, 30_000);
         } catch (error) {
             throw new Error(`Second sticky-note save failed: ${JSON.stringify({
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
                 debug: await collectStickyNoteDebugState(page),
                 preSecondSaveDebug,
             })}`, {cause: error});

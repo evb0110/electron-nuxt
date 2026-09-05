@@ -352,9 +352,7 @@ const RUNTIME_ERROR_LOG_STREAM_CONTEXT = {phase: {
 }} as const satisfies DiagnosticContextDefinition;
 
 export function normalizeProcessGoneReason(reason: string) {
-    return PROCESS_GONE_REASONS.includes(reason as typeof PROCESS_GONE_REASONS[number])
-        ? reason as typeof PROCESS_GONE_REASONS[number]
-        : 'other';
+    return PROCESS_GONE_REASONS.find(candidate => candidate === reason) ?? 'other';
 }
 
 export function normalizeProcessGoneType(type: string) {
@@ -1089,8 +1087,8 @@ export const DIAGNOSTIC_DEFINITIONS = {
 export type DiagnosticCode = keyof typeof DIAGNOSTIC_DEFINITIONS;
 
 export const DIAGNOSTIC_CODES = Object.freeze(
-    Object.keys(DIAGNOSTIC_DEFINITIONS),
-) as readonly DiagnosticCode[];
+    Object.keys(DIAGNOSTIC_DEFINITIONS).filter(isDiagnosticDefinitionKey),
+);
 
 type InferDiagnosticContextField<TField extends DiagnosticContextFieldDefinition> =
     TField extends {
@@ -1136,7 +1134,7 @@ export function isDiagnosticCode(value: unknown): value is DiagnosticCode {
 
 export function isDiagnosticOperation(value: unknown): value is DiagnosticOperation {
     return typeof value === 'string'
-        && DIAGNOSTIC_OPERATIONS.includes(value as DiagnosticOperation);
+        && DIAGNOSTIC_OPERATIONS.some(operation => operation === value);
 }
 
 function decodeContextField(
@@ -1151,27 +1149,27 @@ function decodeContextField(
     if (definition.kind === 'boolean') {
         return typeof value === 'boolean' ? value : null;
     }
-    if (definition.kind === 'integer') {
-        return typeof value === 'number'
-            && Number.isSafeInteger(value)
-            && value >= definition.min
-            && value <= definition.max
-            ? value
-            : null;
-    }
-    return null;
+    return typeof value === 'number'
+        && Number.isSafeInteger(value)
+        && value >= definition.min
+        && value <= definition.max
+        ? value
+        : null;
 }
 
 export function decodeDiagnosticContext<C extends DiagnosticCode>(
     code: C,
     value: unknown,
-): DiagnosticContext<C> | null {
+): DiagnosticContext<C> | null;
+export function decodeDiagnosticContext(
+    code: DiagnosticCode,
+    value: unknown,
+): Record<string, unknown> | null {
     if (!isDiagnosticDefinitionKey(code) || !isPlainRecord(value)) {
         return null;
     }
-
     try {
-        const definition = DIAGNOSTIC_DEFINITIONS[code].context;
+        const definition: DiagnosticContextDefinition = DIAGNOSTIC_DEFINITIONS[code].context;
         const keys = Reflect.ownKeys(value);
         if (keys.some(key => typeof key !== 'string' || !Object.hasOwn(definition, key))) {
             return null;
@@ -1182,7 +1180,7 @@ export function decodeDiagnosticContext<C extends DiagnosticCode>(
             if (typeof key !== 'string') {
                 return null;
             }
-            const field = (definition as DiagnosticContextDefinition)[key];
+            const field = definition[key];
             if (field === undefined) {
                 return null;
             }
@@ -1192,7 +1190,7 @@ export function decodeDiagnosticContext<C extends DiagnosticCode>(
             }
             decoded[key] = decodedField;
         }
-        return decoded as DiagnosticContext<C>;
+        return decoded;
     } catch {
         return null;
     }

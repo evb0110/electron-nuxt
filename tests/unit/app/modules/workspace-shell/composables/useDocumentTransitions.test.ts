@@ -12,13 +12,15 @@ import {
 import { useDocumentTransitions } from '@app/modules/workspace-shell/composables/useDocumentTransitions';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { TPdfSource } from '@app/types/pdfUi';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
 
 function createDeps() {
     return {
         pdfSrc: ref<TPdfSource | null>({} as TPdfSource),
-        workingCopyPath: ref('/tmp/test.pdf'),
+        workingCopyPath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/test.pdf')),
         isDjvuMode: ref(false),
-        djvuSourcePath: ref<string | null>(null),
+        djvuSourcePath: ref<TDocumentRef | null>(null),
         pdfError: ref<unknown>(null),
         currentPage: ref(7),
         totalPages: ref(23),
@@ -124,7 +126,7 @@ describe('useDocumentTransitions', () => {
 
         useDocumentTransitions(deps);
 
-        deps.workingCopyPath.value = '/tmp/next.pdf';
+        deps.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
         deps.pdfSrc.value = {} as TPdfSource;
         await nextTick();
 
@@ -137,7 +139,7 @@ describe('useDocumentTransitions', () => {
         useDocumentTransitions(deps);
 
         deps.isDjvuMode.value = true;
-        deps.djvuSourcePath.value = 'browser://documents/source/test.djvu';
+        deps.djvuSourcePath.value = requireDocumentRef('browser://documents/source/test.djvu');
         await nextTick();
 
         expect(deps.loadRecentFiles).toHaveBeenCalledOnce();

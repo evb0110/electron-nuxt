@@ -1,13 +1,14 @@
+import { getErrorMessage } from '@electron/utils/error';
 import type {
     BrowserWindow,
     IpcMainInvokeEvent,
 } from 'electron';
-import {randomUUID} from 'node:crypto';
 import {stat} from 'node:fs/promises';
 import type { IPdfSearchResponse } from '@contracts/search';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import type { ISearchMatchOptions } from '@pdf-core';
 import type { IAgentTabSnapshot } from '@contracts/agent';
+import {createRequestId} from '@contracts/shared';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createLogger } from '@electron/utils/createLogger';
 import {
@@ -89,7 +90,7 @@ async function dispatchAgentSearchRequest(
     signal?: AbortSignal,
 ) {
     throwIfAborted(signal);
-    const requestId = `${payload.requestIdPrefix}-${randomUUID()}`;
+    const requestId = createRequestId(payload.requestIdPrefix);
     const request = agentSearchWorkerService.dispatchSearchRequest(
         createSearchEvent(window),
         {
@@ -487,7 +488,7 @@ export async function searchAgentDocument(
     const index = classification.isXlarge
         ? null
         : await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
-            logger.debug(`Failed to load search index after agent search: ${error instanceof Error ? error.message : String(error)}`);
+            logger.debug(`Failed to load search index after agent search: ${getErrorMessage(error)}`);
             return null;
         });
 
@@ -558,7 +559,7 @@ function searchBoundedPageTexts(
     options: IAgentDocumentSearchOptions,
     maxResults: number,
 ) {
-    const results: IPdfSearchResponse['results'] = [];
+    const results: Array<IPdfSearchResponse['results'][number]> = [];
     let matchIndex = 0;
     let totalAvailableResults = 0;
     for (const page of pageTexts) {
@@ -610,7 +611,7 @@ async function extractSelectedPdfPageTextWithFallback(
         };
     } catch (pdfjsError) {
         throwIfAborted(signal);
-        logger.debug(`Direct PDF.js page text probe failed; falling back to pdftotext: ${pdfjsError instanceof Error ? pdfjsError.message : String(pdfjsError)}`);
+        logger.debug(`Direct PDF.js page text probe failed; falling back to pdftotext: ${getErrorMessage(pdfjsError)}`);
         const { extractTextFromPdf } = await import('@electron/search/extractTextFromPdf');
         return {
             source: 'direct-pdftotext' as const,
@@ -717,7 +718,7 @@ export async function readAgentDocumentPages(
     }
 
     const index = await loadSearchIndex(resolvedPdfPath, documentRevision).catch((error) => {
-        logger.debug(`No cached search index available for agent page read; using direct page probe: ${error instanceof Error ? error.message : String(error)}`);
+        logger.debug(`No cached search index available for agent page read; using direct page probe: ${getErrorMessage(error)}`);
         return null;
     });
     throwIfAborted(signal);

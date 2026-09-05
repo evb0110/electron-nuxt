@@ -77,11 +77,13 @@ export function applyCanonicalAnnotationIdentityBindings(
                 && !Reflect.get(identity, 'pdfRef');
         });
     const bindIds = new Set<string>(bindings.map(mutation => mutation.annotationId));
-    const expected = comments.filter(comment => (
-        Boolean(comment.appAnnotationId)
-        && bindIds.has(comment.appAnnotationId!)
-        && comment.source !== 'shape'
-    ));
+    const expected = comments.filter(comment => {
+        const appAnnotationId = comment.appAnnotationId;
+        return Boolean(appAnnotationId)
+            && appAnnotationId !== undefined
+            && bindIds.has(appAnnotationId)
+            && comment.source !== 'shape';
+    });
     bindings.forEach((binding) => {
         if (expected.some(comment => comment.appAnnotationId === binding.annotationId)) {
             return;
@@ -153,9 +155,12 @@ export function applyCanonicalAnnotationIdentityBindings(
             pageIndexText,
             subtype,
         ] = key.split(':');
+        if (subtype === undefined) {
+            return;
+        }
         const page = doc.getPages()[Number(pageIndexText)];
         const annots = page?.node.Annots();
-        const candidateSubtypes = materializedPdfSubtypes(subtype!);
+        const candidateSubtypes = materializedPdfSubtypes(subtype);
         const candidateSubtypeNames = new Set(Array.from(candidateSubtypes, value => PDFName.of(value)));
         const allCandidates = annots
             ? Array.from(iterateAnnotationRefDicts(doc, annots))

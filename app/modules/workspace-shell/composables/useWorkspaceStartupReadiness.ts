@@ -44,10 +44,10 @@ function createStartupTimeout(timeoutMs: number) {
 export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadinessOptions) => {
     const { documentViewerRef } = options;
     let startupOpenVisualReadyToken = 0;
-    let disposed = false;
+    const lifecycle: { disposed: boolean } = { disposed: false };
 
     function scheduleStartupOpenVisualReady(reason: string) {
-        if (disposed) {
+        if (lifecycle.disposed.valueOf()) {
             return;
         }
         const token = ++startupOpenVisualReadyToken;
@@ -57,7 +57,7 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
 
             try {
                 while (Date.now() - startedAt < STARTUP_OPEN_VISUAL_READY_TIMEOUT_MS) {
-                    if (disposed || token !== startupOpenVisualReadyToken) {
+                    if (lifecycle.disposed.valueOf() || token !== startupOpenVisualReadyToken) {
                         return;
                     }
 
@@ -94,7 +94,7 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
                 BrowserLogger.diagnostic('loader', 'Startup visual readiness wait failed', error);
             }
 
-            if (disposed || token !== startupOpenVisualReadyToken) {
+            if (lifecycle.disposed.valueOf() || token !== startupOpenVisualReadyToken) {
                 return;
             }
 
@@ -103,7 +103,7 @@ export const useWorkspaceStartupReadiness = (options: IWorkspaceStartupReadiness
     }
 
     tryOnScopeDispose(() => {
-        disposed = true;
+        lifecycle.disposed = true;
         startupOpenVisualReadyToken += 1;
     });
 

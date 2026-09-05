@@ -25,6 +25,43 @@ const tester = new RuleTester({languageOptions: {
 
 const rules = (customPlugin as { rules: Record<string, unknown> }).rules;
 
+describe('named-timestamps rule', () => {
+    it('requires named epoch or ISO timestamp types on contract At properties', () => {
+        tester.run(
+            'named-timestamps',
+            rules['named-timestamps'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    {
+                        code: 'interface IValid { createdAt: TEpochMs; modifiedAt?: TIsoTimestamp | null; }',
+                        filename: 'packages/contracts/timestamps.ts',
+                    },
+                    {
+                        code: 'interface IValid { updatedAtMs: number; }',
+                        filename: 'packages/contracts/timestamps.ts',
+                    },
+                    {
+                        code: 'interface IValid { insertAt: number; }',
+                        filename: 'packages/contracts/pageNumbers.ts',
+                    },
+                ],
+                invalid: [
+                    {
+                        code: 'interface IInvalid { createdAt: number; }',
+                        filename: 'packages/contracts/example.ts',
+                        errors: [{message: 'Timestamp property "createdAt" must use TEpochMs or TIsoTimestamp.'}],
+                    },
+                    {
+                        code: 'interface IInvalid { publishedAt?: string | null; }',
+                        filename: 'packages/contracts/example.ts',
+                        errors: [{message: 'Timestamp property "publishedAt" must use TEpochMs or TIsoTimestamp.'}],
+                    },
+                ],
+            },
+        );
+    });
+});
+
 describe('commonjs-named-imports rule', () => {
     it('rejects runtime named imports and permits default and type-only UTIF imports', () => {
         tester.run(
@@ -40,6 +77,39 @@ describe('commonjs-named-imports rule', () => {
                     code: 'import { decode, type IUtifFrame } from \'utif\';',
                     errors: [{message: 'Import UTIF as the CommonJS default export; runtime named import(s) are unsafe: decode.'}],
                 }],
+            },
+        );
+    });
+});
+
+describe('no-bare-page-number-type rule', () => {
+    it('requires branded scalar and collection page addresses', () => {
+        tester.run(
+            'no-bare-page-number-type',
+            rules['no-bare-page-number-type'] as Parameters<typeof tester.run>[1],
+            {
+                valid: [
+                    {
+                        code: 'interface IValid { pageNumber: TPageNumber; pageIndex?: TPageIndex | null; pageNumbers: readonly TPageNumber[]; }',
+                        filename: 'packages/contracts/pageNumbers.ts',
+                    },
+                    {
+                        code: 'function valid(pageNumber: TPageNumber, pageIndex: TPageIndex) { const pageNumbers: TPageNumber[] = []; return [pageNumber, pageIndex, pageNumbers]; }',
+                        filename: 'app/modules/pdf-viewer/engine/page.ts',
+                    },
+                ],
+                invalid: [
+                    {
+                        code: 'interface IInvalid { pageNumber: number; }',
+                        filename: 'packages/contracts/pageNumbers.ts',
+                        errors: [{message: 'Use TPageNumber or TPageIndex instead of a bare number page address type.'}],
+                    },
+                    {
+                        code: 'function invalid(pageIndex: number | null) { const pageNumbers: Array<number> = []; return [pageIndex, pageNumbers]; }',
+                        filename: 'app/modules/pdf-viewer/engine/page.ts',
+                        errors: 2,
+                    },
+                ],
             },
         );
     });

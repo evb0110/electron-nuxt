@@ -26,6 +26,7 @@ import {
 } from '@pdf-core';
 import type {IPdfCombinePageLabelRange} from '@pdf-core';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     pixelsToPdfPoints,
     readImageDpi,
@@ -543,11 +544,11 @@ function createCombineProgress(
     };
 }
 
-function offsetSourceBookmarks(bookmarks: IPdfBookmarkEntry[], pageOffset: number): IPdfBookmarkEntry[] {
+function offsetSourceBookmarks(bookmarks: readonly IPdfBookmarkEntry[], pageOffset: number): IPdfBookmarkEntry[] {
     return bookmarks.map(bookmark => ({
         ...bookmark,
         pageIndex: typeof bookmark.pageIndex === 'number'
-            ? pageOffset + bookmark.pageIndex
+            ? requirePageIndex(pageOffset + bookmark.pageIndex)
             : bookmark.pageIndex,
         items: offsetSourceBookmarks(bookmark.items, pageOffset),
     }));
@@ -746,7 +747,7 @@ export async function createCombinedPdf(
         }
         sourceOutlines.push({
             title: basename(sourcePath),
-            pageIndex: firstPageIndex,
+            pageIndex: requirePageIndex(firstPageIndex),
             namedDest: null,
             bold: false,
             italic: false,

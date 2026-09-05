@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+
 // IPC payloads are renderer-controlled. These ceilings are intentionally far
 // above legitimate document/UI sizes while keeping validation work and native
 // allocations bounded before any scan-cleanup operation starts.
@@ -63,7 +65,7 @@ export function decodeScanCleanupPageNumber(value: unknown, label: string) {
     ) {
         throw new Error(`invalid scan-cleanup ${label}`);
     }
-    return Number(value);
+    return requirePageNumber(Number(value));
 }
 
 export function decodeScanCleanupPageKey(value: string, label: string) {

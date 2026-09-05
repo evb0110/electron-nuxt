@@ -226,7 +226,7 @@ function removeReporterFrames(frames: readonly CanonicalAppFrame[]) {
 
 function buildFrames(input: CaptureFailureInput, stackPolicy: DiagnosticStackPolicy) {
     const stack = stackPolicy === 'source'
-        ? readStack(input.local?.cause) ?? captureCallSiteStack()
+        ? readStack(input.local.cause) ?? captureCallSiteStack()
         : captureCallSiteStack();
 
     try {
@@ -379,7 +379,7 @@ function isExpectedHttpOutcome(value: unknown) {
 
 function readCauseObject(input: CaptureFailureInput): object | undefined {
     try {
-        const cause = input.local?.cause;
+        const cause = input.local.cause;
         return typeof cause === 'object' && cause !== null
             || typeof cause === 'function'
             ? cause

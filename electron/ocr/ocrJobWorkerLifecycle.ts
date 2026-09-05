@@ -29,6 +29,18 @@ import type {
     IOcrProgress,
     TOcrErrorCode,
 } from '@contracts/electronApiOcr';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+
+function requireOcrDocumentRef(value: unknown): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new Error('OCR worker returned an invalid document ref');
+    }
+    return parsed;
+}
 
 
 const OCR_WORKER_COOPERATIVE_CANCEL_DELAY_MS = (() => {
@@ -312,7 +324,7 @@ export function createOcrJobWorkerLifecycleController(
             logger.warn(`[${job.scopedJobId}] OCR worker cleanup did not complete within ${OCR_WORKER_CLEANUP_GRACE_MS}ms after terminal result`);
             terminateAndFinalizeActiveJob(job.scopedJobId, { reason: 'worker cleanup timed out after terminal result' });
         }, OCR_WORKER_CLEANUP_GRACE_MS);
-        timer.unref?.();
+        timer.unref();
         workerCleanupTimersByScopedJobId.set(job.scopedJobId, timer);
     }
 
@@ -338,18 +350,27 @@ export function createOcrJobWorkerLifecycleController(
         job.terminalResultSent = true;
         clearJobWatchdog(job.scopedJobId);
         startWorkerCleanupGraceTimer(job);
-        const terminalResult = result.success || result.errorEnvelope
-            ? result
+        const completeResult: IOcrCompleteResult = result.success
+            ? {
+                requestId: job.requestId,
+                success: true,
+                pdfPath: requireOcrDocumentRef(result.pdfPath),
+                sourceDocumentRevisionToken: result.sourceDocumentRevisionToken,
+                resultSha256: result.resultSha256,
+                requiresCleanupAck: result.requiresCleanupAck,
+                errors: result.errors,
+                ...(result.diagnostics === undefined ? {} : {diagnostics: result.diagnostics}),
+            }
             : {
-                ...result,
-                errorEnvelope: createTerminalOcrErrorEnvelope(
-                    result.errors[0] ?? 'OCR worker failed without an error message',
-                ),
+                requestId: job.requestId,
+                success: false,
+                errors: result.errors,
+                ...(result.diagnostics === undefined ? {} : {diagnostics: result.diagnostics}),
+                errorEnvelope: result.errorEnvelope
+                    ?? createTerminalOcrErrorEnvelope(
+                        result.errors[0] ?? 'OCR worker failed without an error message',
+                    ),
             };
-        const completeResult: IOcrCompleteResult = {
-            requestId: job.requestId,
-            ...terminalResult,
-        };
         job.terminalResult = completeResult;
         if (completeResult.success) {
             job.registry.terminal.complete(completeResult);
@@ -390,7 +411,7 @@ export function createOcrJobWorkerLifecycleController(
                 context: {},
             });
         }, OCR_JOB_IDLE_TIMEOUT_MS);
-        watchdog.unref?.();
+        watchdog.unref();
         activeJob.watchdogTimer = watchdog;
     }
 

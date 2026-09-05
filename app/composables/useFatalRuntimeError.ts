@@ -42,9 +42,15 @@ export const useFatalRuntimeError = () => {
         presentationArgument?: FailurePresentation,
     ) {
         const kind = typeof kindOrPresentation === 'string' ? kindOrPresentation : 'runtime';
-        const presentation = typeof kindOrPresentation === 'string'
-            ? presentationArgument!
-            : kindOrPresentation;
+        let presentation: FailurePresentation;
+        if (typeof kindOrPresentation === 'string') {
+            if (presentationArgument === undefined) {
+                return;
+            }
+            presentation = presentationArgument;
+        } else {
+            presentation = kindOrPresentation;
+        }
         const failure = presentation.failure;
         const detail = presentation.description ?? null;
         const source = presentation.failure.code;

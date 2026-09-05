@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import { useAppShellToolPages } from '@app/modules/workspace-shell/composables/useAppShellToolPages';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 describe('useAppShellToolPages', () => {
     it('reuses an empty tab for settings and activates it', () => {
@@ -49,12 +50,11 @@ describe('useAppShellToolPages', () => {
         });
         const result = {
             kind: 'pdf',
-            originalPath: '/tmp/combined.pdf',
-            workingPath: '/tmp/combined-working.pdf',
+            originalPath: requireDocumentRef('/tmp/combined.pdf'),
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
         } as const;
 
-        actions.handleCombineOpenResult(result);
-        await Promise.resolve();
+        await actions.handleCombineOpenResult(result);
 
         expect(activeToolPage.value).toBeNull();
         expect(openResultInAppropriateTab).toHaveBeenCalledWith(result);
@@ -74,8 +74,8 @@ describe('useAppShellToolPages', () => {
 
         await expect(actions.handleCombineOpenResult({
             kind: 'pdf',
-            originalPath: '/tmp/combined.pdf',
-            workingPath: '/tmp/combined-working.pdf',
+            originalPath: requireDocumentRef('/tmp/combined.pdf'),
+            workingPath: requireDocumentRef('/tmp/combined-working.pdf'),
         })).resolves.toBe(false);
         expect(activeToolPage.value).toBe('combine');
     });

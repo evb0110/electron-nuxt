@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { PDFDocument } from 'pdf-lib';
 import {
     PDFDict,
@@ -16,7 +19,7 @@ import { findFreeTextCommentMatch } from '@app/modules/pdf-viewer/engine/seriali
 function forEachPageAnnotationContext(
     doc: PDFDocument,
     callback: (
-        pageIndex: number,
+        pageIndex: TPageIndex,
         context: NonNullable<ReturnType<typeof resolvePageAnnotationContext>>,
     ) => void,
 ) {
@@ -29,7 +32,7 @@ function forEachPageAnnotationContext(
         if (!context) {
             continue;
         }
-        callback(pageIndex, context);
+        callback(requirePageIndex(pageIndex), context);
     }
 }
 

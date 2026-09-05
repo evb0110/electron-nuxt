@@ -15,6 +15,7 @@ import {
     PDF_COMBINE_CATALOG_POLICY,
     writePdfBookmarkOutlines,
 } from '@pdf-core';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 describe('PDF combine catalog policy', () => {
     it('preserves and offsets page-label ranges and outline destinations', async () => {
@@ -22,14 +23,14 @@ describe('PDF combine catalog policy', () => {
         source.addPage();
         source.addPage();
         applyCombinedPdfPageLabels(source, [{
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             style: 'r',
             prefix: 'A-',
             start: 3,
         }]);
         writePdfBookmarkOutlines(source, [{
             title: 'Chapter',
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             namedDest: null,
             bold: false,
             italic: false,

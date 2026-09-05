@@ -21,7 +21,10 @@ import type {
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
 import { cast } from '@tests/helpers/cast';
+import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireEpochMs} from '@contracts/timestamps';
+import {requireTabId} from '@contracts/windowTabs';
 
 const mocks = vi.hoisted(() => ({
     loadSettings: vi.fn(async () => ({assistantPanelEnabled: false})),
@@ -438,12 +441,14 @@ function enableAssistantRuntime(process = new FakeCodexAppServerProcess()) {
 function createDocumentScope(
     fileName: string,
     key = `document:/tmp/${fileName}`,
+    documentRef = `/tmp/${fileName}`,
 ): IAgentAssistantChatScope {
     return {
         kind: 'document',
         key,
+        tabId: requireTabId('tab-1'),
         title: fileName,
-        documentRef: `/tmp/${fileName}`,
+        documentRef: requireDocumentRef(documentRef),
     };
 }
 
@@ -767,18 +772,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('keeps assistant chat messages scoped to the selected document', async () => {
-        const documentA = {
-            kind: 'document',
-            key: 'document-session:session-a',
-            title: 'a.pdf',
-            documentRef: '/tmp/shared.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        const documentB = {
-            kind: 'document',
-            key: 'document-session:session-b',
-            title: 'a.pdf',
-            documentRef: '/tmp/shared.pdf',
-        } as const satisfies IAgentAssistantChatScope;
+        const documentA = createDocumentScope('a.pdf', 'document-session:session-a', '/tmp/shared.pdf');
+        const documentB = createDocumentScope('a.pdf', 'document-session:session-b', '/tmp/shared.pdf');
         enableAssistantRuntime();
 
         const codexAssistantModule: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
@@ -870,15 +865,16 @@ describe('agent assistant opt-in gating', () => {
         const documentScopeV1 = {
             kind: 'document',
             key: 'document:/tmp/revision-shift.pdf',
+            tabId: requireTabId('tab-1'),
             title: 'revision-shift.pdf',
-            documentRef: '/tmp/revision-shift.pdf',
+            documentRef: requireDocumentRef('/tmp/revision-shift.pdf'),
             documentIdentity: {
                 version: 1,
-                documentRef: '/tmp/revision-shift.pdf',
+                documentRef: requireDocumentRef('/tmp/revision-shift.pdf'),
                 authority: 'electron-working-copy',
                 token: requireDocumentRevisionToken('revision-1'),
                 contentRevision: 1,
-                mintedAt: 1,
+                mintedAt: requireEpochMs(1),
             },
         } as const satisfies IAgentAssistantChatScope;
         const documentScopeV2 = {
@@ -887,7 +883,7 @@ describe('agent assistant opt-in gating', () => {
                 ...documentScopeV1.documentIdentity,
                 token: requireDocumentRevisionToken('revision-2'),
                 contentRevision: 2,
-                mintedAt: 2,
+                mintedAt: requireEpochMs(2),
             },
         } as const satisfies IAgentAssistantChatScope;
         const process = enableAssistantRuntime();
@@ -1080,18 +1076,8 @@ describe('agent assistant opt-in gating', () => {
     });
 
     it('starts fresh Codex threads for inactive document sessions after app-server exit', async () => {
-        const documentA = {
-            kind: 'document',
-            key: 'document:/tmp/a.pdf',
-            title: 'a.pdf',
-            documentRef: '/tmp/a.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        const documentB = {
-            kind: 'document',
-            key: 'document:/tmp/b.pdf',
-            title: 'b.pdf',
-            documentRef: '/tmp/b.pdf',
-        } as const satisfies IAgentAssistantChatScope;
+        const documentA = createDocumentScope('a.pdf');
+        const documentB = createDocumentScope('b.pdf');
         configureEnabledAssistantRuntime();
         const processes: FakeCodexAppServerProcess[] = [];
         mocks.spawn.mockImplementation(() => {
@@ -1129,24 +1115,9 @@ describe('agent assistant opt-in gating', () => {
     it('evicts least-recently-used idle document chat sessions', async () => {
         vi.stubEnv('EVB_ASSISTANT_CHAT_SESSION_MAX_ENTRIES', '2');
         const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
-        const documentA = {
-            kind: 'document',
-            key: 'document:/tmp/a.pdf',
-            title: 'a.pdf',
-            documentRef: '/tmp/a.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        const documentB = {
-            kind: 'document',
-            key: 'document:/tmp/b.pdf',
-            title: 'b.pdf',
-            documentRef: '/tmp/b.pdf',
-        } as const satisfies IAgentAssistantChatScope;
-        const documentC = {
-            kind: 'document',
-            key: 'document:/tmp/c.pdf',
-            title: 'c.pdf',
-            documentRef: '/tmp/c.pdf',
-        } as const satisfies IAgentAssistantChatScope;
+        const documentA = createDocumentScope('a.pdf');
+        const documentB = createDocumentScope('b.pdf');
+        const documentC = createDocumentScope('c.pdf');
         enableAssistantRuntime();
 
         try {

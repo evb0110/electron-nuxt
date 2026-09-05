@@ -26,7 +26,9 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
     return {
         assertCleanWorktreeFn: () => events.push('clean'),
         assertCurrentReleaseIsNotDraftFn: (tag: string) => events.push(`draft:${tag}`),
-        assertGitHubCliReadyFn: () => events.push('github'),
+        assertGitHubCliReadyFn: async () => {
+            events.push('github');
+        },
         assertMainTipFn: () => {
             events.push('tip');
             return {
@@ -35,7 +37,9 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
             };
         },
         assertNodeBaselineFn: () => events.push('node'),
-        assertTagAbsentFn: (tag: string) => events.push(`tag:${tag}`),
+        assertTagAbsentFn: async (tag: string) => {
+            events.push(`tag:${tag}`);
+        },
         events,
         findCiRunFn: () => ({
             conclusion: 'success',
@@ -43,10 +47,12 @@ function createPreconditionOptions(overrides: Record<string, unknown> = {}) {
             status: 'completed',
         }),
         getUpstreamFn: () => UPSTREAM,
-        level: 'patch',
+        level: 'patch' as const,
         readVersionFn: () => '0.1.445',
         runCommand: () => '',
-        waitForCiFn: (sha: string) => events.push(`wait:${sha}`),
+        waitForCiFn: async (sha: string) => {
+            events.push(`wait:${sha}`);
+        },
         ...overrides,
     };
 }
@@ -149,15 +155,20 @@ describe('cut-release', () => {
 
     it('repairs a draft by deleting it and redispatching the current release SHA', async () => {
         const commands: string[] = [];
-        let publishedOptions: Record<string, unknown> | undefined;
-        let publishedRequest: Record<string, unknown> | undefined;
+        let publishedOptions: Parameters<typeof publishReleaseCommit>[1];
+        let publishedRequest: Parameters<typeof publishReleaseCommit>[0] | undefined;
         const options = {
             assertCleanWorktreeFn: () => undefined,
-            assertGitHubCliReadyFn: () => undefined,
+            assertGitHubCliReadyFn: async () => undefined,
             assertNodeBaselineFn: () => undefined,
             fetchReleaseMainFn: () => undefined,
             getUpstreamFn: () => UPSTREAM,
-            readReleaseFn: () => ({isDraft: true}),
+            readReleaseFn: () => ({
+                assets: [],
+                isDraft: true,
+                publishedAt: null,
+                tagName: 'v0.1.446',
+            }),
             readVersionFn: () => '0.1.446',
             runCommand: (command: string, args: string[]) => {
                 commands.push(`${command} ${args.join(' ')}`);
@@ -179,11 +190,12 @@ describe('cut-release', () => {
                 return '';
             },
             publishReleaseCommitFn: async (
-                request: Record<string, unknown>,
-                publishOptions: Record<string, unknown>,
+                request: Parameters<typeof publishReleaseCommit>[0],
+                publishOptions: Parameters<typeof publishReleaseCommit>[1],
             ) => {
                 publishedRequest = request;
                 publishedOptions = publishOptions;
+                return HEAD_SHA;
             },
         };
 
@@ -201,11 +213,16 @@ describe('cut-release', () => {
     it('refuses to resume a public release', async () => {
         const options = {
             assertCleanWorktreeFn: () => undefined,
-            assertGitHubCliReadyFn: () => undefined,
+            assertGitHubCliReadyFn: async () => undefined,
             assertNodeBaselineFn: () => undefined,
             fetchReleaseMainFn: () => undefined,
             getUpstreamFn: () => UPSTREAM,
-            readReleaseFn: () => ({isDraft: false}),
+            readReleaseFn: () => ({
+                assets: [],
+                isDraft: false,
+                publishedAt: '2026-09-01T08:30:00.000Z',
+                tagName: 'v0.1.446',
+            }),
             readVersionFn: () => '0.1.446',
             runCommand: (command: string, args: string[]) => {
                 if (command === 'git' && args[0] === 'rev-parse' && args[1] === 'HEAD') {

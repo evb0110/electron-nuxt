@@ -16,17 +16,16 @@ function queryAll<T extends Element>(
     root: ParentNode | null | undefined,
     selector: string,
 ) {
-    return typeof root?.querySelectorAll === 'function'
-        ? Array.from(root.querySelectorAll<T>(selector))
-        : [];
+    if (!root) {
+        return [];
+    }
+    return Array.from(root.querySelectorAll<T>(selector));
 }
 
 function removeCompositeOverlay(host: HTMLElement) {
-    if (typeof host.querySelector === 'function') {
-        host.querySelector<SVGSVGElement>(
-            `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
-        )?.remove();
-    }
+    host.querySelector<SVGSVGElement>(
+        `:scope > .${OVERLAY_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,
+    )?.remove();
     queryAll<SVGElement>(
         host,
         `:scope > svg.${ORIGINAL_HIDDEN_CLASS}:not(.${PRESERVE_SNAPSHOT_CLASS})`,

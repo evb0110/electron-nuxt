@@ -8,6 +8,7 @@ import { refreshDeletedEmbeddedShapePage } from '@app/modules/pdf-viewer/engine/
 import { removeEmbeddedShapeAnnotationDom } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/removeEmbeddedShapeAnnotationDom';
 import { rerenderRenderedManagedEmbeddedShapePages } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/rerenderRenderedManagedEmbeddedShapePages';
 import { shouldRefreshManagedShapePage } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/shouldRefreshManagedShapePage';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     resolveHiddenEmbeddedAnnotationIdsForPageContainer,
     syncHiddenEmbeddedAnnotationDom,
@@ -367,7 +368,7 @@ describe('resolveHiddenEmbeddedAnnotationIdsForPageContainer', () => {
 describe('shouldRefreshManagedShapePage', () => {
     it('refreshes pages in the active render window even when render bookkeeping is stale', () => {
         expect(shouldRefreshManagedShapePage({
-            pageNumber: 6,
+            pageNumber: requirePageNumber(6),
             visibleRange: {
                 start: 5,
                 end: 5,
@@ -379,7 +380,7 @@ describe('shouldRefreshManagedShapePage', () => {
 
     it('refreshes pages with mounted canvas dom even when they are not marked rendered', () => {
         expect(shouldRefreshManagedShapePage({
-            pageNumber: 9,
+            pageNumber: requirePageNumber(9),
             visibleRange: {
                 start: 1,
                 end: 1,

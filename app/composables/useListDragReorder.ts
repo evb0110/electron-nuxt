@@ -60,9 +60,17 @@ export const useListDragReorder = (
                 centerY: rect.top + rect.height / 2,
             };
         });
-        rowStride = slots.length > 1
-            ? (slots[slots.length - 1]!.top - slots[0]!.top) / (slots.length - 1)
-            : (slots[0]?.height ?? 0);
+        if (slots.length > 1) {
+            const firstSlot = slots[0];
+            const lastSlot = slots[slots.length - 1];
+            if (!firstSlot || !lastSlot) {
+                rowStride = 0;
+                return;
+            }
+            rowStride = (lastSlot.top - firstSlot.top) / (slots.length - 1);
+        } else {
+            rowStride = slots[0]?.height ?? 0;
+        }
     }
 
     function isBetween(i: number, from: number, to: number) {
@@ -87,7 +95,8 @@ export const useListDragReorder = (
         if (deltaY > 0) {
             let target = dragIndex.value;
             for (let i = dragIndex.value + 1; i < slots.length; i++) {
-                if (visualBottom > slots[i]!.centerY) {
+                const slot = slots[i];
+                if (slot && visualBottom > slot.centerY) {
                     target = i;
                 }
             }
@@ -97,7 +106,8 @@ export const useListDragReorder = (
         if (deltaY < 0) {
             let target = dragIndex.value;
             for (let i = dragIndex.value - 1; i >= 0; i--) {
-                if (visualTop < slots[i]!.centerY) {
+                const slot = slots[i];
+                if (slot && visualTop < slot.centerY) {
                     target = i;
                 }
             }
@@ -115,7 +125,10 @@ export const useListDragReorder = (
         for (let i = 0; i < rowElements.length; i++) {
             if (i === dragIndex.value) continue;
 
-            const el = rowElements[i]!;
+            const el = rowElements[i];
+            if (!el) {
+                continue;
+            }
             el.style.transition = 'transform var(--app-transition-reorder)';
             if (isBetween(i, dragIndex.value, targetIndex)) {
                 const direction = targetIndex > dragIndex.value ? -1 : 1;

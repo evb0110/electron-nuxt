@@ -8,6 +8,7 @@ import { OCR_PLATFORM_FEATURE } from '@contracts/ocrPlatformFeature';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
 import { createPlatformFeaturePreloadClient } from '@electron/preload/ipcClient';
 import type { IpcRenderer } from 'electron';
+import {requireRequestId} from '@contracts/shared';
 
 const channels = OCR_PLATFORM_FEATURE.invokeChannels;
 const eventChannels = OCR_PLATFORM_FEATURE.eventChannels;
@@ -109,13 +110,13 @@ describe('OCR platform feature', () => {
             terminalRetentionMs: 30_000,
         });
         expect(replay.key({
-            requestId: 'ocr-1',
+            requestId: requireRequestId('ocr-1'),
             currentPage: 1,
             processedCount: 0,
             totalPages: 1,
         })).toBe('ocr-1');
         expect(replay.terminal({
-            requestId: 'ocr-1',
+            requestId: requireRequestId('ocr-1'),
             currentPage: 1,
             processedCount: 1,
             totalPages: 1,

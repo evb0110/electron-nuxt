@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import type {
@@ -8,7 +10,7 @@ import type {
 export interface IPdfAnnotationRecord {
     id?: string;
     annotationName?: string | null;
-    pageIndex?: number;
+    pageIndex?: TPageIndex;
     rect?: number[];
     contents?: string;
     contentsObj?: { str?: string | null };

@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type {
     IBrowserPageOpsWorkerRequestMap,
     IBrowserPageOpsWorkerResultMap,
@@ -140,12 +141,7 @@ function canUsePdfPageOpsWasm() {
 }
 
 function resolveWasmUrl() {
-    const location = globalThis.location;
-    if (!location) {
-        return WASM_PATH;
-    }
-
-    return new URL(WASM_PATH, location.href).toString();
+    return new URL(WASM_PATH, globalThis.location.href).toString();
 }
 
 async function loadPdfPageOpsWasm() {
@@ -490,7 +486,7 @@ export async function tryRunBrowserPageOpsWithWasm<K extends TBrowserPageOpsWasm
     } catch (error) {
         return createWasmFailure(
             'invalid-request',
-            error instanceof Error ? error.message : 'Page operation WASM request failed',
+            error instanceof Error ? getErrorMessage(error) : 'Page operation WASM request failed',
         );
     } finally {
         if (pointer !== null) {

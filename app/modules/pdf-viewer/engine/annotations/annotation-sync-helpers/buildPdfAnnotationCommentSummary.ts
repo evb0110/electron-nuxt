@@ -1,3 +1,6 @@
+import { pageNumberToPageIndex } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     IAnnotationMarkerRect,
@@ -40,7 +43,7 @@ function isFreeTextNoteMarkerRect(
 
 function resolvePdfCommentIds(
     annotation: IPdfAnnotationRecord,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     annotationIndex: number,
 ) {
     const id = annotation.id ?? `pdf-${pageNumber}-${annotationIndex}`;
@@ -160,7 +163,7 @@ export function resolvePdfAnnotationCommentText(
 export function buildPdfAnnotationCommentSummary(
     annotation: IPdfAnnotationRecord,
     popupAnnotation: IPdfAnnotationRecord | null,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     annotationIndex: number,
     pageView: number[] | null,
     pageRotation: TPageRotation,
@@ -194,14 +197,14 @@ export function buildPdfAnnotationCommentSummary(
         id,
         stableKey: deps.computeStableKey({
             id,
-            pageIndex: pageNumber - 1,
+            pageIndex: pageNumberToPageIndex(pageNumber),
             source: 'pdf',
             uid: null,
             annotationId,
             annotationName,
         }),
         sortIndex: null,
-        pageIndex: pageNumber - 1,
+        pageIndex: pageNumberToPageIndex(pageNumber),
         pageNumber,
         text,
         previewText,

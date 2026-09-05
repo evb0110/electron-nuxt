@@ -16,6 +16,7 @@ import {
 } from 'vue';
 import AppFatalRuntimeDialog from '@app/components/AppFatalRuntimeDialog.vue';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const AlertStub = defineComponent({setup: (_props, {slots}) => () => h('section', [
     slots.title?.(),
@@ -190,7 +191,7 @@ describe('AppFatalRuntimeDialog', () => {
         const failure: FailureReceipt = {
             eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
             code: 'UNCLASSIFIED_RENDERER_ERROR',
-            occurredAt: Date.now(),
+            occurredAt: requireEpochMs(Date.now()),
             severity: 'error',
         };
         const mounted = mountDialog('Renderer stack details', true, failure);

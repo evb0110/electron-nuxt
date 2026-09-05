@@ -17,6 +17,7 @@ import {
     SCAN_CLEANUP_WARNING_EVENT_CODES,
     type TScanCleanupWarningEvent,
 } from '@contracts/scan-cleanup/nativeProtocolV3';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {
     SCAN_CLEANUP_PARITY_CANVAS_DPI,
     SCAN_CLEANUP_PARITY_CASES,
@@ -364,10 +365,10 @@ describe('scan cleanup parity corpus', () => {
         // which this corpus never compares against another grid's decimals.
         expect(scanCleanupParityWarningSignature({
             code: 'matched-canvas-content-fitted-pages',
-            pages: [1],
+            pages: [requirePageNumber(1)],
         })).not.toBe(scanCleanupParityWarningSignature({
             code: 'matched-canvas-content-fitted-pages',
-            pages: [2],
+            pages: [requirePageNumber(2)],
         }));
         expect(scanCleanupParityWarningSignature({
             code: 'matched-canvas-content-fitted',

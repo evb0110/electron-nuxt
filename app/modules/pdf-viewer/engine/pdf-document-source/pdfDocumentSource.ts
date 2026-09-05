@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     PDFDataRangeTransport,
     PDFDocumentProxy,
@@ -25,7 +27,7 @@ import type {
 
 interface IPdfCachedPageEntry {
     page: PDFPageProxy;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     leases: number;
     pendingEviction: boolean;
     cleaned: boolean;
@@ -50,15 +52,15 @@ export function createStalePdfDocumentError(message: string) {
  * settle-before-release invariant shared with `runCoordinatedPdfPageRender`.
  */
 export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheOptions) {
-    const entriesByPageNumber = new Map<number, IPdfCachedPageEntry>();
+    const entriesByPageNumber = new Map<TPageNumber, IPdfCachedPageEntry>();
     const entriesByProxy = new WeakMap<PDFPageProxy, IPdfCachedPageEntry>();
 
-    function touch(pageNumber: number, entry: IPdfCachedPageEntry) {
+    function touch(pageNumber: TPageNumber, entry: IPdfCachedPageEntry) {
         entriesByPageNumber.delete(pageNumber);
         entriesByPageNumber.set(pageNumber, entry);
     }
 
-    function cleanupEntry(pageNumber: number, entry: IPdfCachedPageEntry) {
+    function cleanupEntry(pageNumber: TPageNumber, entry: IPdfCachedPageEntry) {
         if (entry.cleaned) {
             return;
         }
@@ -72,7 +74,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         entry.page.cleanup();
     }
 
-    function deferEviction(pageNumber: number, entry: IPdfCachedPageEntry) {
+    function deferEviction(pageNumber: TPageNumber, entry: IPdfCachedPageEntry) {
         entry.pendingEviction = true;
         if (entriesByPageNumber.get(pageNumber) === entry) {
             entriesByPageNumber.delete(pageNumber);
@@ -95,7 +97,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         }
     }
 
-    function evictPage(pageNumber: number) {
+    function evictPage(pageNumber: TPageNumber) {
         const entry = entriesByPageNumber.get(pageNumber);
         if (!entry) {
             return;
@@ -122,7 +124,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         }
     }
 
-    function remember(pageNumber: number, page: PDFPageProxy) {
+    function remember(pageNumber: TPageNumber, page: PDFPageProxy) {
         const existingEntry = entriesByPageNumber.get(pageNumber);
         const proxyEntry = entriesByProxy.get(page);
         const entry = existingEntry?.page === page && !existingEntry.cleaned
@@ -144,7 +146,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         return entry;
     }
 
-    async function getPage(pageNumber: number) {
+    async function getPage(pageNumber: TPageNumber) {
         const document = options.getDocument();
         const version = options.getRenderVersion();
 
@@ -191,7 +193,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         return page;
     }
 
-    async function leasePage(pageNumber: number): Promise<IPdfDocumentPageLease> {
+    async function leasePage(pageNumber: TPageNumber): Promise<IPdfDocumentPageLease> {
         const page = await getPage(pageNumber);
         const entry = entriesByPageNumber.get(pageNumber);
         if (!entry || entry.page !== page) {
@@ -218,7 +220,7 @@ export function createPdfDocumentPageCache(options: ICreatePdfDocumentPageCacheO
         };
     }
 
-    async function leaseTransientBackgroundPage(pageNumber: number): Promise<IPdfDocumentPageLease> {
+    async function leaseTransientBackgroundPage(pageNumber: TPageNumber): Promise<IPdfDocumentPageLease> {
         const document = options.getDocument();
         const version = options.getRenderVersion();
         if (!document) {
@@ -482,7 +484,7 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
         if (version !== options.getRenderVersion()) {
             return null;
         }
-        const pdfjsWithRangeTransport = pdfjsLib as typeof pdfjsLib
+        const pdfjsWithRangeTransport = pdfjsLib as Omit<typeof pdfjsLib, 'PDFDataRangeTransport'>
             & {PDFDataRangeTransport?: TPdfDataRangeTransportCtor};
         const Transport = pdfjsWithRangeTransport.PDFDataRangeTransport;
         if (!Transport) {
@@ -572,13 +574,13 @@ export function createPdfjsDocumentSourceLoader(options: ICreatePdfjsDocumentSou
  */
 const pdfDocumentPageLeaseOwners = new WeakMap<
     PDFDocumentProxy,
-    (pageNumber: number, retention: TPdfDocumentPageLeaseRetention) => Promise<IPdfDocumentPageLease>
+    (pageNumber: TPageNumber, retention: TPdfDocumentPageLeaseRetention) => Promise<IPdfDocumentPageLease>
 >();
 
 export function registerPdfDocumentPageLeaseOwner(
     document: PDFDocumentProxy,
     leasePage: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         retention: TPdfDocumentPageLeaseRetention,
     ) => Promise<IPdfDocumentPageLease>,
 ) {
@@ -587,7 +589,7 @@ export function registerPdfDocumentPageLeaseOwner(
 
 export async function leasePdfDocumentPage(
     document: PDFDocumentProxy,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     retention: TPdfDocumentPageLeaseRetention = 'render-cache',
 ) {
     const leasePage = pdfDocumentPageLeaseOwners.get(document);

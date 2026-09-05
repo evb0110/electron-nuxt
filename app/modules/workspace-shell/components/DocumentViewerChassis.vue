@@ -92,6 +92,7 @@ import type {
     Component,
     ComponentPublicInstance,
 } from 'vue';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import { createDocumentViewerExposeForwarder } from '@app/modules/workspace-shell/viewers/createDocumentViewerExposeForwarder';
 import {
     createDocumentViewerChassisAuthority,
@@ -453,8 +454,8 @@ const chassisOpeningPageShell = computed(() => {
         ...policy,
     }) : null;
     const style = liveFrame?.style ?? frame?.style ?? provisionalStyle;
-    const liveWidth = Number.parseFloat(style.width ?? '');
-    const liveHeight = Number.parseFloat(style.height ?? '');
+    const liveWidth = Number.parseFloat(style.width);
+    const liveHeight = Number.parseFloat(style.height);
     if (
         !Number.isFinite(liveWidth)
         || liveWidth <= 0
@@ -521,7 +522,10 @@ watch(
             }
             const geometry = sourceKind.value === 'djvu'
                 ? readPrevalidatedTrustedDjvuOpenGeometry(documentId, chassisAuthority.currentPage.value)
-                : readPrevalidatedTrustedPdfOpenGeometry(documentId, chassisAuthority.currentPage.value);
+                : readPrevalidatedTrustedPdfOpenGeometry(
+                    documentId,
+                    requirePageNumber(chassisAuthority.currentPage.value),
+                );
             if (
                 !geometry
                 || geometry.pageNumber !== chassisAuthority.currentPage.value
@@ -627,7 +631,7 @@ watch(() => [
     sourceKind.value,
     props.rendererKind,
 ] as const, async (nextIdentity, previousIdentity) => {
-    if (nextIdentity[0] === previousIdentity?.[0] && nextIdentity[1] === previousIdentity?.[1]) {
+    if (nextIdentity[0] === previousIdentity[0] && nextIdentity[1] === previousIdentity[1]) {
         return;
     }
     const generation = ++handoffGeneration;

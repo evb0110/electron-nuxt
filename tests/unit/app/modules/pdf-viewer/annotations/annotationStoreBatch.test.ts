@@ -8,12 +8,13 @@ import {
     asAnnotationId,
     type IStickyNoteEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
+import { requirePageIndex } from '@contracts/pageNumbers';
 
 function note(id: string): IStickyNoteEntity {
     return {
         kind: 'sticky-note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,

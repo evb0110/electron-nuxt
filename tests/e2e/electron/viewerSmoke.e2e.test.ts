@@ -34,6 +34,7 @@ import {
     waitForWorkspaceToolbarSnapshot,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
 import { captureDocumentThumbnailParitySnapshot } from '@tests/e2e/electron/helpers/captureDocumentThumbnailParitySnapshot';
+import { getErrorMessage } from '@contracts/getErrorMessage';
 
 interface IViewerSmokeSnapshot {
     hostHeight: number;
@@ -3691,7 +3692,7 @@ runDjvuSmokeOrSkip('Electron E2E - DjVu Viewer Smoke', () => {
             }
         };
         const onPageError = (error: unknown) => {
-            rendererErrors.push(`pageerror:${error instanceof Error ? error.message : String(error)}`);
+            rendererErrors.push(`pageerror:${getErrorMessage(error)}`);
         };
         session.page.on('console', onConsole);
         session.page.on('pageerror', onPageError);

@@ -7,6 +7,10 @@ import {
 } from 'vitest';
 import type {IDebugLogEntry} from '@contracts/electronApiCommon';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {
+    requireEpochMs,
+    requireIsoTimestamp,
+} from '@contracts/timestamps';
 import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
@@ -37,7 +41,7 @@ vi.mock('@i18n-core', () => ({isLocaleMessageSource: () => false}));
 const failure: FailureReceipt = {
     eventId: 'd'.repeat(32) as FailureReceipt['eventId'],
     code: 'UNCLASSIFIED_RENDERER_ERROR',
-    occurredAt: 1_757_000_000_000,
+    occurredAt: requireEpochMs(1_757_000_000_000),
     severity: 'error',
 };
 
@@ -108,7 +112,7 @@ describe('runtime error log stream', () => {
         callback({
             source: 'main',
             message: '[ERROR] main failure',
-            timestamp: '2026-09-03T00:00:00.000Z',
+            timestamp: requireIsoTimestamp('2026-09-03T00:00:00.000Z'),
             level: 'ERROR',
             failureRef: {
                 eventId: 'a'.repeat(32) as FailureReceipt['eventId'],

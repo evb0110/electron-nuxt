@@ -166,7 +166,7 @@ async function replaceRevisionToken(
 
         const buffer = Buffer.alloc(PAGE_IDENTITY_COPY_CHUNK_BYTES);
         let position = prefix.byteLength;
-        while (true) {
+        for (;;) {
             const result = await sourceHandle.read(buffer, 0, buffer.byteLength, position);
             if (result.bytesRead === 0) {
                 break;

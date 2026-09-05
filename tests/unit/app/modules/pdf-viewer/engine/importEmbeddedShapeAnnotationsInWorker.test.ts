@@ -1,3 +1,4 @@
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     afterEach,
     beforeEach,
@@ -68,7 +69,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         ]);
         vi.mocked(readDocumentBytes).mockResolvedValue(bytes);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/browser.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('browser://documents/browser.pdf')))
             .resolves.toEqual([]);
 
         expect(readDocumentBytes).toHaveBeenCalledWith('browser://documents/browser.pdf', {maxBytes: EMBEDDED_SHAPE_IMPORT_MAX_INPUT_BYTES});
@@ -76,10 +77,10 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
     });
 
     it('refuses a native shape import when the desktop index bridge is missing', async () => {
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/native.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('/tmp/native.pdf')))
             .rejects.toBeInstanceOf(EmbeddedShapeImportCapabilityError);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('/tmp/native.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('/tmp/native.pdf')))
             .rejects.toMatchObject({
                 name: 'EmbeddedShapeImportCapabilityError',
                 reason: 'native-index-capability-unavailable',
@@ -264,7 +265,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/large.pdf')).resolves.toEqual([]);
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('browser://documents/large.pdf'))).resolves.toEqual([]);
 
         expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(1, 'browser://documents/large.pdf', 0, 4 * 1024 * 1024);
         expect(documentMocks.readFileRange).toHaveBeenNthCalledWith(2, 'browser://documents/large.pdf', 4 * 1024 * 1024, 1024 * 1024);
@@ -303,7 +304,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', PendingWorker);
 
-        const importPromise = importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/slow.pdf');
+        const importPromise = importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('browser://documents/slow.pdf'));
         const timeoutExpectation = expect(importPromise)
             .rejects.toThrow('Embedded PDF shape import worker timed out');
         await vi.waitFor(() => expect(documentMocks.readFileRange).toHaveBeenCalledOnce());
@@ -346,7 +347,7 @@ describe('importEmbeddedShapeAnnotationsUsingWorker', () => {
         vi.stubGlobal('window', {});
         vi.stubGlobal('Worker', FakeWorker);
 
-        await expect(importEmbeddedShapeAnnotationsFromPathInWorker('browser://documents/oversized.pdf'))
+        await expect(importEmbeddedShapeAnnotationsFromPathInWorker(requireDocumentRef('browser://documents/oversized.pdf')))
             .rejects.toThrow(RangeError);
         await expect(importEmbeddedShapeAnnotationsUsingWorker(new Uint8Array(documentSize)))
             .rejects.toThrow(RangeError);

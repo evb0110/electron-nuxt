@@ -437,7 +437,7 @@ function shapeStyleAriaLabel(comment: IAnnotationCommentSummary) {
         parts.push(`${t('annotations.stroke')} ${comment.color}`);
     }
     if (hasShapeFill(comment)) {
-        parts.push(`${t('annotationProperties.fill')} ${comment.fillColor}`);
+        parts.push(`${t('annotationProperties.fill')} ${comment.fillColor ?? ''}`);
     }
     const strokeWidth = formatShapeStrokeWidth(comment);
     if (strokeWidth) {

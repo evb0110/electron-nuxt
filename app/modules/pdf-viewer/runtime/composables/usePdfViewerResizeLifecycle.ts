@@ -412,17 +412,16 @@ export const usePdfViewerResizeLifecycle = (options: IUsePdfViewerResizeLifecycl
                 `.page_container[data-page="${page}"]`,
             );
             const activeLease = activeResizeVisualSnapshots.get(page);
-            const isActiveLeaseValid = Boolean(
+            if (
                 activeLease
                 && !activeLease.released
                 && activeLease.document === pdfDocument.value
                 && activeLease.pageContainer === pageContainer
-                && pageContainer?.dataset.page === String(page)
-                && activeLease.snapshot.isValid(),
-            );
-            if (isActiveLeaseValid) {
-                activeLease!.holdForMs = Math.max(activeLease!.holdForMs, normalizedHoldForMs);
-                activeLease!.lastCaptureAtMs = capturedAtMs;
+                && pageContainer.dataset.page === String(page)
+                && activeLease.snapshot.isValid()
+            ) {
+                activeLease.holdForMs = Math.max(activeLease.holdForMs, normalizedHoldForMs);
+                activeLease.lastCaptureAtMs = capturedAtMs;
                 continue;
             }
             activeLease?.snapshot.release();

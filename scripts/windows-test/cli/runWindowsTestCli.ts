@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { windowsTestExitCodes } from '@scripts/windows-test/contracts/windowsTestContracts';
 import {
     WINDOWS_TEST_CLI_USAGE,
@@ -58,7 +59,7 @@ export async function runWindowsTestCli(
             },
         });
     } catch (error) {
-        io.writeError(`The Windows test lane crashed: ${error instanceof Error ? error.message : String(error)}`);
+        io.writeError(`The Windows test lane crashed: ${getErrorMessage(error)}`);
         return windowsTestExitCodes.usageOrCrash;
     }
 

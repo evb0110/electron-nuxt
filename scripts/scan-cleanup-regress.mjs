@@ -1,5 +1,6 @@
 #!/usr/bin/env node
  
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 import {spawn} from 'node:child_process';
 import {
     access,
@@ -168,7 +169,7 @@ async function readJson(filePath, label) {
     try {
         return JSON.parse(await readFile(filePath, 'utf8'));
     } catch (error) {
-        throw new Error(`Could not parse ${label} ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(`Could not parse ${label} ${filePath}: ${getCliErrorMessage(error)}`);
     }
 }
 
@@ -591,7 +592,7 @@ async function runStep(results, label, action) {
         });
         return value;
     } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = getCliErrorMessage(error);
         process.stderr.write(`[scan-cleanup:regress] ${label}: ${message}\n`);
         results.push({
             details: message,
@@ -792,7 +793,7 @@ function formatSummary(results) {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     await main().catch(error => {
-        console.error(`[scan-cleanup:regress] FATAL: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`[scan-cleanup:regress] FATAL: ${getCliErrorMessage(error)}`);
         process.exitCode = 1;
     });
 }

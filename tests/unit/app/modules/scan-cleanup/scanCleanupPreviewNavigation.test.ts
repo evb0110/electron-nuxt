@@ -28,6 +28,9 @@ import type {
     IScanCleanupRawPreviewEvent,
     TScanCleanupPreviewWireResult,
 } from '@contracts/electronApiScanCleanup';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import {requireRequestId} from '@contracts/shared';
 import type * as scanCleanupPreviewCacheModule from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import type {IScanCleanupPreviewCache} from '@app/modules/scan-cleanup/runtime/createScanCleanupPreviewCache';
 import {useScanCleanupPreviewSession} from '@app/modules/scan-cleanup/composables/useScanCleanupPreviewSession';
@@ -94,8 +97,8 @@ const pixelRect = {
 function previewResult(pageNumber: number, requestId?: string): TScanCleanupPreviewWireResult {
     const bytes = new Uint8Array(new ArrayBuffer(PAGE_BYTES));
     return {
-        ...(requestId === undefined ? {} : {requestId}),
-        pageNumber,
+        ...(requestId === undefined ? {} : {requestId: requireRequestId(requestId)}),
+        pageNumber: requirePageNumber(pageNumber),
         totalPages: TOTAL_PAGES,
         rawWidthPx: 883,
         rawHeightPx: 1335,
@@ -326,7 +329,7 @@ function mountPreviewSession(
             documentPriorByPage,
             ...(initialViewMode === undefined ? {} : {initialViewMode}),
             layoutDetectionComplete: computed(() => false),
-            lifecycleDocumentKey: computed(() => lifecycleKey?.value ?? 'reference.pdf'),
+            lifecycleDocumentKey: computed(() => requireDocumentRef(`/docs/${lifecycleKey?.value ?? 'reference.pdf'}`)),
             ownerId: 'owner-1',
             pagePlanEvidenceByPage: new Map(),
             placementAnchorsByPage: computed(() => new Map()),
@@ -335,7 +338,7 @@ function mountPreviewSession(
             softAlphaForegroundRecommendationByPage: new Map(),
             selectPage: page => { previewPage.value = page; },
             settings,
-            sourcePath: computed(() => '/docs/reference.pdf'),
+            sourcePath: computed(() => requireDocumentRef('/docs/reference.pdf')),
             totalPages: computed(() => TOTAL_PAGES),
         });
         return () => h('div');
@@ -570,7 +573,7 @@ describe('scan cleanup preview navigation', () => {
         await backend.advanceBy(1);
 
         const requestId = backend.previewCalls.mock.calls[0]![0].requestId;
-        expect(requestId).toMatch(/^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u);
+        expect(requestId).toMatch(/^scan-cleanup-preview-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/u);
         expect(new TextEncoder().encode(requestId).byteLength).toBeLessThanOrEqual(128);
         expect(requestId).not.toContain('owner-1');
         expect(requestId).not.toContain('/docs/reference.pdf');
@@ -737,7 +740,7 @@ describe('scan cleanup preview navigation', () => {
         await nextTick();
         expect(mounted.session.resultCurrent.value).toBe(false);
 
-        mounted.session.pauseForRun();
+        await mounted.session.pauseForRun();
 
         expect(mounted.session.loading.value).toBe(false);
         expect(mounted.session.result.value).toBe(completed);

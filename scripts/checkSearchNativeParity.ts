@@ -13,6 +13,7 @@ import {
 } from 'node:path';
 import {
     requireDocumentRevisionToken,
+    requirePageNumber,
     SEARCH_NATIVE_PROTOCOL_VERSION,
 } from '@contracts';
 import {
@@ -71,7 +72,7 @@ async function main() {
                 documentRevision: revision,
                 pageCount: 1,
                 pages: [{
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     text: fixture.text,
                 }],
             });

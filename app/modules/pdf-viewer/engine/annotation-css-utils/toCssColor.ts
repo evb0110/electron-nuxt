@@ -66,26 +66,33 @@ function applyOpacityToCssString(value: string, opacity: number) {
         ?.split(',')
         .map(channel => Number.parseFloat(channel.trim()));
     if (channels?.length === 3 && channels.every(channel => Number.isFinite(channel))) {
-        return toRgbaString(channels[0]!, channels[1]!, channels[2]!, normalizedOpacity);
+        const red = channels[0];
+        const green = channels[1];
+        const blue = channels[2];
+        if (red === undefined || green === undefined || blue === undefined) {
+            return value;
+        }
+        return toRgbaString(red, green, blue, normalizedOpacity);
     }
 
     return value;
 }
 
-function isNumericRgbChannels(value: unknown): value is ArrayLike<number> {
-    if (value === null || typeof value !== 'object') {
-        return false;
+function readNumericRgbChannels(value: unknown): [number, number, number] | null {
+    if (value === null || typeof value !== 'object' || !('length' in value)) {
+        return null;
     }
-    const candidate = value as ArrayLike<unknown>;
-    if (typeof candidate.length !== 'number' || candidate.length < 3) {
-        return false;
+    const r: unknown = Reflect.get(value, 0);
+    const g: unknown = Reflect.get(value, 1);
+    const b: unknown = Reflect.get(value, 2);
+    if (typeof r !== 'number' || typeof g !== 'number' || typeof b !== 'number') {
+        return null;
     }
-    for (let index = 0; index < 3; index += 1) {
-        if (typeof candidate[index] !== 'number') {
-            return false;
-        }
-    }
-    return true;
+    return [
+        r,
+        g,
+        b,
+    ];
 }
 
 export function toCssColor(
@@ -104,8 +111,9 @@ export function toCssColor(
         return applyOpacityToCssString(color, opacity);
     }
 
-    if (isNumericRgbChannels(color)) {
-        return toRgbaString(color[0]!, color[1]!, color[2]!, opacity);
+    const channels = readNumericRgbChannels(color);
+    if (channels) {
+        return toRgbaString(...channels, opacity);
     }
 
     if (isRgbObject(color)) {

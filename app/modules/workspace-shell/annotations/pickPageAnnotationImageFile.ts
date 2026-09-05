@@ -1,4 +1,5 @@
 import { isBrowserDocumentRef } from '@app/utils/documentRef';
+import { parseDocumentRef } from '@contracts/documentRef';
 import {
     getDocumentFilesCapability,
     getDocumentPickerCapability,
@@ -62,8 +63,9 @@ function extensionForMimeType(mimeType: string) {
 }
 
 export async function pickPageAnnotationImageFile() {
-    const imagePath = await getDocumentPickerCapability().openImageDialog();
-    if (!imagePath) {
+    const selectedPath = await getDocumentPickerCapability().openImageDialog();
+    const imagePath = parseDocumentRef(selectedPath);
+    if (imagePath === null) {
         return null;
     }
 

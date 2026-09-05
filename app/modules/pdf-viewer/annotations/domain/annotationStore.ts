@@ -6,6 +6,12 @@ import type {
 } from '@app/types/annotations';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import { createEpochMs } from '@contracts/timestamps';
+import {
     mapPageNumberThroughPageIdentityDelta,
     type IPageIdentityDelta,
 } from '@contracts/electronApiPageOps';
@@ -318,8 +324,8 @@ export class AnnotationStore {
                 const geometry = {...structuredClone(entity.geometry)};
                 if (style.color !== null) geometry.color = style.color;
                 if ('fillColor' in style && style.fillColor !== undefined) geometry.fillColor = style.fillColor;
-                if ('opacity' in style && style.opacity !== undefined && style.opacity !== null) geometry.opacity = style.opacity;
-                if ('strokeWidth' in style && style.strokeWidth !== undefined) geometry.strokeWidth = style.strokeWidth;
+                if ('opacity' in style && style.opacity !== null) geometry.opacity = style.opacity;
+                if ('strokeWidth' in style) geometry.strokeWidth = style.strokeWidth;
                 return {
                     ...entity,
                     geometry,
@@ -366,7 +372,7 @@ export class AnnotationStore {
             ...current,
             geometry: structuredClone(geometry),
             revision: current.revision + 1,
-            modifiedAt: Date.now(),
+            modifiedAt: createEpochMs(),
         };
         this.#commit([{
             id,
@@ -383,7 +389,7 @@ export class AnnotationStore {
             ...before,
             geometry: structuredClone(geometry),
             revision: before.revision + 1,
-            modifiedAt: Date.now(),
+            modifiedAt: createEpochMs(),
         };
         this.#entities.set(id, cloneEntity(after));
         this.#mutationEpoch += 1;
@@ -681,7 +687,7 @@ export class AnnotationStore {
                 ...entity,
                 deleted: true,
                 revision: entity.revision + 1,
-                modifiedAt: Date.now(),
+                modifiedAt: createEpochMs(),
             });
         });
         this.list().forEach((entity) => {
@@ -700,8 +706,13 @@ export class AnnotationStore {
     /** Projects a committed page-tree delta without creating a second undo entry. */
     remapPages(delta: IPageIdentityDelta) {
         this.#entities.forEach((entity, id) => {
-            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(delta, entity.pageIndex + 1);
-            const nextPageIndex = mappedPageNumber === null ? undefined : mappedPageNumber - 1;
+            const mappedPageNumber = mapPageNumberThroughPageIdentityDelta(
+                delta,
+                pageIndexToPageNumber(entity.pageIndex),
+            );
+            const nextPageIndex = mappedPageNumber === null
+                ? undefined
+                : pageNumberToPageIndex(mappedPageNumber);
             const saved = this.#savedSemanticSnapshot.get(id);
             if (saved !== undefined) {
                 this.#savedSemanticSnapshot.set(id, {
@@ -767,7 +778,7 @@ export class AnnotationStore {
         if (!state) {
             return false;
         }
-        let changed = false;
+        let changed = false as boolean;
         state.preparedChanges.forEach((preparation, id) => {
             const entity = this.#entities.get(id);
             if (!entity) {
@@ -941,7 +952,7 @@ export class AnnotationStore {
         const after = {
             ...candidate,
             revision: before.revision + 1,
-            modifiedAt: Date.now(),
+            modifiedAt: createEpochMs(),
         };
         this.#commit([{
             id,
@@ -1191,7 +1202,7 @@ export class AnnotationStore {
                 ...(stableKey ? {pdfName: stableKey} : {}),
                 ...(shape.id ? {elementId: shape.id} : {}),
             },
-            pageIndex: shape.pageIndex,
+            pageIndex: requirePageIndex(shape.pageIndex),
             revision: 0,
             persistedRevision: 0,
             deleted: false,
@@ -1261,7 +1272,7 @@ export class AnnotationStore {
         before: AnnotationEntity['identity'],
         prepared: AnnotationEntity['identity'],
     ) {
-        let changed = false;
+        let changed = false as boolean;
         const restored = {...current};
         ([
             'pdfRef',

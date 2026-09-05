@@ -2,6 +2,7 @@ import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import { parsePageIndex } from '@contracts/pageNumbers';
+import { isRecord } from '@contracts/runtimeGuards';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
 import type {
     IAnnotationCommentSummary,
@@ -76,13 +77,13 @@ export interface IPdfPlacedImageNativePathResult {
 
 export type TPdfPlacedImageEmbeddingResult = Uint8Array | IPdfPlacedImageNativePathResult;
 
+// The parameter stays unknown so the discriminator is a real runtime check.
+// Narrowing on the presence of `kind` alone would accept any future tagged
+// variant as a native path and read an absent `path` off it.
 export function isPdfPlacedImageNativePathResult(
-    result: TPdfPlacedImageEmbeddingResult,
+    result: unknown,
 ): result is IPdfPlacedImageNativePathResult {
-    return typeof result === 'object'
-        && result !== null
-        && 'kind' in result
-        && result.kind === 'native-path';
+    return isRecord(result) && result.kind === 'native-path';
 }
 
 export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
@@ -358,15 +359,6 @@ export const usePdfSerialization = (deps: IPdfSerializationDeps) => {
                     await documentFiles.releaseManagedTempFileHandle(nativeImage.source.leaseId).catch(() => false);
                 }
             }
-        }
-
-        if (nativePathBacked) {
-            throw new NativePdfSaveRequiredError({
-                code: 'native-save-required',
-                phase: 'pre-write',
-                reason: 'missing-native-capability',
-                detail: 'Renderer PDF serialization cannot read a native path-backed working copy',
-            });
         }
 
         try {

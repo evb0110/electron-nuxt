@@ -30,6 +30,9 @@ import { isValidationBuildFresh } from '../validation-gates.mjs';
 
 const RELEASE_DIR = 'release';
 
+/** @typedef {ReturnType<typeof getLocalReleaseTargets>[number]} IReleaseTarget */
+/** @typedef {NodeJS.ProcessEnv & {[key: string]: string | undefined}} IReleaseEnvironment */
+
 export function getLocalReleaseBuildCommand() {
     return {
         args: [
@@ -40,6 +43,7 @@ export function getLocalReleaseBuildCommand() {
     };
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] @returns {string[]} */
 export function getPackagingArgs(target, env = process.env) {
     if (target.platform === 'mac' && target.arch === 'x64') {
         return [
@@ -77,6 +81,7 @@ export function getPackagingArgs(target, env = process.env) {
     ];
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] */
 function assertReleaseArtifactsExist(target, env = process.env) {
     const distDir = resolve(process.cwd(), RELEASE_DIR);
     if (!existsSync(distDir)) {
@@ -92,6 +97,7 @@ function assertReleaseArtifactsExist(target, env = process.env) {
     }
 }
 
+/** @param {IReleaseTarget} target @param {NodeJS.ProcessEnv} [env] */
 function validateUpdaterMetadata(target, env = process.env) {
     const shouldExist = expectsUpdaterMetadata(target, env);
     const distDir = resolve(process.cwd(), RELEASE_DIR);
@@ -131,6 +137,7 @@ function validateUpdaterMetadata(target, env = process.env) {
     }
 }
 
+/** @param {IReleaseTarget} target */
 function verifyLocalPackageArtifacts(target) {
     if (target.platform === 'mac' && target.arch !== process.arch) {
         const appDir = resolve(
@@ -177,6 +184,7 @@ function verifyLocalPackageArtifacts(target) {
     }
 }
 
+/** @param {IReleaseTarget} target */
 function pruneUpdaterMetadataForLocalParity(target) {
     if (expectsUpdaterMetadata(target)) {
         return;
@@ -193,7 +201,7 @@ function pruneUpdaterMetadataForLocalParity(target) {
 function main() {
     const targets = getLocalReleaseTargets();
     const distDir = resolve(process.cwd(), RELEASE_DIR);
-    const releaseCiEnv = getReleaseCiEnv(process.env);
+    const releaseCiEnv = /** @type {IReleaseEnvironment} */ (getReleaseCiEnv(process.env));
     const buildCommand = getLocalReleaseBuildCommand();
     const receiptPath = releaseCiEnv[RELEASE_BUILD_RECEIPT_ENV_VAR];
     const receiptResult = receiptPath

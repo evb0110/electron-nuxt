@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     mkdir,
     rm,
@@ -110,7 +111,7 @@ export async function requestWindowsTestStop(
     if (!isWindowsTestRunId(request.runId)) {
         return {
             exitCode: windowsTestExitCodes.usageOrCrash,
-            messages: [`"${request.runId}" is not a Windows test run ID; expected YYYYMMDDTHHMMSSZ-<12 hex>.`],
+            messages: [`${JSON.stringify(request.runId)} is not a Windows test run ID; expected YYYYMMDDTHHMMSSZ-<12 hex>.`],
             recovered: false,
         };
     }
@@ -178,7 +179,7 @@ export async function requestWindowsTestStop(
             recovered = true;
         });
     } catch (error) {
-        messages.push(`Stale-owner recovery failed: ${error instanceof Error ? error.message : String(error)}.`);
+        messages.push(`Stale-owner recovery failed: ${getErrorMessage(error)}.`);
         return {
             exitCode: windowsTestExitCodes.infrastructureFailed,
             messages,

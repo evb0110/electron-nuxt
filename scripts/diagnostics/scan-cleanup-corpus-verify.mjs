@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 /* eslint-disable max-lines -- The corpus ledger intentionally keeps its end-to-end assertions in one auditable CLI transaction. */
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {createHash} from 'node:crypto';
 import {
     access,
@@ -2663,7 +2664,7 @@ async function main() {
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     await main().catch(error => {
-        console.error(`\n[FATAL] ${error instanceof Error ? error.message : String(error)}`);
+        console.error(`\n[FATAL] ${getCliErrorMessage(error)}`);
         process.exitCode = 1;
     });
 }

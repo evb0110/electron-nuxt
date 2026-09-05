@@ -6,6 +6,7 @@ import type {
     TAgentAssistantSpeedMode,
 } from '@contracts/agent';
 import {cloneAssistantScope} from '@contracts/agent';
+import {createIsoTimestamp} from '@contracts/timestamps';
 import {
     ASSISTANT_DEFAULT_EFFORT,
     ASSISTANT_DEFAULT_SPEED_MODE,
@@ -126,7 +127,7 @@ export function createEmptyAssistantState({
                 lastEventAtMs: null,
                 usage: null,
             },
-            lastCheckedAt: '',
+            lastCheckedAt: createIsoTimestamp(),
         },
         messages: [],
     };

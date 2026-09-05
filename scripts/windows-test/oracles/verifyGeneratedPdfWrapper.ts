@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import path from 'node:path';
 import { isRecord } from '@contracts/runtimeGuards';
 import type { IOracleResult } from '@scripts/windows-test/oracles/oracleResult';
@@ -106,7 +107,7 @@ export async function runVerifyGeneratedPdf(
             oracleId: GENERATED_PDF_VERIFIER_ORACLE_ID,
             oracleVersion: GENERATED_PDF_VERIFIER_VERSION,
             status: 'inconclusive',
-            detail: `The verifier could not be started: ${error instanceof Error ? error.message : String(error)}`,
+            detail: `The verifier could not be started: ${getErrorMessage(error)}`,
             observations: {
                 command,
                 args,
@@ -139,7 +140,7 @@ export async function runVerifyGeneratedPdf(
             status: 'inconclusive',
             detail: processResult.exitCode === 0
                 ? 'The verifier produced no parsable report.'
-                : `The verifier exited ${processResult.exitCode} without a parsable report; the oracle did not run to completion.`,
+                : `The verifier exited ${processResult.exitCode ?? 'abnormally'} without a parsable report; the oracle did not run to completion.`,
             observations: {
                 exitCode: processResult.exitCode,
                 stdout: processResult.stdout.slice(0, 2000),
@@ -153,7 +154,7 @@ export async function runVerifyGeneratedPdf(
         oracleId: GENERATED_PDF_VERIFIER_ORACLE_ID,
         oracleVersion: GENERATED_PDF_VERIFIER_VERSION,
         status: processResult.exitCode === 0 && acceptedStatus ? 'passed' : 'failed',
-        detail: `Verifier reported ${status} with exit code ${processResult.exitCode}.`,
+        detail: `Verifier reported ${status} with exit code ${processResult.exitCode ?? '<unknown>'}.`,
         observations: {
             report,
             exitCode: processResult.exitCode,

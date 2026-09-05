@@ -28,7 +28,15 @@ import {
     type IDocxExportStreamBeginResult,
 } from '@contracts/docxExport';
 import type { TIpcCodecMap } from '@contracts/ipcMain';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    requireSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import {
     DOCUMENTS_CHANNELS,
     type IDocumentsInvokeMap,
@@ -49,12 +57,35 @@ import {
     requireDecoded,
 } from '@electron/platform-ipc/ipcCodecValidation';
 
+function decodeRendererFileOpenRequest(value: unknown, fieldName: string) {
+    const decoded = decodeRequiredObject(value, fieldName);
+    const {
+        filePath,
+        token,
+    } = decoded;
+    if (typeof filePath !== 'string' || typeof token !== 'string') {
+        throw new Error(`${fieldName} must carry string filePath and token`);
+    }
+    return {
+        filePath,
+        token,
+    };
+}
+
+function decodeDocumentRef(value: unknown, fieldName: string) {
+    const documentRef = parseDocumentRef(value);
+    if (documentRef === null) {
+        throw new Error(`${fieldName} must be an absolute document ref`);
+    }
+    return documentRef;
+}
+
 function decodeCommittedPathValidationResult(value: unknown) {
     if (!isRecord(value) || (value.path !== null && typeof value.path !== 'string')) {
         throw new Error('invalid committed PDF persistence result');
     }
     return {
-        path: value.path,
+        path: value.path === null ? null : decodeDocumentRef(value.path, 'committed result.path'),
         validation: decodePdfValidation(value.validation),
     };
 }
@@ -86,7 +117,7 @@ function decodePersistenceBeginResult(value: unknown): IBeginSerializedPdfPersis
     }
     if (value.protocolVersion === undefined) {
         return {
-            sessionId: value.sessionId,
+            sessionId: requireSessionId(value.sessionId),
             protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION,
             maxChunkBytes: PDF_PERSISTENCE_DEFAULT_CHUNK_BYTES,
             maxInFlightChunks: PDF_PERSISTENCE_DEFAULT_MAX_IN_FLIGHT_CHUNKS,
@@ -123,8 +154,8 @@ function decodeSaveAsBeginResult(value: unknown): IBeginSerializedPdfSaveAsResul
     const ackTimeoutMs = decodeOptionalPositiveSafeInteger(value.ackTimeoutMs, 'ackTimeoutMs');
     const resultTimeoutMs = decodeOptionalPositiveSafeInteger(value.resultTimeoutMs, 'resultTimeoutMs');
     return {
-        sessionId: value.sessionId,
-        path: value.path,
+        sessionId: value.sessionId === null ? null : requireSessionId(value.sessionId),
+        path: value.path === null ? null : decodeDocumentRef(value.path, 'save-as result.path'),
         ...(value.protocolVersion === undefined
             ? {}
             : {protocolVersion: SERIALIZED_PDF_PERSISTENCE_PROTOCOL_VERSION}),
@@ -146,11 +177,11 @@ function decodeDocxStreamBeginResult(value: unknown): IDocxExportStreamBeginResu
     if (!isRecord(value) || typeof value.sessionId !== 'string' || value.sessionId.trim().length === 0) {
         throw new Error('invalid DOCX stream begin result');
     }
-    return {sessionId: value.sessionId};
+    return {sessionId: requireSessionId(value.sessionId)};
 }
 
 function decodeDocxStreamChunkArgs(args: readonly unknown[]) {
-    const sessionId = decodeStringArg(args, 0, 'sessionId');
+    const sessionId = requireSessionId(decodeStringArg(args, 0, 'sessionId'));
     const chunk = decodeUint8ArrayArg(
         args,
         1,
@@ -160,10 +191,11 @@ function decodeDocxStreamChunkArgs(args: readonly unknown[]) {
     if (chunk.byteLength === 0) {
         throw new Error('chunk must not be empty');
     }
-    return [
+    const decoded: [TSessionId, Uint8Array] = [
         sessionId,
         chunk,
-    ] as [string, Uint8Array];
+    ];
+    return decoded;
 }
 
 export const DOCUMENTS_IPC_CODECS = {
@@ -180,10 +212,7 @@ export const DOCUMENTS_IPC_CODECS = {
         decodeResult: decodeBooleanResult,
     },
     [DOCUMENTS_CHANNELS.allowRendererFileOpen]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeRequiredObject<{
-            filePath: string;
-            token: string
-        }>(args[0], 'request')],
+        decodeArgs: (args: readonly unknown[]) => [decodeRendererFileOpenRequest(args[0], 'request')],
         decodeResult: decodeBooleanResult,
     },
     [DOCUMENTS_CHANNELS.allowRendererFileOpenBatch]: {
@@ -192,17 +221,14 @@ export const DOCUMENTS_IPC_CODECS = {
                 allowEmpty: true,
                 maxItems: 4_096,
             });
-            return [requests.map(item => decodeRequiredObject<{
-                filePath: string;
-                token: string
-            }>(item, 'request'))];
+            return [requests.map(item => decodeRendererFileOpenRequest(item, 'request'))];
         },
         decodeResult: decodeBooleanResult,
     },
     [DOCUMENTS_CHANNELS.savePdfDataAs]: {
         decodeArgs: (args: readonly unknown[]) => {
-            const base: [string, Uint8Array] = [
-                decodeStringArg(args, 0, 'workingPath'),
+            const base: [TDocumentRef, Uint8Array] = [
+                decodeDocumentRef(decodeStringArg(args, 0, 'workingPath'), 'workingPath'),
                 decodeUint8ArrayArg(args, 1, 'data'),
             ];
             const options = decodeSaveAsOptions(args[2]);
@@ -218,8 +244,8 @@ export const DOCUMENTS_IPC_CODECS = {
     },
     [DOCUMENTS_CHANNELS.savePdfDataAsBegin]: {
         decodeArgs: (args: readonly unknown[]) => {
-            const base: [string, number] = [
-                decodeStringArg(args, 0, 'workingPath'),
+            const base: [TDocumentRef, number] = [
+                decodeDocumentRef(decodeStringArg(args, 0, 'workingPath'), 'workingPath'),
                 decodeSafeIntegerArg(args, 1, 'totalBytes'),
             ];
             const options = decodeSaveAsOptions(args[2]);
@@ -235,14 +261,14 @@ export const DOCUMENTS_IPC_CODECS = {
     },
     [DOCUMENTS_CHANNELS.fileSavePdfData]: {
         decodeArgs: (args: readonly unknown[]) => appendOptional([
-            decodeStringArg(args, 0, 'path'),
+            decodeDocumentRef(decodeStringArg(args, 0, 'path'), 'path'),
             decodeUint8ArrayArg(args, 1, 'data'),
         ], decodeRevisionOptions(args[2])),
         decodeResult: decodeValidationResult,
     },
     [DOCUMENTS_CHANNELS.fileSavePdfDataBegin]: {
         decodeArgs: (args: readonly unknown[]) => appendOptional([
-            decodeStringArg(args, 0, 'path'),
+            decodeDocumentRef(decodeStringArg(args, 0, 'path'), 'path'),
             decodeSafeIntegerArg(args, 1, 'totalBytes'),
         ], decodeRevisionOptions(args[2])),
         decodeResult: decodePersistenceBeginResult,
@@ -252,7 +278,7 @@ export const DOCUMENTS_IPC_CODECS = {
             const stagedOutput = decodeTypedStagedArtifact(args[1]);
             if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
             return [
-                decodeStringArg(args, 0, 'sessionId'),
+                requireSessionId(decodeStringArg(args, 0, 'sessionId')),
                 stagedOutput,
             ];
         },
@@ -263,7 +289,7 @@ export const DOCUMENTS_IPC_CODECS = {
             const stagedOutput = decodeTypedStagedArtifact(args[1]);
             if (!stagedOutput) throw new Error('stagedOutput must be a typed staged artifact');
             return [
-                decodeStringArg(args, 0, 'sessionId'),
+                requireSessionId(decodeStringArg(args, 0, 'sessionId')),
                 stagedOutput,
             ];
         },
@@ -278,11 +304,11 @@ export const DOCUMENTS_IPC_CODECS = {
         decodeResult: decodeBooleanResult,
     },
     [DOCX_EXPORT_STREAM_CHANNELS.commit]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'sessionId')],
+        decodeArgs: (args: readonly unknown[]) => [requireSessionId(decodeStringArg(args, 0, 'sessionId'))],
         decodeResult: decodeBooleanResult,
     },
     [DOCX_EXPORT_STREAM_CHANNELS.cancel]: {
-        decodeArgs: (args: readonly unknown[]) => [decodeStringArg(args, 0, 'sessionId')],
+        decodeArgs: (args: readonly unknown[]) => [requireSessionId(decodeStringArg(args, 0, 'sessionId'))],
         decodeResult: decodeBooleanResult,
     },
 } satisfies TIpcCodecMap<IDocumentsInvokeMap>;

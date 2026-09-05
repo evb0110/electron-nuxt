@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { createHash } from 'node:crypto';
 import {
     readFile,
@@ -106,7 +107,7 @@ export async function loadFixtureManifest(manifestPath: string) {
     try {
         parsed = JSON.parse(raw);
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         throw new Error(`Windows fixture manifest at ${manifestPath} is not valid JSON: ${detail}`);
     }
     if (!isWindowsFixtureManifest(parsed)) {
@@ -176,7 +177,7 @@ async function verifyFixtureFile(
             fixtureId: file.id,
             message: missing
                 ? `${file.path} is missing.`
-                : `${file.path} could not be read: ${error instanceof Error ? error.message : String(error)}`,
+                : `${file.path} could not be read: ${getErrorMessage(error)}`,
         });
         return;
     }

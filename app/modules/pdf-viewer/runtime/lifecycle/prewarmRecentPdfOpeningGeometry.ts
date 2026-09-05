@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+
 import type { IRecentFile } from '@contracts/shared';
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 import {
@@ -71,17 +73,21 @@ export async function prewarmRecentPdfOpeningGeometry(
             if (!file) {
                 return;
             }
-            const alreadyValidated = readPrevalidatedTrustedPdfOpenGeometry(file.originalPath, 1);
+            const alreadyValidated = readPrevalidatedTrustedPdfOpenGeometry(
+                file.originalPath,
+                requirePageNumber(1),
+            );
             if (alreadyValidated && !readOpeningGeometry) {
                 results.set(file.originalPath, alreadyValidated);
                 options.onSettled?.(file, alreadyValidated);
                 continue;
             }
             try {
+                const readStat = port.readStat;
                 const geometryTask = prevalidateTrustedPdfOpenGeometry(
                     file.originalPath,
-                    1,
-                    port.readStat ? () => port.readStat!(file.originalPath) : undefined,
+                    requirePageNumber(1),
+                    readStat ? () => readStat(file.originalPath) : undefined,
                     readOpeningGeometry
                         ? () => readOpeningGeometry(file.originalPath)
                         : undefined,

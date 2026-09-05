@@ -1,3 +1,11 @@
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    requirePageIndex,
+    requirePageNumber,
+    type TPageIndex,
+} from '@contracts/pageNumbers';
+import { parseEpochMs } from '@contracts/timestamps';
 // Legacy PDF.js ingestion only. Canonical state remains in AnnotationStore.
 import type {
     Ref,
@@ -82,7 +90,7 @@ import type { TComputeSummaryStableKey } from '@app/modules/pdf-viewer/engine/an
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 interface ISyncIdentity {
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;
     computeSummaryStableKey: TComputeSummaryStableKey;
     toSummaryKey: (summary: IAnnotationCommentSummary) => string;
     rememberSummaryText: (summary: IAnnotationCommentSummary) => void;
@@ -92,9 +100,9 @@ interface ISyncIdentity {
     clearMemory: () => void;
 }
 interface ISyncMarkupSubtype {
-    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
+    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: TPageIndex) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
-    resolveEditorMarkupSubtypeColor: (editor: IPdfjsEditor, subtype: TMarkupSubtype, pageIndex: number) => string;
+    resolveEditorMarkupSubtypeColor: (editor: IPdfjsEditor, subtype: TMarkupSubtype, pageIndex: TPageIndex) => string;
     rememberMarkupSubtypeColorOverride: (annotationId: string | null | undefined, color: string | null | undefined) => void;
     forgetMarkupSubtypeOverride: (annotationId: string | null | undefined) => void;
     clearOverrides: () => void;
@@ -209,13 +217,13 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         return null;
     }
     function* getVisibleFirstPageOrder(pageCount: number) {
-        const visiblePage = Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value)));
+        const visiblePage = requirePageNumber(Math.min(pageCount, Math.max(1, Math.trunc(currentPage.value))), pageCount);
         yield visiblePage;
         for (let distance = 1; distance < pageCount; distance += 1) {
             const before = visiblePage - distance;
             const after = visiblePage + distance;
-            if (before >= 1) yield before;
-            if (after <= pageCount) yield after;
+            if (before >= 1) yield requirePageNumber(before, pageCount);
+            if (after <= pageCount) yield requirePageNumber(after, pageCount);
             if (before < 1 && after > pageCount) {
                 return;
             }
@@ -340,11 +348,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
         return previewText;
     }
-    function resolveEditorSummarySubtype(
-        editor: IPdfjsEditor,
-        pageIndex: number,
-        markupSubtype: ISyncMarkupSubtype,
-    ) {
+    function resolveEditorSummarySubtype(editor: IPdfjsEditor, pageIndex: TPageIndex, markupSubtype: ISyncMarkupSubtype) {
         return markupSubtype.resolveEditorMarkupSubtypeOverride(editor, pageIndex)
             ?? markupSubtype.resolveEditorSubtypeFromPresentation(editor)
             ?? detectEditorSubtype(editor);
@@ -353,27 +357,24 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         return hasEditorCommentPayload(editor);
     }
     function resolveEditorSummaryModifiedAt(data: TEditorData) {
-        return parsePdfDateTimestamp(data.modificationDate)
-            ?? parsePdfDateTimestamp(data.creationDate);
+        return parseEpochMs(parsePdfDateTimestamp(data.modificationDate)
+            ?? parsePdfDateTimestamp(data.creationDate));
     }
     function resolveEditorSummaryCreatedAt(data: TEditorData) {
-        return parsePdfDateTimestamp(data.creationDate)
-            ?? parsePdfDateTimestamp(data.modificationDate);
+        return parseEpochMs(parsePdfDateTimestamp(data.creationDate)
+            ?? parsePdfDateTimestamp(data.modificationDate));
     }
     function resolveEditorSummaryColor(
         editor: IPdfjsEditor,
         data: TEditorData,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         subtype: string | null,
         markupSubtype: ISyncMarkupSubtype,
     ) {
         if (isTextMarkupSubtype(subtype)) {
             return markupSubtype.resolveEditorMarkupSubtypeColor(editor, subtype as TMarkupSubtype, pageIndex);
         }
-        return toCssColor(
-            data.color ?? editor.color,
-            data.opacity ?? editor.opacity ?? 1,
-        );
+        return toCssColor(data.color ?? editor.color, data.opacity ?? editor.opacity ?? 1);
     }
     function resolveEditorSummaryAuthor() {
         const author = authorName.value?.trim();
@@ -381,7 +382,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
     }
     function toEditorSummary(
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         textOverride?: string,
         sortIndex: number | null = null,
     ): IAnnotationCommentSummary {
@@ -395,12 +396,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         const uid = editor.uid ?? null;
         const annotationId = editor.annotationElementId ?? null;
         const color = resolveEditorSummaryColor(editor, data, pageIndex, resolvedSubtype, markupSubtype);
-        rememberResolvedMarkupSubtypeColor(
-            annotationId,
-            resolvedSubtype,
-            color,
-            markupSubtype,
-        );
+        rememberResolvedMarkupSubtypeColor(annotationId, resolvedSubtype, color, markupSubtype);
         const id = identity.getEditorIdentity(editor, pageIndex);
         const hasNote = resolveEditorSummaryHasNote(editor);
         const rectResult = resolveEditorMarkerRect(editor);
@@ -422,7 +418,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             }),
             sortIndex,
             pageIndex,
-            pageNumber: pageIndex + 1,
+            pageNumber: pageIndexToPageNumber(pageIndex),
             text,
             displayText,
             previewText,
@@ -496,11 +492,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 waitForIdle: waitForAnnotationSyncIdleOpportunity,
                 isCanceled: () => localToken !== syncToken,
                 onNativeIndexReadFailure: (error: unknown) => {
-                    BrowserLogger.debug(
-                        'annotations',
-                        'Failed to read native PDF annotation index chunk',
-                        error,
-                    );
+                    BrowserLogger.debug('annotations', 'Failed to read native PDF annotation index chunk', error);
                     annotationNameReadResult = 'failed';
                     annotationNameSkipReason = null;
                 },
@@ -512,19 +504,11 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             if (nativeIndexReader) {
                 if (localToken !== syncToken) {
                     await nativeIndexReader.cancel().catch((error: unknown) => {
-                        BrowserLogger.debug(
-                            'annotations',
-                            'Failed to cancel native PDF annotation index',
-                            error,
-                        );
+                        BrowserLogger.debug('annotations', 'Failed to cancel native PDF annotation index', error);
                     });
                 }
                 await nativeIndexReader.release().catch((error: unknown) => {
-                    BrowserLogger.debug(
-                        'annotations',
-                        'Failed to release native PDF annotation index',
-                        error,
-                    );
+                    BrowserLogger.debug('annotations', 'Failed to release native PDF annotation index', error);
                 });
                 pdfAnnotationIndexLifecycle.delete(nativeIndexReader);
             }
@@ -714,9 +698,10 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
         }
 
         const editorPageIndexes = options.getEditorPageIndexes?.();
-        for (const pageIndex of editorPageIndexes?.length
-            ? editorPageIndexes
-            : [Math.max(0, Math.trunc(currentPage.value) - 1)]) {
+        const pageIndexes = editorPageIndexes?.length
+            ? editorPageIndexes.map(pageIndex => requirePageIndex(pageIndex))
+            : [pageNumberToPageIndex(requirePageNumber(Math.max(1, Math.trunc(currentPage.value)), numPages.value))];
+        for (const pageIndex of pageIndexes) {
             for (const editor of getEditorsOnPage(uiManager, pageIndex)) {
                 hasPostOpenUserMutation ||= trackedCreatedEditors.has(editor);
                 const text = getCommentText(editor);
@@ -759,13 +744,14 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
                 )
             )
         ));
-        if (candidates.length !== 1) {
+        const [candidateEntry] = candidates;
+        if (candidates.length !== 1 || !candidateEntry) {
             return false;
         }
         const [
             previousKey,
             candidate,
-        ] = candidates[0]!;
+        ] = candidateEntry;
         commentsByKey.delete(previousKey);
         const annotationName = summary.annotationName ?? candidate.annotationName;
         const annotationId = summary.annotationId ?? candidate.annotationId;
@@ -778,7 +764,7 @@ export const useAnnotationSync = (options: IUseAnnotationSyncOptions) => {
             annotationId,
             stableKey: identity.computeSummaryStableKey({
                 id: candidate.id,
-                pageIndex: candidate.pageIndex,
+                pageIndex: requirePageIndex(candidate.pageIndex),
                 source: candidate.source,
                 uid: candidate.uid,
                 annotationId,

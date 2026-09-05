@@ -8,6 +8,7 @@ import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {withTypecheckNodeHeap} from './typecheckNodeEnv.mjs';
 
+/** @param {{argv?: string[], cwd?: string, env?: NodeJS.ProcessEnv}} options @returns {{cacheDir: string, cold: boolean, env: NodeJS.ProcessEnv, workspaceDir: string}} */
 export function resolveNuxtTypecheckRun({
     argv = process.argv.slice(2),
     cwd = process.cwd(),
@@ -18,7 +19,7 @@ export function resolveNuxtTypecheckRun({
         || env.EVB_GATE_NO_CACHE === '1';
     const workspaceArg = argv.find(argument => !argument.startsWith('-'));
     const workspaceDir = workspaceArg ? path.resolve(cwd, workspaceArg) : cwd;
-    const childEnv = withTypecheckNodeHeap(env);
+    const childEnv = /** @type {NodeJS.ProcessEnv} */ (withTypecheckNodeHeap(env));
 
     // pnpm injects npm-specific config vars that newer npm versions warn about
     // when Nuxt shells out through npm internals during typecheck.

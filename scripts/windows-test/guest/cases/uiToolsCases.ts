@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { joinGuestPath } from '@scripts/windows-test/guest/guestPaths';
 import {
     nativeDialogRecordIds,
@@ -158,7 +159,7 @@ export async function runWinTools01(context: ICaseContext) {
             }).catch((error: unknown): IGuestCommandResult => {
                 // The failure text must not count as output, or a tool that
                 // cannot start would pass the loads assertion.
-                context.log(`${executable.relativePath} could not be started: ${error instanceof Error ? error.message : String(error)}`);
+                context.log(`${executable.relativePath} could not be started: ${getErrorMessage(error)}`);
                 return {
                     exitCode: -1,
                     stdout: '',
@@ -205,7 +206,7 @@ export async function runWinTools01(context: ICaseContext) {
     }).catch(error => ({
         exitCode: -1,
         stdout: '',
-        stderr: error instanceof Error ? error.message : String(error),
+        stderr: getErrorMessage(error),
     }));
     context.assert(
         'tools01.conflicting-host-path-control-fails',

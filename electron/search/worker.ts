@@ -28,6 +28,8 @@ import {
     iteratePageMatches,
 } from '@electron/search/worker/searchMatch';
 import { parsePageNumber } from '@contracts/pageNumbers';
+import { assertNever } from '@contracts/assertNever';
+import type { TRequestId } from '@contracts/shared';
 import type { IResolvedSearchMatchOptions } from '@pdf-core';
 import type { ICachedIndex } from '@electron/search/worker/ensureSearchIndex';
 import {
@@ -44,7 +46,7 @@ import { collectSearchMatchWords } from '@pdf-core';
 import { decodeSearchWorkerData } from '@contracts/resourcePolicies';
 
 interface ISearchRequestContext extends IResolvedSearchMatchOptions {
-    requestId: string;
+    requestId: TRequestId;
     pdfPath: string;
     documentRevision: TDocumentRevisionToken;
     normalizedQuery: string;
@@ -56,7 +58,7 @@ interface ISearchRequestContext extends IResolvedSearchMatchOptions {
 }
 
 interface ISearchExecutionResult {
-    results: ISearchMatch[];
+    results: readonly ISearchMatch[];
     truncated: boolean;
 }
 
@@ -114,10 +116,6 @@ const activeSearchRequests = new Set<Promise<void>>();
 const log = createLogger('search-worker');
 let shutdownStarted = false;
 
-function assertNever(value: never) {
-    throw new Error(`Unhandled search worker inbound message: ${JSON.stringify(value)}`);
-}
-
 function postMessage(message: TSearchWorkerOutboundMessage) {
     parentPort?.postMessage(message);
 }
@@ -130,7 +128,7 @@ async function getPdfFileStat(filePath: string) {
     }
 }
 
-function isCancelled(requestId: string) {
+function isCancelled(requestId: TRequestId) {
     const expiresAt = cancelledRequests.get(requestId);
     if (expiresAt === undefined) {
         return false;
@@ -166,7 +164,7 @@ function pruneCancelledRequests(now = Date.now()) {
     }
 }
 
-function markRequestCancelled(requestId: string) {
+function markRequestCancelled(requestId: TRequestId) {
     const now = Date.now();
     pruneCancelledRequests(now);
     if (cancelledRequests.has(requestId)) {
@@ -177,7 +175,7 @@ function markRequestCancelled(requestId: string) {
 }
 
 function throwIfCancelled(
-    requestId: string,
+    requestId: TRequestId,
     signal?: AbortSignal,
 ) {
     if (isCancelled(requestId) || signal?.aborted) {
@@ -186,7 +184,7 @@ function throwIfCancelled(
 }
 
 function sendProgress(
-    requestId: string,
+    requestId: TRequestId,
     processed: number,
     total: number,
     force = false,
@@ -204,23 +202,21 @@ function sendProgress(
     }
 
     progressSentAt.set(requestId, now);
-    const progress: TSearchWorkerOutboundMessage = {
+    const progress = {
         type: 'progress',
         requestId,
         processed,
         total,
-    };
-    if (partialResult !== undefined) {
-        progress.results = partialResult.results;
-        if (partialResult.resultsStartIndex !== undefined) {
-            progress.resultsStartIndex = partialResult.resultsStartIndex;
-        }
-        progress.truncated = partialResult.truncated;
-    }
+        ...(partialResult === undefined ? {} : {
+            results: partialResult.results,
+            ...(partialResult.resultsStartIndex === undefined ? {} : {resultsStartIndex: partialResult.resultsStartIndex}),
+            truncated: partialResult.truncated,
+        }),
+    } as const;
     postMessage(progress);
 }
 
-function postEmptySearchComplete(requestId: string) {
+function postEmptySearchComplete(requestId: TRequestId) {
     postMessage({
         type: 'complete',
         requestId,
@@ -232,7 +228,7 @@ function postEmptySearchComplete(requestId: string) {
 }
 
 function postSearchComplete(
-    requestId: string,
+    requestId: TRequestId,
     result: ISearchExecutionResult,
 ) {
     postMessage({
@@ -433,7 +429,7 @@ async function tryCompleteWithXlargeSearch(context: ISearchRequestContext) {
     }
 }
 
-function postSearchCancelled(requestId: string) {
+function postSearchCancelled(requestId: TRequestId) {
     postMessage({
         type: 'cancelled',
         requestId,
@@ -441,7 +437,7 @@ function postSearchCancelled(requestId: string) {
 }
 
 function postSearchError(
-    requestId: string,
+    requestId: TRequestId,
     error: unknown,
 ) {
     const errMsg = getErrorMessage(error);
@@ -546,7 +542,7 @@ function getRetainedTextBytes(entry: ICachedIndex) {
         return cachedTextBytes;
     }
     const textBytes = entry.index.pages.reduce(
-        (total, page) => total + Buffer.byteLength(page.text ?? '', 'utf8'),
+        (total, page) => total + Buffer.byteLength(page.text, 'utf8'),
         0,
     );
     retainedTextBytesByIndex.set(entry.index, textBytes);
@@ -782,7 +778,7 @@ function searchIndex(
 }
 
 function handleSearchRequestError(
-    requestId: string,
+    requestId: TRequestId,
     error: unknown,
 ) {
     if (isAbortError(error) || isCancelled(requestId)) {
@@ -793,7 +789,7 @@ function handleSearchRequestError(
     postSearchError(requestId, error);
 }
 
-function cleanupSearchRequest(requestId: string) {
+function cleanupSearchRequest(requestId: TRequestId) {
     requestAbortControllers.delete(requestId);
     progressSentAt.delete(requestId);
     cancelledRequests.delete(requestId);
@@ -912,9 +908,8 @@ parentPort?.on('message', (rawMessage: unknown) => {
             }
             startSearchRequest(message.payload);
             return;
-        default:
-            assertNever(message);
     }
+    return assertNever(message);
 });
 
 log.debug('Search worker initialized');

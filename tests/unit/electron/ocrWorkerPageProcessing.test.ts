@@ -16,6 +16,7 @@ import {
 import type {TOcrJobStorageBudget} from '@electron/ocr/worker/ocrJobStorageBudget';
 import {createAbortError} from '@electron/utils/abort';
 import {cast} from '@tests/helpers/cast';
+import {requireJobId} from '@contracts/shared';
 
 interface IResourceAcquireMessage {
     type: string;
@@ -115,7 +116,7 @@ function grantResourceSlots() {
 
 function createContext(overrides: Partial<TPageContext> = {}): TPageContext {
     return {
-        jobId: randomUUID(),
+        jobId: requireJobId(randomUUID()),
         sessionId: 'session',
         popplerSourcePdfPath: join(checkpointDir, 'source.pdf'),
         extractionDpi: 300,

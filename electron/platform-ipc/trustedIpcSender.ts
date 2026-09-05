@@ -32,7 +32,7 @@ export function isTrustedWebContentsSender(
     }
 
     const senderMainFrame = sender.mainFrame;
-    if (senderFrame && senderMainFrame && senderFrame !== senderMainFrame) {
+    if (senderFrame && senderFrame !== senderMainFrame) {
         logger.warn(`[ipc] rejected ${channel}: non-main frame sender`);
         return false;
     }

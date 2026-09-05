@@ -104,7 +104,9 @@ function parseQpdfPageMap(output: string, requestedPageNumbers: ReadonlySet<numb
         }
         const contentMatch = /^\s+(\d+)\s+(\d+)\s+R\s*$/u.exec(line);
         if (contentMatch) {
-            currentPage.contentObjects.push(`${contentMatch[1]},${contentMatch[2]}`);
+            const objectNumber = contentMatch[1] ?? '<missing>';
+            const generation = contentMatch[2] ?? '<missing>';
+            currentPage.contentObjects.push(`${objectNumber},${generation}`);
             continue;
         }
         if (line.trim().length > 0 && !/^\s/u.test(line)) {

@@ -9,6 +9,7 @@ import {
     parsePdfInfoPageGeometry,
     shouldUseMediaBoxForSuspiciousCrop,
 } from '@scan-cleanup-core/pdfPageSizes';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import {readPngDimensions} from '@scan-cleanup-core/rasterLayerDimensions';
 import {
     SCAN_CLEANUP_MAX_BILEVEL_PIXELS,
@@ -121,7 +122,7 @@ async function readSuspiciousCropGeometry(
         if (signal?.aborted) throw error;
         log(
             'warn',
-            `CropBox recovery metadata could not be read; retaining Poppler's CropBox rendering: ${error instanceof Error ? error.message : String(error)}`,
+            `CropBox recovery metadata could not be read; retaining Poppler's CropBox rendering: ${getErrorMessage(error)}`,
         );
         return null;
     }

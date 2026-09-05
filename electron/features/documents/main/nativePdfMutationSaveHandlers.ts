@@ -296,7 +296,7 @@ async function prepareNativeNoteMutation(options: {
         () => copyFileCopyOnWrite(options.sourcePath, options.tempPath),
     );
     const sourceBytes = (await stat(options.tempPath)).size;
-    const identityBindings: NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']> = [];
+    const identityBindings: Array<NonNullable<IPdfNativeNoteTextSaveResult['identityBindings']>[number]> = [];
     await measureNativeNotePhase(options.phaseTimings, 'native-command', () =>
         withLargePdfMutationAdmission(sourceBytes, options.mutationOperation.signal, async () => {
             for (const [
@@ -627,7 +627,7 @@ export async function handleCommitStagedPdfNativeMutations(
     const operationStart = performance.now();
     const operationStartedAtEpochMs = Date.now();
     let result: IPdfNativeNoteTextSaveResult | null = null;
-    let stagedArtifactCleaned = false;
+    let stagedArtifactCleaned = false as boolean;
     try {
         result = await enqueueWorkingCopyMutation(normalizedWorkingPath, async () => {
             await assertQueuedWorkingCopyMutationPreconditions(

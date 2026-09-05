@@ -783,13 +783,13 @@ function getWorkspaceExposeMethodsForGroup<TGroup extends TWorkspaceExposeComman
 function hasDocumentMenuDescriptor(
     descriptor: TWorkspaceExposeCommandDescriptor,
 ): descriptor is TWorkspaceExposeMenuCommandDescriptor {
-    return 'menu' in descriptor && descriptor.menu !== undefined;
+    return 'menu' in descriptor;
 }
 
 function hasToolbarDescriptor(
     descriptor: TWorkspaceExposeCommandDescriptor,
 ): descriptor is TWorkspaceExposeToolbarCommandDescriptor {
-    return 'toolbar' in descriptor && descriptor.toolbar !== undefined;
+    return 'toolbar' in descriptor;
 }
 
 export const workspaceExposeMethodDescriptors = {

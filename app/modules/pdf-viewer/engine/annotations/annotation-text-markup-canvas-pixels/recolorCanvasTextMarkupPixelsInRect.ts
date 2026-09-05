@@ -30,10 +30,10 @@ export function recolorCanvasTextMarkupPixelsInRect(
 
     const pixels = image.data.data;
     const isAnnotationPixel = (pixelIndex: number) => {
-        const r = pixels[pixelIndex]!;
-        const g = pixels[pixelIndex + 1]!;
-        const b = pixels[pixelIndex + 2]!;
-        const alpha = pixels[pixelIndex + 3]!;
+        const r = pixels[pixelIndex] ?? 0;
+        const g = pixels[pixelIndex + 1] ?? 0;
+        const b = pixels[pixelIndex + 2] ?? 0;
+        const alpha = pixels[pixelIndex + 3] ?? 0;
         return textMarkupCanvasColor.colorDistanceScoreFromPoint(0, 0, r, g, b, alpha) !== null;
     };
     const lineBand = (() => {
@@ -66,9 +66,9 @@ export function recolorCanvasTextMarkupPixelsInRect(
                     continue;
                 }
                 const swatch = textMarkupCanvasColor.nearestAnnotationSwatch(
-                    pixels[index]!,
-                    pixels[index + 1]!,
-                    pixels[index + 2]!,
+                    pixels[index] ?? 0,
+                    pixels[index + 1] ?? 0,
+                    pixels[index + 2] ?? 0,
                 );
                 counts.set(swatch, (counts.get(swatch) ?? 0) + 1);
             }
@@ -88,9 +88,9 @@ export function recolorCanvasTextMarkupPixelsInRect(
             return true;
         }
         const currentSwatch = textMarkupCanvasColor.nearestAnnotationSwatch(
-            pixels[pixelOffset]!,
-            pixels[pixelOffset + 1]!,
-            pixels[pixelOffset + 2]!,
+            pixels[pixelOffset] ?? 0,
+            pixels[pixelOffset + 1] ?? 0,
+            pixels[pixelOffset + 2] ?? 0,
         );
         if (inferredSourceSwatch && currentSwatch !== inferredSourceSwatch) {
             return false;
@@ -106,7 +106,7 @@ export function recolorCanvasTextMarkupPixelsInRect(
             if (!isAnnotationPixel(aboveIndex)) {
                 break;
             }
-            if (textMarkupCanvasColor.nearestAnnotationSwatch(pixels[aboveIndex]!, pixels[aboveIndex + 1]!, pixels[aboveIndex + 2]!) === currentSwatch) {
+            if (textMarkupCanvasColor.nearestAnnotationSwatch(pixels[aboveIndex] ?? 0, pixels[aboveIndex + 1] ?? 0, pixels[aboveIndex + 2] ?? 0) === currentSwatch) {
                 sameSwatchRun += 1;
             }
         }
@@ -115,7 +115,7 @@ export function recolorCanvasTextMarkupPixelsInRect(
             if (!isAnnotationPixel(belowIndex)) {
                 break;
             }
-            if (textMarkupCanvasColor.nearestAnnotationSwatch(pixels[belowIndex]!, pixels[belowIndex + 1]!, pixels[belowIndex + 2]!) === currentSwatch) {
+            if (textMarkupCanvasColor.nearestAnnotationSwatch(pixels[belowIndex] ?? 0, pixels[belowIndex + 1] ?? 0, pixels[belowIndex + 2] ?? 0) === currentSwatch) {
                 sameSwatchRun += 1;
             }
         }

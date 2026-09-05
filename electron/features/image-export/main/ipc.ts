@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     BrowserWindow,
     dialog,
@@ -32,6 +33,10 @@ import type { TFeatureMainBindings } from '@contracts/platformFeature';
 import { clamp } from 'es-toolkit/math';
 import { createLogger } from '@electron/utils/createLogger';
 import { normalizeOptionalIpcRequestId } from '@electron/utils/ipcLimits';
+import {
+    createRequestId,
+    parseRequestId,
+} from '@contracts/shared';
 import { cancelNativeCommandGroup } from '@electron/native-tools/runNativeCommand';
 import type { SetOptional } from 'type-fest';
 import {
@@ -45,6 +50,10 @@ import {
 } from '@electron/operation-lifecycle/createMainJobRegistry';
 
 const logger = createLogger('image-export');
+
+function isImageExportJobAborted(job: TImageExportJobContext) {
+    return job.signal.aborted;
+}
 
 type TImageExportProgressPayload = SetOptional<Omit<IImageExportProgress, 'format' | 'requestId'>, 'percent'>;
 interface IImageExportResult {
@@ -73,7 +82,7 @@ const imageExportJobs = createMainJobRegistry<IImageExportProgress, IImageExport
     },
     toError: (cause, kind) => ({
         code: kind === 'canceled' ? 'canceled' : kind,
-        message: cause instanceof Error ? cause.message : String(cause ?? 'Image export failed'),
+        message: getErrorMessage(cause ?? 'Image export failed'),
         ...(cause instanceof ImageExportOutputBudgetError
             ? {details: IMAGE_EXPORT_OUTPUT_BUDGET_ERROR_NAME}
             : {}),
@@ -213,7 +222,8 @@ function buildSuggestedName(pageNumbers: number[] | undefined, format: TImageExp
 }
 
 function normalizeExportRequestId(requestId: unknown) {
-    return normalizeOptionalIpcRequestId(requestId) ?? '';
+    return parseRequestId(normalizeOptionalIpcRequestId(requestId))
+        ?? createRequestId('image-export');
 }
 
 async function runImageExportJob(
@@ -226,7 +236,7 @@ async function runImageExportJob(
 ) {
     const normalizedRequestId = normalizeExportRequestId(requestId);
     const handle = imageExportJobs.start({
-        ...(normalizedRequestId ? {jobId: normalizedRequestId} : {}),
+        jobId: normalizedRequestId,
         owner: {sender: context.sender},
         operation: {
             kind: 'abortable-work',
@@ -344,7 +354,7 @@ export async function handlePdfExportImages(
             buildSuggestedName(normalizedPageNumbers, 'images'),
             'images',
         );
-        if (result.canceled || !result.filePath || job.signal.aborted) {
+        if (result.canceled || !result.filePath || isImageExportJobAborted(job)) {
             job.terminal.cancel(new Error('Image export canceled'));
             return {
                 success: false,
@@ -370,7 +380,7 @@ export async function handlePdfExportImages(
                     ownerWebContentsId: context.senderId,
                 },
             );
-        if (job.signal.aborted) {
+        if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);
             return {
                 success: false,
@@ -421,7 +431,7 @@ export async function handlePdfExportMultiPageTiff(
             buildSuggestedName(normalizedPageNumbers, 'multipage-tiff'),
             'multipage-tiff',
         );
-        if (result.canceled || !result.filePath || job.signal.aborted) {
+        if (result.canceled || !result.filePath || isImageExportJobAborted(job)) {
             job.terminal.cancel(new Error('Image export canceled'));
             return {
                 success: false,
@@ -446,7 +456,7 @@ export async function handlePdfExportMultiPageTiff(
                     ownerWebContentsId: context.senderId,
                 },
             );
-        if (job.signal.aborted) {
+        if (isImageExportJobAborted(job)) {
             job.terminal.cancel(job.signal.reason);
             return {
                 success: false,

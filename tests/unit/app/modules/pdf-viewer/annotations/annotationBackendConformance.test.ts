@@ -1,3 +1,5 @@
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -26,7 +28,7 @@ describe('annotation persistence backend conformance', () => {
                 pdfName: 'note-nm',
                 pdfRef: '12R0',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -49,7 +51,7 @@ describe('annotation persistence backend conformance', () => {
                 pdfName: 'markup-nm',
                 pdfRef: '13 0 R',
             },
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -110,12 +112,12 @@ describe('annotation persistence backend conformance', () => {
                 id: noteId,
                 pdfName: 'backend-note',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
-            createdAt: 1,
-            modifiedAt: 2,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(2),
             author: 'Author',
             text: 'עברית Ω',
             anchor: {
@@ -166,12 +168,12 @@ describe('annotation persistence backend conformance', () => {
         const plan = buildSerializationPlan(store.beginSave(requireDocumentRevisionToken('revision-global')), [], [], {
             pageOperations: [{
                 operation: 'rotate',
-                pageIndexes: [0],
+                pageIndexes: [requirePageIndex(0)],
                 fields: {degrees: 90},
             }],
             metadata: {pageLabels},
             ocrOperations: [{
-                pageIndex: 0,
+                pageIndex: requirePageIndex(0),
                 operation: 'replace-text-layer',
                 payloadHash: 'ocr-hash',
             }],

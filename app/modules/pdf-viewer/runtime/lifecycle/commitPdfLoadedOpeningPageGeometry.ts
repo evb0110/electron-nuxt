@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IPdfPageMetric,
     TPdfSource,
@@ -53,7 +55,7 @@ export function commitPdfLoadedOpeningPageGeometry(
         documentId: string;
         metricSource: TPdfSource | null;
         currentSource: TPdfSource | null;
-        pageNumber: number;
+        pageNumber: TPageNumber;
         currentPage: number;
         pageCount: number;
         metric: IPdfPageMetric | undefined;

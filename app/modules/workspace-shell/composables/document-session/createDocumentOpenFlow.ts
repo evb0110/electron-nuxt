@@ -4,7 +4,11 @@ import type {
     useAnalytics,
 } from '@app/composables/useAnalytics';
 import type { TTranslateFn } from '@i18n-app';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import { createRequestId } from '@contracts/shared';
 import {
     getFailureReceipt,
     type ExpectedOutcome,
@@ -52,7 +56,10 @@ import {
     stagePdfOpeningPreview,
     type IPdfOpeningGeometryResolution,
 } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
-import {shouldStageNativePdfOpeningPreview} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
+import {
+    isPathPdfSource,
+    shouldStageNativePdfOpeningPreview,
+} from '@app/modules/pdf-viewer/public/nativePreviewRouting';
 import {resolvePdfOpeningGeometry} from '@app/modules/workspace-shell/composables/document-session/resolvePdfOpeningGeometry';
 
 type TAnalytics = ReturnType<typeof useAnalytics>;
@@ -142,12 +149,7 @@ export function createDocumentOpenFlow(
             return nextState.pdfData.byteLength;
         }
         const source = nextState.pdfSrc;
-        if (
-            source
-            && typeof source === 'object'
-            && 'kind' in source
-            && source.kind === 'path'
-        ) {
+        if (isPathPdfSource(source)) {
             return source.size;
         }
         return null;
@@ -534,7 +536,7 @@ export function createDocumentOpenFlow(
         if (isBrowserFilePickerSetupDeniedError(e)) {
             return deps.t('errors.browser.filePickerSetupDenied');
         }
-        const rawMessage = e instanceof Error ? e.message : '';
+        const rawMessage = e instanceof Error ? getErrorMessage(e) : '';
         if (rawMessage && /ENOENT|could not be found|no such file|chunk missing|does not exist/i.test(rawMessage)) {
             const baseName = path ? getDocumentRefBaseName(path) : '';
             const name = baseName && baseName.length > 0 ? baseName : path ? String(path) : '';
@@ -551,9 +553,10 @@ export function createDocumentOpenFlow(
         state.openBatchProgress.value = null;
         try {
             const documentOpen = getDocumentOpenCapability();
-            const normalizedPaths = paths
-                .map((path) => path.trim())
-                .filter((path) => path.length > 0);
+            const normalizedPaths = paths.flatMap((path) => {
+                const parsed = parseDocumentRef(path.trim());
+                return parsed === null ? [] : [parsed];
+            });
 
             if (normalizedPaths.length === 0) {
                 const message = deps.t('errors.file.invalid');
@@ -566,7 +569,7 @@ export function createDocumentOpenFlow(
                 } satisfies TDocumentOpenOutcome;
             }
 
-            const requestId = crypto.randomUUID();
+            const requestId = createRequestId('document-open-batch');
             state.openBatchProgress.value = {
                 processed: 0,
                 total: normalizedPaths.length,
@@ -650,11 +653,11 @@ export function createDocumentOpenFlow(
             if (!isCurrentOpenRequest(openRequestId)) {
                 return {
                     status: 'failed',
-                    error: e instanceof Error ? e.message : deps.t('errors.file.open'),
+                    error: e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.open'),
                 } satisfies TDocumentOpenOutcome;
             }
             state.openBatchProgress.value = null;
-            const message = e instanceof Error ? e.message : deps.t('errors.file.open');
+            const message = e instanceof Error ? getErrorMessage(e) : deps.t('errors.file.open');
             recordOpenFailure(message, e);
             return {
                 status: 'failed',
@@ -900,10 +903,7 @@ export function createDocumentOpenFlow(
             return;
         }
 
-        const stagedPreview = nextState.pdfSrc
-            && typeof nextState.pdfSrc === 'object'
-            && 'kind' in nextState.pdfSrc
-            && nextState.pdfSrc.kind === 'path'
+        const stagedPreview = isPathPdfSource(nextState.pdfSrc)
             && opts?.openingGeometryResolution
             && deps.openSurface
             ? stagePdfOpeningPreview({
@@ -915,7 +915,7 @@ export function createDocumentOpenFlow(
                 traceContext,
             })
             : null;
-        let allowSpeculativePdfjs = true;
+        const speculativeOpenState: { allowed: boolean } = { allowed: true };
         const clearSpeculativeSource = () => {
             if (state.pdfOpeningSrc.value !== nextState.pdfSrc) {
                 return;
@@ -924,7 +924,7 @@ export function createDocumentOpenFlow(
             state.pdfOpeningRevisionToken.value = null;
         };
         cancelActiveSpeculativeOpen = (reason) => {
-            allowSpeculativePdfjs = false;
+            speculativeOpenState.allowed = false;
             stagedPreview?.cancel(reason);
             clearSpeculativeSource();
         };
@@ -956,10 +956,7 @@ export function createDocumentOpenFlow(
             preparedDocumentRevision: undefined,
             readyHold: null,
         };
-        const speculativePathSource = nextState.pdfSrc
-            && typeof nextState.pdfSrc === 'object'
-            && 'kind' in nextState.pdfSrc
-            && nextState.pdfSrc.kind === 'path'
+        const speculativePathSource = isPathPdfSource(nextState.pdfSrc)
             ? nextState.pdfSrc
             : null;
         const openSurface = deps.openSurface;
@@ -968,7 +965,7 @@ export function createDocumentOpenFlow(
             && openSurface
             ? opts.openingGeometryResolution.then(async (resolution) => {
                 if (
-                    !allowSpeculativePdfjs
+                    !speculativeOpenState.allowed.valueOf()
                     || !isCurrent()
                     || resolution.openingGeometry === null
                     || resolution.sourceRevision === null
@@ -980,7 +977,7 @@ export function createDocumentOpenFlow(
                 const snapshot = openSurface.snapshot.value;
                 const sourceRevisionKey = `${String(resolution.sourceRevision.size)}:${String(resolution.sourceRevision.modifiedAt)}`;
                 if (
-                    !allowSpeculativePdfjs
+                    !speculativeOpenState.allowed.valueOf()
                     || !isCurrent()
                     || !openSurface.holdReadyForValidation(snapshot.generation, sourceRevisionKey)
                 ) {
@@ -1010,9 +1007,9 @@ export function createDocumentOpenFlow(
         let validationResult;
         try {
             validationResult = await validationTask;
-            allowSpeculativePdfjs = false;
+            speculativeOpenState.allowed = false;
         } catch (error) {
-            allowSpeculativePdfjs = false;
+            speculativeOpenState.allowed = false;
             stagedPreview?.cancel('validation-error');
             clearSpeculativeSource();
             throw error;

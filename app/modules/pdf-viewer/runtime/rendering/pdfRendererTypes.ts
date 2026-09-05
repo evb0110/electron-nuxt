@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     PDFPageProxy,
     RenderTask,
@@ -24,16 +26,16 @@ import type { TPdfViewportSession } from '@app/modules/pdf-viewer/runtime/sessio
 export type { IRenderVisiblePagesOptions } from '@app/modules/pdf-viewer/engine/pdf-page-render-pipeline/bindPdfOpenSurfaceRenderContext';
 
 export interface IPdfRendererSearchNavigationOptions {
-    scrollToPage?: (pageNumber: number, options?: IScrollToPageOptions) => void;
+    scrollToPage?: (pageNumber: TPageNumber, options?: IScrollToPageOptions) => void;
     suppressSnap?: () => void;
-    beginSearchNavigation?: (pageNumber: number) => void;
+    beginSearchNavigation?: (pageNumber: TPageNumber) => void;
     revealSearchNavigationTarget?: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     beginSearchTransaction?: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: Pick<IScrollToPageOptions, 'markerRect' | 'textAnchor'>,
     ) => number | null;
     isSearchTransactionCurrent?: (transactionId: number) => boolean;
@@ -54,11 +56,11 @@ export interface IUsePdfPageRendererOptions {
     currentSearchMatchNavigationId?: MaybeRefOrGetter<number>;
     workingCopyPath?: MaybeRefOrGetter<TDocumentRef | null>;
     documentRevisionToken?: MaybeRefOrGetter<TDocumentRevisionToken | null>;
-    onPageRendered?: (pageNumber: number) => void;
+    onPageRendered?: (pageNumber: TPageNumber) => void;
     onPageLayersCommitted?: (
         signal: {
             kind: 'page-layer-committed';
-            pageNumber: number;
+            pageNumber: TPageNumber;
         },
         fence: IPdfDocumentFence,
     ) => void;
@@ -68,8 +70,8 @@ export interface IUsePdfPageRendererOptions {
     pageRenderState: TPdfPageRenderState;
     getRenderVersion: () => number;
     getRenderDocumentToken: () => string;
-    getCommittedCanvas: (pageNumber: number) => HTMLCanvasElement | null;
-    requestSearchPageRaster: (pageNumber: number) => Promise<void>;
+    getCommittedCanvas: (pageNumber: TPageNumber) => HTMLCanvasElement | null;
+    requestSearchPageRaster: (pageNumber: TPageNumber) => Promise<void>;
 }
 
 export interface ICancelableRenderTask {
@@ -89,7 +91,7 @@ export interface IPdfCanvasDomCommit {
     documentRevision: string;
     renderVersion: number;
     requestId: number;
-    pageNumber: number;
+    pageNumber: TPageNumber;
 }
 
 export interface IPdfLayerRenderResult {
@@ -117,4 +119,4 @@ export interface IPdfPageLayerRenderContext {
 
 export type TPdfTextLayerCleanup = () => void;
 
-export type TClearSelectionBeforePageLayerTeardown = (pageNumber: number) => boolean;
+export type TClearSelectionBeforePageLayerTeardown = (pageNumber: TPageNumber) => boolean;

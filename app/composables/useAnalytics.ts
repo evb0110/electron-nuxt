@@ -14,6 +14,13 @@ import {
     safeSetSessionStorageItem,
 } from '@app/utils/browserSafe';
 import { normalizeAnalyticsScalar } from '@contracts/analytics';
+import { createIsoTimestamp } from '@contracts/timestamps';
+import {
+    createSessionId,
+    parseSessionId,
+    requireSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import type {
     IAnalyticsDocumentContext,
     IAnalyticsEventEnvelope,
@@ -39,7 +46,7 @@ interface IAnalyticsBrowserState {
     lifecycleConsumers: number;
     lifecycleInstalled: boolean;
     queue: IAnalyticsEventEnvelope[];
-    sessionId: string | null;
+    sessionId: TSessionId | null;
 }
 
 type TNormalizedAnalyticsEntry = readonly [string, JsonValue];
@@ -178,7 +185,7 @@ function getBrowserLocale() {
 
 function getSessionId() {
     if (!import.meta.client) {
-        return 'server';
+        return requireSessionId('server');
     }
 
     if (analyticsBrowserState.sessionId) {
@@ -186,12 +193,13 @@ function getSessionId() {
     }
 
     const existingValue = safeGetSessionStorageItem(ANALYTICS_SESSION_STORAGE_KEY);
-    if (existingValue) {
-        analyticsBrowserState.sessionId = existingValue;
-        return existingValue;
+    const parsedExistingValue = parseSessionId(existingValue);
+    if (parsedExistingValue !== null) {
+        analyticsBrowserState.sessionId = parsedExistingValue;
+        return parsedExistingValue;
     }
 
-    const nextValue = createBrowserSafeId();
+    const nextValue = parseSessionId(createBrowserSafeId()) ?? createSessionId('analytics');
     analyticsBrowserState.sessionId = nextValue;
     safeSetSessionStorageItem(ANALYTICS_SESSION_STORAGE_KEY, nextValue);
 
@@ -360,7 +368,7 @@ function mergeScopedDocumentContext(
 
 export const useAnalytics = () => {
     const runtimeConfig = useRuntimeConfig();
-    const enabledFlag = runtimeConfig.public?.analyticsEnabled ?? false;
+    const enabledFlag = runtimeConfig.public.analyticsEnabled ?? false;
     retainAnalyticsLifecycle(enabledFlag);
     if (!tryOnScopeDispose(() => {
         releaseAnalyticsLifecycle();
@@ -482,7 +490,7 @@ export const useAnalytics = () => {
 
         analyticsBrowserState.queue.push({
             name,
-            occurredAt: new Date().toISOString(),
+            occurredAt: createIsoTimestamp(),
             path: (options?.path ?? window.location.pathname).slice(0, 255),
             locale: typeof locale === 'string' ? locale.slice(0, 16) : null,
             referrer: options?.includeReferrer ? (document.referrer || null) : null,

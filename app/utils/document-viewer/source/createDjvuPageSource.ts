@@ -1,5 +1,9 @@
 import type { TDocumentRef } from '@contracts/documentRef';
-import type { IPagePreviewSource } from '@app/utils/document-viewer/pagePreviewSource';
+import type {
+    IPagePreviewSource,
+    IPreviewPageSize,
+    TPreviewPageSizes,
+} from '@app/utils/document-viewer/pagePreviewSource';
 import {
     assertDocumentPageNumber,
     type IDocumentPageSource,
@@ -14,6 +18,10 @@ interface IDjvuPointPageSize {
     width: number;
     height: number;
     dpi?: number | undefined;
+}
+
+function isPreviewPageSizeList(value: TPreviewPageSizes): value is readonly IPreviewPageSize[] {
+    return Array.isArray(value);
 }
 
 export interface IDjvuSurfaceBudget {
@@ -73,7 +81,7 @@ export async function createDjvuPageSource(
         pageSizes.set(sourceInfo.pageNumber, sourceInfo.pageSize);
     } else {
         const compatibilityPageSizes = await previewSource.getPageSizes();
-        if (!Array.isArray(compatibilityPageSizes)) {
+        if (!isPreviewPageSizeList(compatibilityPageSizes)) {
             throw new Error('DjVu page-size preview returned compact PDF metadata');
         }
         pageCount = compatibilityPageSizes.length;
@@ -91,7 +99,7 @@ export async function createDjvuPageSource(
             return size;
         }
         const compatibilityPageSizes = await previewSource.getPageSizes();
-        if (!Array.isArray(compatibilityPageSizes)) {
+        if (!isPreviewPageSizeList(compatibilityPageSizes)) {
             throw new Error('DjVu page-size preview returned compact PDF metadata');
         }
         compatibilityPageSizes.forEach((size, index) => pageSizes.set(index + 1, size));
@@ -249,26 +257,29 @@ export async function createDjvuPageSource(
         } satisfies IDocumentSurfaceLease;
     };
 
+    const getPageText = previewSource.getPageText;
+    const searchText = previewSource.searchText;
+    const getOutline = previewSource.getOutline;
     return {
         kind: 'djvu',
         documentRef,
         pageCount,
-        ...(previewSource.getPageText ? {textProvider: {async getPageText(pageNumber, signal) {
+        ...(getPageText ? {textProvider: {async getPageText(pageNumber, signal) {
             assertDocumentPageNumber(pageNumber, pageCount);
             signal.throwIfAborted();
-            const text = await previewSource.getPageText!(pageNumber);
+            const text = await getPageText(pageNumber);
             signal.throwIfAborted();
             return text;
         }}} : {}),
-        ...(previewSource.searchText ? {searchProvider: {search(request) {
-            return previewSource.searchText!({
+        ...(searchText ? {searchProvider: {search(request) {
+            return searchText({
                 ...request,
                 pageCount,
             });
         }}} : {}),
-        ...(previewSource.getOutline ? {outlineProvider: {async getOutline(signal) {
+        ...(getOutline ? {outlineProvider: {async getOutline(signal) {
             signal.throwIfAborted();
-            const outline = await previewSource.getOutline!();
+            const outline = await getOutline();
             signal.throwIfAborted();
             return outline;
         }}} : {}),
@@ -279,7 +290,9 @@ export async function createDjvuPageSource(
             signal?.throwIfAborted();
             const size = await getPageSize(pageNumber);
             signal?.throwIfAborted();
-            const dpi = Number.isFinite(size.dpi) && (size.dpi ?? 0) > 0 ? size.dpi! : 300;
+            const dpi = typeof size.dpi === 'number' && Number.isFinite(size.dpi) && size.dpi > 0
+                ? size.dpi
+                : 300;
             return {
                 widthPoints: size.width * POINTS_PER_INCH / dpi,
                 heightPoints: size.height * POINTS_PER_INCH / dpi,

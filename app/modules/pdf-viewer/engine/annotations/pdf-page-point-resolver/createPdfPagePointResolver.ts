@@ -1,3 +1,7 @@
+import {
+    parsePageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type {
     IGeometryResolution,
     IPagePointResolutionSelection,
@@ -40,11 +44,7 @@ function parsePageNumberFromContainer(pageContainer: HTMLElement | null) {
     if (!pageContainer?.dataset.page) {
         return null;
     }
-    const parsed = Number(pageContainer.dataset.page);
-    if (!Number.isFinite(parsed) || parsed <= 0) {
-        return null;
-    }
-    return parsed;
+    return parsePageNumber(Number(pageContainer.dataset.page));
 }
 
 function createEmptyGeometryResolution(collectCandidates: boolean): IGeometryResolution {
@@ -288,7 +288,7 @@ export function createPdfPagePointResolver(options: IPdfPagePointResolverOptions
             clientX,
             clientY,
             selection.selectedSource,
-            currentPage.value,
+            requirePageNumber(currentPage.value),
             diagnostics,
         );
     }

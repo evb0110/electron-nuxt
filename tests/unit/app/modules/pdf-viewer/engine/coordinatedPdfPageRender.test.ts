@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     describe,
@@ -97,7 +98,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'first',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -107,7 +108,7 @@ describe('runCoordinatedPdfPageRender', () => {
         });
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'second',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: waitingPriority,
             startRender: () => {
@@ -140,7 +141,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageOperation({
             owner: 'first-filter',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             operation: async () => {
@@ -150,7 +151,7 @@ describe('runCoordinatedPdfPageRender', () => {
         });
         const secondRun = runCoordinatedPdfPageOperation({
             owner: 'second-filter',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             operation: async () => {
@@ -182,7 +183,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const thumbnailRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             startRender: () => {
@@ -192,7 +193,7 @@ describe('runCoordinatedPdfPageRender', () => {
         });
         const viewerRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -226,7 +227,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'first',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: firstPage,
             priority: 100,
             startRender: () => {
@@ -236,7 +237,7 @@ describe('runCoordinatedPdfPageRender', () => {
         });
         const secondRun = runCoordinatedPdfPageRender({
             owner: 'second',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: secondPage,
             priority: 100,
             startRender: () => {
@@ -271,7 +272,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const supervisor = createPdfRenderSupervisor({onEvent: event => events.push(event)});
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
-            pageNumber: 7,
+            pageNumber: requirePageNumber(7),
             pdfPage: page,
             priority: 100,
             startRender: () => task,
@@ -281,7 +282,7 @@ describe('runCoordinatedPdfPageRender', () => {
                 metadata: {renderKey: '7:1'},
                 onRenderStall,
                 payload: {
-                    pageNumber: 7,
+                    pageNumber: requirePageNumber(7),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -315,7 +316,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const nextStart = vi.fn(() => nextTask);
         const nextRun = runCoordinatedPdfPageRender({
             owner: 'next',
-            pageNumber: 7,
+            pageNumber: requirePageNumber(7),
             pdfPage: page,
             priority: 100,
             startRender: nextStart,
@@ -348,14 +349,14 @@ describe('runCoordinatedPdfPageRender', () => {
         const events: IPdfRenderSupervisorEvent[] = [];
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
             priority: 100,
             startRender: () => task,
             watchdog: {
                 key: `canvas-settle:${settlement}`,
                 payload: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -385,7 +386,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const events: IPdfRenderSupervisorEvent[] = [];
         const run = runCoordinatedPdfPageRender({
             owner: 'stale-viewport',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
             priority: 100,
             signal: controller.signal,
@@ -393,7 +394,7 @@ describe('runCoordinatedPdfPageRender', () => {
             watchdog: {
                 key: 'canvas-abort',
                 payload: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -421,13 +422,13 @@ describe('runCoordinatedPdfPageRender', () => {
         let secondRun: Promise<void> | null = null;
         const firstRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             startRender: () => {
                 secondRun = runCoordinatedPdfPageRender({
                     owner: 'viewport',
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     pdfPage: page,
                     priority: 100,
                     startRender: secondStart,
@@ -437,7 +438,7 @@ describe('runCoordinatedPdfPageRender', () => {
             watchdog: {
                 key: 'canvas-preempted-before-arm',
                 payload: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -457,7 +458,10 @@ describe('runCoordinatedPdfPageRender', () => {
         await flushMicrotasks();
         expect(secondStart).toHaveBeenCalledOnce();
         secondTask.resolve();
-        await secondRun;
+        if (secondRun === null) {
+            throw new Error('second render run was not created');
+        }
+        await Promise.resolve(secondRun);
     });
 
     it('lets a task timer registered before the watchdog win when both share a deadline', async () => {
@@ -467,14 +471,14 @@ describe('runCoordinatedPdfPageRender', () => {
         setTimeout(task.resolve, 15_000);
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: cast<PDFPageProxy>({pageNumber: 1}),
             priority: 100,
             startRender: () => task,
             watchdog: {
                 key: 'canvas-settlement-race',
                 payload: {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -500,7 +504,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const task = createRenderTask();
         const run = runCoordinatedPdfPageRender({
             owner: 'viewport',
-            pageNumber: 4,
+            pageNumber: requirePageNumber(4),
             pdfPage: cast<PDFPageProxy>({pageNumber: 4}),
             priority: 100,
             startRender: () => task,
@@ -510,7 +514,7 @@ describe('runCoordinatedPdfPageRender', () => {
                     throw new Error('recovery failed');
                 },
                 payload: {
-                    pageNumber: 4,
+                    pageNumber: requirePageNumber(4),
                     stage: 'canvas-render',
                     timeoutMs: 15_000,
                 },
@@ -535,7 +539,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         await expect(runCoordinatedPdfPageRender({
             owner: 'stale-viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             shouldStart: () => false,
@@ -547,7 +551,7 @@ describe('runCoordinatedPdfPageRender', () => {
         const nextStart = vi.fn(() => nextTask);
         const nextRun = runCoordinatedPdfPageRender({
             owner: 'current-viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: nextStart,
@@ -568,7 +572,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const thumbnailRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             startRender: () => {
@@ -582,7 +586,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const viewerRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -613,7 +617,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const viewerRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -625,7 +629,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const thumbnailRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             startRender: () => {
@@ -658,7 +662,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const viewerRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -670,7 +674,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const queuedRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             signal: queuedAbortController.signal,
@@ -703,7 +707,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const thumbnailRun = runCoordinatedPdfPageRender({
             owner: 'thumbnail',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 10,
             startRender: () => {
@@ -715,7 +719,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const operationRun = runCoordinatedPdfPageOperation({
             owner: 'viewer-filter',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             operation: async () => {
@@ -745,7 +749,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const operationRun = runCoordinatedPdfPageOperation({
             owner: 'viewer-filter',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             signal: operationAbortController.signal,
@@ -766,7 +770,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const renderRun = runCoordinatedPdfPageRender({
             owner: 'viewer',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             startRender: () => {
@@ -798,7 +802,7 @@ describe('runCoordinatedPdfPageRender', () => {
 
         const operationRun = runCoordinatedPdfPageOperation({
             owner: 'captured-filter',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             pdfPage: page,
             priority: 100,
             signal: controller.signal,

@@ -11,7 +11,12 @@ import {
     vi,
 } from 'vitest';
 import type { IAnnotationInventoryCompleteness } from '@app/types/annotations';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfSource } from '@app/types/pdfUi';
 import { PDF_NATIVE_OPENING_PREVIEW_MIN_BYTES } from '@app/modules/pdf-viewer/engine/pdf-document-source/pdfNativePreviewRouting';
 import {
     createWorkspaceDocumentDriverForAdapter,
@@ -60,20 +65,20 @@ vi.mock('@app/utils/document-viewer/session/documentSession', () => ({
 
 function selectPendingDocument(path: string, size: number | null) {
     return useWorkspaceDocumentDriver({
-        djvuSourcePath: ref(null),
+        djvuSourcePath: ref<TDocumentRef | null>(null),
         isDjvuMode: ref(false),
-        pdfSrc: ref(null),
-        workingCopyPath: ref(null),
-        pendingDocumentPath: ref(path),
-        pendingDocumentSize: ref(size),
+        pdfSrc: ref<TPdfSource | null>(null),
+        workingCopyPath: ref<TDocumentRef | null>(null),
+        pendingDocumentPath: ref<TDocumentRef | null>(requireDocumentRef(path)),
+        pendingDocumentSize: ref<number | null>(size),
     });
 }
 
 function createBindingHarness() {
     const sources = {
-        djvuSourcePath: ref<string | null>('/tmp/source.djvu'),
-        nativePdfSourcePath: ref<string | null>(null),
-        workingCopyPath: ref<string | null>(null),
+        djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/tmp/source.djvu')),
+        nativePdfSourcePath: ref<TDocumentRef | null>(null),
+        workingCopyPath: ref<TDocumentRef | null>(null),
     };
     const createDriver = (id: 'pdf' | 'native-pdf' | 'djvu') => (
         createWorkspaceDocumentDriverForAdapter(getWorkspaceViewerAdapter(id), sources)
@@ -91,11 +96,7 @@ function createBindingHarness() {
     const onPageSourceUpdate = vi.fn();
     const onRasterSchedulerUpdate = vi.fn();
     const onSourceCapabilitiesUpdate = vi.fn();
-    const pdfOpeningSrc = ref<null | {
-        kind: 'path';
-        path: string;
-        size: number
-    }>(null);
+    const pdfOpeningSrc = ref<TPdfSource | null>(null);
     const pdfOpeningRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const documentRevisionToken = ref<TDocumentRevisionToken | null>(null);
     const fallbacks = new Map<PropertyKey, unknown>();
@@ -112,9 +113,9 @@ function createBindingHarness() {
         onPageSourceUpdate,
         onRasterSchedulerUpdate,
         onSourceCapabilitiesUpdate,
-        pdfSrc: ref({
+        pdfSrc: ref<TPdfSource>({
             kind: 'path' as const,
-            path: '/tmp/source.pdf',
+            path: requireDocumentRef('/tmp/source.pdf'),
             size: 1,
         }),
         pdfOpeningSrc,
@@ -181,10 +182,10 @@ describe('WorkspaceDocumentDriver', () => {
 
     it('selects DjVu source behavior and returns typed unavailable commands for PDF.js', async () => {
         const djvu = useWorkspaceDocumentDriver({
-            djvuSourcePath: ref('/managed/source.djvu'),
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/source.djvu')),
             isDjvuMode: ref(true),
-            pdfSrc: ref(null),
-            workingCopyPath: ref(null),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
         }).activeDocumentDriver.value;
         expect(djvu).toMatchObject({
             id: 'djvu',
@@ -218,10 +219,10 @@ describe('WorkspaceDocumentDriver', () => {
 
     it('routes DjVu print through its projection and waits for output handoff', async () => {
         const driver = useWorkspaceDocumentDriver({
-            djvuSourcePath: ref('/managed/source.djvu'),
+            djvuSourcePath: ref<TDocumentRef | null>(requireDocumentRef('/managed/source.djvu')),
             isDjvuMode: ref(true),
-            pdfSrc: ref(null),
-            workingCopyPath: ref(null),
+            pdfSrc: ref<TPdfSource | null>(null),
+            workingCopyPath: ref<TDocumentRef | null>(null),
         }).activeDocumentDriver.value!;
         const onNativePrintHandoffStart = vi.fn();
         const signal = new AbortController().signal;
@@ -334,7 +335,7 @@ describe('WorkspaceDocumentDriver', () => {
         harness.pdfOpeningRevisionToken.value = revision;
         harness.pdfOpeningSrc.value = {
             kind: 'path',
-            path: '/tmp/staged-dictionary.pdf',
+            path: requireDocumentRef('/tmp/staged-dictionary.pdf'),
             size: 170_496_793,
         };
 

@@ -4,6 +4,10 @@ import type {
     IDjvuPageSize,
     IDjvuPageSourceInfo,
 } from '@contracts/electronApiDjvu';
+import {
+    parseEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 export type TDjvuSourceRevisionKey = `${number}:${number}`;
 
@@ -14,7 +18,7 @@ interface IDjvuPageSourceInfoCacheEntry {
 
 export interface IDjvuSourceRevision {
     revision: TDjvuSourceRevisionKey;
-    sourceModifiedAt: number;
+    sourceModifiedAt: TEpochMs;
     sourceSize: number;
 }
 
@@ -80,7 +84,10 @@ export async function readDjvuSourceRevision(djvuPath: string): Promise<IDjvuSou
     if (!sourceStat.isFile()) {
         throw new Error(`DjVu source is not a regular file: ${normalizedPath}`);
     }
-    const sourceModifiedAt = Math.trunc(sourceStat.mtimeMs);
+    const sourceModifiedAt = parseEpochMs(Math.trunc(sourceStat.mtimeMs));
+    if (sourceModifiedAt === null) {
+        throw new Error(`DjVu source has an invalid modification time: ${normalizedPath}`);
+    }
     const revision: TDjvuSourceRevisionKey = `${sourceStat.size}:${sourceModifiedAt}`;
     let entry = cacheByDjvuPath.get(normalizedPath);
     if (entry?.revision !== revision) {

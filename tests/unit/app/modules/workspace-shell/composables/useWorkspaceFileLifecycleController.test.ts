@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import { ref } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 
 const mocks = vi.hoisted(() => ({
     convertToPdf: vi.fn(),
@@ -155,7 +156,7 @@ describe('useWorkspaceFileLifecycleController', () => {
             },
         });
         mocks.convertToPdf.mockImplementation(async (_subsample, _preserveBookmarks, _pdfStrategy, openConvertedPdf) => {
-            await openConvertedPdf('/tmp/output.pdf');
+            await openConvertedPdf(requireDocumentRef('/tmp/output.pdf'));
         });
 
         const controller = useWorkspaceFileLifecycleController();
@@ -166,7 +167,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     });
 
     it('keeps the lifecycle transaction pending until its DjVu source is activated exactly once', async () => {
-        const path = '/docs/scan.djvu';
+        const path = requireDocumentRef('/docs/scan.djvu');
         const activation = createDeferred();
         state.workingCopyPath.value = '/tmp/previous.pdf';
         mocks.openFileDirect.mockImplementation(async () => {
@@ -207,7 +208,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     });
 
     it('reports a superseded DjVu activation as stale even when the path matches newer state', async () => {
-        const path = '/docs/same.djvu';
+        const path = requireDocumentRef('/docs/same.djvu');
         mocks.openFileDirect.mockImplementation(async () => {
             state.pendingDjvu.value = path;
             return {
@@ -230,7 +231,7 @@ describe('useWorkspaceFileLifecycleController', () => {
     });
 
     it('does not let a delayed close clear a newer activation of the same DjVu path', async () => {
-        const path = '/docs/same.djvu';
+        const path = requireDocumentRef('/docs/same.djvu');
         const cleanup = createDeferred();
         const olderActivation = {
             generation: 1,

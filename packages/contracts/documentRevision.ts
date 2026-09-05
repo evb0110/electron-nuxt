@@ -1,9 +1,16 @@
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { Tagged } from 'type-fest';
 import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {
+    isEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 export type TDocumentRevisionToken = Tagged<string, 'DocumentRevisionToken'>;
 export type TDocumentRevisionAuthority = 'electron-working-copy' | 'browser-document-store';
@@ -33,14 +40,16 @@ const DOCUMENT_REVISION_CHANGE_REASONS = [
 const DOCUMENT_REVISION_TOKEN_MAX_LENGTH = 512;
 const DOCUMENT_REVISION_REF_MAX_LENGTH = 32_768;
 
+function isDocumentRevisionToken(value: string): value is TDocumentRevisionToken {
+    return value.length > 0 && value.length <= DOCUMENT_REVISION_TOKEN_MAX_LENGTH;
+}
+
 export function parseDocumentRevisionToken(value: unknown): TDocumentRevisionToken | null {
     if (typeof value !== 'string') {
         return null;
     }
     const normalized = value.trim();
-    return normalized.length > 0 && normalized.length <= DOCUMENT_REVISION_TOKEN_MAX_LENGTH
-        ? normalized as TDocumentRevisionToken
-        : null;
+    return isDocumentRevisionToken(normalized) ? normalized : null;
 }
 
 export function requireDocumentRevisionToken(value: unknown): TDocumentRevisionToken {
@@ -51,34 +60,34 @@ export function requireDocumentRevisionToken(value: unknown): TDocumentRevisionT
     return parsed;
 }
 
-export interface IDocumentRevisionStamp {token: TDocumentRevisionToken;}
+export interface IDocumentRevisionStamp {readonly token: TDocumentRevisionToken;}
 
 export interface IDocumentRevisionInfo extends IDocumentRevisionStamp {
-    version: 1;
-    documentRef: TDocumentRef;
-    authority: TDocumentRevisionAuthority;
-    contentRevision: number;
-    mintedAt: number;
+    readonly version: 1;
+    readonly documentRef: TDocumentRef;
+    readonly authority: TDocumentRevisionAuthority;
+    readonly contentRevision: number;
+    readonly mintedAt: TEpochMs;
 }
 
 export interface IDocumentRevisionChangedEvent extends IDocumentRevisionInfo {
-    previousToken?: TDocumentRevisionToken;
-    reason: TDocumentRevisionChangeReason;
+    readonly previousToken?: TDocumentRevisionToken;
+    readonly reason: TDocumentRevisionChangeReason;
 }
 
 export function isDocumentRevisionInfo(value: unknown): value is IDocumentRevisionInfo {
+    const documentRef = isRecord(value) ? parseDocumentRef(value.documentRef) : null;
     return isRecord(value)
         && value.version === 1
         && parseDocumentRevisionToken(value.token) !== null
-        && typeof value.documentRef === 'string'
-        && value.documentRef.length > 0
-        && value.documentRef.length <= DOCUMENT_REVISION_REF_MAX_LENGTH
+        && documentRef !== null
+        && documentRef.length > 0
+        && documentRef.length <= DOCUMENT_REVISION_REF_MAX_LENGTH
         && (value.authority === 'electron-working-copy' || value.authority === 'browser-document-store')
         && typeof value.contentRevision === 'number'
         && Number.isSafeInteger(value.contentRevision)
         && value.contentRevision >= 0
-        && typeof value.mintedAt === 'number'
-        && Number.isSafeInteger(value.mintedAt)
+        && isEpochMs(value.mintedAt)
         && value.mintedAt > 0;
 }
 

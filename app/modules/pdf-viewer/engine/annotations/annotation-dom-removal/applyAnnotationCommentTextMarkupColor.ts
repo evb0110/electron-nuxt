@@ -255,15 +255,13 @@ function applyAnnotationLayerTextMarkupColor(
         if (hasElementDecoration) {
             element.style.textDecorationColor = color;
             if (
-                computedStyle?.borderBottomStyle !== undefined
-                && computedStyle.borderBottomStyle !== 'none'
+                computedStyle.borderBottomStyle !== 'none'
                 && computedStyle.borderBottomWidth !== '0px'
             ) {
                 element.style.borderBottomColor = color;
             }
             if (
-                computedStyle?.borderTopStyle !== undefined
-                && computedStyle.borderTopStyle !== 'none'
+                computedStyle.borderTopStyle !== 'none'
                 && computedStyle.borderTopWidth !== '0px'
             ) {
                 element.style.borderTopColor = color;

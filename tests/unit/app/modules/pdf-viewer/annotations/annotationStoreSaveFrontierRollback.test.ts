@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -19,7 +20,7 @@ function importPersistedHighlight(store: AnnotationStore) {
             id: annotationId,
             pdfRef: '12R0',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
@@ -44,7 +45,7 @@ function stickyNote(id: string, text: string, left: number): IStickyNoteEntity {
     return {
         kind: 'sticky-note',
         identity: {id: asAnnotationId(id)},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
@@ -154,7 +155,7 @@ describe('AnnotationStore save frontier rollback', () => {
         store.createStickyNote({
             kind: 'sticky-note',
             identity: {id: noteId},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -197,7 +198,7 @@ describe('AnnotationStore save frontier rollback', () => {
                 id: lateId,
                 pdfRef: '34R0',
             },
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             revision: 0,
             persistedRevision: 0,
             deleted: false,

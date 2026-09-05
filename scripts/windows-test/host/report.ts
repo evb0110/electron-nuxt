@@ -135,7 +135,7 @@ export async function buildWindowsTestReport(
         return {
             exitCode: windowsTestExitCodes.usageOrCrash,
             summary: null,
-            lines: [`"${runId}" is not a Windows test run ID; expected YYYYMMDDTHHMMSSZ-<12 hex>.`],
+            lines: [`${JSON.stringify(runId)} is not a Windows test run ID; expected YYYYMMDDTHHMMSSZ-<12 hex>.`],
         };
     }
     const summary = await loadWindowsTestRunSummary(request.runsDir, runId);

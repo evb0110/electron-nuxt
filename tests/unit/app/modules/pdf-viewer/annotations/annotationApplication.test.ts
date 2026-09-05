@@ -1,3 +1,6 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     beforeEach,
     describe,
@@ -54,12 +57,12 @@ function note(overrides: Partial<IStickyNoteEntity> = {}): IStickyNoteEntity {
             id: asAnnotationId('anno_test'),
             pdfName: 'evb:anno_test',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: -1,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Tester',
         text: 'original',
         anchor: {
@@ -98,12 +101,12 @@ function textMarkup(overrides: Partial<ITextMarkupEntity> = {}): ITextMarkupEnti
             id: asAnnotationId('persisted-underline'),
             pdfRef: 'underline-ref',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1,
-        modifiedAt: 1,
+        createdAt: requireEpochMs(1),
+        modifiedAt: requireEpochMs(1),
         author: 'Tester',
         subtype: 'Underline',
         text: '',
@@ -165,7 +168,7 @@ describe('AnnotationApplication', () => {
         const knownSize = 512 * 1024 * 1024;
         documentFileMocks.statFile.mockResolvedValue({size: knownSize});
 
-        await application.verifySavePath(session, '/tmp/large-staged.pdf', knownSize);
+        await application.verifySavePath(session, requireDocumentRef('/tmp/large-staged.pdf'), knownSize);
 
         expect(documentFileMocks.readFileRange).toHaveBeenCalledWith(
             '/tmp/large-staged.pdf',
@@ -619,7 +622,7 @@ describe('AnnotationApplication', () => {
                 elementId: 'pdfjs_internal_editor_17',
                 pdfjsUid: 'editor-uid-before-save',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -675,7 +678,7 @@ describe('AnnotationApplication', () => {
                 elementId: 'pdfjs_internal_editor_17',
                 pdfjsUid: 'editor-uid-before-save',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -846,7 +849,7 @@ describe('AnnotationApplication', () => {
                 id: asAnnotationId('anno_native_note'),
                 elementId: 'pdfjs_internal_editor_0',
             },
-            createdAt: 1_781_000_000_000,
+            createdAt: requireEpochMs(1_781_000_000_000),
             anchor: {
                 left: 0.1,
                 top: 0.2,
@@ -898,7 +901,7 @@ describe('AnnotationApplication', () => {
                 id: asAnnotationId('anno_native_note'),
                 elementId: 'pdfjs_internal_editor_0',
             },
-            createdAt: 1_781_000_000_000,
+            createdAt: requireEpochMs(1_781_000_000_000),
             anchor: {
                 left: 0.1,
                 top: 0.2,
@@ -964,7 +967,7 @@ describe('AnnotationApplication', () => {
     it('verifies deletion of an annotation from a removed trailing page without opening that page', async () => {
         const application = new AnnotationApplication('document');
         application.store.import(note({
-            pageIndex: 1,
+            pageIndex: requirePageIndex(1),
             persistedRevision: 0,
         }));
         application.store.delete(asAnnotationId('anno_test'));
@@ -1013,7 +1016,7 @@ describe('AnnotationApplication', () => {
         const projection = application.store.applyTextMarkupSelection({
             kind: 'text-markup',
             identity: {id: asAnnotationId('new-underline')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             subtype: 'Underline',
             text: '',
             geometry: [{
@@ -1025,8 +1028,8 @@ describe('AnnotationApplication', () => {
             color: '#00ff00',
             opacity: 1,
             author: 'Tester',
-            createdAt: 2,
-            modifiedAt: 2,
+            createdAt: requireEpochMs(2),
+            modifiedAt: requireEpochMs(2),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -1063,7 +1066,7 @@ describe('AnnotationApplication', () => {
         const projection = application.store.applyTextMarkupSelection({
             kind: 'text-markup',
             identity: {id: asAnnotationId('new-highlight')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             subtype: 'Highlight',
             text: '',
             geometry: [{
@@ -1075,8 +1078,8 @@ describe('AnnotationApplication', () => {
             color: '#ffff00',
             opacity: 1,
             author: null,
-            createdAt: 1,
-            modifiedAt: 1,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(1),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -1185,7 +1188,7 @@ describe('AnnotationApplication', () => {
 
     it('remaps surviving annotation and shape identities through a page-tree delta', () => {
         const application = new AnnotationApplication('document');
-        application.store.createStickyNote(note({pageIndex: 0}));
+        application.store.createStickyNote(note({pageIndex: requirePageIndex(0)}));
         application.createShapeFromGeometry(shape({pageIndex: 2}));
         const shapeId = application.annotationIdForShape(shape({pageIndex: 2}));
 

@@ -211,8 +211,8 @@ export const useExternalFileDrop = (options: IUseExternalFileDropOptions) => {
         disposed = true;
         lifecycleToken += 1;
         queue = Promise.resolve();
-        stopDragOver?.();
-        stopDrop?.();
+        stopDragOver();
+        stopDrop();
     }
 
     return { cleanup };

@@ -16,6 +16,9 @@ import {
 import { resolveTabLifecycleStates } from '@app/modules/workspace-shell/tabs/resolveTabLifecycleStates';
 import type { ISystemMemoryInfo } from '@contracts/systemPlatformFeature';
 import type { IEditorPaneState } from '@contracts/editorPanes';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requireTabId } from '@contracts/windowTabs';
 import type { ITab } from '@app/types/tabs';
 
 const GIB = 1024 ** 3;
@@ -105,45 +108,45 @@ describe('workspace memory pressure monitor', () => {
             {
                 id: 'active',
                 fileName: 'active.pdf',
-                originalPath: '/docs/active.pdf',
+                originalPath: requireDocumentRef('/docs/active.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
             {
                 id: 'inactive',
                 fileName: 'inactive.pdf',
-                originalPath: '/docs/inactive.pdf',
+                originalPath: requireDocumentRef('/docs/inactive.pdf'),
                 isDirty: false,
                 isDjvu: false,
             },
             {
                 id: 'visible-split',
                 fileName: 'visible-split.djvu',
-                originalPath: '/docs/visible-split.djvu',
+                originalPath: requireDocumentRef('/docs/visible-split.djvu'),
                 isDirty: false,
                 isDjvu: true,
             },
         ] satisfies ITab[];
         const panes = [
             {
-                paneId: 'pane',
-                activeTabId: 'active',
+                paneId: requirePaneId('pane'),
+                activeTabId: requireTabId('active'),
                 tabIds: [
-                    'active',
-                    'inactive',
+                    requireTabId('active'),
+                    requireTabId('inactive'),
                 ],
             },
             {
-                paneId: 'split-pane',
-                activeTabId: 'visible-split',
-                tabIds: ['visible-split'],
+                paneId: requirePaneId('split-pane'),
+                activeTabId: requireTabId('visible-split'),
+                tabIds: [requireTabId('visible-split')],
             },
         ] satisfies IEditorPaneState[];
         const lifecycleById = computed(() => Object.fromEntries(resolveTabLifecycleStates({
             activationOrder: [
-                'active',
-                'inactive',
-                'visible-split',
+                requireTabId('active'),
+                requireTabId('inactive'),
+                requireTabId('visible-split'),
             ],
             panes,
             policy: 'conservative',

@@ -73,7 +73,7 @@ export interface IPdfUiSearchMatch {
     startOffset: number;
     endOffset: number;
     excerpt?: IPdfSearchExcerpt;
-    words?: IOcrWord[];
+    words?: readonly IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
     rotation?: TOcrIndexRotation;
@@ -85,7 +85,7 @@ export interface IPdfUiPageMatchEntry {
     matchIndex: number;
     start: number;
     end: number;
-    words?: IOcrWord[];
+    words?: readonly IOcrWord[];
     pageWidth?: number;
     pageHeight?: number;
     rotation?: TOcrIndexRotation;

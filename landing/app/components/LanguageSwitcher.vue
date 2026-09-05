@@ -62,7 +62,7 @@ const LOCALE_FLAG_ICONS: Record<TLocale, string> = {
 const fallbackLanguageOption: ILanguageOption = {
     code: DEFAULT_LOCALE,
     icon: LOCALE_FLAG_ICONS[DEFAULT_LOCALE],
-    name: LOCALE_DEFINITIONS[0]?.name ?? DEFAULT_LOCALE.toUpperCase(),
+    name: LOCALE_DEFINITIONS[0].name,
 };
 
 const open = ref(false);

@@ -1,3 +1,6 @@
+import { parsePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import {
     formatPdfJsAnnotationRef,
     parsePdfJsAnnotationRef,
@@ -9,7 +12,7 @@ type TPdfAnnotationStableKey = Extract<TAnnotationStableKey, `ann:${string}`>;
 
 export interface IPdfAnnotationStableKey {
     stableKey: TPdfAnnotationStableKey;
-    pageIndex: number;
+    pageIndex: TPageIndex;
     annotationId: string;
 }
 
@@ -26,8 +29,7 @@ function parseStableKeyPageIndex(value: string | undefined) {
         return null;
     }
 
-    const pageIndex = Number(value);
-    return Number.isInteger(pageIndex) && pageIndex >= 0 ? pageIndex : null;
+    return parsePageIndex(Number(value));
 }
 
 export function parsePdfAnnotationStableKey(

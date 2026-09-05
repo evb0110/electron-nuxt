@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type {
     AnnotationEditorUIManager,
@@ -95,7 +97,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     renderSupervisor?: IPdfRenderSupervisor | undefined;
     getDocumentVersion?: (() => number) | undefined;
     replaceAnnotationUiManager?: ((manager: AnnotationEditorUIManager) => void) | undefined;
-    scrollToPage?: (pageNumber: number) => void;
+    scrollToPage?: (pageNumber: TPageNumber) => void;
 }) => {
     const compatibilityAdapter = createPdfAnnotationEditorCompatibilityAdapter({
         failInDev: import.meta.dev,
@@ -181,7 +183,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationUiManager: AnnotationEditorUIManager | null,
         pageContainer: HTMLElement | null,
         render: () => Promise<void>,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: IAnnotationLayerRenderOptions,
     ) {
         if (!annotationUiManager) {
@@ -205,7 +207,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 hiddenAnnotationGuardQueues.delete(annotationUiManager);
             }
         });
-        let releaseAfterUnderlyingRender = false;
+        let releaseAfterUnderlyingRender = false as boolean;
         let managerIsolationTimer: ReturnType<typeof setTimeout> | null = null;
         try {
             await raceWithAnnotationAbort(guardTurn, pageNumber, options);
@@ -383,7 +385,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             && options?.shouldContinue?.() !== false;
     }
 
-    function createAnnotationLayerCancelledError(pageNumber: number) {
+    function createAnnotationLayerCancelledError(pageNumber: TPageNumber) {
         const error = new Error(`Annotation layer render cancelled for page ${pageNumber}`);
         error.name = 'AbortError';
         return error;
@@ -391,7 +393,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     async function raceWithAnnotationAbort<T>(
         promise: Promise<T>,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: IAnnotationLayerRenderOptions,
     ) {
         const signal = options?.signal;
@@ -428,7 +430,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         pdfPage: PDFPageProxy,
         annotationLayerDiv: HTMLElement,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         annotationCanvasMap?: Map<string, HTMLCanvasElement> | null,
         options?: IAnnotationLayerRenderOptions,
     ) {
@@ -478,7 +480,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
                 goToDestination: async () => {},
                 goToPage: (page) => {
                     if (typeof page === 'number') {
-                        deps.scrollToPage?.(page);
+                        deps.scrollToPage?.(requirePageNumber(page, deps.numPages.value));
                     }
                 },
                 goToXY: () => {},
@@ -602,7 +604,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationEditorLayerDiv: HTMLElement,
         textLayerDiv: HTMLDivElement | null,
         viewport: ReturnType<PDFPageProxy['getViewport']>,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         annotationLayerInstance: TAnnotationLayer | null,
         options?: IAnnotationLayerRenderOptions,
     ) {
@@ -659,16 +661,14 @@ export const usePdfAnnotationLayerRenderer = (deps: {
             if (mappedEditorLayer === renderEditorLayer) {
                 annotationEditorLayers.delete(pageNumber);
             }
-            if (renderEditorLayer.div !== null) {
-                try {
-                    renderEditorLayer.destroy();
-                } catch (destroyError) {
-                    BrowserLogger.debug(
-                        'pdf-annotation-layer',
-                        'Failed to destroy superseded annotation editor layer',
-                        destroyError,
-                    );
-                }
+            try {
+                renderEditorLayer.destroy();
+            } catch (destroyError) {
+                BrowserLogger.debug(
+                    'pdf-annotation-layer',
+                    'Failed to destroy superseded annotation editor layer',
+                    destroyError,
+                );
             }
         }
         
@@ -936,7 +936,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return { editorViewport: viewport.clone({ dontFlip: true }) };
     }
 
-    function getAnnotationEditorSignatures(pageNumber: number) {
+    function getAnnotationEditorSignatures(pageNumber: TPageNumber) {
         return {
             hidden: getHiddenAnnotationSignature(),
             managed: getManagedAnnotationSignature(),
@@ -946,7 +946,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function getReusableAnnotationEditorLayer(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         signatures: ReturnType<typeof getAnnotationEditorSignatures>,
     ) {
         const editorLayer = annotationEditorLayers.get(pageNumber);
@@ -959,7 +959,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function willReplaceAnnotationEditorLayer(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         signatures: ReturnType<typeof getAnnotationEditorSignatures>,
     ) {
         return Boolean(
@@ -973,7 +973,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     function getOrCreateDrawLayer(
         container: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         const drawLayer = drawLayers.get(pageNumber) ?? createPdfjsDrawLayer();
         const canvasHost = container.querySelector<HTMLDivElement>('.page_canvas__render-layer');
@@ -1002,7 +1002,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         drawLayer: TDrawLayer;
         editorLayer: TAnnotationEditorLayer | undefined;
         pageMetrics: ReturnType<typeof getAnnotationEditorPageMetrics>;
-        pageNumber: number;
+        pageNumber: TPageNumber;
         shouldContinue: () => boolean;
         textLayerDiv: HTMLDivElement | null;
     }) {
@@ -1055,7 +1055,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         return activeLayer;
     }
 
-    function cancelHighlightCompositeRefresh(pageNumber: number) {
+    function cancelHighlightCompositeRefresh(pageNumber: TPageNumber) {
         const rafId = annotationEditorLayerRefreshRafIds.get(pageNumber);
         if (typeof rafId !== 'number' || typeof window === 'undefined') {
             annotationEditorLayerRefreshRafIds.delete(pageNumber);
@@ -1067,7 +1067,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
 
     function scheduleHighlightCompositeRefresh(
         container: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         shouldContinue?: () => boolean,
     ) {
         cancelHighlightCompositeRefresh(pageNumber);
@@ -1112,7 +1112,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function saveAnnotationEditorSignatures(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         signatures: ReturnType<typeof getAnnotationEditorSignatures>,
     ) {
         hiddenAnnotationSignatures.set(pageNumber, signatures.hidden);
@@ -1120,7 +1120,7 @@ export const usePdfAnnotationLayerRenderer = (deps: {
     }
 
     function cleanupEditorLayer(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: {
             preserveFailure?: boolean;
             preserveRenderToken?: boolean;
@@ -1180,10 +1180,10 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         annotationEditorLayerPageRenderTokens.clear();
         annotationEditorLayerFailures.clear();
         for (const pageNumber of [...annotationEditorLayerRefreshRafIds.keys()]) {
-            cancelHighlightCompositeRefresh(pageNumber);
+            cancelHighlightCompositeRefresh(requirePageNumber(pageNumber));
         }
         for (const pageNumber of [...annotationEditorLayers.keys()]) {
-            cleanupEditorLayer(pageNumber);
+            cleanupEditorLayer(requirePageNumber(pageNumber));
         }
         for (const [
             pageNumber,

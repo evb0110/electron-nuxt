@@ -76,7 +76,7 @@ describe('pdfViewerFacade', () => {
         );
     });
 
-    it('owns viewer runtime class construction', () => {
+    it('owns viewer runtime class construction', async () => {
         const page = {};
         const viewport = {};
         const linkService = {};
@@ -93,7 +93,7 @@ describe('pdfViewerFacade', () => {
             annotationEditorUiManager: uiManager as never,
             linkService: linkService as never,
         });
-        renderPdfjsAnnotationLayer(
+        await renderPdfjsAnnotationLayer(
             {render: annotationLayerRender} as never,
             {
                 annotations: [],

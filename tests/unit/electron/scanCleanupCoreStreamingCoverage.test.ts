@@ -54,6 +54,7 @@ import type {
     ISourceDpiDetectionResult,
     TScanCleanupLog,
 } from '@scan-cleanup-core/types';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import {SCAN_CLEANUP_STREAMING_BATCH_PAGES} from '@contracts/scan-cleanup/inputLimits';
 
 const roots: string[] = [];
@@ -869,7 +870,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 },
                 pagePlanEvidenceByPage: {
                     '1': {
-                        pageNumber: 1,
+                        pageNumber: requirePageNumber(1),
                         rotationDegrees: 0,
                         layoutClassification: 'single-uncut-page',
                         outputs: {full: {contentBox: {
@@ -881,7 +882,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                         }}},
                     },
                     '2': {
-                        pageNumber: 2,
+                        pageNumber: requirePageNumber(2),
                         rotationDegrees: 0,
                         layoutClassification: 'single-uncut-page',
                         outputs: {full: {contentBox: {
@@ -895,7 +896,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                 },
                 sourcePageMetadataByPage: {
                     '1': {
-                        pageNumber: 1,
+                        pageNumber: requirePageNumber(1),
                         xPoints: 0,
                         yPoints: 0,
                         widthPoints: 72,
@@ -904,7 +905,7 @@ describe('scan-cleanup-core conversion coverage', () => {
                         sourceDpi: 300,
                     },
                     '2': {
-                        pageNumber: 2,
+                        pageNumber: requirePageNumber(2),
                         xPoints: 0,
                         yPoints: 0,
                         widthPoints: 72,
@@ -1014,8 +1015,9 @@ describe('scan-cleanup-core conversion coverage', () => {
             rootDir: root,
         });
         for (let pageNumber = 1; pageNumber <= documentPageCount; pageNumber += 1) {
+            const brandedPageNumber = requirePageNumber(pageNumber);
             await detectionResultStore.append({
-                pageNumber,
+                pageNumber: brandedPageNumber,
                 classification: 'single-uncut-page',
                 confidence: 1,
                 cutterXPx: null,
@@ -1025,13 +1027,13 @@ describe('scan-cleanup-core conversion coverage', () => {
                 clusterAgreement: 1,
                 recommendedOutputMode: 'color',
                 pagePlanEvidence: {
-                    pageNumber,
+                    pageNumber: brandedPageNumber,
                     rotationDegrees: 0,
                     layoutClassification: 'single-uncut-page',
                     outputs: {},
                 },
                 sourcePageMetadata: {
-                    pageNumber,
+                    pageNumber: brandedPageNumber,
                     xPoints: 0,
                     yPoints: 0,
                     widthPoints: 612,

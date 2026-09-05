@@ -23,6 +23,7 @@ import type {
     IStressStepRecord,
     IStressThresholds,
 } from '@scripts/stress/stressTypes';
+import { stringifyJson } from '@contracts/stringifyJson';
 
 const execFileAsync = promisify(execFile);
 /** `qpdf --check` on a multi-GiB working copy is slow but finite; a hang is a finding, not a stuck run. */
@@ -78,7 +79,7 @@ export function evaluateStressOracles(input: IStressOracleInput): IStressFinding
         findings.push({
             severity: 'major',
             oracle: 'page-error',
-            message: `${metrics.pageErrors.length} uncaught renderer exception(s); first: ${metrics.pageErrors[0]}`,
+            message: `${metrics.pageErrors.length} uncaught renderer exception(s); first: ${metrics.pageErrors[0] ?? '<missing>'}`,
             evidence: {pageErrors: metrics.pageErrors.slice(0, 10)},
         });
     }
@@ -86,7 +87,7 @@ export function evaluateStressOracles(input: IStressOracleInput): IStressFinding
         findings.push({
             severity: 'minor',
             oracle: 'console-error',
-            message: `${metrics.consoleErrors.length} console error(s) outside the allowlist; first: ${metrics.consoleErrors[0]}`,
+            message: `${metrics.consoleErrors.length} console error(s) outside the allowlist; first: ${metrics.consoleErrors[0] ?? '<missing>'}`,
             evidence: {consoleErrors: metrics.consoleErrors.slice(0, 10)},
         });
     }
@@ -188,7 +189,7 @@ export function evaluateStressOracles(input: IStressOracleInput): IStressFinding
         findings.push({
             severity: 'minor',
             oracle: 'dialog-left-open',
-            message: `dialog still visible at scenario end: ${state.visibleDialogs[0]}`,
+            message: `dialog still visible at scenario end: ${state.visibleDialogs[0] ?? '<missing>'}`,
         });
     }
 
@@ -301,7 +302,12 @@ export function parseMacOSCrashReport(path: string, raw: string): IMacOSCrashRep
         processName = typeof body.procName === 'string' ? body.procName : null;
         const termination = body.termination as Record<string, unknown> | undefined;
         terminationNamespace = typeof termination?.namespace === 'string' ? termination.namespace : null;
-        terminationCode = termination?.code === undefined ? null : String(termination.code);
+        const rawTerminationCode = termination?.code;
+        terminationCode = rawTerminationCode === undefined
+            ? null
+            : typeof rawTerminationCode === 'string'
+                ? rawTerminationCode
+                : stringifyJson(rawTerminationCode) ?? '<unserializable>';
         const exception = body.exception as Record<string, unknown> | undefined;
         exceptionType = typeof exception?.type === 'string' ? exception.type : null;
     } catch {

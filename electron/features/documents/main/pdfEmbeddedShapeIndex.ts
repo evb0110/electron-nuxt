@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {
     lstat,
@@ -22,6 +21,12 @@ import type {
     IPdfEmbeddedShapeIndexPoint,
     IPdfEmbeddedShapeIndexSession,
 } from '@contracts/electronApiDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createSessionId,
+    type TSessionId,
+} from '@contracts/shared';
+import { parseEpochMs } from '@contracts/timestamps';
 import {
     PDF_EMBEDDED_SHAPE_INDEX_MAX_CHUNK_BYTES,
     PDF_EMBEDDED_SHAPE_INDEX_MAX_LINE_BYTES,
@@ -83,9 +88,9 @@ interface IScannedShapeIndex {
 }
 
 interface IShapeIndexSessionState {
-    sessionId: string;
+    sessionId: TSessionId;
     ownerId: number;
-    documentRef: string;
+    documentRef: TDocumentRef;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -101,7 +106,7 @@ interface IShapeIndexSessionState {
     cleanupPromise?: Promise<void>;
 }
 
-const sessions = new Map<string, IShapeIndexSessionState>();
+const sessions = new Map<TSessionId, IShapeIndexSessionState>();
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
@@ -180,7 +185,11 @@ function decodeOptionalTimestamp(value: unknown, fieldName: string) {
     if (value === undefined || value === null) {
         return null;
     }
-    return decodeSafeInteger(value, fieldName, Number.MIN_SAFE_INTEGER);
+    const timestamp = parseEpochMs(value);
+    if (timestamp === null) {
+        throw new Error(`${fieldName} must be an epoch millisecond timestamp`);
+    }
+    return timestamp;
 }
 
 function decodeOptionalEnum<T extends string>(
@@ -517,10 +526,10 @@ async function runEmbeddedShapeIndexNative(
 
 export async function beginPdfEmbeddedShapeIndex(
     context: IDocumentsSenderIdContext,
-    filePath: string,
+    filePath: TDocumentRef,
     options: IPdfEmbeddedShapeIndexOptions,
 ): Promise<IPdfEmbeddedShapeIndexSession> {
-    const expectedRevisionToken = parseDocumentRevisionToken(options?.expectedDocumentRevisionToken);
+    const expectedRevisionToken = parseDocumentRevisionToken(options.expectedDocumentRevisionToken);
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required to build an embedded shape index');
     }
@@ -528,14 +537,14 @@ export async function beginPdfEmbeddedShapeIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: filePath,
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-embedded-shape-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), SHAPE_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, SHAPE_INDEX_FILE_NAME);
     const abortController = new AbortController();
@@ -640,7 +649,7 @@ export async function beginPdfEmbeddedShapeIndex(
 
 export async function readPdfEmbeddedShapeIndexChunk(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
     offset: number,
     options?: IPdfEmbeddedShapeIndexChunkOptions,
 ): Promise<IPdfEmbeddedShapeIndexChunk> {
@@ -708,7 +717,7 @@ export async function readPdfEmbeddedShapeIndexChunk(
 
 export async function releasePdfEmbeddedShapeIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -726,7 +735,7 @@ export async function releasePdfEmbeddedShapeIndex(
 
 export function cancelPdfEmbeddedShapeIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -788,4 +797,4 @@ const shapeIndexTtlTimer = setInterval(() => {
         logger.debug(`Embedded shape index TTL sweep failed: ${String(error)}`);
     });
 }, 30_000);
-shapeIndexTtlTimer.unref?.();
+shapeIndexTtlTimer.unref();

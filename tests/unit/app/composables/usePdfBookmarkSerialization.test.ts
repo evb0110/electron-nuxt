@@ -7,11 +7,14 @@ import { ref } from 'vue';
 import { normalizeBookmarkEntries } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/normalizeBookmarkEntries';
 import { rewriteBookmarks } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/rewriteBookmarks';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
+import type {TPageIndex} from '@contracts/pageNumbers';
+import {requirePageIndex} from '@contracts/pageNumbers';
+import {cast} from '@tests/helpers/cast';
 
 function createBookmark(overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {
     return {
         title: 'Bookmark',
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         namedDest: null,
         bold: false,
         italic: false,
@@ -25,13 +28,13 @@ describe('normalizeBookmarkEntries', () => {
     it('normalizes titles, page bounds, colors, and nested items', () => {
         const entries = normalizeBookmarkEntries([createBookmark({
             title: '   ',
-            pageIndex: 99,
+            pageIndex: requirePageIndex(99),
             namedDest: '   ',
             bold: true,
             color: '#abc',
             items: [createBookmark({
                 title: ' Child ',
-                pageIndex: -3,
+                pageIndex: cast<TPageIndex>(-3),
                 namedDest: 'DestA',
                 italic: true,
                 color: '#xyz123',

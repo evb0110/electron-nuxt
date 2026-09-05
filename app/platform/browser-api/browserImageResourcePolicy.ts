@@ -40,6 +40,14 @@ export const ASSISTANT_IMAGE_RESOURCE_LIMITS: Readonly<IBrowserImageResourceLimi
 
 const SVG_GZIP_MAX_BYTES = 4 * 1024 * 1024;
 
+function readByte(data: Uint8Array, offset: number) {
+    const value = data[offset];
+    if (value === undefined) {
+        throw new RangeError('ERR_BROWSER_IMAGE_DATA_TRUNCATED');
+    }
+    return value;
+}
+
 interface IImageDecoderTrackLike {
     codedWidth: number;
     codedHeight: number;
@@ -85,7 +93,7 @@ async function readStreamWithLimit(stream: ReadableStream<Uint8Array>, maxBytes:
     const reader = stream.getReader();
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
-    while (true) {
+    for (;;) {
         const {
             done,
             value,
@@ -160,13 +168,13 @@ function readIcoMetadata(bytes: Uint8Array) {
     ) {
         return null;
     }
-    const frameCount = bytes[4]! | (bytes[5]! << 8);
+    const frameCount = readByte(bytes, 4) | (readByte(bytes, 5) << 8);
     let width = 0;
     let height = 0;
     for (let index = 0; index < frameCount && 6 + ((index + 1) * 16) <= bytes.byteLength; index += 1) {
         const offset = 6 + (index * 16);
-        const entryWidth = bytes[offset]!;
-        const entryHeight = bytes[offset + 1]!;
+        const entryWidth = readByte(bytes, offset);
+        const entryHeight = readByte(bytes, offset + 1);
         width = Math.max(width, entryWidth === 0 ? 256 : entryWidth);
         height = Math.max(height, entryHeight === 0 ? 256 : entryHeight);
     }
@@ -182,20 +190,20 @@ function countPngFrames(bytes: Uint8Array) {
     let frameCount = 1;
     while (offset + 12 <= bytes.byteLength) {
         const length = (
-            (bytes[offset]! << 24)
-            | (bytes[offset + 1]! << 16)
-            | (bytes[offset + 2]! << 8)
-            | bytes[offset + 3]!
+            (readByte(bytes, offset) << 24)
+            | (readByte(bytes, offset + 1) << 16)
+            | (readByte(bytes, offset + 2) << 8)
+            | readByte(bytes, offset + 3)
         ) >>> 0;
         if (offset + 12 + length > bytes.byteLength) {
             break;
         }
         if (String.fromCharCode(...bytes.subarray(offset + 4, offset + 8)) === 'acTL' && length === 8) {
             frameCount = (
-                (bytes[offset + 8]! << 24)
-                | (bytes[offset + 9]! << 16)
-                | (bytes[offset + 10]! << 8)
-                | bytes[offset + 11]!
+                (readByte(bytes, offset + 8) << 24)
+                | (readByte(bytes, offset + 9) << 16)
+                | (readByte(bytes, offset + 10) << 8)
+                | readByte(bytes, offset + 11)
             ) >>> 0;
             break;
         }
@@ -207,7 +215,7 @@ function countPngFrames(bytes: Uint8Array) {
 function skipGifSubBlocks(bytes: Uint8Array, startOffset: number) {
     let offset = startOffset;
     while (offset < bytes.byteLength) {
-        const length = bytes[offset]!;
+        const length = readByte(bytes, offset);
         offset += 1;
         if (length === 0) {
             return offset;
@@ -224,14 +232,14 @@ function countGifFrames(bytes: Uint8Array) {
     if (bytes.byteLength < 13) {
         return 1;
     }
-    const globalColorTableFlags = bytes[10]!;
+    const globalColorTableFlags = readByte(bytes, 10);
     const globalColorTableBytes = (globalColorTableFlags & 0x80) === 0
         ? 0
         : 3 * (2 ** ((globalColorTableFlags & 0x07) + 1));
     let offset = 13 + globalColorTableBytes;
     let frameCount = 0;
     while (offset < bytes.byteLength) {
-        const blockType = bytes[offset]!;
+        const blockType = readByte(bytes, offset);
         if (blockType === 0x3b) break;
         if (blockType === 0x21) {
             if (offset + 2 > bytes.byteLength) break;
@@ -240,7 +248,7 @@ function countGifFrames(bytes: Uint8Array) {
         }
         if (blockType !== 0x2c || offset + 10 > bytes.byteLength) break;
         frameCount += 1;
-        const imageFlags = bytes[offset + 9]!;
+        const imageFlags = readByte(bytes, offset + 9);
         const localColorTableBytes = (imageFlags & 0x80) === 0
             ? 0
             : 3 * (2 ** ((imageFlags & 0x07) + 1));
@@ -256,10 +264,10 @@ function countWebpFrames(bytes: Uint8Array) {
     let frameCount = 0;
     while (offset + 8 <= bytes.byteLength) {
         const length = (
-            bytes[offset + 4]!
-            | (bytes[offset + 5]! << 8)
-            | (bytes[offset + 6]! << 16)
-            | (bytes[offset + 7]! << 24)
+            readByte(bytes, offset + 4)
+            | (readByte(bytes, offset + 5) << 8)
+            | (readByte(bytes, offset + 6) << 16)
+            | (readByte(bytes, offset + 7) << 24)
         ) >>> 0;
         if (String.fromCharCode(...bytes.subarray(offset, offset + 4)) === 'ANMF') {
             frameCount += 1;

@@ -1,3 +1,10 @@
+import {
+    pageNumberToPageIndex,
+    requirePageNumber,
+    type TPageIndex,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
+import { isFiniteNumber } from '@contracts/runtimeGuards';
 // PDF.js-private highlight executor. Application features consume the thin
 // runtime port; raw editors never cross this bridge as retained state.
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
@@ -37,6 +44,7 @@ import {
 import { errorToLogText } from '@app/modules/pdf-viewer/engine/annotation-css-utils/errorToLogText';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { runGuardedTask } from '@app/utils/asyncGuard';
+import { getErrorMessage } from '@app/utils/error';
 import {
     addUndoableEditorToLayer,
     createAnnotationEditorAtPoint,
@@ -71,31 +79,31 @@ import { createTextMarkupFromTextRunner } from '@app/modules/pdf-viewer/annotati
 import { useAnnotationTextSelectionCache } from '@app/modules/pdf-viewer/runtime/annotations/useAnnotationTextSelectionCache';
 import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/runtime/annotations/useTextMarkupPresentationController';
 
-interface IHighlightIdentity {getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;}
+interface IHighlightIdentity {getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;}
 
 interface IHighlightMarkupSubtype {
     toolToMarkupSubtype: Partial<Record<TAnnotationTool, TMarkupSubtype>>;
     isSelectionMarkupTool: (tool: TAnnotationTool) => boolean;
     setEditorMarkupSubtypeOverride: (
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         subtype: TMarkupSubtype,
         options?: { preferEditorColor?: boolean },
     ) => void;
-    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: number) => TMarkupSubtype | null;
+    resolveEditorMarkupSubtypeOverride: (editor: IPdfjsEditor, pageIndex: TPageIndex) => TMarkupSubtype | null;
     resolveEditorSubtypeFromPresentation: (editor: IPdfjsEditor) => TMarkupSubtype | null;
 }
 
 interface IHighlightSync {
     scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
-    toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text: string) => IAnnotationCommentSummary;
+    toEditorSummary: (editor: IPdfjsEditor, pageIndex: TPageIndex, text: string) => IAnnotationCommentSummary;
 }
 
 interface IHighlightToolManager {
     updateModeWithRetry: (
         uiManager: AnnotationEditorUIManager,
         mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber?: number,
+        pageNumber?: TPageNumber,
     ) => Promise<unknown>;
     maybeAutoResetAnnotationTool: () => void;
 }
@@ -114,7 +122,7 @@ interface IUseAnnotationHighlightOptions {
     textMarkupPresentation: ITextMarkupPresentationController;
     annotationIntentSink: {
         submitSelectionMarkupIntent: (input: {
-            pageIndex: number;
+            pageIndex: TPageIndex;
             requestedSubtype: TMarkupSubtype | null;
             geometry: readonly IAnnotationMarkerRect[];
             observedEditors: ReadonlyArray<{
@@ -134,7 +142,7 @@ interface IUseAnnotationHighlightOptions {
             }>;
         };
         submitStickyNoteIntent: (input: {
-            pageIndex: number;
+            pageIndex: TPageIndex;
             anchor: IAnnotationMarkerRect;
         }) => {
             annotationId: string;
@@ -145,7 +153,7 @@ interface IUseAnnotationHighlightOptions {
             summary: IAnnotationCommentSummary,
         ) => void;
     };
-    ensureAnnotationEditorLayerReady?: (pageNumber: number) => Promise<void>;
+    ensureAnnotationEditorLayerReady?: (pageNumber: TPageNumber) => Promise<void>;
     deferCreatedEditorUndoToStorage?: boolean;
     /**
      * Single sink for creation failures. The bridge never renders UI, so it
@@ -216,11 +224,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         return `annotation-create-${annotationCreationAttempts}`;
     }
 
-    function reportCreationFailure(
-        operationId: string,
-        reason: TAnnotationCreationFailureReason,
-        pageNumber: number | null,
-    ) {
+    function reportCreationFailure(operationId: string, reason: TAnnotationCreationFailureReason, pageNumber: TPageNumber | null) {
         reportAnnotationCreationFailure(reportAnnotationFailure, {
             operationId,
             reason,
@@ -231,7 +235,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     function failCreation(
         operationId: string,
         reason: TAnnotationCreationFailureReason,
-        pageNumber: number | null,
+        pageNumber: TPageNumber | null,
         options: {silent?: boolean} = {},
     ): TAnnotationCreationOutcome {
         if (!options.silent) {
@@ -273,22 +277,21 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         if (editorState.markupBoxes?.length) {
             return editorState.markupBoxes;
         }
-        if (
-            Number.isFinite(editor.x)
-            && Number.isFinite(editor.y)
-            && Number.isFinite(editor.width)
-            && Number.isFinite(editor.height)
-            && (editor.width ?? 0) > 0
-            && (editor.height ?? 0) > 0
-        ) {
-            return [{
-                x: editor.x!,
-                y: editor.y!,
-                width: editor.width!,
-                height: editor.height!,
-            }];
+        const x = editor.x;
+        const y = editor.y;
+        const width = editor.width;
+        const height = editor.height;
+        if (!isFiniteNumber(x) || !isFiniteNumber(y) || !isFiniteNumber(width) || !isFiniteNumber(height)) {
+            return null;
         }
-        return null;
+        return width > 0 && height > 0
+            ? [{
+                x,
+                y,
+                width,
+                height,
+            }]
+            : null;
     }
 
     function removeProjectedEditor(editor: IPdfjsEditor) {
@@ -305,7 +308,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         toolManager: IHighlightToolManager,
         uiManager: AnnotationEditorUIManager,
         previousMode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         const restoreModeError = await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
         if (restoreModeError) {
@@ -354,7 +357,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return failCreation(
                 operationId,
                 cause === 'cross-page' ? 'selection-spans-pages' : 'no-selection',
-                currentPage.value,
+                requirePageNumber(currentPage.value),
                 {silent: suppressed || cause !== 'cross-page'},
             );
         }
@@ -376,7 +379,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return failCreation(
                 operationId,
                 spansPages ? 'selection-spans-pages' : 'selection-not-in-text-layer',
-                currentPage.value,
+                requirePageNumber(currentPage.value),
                 {silent: suppressed},
             );
         }
@@ -395,8 +398,8 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
 
         const pageNumber = getPageNumberForTextLayer(textLayer);
-        const pageIndex = Math.max(0, pageNumber - 1);
-        const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
+        const pageIndex = pageNumberToPageIndex(pageNumber);
+        const getEditorsForPage = (editorPageIndex: TPageIndex) => getEditorsOnPage(uiManager, editorPageIndex);
 
         selection?.removeAllRanges();
         clearSelectionCache();
@@ -489,14 +492,14 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             if (modeSwitchError) {
                 throw modeSwitchError instanceof Error
                     ? modeSwitchError
-                    : new Error(String(modeSwitchError));
+                    : new Error(getErrorMessage(modeSwitchError));
             }
             await uiManager.waitForEditorsRendered(pageNumber);
             if (!isAnnotationUiManagerCurrent(uiManager)) {
                 return {status: 'cancelled'};
             }
 
-            const layer = getAnnotationEditorLayer(uiManager, pageNumber - 1);
+            const layer = getAnnotationEditorLayer(uiManager, pageIndex);
             let undoRegistered = false;
             const registerCreatedEditorUndo = (editor: IPdfjsEditor | null) => {
                 if (!editor || undoRegistered || !isAnnotationUiManagerCurrent(uiManager)) {
@@ -544,11 +547,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                         replacementState.markupBoxes = replacementBoxes;
                         replacementState.markupSubtypeColor
                             = getPdfjsEditorFacadeState(source).markupSubtypeColor ?? null;
-                        markupSubtype.setEditorMarkupSubtypeOverride(
-                            replacementEditor,
-                            pageIndex,
-                            projectedSubtype,
-                        );
+                        markupSubtype.setEditorMarkupSubtypeOverride(replacementEditor, pageIndex, projectedSubtype);
                         bindCanonicalEditor(replacementEditor, replacement.annotationId);
                     }
                 }
@@ -680,11 +679,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
                 selectionCollapsed: document.getSelection()?.isCollapsed ?? null,
             }));
             if (classifyUnavailableSelection() === 'cross-page') {
-                reportCreationFailure(
-                    nextAnnotationOperationId(),
-                    'selection-spans-pages',
-                    currentPage.value,
-                );
+                reportCreationFailure(nextAnnotationOperationId(), 'selection-spans-pages', requirePageNumber(currentPage.value));
             }
             return false;
         }
@@ -719,7 +714,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     function preparePointNoteEditor(
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
         markCommentMarkerAnchorEditor(editor);
@@ -734,7 +729,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         toolManager: IHighlightToolManager,
         uiManager: AnnotationEditorUIManager,
         mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         const modeError = await toolManager.updateModeWithRetry(uiManager, mode, pageNumber);
         if (!modeError) {
@@ -742,7 +737,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         }
         throw modeError instanceof Error
             ? modeError
-            : new Error(String(modeError));
+            : new Error(getErrorMessage(modeError));
     }
 
     const createTextMarkupFromText = createTextMarkupFromTextRunner({
@@ -757,7 +752,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     async function waitForEditorsRenderedWithTimeout(
         uiManager: AnnotationEditorUIManager,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         reason: string,
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
@@ -785,10 +780,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     async function ensureEditorLayerDivReady(
         uiManager: AnnotationEditorUIManager,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         diagnosticsContext?: INotePlacementDiagnosticsContext,
     ) {
-        let layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+        const pageIndex = pageNumberToPageIndex(pageNumber);
+        let layerDiv = getAnnotationEditorLayerDiv(uiManager, pageIndex);
         if (layerDiv) {
             return layerDiv;
         }
@@ -798,16 +794,11 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
         try {
             await ensureAnnotationEditorLayerReady(pageNumber);
-            layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+            layerDiv = getAnnotationEditorLayerDiv(uiManager, pageIndex);
             if (layerDiv) {
                 return layerDiv;
             }
-            await waitForEditorsRenderedWithTimeout(
-                uiManager,
-                pageNumber,
-                'rerender-create',
-                diagnosticsContext,
-            );
+            await waitForEditorsRenderedWithTimeout(uiManager, pageNumber, 'rerender-create', diagnosticsContext);
         } catch (error) {
             BrowserLogger.diagnostic(NOTE_PLACEMENT_LOG_SECTION, 'Failed to rerender PDF.js editor layer before creating note', {
                 attemptId: diagnosticsContext?.attemptId ?? null,
@@ -816,7 +807,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             });
         }
 
-        layerDiv = getAnnotationEditorLayerDiv(uiManager, pageNumber - 1);
+        layerDiv = getAnnotationEditorLayerDiv(uiManager, pageIndex);
         return layerDiv;
     }
 
@@ -824,7 +815,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
         toolManager: IHighlightToolManager,
         uiManager: AnnotationEditorUIManager,
         previousMode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         if (previousMode !== AnnotationEditorType.FREETEXT) {
             await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
@@ -833,7 +824,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
 
     async function tryCreateTextAnchorComment(
         pageContainer: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageX: number,
         pageY: number,
         preferTextAnchor: boolean,
@@ -878,7 +869,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
     }
 
     async function commentAtPoint(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         pageX: number,
         pageY: number,
         pointOptions: {
@@ -925,7 +916,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             return textAnchorOutcome;
         }
 
-        const pageIndex = Math.max(0, pageNumber - 1);
+        const pageIndex = pageNumberToPageIndex(pageNumber);
         const clickMarkerRect = markerRectFromPoint(pageX, pageY);
         if (!clickMarkerRect) {
             return failCreation(operationId, 'point-outside-page', pageNumber);
@@ -934,7 +925,7 @@ export const useAnnotationHighlight = (options: IUseAnnotationHighlightOptions) 
             pageIndex,
             anchor: clickMarkerRect,
         });
-        const getEditorsForPage = (editorPageIndex: number) => getEditorsOnPage(uiManager, editorPageIndex);
+        const getEditorsForPage = (editorPageIndex: TPageIndex) => getEditorsOnPage(uiManager, editorPageIndex);
         const editorSnapshot = captureEditorSnapshot(pageIndex, getEditorsForPage, identity.getEditorIdentity);
 
         const resolveCreatedEditor = async (createdEditor: IPdfjsEditor | null) => {

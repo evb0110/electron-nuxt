@@ -214,7 +214,7 @@ function formatLabelValue(style: TDocumentPageLabelStyle, number: number) {
             return toAlphabetic(number, false);
         case 'a':
             return toAlphabetic(number, true);
-        default:
+        case null:
             return '';
     }
 }
@@ -319,8 +319,8 @@ function inferAlphabeticCandidate(label: string): IDocumentPageLabelRange | null
         startNumber: alphaValue,
     };
 }
-function inferCandidates(label: string): IDocumentPageLabelRange[] {
-    const candidates = [createLiteralLabelCandidate(label)];
+function inferCandidates(label: string): [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] {
+    const candidates: [IDocumentPageLabelRange, ...IDocumentPageLabelRange[]] = [createLiteralLabelCandidate(label)];
     const parsedCandidates = [
         inferDecimalCandidate(label),
         inferRomanCandidate(label),
@@ -349,9 +349,6 @@ export function normalizePageLabelRanges(
     const deduped = new Map<number, IDocumentPageLabelRange>();
 
     for (const range of ranges) {
-        if (!range || typeof range !== 'object') {
-            continue;
-        }
         const startPage = clamp(
             toPositiveInt(range.startPage, 1),
             1,
@@ -899,7 +896,7 @@ export function derivePageLabelRangesFromLabels(
         const label = pageLabels[pageIndex] ?? '';
         const candidates = inferCandidates(label);
 
-        let bestRange: IDocumentPageLabelRange = candidates[0]!;
+        let bestRange: IDocumentPageLabelRange = candidates[0];
         let bestLength = 1;
         let bestPriority = bestRange.style === null ? 0 : 1;
 

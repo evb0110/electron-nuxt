@@ -34,7 +34,7 @@ export async function decodeBoundedAnalyticsJsonStream(
     const chunks: Uint8Array[] = [];
     let totalBytes = 0;
     try {
-        while (true) {
+        for (;;) {
             const result = await reader.read();
             if (result.done) {
                 break;

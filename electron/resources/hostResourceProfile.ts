@@ -73,7 +73,7 @@ function readGpuStatus(options: IInitializeHostResourceProfileOptions) {
         if (!isRecord(value)) {
             return undefined;
         }
-        const snapshot: IHostGpuStatusSnapshot = {};
+        const snapshot: Record<string, string> = {};
         for (const [
             featureName,
             status,

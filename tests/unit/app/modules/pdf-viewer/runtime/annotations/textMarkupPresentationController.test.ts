@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -147,11 +148,12 @@ function createController(options: {
                     ? [{
                         color: null,
                         editor: options.editor,
-                        pageNumber: 1,
+                        pageNumber: requirePageNumber(1),
                         subtype: null,
                     }]
                     : [],
-                unresolvedPageNumbers: options.unresolvedPages?.() ?? [],
+                unresolvedPageNumbers: (options.unresolvedPages?.() ?? [])
+                    .map(pageNumber => requirePageNumber(pageNumber)),
             };
         },
     );
@@ -213,11 +215,11 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         harness.controller.notify({kind: 'editors-changed'});
         await settleFrame();
@@ -245,7 +247,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
         });
         await settleFrame();
 
@@ -272,7 +274,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         await settleFrame();
         expect(harness.syncEditorPresentation).toHaveBeenCalledTimes(1);
@@ -302,7 +304,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         await settleFrame();
         expect(harness.syncEditorPresentation).toHaveBeenCalledTimes(1);
@@ -325,7 +327,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         await settleFrame();
         await vi.advanceTimersByTimeAsync(10000);
@@ -345,7 +347,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
         });
         await settleFrame();
         expect(harness.syncEditorPresentation).toHaveBeenCalledTimes(1);
@@ -593,7 +595,7 @@ describe('useTextMarkupPresentationController', () => {
 
         harness.controller.notify({
             kind: 'page-layer-committed',
-            pageNumber: 7,
+            pageNumber: requirePageNumber(7),
         });
         await settleFrame();
         await vi.advanceTimersByTimeAsync(10000);

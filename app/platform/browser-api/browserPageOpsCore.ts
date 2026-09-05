@@ -169,10 +169,6 @@ async function mutateValidatedPdfPages(
     });
     for (const pageNumber of pages) {
         const page = pdfDocument.getPage(pageNumber - 1);
-        if (!page) {
-            continue;
-        }
-
         mutatePage(page);
     }
 
@@ -404,10 +400,6 @@ export async function getPageGeometryFromPdfBytes(
 
     const pdfDocument = await PDFDocument.load(data);
     const page = pdfDocument.getPage(pageNumber - 1);
-    if (!page) {
-        throw new Error(`Page ${pageNumber} not found`);
-    }
-
     const mediaBox = resolvePdfLibMediaBox(page);
     const cropBox = resolvePdfLibCropBox(page, mediaBox);
 

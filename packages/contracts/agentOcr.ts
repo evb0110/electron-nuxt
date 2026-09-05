@@ -44,7 +44,7 @@ export type TOcrPageSegmentationMode = typeof AGENT_OCR_PAGE_SEGMENTATION_MODES[
 
 export function isSupportedPageSegmentationMode(value: unknown): value is TOcrPageSegmentationMode {
     return typeof value === 'number'
-        && AGENT_OCR_PAGE_SEGMENTATION_MODES.includes(value as TOcrPageSegmentationMode);
+        && AGENT_OCR_PAGE_SEGMENTATION_MODES.some(mode => mode === value);
 }
 
 export type TAgentOcrPageRange = typeof AGENT_OCR_PAGE_RANGES[number];

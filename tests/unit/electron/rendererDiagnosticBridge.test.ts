@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import type { DiagnosticRecord } from '@contracts/diagnostics/diagnosticRecord';
 import type { DiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
+import {requireEpochMs} from '@contracts/timestamps';
 import {CORE_IPC_SEND_CHANNELS} from '@electron/platform-ipc/coreContract';
 import { registerRendererDiagnosticBridge } from '@electron/platform-ipc/registerRendererDiagnosticBridge';
 import { createMainFailureReporter } from '@electron/features/diagnostics/public';
@@ -17,7 +18,7 @@ const record: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {
     severity: 'error',
     runtime: 'electron-renderer',
     operation: 'renderer-error',
-    occurredAt: 1_757_000_000_000,
+    occurredAt: requireEpochMs(1_757_000_000_000),
     frames: [{
         module: 'app/utils/failureReporter.ts',
         function: 'capture',

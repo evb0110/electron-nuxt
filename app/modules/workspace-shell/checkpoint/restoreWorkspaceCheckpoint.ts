@@ -114,17 +114,26 @@ export async function restoreWorkspaceCheckpoint(
         {length: Math.min(WORKSPACE_RESTORE_CONCURRENCY, checkpoint.tabs.length)},
         async () => {
             while (nextTabIndex < checkpoint.tabs.length) {
-                const tab = checkpoint.tabs[nextTabIndex++]!;
+                const tab = checkpoint.tabs[nextTabIndex++];
+                if (!tab) {
+                    continue;
+                }
                 const restoreTarget = getRestoreTarget(tab);
                 if (!restoreTarget) {
                     continue;
                 }
                 try {
                     if (!await options.openPathInReservedTab(tab.tabId, restoreTarget)) {
-                        failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
+                        const failedPath = tab.sourceRef ?? tab.workingCopyRef;
+                        if (failedPath) {
+                            failedPaths.push(failedPath);
+                        }
                     }
                 } catch {
-                    failedPaths.push(tab.sourceRef ?? tab.workingCopyRef!);
+                    const failedPath = tab.sourceRef ?? tab.workingCopyRef;
+                    if (failedPath) {
+                        failedPaths.push(failedPath);
+                    }
                 }
             }
         },

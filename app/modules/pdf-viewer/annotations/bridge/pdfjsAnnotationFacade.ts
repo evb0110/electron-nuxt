@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { AnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { syncCommentMarkerAnchorEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/commentMarkerAnchorEditor';
@@ -117,7 +119,7 @@ interface IEditorBinding {
 interface IFacadeGenerations {
     document: number;
     manager: number;
-    page: (pageIndex: number) => number;
+    page: (pageIndex: TPageIndex) => number;
 }
 
 const MANAGER_CAPABILITIES = [
@@ -160,7 +162,7 @@ export class PdfjsAnnotationFacade {
         });
     }
 
-    bindEditor(editor: object, annotationId: AnnotationId, editorKey: string, pageIndex: number): IEditorLease {
+    bindEditor(editor: object, annotationId: AnnotationId, editorKey: string, pageIndex: TPageIndex): IEditorLease {
         const lease = {
             editorKey,
             documentGeneration: this.generations.document,
@@ -182,7 +184,7 @@ export class PdfjsAnnotationFacade {
 
     withEditor<T>(
         lease: IEditorLease,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         resolveCurrentEditor: (editorKey: string) => object | null,
         action: (editor: object) => T,
     ): TLeaseResult<T> {

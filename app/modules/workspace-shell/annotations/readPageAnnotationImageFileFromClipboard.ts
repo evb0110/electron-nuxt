@@ -9,6 +9,14 @@ const PREFERRED_CLIPBOARD_IMAGE_TYPES = [
     'image/x-icon',
 ] as const;
 
+interface IClipboardLike {read: Clipboard['read'];}
+
+function isClipboardLike(value: unknown): value is IClipboardLike {
+    return typeof value === 'object'
+        && value !== null
+        && typeof Reflect.get(value, 'read') === 'function';
+}
+
 function extensionForMimeType(mimeType: string) {
     switch (mimeType) {
         case 'image/apng':
@@ -33,11 +41,15 @@ function extensionForMimeType(mimeType: string) {
 }
 
 export async function readPageAnnotationImageFileFromClipboard() {
-    if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.read !== 'function') {
+    const navigatorValue: unknown = Reflect.get(globalThis, 'navigator');
+    const clipboard: unknown = navigatorValue && typeof navigatorValue === 'object'
+        ? Reflect.get(navigatorValue, 'clipboard')
+        : null;
+    if (!isClipboardLike(clipboard)) {
         return null;
     }
 
-    const items = await globalThis.navigator.clipboard.read();
+    const items = await clipboard.read();
     for (const item of items) {
         const mimeType = PREFERRED_CLIPBOARD_IMAGE_TYPES.find(type => item.types.includes(type));
         if (!mimeType) {

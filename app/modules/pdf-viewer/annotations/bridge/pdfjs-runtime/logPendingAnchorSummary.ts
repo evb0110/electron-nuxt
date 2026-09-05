@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';
 import { BrowserLogger } from '@app/utils/browserLogger';
 
@@ -6,7 +8,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
  * rather than from the editor itself. Silent for every other summary.
  */
 export function logPendingAnchorSummary(
-    pageIndex: number,
+    pageIndex: TPageIndex,
     id: string,
     uid: string | null,
     annotationId: string | null,

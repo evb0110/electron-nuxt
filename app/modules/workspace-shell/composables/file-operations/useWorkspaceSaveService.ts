@@ -15,6 +15,8 @@ import type {
 } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import type { TPdfDateString } from '@contracts/pdfDateString';
+import type { TRequestId } from '@contracts/shared';
 import type { ExpectedOutcome } from '@contracts/diagnostics/failureReceipt';
 import type {
     IPdfNativeAnnotationDelete,
@@ -177,7 +179,7 @@ export interface IWorkspaceSaveDependencies {
         }) => Promise<IPdfPersistResult>;
         optimizeWorkingCopyAsCopy?: (
             options: IPdfOptimizeOptions,
-            requestId: string | undefined,
+            requestId: TRequestId | undefined,
             opts: {
                 saveMode: TPdfSaveMode;
                 expectedWorkingPath?: TDocumentRef | null;
@@ -191,7 +193,7 @@ export interface IWorkspaceSaveDependencies {
                 preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: string;
+                modifiedAt: TPdfDateString;
                 verifyPathBeforeExpose?: (path: TDocumentRef, knownSize: number) => Promise<void>;
                 assertBeforeExpose?: () => Promise<void> | void;
             },
@@ -203,7 +205,7 @@ export interface IWorkspaceSaveDependencies {
                 preserveLoadedSource?: boolean;
                 expectedWorkingPath?: TDocumentRef | null;
                 expectedDocumentRevisionToken?: TDocumentRevisionToken | null;
-                modifiedAt: string;
+                modifiedAt: TPdfDateString;
                 geometryUpdates?: IPdfNoteGeometryUpdate[];
                 freeTextNotes?: IPdfNativeFreeTextNote[];
                 deletes?: IPdfNativeAnnotationDelete[];
@@ -531,23 +533,25 @@ async function persistNativeMutationProjection(
         ...(verifyPathBeforeExpose ? {verifyPathBeforeExpose} : {}),
         ...(assertBeforeExpose ? {assertBeforeExpose} : {}),
     };
-    if (deps.persistence.trySavePdfNativeMutations) {
+    const trySavePdfNativeMutations = deps.persistence.trySavePdfNativeMutations;
+    if (trySavePdfNativeMutations) {
         return timedSavePhase(
             projection.phase,
-            () => deps.persistence.trySavePdfNativeMutations!(projection.mutations, opts),
+            () => trySavePdfNativeMutations(projection.mutations, opts),
         );
     }
+    const trySaveEmbeddedNoteTextUpdates = deps.persistence.trySaveEmbeddedNoteTextUpdates;
     if (
         projection.hasMetadataMutations
         || projection.hasShapeMutations
         || projection.freeTextEditors.length > 0
-        || !deps.persistence.trySaveEmbeddedNoteTextUpdates
+        || !trySaveEmbeddedNoteTextUpdates
     ) {
         return null;
     }
     return timedSavePhase(
         projection.phase,
-        () => deps.persistence.trySaveEmbeddedNoteTextUpdates!(
+        () => trySaveEmbeddedNoteTextUpdates(
             projection.noteTextUpdates,
             {
                 ...opts,
@@ -1203,7 +1207,7 @@ export const useWorkspaceSaveService = (deps: IWorkspaceSaveDependencies) => {
         handleOptimizePdfForInteraction: () => save({kind: 'optimize'}),
         handleOptimizePdfAsCopy: (
             options: IPdfOptimizeOptions,
-            requestId?: string,
+            requestId?: TRequestId,
         ) => save({
             kind: 'optimize-copy',
             options,

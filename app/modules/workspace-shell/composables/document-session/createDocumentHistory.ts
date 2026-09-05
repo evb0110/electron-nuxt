@@ -329,8 +329,11 @@ export function createDocumentHistory(
             : null;
         if (nativePathSource) {
             try {
+                if (!expectedWorkingPath) {
+                    return null;
+                }
                 return await createCurrentPathHistoryEntry(
-                    expectedWorkingPath!,
+                    expectedWorkingPath,
                     nativePathSource.size,
                 );
             } catch (snapshotError) {

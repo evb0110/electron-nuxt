@@ -35,7 +35,7 @@ export function toMarkerRectFromEditorRect(
                 width: normalized.height,
                 height: normalized.width,
             });
-        default:
+        case 0:
             return normalized;
     }
 }

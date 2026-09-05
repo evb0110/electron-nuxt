@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { TDjvuPdfExportStrategy } from '@contracts/electronApiDjvu';
 import type { Ref } from 'vue';
 import type { TDocumentRef } from '@contracts/documentRef';
@@ -234,7 +235,7 @@ export const useWorkspaceFileLifecycleController = (
                 } satisfies TDocumentOpenOutcome;
             }
         } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = getErrorMessage(error);
             pdfError.value = message;
             BrowserLogger.error('djvu-open-transaction', 'Activation failed', {
                 reason: 'open-djvu-threw',

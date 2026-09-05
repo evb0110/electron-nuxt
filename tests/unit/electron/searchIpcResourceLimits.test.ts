@@ -526,7 +526,7 @@ describe('search IPC worker resource limits', () => {
         expect(preprocessingOperation).toBeDefined();
 
         preprocessingOperation?.controller.abort(new Error('Working copy is closing'));
-        await (preprocessingOperation?.registration.cancel as ((reason: string) => void) | undefined)?.('Working copy is closing');
+        (preprocessingOperation?.registration.cancel as ((reason: string) => void) | undefined)?.('Working copy is closing');
         expect(preprocessingOperation?.complete).not.toHaveBeenCalled();
         releasePath(workingCopyPath);
 

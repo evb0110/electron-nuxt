@@ -1,3 +1,6 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
+import { getErrorMessage } from '@app/utils/error';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type {
     IAnnotationEditorLayerPageFailure,
@@ -14,7 +17,7 @@ export function createAnnotationEditorLayerFailureTracker(options: {
     const report = (params: {
         cause: 'annotation-editor-layer-render-failed' | 'annotation-editor-layer-quarantined' | 'pdfjs-compatibility-unsupported';
         error: unknown;
-        pageNumber: number;
+        pageNumber: TPageNumber;
         reason: TAnnotationEditorLayerFailureReason;
         retryable: boolean;
         attempts?: number;
@@ -23,7 +26,7 @@ export function createAnnotationEditorLayerFailureTracker(options: {
         key: `annotation-editor-layer:${params.pageNumber}`,
         metadata: {
             attempts: params.attempts ?? null,
-            errorMessage: params.error instanceof Error ? params.error.message : String(params.error),
+            errorMessage: getErrorMessage(params.error),
             errorName: params.error instanceof Error ? params.error.name : null,
             hasDocument: options.hasDocument(),
             pageNumber: params.pageNumber,
@@ -33,7 +36,7 @@ export function createAnnotationEditorLayerFailureTracker(options: {
     });
 
     const recordAnnotationEditorLayerFailure = (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         reason: TAnnotationEditorLayerFailureReason,
         error: unknown,
     ) => {
@@ -43,7 +46,7 @@ export function createAnnotationEditorLayerFailureTracker(options: {
             reason,
             attempts,
             lastFailedAt: Date.now(),
-            message: error instanceof Error ? error.message : String(error),
+            message: getErrorMessage(error),
         };
         options.failures.set(pageNumber, failure);
         const retryable = attempts < MAX_EDITOR_LAYER_RETRIES && reason === 'render-error';
@@ -74,8 +77,8 @@ export function createAnnotationEditorLayerFailureTracker(options: {
     };
 
     return {
-        clearAnnotationEditorLayerFailure: (pageNumber: number) => options.failures.delete(pageNumber),
-        isAnnotationEditorLayerQuarantined: (pageNumber: number) => (
+        clearAnnotationEditorLayerFailure: (pageNumber: TPageNumber) => options.failures.delete(pageNumber),
+        isAnnotationEditorLayerQuarantined: (pageNumber: TPageNumber) => (
             (options.failures.get(pageNumber)?.attempts ?? 0) >= MAX_EDITOR_LAYER_RETRIES
         ),
         recordAnnotationEditorLayerFailure,

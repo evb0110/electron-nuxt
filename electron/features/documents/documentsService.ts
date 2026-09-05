@@ -3,6 +3,7 @@ import type {
     WebContents,
 } from 'electron';
 import type {IDocumentRevisionInfo} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
 import type { ITypedStagedArtifact } from '@contracts/stagedArtifacts';
 import type {
     IPdfConformanceAnalysisOptions,
@@ -92,18 +93,18 @@ export interface IDocumentsService {
         fileName: string,
         data: Uint8Array,
         originalPath?: string,
-    ) => Promise<string>;
+    ) => Promise<TDocumentRef>;
     createWorkingCopyFromPath: (
         context: IDocumentsSenderIdContext,
         sourcePath: TOpenPath,
         originalPath?: string,
-    ) => Promise<string>;
+    ) => Promise<TDocumentRef>;
     savePdfAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
         options: IPdfSaveAsOptions | undefined,
         revisionOptions?: IDocumentMutationRevisionOptions,
-    ) => Promise<string | null>;
+    ) => Promise<TDocumentRef | null>;
     savePdfDataAs: (
         context: IDocumentsDialogContext,
         workingPath: string,
@@ -111,7 +112,7 @@ export interface IDocumentsService {
         options?: IPdfSaveAsOptions,
         serializedSaveOptions?: IPdfSerializedSaveOptions,
     ) => Promise<{
-        path: string | null;
+        path: TDocumentRef | null;
         validation: IPdfValidationResult | null;
     }>;
     beginSavePdfDataAs: (
@@ -122,7 +123,7 @@ export interface IDocumentsService {
         serializedSaveOptions?: IPdfSerializedSaveOptions,
     ) => Promise<IBeginSerializedPdfSaveAsResult>;
     savePdfDialog: (context: IDocumentsDialogContext, suggestedName: string) => Promise<string | null>;
-    saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<string | null>;
+    saveDocxAs: (context: IDocumentsDialogContext, workingPath: string) => Promise<TDocumentRef | null>;
     readFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<Uint8Array>;
     statFile: (context: IDocumentsSenderIdContext, filePath: string) => Promise<{
         size: number;
@@ -310,7 +311,7 @@ export interface IDocumentsService {
         context: IDocumentsSenderIdContext,
         stagedOutput: ITypedStagedArtifact,
         originalPath?: string,
-    ) => Promise<string>;
+    ) => Promise<TDocumentRef>;
     replaceWorkingCopyFromStagedPdfNativeMutation: (
         context: IDocumentsSenderIdContext,
         workingPath: string,
@@ -328,7 +329,7 @@ export interface IDocumentsService {
         sessionId: string,
         stagedOutput: ITypedStagedArtifact,
     ) => Promise<{
-        path: string | null;
+        path: TDocumentRef | null;
         validation: IPdfValidationResult;
     }>;
     cancelStagedSerializedPdf: (

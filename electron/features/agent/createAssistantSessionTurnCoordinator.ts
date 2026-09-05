@@ -16,6 +16,7 @@ import {
     type IAssistantSessionScopeBinding,
 } from '@electron/features/agent/assistantTurnLifecycle';
 import { syncAssistantMcpSessionScope } from '@electron/features/agent/assistantMcpSessionScope';
+import {requireTabId} from '@contracts/windowTabs';
 
 interface IAssistantSessionTurnCoordinatorOptions {
     sessionStore: TAssistantChatSessionStore;
@@ -26,12 +27,16 @@ export function createAssistantSessionTurnCoordinator(options: IAssistantSession
     function createAssistantSessionScopeBinding(
         session: IAssistantChatSession,
     ): Omit<IAssistantSessionScopeBinding, 'turnGeneration'> {
+        const tabId = session.scope.tabId;
+        if (tabId === undefined || tabId === null) {
+            throw new Error('Assistant turns require a bound document tab.');
+        }
         return {
             sessionKey: options.sessionStore.keyForSession(session),
             scopeKey: session.scope.key,
             provider: session.provider,
             windowId: session.lastSenderWindowId ?? -1,
-            tabId: session.scope.tabId ?? '',
+            tabId: requireTabId(tabId),
             documentSessionKey: session.scope.documentSessionKey ?? null,
             documentRef: session.scope.documentRef ?? null,
             ...(session.scope.documentBackend === undefined ? {} : {documentBackend: session.scope.documentBackend}),

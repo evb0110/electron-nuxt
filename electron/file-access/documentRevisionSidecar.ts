@@ -21,6 +21,10 @@ import type {
     TDocumentRevisionToken,
 } from '@contracts/documentRevision';
 import { parseDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import { createStaleRevisionError } from '@contracts/documentMutationErrors';
 import {
     isRecord,
@@ -29,6 +33,10 @@ import {
 import { quarantineCorruptFile } from '@electron/utils/quarantineCorruptFile';
 import { atomicReplace } from '@electron/utils/atomicReplace';
 import { createLogger } from '@electron/utils/createLogger';
+import {
+    parseEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 import {
     getPageIdentitySidecarPath,
     quarantinePageIdentitySidecar,
@@ -39,7 +47,7 @@ const log = createLogger('document-revision-sidecar');
 
 export interface IWorkingCopyRevisionSidecar extends IDocumentRevisionInfo {
     sidecarVersion: 1;
-    updatedAt: number;
+    updatedAt: TEpochMs;
 }
 
 export interface IWorkingCopySyncRequiredJournalEntry {
@@ -84,10 +92,17 @@ function getWorkingCopyRevisionJournalPath(workingCopyPath: string) {
     return `${workingCopyPath}.evb-revision-journal.json`;
 }
 
-function isPositiveTimestamp(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isFinite(value)
-        && value > 0;
+function requireDocumentRef(value: string): TDocumentRef {
+    const parsed = parseDocumentRef(value);
+    if (parsed === null) {
+        throw new TypeError('Working copy path must be an absolute document ref');
+    }
+    return parsed;
+}
+
+function isPositiveTimestamp(value: unknown): value is TEpochMs {
+    const parsed = parseEpochMs(value);
+    return parsed !== null && parsed > 0;
 }
 
 function isContentRevision(value: unknown): value is number {
@@ -101,30 +116,30 @@ function normalizeWorkingCopyRevisionSidecar(value: unknown): IWorkingCopyRevisi
         return null;
     }
     const token = parseDocumentRevisionToken(value.token);
+    const documentRef = parseDocumentRef(value.documentRef);
+    const mintedAt = parseEpochMs(value.mintedAt);
+    const updatedAt = parseEpochMs(value.updatedAt);
     if (
         value.sidecarVersion !== 1
         || value.version !== 1
         || value.authority !== 'electron-working-copy'
         || token === null
-        || typeof value.documentRef !== 'string'
-        || value.documentRef.length === 0
+        || documentRef === null
         || !isContentRevision(value.contentRevision)
-        || !isPositiveTimestamp(value.mintedAt)
-        || !isPositiveTimestamp(value.updatedAt)
+        || mintedAt === null
+        || mintedAt <= 0
+        || updatedAt === null
+        || updatedAt <= 0
     ) {
         return null;
     }
 
-    const {
-        contentRevision,
-        mintedAt,
-        updatedAt,
-    } = value;
+    const {contentRevision} = value;
 
     return {
         sidecarVersion: 1,
         version: 1,
-        documentRef: value.documentRef,
+        documentRef,
         authority: 'electron-working-copy',
         token,
         contentRevision,
@@ -489,7 +504,7 @@ export async function assertWorkingCopyRevisionSidecarCurrent(
     const sidecar = await readWorkingCopyRevisionSidecar(workingCopyPath);
     if (sidecar?.token !== token) {
         throw createStaleRevisionError({
-            documentRef: workingCopyPath,
+            documentRef: requireDocumentRef(workingCopyPath),
             expectedRevision: token,
             actualRevision: sidecar?.token ?? null,
         });

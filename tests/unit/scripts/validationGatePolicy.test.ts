@@ -228,6 +228,29 @@ async function createLintConfigRoot() {
 }
 
 describe('validation gate policy', () => {
+    it.sequential('runs the test assertion ratchet as a changed lint stage', () => {
+        const result = runChangedLint(['tests-as-never-baseline.json']);
+
+        expect(result, result.output).toMatchObject({status: 0});
+        expect(result.output).toContain('[gate] Slowest stages:');
+        expect(result.output).toContain('lint.tests-as-never');
+    }, 30_000);
+
+    it.sequential('fails the changed lint stage when a test file outruns the assertion baseline', async () => {
+        const driftPath = `tests/unit/scripts/validation-gate-policy-drift-${process.pid}.ts`;
+        await rm(driftPath, {force: true});
+        await writeFile(driftPath, 'export const drifted = (0 as unknown) as never;\n');
+        try {
+            const result = runChangedLint(['tests-as-never-baseline.json']);
+
+            expect(result.status).not.toBe(0);
+            expect(result.output).toContain('Tests as never ratchet failed.');
+            expect(result.output).toContain(driftPath);
+        } finally {
+            await rm(driftPath, {force: true});
+        }
+    }, 30_000);
+
     it.sequential('skips root config files ignored by ESLint while still checking lintable changed files', async () => {
         const invalidPath = `tests/unit/scripts/validation-gate-policy-invalid-${process.pid}.ts`;
         await rm(invalidPath, {force: true});
@@ -769,7 +792,7 @@ describe('validation gate policy', () => {
             });
 
             expect(markerPath).toBe(validationGates.getValidationBuildMarkerPath(root));
-            await expect(validationGates.isValidationBuildFresh({
+            expect(validationGates.isValidationBuildFresh({
                 buildScriptName: 'build:desktop',
                 outputPaths: ['dist'],
                 root,

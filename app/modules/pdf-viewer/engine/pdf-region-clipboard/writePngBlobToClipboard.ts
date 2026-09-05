@@ -2,10 +2,17 @@ export async function writePngBlobToClipboard(blob: Blob) {
     if (typeof ClipboardItem !== 'function') {
         throw new Error('ClipboardItem API is unavailable');
     }
-    if (!globalThis.navigator?.clipboard || typeof globalThis.navigator.clipboard.write !== 'function') {
+    const clipboardValue = (globalThis.navigator as Omit<Navigator, 'clipboard'> & {clipboard?: unknown}).clipboard;
+    if (
+        typeof clipboardValue !== 'object'
+        || clipboardValue === null
+        || !('write' in clipboardValue)
+        || typeof clipboardValue.write !== 'function'
+    ) {
         throw new Error('Clipboard write API is unavailable');
     }
 
     const clipboardItem = new ClipboardItem({ 'image/png': blob });
-    await globalThis.navigator.clipboard.write([clipboardItem]);
+    const clipboard = clipboardValue as Pick<Clipboard, 'write'>;
+    await clipboard.write([clipboardItem]);
 }

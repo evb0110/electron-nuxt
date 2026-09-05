@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 export interface IPdfPageLayoutBase {
     totalPages: number;
     /** True when the base uses lazy indexed collections instead of dense arrays. */
@@ -40,11 +42,11 @@ export function getLayoutPhysicalScrollSegment(
     };
 }
 
-export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: number) {
+export function getLayoutPageWidth(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
     return (layout.base.pageWidths[pageIndex] ?? 0) * layout.scale;
 }
 
-export function getLayoutPageHeight(layout: IPdfPageLayoutMetrics, pageIndex: number) {
+export function getLayoutPageHeight(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
     return (layout.base.pageHeights[pageIndex] ?? 0) * layout.scale;
 }
 
@@ -58,7 +60,7 @@ export function getLayoutRowTop(layout: IPdfPageLayoutMetrics, rowIndex: number)
         + rowIndex * layout.gap;
 }
 
-export function getLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: number) {
+export function getLayoutPageTop(layout: IPdfPageLayoutMetrics, pageIndex: TPageIndex) {
     const rowIndex = layout.base.pageRowIndices[pageIndex] ?? -1;
     return rowIndex < 0 ? null : getLayoutRowTop(layout, rowIndex);
 }

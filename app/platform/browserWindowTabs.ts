@@ -299,13 +299,11 @@ function resolveCurrentWindowId() {
         const fromQuery = Number(url.searchParams.get(WINDOW_ID_QUERY_PARAM));
         if (Number.isSafeInteger(fromQuery) && fromQuery > 0) {
             url.searchParams.delete(WINDOW_ID_QUERY_PARAM);
-            if (window.history?.replaceState) {
-                window.history.replaceState(
-                    window.history.state,
-                    '',
-                    url.toString(),
-                );
-            }
+            window.history.replaceState(
+                window.history.state,
+                '',
+                url.toString(),
+            );
             const state = getBrowserWindowTabsState();
             if (state) {
                 state.windowId = fromQuery;
@@ -649,8 +647,7 @@ function handleWindowAnnouncement(message: Extract<TBrowserWindowTabsMessage, { 
 
 function handleIncomingTransferMessage(message: Extract<TBrowserWindowTabsMessage, { type: 'transfer' }>) {
     if (
-        message.transfer.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
-        || !message.transfer.nonce
+        !message.transfer.nonce
         || message.transfer.targetWindowId !== currentWindowId
         || !isCurrentWindowReady
     ) {
@@ -671,7 +668,6 @@ function handleTransferAckMessage(message: Extract<TBrowserWindowTabsMessage, { 
     if (
         !pending
         || message.windowId !== pending.targetWindowId
-        || message.ack.schemaVersion !== TRANSFER_MESSAGE_SCHEMA_VERSION
         || message.ack.nonce !== pending.nonce
     ) {
         return;
@@ -906,7 +902,10 @@ export const browserWindowTabsCapability: IWindowTabsCapability = {
         if (orphaned.length === 0) {
             return null;
         }
-        const orphan = orphaned[0]!;
+        const orphan = orphaned[0];
+        if (!orphan) {
+            return null;
+        }
         const outcome = await claimBrowserWorkspaceRecoveryOwner(
             orphan.ownerId,
             ownerId,

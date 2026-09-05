@@ -1,3 +1,9 @@
+import {
+    pageNumberToPageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { Ref } from 'vue';
 import type { Merge } from 'type-fest';
 import type { TPdfDocumentSession } from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
@@ -86,11 +92,35 @@ export const usePdfViewerPublicApiController = (
     } = annotationRuntime;
     const currentPage = viewportSession.currentPage;
 
-    async function renderAnnotationPage(pageNumber: number, optionsOverride: { forceRerender?: boolean } = {}) {
+    // No page-count bound here. The annotation flows check the page against the
+    // document themselves and refuse a target outside it, so bounding the page
+    // first would move an out-of-range annotation onto the last page instead.
+    // The safe integer cap stays, because a public caller can hand over a finite
+    // page beyond that range and requirePageNumber rejects one.
+    function normalizePublicPageNumber(requestedPage: number | null | undefined) {
+        const fallbackPage = Number.isFinite(currentPage.value) ? currentPage.value : 1;
+        const page = typeof requestedPage === 'number' && Number.isFinite(requestedPage)
+            ? requestedPage
+            : fallbackPage;
+        return requirePageNumber(Math.min(Math.max(1, Math.trunc(page)), Number.MAX_SAFE_INTEGER));
+    }
+
+    // Navigation is the one caller that should bound an overshooting page, since
+    // scrolling past the end means scrolling to the end. Before the document
+    // reports a count there is nothing to bound against.
+    function resolveNavigationPageNumber(requestedPage: number | null | undefined) {
+        const totalPages = documentSession.numPages.value;
+        const normalizedPage = normalizePublicPageNumber(requestedPage);
+        return totalPages > 0
+            ? requirePageNumber(Math.min(normalizedPage, totalPages), totalPages)
+            : normalizedPage;
+    }
+
+    async function renderAnnotationPage(pageNumber: TPageNumber, optionsOverride: { forceRerender?: boolean } = {}) {
         if (!Number.isFinite(pageNumber)) {
             return false;
         }
-        const normalizedPageNumber = Math.max(1, Math.trunc(pageNumber));
+        const normalizedPageNumber = normalizePublicPageNumber(pageNumber);
         if (documentSession.numPages.value > 0 && normalizedPageNumber > documentSession.numPages.value) {
             return false;
         }
@@ -112,11 +142,11 @@ export const usePdfViewerPublicApiController = (
         return Boolean(container && getPageContainerByNumber(container, normalizedPageNumber));
     }
 
-    async function rerenderAnnotationPage(pageNumber: number) {
+    async function rerenderAnnotationPage(pageNumber: TPageNumber) {
         return renderAnnotationPage(pageNumber, { forceRerender: true });
     }
 
-    async function ensurePublicAnnotationTargetPageReady(pageNumber: number) {
+    async function ensurePublicAnnotationTargetPageReady(pageNumber: TPageNumber) {
         if (documentSession.numPages.value > 0 && pageNumber > documentSession.numPages.value) {
             return false;
         }
@@ -133,7 +163,10 @@ export const usePdfViewerPublicApiController = (
         getUserViewportInteractionEpoch: options.getUserViewportInteractionEpoch,
         scrollToPage: (pageNumber, scrollOptions) => {
             options.cancelPendingSearchScroll();
-            viewportSession.singlePageScroll.scrollToPage(pageNumber, scrollOptions);
+            viewportSession.singlePageScroll.scrollToPage(
+                resolveNavigationPageNumber(pageNumber),
+                scrollOptions,
+            );
         },
         cancelProgrammaticNavigation: () => {
             options.cancelPendingSearchScroll();
@@ -164,9 +197,7 @@ export const usePdfViewerPublicApiController = (
         highlightSelection: annotationRuntime.highlightComposable.highlightSelection,
         commentSelection: annotationRuntime.highlightComposable.commentSelection,
         createTextMarkupFromText: async (target) => {
-            const pageNumber = Number.isFinite(target.pageNumber)
-                ? Math.max(1, Math.trunc(target.pageNumber))
-                : currentPage.value;
+            const pageNumber = normalizePublicPageNumber(target.pageNumber);
             const normalizedTarget = {
                 ...target,
                 pageNumber,
@@ -187,9 +218,7 @@ export const usePdfViewerPublicApiController = (
             POINT_NOTE_CANCELLED_REASON,
         ).created,
         createPointNoteAnnotation: async (target) => {
-            const pageNumber = Number.isFinite(target.pageNumber)
-                ? Math.max(1, Math.trunc(target.pageNumber))
-                : currentPage.value;
+            const pageNumber = normalizePublicPageNumber(target.pageNumber);
             const pageX = Number.isFinite(target.pageX) ? target.pageX : 0;
             const pageY = Number.isFinite(target.pageY) ? target.pageY : 0;
             const result = (
@@ -233,9 +262,7 @@ export const usePdfViewerPublicApiController = (
             );
         },
         createShapeAnnotation: async (target) => {
-            const pageNumber = Number.isFinite(target.pageNumber)
-                ? Math.max(1, Math.trunc(target.pageNumber))
-                : currentPage.value;
+            const pageNumber = normalizePublicPageNumber(target.pageNumber);
             const result = (
                 created: boolean,
                 shape: ReturnType<typeof toShapeAnnotationCommentSummary> | null,
@@ -259,7 +286,7 @@ export const usePdfViewerPublicApiController = (
             const shape = shapeComposable.buildShapeAnnotation(
                 {
                     ...target,
-                    pageIndex: pageNumber - 1,
+                    pageIndex: pageNumberToPageIndex(pageNumber),
                 },
                 annotationSettings.value ?? DEFAULT_ANNOTATION_SETTINGS,
             );

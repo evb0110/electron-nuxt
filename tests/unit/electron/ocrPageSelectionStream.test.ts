@@ -8,14 +8,13 @@ import {
     getOcrSelectionLanguages,
     normalizeOcrPageSelection,
 } from '@electron/ocr/worker/ocrPageSelectionStream';
-import type {
-    IOcrPdfPageRequest,
-    TOcrPdfPageSelection,
-} from '@electron/ocr/worker/types';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {IOcrSearchablePdfPage} from '@contracts/electronApiOcr';
+import type {TOcrPdfPageSelection} from '@electron/ocr/worker/types';
 
-function page(pageNumber: number, languages: string[] = ['eng']): IOcrPdfPageRequest {
+function page(pageNumber: number, languages: string[] = ['eng']): IOcrSearchablePdfPage {
     return {
-        pageNumber,
+        pageNumber: requirePageNumber(pageNumber),
         languages,
     };
 }

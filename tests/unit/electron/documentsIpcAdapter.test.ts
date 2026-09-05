@@ -27,7 +27,7 @@ type TRegisteredEventHandler = (event: IpcMainEvent, ...args: unknown[]) => void
 const mocks = vi.hoisted(() => ({
     attachSerializedPdfPersistencePort: vi.fn(),
     allowOpenPath: vi.fn(),
-    createDocumentsService: vi.fn(() => ({})),
+    createDocumentsService: vi.fn(() => ({onWorkingCopyBackingStatusChanged: vi.fn(() => () => {})})),
     fromWebContents: vi.fn(),
     getAllWindows: vi.fn(() => []),
     isSupportedOpenPath: vi.fn((_path: unknown) => true),
@@ -213,7 +213,10 @@ describe('documents ipc adapter', () => {
         });
         const { registerDocumentsIpcAdapter } = await import('@electron/features/documents/registerDocumentsIpcAdapter');
 
-        registerDocumentsIpcAdapter(registrar as never, {printPdfPath} as never, {eventRegistrar});
+        registerDocumentsIpcAdapter(registrar as never, {
+            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
+            printPdfPath,
+        } as never, {eventRegistrar});
         await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintPath)?.(
             {sender},
             '/tmp/document.pdf',
@@ -251,6 +254,7 @@ describe('documents ipc adapter', () => {
 
         registerDocumentsIpcAdapter(registrar as never, {
             cancelPdfPrint,
+            onWorkingCopyBackingStatusChanged: vi.fn(() => () => {}),
             printPdfData,
         } as never, {eventRegistrar});
         await expect(handlers.get(DOCUMENTS_CHANNELS.pdfPrintData)?.(

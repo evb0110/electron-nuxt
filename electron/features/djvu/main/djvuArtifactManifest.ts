@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@electron/utils/error';
 import {
     createHash,
     randomUUID,
@@ -183,7 +184,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
             .catch((error: unknown) => {
                 failure = error instanceof DjvuDiskQuotaError
                     ? error
-                    : new DjvuDiskQuotaError(error instanceof Error ? error.message : String(error));
+                    : new DjvuDiskQuotaError(getErrorMessage(error));
                 if (!controller.signal.aborted) controller.abort(failure);
                 throw failure;
             })
@@ -200,7 +201,7 @@ export async function createDjvuDiskQuotaMonitor(options: {
         }
         void checkNow().catch(() => undefined);
     }, options.intervalMs ?? DJVU_QUOTA_MONITOR_INTERVAL_MS);
-    timer.unref?.();
+    timer.unref();
 
     return {
         signal,

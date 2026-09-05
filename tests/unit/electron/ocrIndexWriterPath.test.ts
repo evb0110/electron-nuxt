@@ -6,6 +6,8 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     lstat: vi.fn<(path: string) => Promise<{ isSymbolicLink: () => boolean }>>(),
@@ -93,11 +95,11 @@ const {
 function makeDocumentRevision(documentRef: string) {
     return {
         version: 1 as const,
-        documentRef,
+        documentRef: requireDocumentRef(documentRef),
         authority: 'electron-working-copy' as const,
         token: requireDocumentRevisionToken('revision-token'),
         contentRevision: 1,
-        mintedAt: 1,
+        mintedAt: requireEpochMs(1),
     };
 }
 

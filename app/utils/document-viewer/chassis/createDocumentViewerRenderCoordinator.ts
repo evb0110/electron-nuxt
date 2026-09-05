@@ -125,8 +125,10 @@ export function createDocumentViewerRenderCoordinator(pageSlots: IDocumentPageSl
                     return [...candidates].sort((left, right) => left - right);
                 }
 
-                const viewportCenter = normalizedViewportPages.length > 0
-                    ? (normalizedViewportPages[0]! + normalizedViewportPages.at(-1)!) / 2
+                const viewportStart = normalizedViewportPages[0];
+                const viewportEnd = normalizedViewportPages.at(-1);
+                const viewportCenter = viewportStart !== undefined && viewportEnd !== undefined
+                    ? (viewportStart + viewportEnd) / 2
                     : normalizePage(destinationPage ?? currentPage);
                 const destination = destinationPage === undefined
                     ? null

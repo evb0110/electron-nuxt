@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     IAnnotationEditorState,
@@ -48,7 +50,7 @@ export interface IPdfViewerEventAdapter {
     }): void;
     imagePlacementFinalize(payload: IPdfPlacedImageFinalizePayload): void;
     initialVisualPending(): void;
-    initialVisualReady(payload: {pageNumber: number;}): void;
+    initialVisualReady(payload: {pageNumber: TPageNumber;}): void;
 }
 
 export function createPdfViewerEventAdapter(emit: IPdfViewerEmit): IPdfViewerEventAdapter {

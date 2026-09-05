@@ -11,14 +11,19 @@ import { getLocalReleaseVerifyGateCommands } from './policy.mjs';
 
 const RELEASE_VERIFY_DIFF_BUFFER_BYTES = 128 * 1024 * 1024;
 
+/** @typedef {{stagedDiff: string, trackedDiff: string, untrackedFiles: string[]}} IReleaseVerifySnapshot */
+/** @typedef {(command: string, args: string[], options?: object) => string} TCommandRunner */
+
 export function getLocalReleaseVerifyCommands() {
     return getLocalReleaseVerifyGateCommands();
 }
 
+/** @param {string} output @returns {string[]} */
 function splitGitOutput(output) {
     return compact(output.split('\n').map(line => line.trim())).sort();
 }
 
+/** @param {{runCommand?: TCommandRunner}} [options] @returns {IReleaseVerifySnapshot} */
 export function getReleaseVerifyMutationSnapshot({runCommand = run} = {}) {
     const diffOptions = {maxBuffer: RELEASE_VERIFY_DIFF_BUFFER_BYTES};
 
@@ -42,6 +47,7 @@ export function getReleaseVerifyMutationSnapshot({runCommand = run} = {}) {
     };
 }
 
+/** @param {IReleaseVerifySnapshot} before @param {IReleaseVerifySnapshot} after @returns {string[]} */
 function changedSnapshotSections(before, after) {
     const changedSections = [];
 
@@ -63,6 +69,7 @@ function changedSnapshotSections(before, after) {
     return changedSections;
 }
 
+/** @param {IReleaseVerifySnapshot} before @param {IReleaseVerifySnapshot} after */
 export function assertReleaseVerifyDidNotMutateWorktree(before, after) {
     const changedSections = changedSnapshotSections(before, after);
 
@@ -76,6 +83,7 @@ export function assertReleaseVerifyDidNotMutateWorktree(before, after) {
     );
 }
 
+/** @param {{argv?: string[], env?: NodeJS.ProcessEnv, receiptPath?: string, runCommand?: TCommandRunner, snapshotGetter?: typeof getReleaseVerifyMutationSnapshot}} [options] */
 export function runLocalReleaseVerify({
     argv = process.argv.slice(2),
     env = process.env,

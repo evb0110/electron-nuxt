@@ -14,6 +14,8 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireLeaseId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({
     resolveTypedStagedArtifact: vi.fn(),
@@ -68,7 +70,7 @@ function createArtifact(path: string): ITypedStagedArtifact {
     return {
         receiptVersion: 1,
         artifactKind: 'pdf',
-        path,
+        path: requireDocumentRef(path),
         size: 3,
         sha256: 'a'.repeat(64),
         fileIdentity: {
@@ -83,7 +85,7 @@ function createArtifact(path: string): ITypedStagedArtifact {
             semanticScopeSha256: 'b'.repeat(64),
             fsynced: true,
         },
-        leaseId: 'staged-lease',
+        leaseId: requireLeaseId('staged-lease'),
         revision,
     };
 }

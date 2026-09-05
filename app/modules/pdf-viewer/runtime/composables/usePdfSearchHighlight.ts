@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     IPdfPageMatches,
     IPdfSearchMatch,
@@ -49,7 +51,7 @@ function createHighlightResult(overrides: Partial<IHighlightResult> = {}): IHigh
 function renderCssHighlights(
     cssState: ICssHighlightState,
     textLayerDiv: HTMLElement,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     runs: TTextLayerRun[],
     matchesWithCurrent: IHighlightMatchRange[],
     runOverlaps: IHighlightMatchRange[][],
@@ -57,7 +59,10 @@ function renderCssHighlights(
     const currentRanges: Range[] = [];
 
     for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
-        const run = runs[runIndex]!;
+        const run = runs[runIndex];
+        if (!run) {
+            continue;
+        }
         if (run.kind !== 'span' || !run.textNode) {
             continue;
         }
@@ -105,7 +110,10 @@ function renderDomHighlights(
     const currentMatchElements: HTMLElement[] = [];
 
     for (let runIndex = 0; runIndex < runs.length; runIndex += 1) {
-        const run = runs[runIndex]!;
+        const run = runs[runIndex];
+        if (!run) {
+            continue;
+        }
         if (run.kind !== 'span') {
             continue;
         }

@@ -1,3 +1,6 @@
+import { parsePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPdfOpeningGeometry } from '@contracts/electronApiDocuments';
 
 const STORAGE_KEY = 'evb:pdf-trusted-open-geometry:v1';
@@ -9,7 +12,7 @@ export interface IPdfTrustedOpenGeometry {
     documentId: string;
     size: number;
     modifiedAt: number;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     pageCount: number;
     width: number;
     height: number;
@@ -22,32 +25,53 @@ function isFinitePositive(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value) && value > 0;
 }
 
+function isPdfRotation(value: unknown): value is 0 | 90 | 180 | 270 {
+    return value === 0 || value === 90 || value === 180 || value === 270;
+}
+
 function decode(value: unknown): IPdfTrustedOpenGeometry | null {
     if (!value || typeof value !== 'object') {
         return null;
     }
     const record = value as Partial<IPdfTrustedOpenGeometry>;
+    const documentId = record.documentId;
+    const size = record.size;
+    const modifiedAt = record.modifiedAt;
+    const pageCount = record.pageCount;
+    const width = record.width;
+    const height = record.height;
+    const rotation = record.rotation;
+    const savedAt = record.savedAt;
+    const pageNumber = typeof record.pageNumber === 'number'
+        && typeof pageCount === 'number'
+        ? parsePageNumber(record.pageNumber, pageCount)
+        : null;
     if (
-        typeof record.documentId !== 'string'
-        || !Number.isSafeInteger(record.size) || (record.size ?? -1) < 0
-        || !Number.isSafeInteger(record.modifiedAt) || (record.modifiedAt ?? -1) < 0
-        || !Number.isSafeInteger(record.pageNumber) || (record.pageNumber ?? 0) < 1
-        || !Number.isSafeInteger(record.pageCount) || (record.pageCount ?? 0) < 1
-        || !isFinitePositive(record.width)
-        || !isFinitePositive(record.height)
-        || !Number.isInteger(record.rotation)
-        || ![
-            0,
-            90,
-            180,
-            270,
-        ].includes(record.rotation ?? -1)
-        || !Number.isSafeInteger(record.savedAt)
+        typeof documentId !== 'string'
+        || typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0
+        || typeof modifiedAt !== 'number' || !Number.isSafeInteger(modifiedAt) || modifiedAt < 0
+        || typeof pageCount !== 'number' || !Number.isSafeInteger(pageCount) || pageCount < 1
+        || pageNumber === null
+        || !isFinitePositive(width)
+        || !isFinitePositive(height)
+        || !isPdfRotation(rotation)
+        || typeof savedAt !== 'number' || !Number.isSafeInteger(savedAt)
         || record.linearized !== undefined && typeof record.linearized !== 'boolean'
     ) {
         return null;
     }
-    return record as IPdfTrustedOpenGeometry;
+    return {
+        documentId,
+        size,
+        modifiedAt,
+        pageNumber,
+        pageCount,
+        width,
+        height,
+        rotation,
+        savedAt,
+        ...(record.linearized === undefined ? {} : {linearized: record.linearized}),
+    } satisfies IPdfTrustedOpenGeometry;
 }
 
 function readAll(): IPdfTrustedOpenGeometry[] {
@@ -62,7 +86,7 @@ function readAll(): IPdfTrustedOpenGeometry[] {
     }
 }
 
-function buildEntryKey(documentId: string, pageNumber: number) {
+function buildEntryKey(documentId: string, pageNumber: TPageNumber) {
     return `${documentId}\u0000${String(pageNumber)}`;
 }
 
@@ -83,7 +107,7 @@ export function rememberValidatedTrustedPdfOpenGeometry(entry: IPdfTrustedOpenGe
     return true;
 }
 
-export function readPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageNumber: number) {
+export function readPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageNumber: TPageNumber) {
     return validatedEntries.get(buildEntryKey(documentId, pageNumber)) ?? null;
 }
 
@@ -112,13 +136,13 @@ export function cacheTrustedPdfOpenGeometry(
     return entry;
 }
 
-function forgetPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageNumber: number) {
+function forgetPrevalidatedTrustedPdfOpenGeometry(documentId: string, pageNumber: TPageNumber) {
     validatedEntries.delete(buildEntryKey(documentId, pageNumber));
 }
 
 export function prevalidateTrustedPdfOpenGeometry(
     documentId: string,
-    pageNumber: number,
+    pageNumber: TPageNumber,
     readStat: (() => Promise<{
         size: number;
         modifiedAt?: number;
@@ -141,23 +165,11 @@ export function prevalidateTrustedPdfOpenGeometry(
     }
     const task = (async () => {
         if (unvalidated && !readOpeningGeometry && readStat) {
-            try {
-                const stat = await readStat();
-                const current = readTrustedPdfOpenGeometry(documentId, stat, pageNumber);
-                if (current) {
-                    rememberValidatedTrustedPdfOpenGeometry(current);
-                    return current;
-                }
-            } catch (error) {
-                // A Recent original source is authorized by the fenced opening-
-                // geometry capability before its working copy exists, while the
-                // generic file-stat capability intentionally accepts only
-                // managed readable paths. When authoritative geometry discovery
-                // is available, use its source identity instead of letting an
-                // old persistent cache entry block the pre-open preparation.
-                if (!readOpeningGeometry) {
-                    throw error;
-                }
+            const stat = await readStat();
+            const current = readTrustedPdfOpenGeometry(documentId, stat, pageNumber);
+            if (current) {
+                rememberValidatedTrustedPdfOpenGeometry(current);
+                return current;
             }
         }
         if (unvalidated) invalidateTrustedPdfOpenGeometry(documentId, pageNumber);
@@ -202,7 +214,7 @@ function readTrustedPdfOpenGeometry(
         size: number;
         modifiedAt?: number
     },
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     return readAll().find(entry => isTrustedPdfOpenGeometryCurrent(
         entry,
@@ -213,14 +225,14 @@ function readTrustedPdfOpenGeometry(
 }
 
 /** Synchronous presence lookup for invalidation only; never render this entry before validation. */
-export function peekTrustedPdfOpenGeometry(documentId: string, pageNumber: number) {
+export function peekTrustedPdfOpenGeometry(documentId: string, pageNumber: TPageNumber) {
     return readAll().find(entry => (
         entry.documentId === documentId
         && entry.pageNumber === pageNumber
     )) ?? null;
 }
 
-export function invalidateTrustedPdfOpenGeometry(documentId: string, pageNumber: number) {
+export function invalidateTrustedPdfOpenGeometry(documentId: string, pageNumber: TPageNumber) {
     forgetPrevalidatedTrustedPdfOpenGeometry(documentId, pageNumber);
     if (typeof localStorage === 'undefined') {
         return;

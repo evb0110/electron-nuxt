@@ -33,6 +33,15 @@ import type {
     TAnnotationSettingChange,
 } from '@app/types/annotations';
 import type {TPdfSource} from '@app/types/pdfUi';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { createEpochMs } from '@contracts/timestamps';
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    parsePageNumber,
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import {
     createEmptyPdfjsAnnotationEditorState,
     type IPdfjsAnnotationEditorState,
@@ -78,7 +87,7 @@ export interface ICreatePdfAnnotationSessionOptions {
     originalPath: ComputedRef<string | null>;
     src: ComputedRef<TPdfSource | null>;
     sourcePdfData: ComputedRef<Uint8Array | null>;
-    workingCopyPath: ComputedRef<string | null>;
+    workingCopyPath: ComputedRef<TDocumentRef | null>;
     documentRevisionToken: ComputedRef<TDocumentRevisionToken | null>;
     isAnySaving: ComputedRef<boolean>;
     isActive: ComputedRef<boolean>;
@@ -107,13 +116,13 @@ export interface ICreatePdfAnnotationSessionOptions {
 }
 
 interface IAnnotationStoreDocumentIdentityInput {
-    workingCopyPath: string | null;
+    workingCopyPath: TDocumentRef | null;
     source: TPdfSource | null;
 }
 
 interface IAnnotationSnapshotDocumentIdentityInput {
     originalPath: string | null;
-    workingCopyPath: string | null;
+    workingCopyPath: TDocumentRef | null;
     source: TPdfSource | null;
 }
 
@@ -302,7 +311,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 kind: 'text-markup-color',
                 annotationId,
                 stableKey: comment?.stableKey ?? null,
-                pageNumber: entity.pageIndex + 1,
+                pageNumber: pageIndexToPageNumber(entity.pageIndex),
                 commentSnapshot: comment,
                 color,
                 sourceColor: previousColor,
@@ -431,7 +440,15 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationUiManager,
         authorName: options.authorName,
         getIdentity: () => identity,
-        getMarkupSubtype: () => toolState,
+        getMarkupSubtype: () => ({
+            ...toolState,
+            resolveEditorMarkupSubtypeOverride: (editor, pageIndex) => (
+                toolState.resolveEditorMarkupSubtypeOverride(
+                    editor,
+                    requirePageIndex(pageIndex),
+                )
+            ),
+        }),
         getStore: () => ({
             setAnnotations: (comments, syncOptions) => {
                 // Store reconciliation is deliberately synchronous. PDF.js and
@@ -455,10 +472,12 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         syncInlineCommentIndicators: inlineIndicators.syncInlineCommentIndicators,
         textMarkupPresentation,
         getEditorPageIndexes: () => getAnnotationEditorPageSearchOrder({
-            annotationPageIndexes: annotationCommentsCache.value.map(comment => comment.pageIndex),
-            mountedPageIndexes: viewport.demand.value.mountedPages.map(pageNumber => pageNumber - 1),
+            annotationPageIndexes: annotationCommentsCache.value.map(comment => requirePageIndex(comment.pageIndex)),
+            mountedPageIndexes: viewport.demand.value.mountedPages.map(pageNumber => (
+                pageNumberToPageIndex(requirePageNumber(pageNumber))
+            )),
             numPages: documentSession.numPages.value,
-            preferredPageIndex: viewport.currentPage.value - 1,
+            preferredPageIndex: pageNumberToPageIndex(requirePageNumber(viewport.currentPage.value)),
             fallbackPageRadius: 0,
         }).sort((left, right) => left - right),
         getAnnotationNameReadLimits: () => {
@@ -482,7 +501,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                 return options.workingCopyPath.value;
             }
             const source = options.src.value;
-            return source && typeof source === 'object' && 'kind' in source && source.kind === 'path'
+            return source && !(source instanceof Blob)
                 ? source.path
                 : null;
         },
@@ -515,7 +534,20 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         getIdentity: () => identity,
         getCommentSync: () => commentSync,
         getToolManager: () => toolState,
-        getMarkupSubtype: () => toolState,
+        getMarkupSubtype: () => ({
+            ...toolState,
+            resolveEditorMarkupSubtypeOverride: (editor, pageIndex) => (
+                toolState.resolveEditorMarkupSubtypeOverride(editor, requirePageIndex(pageIndex))
+            ),
+            setEditorMarkupSubtypeOverride: (editor, pageIndex, subtype, overrideOptions) => (
+                toolState.setEditorMarkupSubtypeOverride(
+                    editor,
+                    requirePageIndex(pageIndex),
+                    subtype,
+                    overrideOptions,
+                )
+            ),
+        }),
         getFreeTextResize: () => freeTextResize,
         emitAnnotationModified: options.emitAnnotationModified,
         emitAnnotationState: (patch) => {
@@ -608,7 +640,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
                         }]
                         : [];
                 });
-            const now = Date.now();
+            const now = createEpochMs();
             const style = selectionMarkupStyle(subtype);
             const projection = application.store.applyTextMarkupSelection({
                 kind: 'text-markup',
@@ -647,7 +679,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
             const application = annotationApplication.value;
             const normalizedAuthor = options.authorName.value?.trim();
             const author = normalizedAuthor?.length ? normalizedAuthor : null;
-            const now = Date.now();
+            const now = createEpochMs();
             const created = application.store.createStickyNote({
                 kind: 'sticky-note',
                 identity: {id: mintAnnotationId()},
@@ -922,7 +954,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
     const portalHandlers = usePdfViewerPortalAnnotationHandlers({
         activeCommentStableKey,
         removeAnnotationFromDom: annotationMutationService.enqueueAnnotationDomRemoval,
-        refreshHiddenAnnotationPage: managedEmbeddedPdfShapes.refreshHiddenAnnotationPage,
+        refreshHiddenAnnotationPage: comment => managedEmbeddedPdfShapes.refreshHiddenAnnotationPage({pageNumber: parsePageNumber(comment.pageNumber)}),
         emitAnnotationOpenNote: options.emitAnnotationOpenNote,
         emitAnnotationContextMenu: options.emitAnnotationContextMenu,
         buildAnnotationContextMenuPayload: highlightComposable.buildAnnotationContextMenuPayload,

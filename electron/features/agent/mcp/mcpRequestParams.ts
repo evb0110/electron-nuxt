@@ -1,4 +1,5 @@
 import { isRecord } from '@contracts/runtimeGuards';
+import {parseTabId} from '@contracts/windowTabs';
 
 /**
  * JSON-RPC params arrive untrusted, so every MCP entry point has to narrow them
@@ -18,7 +19,8 @@ export function getOptionalWindowId(params: unknown) {
 
 export function getOptionalTabId(params: unknown) {
     const paramsObject = getParamsObject(params);
-    return typeof paramsObject.tabId === 'string' && paramsObject.tabId.trim().length > 0
-        ? paramsObject.tabId.trim()
-        : undefined;
+    if (typeof paramsObject.tabId !== 'string' || paramsObject.tabId.trim().length === 0) {
+        return undefined;
+    }
+    return parseTabId(paramsObject.tabId.trim()) ?? undefined;
 }

@@ -1,3 +1,8 @@
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type {
     Ref,
@@ -17,11 +22,11 @@ import type { ITextMarkupPresentationController } from '@app/modules/pdf-viewer/
 
 export interface ICrudIdentity {
     resolveCommentFromCache: (comment: IAnnotationCommentSummary) => IAnnotationCommentSummary | null;
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;
     hydrateSummaryFromMemory: (summary: IAnnotationCommentSummary) => IAnnotationCommentSummary;
     computeSummaryStableKey: (params: {
         id: string;
-        pageIndex: number;
+        pageIndex: TPageIndex;
         source: IAnnotationCommentSummary['source'];
         uid?: string | null;
         annotationId?: string | null;
@@ -35,7 +40,7 @@ export interface ICrudSync {
     trackedCreatedEditors: WeakSet<object>;
     syncAnnotationComments: () => Promise<void>;
     scheduleAnnotationCommentsSync: (immediate?: boolean) => void;
-    toEditorSummary: (editor: IPdfjsEditor, pageIndex: number, text?: string, sortIndex?: number | null) => IAnnotationCommentSummary;
+    toEditorSummary: (editor: IPdfjsEditor, pageIndex: TPageIndex, text?: string, sortIndex?: number | null) => IAnnotationCommentSummary;
     setActiveCommentStableKey: (key: string | null) => void;
     clearSyncState: () => void;
 }
@@ -45,7 +50,7 @@ export interface ICrudFreeTextResize {ensureFreeTextEditorCanResize: (editor: IP
 export interface ICrudToolManager {updateModeWithRetry: (
     uiManager: AnnotationEditorUIManager,
     mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-    pageNumber?: number,
+    pageNumber?: TPageNumber,
 ) => Promise<unknown>;}
 
 export interface ICrudInlineIndicators {
@@ -95,7 +100,7 @@ export interface IUseAnnotationCrudOptions {
     getHighlight: () => ICrudHighlight;
     textMarkupPresentation: ITextMarkupPresentationController;
     scrollToPage: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: {
             markerRect?: IAnnotationCommentSummary['markerRect'];
             preferExactDom?: boolean;

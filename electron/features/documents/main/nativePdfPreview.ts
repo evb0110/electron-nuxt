@@ -20,6 +20,7 @@ import {
     type IPdfOpeningGeometry,
     type TPdfNativePageSizes,
 } from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { IDocumentsSenderIdContext } from '@electron/features/documents/documentsService';
 import { resolveOriginalBackedReadTransport } from '@electron/features/documents/main/documentFileReadHandlers';
 import { resolveExistingReadablePdfPath } from '@electron/features/documents/main/documentFilePathResolution';
@@ -41,6 +42,7 @@ import { acquireNativePdfPreviewAdmission } from '@electron/features/documents/m
 import { isErrnoException } from '@contracts/runtimeGuards';
 import { isWorkingCopyDirectoryName } from '@electron/file-access/workingCopyDirectory';
 import { getWorkingCopyBackingEntry } from '@electron/file-access/workingCopyStore';
+import { requireEpochMs } from '@contracts/timestamps';
 
 const PDFINFO_TIMEOUT_MS = 20_000;
 const PDF_RENDER_TIMEOUT_MS = 30_000;
@@ -166,7 +168,7 @@ export function parsePdfInfoPageSizes(
                 continue;
             }
             overrides.push({
-                pageNumber,
+                pageNumber: requirePageNumber(pageNumber, pageCount),
                 ...size,
             });
             if (overrides.length >= PDFINFO_PAGE_SIZE_WINDOW_LIMIT) {
@@ -206,6 +208,16 @@ function normalizeRightAngleRotation(rawRotation: string | undefined): 0 | 90 | 
     return normalized;
 }
 
+function normalizePdfOpeningIdentity(value: {
+    size: number;
+    modifiedAt: unknown
+}) {
+    return {
+        size: value.size,
+        modifiedAt: requireEpochMs(value.modifiedAt),
+    } satisfies Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>;
+}
+
 export function parsePdfOpeningGeometryMetadata(
     pdfInfoOutput: string,
     identity: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'>,
@@ -235,7 +247,7 @@ export function parsePdfOpeningGeometryMetadata(
     }
     const optimized = OPTIMIZED_RE.exec(pdfInfoOutput)?.[1]?.toLowerCase();
     return {
-        pageNumber: 1,
+        pageNumber: requirePageNumber(1, pageCount),
         pageCount,
         width,
         height,
@@ -570,7 +582,7 @@ async function readPdfOpeningGeometryIdentity(resolvedPath: string) {
         const fileStat = await stat(resolvedPath);
         return {
             size: fileStat.size,
-            modifiedAt: Math.trunc(fileStat.mtimeMs),
+            modifiedAt: requireEpochMs(Math.trunc(fileStat.mtimeMs)),
         };
     } catch (error) {
         if (isMissingPdfOpeningGeometrySource(error)) {
@@ -611,8 +623,9 @@ export async function handlePdfOpeningGeometry(
         throw error;
     }
     const originalBackedRead = resolveOriginalBackedReadTransport(resolvedPath, context.senderId);
-    const identityBefore = originalBackedRead?.identity
-        ?? await readPdfOpeningGeometryIdentity(resolvedPath);
+    const identityBefore = originalBackedRead
+        ? normalizePdfOpeningIdentity(originalBackedRead.identity)
+        : await readPdfOpeningGeometryIdentity(resolvedPath);
     if (identityBefore === null) {
         return null;
     }
@@ -667,8 +680,9 @@ export async function handlePdfOpeningGeometry(
             ? await originalBackedRead.read(readGeometry)
             : await readGeometry(resolvedPath);
         throwIfAborted(abortController.signal);
-        const identityAfter = originalBackedRead?.identity
-            ?? await readPdfOpeningGeometryIdentity(resolvedPath);
+        const identityAfter = originalBackedRead
+            ? normalizePdfOpeningIdentity(originalBackedRead.identity)
+            : await readPdfOpeningGeometryIdentity(resolvedPath);
         if (identityAfter === null) {
             return null;
         }

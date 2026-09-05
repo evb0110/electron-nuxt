@@ -147,6 +147,8 @@ function createTiffOrientationMapper(
     outputWidth: number,
 ) {
     switch (orientation) {
+        case 1:
+            return (sourceX: number, sourceY: number) => (sourceY * outputWidth + sourceX) * 4;
         case 2:
             return (sourceX: number, sourceY: number) => (sourceY * outputWidth + width - 1 - sourceX) * 4;
         case 3:
@@ -165,8 +167,6 @@ function createTiffOrientationMapper(
             );
         case 8:
             return (sourceX: number, sourceY: number) => ((width - 1 - sourceX) * outputWidth + sourceY) * 4;
-        default:
-            return (sourceX: number, sourceY: number) => (sourceY * outputWidth + sourceX) * 4;
     }
 }
 
@@ -270,7 +270,7 @@ function decodeSinglePageTiffRgba(
         UTIF.decodeImage(tiffBytes, ifd);
 
         const rgba = UTIF.toRGBA8(ifd);
-        if (!rgba || rgba.length !== page.sourceWidth * page.sourceHeight * 4) {
+        if (rgba.length !== page.sourceWidth * page.sourceHeight * 4) {
             continue;
         }
 

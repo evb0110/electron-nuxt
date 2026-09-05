@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { clamp } from 'es-toolkit/math';
 import type { TPdfViewMode } from '@contracts/shared';
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
@@ -48,18 +51,25 @@ export function createPdfViewportGeometryFromLayout(
         const rowEndPage = metrics.base.rowEndPages[rowIndex] ?? index + 1;
         let rowWidth = 0;
         for (let page = rowStartPage; page <= rowEndPage; page += 1) {
-            rowWidth += getLayoutPageWidth(metrics, page - 1);
+            rowWidth += getLayoutPageWidth(
+                metrics,
+                requirePageIndex(page - 1, metrics.base.totalPages),
+            );
         }
         rowWidth += Math.max(0, rowEndPage - rowStartPage) * metrics.gap;
         let left = Math.max(0, (viewport.width - rowWidth) / 2);
         for (let page = rowStartPage; page < index + 1; page += 1) {
-            left += getLayoutPageWidth(metrics, page - 1) + metrics.gap;
+            left += getLayoutPageWidth(
+                metrics,
+                requirePageIndex(page - 1, metrics.base.totalPages),
+            ) + metrics.gap;
         }
+        const pageIndex = requirePageIndex(index, metrics.base.totalPages);
         return {
             left,
-            top: getLayoutPageTop(metrics, index) ?? 0,
-            width: getLayoutPageWidth(metrics, index),
-            height: getLayoutPageHeight(metrics, index),
+            top: getLayoutPageTop(metrics, pageIndex) ?? 0,
+            width: getLayoutPageWidth(metrics, pageIndex),
+            height: getLayoutPageHeight(metrics, pageIndex),
         };
     };
     const pageRects = metrics.base.isSparse
@@ -140,7 +150,7 @@ export interface IPdfViewportGeometry {
  */
 export function getViewportGeometryRowForPage(
     geometry: IPdfViewportGeometry,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     const rowCount = geometry.rows.length;
     if (rowCount === 0) {
@@ -211,13 +221,18 @@ export function computePdfViewportGeometry(
         const rowHeight = Math.max(0, ...heights);
         let left = Math.max(padding, (options.viewportWidth - rowWidth) / 2);
         for (let offset = 0; offset < rowPages.length; offset += 1) {
+            const width = widths[offset];
+            const height = heights[offset];
+            if (width === undefined || height === undefined) {
+                continue;
+            }
             pageRects[start + offset] = {
                 left,
                 top,
-                width: widths[offset]!,
-                height: heights[offset]!,
+                width,
+                height,
             };
-            left += widths[offset]! + gap;
+            left += width + gap;
         }
         rows.push({
             startPage: start + 1,

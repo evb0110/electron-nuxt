@@ -177,22 +177,15 @@ function runCommand(
                 ...options.env,
             },
             shell: launch.shell,
+            stdio: [
+                'pipe',
+                'pipe',
+                'pipe',
+            ],
             windowsHide: true,
         }));
         const childStdout = child.stdout;
         const childStderr = child.stderr;
-        if (!childStdout || !childStderr) {
-            const resolveMissingPipes = () => {
-                resolve({
-                    ok: false,
-                    stdout: '',
-                    stderr: 'Codex command output pipes were not created.',
-                    exitCode: null,
-                });
-            };
-            void terminateDetachedChildProcess(child, 1_000).then(resolveMissingPipes, resolveMissingPipes);
-            return;
-        }
         let stdout = '';
         let stderr = '';
         let settled = false;
@@ -506,7 +499,7 @@ async function performManagedCodexInstall(options: IInstallCodexOptions) {
                         error,
                         restoreError,
                     ],
-                    `Codex installation failed and the previous executable remains at ${backupPath}.`,
+                    `Codex installation failed and the previous executable remains at ${backupPath ?? '<unknown path>'}.`,
                 );
             }
         }

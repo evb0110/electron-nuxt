@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import { PDF_PAGE_TEXT_LAYER_TIMEOUT_MS } from '@app/constants/timeouts';
 
 interface IPageTextLayerReadyWaiter {
@@ -8,11 +10,11 @@ interface IPageTextLayerReadyWaiter {
     timeoutId: number;
 }
 
-export function createPdfPageTextLayerReadyWaiter(options: {isReady: (pageNumber: number) => boolean;}) {
-    const waitersByPage = new Map<number, Set<IPageTextLayerReadyWaiter>>();
+export function createPdfPageTextLayerReadyWaiter(options: {isReady: (pageNumber: TPageNumber) => boolean;}) {
+    const waitersByPage = new Map<TPageNumber, Set<IPageTextLayerReadyWaiter>>();
 
     function settle(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         waiter: IPageTextLayerReadyWaiter,
         ready: boolean,
         error?: unknown,
@@ -58,7 +60,7 @@ export function createPdfPageTextLayerReadyWaiter(options: {isReady: (pageNumber
         }
     }
 
-    function waitForPageTextLayerReady(pageNumber: number, signal: AbortSignal) {
+    function waitForPageTextLayerReady(pageNumber: TPageNumber, signal: AbortSignal) {
         if (options.isReady(pageNumber)) {
             return Promise.resolve(true);
         }

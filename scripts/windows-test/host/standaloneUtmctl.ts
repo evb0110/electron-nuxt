@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {execFile} from 'node:child_process';
 import {
     createHash,
@@ -86,7 +87,7 @@ function expectedSourcePath(sourcePath: string | undefined) {
 
 async function inspectExecutable(filePath: string, label: string) {
     const fileStats = await lstat(filePath).catch(error => {
-        throw preparationError(`${label} ${filePath} is unavailable: ${error instanceof Error ? error.message : String(error)}.`);
+        throw preparationError(`${label} ${filePath} is unavailable: ${getErrorMessage(error)}.`);
     });
     if (!fileStats.isFile()) {
         throw preparationError(`${label} ${filePath} is not a regular file.`);
@@ -96,7 +97,7 @@ async function inspectExecutable(filePath: string, label: string) {
         throw preparationError(`${label} ${filePath} is not executable.`);
     }
     const bytes = await readFile(filePath).catch(error => {
-        throw preparationError(`${label} ${filePath} could not be read: ${error instanceof Error ? error.message : String(error)}.`);
+        throw preparationError(`${label} ${filePath} could not be read: ${getErrorMessage(error)}.`);
     });
     if (bytes.byteLength === 0) {
         throw preparationError(`${label} ${filePath} is empty.`);
@@ -122,7 +123,7 @@ async function verifyMacCodeSignature(filePath: string) {
             killSignal: 'SIGKILL',
         });
     } catch (error) {
-        throw preparationError(`codesign --verify --strict rejected ${filePath}: ${error instanceof Error ? error.message : String(error)}.`);
+        throw preparationError(`codesign --verify --strict rejected ${filePath}: ${getErrorMessage(error)}.`);
     }
 }
 
@@ -157,13 +158,13 @@ function parseMetadata(value: unknown, metadataPath: string): IStandaloneUtmctlM
 
 async function readMetadata(metadataPath: string) {
     const raw = await readFile(metadataPath, 'utf8').catch(error => {
-        throw preparationError(`The standalone utmctl metadata ${metadataPath} is unavailable: ${error instanceof Error ? error.message : String(error)}.`);
+        throw preparationError(`The standalone utmctl metadata ${metadataPath} is unavailable: ${getErrorMessage(error)}.`);
     });
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
     } catch (error) {
-        throw preparationError(`The standalone utmctl metadata ${metadataPath} is not valid JSON: ${error instanceof Error ? error.message : String(error)}.`);
+        throw preparationError(`The standalone utmctl metadata ${metadataPath} is not valid JSON: ${getErrorMessage(error)}.`);
     }
     return parseMetadata(parsed, metadataPath);
 }

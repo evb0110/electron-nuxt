@@ -44,6 +44,7 @@ import {
     isExpectedOutcome,
 } from '@contracts/diagnostics/failureReceipt';
 import {decodeDebugLogEntry} from '@contracts/electronApiCommon';
+import {requireEpochMs} from '@contracts/timestamps';
 import {createCaptureTransport} from '@tests/helpers/createCaptureTransport';
 
 const VALID_EVENT_ID = parseDiagnosticEventId('a'.repeat(DIAGNOSTIC_EVENT_ID_HEX_LENGTH))!;
@@ -62,7 +63,7 @@ const BASE_RECORD: DiagnosticRecord<'UNCLASSIFIED_RENDERER_ERROR'> = {
     severity: 'error',
     runtime: 'electron-renderer',
     operation: 'renderer-error',
-    occurredAt: 1_757_000_000_000,
+    occurredAt: requireEpochMs(1_757_000_000_000),
     frames: [BASE_FRAME],
     context: {
         phase: 'operation',
@@ -581,7 +582,7 @@ describe('diagnostic contracts', () => {
             eventId: VALID_EVENT_ID,
             code: 'MAIN_STARTUP_CRASH',
             frames: [BASE_FRAME],
-            timestamp: 1_757_000_000_000,
+            timestamp: requireEpochMs(1_757_000_000_000),
             release: 'evb-viewer-desktop@0.1.449',
             dist: 'macos-arm64',
         };
@@ -640,7 +641,7 @@ describe('diagnostic contracts', () => {
         const receipt: FailureReceipt = {
             eventId: VALID_EVENT_ID,
             code: 'UNCLASSIFIED_RENDERER_ERROR',
-            occurredAt: 1_757_000_000_000,
+            occurredAt: requireEpochMs(1_757_000_000_000),
             severity: 'error',
         };
 

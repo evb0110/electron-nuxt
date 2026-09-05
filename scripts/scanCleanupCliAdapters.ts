@@ -86,6 +86,8 @@ export function compactScanCleanupBilevelMaskPath(pageSpec: string) {
             return fields.length === 6 ? fields[5] : undefined;
         case 'affine-masked-layered-jpeg':
             return fields.length === 13 || fields.length === 14 ? fields[6] : undefined;
+        case undefined:
+            return undefined;
         default:
             return undefined;
     }
@@ -578,13 +580,13 @@ export async function runCliNativeToolCommand(
         const onAbort = () => {
             terminateCliChild(child);
         };
-        child.stdout?.setEncoding('utf8');
-        child.stderr?.setEncoding('utf8');
-        child.stdout?.on('data', (chunk: string) => {
+        child.stdout.setEncoding('utf8');
+        child.stderr.setEncoding('utf8');
+        child.stdout.on('data', (chunk: string) => {
             stdout = append(stdout, chunk, stdoutLimit);
             options.onStdout?.(chunk);
         });
-        child.stderr?.on('data', (chunk: string) => {
+        child.stderr.on('data', (chunk: string) => {
             stderr = append(stderr, chunk, stderrLimit);
         });
         child.once('error', error => finish(error));
@@ -692,7 +694,7 @@ export async function runCliScanCleanupSidecar(
             log('debug', `Could not lower scan cleanup detection priority: ${String(error)}`);
         }
     }
-    let terminalStatus: 'success' | 'failure' | null = null;
+    let terminalStatus = null as 'success' | 'failure' | null;
     const nativeFailure: {value: {
         code: TNativeErrorCode;
         message: string
@@ -723,7 +725,7 @@ export async function runCliScanCleanupSidecar(
             protocol.failProtocol(error, line);
         }
     });
-    let aborting = false;
+    let aborting = false as boolean;
     const onAbort = () => {
         aborting = true;
         terminateCliChild(child);
@@ -747,7 +749,7 @@ export async function runCliScanCleanupSidecar(
             throw error;
         }
         throwCliProtocolError(protocolError);
-        if (aborting || signal.aborted) throw signal.reason;
+        if (aborting) throw signal.reason;
         const failure = nativeFailure.value;
         if (failure !== null) {
             throw new Error(`${failure.code}: ${failure.message}`);

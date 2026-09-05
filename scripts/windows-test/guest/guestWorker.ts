@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     combineOutcomes,
     isWindowsTestRunId,
@@ -681,7 +682,7 @@ class CanceledRunError extends Error {
 }
 
 function describe(error: unknown) {
-    return error instanceof Error ? error.message : String(error);
+    return getErrorMessage(error);
 }
 
 function defaultArchitecture(env: NodeJS.ProcessEnv): TWindowsTestArchitecture {
@@ -790,7 +791,7 @@ export function createHeartbeatWriter({
                     writing = false;
                 });
         }, intervalMs);
-        timer.unref?.();
+        timer.unref();
     }
 
     return {

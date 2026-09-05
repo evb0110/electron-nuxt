@@ -21,13 +21,13 @@ export function applyEmbeddedAnnotationDeletes(
     for (const comment of comments) {
         const targetRef = resolveCommentPdfRefInDocument(doc, comment);
         if (!targetRef) {
-            unresolvedDeleteKeys.push(comment.stableKey ?? comment.id ?? comment.annotationId ?? 'unknown');
+            unresolvedDeleteKeys.push(comment.stableKey);
             continue;
         }
 
         const refsToDelete = collectAnnotationRefsToDelete(doc, targetRef);
         if (refsToDelete.length === 0) {
-            unresolvedDeleteKeys.push(comment.stableKey ?? comment.id ?? comment.annotationId ?? formatPdfJsAnnotationRef(targetRef));
+            unresolvedDeleteKeys.push(comment.stableKey);
             continue;
         }
 
@@ -42,7 +42,7 @@ export function applyEmbeddedAnnotationDeletes(
 
     if (refsToDeleteByTag.size === 0 || !removeAnnotationRefsFromPages(doc, [...refsToDeleteByTag.values()])) {
         const deleteKeys = comments
-            .map(comment => comment.stableKey ?? comment.id ?? comment.annotationId ?? 'unknown')
+            .map(comment => comment.stableKey)
             .join(', ');
         throw new Error(`Unable to apply embedded annotation deletes for ${comments.length} annotation(s): ${deleteKeys}`);
     }

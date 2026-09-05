@@ -3,6 +3,7 @@
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import { getCliErrorMessage } from './lib/cli-error.mjs';
 const MCP_PROTOCOL_VERSION = '2025-11-25';
 const DEFAULT_EVB_MCP_HOST = '127.0.0.1';
 const DEFAULT_EVB_MCP_PORT = '38672';
@@ -480,7 +481,7 @@ export function startProxyStdio() {
         void processInputBuffer();
     });
     process.stdin.on('error', (error) => {
-        writeDiagnostic(`stdin error: ${getErrorMessage(error)}`);
+        writeDiagnostic(`stdin error: ${getCliErrorMessage(error)}`);
     });
     process.stdin.on('end', () => {
         process.exit(0);
@@ -715,7 +716,7 @@ function createUnavailableToolResult(method, error) {
         error: 'EVB Viewer dev MCP endpoint is not reachable.',
         method,
         targetUrl: EVB_MCP_URL,
-        details: getErrorMessage(error),
+        details: getCliErrorMessage(error),
         suggestedAction: 'Start EVB Viewer Dev, enable Codex MCP in Settings, then retry the EVB Viewer MCP tool.',
     }, { isError: true });
 }
@@ -801,7 +802,7 @@ async function processMcpRequest(rawRequest) {
             return null;
         }
 
-        return createErrorResponse(id, JSON_RPC_INTERNAL_ERROR, getErrorMessage(error), {targetUrl: EVB_MCP_URL});
+        return createErrorResponse(id, JSON_RPC_INTERNAL_ERROR, getCliErrorMessage(error), {targetUrl: EVB_MCP_URL});
     }
 }
 
@@ -811,7 +812,7 @@ async function processInputBuffer() {
         try {
             parsed = readNextMessage();
         } catch (error) {
-            writeMessage(createErrorResponse(null, JSON_RPC_PARSE_ERROR, getErrorMessage(error)));
+            writeMessage(createErrorResponse(null, JSON_RPC_PARSE_ERROR, getCliErrorMessage(error)));
             continue;
         }
         if (!parsed) {
@@ -825,7 +826,7 @@ async function processInputBuffer() {
                 writeMessage(response);
             }
         } catch (error) {
-            writeMessage(createErrorResponse(null, JSON_RPC_PARSE_ERROR, getErrorMessage(error)));
+            writeMessage(createErrorResponse(null, JSON_RPC_PARSE_ERROR, getCliErrorMessage(error)));
         }
     }
 }
@@ -909,8 +910,4 @@ function startsWithContentLengthHeader(buffer) {
 
 function writeDiagnostic(message) {
     process.stderr.write(`[evb-mcp-proxy] ${message}\n`);
-}
-
-function getErrorMessage(error) {
-    return error instanceof Error ? error.message : String(error);
 }

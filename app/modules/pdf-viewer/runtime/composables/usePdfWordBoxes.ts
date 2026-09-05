@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { PageViewport } from 'pdfjs-dist';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
@@ -33,7 +35,7 @@ export const usePdfWordBoxes = () => {
         const renderedPageWidth = canvas.offsetWidth;
         const renderedPageHeight = canvas.offsetHeight;
 
-        if (words && words.length > 0 && pdfPageWidth && pdfPageHeight) {
+        if (words.length > 0 && pdfPageWidth && pdfPageHeight) {
             const scaleX = renderedPageWidth / pdfPageWidth;
             const scaleY = renderedPageHeight / pdfPageHeight;
             const diff = Math.abs(scaleX - scaleY);
@@ -96,14 +98,14 @@ export const usePdfWordBoxes = () => {
     async function loadOcrPageData(
         workingCopyPath: TDocumentRef,
         documentRevisionToken: TDocumentRevisionToken,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ): Promise<IDocumentTextCatalogPage | null> {
         return loadSharedDocumentOcrPage(workingCopyPath, documentRevisionToken, pageNumber);
     }
 
     async function renderOcrDebugBoxes(
         pageContainer: HTMLElement,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         workingCopyPath: TDocumentRef | null,
         documentRevisionToken: TDocumentRevisionToken | null,
         viewport: PageViewport,

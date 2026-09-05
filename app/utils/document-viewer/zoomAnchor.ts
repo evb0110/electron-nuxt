@@ -61,7 +61,10 @@ export function captureDocumentZoomAnchor(
             }
         });
     }
-    const layout = layouts[pageIndex]!;
+    const layout = layouts[pageIndex];
+    if (!layout) {
+        return null;
+    }
     const left = resolveLayoutLeft(container, layout);
     return {
         pageIndex,

@@ -10,7 +10,10 @@ import {
 import { ref } from 'vue';
 import type { PDFPageProxy } from 'pdfjs-dist';
 import { cast } from '@tests/helpers/cast';
-import { requirePageIndex } from '@contracts/pageNumbers';
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import {requireDocumentRevisionToken} from '@contracts';
 import {createTestPdfViewportWritePort} from '@tests/helpers/createTestPdfViewportWritePort';
 
@@ -420,7 +423,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             {} as HTMLElement,
             cast<HTMLElement>({dataset: {pdfTextLayerReady: 'true'}}),
-            1,
+            requirePageNumber(1),
             {} as HTMLCanvasElement,
         );
 
@@ -774,7 +777,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             page,
             textLayer,
-            1,
+            requirePageNumber(1),
             {} as HTMLCanvasElement,
         );
         currentSearchMatch.value = {
@@ -1005,7 +1008,7 @@ describe('usePdfTextLayerRenderer', () => {
         renderer.applyPageSearchHighlights(
             container,
             textLayerDiv,
-            1,
+            requirePageNumber(1),
             null,
         );
 

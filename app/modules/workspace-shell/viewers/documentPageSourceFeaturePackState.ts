@@ -89,8 +89,7 @@ export function createDocumentPageSourceLifecycle(options: {
                 options.readRevisionToken,
             ],
             ([src], previous) => {
-                const previousSrc = previous?.[0] ?? null;
-                if (previousSrc) {
+                if (previous[0]) {
                     supersede();
                 }
                 const generation = ++loadGeneration.value;

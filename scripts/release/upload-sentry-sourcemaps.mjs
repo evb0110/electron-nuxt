@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import {execFile} from 'node:child_process';
 import {
     createHash,
@@ -41,10 +42,19 @@ const UPLOAD_EXTENSIONS = [
     'json',
 ];
 
+/** @typedef {import('../../packages/contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity} TSentryBuildIdentity */
+/** @typedef {{bundle: string, map: string, role: string, sources: string[], stagedMapPath: string}} IPrivateBundle */
+/** @typedef {{path: string, stagedPath: string}} IPrivateSource */
+/** @typedef {{bundles: IPrivateBundle[], identity: TSentryBuildIdentity, sources: IPrivateSource[]}} IPrivateManifest */
+/** @typedef {{bundleCount: number, destinationFingerprint: string, identity: TSentryBuildIdentity, manifestSha256: string, schemaVersion: number}} IUploadReceipt */
+/** @typedef {{identity?: TSentryBuildIdentity | undefined, projectRoot?: string, environment?: NodeJS.ProcessEnv, runCli?: (args: string[], options: {token: string}) => Promise<void>}} IUploadSourcemapsOptions */
+
+/** @param {Uint8Array} bytes @returns {string} */
 function sha256(bytes) {
     return createHash('sha256').update(bytes).digest('hex');
 }
 
+/** @param {{organization: string, project: string, token: string}} options @returns {string} */
 function destinationFingerprint({
     organization,
     project,
@@ -57,6 +67,7 @@ function destinationFingerprint({
         .digest('hex');
 }
 
+/** @param {IUploadReceipt} receipt @param {TSentryBuildIdentity} identity @returns {IUploadReceipt} */
 export function assertSentryUploadReceipt(receipt, identity) {
     const expectedIdentity = assertSentryBuildIdentity(identity);
     if (
@@ -76,6 +87,7 @@ export function assertSentryUploadReceipt(receipt, identity) {
     return receipt;
 }
 
+/** @param {NodeJS.ProcessEnv} environment @param {string} key @param {string} label @returns {string} */
 function requiredPrivateConfiguration(environment, key, label) {
     const value = environment[key];
     if (typeof value !== 'string' || !SAFE_CONFIGURATION_VALUE.test(value)) {
@@ -84,6 +96,7 @@ function requiredPrivateConfiguration(environment, key, label) {
     return value;
 }
 
+/** @param {NodeJS.ProcessEnv} environment @returns {string} */
 function requiredUploadToken(environment) {
     const value = environment.SENTRY_AUTH_TOKEN;
     if (typeof value !== 'string' || value.trim().length === 0 || /[\r\n]/u.test(value)) {
@@ -92,6 +105,7 @@ function requiredUploadToken(environment) {
     return value;
 }
 
+/** @param {string} root @param {string} relativePath @param {string} label @returns {string} */
 function resolveInside(root, relativePath, label) {
     if (typeof relativePath !== 'string' || relativePath.length === 0) {
         throw new Error(`Invalid ${label} path in private source-map manifest`);
@@ -108,12 +122,14 @@ function resolveInside(root, relativePath, label) {
     return resolved;
 }
 
+/** @param {string} sourcePath @param {string} uploadRoot @param {string} relativePath @param {string} label @returns {Promise<void>} */
 async function copyIntoUploadRoot(sourcePath, uploadRoot, relativePath, label) {
     const destination = resolveInside(uploadRoot, relativePath, label);
     await mkdir(path.dirname(destination), {recursive: true});
     await copyFile(sourcePath, destination);
 }
 
+/** @param {'desktop' | 'web'} target @param {string} relativePath @returns {string} */
 function uploadRelativePath(target, relativePath) {
     if (target === 'web' && relativePath.startsWith('.vercel/')) {
         return `vercel/${relativePath.slice('.vercel/'.length)}`;
@@ -121,6 +137,7 @@ function uploadRelativePath(target, relativePath) {
     return relativePath;
 }
 
+/** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {IPrivateManifest} manifest @returns {string[]} */
 function cliUploadRoots(identity, uploadRoot, manifest) {
     if (identity.target !== 'web') {
         return [uploadRoot];
@@ -138,6 +155,7 @@ function cliUploadRoots(identity, uploadRoot, manifest) {
     return [...roots].sort((left, right) => left.localeCompare(right, 'en'));
 }
 
+/** @param {TSentryBuildIdentity} identity @param {string} uploadRoot @param {string} cliRoot @returns {string | null} */
 function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
     if (
         identity.target === 'web'
@@ -148,6 +166,7 @@ function cliUploadUrlPrefix(identity, uploadRoot, cliRoot) {
     return null;
 }
 
+/** @param {{identity: TSentryBuildIdentity, projectRoot: string, stageRoot: string, uploadRoot: string, manifest: IPrivateManifest}} options @returns {Promise<void>} */
 async function prepareUploadTree({
     identity,
     projectRoot,
@@ -179,21 +198,23 @@ async function prepareUploadTree({
     }
 }
 
+/** @param {string} token @returns {NodeJS.ProcessEnv} */
 function privateCliEnvironment(token) {
-    const environment = {
+    const environment = /** @type {NodeJS.ProcessEnv} */ ({
         CI: '1',
         NO_COLOR: '1',
         SENTRY_AUTH_TOKEN: token,
         SENTRY_DISABLE_UPDATE_CHECK: '1',
         SENTRY_LOG_LEVEL: 'error',
         SENTRY_URL: SENTRY_EU_API_ORIGIN,
-    };
+    });
     if (process.platform === 'win32' && process.env.SystemRoot) {
         environment.SystemRoot = process.env.SystemRoot;
     }
     return environment;
 }
 
+/** @param {string[]} args @param {{token: string}} options @returns {Promise<void>} */
 async function defaultRunCli(args, {token}) {
     await execFileAsync(SentryCli.getPath(), args, {
         env: privateCliEnvironment(token),
@@ -202,12 +223,14 @@ async function defaultRunCli(args, {token}) {
     });
 }
 
+/** @param {'desktop' | 'web'} target @returns {string} */
 function projectEnvironmentKey(target) {
     return target === 'desktop'
         ? 'SENTRY_DESKTOP_PROJECT'
         : 'SENTRY_WEB_PROJECT';
 }
 
+/** @param {NodeJS.ProcessEnv} environment @returns {TSentryBuildIdentity} */
 function readBuildIdentity(environment) {
     return assertSentryBuildIdentity({
         target: environment.EVB_SENTRY_TARGET,
@@ -217,12 +240,14 @@ function readBuildIdentity(environment) {
     });
 }
 
+/** @param {string} receiptPath @param {IUploadReceipt} expected @returns {Promise<IUploadReceipt | null>} */
 async function readExistingUploadReceipt(receiptPath, expected) {
     let receipt;
     try {
+        /** @type {IUploadReceipt} */
         receipt = JSON.parse(await readFile(receiptPath, 'utf8'));
     } catch (error) {
-        if (error?.code === 'ENOENT') {
+        if (typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') {
             return null;
         }
         throw new Error('Invalid private Sentry upload receipt');
@@ -248,12 +273,7 @@ async function readExistingUploadReceipt(receiptPath, expected) {
  * manifest. The temporary upload tree is removed on both success and failure.
  * No credential or private account identifier is written to disk or returned.
  *
- * @param {{
- *   identity: import('@contracts/diagnostics/releaseIdentity.js').SentryBuildIdentity,
- *   projectRoot?: string,
- *   environment?: NodeJS.ProcessEnv,
- *   runCli?: (args: string[], options: {token: string}) => Promise<void>,
- * }} options
+ * @param {IUploadSourcemapsOptions} options
  */
 export async function uploadSentrySourcemaps({
     identity,
@@ -382,7 +402,7 @@ async function main() {
 
 if (process.argv[1] && pathToFileURL(path.resolve(process.argv[1])).href === import.meta.url) {
     main().catch(error => {
-        process.stderr.write(`${error instanceof Error ? error.message : 'Source-map upload failed'}\n`);
+        process.stderr.write(`${error instanceof Error ? getCliErrorMessage(error) : 'Source-map upload failed'}\n`);
         process.exitCode = 1;
     });
 }

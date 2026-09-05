@@ -1,3 +1,16 @@
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    parsePageIndex,
+    parsePageNumber,
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
 // PDF.js-private annotation-tool executor; exposed through the runtime port.
 import {
     AnnotationEditorParamsType,
@@ -73,7 +86,7 @@ function resolveEditorSubtypeFromPresentation(editor: IPdfjsEditor): TMarkupSubt
         strikeout: 'StrikeOut',
         strikethrough: 'StrikeOut',
         underline: 'Underline',
-    } as const)[explicit as 'highlight' | 'squiggly' | 'strikeout' | 'strikethrough' | 'underline'];
+    } as Partial<Record<string, TMarkupSubtype>>)[explicit];
     const classNames = Array.from(div.classList);
     return explicitSubtype
         ?? (classNames.some(name => name.includes(`${MARKUP_EDITOR_CLASS_PREFIX}underline`)) ? 'Underline' : null)
@@ -96,7 +109,7 @@ interface IUseAnnotationToolStateOptions {
     numPages: Ref<number>;
     getMountedPageNumbers?: () => readonly number[];
     getAnnotationPageIndexes?: () => Iterable<number>;
-    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: number) => string;
+    getEditorIdentity: (editor: IPdfjsEditor, pageIndex: TPageIndex) => string;
     /** Canonical text-markup subtypes keyed by external id, owned by AnnotationStore. */
     getCanonicalMarkupSubtypes: () => ReadonlyMap<string, TMarkupSubtype>;
     recordCanonicalMarkupSubtype: (externalIds: readonly string[], subtype: TMarkupSubtype) => void;
@@ -143,7 +156,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     let editorObjectMarkupSubtypeColorOverrides = new WeakMap<IPdfjsEditor, string>();
     let lastSelectedMarkupEditor: {
         editor: IPdfjsEditor;
-        pageIndex: number;
+        pageIndex: TPageIndex;
         subtype: TMarkupSubtype;
     } | null = null;
     const markupSubtypeDrawLayer = createAnnotationMarkupSubtypeDrawLayer();
@@ -220,7 +233,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return Array.from(classList).includes(className);
     }
 
-    function isMarkupEditorCandidate(editor: IPdfjsEditor, pageIndex: number) {
+    function isMarkupEditorCandidate(editor: IPdfjsEditor, pageIndex: TPageIndex) {
         return elementHasClass(editor.div, 'highlightEditor')
             || Boolean(getPdfjsEditorFacadeState(editor).markupBoxes?.length)
             || Boolean(resolveEditorMarkupSubtypeOverride(editor, pageIndex))
@@ -229,21 +242,25 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function resolveMountedPageIndexes() {
         const pageNumbers = getMountedPageNumbers?.() ?? [currentPage.value];
-        return Array.from(pageNumbers, pageNumber => (
-            Number.isSafeInteger(pageNumber) ? pageNumber - 1 : Number.NaN
-        ));
+        return Array.from(pageNumbers, pageNumber => {
+            const parsedPageNumber = parsePageNumber(pageNumber);
+            return parsedPageNumber === null ? null : pageNumberToPageIndex(parsedPageNumber);
+        }).filter((pageIndex): pageIndex is TPageIndex => pageIndex !== null);
     }
 
     function resolvePresentationPageIndexes(preferredPageIndex = currentPage.value - 1) {
         return getAnnotationEditorPageSearchOrder({
-            annotationPageIndexes: getAnnotationPageIndexes?.(),
+            annotationPageIndexes: Array.from(
+                getAnnotationPageIndexes?.() ?? [],
+                pageIndex => requirePageIndex(pageIndex),
+            ),
             mountedPageIndexes: resolveMountedPageIndexes(),
             numPages: numPages.value,
-            preferredPageIndex,
+            preferredPageIndex: requirePageIndex(Math.max(0, preferredPageIndex)),
         });
     }
 
-    function resolveEditorPageMarkupIndex(editor: IPdfjsEditor, pageIndex: number, identity: string) {
+    function resolveEditorPageMarkupIndex(editor: IPdfjsEditor, pageIndex: TPageIndex, identity: string) {
         const uiManager = annotationUiManager.value;
         if (!uiManager) {
             return null;
@@ -324,11 +341,11 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return toCssColor(editor.color, editor.opacity ?? 1);
     }
 
-    function getEditorMarkupSubtypeColorKey(editor: IPdfjsEditor, pageIndex: number) {
+    function getEditorMarkupSubtypeColorKey(editor: IPdfjsEditor, pageIndex: TPageIndex) {
         return getEditorIdentity(editor, pageIndex);
     }
 
-    function getEditorMarkupSubtypeKeys(editor: IPdfjsEditor, pageIndex: number) {
+    function getEditorMarkupSubtypeKeys(editor: IPdfjsEditor, pageIndex: TPageIndex) {
         const annotationId = editor.annotationElementId;
         const normalizedAnnotationId = normalizePdfJsAnnotationId(annotationId);
         return [
@@ -338,7 +355,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         ].filter((value): value is string => Boolean(value));
     }
 
-    function storeEditorMarkupSubtypeColor(editor: IPdfjsEditor, pageIndex: number, color: string) {
+    function storeEditorMarkupSubtypeColor(editor: IPdfjsEditor, pageIndex: TPageIndex, color: string) {
         getPdfjsEditorFacadeState(editor).markupSubtypeColor = color;
         editorObjectMarkupSubtypeColorOverrides.set(editor, color);
         markupSubtypeColorOverrides.set(getEditorMarkupSubtypeColorKey(editor, pageIndex), color);
@@ -362,7 +379,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         }
     }
 
-    function updateMarkupSubtypeGeometryHintColor(editor: IPdfjsEditor, pageIndex: number, color: string) {
+    function updateMarkupSubtypeGeometryHintColor(editor: IPdfjsEditor, pageIndex: TPageIndex, color: string) {
         const identity = getEditorIdentity(editor, pageIndex);
         const entry = markupSubtypeGeometryHints.get(identity);
         if (!entry) {
@@ -387,7 +404,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     function resolveEditorMarkupSubtypeColor(
         editor: IPdfjsEditor,
         subtype: TMarkupSubtype,
-        pageIndex: number,
+        pageIndex: TPageIndex,
     ) {
         if (editor.annotationElementId) {
             const normalizedAnnotationId = normalizePdfJsAnnotationId(editor.annotationElementId);
@@ -439,7 +456,16 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 return settings.strikethroughColor;
             case 'squiggly':
                 return settings.squigglyColor;
-            default:
+            case 'highlight':
+            case 'text':
+            case 'draw':
+            case 'rectangle':
+            case 'circle':
+            case 'line':
+            case 'arrow':
+            case 'stamp':
+            case 'select':
+            case 'none':
                 return settings.highlightColor;
         }
     }
@@ -460,7 +486,16 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 return settings.strikethroughOpacity;
             case 'squiggly':
                 return settings.squigglyOpacity;
-            default:
+            case 'highlight':
+            case 'text':
+            case 'draw':
+            case 'rectangle':
+            case 'circle':
+            case 'line':
+            case 'arrow':
+            case 'stamp':
+            case 'select':
+            case 'none':
                 return OPAQUE_HIGHLIGHT_OPACITY;
         }
     }
@@ -535,7 +570,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         applyToolbarDefaultParam(uiManager, AnnotationEditorParamsType.FREETEXT_SIZE, settings.textSize);
         const ensureFreeTextEditorCanResize = getFreeTextResize().ensureFreeTextEditorCanResize;
         const mountedPageIndexes = resolveMountedPageIndexes();
-        const visitedPageIndexes = new Set<number>();
+        const visitedPageIndexes = new Set<TPageIndex>();
         for (const pageIndex of mountedPageIndexes) {
             if (!Number.isSafeInteger(pageIndex) || pageIndex < 0 || visitedPageIndexes.has(pageIndex)) {
                 continue;
@@ -549,7 +584,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     async function waitForEditorsRenderedBeforeModeRetry(
         uiManager: AnnotationEditorUIManager,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         const timeoutController = new AbortController();
         try {
@@ -567,7 +602,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
     async function updateModeWithRetry(
         uiManager: AnnotationEditorUIManager,
         mode: Parameters<AnnotationEditorUIManager['updateMode']>[0],
-        pageNumber = currentPage.value,
+        pageNumber = requirePageNumber(currentPage.value, numPages.value),
         isIdentityCurrent: () => boolean = () => true,
     ) {
         try {
@@ -655,7 +690,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             const modeError = await updateModeWithRetry(
                 uiManager,
                 mode,
-                currentPage.value,
+                requirePageNumber(currentPage.value, numPages.value),
                 isIdentityCurrent,
             );
             if (modeError === 'stale') {
@@ -699,18 +734,18 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         });
     }
 
-    function readMarkupSubtypeEditorPresentation(pageNumbers?: readonly number[]) {
+    function readMarkupSubtypeEditorPresentation(pageNumbers?: readonly TPageNumber[]) {
         const uiManager = annotationUiManager.value;
         const requestedPages = pageNumbers
-            ?? resolvePresentationPageIndexes().map(pageIndex => pageIndex + 1);
+            ?? resolvePresentationPageIndexes().map(pageIndex => pageIndexToPageNumber(pageIndex));
         if (!uiManager) {
             return {
                 editors: [],
                 unresolvedPageNumbers: requestedPages,
             };
         }
-        const editorsByPage = new Map<number, IPdfjsEditor[]>();
-        const getPageEditors = (pageIndex: number) => {
+        const editorsByPage = new Map<TPageIndex, IPdfjsEditor[]>();
+        const getPageEditors = (pageIndex: TPageIndex) => {
             const existing = editorsByPage.get(pageIndex);
             if (existing) {
                 return existing;
@@ -720,7 +755,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
             return pageEditors;
         };
         const editors = requestedPages.flatMap((pageNumber) => {
-            const pageIndex = pageNumber - 1;
+            const pageIndex = pageNumberToPageIndex(pageNumber);
             return getPageEditors(pageIndex)
                 .filter(editor => isMarkupEditorCandidate(editor, pageIndex))
                 .map(editor => ({
@@ -735,9 +770,9 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                         ?? resolveEditorSubtypeFromPresentation(editor),
                 }));
         });
-        const unresolvedPageNumbers: number[] = [];
+        const unresolvedPageNumbers: TPageNumber[] = [];
         for (const pageNumber of requestedPages) {
-            const pageIndex = pageNumber - 1;
+            const pageIndex = pageNumberToPageIndex(pageNumber);
             if (getPageEditors(pageIndex).some(editor => (
                 isMarkupEditorCandidate(editor, pageIndex) && !editor.div
             ))) {
@@ -831,7 +866,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function setEditorMarkupSubtypeOverride(
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         subtype: TMarkupSubtype,
         options?: { preferEditorColor?: boolean },
     ) {
@@ -869,7 +904,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function findSelectedMarkupEditor(): {
         editor: IPdfjsEditor;
-        pageIndex: number;
+        pageIndex: TPageIndex;
         subtype: TMarkupSubtype;
     } | null {
         const uiManager = annotationUiManager.value;
@@ -888,8 +923,10 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
         for (const editor of candidates) {
             const pageIndex = Number.isFinite(editor.parentPageIndex)
-                ? Math.max(0, editor.parentPageIndex as number)
-                : Math.max(0, currentPage.value - 1);
+                ? parsePageIndex(editor.parentPageIndex as number)
+                : null;
+            const resolvedPageIndex = pageIndex
+                ?? requirePageIndex(Math.max(0, currentPage.value - 1));
             const isSelected = selectedEditor === editor
                 || editor.isSelected === true
                 || editor.div?.classList.contains('selectedEditor') === true
@@ -898,13 +935,13 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
                 continue;
             }
 
-            const subtype = resolveEditorMarkupSubtypeOverride(editor, pageIndex)
+            const subtype = resolveEditorMarkupSubtypeOverride(editor, resolvedPageIndex)
                 ?? resolveEditorSubtypeFromPresentation(editor)
                 ?? (elementHasClass(editor.div, 'highlightEditor') ? 'Highlight' : null);
             if (subtype) {
                 const selected = {
                     editor,
-                    pageIndex,
+                    pageIndex: resolvedPageIndex,
                     subtype,
                 };
                 lastSelectedMarkupEditor = selected;
@@ -974,7 +1011,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function applyTextMarkupEditorColor(
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         subtype: TMarkupSubtype,
         color: string,
     ) {
@@ -1001,7 +1038,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
 
     function updateTextMarkupAnnotationColor(
         editor: IPdfjsEditor,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         subtype: TMarkupSubtype,
         color: string,
     ) {
@@ -1014,7 +1051,7 @@ export const useAnnotationToolState = (options: IUseAnnotationToolStateOptions) 
         return true;
     }
 
-    function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: number): TMarkupSubtype | null {
+    function resolveEditorMarkupSubtypeOverride(editor: IPdfjsEditor, pageIndex: TPageIndex): TMarkupSubtype | null {
         return resolveCanonicalMarkupSubtype(getEditorMarkupSubtypeKeys(editor, pageIndex));
     }
 

@@ -1,8 +1,10 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IPdfPageLayoutMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/pdfPageLayoutMetrics';
 
 export function getPageRowBounds(
     layout: IPdfPageLayoutMetrics,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ): {
     start: number;
     end: number;

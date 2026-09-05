@@ -6,6 +6,7 @@ import {
     vi,
 } from 'vitest';
 import {requireDocumentRevisionToken} from '@contracts';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 const browserDocumentStoreMock = vi.hoisted(() => ({
     getSourceRef: vi.fn(),
@@ -78,7 +79,7 @@ describe('browserSaveTargets', () => {
         });
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
             .resolves
             .toEqual({
                 ok: true,
@@ -96,7 +97,7 @@ describe('browserSaveTargets', () => {
         });
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -110,7 +111,7 @@ describe('browserSaveTargets', () => {
         filePickerMock.saveBytesToPickerOrDownload.mockRejectedValue(new Error('disk denied'));
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -130,7 +131,7 @@ describe('browserSaveTargets', () => {
         browserDocumentStoreMock.assignSaveTarget.mockRejectedValue(new Error('state refresh failed'));
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
-        await expect(saveWorkingBytesToSourceStructured('browser://documents/working', () => 'hint'))
+        await expect(saveWorkingBytesToSourceStructured(requireDocumentRef('browser://documents/working'), () => 'hint'))
             .resolves
             .toMatchObject({
                 ok: false,
@@ -156,7 +157,7 @@ describe('browserSaveTargets', () => {
         const { saveWorkingBytesToSourceStructured } = await import('@app/platform/browser-api/browserSaveTargets');
 
         const savePromise = saveWorkingBytesToSourceStructured(
-            'browser://documents/working',
+            requireDocumentRef('browser://documents/working'),
             () => 'hint',
             {expectedDocumentRevisionToken: requireDocumentRevisionToken('revision-before-picker')},
         );

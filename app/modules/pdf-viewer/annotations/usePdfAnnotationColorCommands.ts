@@ -1,4 +1,8 @@
 import type {ShallowRef} from 'vue';
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type {
     IAnnotationCommentSummary,
@@ -74,7 +78,10 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
     function findTextMarkupEditorForComment(comment: IAnnotationCommentSummary) {
         return annotations.crud.findEditorForComment(comment)
             ?? (comment.annotationId
-                ? annotations.crud.findEditorByAnnotationElementId(comment.pageIndex, comment.annotationId)
+                ? annotations.crud.findEditorByAnnotationElementId(
+                    requirePageIndex(comment.pageIndex),
+                    comment.annotationId,
+                )
                 : null)
             ?? (comment.annotationId
                 ? getStoredAnnotationEditor(pdfDocument.value, comment.annotationId)
@@ -173,7 +180,7 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
         }
         const editorUpdated = annotations.editor.markupSubtype.updateTextMarkupAnnotationColor(
             editor,
-            comment.pageIndex,
+            requirePageIndex(comment.pageIndex),
             subtype,
             color,
         );
@@ -214,16 +221,17 @@ export const usePdfAnnotationColorCommands = (options: IUsePdfAnnotationColorCom
 };
 
 export function toSelectedTextMarkupComment(markup: ITextMarkupAnnotationProperties): IAnnotationCommentSummary {
+    const pageIndex = requirePageIndex(markup.pageIndex);
     return {
         id: markup.id,
         stableKey: computeSummaryStableKey({
             id: markup.id,
-            pageIndex: markup.pageIndex,
+            pageIndex,
             source: 'editor',
             annotationId: markup.id,
         }),
-        pageIndex: markup.pageIndex,
-        pageNumber: markup.pageIndex + 1,
+        pageIndex,
+        pageNumber: pageIndexToPageNumber(pageIndex),
         text: '',
         author: null,
         modifiedAt: null,

@@ -1,3 +1,9 @@
+import {
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IAnnotationMarkerRect } from '@app/types/annotations';
 import { clamp } from 'es-toolkit/math';
 import { logPdfNav } from '@app/utils/logPdfNav';
@@ -47,7 +53,7 @@ function getLayoutRowWidth(
     let width = 0;
 
     for (let pageNumber = rowStartPage; pageNumber <= rowEndPage; pageNumber += 1) {
-        width += getLayoutPageWidth(metrics, pageNumber - 1);
+        width += getLayoutPageWidth(metrics, requirePageIndex(pageNumber - 1));
     }
 
     return width;
@@ -64,7 +70,7 @@ function getLayoutPageLeft(
     let pageLeft = Math.max(0, (containerWidth - rowWidth) / 2);
 
     for (let pageNumber = rowStartPage; pageNumber < index + 1; pageNumber += 1) {
-        pageLeft += getLayoutPageWidth(metrics, pageNumber - 1);
+        pageLeft += getLayoutPageWidth(metrics, requirePageIndex(pageNumber - 1));
     }
 
     return pageLeft;
@@ -187,7 +193,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
 
     function applyDomScrollToPage(
         container: HTMLElement,
-        targetPage: number,
+        targetPage: TPageNumber,
         margin: number,
         options: IScrollToPageOptions | undefined,
         reason: 'scroll',
@@ -231,8 +237,8 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
 
     function getPreviousPageFallback(totalPages: number) {
         return totalPages > 0
-            ? clamp(currentPage.value, 1, totalPages)
-            : currentPage.value;
+            ? requirePageNumber(clamp(currentPage.value, 1, totalPages), totalPages)
+            : requirePageNumber(Math.max(1, currentPage.value));
     }
 
     function setPageLayoutMetrics(
@@ -337,7 +343,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         const pinnedPage = options.getPinnedMostVisiblePage?.();
         if (pinnedPage !== null && pinnedPage !== undefined) {
             return {
-                page: clamp(pinnedPage, 1, totalPages),
+                page: requirePageNumber(clamp(pinnedPage, 1, totalPages), totalPages),
                 authoritative: true,
             };
         }
@@ -386,7 +392,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
 
     function scrollToPage(
         container: HTMLElement | null,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         totalPages: number,
         margin: number,
         options?: IScrollToPageOptions,
@@ -394,7 +400,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
         if (!container || totalPages === 0) {
             return;
         }
-        const targetPage = clamp(pageNumber, 1, totalPages);
+        const targetPage = requirePageNumber(clamp(pageNumber, 1, totalPages), totalPages);
         const targetEl = getPageContainerByNumber(container, targetPage);
 
         if (targetEl) {
@@ -426,7 +432,7 @@ export const usePdfScroll = (options: IUsePdfScrollOptions) => {
             });
             const segment = getLayoutPhysicalScrollSegment(metrics, top);
             const nextTop = Math.max(0, logicalTop - (segment?.origin ?? 0));
-            const pageIndex = targetPage - 1;
+            const pageIndex = requirePageIndex(targetPage - 1);
             const nextLeft = resolveMarkerScrollLeft({
                 pageLeft: getLayoutPageLeft(metrics, pageIndex, container.clientWidth),
                 pageWidth: getLayoutPageWidth(metrics, pageIndex),

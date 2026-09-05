@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     spawn,
     type ChildProcess,
@@ -212,8 +213,8 @@ function spawnElectronProcess(
             console.log('[Electron] CDP ready');
         }
     };
-    electron.stdout?.on('data', (data: Buffer) => onElectronOutput('stdout', data));
-    electron.stderr?.on('data', (data: Buffer) => onElectronOutput('stderr', data));
+    electron.stdout.on('data', (data: Buffer) => onElectronOutput('stdout', data));
+    electron.stderr.on('data', (data: Buffer) => onElectronOutput('stderr', data));
     return electron;
 }
 
@@ -385,7 +386,7 @@ export async function launchAutomationSessionWithRecovery(options: {
             };
         } catch (error) {
             launchError = error;
-            const message = error instanceof Error ? error.message : String(error);
+            const message = getErrorMessage(error);
             const phase = electronProcess ? 'connect to browser' : 'start Electron';
             console.error(`[Session] Failed to ${phase}: ${message}`);
             if (electronProcess) {

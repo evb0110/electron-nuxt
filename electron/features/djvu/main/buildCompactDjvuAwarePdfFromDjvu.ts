@@ -20,7 +20,7 @@ import {
 } from 'path';
 import { fileURLToPath } from 'url';
 import { createInterface } from 'node:readline';
-import { limitAsync } from 'es-toolkit/array';
+import { limitAsync } from 'es-toolkit/promise';
 import type {
     IDjvuConversionPageMetrics,
     TDjvuCompactFidelityPreset,

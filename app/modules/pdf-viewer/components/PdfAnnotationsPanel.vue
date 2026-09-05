@@ -175,7 +175,8 @@ const toolLabel = computed(() => {
             return t('annotations.arrow');
         case 'select':
             return t('annotations.select');
-        default:
+        case 'none':
+        case 'stamp':
             return t('annotations.annotations');
     }
 });

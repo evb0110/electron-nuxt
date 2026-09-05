@@ -642,8 +642,9 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
         claim(identity) {
             const current = snapshot.value;
             if (isTransitionPhase(current.phase)) {
-                const sameDocument = current.identity?.documentId === identity.documentId;
-                const sameRevision = current.identity?.documentRevision === identity.documentRevision;
+                const currentIdentity = current.identity;
+                const sameDocument = currentIdentity?.documentId === identity.documentId;
+                const sameRevision = currentIdentity?.documentRevision === identity.documentRevision;
                 if (sameDocument && sameRevision) {
                     return current.generation;
                 }
@@ -655,7 +656,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
                 // switches atomically here.
                 if (
                     sameDocument
-                    && current.identity?.documentRevision.startsWith('open-intent:')
+                    && currentIdentity.documentRevision.startsWith('open-intent:')
                     && current.committedRender === null
                     && current.committedViewport === null
                 ) {
@@ -1128,7 +1129,7 @@ export function createDocumentOpenSurfaceSession(): IDocumentOpenSurfaceSession 
             logPdfRenderTrace('viewport-session-navigation-dispatched', {
                 pageNumber: normalized,
                 requestedPage: sessionState.value.viewport.requestedPage,
-                documentId: sessionState.value.viewport.identity?.documentId ?? null,
+                documentId: sessionState.value.viewport.identity.documentId,
             });
             return sessionState.value.viewport.requestedPage;
         },

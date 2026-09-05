@@ -1,4 +1,8 @@
 import {
+    requirePageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
+import {
     afterEach,
     describe,
     expect,
@@ -229,7 +233,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
         await nextTick();
         managedShapes.settleViewerLoadSettledWithManagedShapes(1, settleViewerLoad);
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
         await nextTick();
 
         expect(settleViewerLoad).toHaveBeenCalledWith(1);
@@ -286,7 +290,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             // A preserved canvas from the previous source is insufficient. The
             // current source must report a completed visible-page render.
             expect(animationFrames).toHaveLength(0);
-            managedShapes.syncAfterPageRendered(1);
+            managedShapes.syncAfterPageRendered(requirePageNumber(1));
             for (let frame = 0; frame < 2; frame += 1) {
                 const frameCallbacks = animationFrames.splice(0);
                 frameCallbacks.forEach(callback => callback(performance.now()));
@@ -354,7 +358,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
 
             // The canvas may commit before Electron publishes the managed
             // working-copy path. Its document identity remains authoritative.
-            managedShapes.syncAfterPageRendered(1);
+            managedShapes.syncAfterPageRendered(requirePageNumber(1));
             workingCopyPath.value = 'browser://documents/pdf-work/arnold.pdf';
             await nextTick();
             await nextTick();
@@ -422,7 +426,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
                 currentPage: ref(1),
             });
             managedShapes.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
-            managedShapes.syncAfterPageRendered(1);
+            managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
             animationFrames.splice(0).forEach(callback => callback(performance.now()));
             animationFrames.splice(0).forEach(callback => callback(performance.now()));
@@ -431,7 +435,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             expect(importEmbeddedShapesMock).not.toHaveBeenCalled();
 
             hasCurrentCanvas = true;
-            managedShapes.syncAfterPageRendered(1);
+            managedShapes.syncAfterPageRendered(requirePageNumber(1));
             animationFrames.splice(0).forEach(callback => callback(performance.now()));
             animationFrames.splice(0).forEach(callback => callback(performance.now()));
             await vi.runAllTimersAsync();
@@ -728,13 +732,13 @@ describe('useManagedEmbeddedPdfShapes', () => {
             currentPage: ref(1),
         });
         managedShapes.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
         await vi.waitFor(() => {
             expect(importEmbeddedShapesMock).toHaveBeenCalledTimes(1);
         });
 
-        shapeComposable.startDrawing(0, 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
+        shapeComposable.startDrawing(requirePageIndex(0), 'draw', 0.1, 0.2, DEFAULT_ANNOTATION_SETTINGS);
         shapeComposable.continueDrawing(0.15, 0.25);
         shapeComposable.continueDrawing(0.25, 0.35);
         const created = shapeComposable.finishDrawing();
@@ -750,7 +754,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         sourcePdfData.value = new Uint8Array([2]);
         await nextTick();
         managedShapes.settleViewerLoadSettledWithManagedShapes(2, vi.fn());
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
         await vi.waitFor(() => {
             expect(importEmbeddedShapesMock).toHaveBeenCalledTimes(2);
@@ -805,7 +809,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             currentPage: ref(1),
         });
 
-        managedShapes.refreshHiddenAnnotationPage({ pageNumber: 1 });
+        managedShapes.refreshHiddenAnnotationPage({ pageNumber: requirePageNumber(1) });
         await Promise.all(pendingTasks);
 
         expect(invalidatePages).not.toHaveBeenCalled();
@@ -915,7 +919,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             currentPage: ref(1),
         });
         managedShapes.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
         await vi.waitFor(() => {
             expect(importEmbeddedShapesMock).toHaveBeenCalledOnce();
@@ -932,12 +936,12 @@ describe('useManagedEmbeddedPdfShapes', () => {
             hasShapeOverlay: true,
             shapeOverlayAnnotationIds: ['34R'],
         });
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
         expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
 
         viewerContainer.value = createRenderedViewerContainer({ hasShapeOverlay: true });
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
 
         expect(managedShapes.renderHiddenEmbeddedAnnotationIds.value.has('12R')).toBe(true);
         await Promise.all(pendingTasks);
@@ -975,7 +979,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
         });
 
         managedShapes.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
-        managedShapes.syncAfterPageRendered(1);
+        managedShapes.syncAfterPageRendered(requirePageNumber(1));
         await vi.waitFor(() => expect(importEmbeddedShapeAnnotations).toHaveBeenCalledOnce());
         deletedAnnotationIds = ['77R'];
         imported.resolve([createEmbeddedInkShape({annotationId: '77R'})]);
@@ -1061,7 +1065,7 @@ describe('useManagedEmbeddedPdfShapes', () => {
             currentPage: ref(1),
         }));
         managedShapes?.settleViewerLoadSettledWithManagedShapes(1, vi.fn());
-        managedShapes?.syncAfterPageRendered(1);
+        managedShapes?.syncAfterPageRendered(requirePageNumber(1));
         await vi.waitFor(() => expect(importEmbeddedShapesMock).toHaveBeenCalledOnce());
         vi.mocked(shapeComposable.importEmbeddedShapes).mockClear();
 

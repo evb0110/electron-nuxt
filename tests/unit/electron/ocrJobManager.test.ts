@@ -7,6 +7,9 @@ import {
     vi,
 } from 'vitest';
 import type * as OcrJobManagerModule from '@electron/ocr/jobManager';
+import {requirePageNumber} from '@contracts/pageNumbers';
+import type {TPageNumber} from '@contracts/pageNumbers';
+import {requireRequestId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({
     ensureRuntimeTessdataSeeded: vi.fn(),
@@ -187,7 +190,7 @@ type TStartOcrJob = typeof OcrJobManagerModule.handleOcrCreateSearchablePdfAsync
 
 interface IStartOcrJobOptions {
     pages?: Array<{
-        pageNumber: number;
+        pageNumber: TPageNumber;
         languages: string[];
     }>;
     path?: string;
@@ -204,10 +207,10 @@ function startOcrJob(
         context,
         options.path ?? `/tmp/work-${jobId}.pdf`,
         options.pages ?? [{
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             languages: ['eng'],
         }],
-        jobId,
+        requireRequestId(jobId),
         options.request,
     );
 }
@@ -283,7 +286,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         expect(mocks.workerInstances).toHaveLength(workerPoolSize);
 
         contexts.forEach((context, index) => {
-            expect(handleOcrCancel(context, `${tier}-job-${index}`)).toEqual({canceled: true});
+            expect(handleOcrCancel(context, requireRequestId(`${tier}-job-${index}`))).toEqual({canceled: true});
         });
     });
 
@@ -322,7 +325,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             error: 'OCR queue is full (1 jobs)',
         });
 
-        expect(handleOcrCancel(firstContext, 'job-1')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, requireRequestId('job-1'))).toEqual({ canceled: true });
         await expect(firstPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -357,7 +360,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         } = await import('@electron/ocr/jobManager');
         const context = createContext(24);
         const pages = Array.from({length: 2_136}, (_value, index) => ({
-            pageNumber: index + 1,
+            pageNumber: requirePageNumber(index + 1),
             languages: [
                 'kmr',
                 'tur',
@@ -385,7 +388,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             expect(mocks.workerInstances).toHaveLength(1);
         });
 
-        expect(handleOcrCancel(context, 'job-dictionary')).toEqual({canceled: true});
+        expect(handleOcrCancel(context, requireRequestId('job-dictionary'))).toEqual({canceled: true});
     });
 
     it('aborts preparing jobs on cancel and frees the slot for a later job', async () => {
@@ -412,7 +415,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         });
 
         const firstSignal = mocks.ensureTessdataLanguages.mock.calls[0]?.[1]?.signal as AbortSignal;
-        expect(handleOcrCancel(firstContext, 'job-3')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, requireRequestId('job-3'))).toEqual({ canceled: true });
         await expect(firstPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -440,11 +443,11 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
 
         const result = await startOcrJob(handleOcrCreateSearchablePdfAsync, createContext(55), 'job-5', {pages: [
             {
-                pageNumber: 1,
+                pageNumber: requirePageNumber(1),
                 languages: ['eng'],
             },
             {
-                pageNumber: 2,
+                pageNumber: requirePageNumber(2),
                 languages: ['eng'],
             },
         ]});
@@ -583,11 +586,11 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             path: '/tmp/work-projection.pdf',
             pages: [
                 {
-                    pageNumber: 1,
+                    pageNumber: requirePageNumber(1),
                     languages: ['eng'],
                 },
                 {
-                    pageNumber: 2,
+                    pageNumber: requirePageNumber(2),
                     languages: ['eng'],
                 },
             ],
@@ -607,9 +610,9 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         });
 
         const listener = vi.fn();
-        const unsubscribe = subscribeOcrJobProjection(owner, 'ocr-reload', listener);
+        const unsubscribe = subscribeOcrJobProjection(owner, requireRequestId('ocr-reload'), listener);
         const unauthorizedListener = vi.fn();
-        subscribeOcrJobProjection(otherSender, 'ocr-reload', unauthorizedListener);
+        subscribeOcrJobProjection(otherSender, requireRequestId('ocr-reload'), unauthorizedListener);
         const worker = mocks.workerInstances[0];
         worker?.emit('message', {
             type: 'progress',
@@ -634,8 +637,8 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             replaceAllAcknowledged: true,
         }));
         expect(unauthorizedListener).not.toHaveBeenCalled();
-        expect(getOcrJobProjection(otherSender, 'ocr-reload')).toBeNull();
-        expect(handleOcrCancel(otherSender, 'ocr-reload')).toEqual({
+        expect(getOcrJobProjection(otherSender, requireRequestId('ocr-reload'))).toBeNull();
+        expect(handleOcrCancel(otherSender, requireRequestId('ocr-reload'))).toEqual({
             canceled: false,
             reason: 'not-found',
         });
@@ -653,7 +656,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
                 errors: [],
             },
         });
-        expect(getOcrJobProjection(createContext(41), 'ocr-reload')).toMatchObject({
+        expect(getOcrJobProjection(createContext(41), requireRequestId('ocr-reload'))).toMatchObject({
             status: 'completed',
             percent: 100,
             supersessionPolicy: 'replace-all',
@@ -683,7 +686,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         expect(worker).toBeDefined();
         mocks.sendPlatformEvent.mockClear();
 
-        expect(handleOcrCancel(context, 'job-6')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, requireRequestId('job-6'))).toEqual({ canceled: true });
         const cancelCompleteCalls = getOcrCompleteCalls();
         expect(cancelCompleteCalls).toHaveLength(1);
         expect(cancelCompleteCalls[0]?.[2]).toEqual(expect.objectContaining({
@@ -753,7 +756,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         subscribeManagedOcrProgress(queuedOwner);
         mocks.sendPlatformEvent.mockClear();
 
-        expect(handleOcrCancel(queuedOwner, 'job-70')).toEqual({ canceled: true });
+        expect(handleOcrCancel(queuedOwner, requireRequestId('job-70'))).toEqual({ canceled: true });
         expect(getOcrCompleteCalls()).toHaveLength(1);
         expect(getOcrCompleteCalls()[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-70',
@@ -795,7 +798,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         });
         mocks.sendPlatformEvent.mockClear();
 
-        expect(handleOcrCancel(context, 'job-71')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, requireRequestId('job-71'))).toEqual({ canceled: true });
         expect(getOcrCompleteCalls()).toHaveLength(1);
         expect(getOcrCompleteCalls()[0]?.[2]).toEqual(expect.objectContaining({
             requestId: 'job-71',
@@ -841,7 +844,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         );
         await Promise.resolve();
 
-        expect(handleOcrCancel(firstContext, 'job-67')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, requireRequestId('job-67'))).toEqual({ canceled: true });
         await Promise.resolve();
         expect(mocks.workerInstances).toHaveLength(1);
 
@@ -1190,7 +1193,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             resolveTerminate = () => resolve(0);
         }));
 
-        expect(handleOcrCancel(firstContext, 'job-181')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, requireRequestId('job-181'))).toEqual({ canceled: true });
         firstWorker.emit('message', {
             type: 'resource-release',
             jobId: 'job-181',
@@ -1257,7 +1260,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
             },
         });
 
-        expect(handleOcrCancel(context, 'job-78')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, requireRequestId('job-78'))).toEqual({ canceled: true });
         expect(mocks.unlink).not.toHaveBeenCalledWith('/tmp/work-78-ocr.pdf');
     });
 
@@ -1285,7 +1288,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
         });
         expect(vi.getTimerCount()).toBeGreaterThan(0);
 
-        expect(handleOcrCancel(context, 'job-80')).toEqual({ canceled: true });
+        expect(handleOcrCancel(context, requireRequestId('job-80'))).toEqual({ canceled: true });
         await expect(startPromise).resolves.toMatchObject({
             started: false,
             error: 'OCR job was cancelled before it started',
@@ -1364,7 +1367,7 @@ describe('ocr job manager preparing-stage robustness', {timeout: 20_000}, () => 
 
         expect(getResourceAcquiredMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-1' })]);
 
-        expect(handleOcrCancel(firstContext, 'job-99')).toEqual({ canceled: true });
+        expect(handleOcrCancel(firstContext, requireRequestId('job-99'))).toEqual({ canceled: true });
         await vi.waitFor(() => {
             expect(getResourceDeniedMessages(firstWorker)).toEqual([expect.objectContaining({ requestId: 'page-2' })]);
         });

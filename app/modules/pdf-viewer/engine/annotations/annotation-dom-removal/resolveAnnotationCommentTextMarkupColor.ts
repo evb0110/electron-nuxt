@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type { ITextMarkupColorReadResult } from '@app/modules/pdf-viewer/engine/annotations/annotation-dom-removal/textMarkupDomRemovalTypes';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import { isTextMarkupSubtype } from '@app/services/pdf/annotationSubtype';
@@ -135,7 +136,7 @@ function isSubtypeDrawStrokeVisualElement(element: Element | null | undefined) {
 }
 
 function isSvgPaintElement(element: Element | null | undefined) {
-    const tagName = element?.tagName?.toLowerCase() ?? '';
+    const tagName = element?.tagName.toLowerCase() ?? '';
     return tagName === 'svg'
         || tagName === 'path'
         || tagName === 'rect'
@@ -150,7 +151,7 @@ function shouldReadNonHighlightCustomColor(element: Element) {
         || elementHasClassFragment(element, 'pdf-markup-subtype-underline')
         || elementHasClassFragment(element, 'pdf-markup-subtype-strikeout')
         || elementHasClassFragment(element, 'pdf-markup-subtype-squiggly')
-        || Boolean((element as HTMLElement).dataset?.markupSubtypeColor);
+        || Boolean((element as HTMLElement).dataset.markupSubtypeColor);
 }
 
 function readElementTextMarkupColorResult(
@@ -175,11 +176,11 @@ function readElementTextMarkupColorResult(
         && style.borderTopWidth !== '0px';
     const ownColor = firstVisibleCssColor([
         subtype === 'highlight'
-            ? (element as HTMLElement).style?.getPropertyValue('--pdf-markup-subtype-color')
+            ? (element as HTMLElement).style.getPropertyValue('--pdf-markup-subtype-color')
             : null,
         subtype === 'highlight' ? style?.getPropertyValue('--pdf-markup-subtype-color') : null,
         subtype !== 'highlight' && shouldReadNonHighlightCustomColor(element)
-            ? (element as HTMLElement).style?.getPropertyValue('--pdf-markup-subtype-color')
+            ? (element as HTMLElement).style.getPropertyValue('--pdf-markup-subtype-color')
             : null,
         subtype !== 'highlight' && shouldReadNonHighlightCustomColor(element)
             ? style?.getPropertyValue('--pdf-markup-subtype-color')
@@ -187,9 +188,9 @@ function readElementTextMarkupColorResult(
         subtype === 'highlight' ? style?.backgroundColor : null,
         subtype === 'highlight' && isSvgPaintElement(element) ? style?.fill : null,
         subtype === 'highlight' && isSvgPaintElement(element) ? element.getAttribute('fill') : null,
-        hasTextDecorationColor ? style?.textDecorationColor : null,
-        hasBottomBorderColor ? style?.borderBottomColor : null,
-        hasTopBorderColor ? style?.borderTopColor : null,
+        hasTextDecorationColor ? style.textDecorationColor : null,
+        hasBottomBorderColor ? style.borderBottomColor : null,
+        hasTopBorderColor ? style.borderTopColor : null,
         subtype === 'highlight' ? null : style?.stroke,
         subtype === 'highlight' ? null : element.getAttribute('stroke'),
     ]);
@@ -223,7 +224,7 @@ function readElementTextMarkupColorResult(
             subtype === 'highlight' ? nodeStyle?.fill : null,
             subtype === 'highlight' ? node.getAttribute('fill') : null,
             subtype === 'highlight' ? nodeStyle?.backgroundColor : null,
-            hasNodeTextDecorationColor ? nodeStyle?.textDecorationColor : null,
+            hasNodeTextDecorationColor ? nodeStyle.textDecorationColor : null,
         ]);
         if (nodeColor) {
             return {
@@ -411,7 +412,7 @@ function readCanvasTextMarkupColorAtPointResult(
             annotationId: comment.annotationId ?? null,
             color,
             element: 'canvas',
-            pageNumber: comment.pageNumber ?? null,
+            pageNumber: requirePageNumber(comment.pageNumber),
             source: 'canvas',
             subtype: normalizeTextMarkupSubtype(comment.subtype),
         }
@@ -433,7 +434,7 @@ function readCanvasTextMarkupColorForCommentResult(
                         annotationId: comment.annotationId ?? null,
                         color,
                         element: 'canvas',
-                        pageNumber: comment.pageNumber ?? null,
+                        pageNumber: requirePageNumber(comment.pageNumber),
                         source: 'canvas',
                         subtype,
                     };
@@ -453,7 +454,7 @@ function resolveAnnotationCommentTextMarkupColorWithDiagnostics(
             annotationId: comment.annotationId ?? null,
             color: null,
             element: null,
-            pageNumber: comment.pageNumber ?? null,
+            pageNumber: requirePageNumber(comment.pageNumber),
             source: 'not-text-markup',
             subtype: comment.subtype ?? null,
         };
@@ -468,7 +469,7 @@ function resolveAnnotationCommentTextMarkupColorWithDiagnostics(
                 annotationId: comment.annotationId ?? null,
                 color: result.color,
                 element: result.element,
-                pageNumber: comment.pageNumber ?? null,
+                pageNumber: requirePageNumber(comment.pageNumber),
                 source: result.source === 'element' ? 'summary:element' : 'summary:visual-node',
                 subtype,
             };
@@ -487,7 +488,7 @@ function resolveAnnotationCommentTextMarkupColorWithDiagnostics(
                     annotationId: comment.annotationId ?? null,
                     color: result.color,
                     element: result.element,
-                    pageNumber: comment.pageNumber ?? null,
+                    pageNumber: requirePageNumber(comment.pageNumber),
                     source: result.source === 'element' ? 'visual:element' : 'visual:visual-node',
                     subtype,
                 };
@@ -499,7 +500,7 @@ function resolveAnnotationCommentTextMarkupColorWithDiagnostics(
         annotationId: comment.annotationId ?? null,
         color: null,
         element: null,
-        pageNumber: comment.pageNumber ?? null,
+        pageNumber: requirePageNumber(comment.pageNumber),
         source: 'fallback:none',
         subtype,
     };
@@ -520,7 +521,7 @@ function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
             annotationId: comment.annotationId ?? null,
             color: null,
             element: null,
-            pageNumber: comment.pageNumber ?? null,
+            pageNumber: requirePageNumber(comment.pageNumber),
             source: 'not-text-markup',
             subtype: comment.subtype ?? null,
         };
@@ -550,7 +551,7 @@ function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
                     annotationId: comment.annotationId ?? null,
                     color: result.color,
                     element: result.element,
-                    pageNumber: comment.pageNumber ?? null,
+                    pageNumber: requirePageNumber(comment.pageNumber),
                     pointElementCount: pointElements.length,
                     source: result.source === 'element' ? 'point:nearby-element' : 'point:nearby-visual-node',
                     subtype,
@@ -572,7 +573,7 @@ function resolveAnnotationCommentTextMarkupColorAtPointWithDiagnostics(
                 annotationId: comment.annotationId ?? null,
                 color: result.color,
                 element: result.element,
-                pageNumber: comment.pageNumber ?? null,
+                pageNumber: requirePageNumber(comment.pageNumber),
                 pointElementCount: pointElements.length,
                 source: result.source === 'element' ? 'point:element' : 'point:visual-node',
                 subtype,

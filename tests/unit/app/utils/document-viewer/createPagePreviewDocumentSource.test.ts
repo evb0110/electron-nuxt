@@ -6,6 +6,7 @@ import {
 } from 'vitest';
 import { createPagePreviewDocumentSource } from '@app/utils/document-viewer/source/createPagePreviewDocumentSource';
 import type { IPagePreviewRenderedObjectUrl } from '@app/utils/document-viewer/pagePreviewSource';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 describe('createPagePreviewDocumentSource', () => {
     it('resolves page metrics lazily for compact large-document metadata', async () => {
@@ -15,7 +16,7 @@ describe('createPagePreviewDocumentSource', () => {
             height: pageNumber === pageCount ? 500 : 792,
         }));
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageCount,
             getPageSize,
             previewSource: {
@@ -48,7 +49,7 @@ describe('createPagePreviewDocumentSource', () => {
     it('adapts native preview metrics and leased surfaces to IDocumentPageSource', async () => {
         const revokeObjectURL = vi.fn();
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageSizes: [{
                 width: 612,
                 height: 792,
@@ -88,7 +89,7 @@ describe('createPagePreviewDocumentSource', () => {
             renderedPx: 180,
         }));
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageSizes: [{
                 width: 500,
                 height: 700,
@@ -118,7 +119,7 @@ describe('createPagePreviewDocumentSource', () => {
     it('cancels the matching native request when its page render is aborted', async () => {
         const cancelPagePreview = vi.fn();
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageSizes: [{
                 width: 500,
                 height: 700,
@@ -150,7 +151,7 @@ describe('createPagePreviewDocumentSource', () => {
         const detachInvalidation = vi.fn();
         const revokeObjectURL = vi.fn();
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageSizes: [{
                 width: 612,
                 height: 792,
@@ -195,7 +196,7 @@ describe('createPagePreviewDocumentSource', () => {
             promotePriority,
         }));
         const source = createPagePreviewDocumentSource({
-            documentRef: '/tmp/document.pdf',
+            documentRef: requireDocumentRef('/tmp/document.pdf'),
             pageSizes: [{
                 width: 612,
                 height: 792,

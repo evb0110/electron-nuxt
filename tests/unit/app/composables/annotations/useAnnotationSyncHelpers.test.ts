@@ -25,6 +25,7 @@ import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotati
 import { resolveMarkupSubtypeOverrideRegistration } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveMarkupSubtypeOverrideRegistration';
 import { safeReadEditorData } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/safeReadEditorData';
 import { tryExtractPdfLinkAnnotation } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/tryExtractPdfLinkAnnotation';
+import {requirePageNumber} from '@contracts/pageNumbers';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,
@@ -325,7 +326,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                     10,
                 ],
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -345,7 +346,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                     50,
                 ],
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -378,7 +379,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                     50,
                 ],
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -392,7 +393,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                 id: 'l-1',
                 url: 'https://example.com',
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -411,7 +412,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                     50,
                 ],
             },
-            3,
+            requirePageNumber(3),
             7,
             pageView,
             0,
@@ -434,7 +435,7 @@ describe('useAnnotationSync helpers / tryExtractPdfLinkAnnotation', () => {
                     50,
                 ],
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -465,7 +466,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            5,
+            requirePageNumber(5),
             0,
             pageView,
             0,
@@ -499,7 +500,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            5,
+            requirePageNumber(5),
             0,
             pageView,
             0,
@@ -532,7 +533,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 subtype: 'Popup',
                 contents: 'real note',
             },
-            1,
+            requirePageNumber(1),
             2,
             pageView,
             0,
@@ -569,7 +570,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 pageView,
                 pageRotation: 0,
             },
-            1,
+            requirePageNumber(1),
             summaryDeps,
             comments,
             links,
@@ -657,7 +658,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 pageView,
                 pageRotation: 0,
             },
-            1,
+            requirePageNumber(1),
             summaryDeps,
             comments,
             links,
@@ -724,7 +725,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 id: 'p-3',
                 subtype: 'Popup',
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -753,7 +754,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 subtype: 'Popup',
                 contents: 'note',
             },
-            1,
+            requirePageNumber(1),
             0,
             [
                 0,
@@ -791,7 +792,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 subtype: 'Popup',
                 contents: 'note',
             },
-            1,
+            requirePageNumber(1),
             0,
             [
                 0,
@@ -822,7 +823,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 contents: 'visible text',
             },
             null,
-            1,
+            requirePageNumber(1),
             0,
             [
                 0,
@@ -852,7 +853,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -875,7 +876,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            7,
+            requirePageNumber(7),
             3,
             pageView,
             0,
@@ -900,7 +901,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -951,7 +952,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -1018,7 +1019,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 ],
             },
             null,
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -1073,7 +1074,7 @@ describe('useAnnotationSync helpers / buildPdfAnnotationCommentSummary', () => {
                 subtype: 'Popup',
                 title: 'Bob',
             },
-            1,
+            requirePageNumber(1),
             0,
             pageView,
             0,
@@ -1130,7 +1131,7 @@ describe('useAnnotationSync helpers / collectPagePdfSnapshotEntries', () => {
                 pageView,
                 pageRotation: 0,
             },
-            2,
+            requirePageNumber(2),
             summaryDeps,
             comments,
             links,
@@ -1162,7 +1163,7 @@ describe('useAnnotationSync helpers / collectPagePdfSnapshotEntries', () => {
                 pageView,
                 pageRotation: 0,
             },
-            1,
+            requirePageNumber(1),
             summaryDeps,
             comments,
             links,
@@ -1324,7 +1325,7 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         };
         const doc = {getPage: vi.fn(async () => page)};
 
-        const result = await __test__.loadPdfPageAnnotations(doc as never, 1);
+        const result = await __test__.loadPdfPageAnnotations(doc as never, requirePageNumber(1));
 
         expect(result?.annotations).toEqual([{id: 'a-1'}]);
         expect(cleanup).toHaveBeenCalledTimes(1);
@@ -1348,7 +1349,7 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
 
         const result = await __test__.loadPdfPageAnnotations(
             doc as never,
-            1,
+            requirePageNumber(1),
             undefined,
             {leasePage: vi.fn(async () => ({
                 page: page as never,
@@ -1384,7 +1385,11 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
             'evb-markup:stable',
         ]]);
 
-        const result = await __test__.loadPdfPageAnnotations(doc as never, 1, annotationNames);
+        const result = await __test__.loadPdfPageAnnotations(
+            doc as never,
+            requirePageNumber(1),
+            annotationNames,
+        );
 
         expect(result?.annotations).toEqual([
             {
@@ -1412,7 +1417,7 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         };
         const doc = {getPage: vi.fn(async () => page)};
 
-        const result = await __test__.loadPdfPageAnnotations(doc as never, 1);
+        const result = await __test__.loadPdfPageAnnotations(doc as never, requirePageNumber(1));
 
         expect(result?.annotations).toHaveLength(10_001);
         expect(cleanup).toHaveBeenCalledOnce();
@@ -1428,7 +1433,8 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
         };
         const doc = {getPage: vi.fn(async () => page)};
 
-        await expect(__test__.loadPdfPageAnnotations(doc as never, 1)).resolves.toBeNull();
+        await expect(__test__.loadPdfPageAnnotations(doc as never, requirePageNumber(1)))
+            .resolves.toBeNull();
         expect(cleanup).toHaveBeenCalledTimes(1);
     });
 
@@ -1446,7 +1452,7 @@ describe('useAnnotationSync helpers / loadPdfPageAnnotations', () => {
 
         await expect(__test__.loadPdfPageAnnotations(
             doc as never,
-            1,
+            requirePageNumber(1),
             undefined,
             {
                 leasePage,

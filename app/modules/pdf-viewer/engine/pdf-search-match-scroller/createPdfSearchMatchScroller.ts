@@ -1,7 +1,16 @@
 import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+
+import type {
     IPdfSearchExcerpt,
     ISearchMatchOptions,
 } from '@contracts/search';
+import {
+    pageIndexToPageNumber,
+    requirePageIndex,
+} from '@contracts/pageNumbers';
 import type {IScrollToPageOptions} from '@app/modules/pdf-viewer/engine/pdf-outline-navigation/scrollToPageOptions';
 
 interface ICurrentSearchMatchWord {
@@ -12,7 +21,7 @@ interface ICurrentSearchMatchWord {
 }
 
 interface ICurrentSearchMatch {
-    pageIndex: number;
+    pageIndex: TPageIndex;
     pageMatchIndex?: number | undefined;
     matchIndex?: number | undefined;
     startOffset?: number | undefined;
@@ -20,7 +29,7 @@ interface ICurrentSearchMatch {
     excerpt?: IPdfSearchExcerpt | undefined;
     pageWidth?: number | undefined;
     pageHeight?: number | undefined;
-    words?: ICurrentSearchMatchWord[] | undefined;
+    words?: readonly ICurrentSearchMatchWord[] | undefined;
 }
 
 interface ICurrentSearchPageMatches {
@@ -41,48 +50,47 @@ type ISearchNavigationTargetOptions = Pick<IScrollToPageOptions, 'markerRect' | 
 interface IPdfSearchMatchScrollerDeps {
     getContainer: () => HTMLElement | null;
     getCurrentSearchMatch: () => ICurrentSearchMatch | null;
-    getCurrentSearchPageMatches?: (pageIndex: number) => ICurrentSearchPageMatches | null;
+    getCurrentSearchPageMatches?: (pageIndex: TPageIndex) => ICurrentSearchPageMatches | null;
     scrollToCurrentMatch: () => boolean;
-    scheduleRenderForSinglePage: (pageNumber: number) => void;
+    scheduleRenderForSinglePage: (pageNumber: TPageNumber) => void;
     scrollToPage?: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: {
             preferExactDom?: boolean;
             navigationSource?: 'search';
         } & ISearchNavigationTargetOptions,
     ) => void;
     suppressSnap?: () => void;
-    beginSearchNavigation?: (pageNumber: number) => void;
+    beginSearchNavigation?: (pageNumber: TPageNumber) => void;
     revealSearchNavigationTarget?: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: ISearchNavigationTargetOptions,
     ) => void;
     endSearchNavigation?: (settleMs?: number) => void;
     beginSearchTransaction?: (
-        pageNumber: number,
+        pageNumber: TPageNumber,
         options?: ISearchNavigationTargetOptions,
     ) => number | null;
     isSearchTransactionCurrent?: (transactionId: number) => boolean;
     settleSearchTransaction?: (transactionId: number) => void;
     cancelSearchTransaction?: (transactionId: number) => void;
-    isPageRenderPending?: (pageNumber: number) => boolean;
+    isPageRenderPending?: (pageNumber: TPageNumber) => boolean;
 }
 
 function clampRatio(value: number) {
     return Math.min(1, Math.max(0, value));
 }
 
-function arePageMatchesInSearchOrder(pageMatches: ICurrentSearchPageMatches | null) {
-    const matches = pageMatches?.matches;
-    return matches !== undefined && matches.every((match, index) => (
-        index === 0
-        || match.start >= matches[index - 1]!.start
-    ));
+function isInSearchOrder(matches: ReadonlyArray<{start: number}>) {
+    return matches.every((match, index) => {
+        const previous = matches[index - 1];
+        return previous === undefined || match.start >= previous.start;
+    });
 }
 
 function resolveCurrentMatchMarkerRect(
     currentMatch: ICurrentSearchMatch | null,
-    targetPageIndex: number,
+    targetPageIndex: TPageIndex,
 ): ICurrentSearchMatchMarkerRect | null {
     if (
         !currentMatch
@@ -120,7 +128,7 @@ function resolveCurrentMatchMarkerRect(
 
 function resolveCurrentMatchTextAnchor(
     currentMatch: ICurrentSearchMatch | null,
-    targetPageIndex: number,
+    targetPageIndex: TPageIndex,
     pageMatches: ICurrentSearchPageMatches | null,
 ): IScrollToPageOptions['textAnchor'] {
     const excerpt = currentMatch?.excerpt;
@@ -140,8 +148,9 @@ function resolveCurrentMatchTextAnchor(
         return null;
     }
 
-    const expectedPageMatchCount = arePageMatchesInSearchOrder(pageMatches)
-        ? pageMatches!.matches!.length
+    const orderedMatches = pageMatches?.matches;
+    const expectedPageMatchCount = orderedMatches !== undefined && isInSearchOrder(orderedMatches)
+        ? orderedMatches.length
         : undefined;
     return {
         text: excerpt.match,
@@ -177,16 +186,17 @@ export function createPdfSearchMatchScroller(deps: IPdfSearchMatchScrollerDeps) 
             return;
         }
         const requestGeneration = generation;
-        const pageNumber = matchPageIndex + 1;
+        const pageIndex = requirePageIndex(matchPageIndex);
+        const pageNumber = pageIndexToPageNumber(pageIndex);
         const currentMatch = deps.getCurrentSearchMatch();
-        const pageMatches = deps.getCurrentSearchPageMatches?.(matchPageIndex) ?? null;
+        const pageMatches = deps.getCurrentSearchPageMatches?.(pageIndex) ?? null;
         const markerRect = resolveCurrentMatchMarkerRect(
             currentMatch,
-            matchPageIndex,
+            pageIndex,
         );
         const textAnchor = markerRect
             ? null
-            : resolveCurrentMatchTextAnchor(currentMatch, matchPageIndex, pageMatches);
+            : resolveCurrentMatchTextAnchor(currentMatch, pageIndex, pageMatches);
         const navigationOptions = markerRect
             ? {markerRect}
             : textAnchor

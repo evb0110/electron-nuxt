@@ -13,7 +13,10 @@ import { hasWorkspaceViewerDocumentCapabilities } from '@app/modules/workspace-s
 import type { IEditorPaneState } from '@contracts/editorPanes';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceExpose } from '@app/types/workspaceExpose';
-import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
 import {
     getDocumentFilesCapability,
@@ -146,10 +149,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
             return false;
         }
 
-        const snapshot = record?.toolbarSnapshot;
-        return hasWorkspaceViewerDocumentCapabilities(snapshot?.viewerCapabilities)
-            || snapshot?.isOpeningDocument === true
-            || snapshot?.hasOpenError === true
+        const snapshot = record.toolbarSnapshot;
+        return hasWorkspaceViewerDocumentCapabilities(snapshot.viewerCapabilities)
+            || snapshot.isOpeningDocument === true
+            || snapshot.hasOpenError === true
             || record.documentIdentity !== null
             || tabHasDocumentHint(record.tab);
     }
@@ -257,9 +260,10 @@ export const useAppShellWorkspaceRouting = (options: IUseAppShellWorkspaceRoutin
     }
 
     function normalizeOpenPaths(paths: TDocumentRef[]) {
-        return uniq(paths
-            .map(path => path.trim())
-            .filter(path => path.length > 0));
+        return uniq(paths.flatMap((path) => {
+            const parsed = parseDocumentRef(path.trim());
+            return parsed === null ? [] : [parsed];
+        }));
     }
 
     async function resolveWorkspaceForTab(tabId: string | null) {

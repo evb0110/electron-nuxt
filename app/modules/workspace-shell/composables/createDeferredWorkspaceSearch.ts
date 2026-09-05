@@ -26,16 +26,12 @@ export function createDeferredWorkspaceSearch<TIdentity, TOptions>(options: {
             tabId: options.tabId,
             ...options.readDiagnostics(),
         });
-        let settleFinished = false;
         const settlePromise = options.waitForDocumentOpenSettled()
             .catch((error) => {
                 BrowserLogger.warn('pdf-search', 'Document open settle wait failed before search', {
                     tabId: options.tabId,
                     error: getErrorMessage(error),
                 });
-            })
-            .finally(() => {
-                settleFinished = true;
             });
         const deadline = Date.now() + options.timeoutMs;
         while (Date.now() < deadline) {
@@ -45,12 +41,10 @@ export function createDeferredWorkspaceSearch<TIdentity, TOptions>(options: {
             if (options.isReady()) {
                 return true;
             }
-            const didContinue = settleFinished
-                ? await poll.wait()
-                : await Promise.race([
-                    settlePromise,
-                    poll.wait(),
-                ]);
+            const didContinue = await Promise.race([
+                settlePromise,
+                poll.wait(),
+            ]);
             if (didContinue === false) {
                 return false;
             }

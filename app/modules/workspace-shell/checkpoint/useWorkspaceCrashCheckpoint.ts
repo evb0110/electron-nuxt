@@ -11,6 +11,7 @@ import { buildWorkspaceCheckpointChangeSignature } from '@app/modules/workspace-
 import { getWindowTabsCapability } from '@app/utils/platformWindowTabs';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { getErrorMessage } from '@app/utils/error';
 import { getPerformanceProfile } from '@app/utils/performanceProfile';
 import type { IWorkspaceCheckpoint } from '@contracts/workspaceCheckpoint';
 import { resolveDocumentSavePerformanceTier } from '@contracts/hostResourceProfile';
@@ -72,7 +73,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
         if (firstError !== undefined) {
             throw firstError instanceof Error
                 ? firstError
-                : new Error(String(firstError));
+                : new Error(getErrorMessage(firstError));
         }
     }
 
@@ -100,7 +101,7 @@ export const useWorkspaceCrashCheckpoint = (options: IUseWorkspaceCrashCheckpoin
     }
 
     function hasDirtyTabs() {
-        return options.tabs?.value?.some(tab => tab.isDirty) ?? false;
+        return options.tabs.value.some(tab => tab.isDirty);
     }
 
     function scheduleCheckpoint(delayMs = debounceMs, onlyIfDirty = false) {

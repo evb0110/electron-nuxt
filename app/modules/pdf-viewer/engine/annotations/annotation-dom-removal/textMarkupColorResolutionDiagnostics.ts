@@ -1,3 +1,5 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 
 
 type TTextMarkupColorResolutionSource =
@@ -18,7 +20,7 @@ export interface ITextMarkupColorResolutionDiagnostics {
     color: string | null;
     element: string | null;
     fallbackSource?: TTextMarkupColorResolutionSource | null;
-    pageNumber: number | null;
+    pageNumber: TPageNumber | null;
     pointElementCount?: number;
     source: TTextMarkupColorResolutionSource;
     subtype: string | null;

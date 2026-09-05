@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+
 import { syncPdfjsCommentMarkerAnchor } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import type {
     IAnnotationCommentSummary,
@@ -100,7 +102,7 @@ export const useAnnotationMutationService = (
         if (!annotationId) {
             return false;
         }
-        options.deleteCanonicalAnnotation?.(annotationId);
+        options.deleteCanonicalAnnotation(annotationId);
         return true;
     }
 
@@ -215,12 +217,13 @@ export const useAnnotationMutationService = (
             ...comment,
             color: input.color,
         };
+        const pageNumber = requirePageNumber(projectedComment.pageNumber);
         if (result.shouldApplyTextMarkupColor) {
             visualEffects.enqueue({
                 kind: 'text-markup-color',
                 stableKey: projectedComment.stableKey,
                 annotationId: projectedComment.annotationId,
-                pageNumber: projectedComment.pageNumber,
+                pageNumber,
                 commentSnapshot: projectedComment,
                 color: input.color,
                 sourceColor: result.sourceColor,
@@ -231,7 +234,7 @@ export const useAnnotationMutationService = (
                 kind: 'render-page-text-markup',
                 stableKey: projectedComment.stableKey,
                 annotationId: projectedComment.annotationId,
-                pageNumber: projectedComment.pageNumber,
+                pageNumber,
                 commentSnapshot: projectedComment,
             });
         }
@@ -252,11 +255,12 @@ export const useAnnotationMutationService = (
         if (hasPendingAnnotationDomRemoval(comment)) {
             return;
         }
+        const pageNumber = requirePageNumber(comment.pageNumber);
         visualEffects.enqueue({
             kind: 'annotation-dom-removal',
             stableKey: comment.stableKey,
             annotationId: comment.annotationId,
-            pageNumber: comment.pageNumber,
+            pageNumber,
             commentSnapshot: comment,
         });
     }

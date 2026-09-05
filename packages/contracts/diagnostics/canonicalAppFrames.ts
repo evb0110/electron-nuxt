@@ -138,7 +138,7 @@ function isTrustedOriginHost(hostname: string) {
         return true;
     }
     try {
-        return globalThis.location?.hostname?.toLowerCase() === normalized;
+        return globalThis.location.hostname.toLowerCase() === normalized;
     } catch {
         return false;
     }
@@ -413,7 +413,8 @@ function parseObjectFrame(value: Record<string, unknown>): ParsedStackFrame | nu
             'url',
         ]
             .filter(key => Object.hasOwn(value, key));
-        if (sourceKeys.length !== 1) {
+        const [sourceKey] = sourceKeys;
+        if (sourceKey === undefined || sourceKeys.length > 1) {
             return null;
         }
         const functionKeys = [
@@ -431,11 +432,14 @@ function parseObjectFrame(value: Record<string, unknown>): ParsedStackFrame | nu
         if (functionKeys.length > 1 || lineKeys.length > 1 || columnKeys.length > 1) {
             return null;
         }
+        const [functionKey] = functionKeys;
+        const [lineKey] = lineKeys;
+        const [columnKey] = columnKeys;
         return {
-            source: value[sourceKeys[0]!],
-            ...(functionKeys.length === 0 ? {} : {functionName: value[functionKeys[0]!] }),
-            ...(lineKeys.length === 0 ? {} : {line: value[lineKeys[0]!] }),
-            ...(columnKeys.length === 0 ? {} : {column: value[columnKeys[0]!] }),
+            source: value[sourceKey],
+            ...(functionKey === undefined ? {} : {functionName: value[functionKey]}),
+            ...(lineKey === undefined ? {} : {line: value[lineKey]}),
+            ...(columnKey === undefined ? {} : {column: value[columnKey]}),
         };
     } catch {
         return null;

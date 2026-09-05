@@ -109,9 +109,9 @@ function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContents
     }
 
     const cleanup = () => {
-        owner.removeListener?.('destroyed', cleanup);
-        owner.removeListener?.('render-process-gone', cleanup);
-        owner.removeListener?.('did-start-navigation', handleNavigation);
+        owner.removeListener('destroyed', cleanup);
+        owner.removeListener('render-process-gone', cleanup);
+        owner.removeListener('did-start-navigation', handleNavigation);
         removeAllowedDjvuWritePathsForOwner(ownerWebContentsId);
     };
     function handleNavigation(
@@ -128,7 +128,7 @@ function registerOwnerCleanup(owner: TDjvuWriteCapabilityOwner, ownerWebContents
     ownerCleanupRegistered.add(ownerWebContentsId);
     owner.once('destroyed', cleanup);
     owner.once('render-process-gone', cleanup);
-    owner.on?.('did-start-navigation', handleNavigation);
+    owner.on('did-start-navigation', handleNavigation);
 }
 
 export function allowDjvuWritePath(filePath: string, owner?: TDjvuWriteCapabilityOwner) {

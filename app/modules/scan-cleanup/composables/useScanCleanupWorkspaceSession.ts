@@ -1,4 +1,5 @@
 import type {TDocumentRef} from '@contracts/documentRef';
+import {requirePageNumber} from '@contracts/pageNumbers';
 import type {TScanCleanupPageOutputMapping} from '@contracts/scan-cleanup/domain';
 import type {
     IScanCleanupPagePlanEvidence,
@@ -79,9 +80,7 @@ interface IUseScanCleanupWorkspaceSessionOptions {
 
 export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspaceSessionOptions) => {
     const initialPreviewPage = Math.max(1, Math.trunc(options.initialPreviewPage?.() ?? options.currentPage()));
-    const ownerId = options.ownerId?.()
-        ?? globalThis.crypto?.randomUUID?.()
-        ?? `scan-cleanup-owner-${Date.now()}-${Math.random()}`;
+    const ownerId = options.ownerId?.() ?? globalThis.crypto.randomUUID();
     const sourcePath = computed(options.sourcePath);
     const totalPages = computed(options.totalPages);
     const legacyDocumentKey = computed(() => options.documentKey() ?? sourcePath.value);
@@ -158,7 +157,10 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         }
         const metadataByPage = detection.sourcePageMetadataByPage.value;
         const included = [...detection.pagePlanEvidenceByPage].filter(
-            ([pageNumber]) => !getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber).excluded,
+            ([pageNumber]) => !getScanCleanupPageOverride(
+                cleanupOptions.pageOverrides,
+                requirePageNumber(pageNumber),
+            ).excluded,
         );
         const referenceHeightPoints = resolveScanCleanupInkReferenceHeightPoints(
             included.map(([pageNumber]) => pageNumber),
@@ -173,7 +175,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             pageNumber,
             evidence,
         ] of included) {
-            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, pageNumber);
+            const brandedPageNumber = requirePageNumber(pageNumber);
+            const pageOverride = getScanCleanupPageOverride(cleanupOptions.pageOverrides, brandedPageNumber);
             const sheetHeightPoints = resolveScanCleanupSheetHeightPoints(metadataByPage.get(pageNumber));
             const measured = referenceHeightPoints > 0 && sheetHeightPoints > 0;
             everySheetMeasured &&= measured;
@@ -184,7 +187,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
                     continue;
                 }
                 samples.push({
-                    pageNumber,
+                    pageNumber: brandedPageNumber,
                     half,
                     yNormalized: box.yNormalized * scale,
                 });
@@ -258,7 +261,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         active: options.active,
         authoritativeLayoutByPage: detection.authoritativeLayoutByPage,
         beforeRun: async () => {
-            await previewResult?.pauseForRun();
+            await previewResult.pauseForRun();
             await options.beforeRun?.();
         },
         detectionError: detection.error,
@@ -273,7 +276,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
         onCompleted: settings.dismissFirstRunGuidance,
         ownerId,
         placementAnchorsByPage,
-        previewTotalPages: () => previewResult?.totalPages.value ?? Math.max(1, totalPages.value),
+        previewTotalPages: () => previewResult.totalPages.value,
         resolvePagePlanEvidence,
         sourcePageNumbers: computed(() => {
             if (selection.settingsScope.value === 'all') {
@@ -303,7 +306,7 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
     const runPreviewRefreshPages = new Set<number>();
     watch(run.isRunning, (running, wasRunning) => {
         if (wasRunning && !running) {
-            previewResult?.schedule();
+            previewResult.schedule();
         }
     });
     watch([
@@ -323,8 +326,8 @@ export const useScanCleanupWorkspaceSession = (options: IUseScanCleanupWorkspace
             return;
         }
         runPreviewRefreshPages.add(pageNumber);
-        if (!previewResult?.resultCurrent.value) {
-            previewResult?.schedule();
+        if (!previewResult.resultCurrent.value) {
+            previewResult.schedule();
         }
     });
     // Preview has its own immediate activity watcher. Detection is a main-side

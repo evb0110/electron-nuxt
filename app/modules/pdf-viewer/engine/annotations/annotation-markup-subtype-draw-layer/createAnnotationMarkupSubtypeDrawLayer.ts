@@ -45,7 +45,11 @@ function parseCssPercent(value: string) {
     if (!match) {
         return null;
     }
-    const parsed = Number.parseFloat(match[1]!);
+    const percent = match[1];
+    if (percent === undefined) {
+        return null;
+    }
+    const parsed = Number.parseFloat(percent);
     return Number.isFinite(parsed) ? parsed / 100 : null;
 }
 
@@ -101,7 +105,6 @@ function resolveEditorPageDimensions(editor: IPdfjsEditor): [number, number] | n
     const dimensions = editor.pageDimensions;
     if (
         !dimensions
-        || dimensions.length < 2
         || !isFinitePositiveDimension(dimensions[0])
         || !isFinitePositiveDimension(dimensions[1])
     ) {

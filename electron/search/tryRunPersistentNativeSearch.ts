@@ -90,7 +90,7 @@ class PersistentNativeSearchService {
                 'pipe',
             ],
             windowsHide: true,
-        })) as ChildProcessWithoutNullStreams;
+        }));
         this.child.unref();
         this.exited = new Promise(resolve => this.child.once('exit', () => resolve()));
         this.ready = new Promise<void>((resolve, reject) => {
@@ -162,9 +162,12 @@ class PersistentNativeSearchService {
         }
         if (frame.type === 'ready') {
             if (frame.protocolVersion !== SEARCH_NATIVE_PROTOCOL_VERSION) {
+                const receivedProtocolVersion = typeof frame.protocolVersion === 'number'
+                    ? String(frame.protocolVersion)
+                    : '<missing>';
                 this.stop(new Error(
                     'Persistent native search service protocol mismatch: '
-                    + `expected ${SEARCH_NATIVE_PROTOCOL_VERSION}, got ${String(frame.protocolVersion ?? '<missing>')}`,
+                    + `expected ${SEARCH_NATIVE_PROTOCOL_VERSION}, got ${receivedProtocolVersion}`,
                 ));
                 return;
             }

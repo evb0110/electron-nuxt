@@ -369,7 +369,7 @@ function readWorkspaceToolbarSnapshot() {
     const openingPageCount = openingPreviewReady
         ? openingGeometry?.pageCount ?? 0
         : 0;
-    const openingPage = openingPreviewReady && openingPreview !== undefined
+    const openingPage = isOpeningDocument && openingPreview
         ? Math.min(
             Math.max(1, openingPreview.pageNumber),
             Math.max(1, openingPageCount),

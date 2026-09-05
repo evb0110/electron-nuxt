@@ -1,3 +1,5 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
     beforeEach,
@@ -119,15 +121,15 @@ describe('useOcrTextContent', () => {
         const first = useOcrTextContent();
         const second = useOcrTextContent();
 
-        await expect(first.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
-        await expect(first.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, createViewport())).resolves.not.toBeNull();
-        await expect(second.getOcrTextContent('/tmp/doc.pdf', TEST_DOCUMENT_REVISION, 1, createViewport())).resolves.not.toBeNull();
+        await expect(first.hasOcrData(requireDocumentRef('/tmp/doc.pdf'), TEST_DOCUMENT_REVISION)).resolves.toBe(true);
+        await expect(first.getOcrTextContent(requireDocumentRef('/tmp/doc.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), createViewport())).resolves.not.toBeNull();
+        await expect(second.getOcrTextContent(requireDocumentRef('/tmp/doc.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), createViewport())).resolves.not.toBeNull();
         expect(ocrCapability.resolveDocumentOcrAvailability).toHaveBeenCalledTimes(1);
         expect(ocrCapability.resolveDocumentOcrPage).toHaveBeenCalledTimes(1);
         expect(ocrCapability.resolveDocumentTextCatalog).not.toHaveBeenCalled();
 
-        first.clearCache('/tmp/doc.pdf');
-        await expect(second.hasOcrData('/tmp/doc.pdf', TEST_DOCUMENT_REVISION)).resolves.toBe(true);
+        first.clearCache(requireDocumentRef('/tmp/doc.pdf'));
+        await expect(second.hasOcrData(requireDocumentRef('/tmp/doc.pdf'), TEST_DOCUMENT_REVISION)).resolves.toBe(true);
         expect(ocrCapability.resolveDocumentOcrAvailability).toHaveBeenCalledTimes(2);
     });
 
@@ -141,8 +143,8 @@ describe('useOcrTextContent', () => {
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const reader = useOcrTextContent();
 
-        await expect(reader.hasPageOcrData('/tmp/large.pdf', TEST_DOCUMENT_REVISION, 406)).resolves.toBe(true);
-        await expect(reader.hasPageOcrData('/tmp/large.pdf', TEST_DOCUMENT_REVISION, 407)).resolves.toBe(false);
+        await expect(reader.hasPageOcrData(requireDocumentRef('/tmp/large.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(406))).resolves.toBe(true);
+        await expect(reader.hasPageOcrData(requireDocumentRef('/tmp/large.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(407))).resolves.toBe(false);
 
         expect(ocrCapability.resolveDocumentOcrAvailability).toHaveBeenCalledOnce();
         expect(ocrCapability.resolveDocumentOcrPage).not.toHaveBeenCalled();
@@ -160,7 +162,7 @@ describe('useOcrTextContent', () => {
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const reader = useOcrTextContent();
 
-        await expect(reader.hasPageOcrData('/tmp/large.pdf', TEST_DOCUMENT_REVISION, 900_000)).resolves.toBe(true);
+        await expect(reader.hasPageOcrData(requireDocumentRef('/tmp/large.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(900_000))).resolves.toBe(true);
         expect(ocrCapability.resolveDocumentOcrPage).toHaveBeenCalledWith(
             '/tmp/large.pdf',
             TEST_DOCUMENT_REVISION,
@@ -187,7 +189,7 @@ describe('useOcrTextContent', () => {
         ]));
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const textContent = await useOcrTextContent().getOcrTextContent(
-            '/tmp/mixed.pdf', TEST_DOCUMENT_REVISION, 1, createViewport(),
+            requireDocumentRef('/tmp/mixed.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), createViewport(),
         );
 
         expect(textContent?.items).toHaveLength(2);
@@ -216,7 +218,7 @@ describe('useOcrTextContent', () => {
         ]));
         const {useOcrTextContent} = await import('@app/modules/pdf-viewer/runtime/composables/pdf/useOcrTextContent');
         const textContent = await useOcrTextContent().getOcrTextContent(
-            '/tmp/fallback.pdf', TEST_DOCUMENT_REVISION, 1, createViewport(),
+            requireDocumentRef('/tmp/fallback.pdf'), TEST_DOCUMENT_REVISION, requirePageNumber(1), createViewport(),
         );
 
         expect(textContent?.items).toHaveLength(2);

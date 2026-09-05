@@ -2,6 +2,8 @@ import type {
     JsonObject,
     JsonValue,
 } from 'type-fest';
+import type {TSessionId} from '@contracts/shared';
+import type {TIsoTimestamp} from '@contracts/timestamps';
 
 export const ANALYTICS_EVENT_NAMES = [
     'viewer_session_started',
@@ -38,12 +40,13 @@ export interface IAnalyticsDocumentContext {
 
 export interface IAnalyticsEventEnvelope {
     name: TAnalyticsEventName;
-    occurredAt: string;
+    // Analytics is an external server wire format, so it keeps ISO text.
+    occurredAt: TIsoTimestamp;
     path: string;
     locale: string | null;
     referrer: string | null;
     screenCategory: TAnalyticsScreenCategory;
-    sessionId: string;
+    sessionId: TSessionId;
     payload: JsonObject;
 }
 

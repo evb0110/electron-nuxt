@@ -49,7 +49,7 @@ export const useWebSeo = (options: IUseWebSeoOptions = {}) => {
         ? 'noindex, nofollow'
         : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
 
-    useServerSeoMeta({
+    useSeoMeta({
         title: () => t('seo.title'),
         description: () => t('seo.description'),
         applicationName: () => t('app.webTitle'),

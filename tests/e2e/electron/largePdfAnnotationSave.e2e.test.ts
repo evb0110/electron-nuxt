@@ -44,6 +44,11 @@ import {
     type IPdfAnnotationIndexEntry,
     type IPdfAnnotationIndexSession,
 } from '@contracts/electronApiDocuments';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 import type {ITypedStagedArtifact} from '@contracts/stagedArtifacts';
 import {
     copyLargePdfFixture,
@@ -920,7 +925,7 @@ async function readDocumentSaveIdentity(page: Page) {
         if (!documentFiles) {
             throw new Error('Document file capability is unavailable in the renderer');
         }
-        const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({requiredProperties: ['workingCopyPath']}) as {workingCopyPath?: string | null} | null;
+        const workspace = (window as IWorkspaceExposeProbeWindow).__evbFindWorkspaceExpose?.({requiredProperties: ['workingCopyPath']}) as {workingCopyPath?: TDocumentRef | null} | null;
         const workingCopyPath = workspace?.workingCopyPath ?? null;
         if (!workingCopyPath) {
             throw new Error('The restored workspace has no path-backed working copy');
@@ -1290,9 +1295,10 @@ async function readBoundedAnnotationIndex(
     documentPath: string,
     expectedRevisionToken?: string,
 ): Promise<IAnnotationIndexRead> {
+    const documentRef = requireDocumentRef(documentPath);
     const result = await page.evaluate(async (input: {
         chunkBytes: number;
-        documentPath: string;
+        documentPath: TDocumentRef;
         payloadBudget: number;
     }) => {
         const documentFiles = window.electronAPI?.documentFiles;
@@ -1359,7 +1365,7 @@ async function readBoundedAnnotationIndex(
         };
     }, {
         chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath,
+        documentPath: documentRef,
         payloadBudget: IPC_PAYLOAD_MAX_BYTES,
     });
     const read = result as IAnnotationIndexRead;
@@ -2646,7 +2652,7 @@ async function _placePageNote(
         throw new Error(`Large PDF note editor did not open: ${JSON.stringify({
             point,
             debugState,
-            cause: error instanceof Error ? error.message : String(error),
+            cause: getErrorMessage(error),
         })}`);
     }
     const startedAt = Date.now();
@@ -3281,7 +3287,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
             throw new Error(`Large PDF save failed after visible pointer input: ${JSON.stringify({
                 debugState,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         expect(Date.now() - saveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
@@ -3320,7 +3326,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             const debugState = await collectLargePdfAnnotationDebugState(page).catch(() => null);
             throw new Error(`Second large PDF save failed after visible pointer input: ${JSON.stringify({
                 debugState,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         expect(Date.now() - secondSaveStartedAt).toBeLessThan(LARGE_PDF_SAVE_TIMEOUT_MS);
@@ -4141,7 +4147,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             throw new Error(`FreeText save frontier did not become ready: ${JSON.stringify({
                 debugState,
                 editorState,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
 
@@ -4282,7 +4288,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
                 editorHydrationDebugState,
                 editorHydrationDomState,
                 failedEditorDebugState,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         expect(secondFreeTextCount).toBeGreaterThan(0);
@@ -4314,7 +4320,7 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             throw new Error(`Restored FreeText save frontier did not become ready: ${JSON.stringify({
                 failedFrontierDebugState,
                 failedFrontierDomState,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         const secondAgentSaveResult = await saveLargePdfViaAgentAction(restartedPage);
@@ -4391,13 +4397,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             );
         } catch (error) {
             const liveState = await readOrdinaryFreeTextLiveState(freshSession.page, text)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(freshSession.page)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             throw new Error(`Ordinary FreeText first save failed: ${JSON.stringify({
                 liveState,
                 domDiagnostics,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         expect(realpathSync(String(firstSaveEvent.detail.path))).toBe(fixtureRealPath);
@@ -4422,14 +4428,14 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(freshSession.page).catch(() => null);
             const liveState = await readOrdinaryFreeTextLiveState(freshSession.page, text)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(freshSession.page)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             throw new Error(`Ordinary FreeText did not remain in the canonical/sidebar projection after save: ${JSON.stringify({
                 debugState,
                 liveState,
                 domDiagnostics,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         const firstPersistedMatches = await readBoundedOrdinaryFreeTextMatches(
@@ -4487,14 +4493,14 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
         } catch (error) {
             const debugState = await collectLargePdfAnnotationDebugState(reopenedSession.page).catch(() => null);
             const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             throw new Error(`Ordinary FreeText did not rehydrate into the canonical/sidebar projection: ${JSON.stringify({
                 debugState,
                 liveState,
                 domDiagnostics,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         const restoredComment = restoredState.canonicalMatches[0];
@@ -4509,13 +4515,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             await clickSidebarDeleteForText(reopenedSession.page, text);
         } catch (error) {
             const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             throw new Error(`Ordinary FreeText sidebar delete control was not found: ${JSON.stringify({
                 liveState,
                 domDiagnostics,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         let deletedState: IOrdinaryFreeTextLiveState;
@@ -4532,13 +4538,13 @@ largePdfDescribe('Electron E2E - Large PDF Annotation Save', () => {
             );
         } catch (error) {
             const liveState = await readOrdinaryFreeTextLiveState(reopenedSession.page, text)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             const domDiagnostics = await readOrdinaryFreeTextDomDiagnostics(reopenedSession.page)
-                .catch(cause => ({error: cause instanceof Error ? cause.message : String(cause)}));
+                .catch(cause => ({error: getErrorMessage(cause)}));
             throw new Error(`Ordinary FreeText did not disappear from the annotation layer/canonical/sidebar projection: ${JSON.stringify({
                 liveState,
                 domDiagnostics,
-                cause: error instanceof Error ? error.message : String(error),
+                cause: getErrorMessage(error),
             })}`);
         }
         expect(deletedState.canonicalMatches).toHaveLength(0);

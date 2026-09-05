@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { TPdfOpeningViewportRejectionReason } from '@app/modules/pdf-viewer/runtime/viewport/reconcilePdfOpeningViewportCommit';
 import { BrowserLogger } from '@app/utils/browserLogger';
@@ -5,7 +8,7 @@ import { BrowserLogger } from '@app/utils/browserLogger';
 const OPENING_VIEWPORT_STALL_WARNING_MS = 5_000;
 
 interface IPdfOpeningViewportStallDiagnosticOptions {
-    captureCommitDiagnostics(pageNumber: number): unknown;
+    captureCommitDiagnostics(pageNumber: TPageNumber): unknown;
     getActiveIntent(): {
         readonly documentRevision: number;
         readonly id: string;
@@ -59,14 +62,14 @@ export function createPdfOpeningViewportStallDiagnostic(
             }
             reported = true;
             const activeIntent = options.getActiveIntent();
-            const pageNumber = snapshot?.committedRender?.pageNumber ?? viewport?.requestedPage ?? 1;
+            const pageNumber = requirePageNumber(snapshot.committedRender.pageNumber);
             BrowserLogger.warn('pdf-viewer', 'PDF opening viewport reconciliation remained blocked', {
                 rejectionReason: latestReason,
-                generation: snapshot?.generation ?? null,
-                surfacePhase: snapshot?.phase ?? null,
-                viewportLifecycle: viewport?.lifecycle ?? null,
-                requestedPage: viewport?.requestedPage ?? null,
-                committedRenderPage: snapshot?.committedRender?.pageNumber ?? null,
+                generation: snapshot.generation,
+                surfacePhase: snapshot.phase,
+                viewportLifecycle: viewport.lifecycle,
+                requestedPage: viewport.requestedPage,
+                committedRenderPage: snapshot.committedRender.pageNumber,
                 committedViewportPage: null,
                 activeIntentId: activeIntent?.id ?? null,
                 activeIntentKind: activeIntent?.kind ?? null,

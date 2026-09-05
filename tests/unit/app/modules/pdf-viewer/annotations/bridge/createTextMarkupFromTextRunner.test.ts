@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -63,7 +64,7 @@ describe('createTextMarkupFromTextRunner subtype resolution', () => {
         const harness = createRunnerHarness();
 
         const result = await harness.createTextMarkupFromText({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
             markup,
         });
@@ -80,7 +81,7 @@ describe('createTextMarkupFromTextRunner subtype resolution', () => {
         const harness = createRunnerHarness();
 
         const result = await harness.createTextMarkupFromText({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
             markup: cast<TAgentTextMarkupKind>('scribble'),
         });
@@ -94,7 +95,7 @@ describe('createTextMarkupFromTextRunner subtype resolution', () => {
         const harness = createRunnerHarness();
 
         const result = await harness.createTextMarkupFromText({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
         });
 

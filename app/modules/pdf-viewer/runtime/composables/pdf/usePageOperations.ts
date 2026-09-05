@@ -1,9 +1,14 @@
+import { getErrorMessage } from '@app/utils/error';
 import type { Ref } from 'vue';
 import { clamp } from 'es-toolkit/math';
 import type { ICropMargins } from '@app/types/crop';
 import type { TDocumentOperationKind } from '@app/types/documentOperationKind';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import {
+    createRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import type {IPdfBookmarkEntry} from '@contracts/pdfBookmarkEntry';
 import type {IPdfPageLabelRange} from '@contracts/pdfPageLabels';
 import type {
@@ -240,7 +245,7 @@ export const usePageOperations = (deps: {
         totalPages: number,
         afterPage: number,
         sourcePaths: TDocumentRef[],
-        requestId: string | undefined,
+        requestId: TRequestId | undefined,
         mutationOptions?: IPageOpsMutationOptions,
     ) {
         return mutationOptions
@@ -490,7 +495,7 @@ export const usePageOperations = (deps: {
                 failure,
                 title: getLocalizedError(options.errorKey),
             });
-            const errorMessage = e instanceof Error ? e.message : getLocalizedError(options.errorKey);
+            const errorMessage = e instanceof Error ? getErrorMessage(e) : getLocalizedError(options.errorKey);
             error.value = errorMessage;
             return recordOutcome<TResult>({
                 status: 'failed',
@@ -686,7 +691,7 @@ export const usePageOperations = (deps: {
     async function insertFileDetailed(totalPages: number, afterPage: number, sourcePaths: TDocumentRef[]) {
         const startedAt = Date.now();
         const requestId = sourcePaths.length > 1
-            ? `browser-page-op-insert-${crypto.randomUUID()}`
+            ? createRequestId('browser-page-op-insert')
             : undefined;
         const stopProgress = requestId
             ? getDocumentOpenCapability().onOpenDocumentDirectBatchProgress((progress) => {

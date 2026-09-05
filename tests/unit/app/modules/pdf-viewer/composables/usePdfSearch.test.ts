@@ -1,3 +1,4 @@
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     afterEach,
     beforeEach,
@@ -16,6 +17,7 @@ import type * as TimeoutConstants from '@app/constants/timeouts';
 import { SEARCH_DEBOUNCE_MS } from '@app/constants/timeouts';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import {requireDocumentRevisionToken} from '@contracts';
+import { cast } from '@tests/helpers/cast';
 
 interface IPdfSearchTestExcerpt {
     after: string;
@@ -113,7 +115,7 @@ async function flushToScheduledSearch() {
 
 async function createPdfSearch(options?: { documentRevisionToken?: Ref<TDocumentRevisionToken | null> }): Promise<IPdfSearchTestApi> {
     const { usePdfSearch } = await import('@app/modules/pdf-viewer/runtime/composables/usePdfSearch');
-    return usePdfSearch(options) as IPdfSearchTestApi;
+    return cast<IPdfSearchTestApi>(usePdfSearch(options));
 }
 
 describe('usePdfSearch', () => {
@@ -899,7 +901,7 @@ describe('usePdfSearch', () => {
             code: 'SEARCH_PATH_DENIED',
             message: 'Search path denied',
             retryable: false,
-            timestamp: 123,
+            timestamp: requireEpochMs(123),
         };
         mockSearch.run.mockRejectedValue(new Error(encodeSerializableErrorEnvelope(envelope)));
         const search = await createPdfSearch();

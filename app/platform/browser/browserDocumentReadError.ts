@@ -17,6 +17,5 @@ export class BrowserDocumentReadError extends Error {
 }
 
 export function isBrowserFullReadTooLargeError(error: unknown) {
-    return error instanceof BrowserDocumentReadError
-        && error.code === BROWSER_DOCUMENT_FULL_READ_TOO_LARGE;
+    return error instanceof BrowserDocumentReadError;
 }

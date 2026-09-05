@@ -1,4 +1,5 @@
 import type { IAgentAssistantStatus } from '@contracts/agent';
+import { requireIsoTimestamp } from '@contracts/timestamps';
 
 export function createAgentAssistantStatus(
     overrides: Partial<IAgentAssistantStatus> = {},
@@ -140,7 +141,7 @@ export function createAgentAssistantStatus(
             lastEventAtMs: null,
             usage: null,
         },
-        lastCheckedAt: '2026-06-02T00:00:00.000Z',
+        lastCheckedAt: requireIsoTimestamp('2026-06-02T00:00:00.000Z'),
         ...overrides,
     };
 }

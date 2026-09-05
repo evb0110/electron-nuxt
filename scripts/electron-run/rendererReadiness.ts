@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import puppeteer, {
     type Browser,
     type HTTPResponse,
@@ -37,9 +38,9 @@ export function isViteOptimizeDepError(error: unknown) {
         return false;
     }
     return error.name === 'ViteOptimizeDepError'
-        || error.message.includes(VITE_OPTIMIZE_DEP_ERROR_MARKER)
-        || error.message.includes('Outdated Optimize Dep')
-        || error.message.includes('optimize-dep');
+        || getErrorMessage(error).includes(VITE_OPTIMIZE_DEP_ERROR_MARKER)
+        || getErrorMessage(error).includes('Outdated Optimize Dep')
+        || getErrorMessage(error).includes('optimize-dep');
 }
 
 function createRendererReadinessError(message: string) {
@@ -53,8 +54,8 @@ export function isRendererReadinessError(error: unknown) {
         return false;
     }
     return error.name === RENDERER_READINESS_ERROR_NAME
-        || error.message.includes('Renderer readiness timeout')
-        || error.message.includes('Renderer startup timed out');
+        || getErrorMessage(error).includes('Renderer readiness timeout')
+        || getErrorMessage(error).includes('Renderer startup timed out');
 }
 
 export function isTransientPageContextError(error: unknown) {
@@ -62,10 +63,10 @@ export function isTransientPageContextError(error: unknown) {
         return false;
     }
 
-    return error.message.includes('Execution context was destroyed')
-        || error.message.includes('Attempted to use detached Frame')
-        || error.message.includes('Cannot find context with specified id')
-        || error.message.includes('Most likely the page has been closed');
+    return getErrorMessage(error).includes('Execution context was destroyed')
+        || getErrorMessage(error).includes('Attempted to use detached Frame')
+        || getErrorMessage(error).includes('Cannot find context with specified id')
+        || getErrorMessage(error).includes('Most likely the page has been closed');
 }
 
 async function checkHydration(page: Page) {
@@ -84,7 +85,6 @@ async function checkHydration(page: Page) {
 }
 
 export interface IRendererState {
-    bodyExists: boolean;
     openFileDirect: string;
     electronAPI: string;
     nuxtRootChildren: number;
@@ -100,13 +100,16 @@ function readRendererState(page: Page): Promise<IRendererState> {
             electronAPI?: unknown;
         };
         const nuxtEl = document.querySelector('#__nuxt');
+        // lib.dom declares document.body non-null, but this probe runs while the
+        // renderer may still be parsing, so query for the element instead.
+        const body = document.querySelector('body');
+        const bodyText = body === null ? '' : body.innerText.trim();
         return {
-            bodyExists: document.body !== null,
             openFileDirect: typeof automationWindow.__openFileDirect,
             electronAPI: typeof automationWindow.electronAPI,
             nuxtRootChildren: nuxtEl?.children.length ?? 0,
-            bodyTextLength: (document.body?.innerText ?? '').trim().length,
-            bodyTextSnippet: (document.body?.innerText ?? '').trim().replace(/\s+/g, ' ').slice(0, 240),
+            bodyTextLength: bodyText.length,
+            bodyTextSnippet: bodyText.replace(/\s+/g, ' ').slice(0, 240),
             url: window.location.href,
         };
     });
@@ -114,16 +117,14 @@ function readRendererState(page: Page): Promise<IRendererState> {
 
 export function classifyRendererBindingReadiness(state: IRendererState) {
     if (
-        state.bodyExists
-        && state.openFileDirect === 'function'
+        state.openFileDirect === 'function'
         && state.electronAPI === 'object'
         && state.nuxtRootChildren > 0
     ) {
         return 'ready' as const;
     }
     if (
-        state.bodyExists
-        && state.nuxtRootChildren > 0
+        state.nuxtRootChildren > 0
         && state.electronAPI !== 'object'
     ) {
         // Electron runs preload before page JavaScript. Once Nuxt has mounted,
@@ -200,7 +201,6 @@ async function waitForRendererBindings(
     let reloadCount = 0;
     let lastReloadAt = 0;
     let lastState: IRendererState = {
-        bodyExists: false,
         openFileDirect: 'undefined',
         electronAPI: 'undefined',
         nuxtRootChildren: 0,
@@ -242,7 +242,7 @@ async function waitForRendererBindings(
                 });
             } catch (error) {
                 if (!isTransientPageContextError(error) && !isNavigationAbortedError(error)) {
-                    console.log(`[Puppeteer] Renderer reload failed while recovering from transient dev-server error: ${error instanceof Error ? error.message : String(error)}`);
+                    console.log(`[Puppeteer] Renderer reload failed while recovering from transient dev-server error: ${getErrorMessage(error)}`);
                 }
             }
         }
@@ -366,7 +366,7 @@ function isNavigationAbortedError(error: unknown) {
     if (!(error instanceof Error)) {
         return false;
     }
-    return error.message.includes('net::ERR_ABORTED');
+    return getErrorMessage(error).includes('net::ERR_ABORTED');
 }
 
 async function waitForElectronPageTarget(cdpPort: number, timeoutMs = 30_000) {
@@ -429,7 +429,7 @@ async function connectPuppeteerWithRetries(browserWsUrl: string) {
             ]);
         } catch (error) {
             if (attempt === 0 || attempt === 4 || attempt === 9) {
-                const message = error instanceof Error ? error.message : String(error);
+                const message = getErrorMessage(error);
                 console.log(`[Puppeteer] CDP connect retry ${attempt + 1}/10: ${message}`);
             }
             await delay(500);

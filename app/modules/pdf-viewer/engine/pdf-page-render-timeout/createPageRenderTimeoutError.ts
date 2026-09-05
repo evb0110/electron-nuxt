@@ -1,10 +1,12 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {
     IPageRenderTimeoutError,
     TPageRenderStallStage,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/pdfPageRenderTimeoutTypes';
 
 export function createPageRenderTimeoutError(
-    pageNumber: number,
+    pageNumber: TPageNumber,
     stage: TPageRenderStallStage,
     timeoutMs: number,
 ): IPageRenderTimeoutError {

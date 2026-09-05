@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { effectScope } from 'vue';
+import { requireDocumentRef } from '@contracts/documentRef';
 import { useDocumentSourceSession } from '@app/modules/workspace-shell/document-sessions/useDocumentSourceSession';
 
 describe('useDocumentSourceSession', () => {
@@ -14,7 +15,7 @@ describe('useDocumentSourceSession', () => {
             throw new Error('Failed to create document source session');
         }
 
-        session.activateDocumentSource('djvu', '/books/source.djvu');
+        session.activateDocumentSource('djvu', requireDocumentRef('/books/source.djvu'));
 
         expect(session.sourceKind.value).toBe('djvu');
         expect(session.sourceRef.value).toBe('/books/source.djvu');
@@ -38,8 +39,8 @@ describe('useDocumentSourceSession', () => {
             throw new Error('Failed to create document source session');
         }
 
-        const older = session.activateDocumentSource('djvu', '/books/source.djvu');
-        const newer = session.activateDocumentSource('djvu', '/books/source.djvu');
+        const older = session.activateDocumentSource('djvu', requireDocumentRef('/books/source.djvu'));
+        const newer = session.activateDocumentSource('djvu', requireDocumentRef('/books/source.djvu'));
 
         expect(session.clearDocumentSource(older)).toBe(false);
         expect(session.captureDocumentSourceActivation()).toEqual(newer);

@@ -142,7 +142,7 @@ function runProjectAudit(project: IAuditProject) {
 
     if (result.status !== 0) {
         const detail = result.stderr.trim();
-        throw new Error(`${project.label} pnpm audit failed with exit code ${result.status}${detail === '' ? '' : `: ${detail}`}`);
+        throw new Error(`${project.label} pnpm audit failed with exit code ${result.status ?? '<unknown>'}${detail === '' ? '' : `: ${detail}`}`);
     }
 
     console.log(`${project.label} dependency audit passed (${summary.total} vulnerabilities).`);

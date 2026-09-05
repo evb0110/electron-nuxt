@@ -25,5 +25,5 @@ export function resolveCommentForDelete(options: IResolveCommentForDeleteOptions
 
     const annotationId = annotationIdForSummary(comment);
     const exactMatches = candidates.filter(candidate => annotationIdForSummary(candidate) === annotationId);
-    return exactMatches.length === 1 ? exactMatches[0]! : null;
+    return exactMatches.length === 1 ? exactMatches[0] ?? null : null;
 }

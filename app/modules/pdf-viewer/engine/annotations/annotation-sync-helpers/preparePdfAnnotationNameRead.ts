@@ -3,6 +3,10 @@ import {BrowserLogger} from '@app/utils/browserLogger';
 import {isNativeDocumentRef} from '@app/utils/documentRef';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
 import {
+    parseDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
     createPdfAnnotationIndexAdapter,
     type IPdfAnnotationIndexReader,
 } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/createPdfAnnotationIndexAdapter';
@@ -21,7 +25,7 @@ export interface IPdfAnnotationNameReadPreparation {
     annotationNameSkipReason: TAnnotationEnrichmentSkipReason | null;
 }
 
-function isNativePdfAnnotationSource(path: string | null | undefined) {
+function isNativePdfAnnotationSource(path: TDocumentRef | null | undefined) {
     return isNativeDocumentRef(path);
 }
 
@@ -32,7 +36,7 @@ export function resolvePdfAnnotationInteractiveEligibility(
 ): IAnnotationEnrichmentEligibility {
     // Native annotation indexing is a pull-based structural read. Its
     // thresholds are scheduling budgets, not reasons to decline a read.
-    if (isNativePdfAnnotationSource(sourcePath)) {
+    if (isNativePdfAnnotationSource(parseDocumentRef(sourcePath))) {
         return {
             allowed: true,
             reason: null,
@@ -43,7 +47,7 @@ export function resolvePdfAnnotationInteractiveEligibility(
 
 export async function preparePdfAnnotationNameRead(options: {
     doc: PDFDocumentProxy;
-    sourcePath: string | null;
+    sourcePath: string | null | undefined;
     revision: TDocumentRevisionToken | null;
     resolveRequest: () => IAnnotationEnrichmentRequest;
 }): Promise<IPdfAnnotationNameReadPreparation> {
@@ -53,8 +57,9 @@ export async function preparePdfAnnotationNameRead(options: {
         revision,
         sourcePath,
     } = options;
-    const nativePdfSource = isNativePdfAnnotationSource(sourcePath);
-    const nativeIndexAdapter = createPdfAnnotationIndexAdapter(sourcePath);
+    const parsedSourcePath = parseDocumentRef(sourcePath);
+    const nativePdfSource = isNativePdfAnnotationSource(parsedSourcePath);
+    const nativeIndexAdapter = createPdfAnnotationIndexAdapter(parsedSourcePath);
     if (nativeIndexAdapter) {
         try {
             return {

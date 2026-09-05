@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -81,7 +82,7 @@ describe('singlePageScrollGeometry', () => {
 
         expect(getPageRowGeometry({
             container,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             totalPages: 3,
             viewMode: 'facing',
         })).toEqual({
@@ -90,7 +91,7 @@ describe('singlePageScrollGeometry', () => {
         });
         expect(getPageScrollBounds({
             container,
-            pageNumber: 2,
+            pageNumber: requirePageNumber(2),
             scaledMargin: 20,
             totalPages: 3,
             viewMode: 'facing',

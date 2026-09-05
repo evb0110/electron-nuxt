@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -149,7 +150,7 @@ function createEntry(
 ): IPdfBookmarkEntry {
     return {
         title,
-        pageIndex: 1,
+        pageIndex: requirePageIndex(1),
         pageYRatio: null,
         namedDest: null,
         bold: false,
@@ -246,10 +247,10 @@ function collectTreeIds(items: readonly IDocumentBookmarkTreeItem[]): string[] {
 
 function createBaseOutline() {
     return [
-        createEntry('Alpha', { pageIndex: 1 }),
+        createEntry('Alpha', { pageIndex: requirePageIndex(1) }),
         createEntry('Beta', {
-            pageIndex: 2,
-            items: [createEntry('Beta child', { pageIndex: 3 })],
+            pageIndex: requirePageIndex(2),
+            items: [createEntry('Beta child', { pageIndex: requirePageIndex(3) })],
         }),
     ];
 }
@@ -260,7 +261,7 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         const baselineIds = collectTreeIds(treeStub.items);
 
         await outline.applyExternalBookmarks([
-            createEntry('Inserted', { pageIndex: 0 }),
+            createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
             ...createBaseOutline(),
         ]);
         const nextIds = collectTreeIds(treeStub.items);
@@ -284,17 +285,17 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
                 italic: false,
                 bold: false,
                 namedDest: null,
-                pageIndex: 1,
+                pageIndex: requirePageIndex(1),
                 title: '  Alpha  ',
             },
             {
                 title: 'Beta',
-                pageIndex: 2,
+                pageIndex: requirePageIndex(2),
                 namedDest: null,
                 bold: false,
                 italic: false,
                 color: null,
-                items: [createEntry('Beta child', { pageIndex: 3 })],
+                items: [createEntry('Beta child', { pageIndex: requirePageIndex(3) })],
             },
         ]);
 
@@ -345,10 +346,10 @@ describe('PdfOutline bookmark identity and dirty comparison', () => {
         // where the untitled bookmark is saved under the untitled label, plus
         // one unrelated root so the panel actually rebuilds.
         await outline.applyExternalBookmarks([
-            createEntry('Inserted', { pageIndex: 0 }),
+            createEntry('Inserted', { pageIndex: requirePageIndex(0) }),
             {
                 title: 'bookmarks.untitled',
-                pageIndex: 3,
+                pageIndex: requirePageIndex(3),
                 pageYRatio: null,
                 namedDest: 'sec-a',
                 bold: false,

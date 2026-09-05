@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -58,7 +59,7 @@ if (isDirectCliRun) {
             console.info('Generated native tool protocol artifacts.');
         }
     } catch (error) {
-        console.error(error instanceof Error ? error.message : String(error));
+        console.error(getErrorMessage(error));
         process.exitCode = 1;
     }
 }

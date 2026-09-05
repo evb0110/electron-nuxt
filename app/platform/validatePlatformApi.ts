@@ -197,14 +197,16 @@ export function validatePlatformApi(
             failures,
         };
     }
-    if (manifest.backend !== expectedBackend) {
+    const backend: unknown = manifest.backend;
+    if (backend !== expectedBackend) {
         failures.push(createFailure(
             'backend-mismatch',
             `Platform backend ${String(manifest.backend)} does not match expected ${expectedBackend}.`,
             'manifest.backend',
         ));
     }
-    if (manifest.contractVersion !== PLATFORM_CONTRACT_VERSION) {
+    const contractVersion: unknown = manifest.contractVersion;
+    if (contractVersion !== PLATFORM_CONTRACT_VERSION) {
         failures.push(createFailure(
             'unsupported-contract-version',
             `Platform contract version ${String(manifest.contractVersion)} is not supported.`,

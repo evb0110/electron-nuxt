@@ -7,6 +7,8 @@ import {
     vi,
 } from 'vitest';
 import { readFileSync } from 'node:fs';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireRequestId} from '@contracts/shared';
 import { AGENT_PLATFORM_FEATURE } from '@contracts/agentPlatformFeature';
 import { DJVU_PLATFORM_FEATURE } from '@contracts/djvuPlatformFeature';
 import { DOCUMENTS_CHANNELS } from '@electron/features/documents/contract';
@@ -230,7 +232,7 @@ describe('createElectronApi', () => {
             {waitForDocumentOpenDirect},
         );
 
-        const openPromise = api.documentOpen.openDocumentDirect('/tmp/deferred.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/deferred.pdf'));
         await vi.waitFor(() => expect(waitForDocumentOpenDirect).toHaveBeenCalledWith('/tmp/deferred.pdf'));
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
 
@@ -374,8 +376,8 @@ describe('createElectronApi', () => {
             throw new Error('Native DjVu provider methods are missing from the preload');
         }
 
-        await expect(getPageText('/tmp/book.djvu', 3)).resolves.toBe('Native page text');
-        await expect(getOutline('/tmp/book.djvu')).resolves.toEqual([{
+        await expect(getPageText(requireDocumentRef('/tmp/book.djvu'), 3)).resolves.toBe('Native page text');
+        await expect(getOutline(requireDocumentRef('/tmp/book.djvu'))).resolves.toEqual([{
             title: 'Chapter',
             pageNumber: 1,
             children: [{
@@ -925,7 +927,7 @@ describe('createElectronApi', () => {
         );
 
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/from-picker.pdf');
-        const openPromise = api.documentOpen.openDocumentDirect('/tmp/from-picker.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/from-picker.pdf'));
         for (let i = 0; i < 5 && !allowDeferred.resolve; i += 1) {
             await Promise.resolve();
         }
@@ -963,7 +965,7 @@ describe('createElectronApi', () => {
 
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/denied-from-picker.pdf');
 
-        await expect(api.documentOpen.openDocumentDirect('/tmp/denied-from-picker.pdf')).resolves.toBeNull();
+        await expect(api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/denied-from-picker.pdf'))).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
     });
 
@@ -998,7 +1000,7 @@ describe('createElectronApi', () => {
         expect(api.documentPicker.getPathForFile({} as File)).toBe('/tmp/repeated-picker.pdf');
         await flushMicrotasks();
 
-        const openPromise = api.documentOpen.openDocumentDirect('/tmp/repeated-picker.pdf');
+        const openPromise = api.documentOpen.openDocumentDirect(requireDocumentRef('/tmp/repeated-picker.pdf'));
         allowResolvers.get('00000000-0000-4000-8000-000000000003')?.(true);
         await flushMicrotasks();
         expect(documentsClientMock.openDocumentDirect).not.toHaveBeenCalled();
@@ -1045,7 +1047,7 @@ describe('createElectronApi', () => {
             '/tmp/batch-b.pdf',
         ]);
 
-        const openPromise = api.documentOpen.openDocumentDirectBatch(paths, 'batch-open-1');
+        const openPromise = api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('batch-open-1'));
         await flushMicrotasks();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
 
@@ -1108,7 +1110,7 @@ describe('createElectronApi', () => {
             { path: '/tmp/denied-batch-b.pdf' } as File & { path: string },
         ]) ?? [];
 
-        await expect(api.documentOpen.openDocumentDirectBatch(paths, 'batch-open-denied')).resolves.toBeNull();
+        await expect(api.documentOpen.openDocumentDirectBatch(paths, requireRequestId('batch-open-denied'))).resolves.toBeNull();
         expect(documentsClientMock.openDocumentDirectBatch).not.toHaveBeenCalled();
     });
 });

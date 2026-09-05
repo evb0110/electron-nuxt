@@ -4,6 +4,7 @@ import {
     it,
 } from 'vitest';
 import { IMAGE_EXPORT_PLATFORM_FEATURE } from '@contracts/imageExportPlatformFeature';
+import { requireRequestId } from '@contracts/shared';
 
 describe('image export platform feature schemas', () => {
     const channels = IMAGE_EXPORT_PLATFORM_FEATURE.invokeChannels;
@@ -92,7 +93,7 @@ describe('image export platform feature schemas', () => {
     it('validates progress and identifies terminal replay payloads', () => {
         const event = IMAGE_EXPORT_PLATFORM_FEATURE.events.onProgress;
         const progress = {
-            requestId: 'export-1',
+            requestId: requireRequestId('export-1'),
             format: 'images' as const,
             phase: 'rendering' as const,
             processed: 1,

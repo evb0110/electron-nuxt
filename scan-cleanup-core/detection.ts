@@ -19,6 +19,7 @@ import type {
 } from '@contracts/scan-cleanup/nativeProtocolV3';
 import {decodeNativeScanCleanupPageMetadataJson} from '@contracts/scan-cleanup/nativeArtifactCodecs';
 import {getErrorMessage} from '@contracts/getErrorMessage';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import type {IScanCleanupRuntimePolicy} from '@contracts/resourcePolicies';
 import {SCAN_CLEANUP_MAX_STAGED_INPUT_WINDOW} from '@contracts/scan-cleanup/stagedInputWindow';
 import {buildRunnableNativeScanCleanupManifest} from '@scan-cleanup-core/policy/buildNativeScanCleanupManifest';
@@ -1248,7 +1249,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
             const isFirstClassification = previousResult === undefined;
             const revision = (previousResult?.revision ?? 0) + 1;
             const result: IScanCleanupDetectionResult = {
-                pageNumber: sourcePageNumber,
+                pageNumber: requirePageNumber(sourcePageNumber),
                 revision,
                 classification: nativeProgress.classification!,
                 confidence: nativeProgress.confidence!,
@@ -1277,6 +1278,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                     ? {}
                     : {sourcePageMetadata: {
                         ...sourcePage,
+                        pageNumber: requirePageNumber(sourcePage.pageNumber),
                         sourceDpi,
                     }}),
             };
@@ -1649,6 +1651,7 @@ async function runBatchedScanCleanupDetection<TDocument>(
                         documentPrior: retryProgress.documentPrior ?? null,
                         sourcePageMetadata: {
                             ...mediaPage,
+                            pageNumber: requirePageNumber(mediaPage.pageNumber),
                             sourceDpi: resolveRasterPageDpi(
                                 sourceRasterStructure,
                                 page.sourcePage,

@@ -97,7 +97,11 @@ function parseHighlightSubpaths(tokens: string[]): IHighlightRect[] | null {
     };
 
     while (cursor < tokens.length) {
-        let token = tokens[cursor]!;
+        const nextToken = tokens[cursor];
+        if (nextToken === undefined) {
+            return null;
+        }
+        let token = nextToken;
         const isLetter = /^[a-zA-Z]$/.test(token);
         if (isLetter) {
             cursor += 1;

@@ -81,7 +81,7 @@ export function sanitizeAllowedExternalUrl(rawUrl: unknown) {
     }
 
     if (decision.reason === 'unsupported-protocol') {
-        throw new Error(`Unsupported external URL protocol: ${decision.protocol}`);
+        throw new Error(`Unsupported external URL protocol: ${decision.protocol ?? '<missing>'}`);
     }
 
     throw new Error('Invalid external URL');

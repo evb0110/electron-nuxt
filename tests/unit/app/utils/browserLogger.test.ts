@@ -10,6 +10,7 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 import type * as FailureReporterModule from '@app/utils/failureReporter';
 import { parseDiagnosticEventId } from '@contracts/diagnostics/diagnosticEventId';
 import type { FailureReceipt } from '@contracts/diagnostics/failureReceipt';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const LOG_LEVEL_STORAGE_KEY = 'evb-viewer:log-level';
 function createTestReceipt(
@@ -18,7 +19,7 @@ function createTestReceipt(
     return {
         eventId: parseDiagnosticEventId(eventId)!,
         code: 'UNCLASSIFIED_RENDERER_ERROR',
-        occurredAt: 1,
+        occurredAt: requireEpochMs(1),
         severity: 'error',
     };
 }

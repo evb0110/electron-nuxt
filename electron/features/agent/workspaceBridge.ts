@@ -2,7 +2,6 @@ import {
     BrowserWindow,
     type IpcMainInvokeEvent,
 } from 'electron';
-import { randomUUID } from 'crypto';
 import type {
     IAgentCommandRequest,
     IAgentCommandResponse,
@@ -16,6 +15,11 @@ import type {
 } from '@contracts/agent';
 import { isAgentWorkspaceSnapshot } from '@contracts/isAgentWorkspaceSnapshot';
 import { isRecord } from '@contracts/runtimeGuards';
+import {
+    createRequestId,
+    parseRequestId,
+    type TRequestId,
+} from '@contracts/shared';
 import {
     sendAgentCommandCancelRequest,
     sendAgentCommandRequest,
@@ -52,14 +56,14 @@ interface IPendingRequest<TResponse> {
     reject(error: Error): void;
 }
 
-const pendingSnapshotRequests = new Map<string, IPendingRequest<IAgentWorkspaceSnapshot>>();
-const pendingCommandRequests = new Map<string, IPendingRequest<Record<string, unknown>>>();
+const pendingSnapshotRequests = new Map<TRequestId, IPendingRequest<IAgentWorkspaceSnapshot>>();
+const pendingCommandRequests = new Map<TRequestId, IPendingRequest<Record<string, unknown>>>();
 const snapshotCacheByWindowId = new Map<number, ICachedWorkspaceSnapshot>();
 type TAgentResponseSender = Pick<IpcMainInvokeEvent, 'sender'>;
 
 function rejectPendingRequest<TResponse>(
-    pendingMap: Map<string, IPendingRequest<TResponse>>,
-    requestId: string,
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
+    requestId: TRequestId,
     error: Error,
 ) {
     const pending = pendingMap.get(requestId);
@@ -74,8 +78,8 @@ function rejectPendingRequest<TResponse>(
 }
 
 function resolvePendingRequest<TResponse>(
-    pendingMap: Map<string, IPendingRequest<TResponse>>,
-    requestId: string,
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
+    requestId: TRequestId,
     response: TResponse,
 ) {
     const pending = pendingMap.get(requestId);
@@ -91,8 +95,8 @@ function resolvePendingRequest<TResponse>(
 }
 
 function createTargetWindowLifecycleCleanup<TResponse>(
-    pendingMap: Map<string, IPendingRequest<TResponse>>,
-    requestId: string,
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
+    requestId: TRequestId,
     window: BrowserWindow,
     onLifecycleReject?: () => void,
 ) {
@@ -129,8 +133,8 @@ function createTargetWindowLifecycleCleanup<TResponse>(
 }
 
 function createPendingRequest<TResponse>(
-    pendingMap: Map<string, IPendingRequest<TResponse>>,
-    requestId: string,
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
+    requestId: TRequestId,
     window: BrowserWindow,
     timeoutMs: number,
     options: {
@@ -184,7 +188,7 @@ function createPendingRequest<TResponse>(
     });
 }
 
-function sendAgentCommandCancel(window: BrowserWindow, requestId: string) {
+function sendAgentCommandCancel(window: BrowserWindow, requestId: TRequestId) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) {
         return;
     }
@@ -236,8 +240,8 @@ function acceptRendererAck(): IAgentRendererAck {
 }
 
 function getRejectedAckForUnexpectedResponse<TResponse>(
-    pendingMap: Map<string, IPendingRequest<TResponse>>,
-    requestId: string,
+    pendingMap: Map<TRequestId, IPendingRequest<TResponse>>,
+    requestId: TRequestId,
     senderWindowId: number | null,
 ): IAgentRendererAck | null {
     if (senderWindowId === null) {
@@ -260,8 +264,7 @@ function normalizeResponseError(response: { error?: string }) {
 
 function isValidSnapshotResponse(response: unknown): response is IAgentWorkspaceSnapshotResponse {
     return isRecord(response)
-        && typeof response.requestId === 'string'
-        && response.requestId.trim().length > 0
+        && parseRequestId(response.requestId) !== null
         && typeof response.ok === 'boolean'
         && (response.windowId === undefined || typeof response.windowId === 'number')
         && (response.revision === undefined || (
@@ -276,8 +279,7 @@ function isValidSnapshotResponse(response: unknown): response is IAgentWorkspace
 
 function isValidCommandResponse(response: unknown): response is IAgentCommandResponse {
     return isRecord(response)
-        && typeof response.requestId === 'string'
-        && response.requestId.trim().length > 0
+        && parseRequestId(response.requestId) !== null
         && typeof response.ok === 'boolean'
         && (response.windowId === undefined || typeof response.windowId === 'number')
         && (response.error === undefined || typeof response.error === 'string')
@@ -288,11 +290,14 @@ function rejectPendingInvalidSnapshotResponse(
     event: TAgentResponseSender,
     rawResponse: unknown,
 ) {
-    if (!isRecord(rawResponse) || typeof rawResponse.requestId !== 'string' || rawResponse.requestId.trim().length === 0) {
+    if (!isRecord(rawResponse)) {
         return;
     }
 
-    const requestId = rawResponse.requestId;
+    const requestId = parseRequestId(rawResponse.requestId);
+    if (requestId === null) {
+        return;
+    }
     const senderWindowId = getResponseSenderWindowId(event);
     const rejectedAck = getRejectedAckForUnexpectedResponse(
         pendingSnapshotRequests,
@@ -320,7 +325,7 @@ export function requestAgentWorkspaceSnapshot(
     if (signal?.aborted) {
         return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
     }
-    const requestId = randomUUID();
+    const requestId = createRequestId('agent-snapshot');
     const cachedSnapshot = snapshotCacheByWindowId.get(window.id);
     const request: IAgentWorkspaceSnapshotRequest = {
         requestId,
@@ -363,7 +368,7 @@ export function requestAgentCommand(
     if (signal?.aborted) {
         return Promise.reject(new Error('Agent renderer request was aborted by the caller.'));
     }
-    const requestId = randomUUID();
+    const requestId = createRequestId('agent-command');
     const effectiveTimeoutMs = resolveAgentCommandRequestTimeoutMs(command, timeoutMs);
     const request: IAgentCommandRequest = {
         requestId,

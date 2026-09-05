@@ -3,6 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
+import { requireDocumentRef } from '@contracts/documentRef';
 import {
     createPendingWorkspaceDocumentRecord,
     createWorkspaceDocumentRecord,
@@ -12,7 +13,7 @@ describe('workspace document record opening view state', () => {
     it('uses continuous scrolling for a new empty tab open', () => {
         const record = createPendingWorkspaceDocumentRecord({
             fileName: 'scan.pdf',
-            originalPath: '/docs/scan.pdf',
+            originalPath: requireDocumentRef('/docs/scan.pdf'),
         });
 
         expect(record.toolbarSnapshot.continuousScroll).toBe(true);
@@ -38,7 +39,7 @@ describe('workspace document record opening view state', () => {
         }});
         const pending = createPendingWorkspaceDocumentRecord({
             fileName: 'replacement.pdf',
-            originalPath: '/docs/replacement.pdf',
+            originalPath: requireDocumentRef('/docs/replacement.pdf'),
         }, {
             previousToolbarSnapshot: previous.toolbarSnapshot,
             previousViewState: previous.viewState,
@@ -65,7 +66,7 @@ describe('workspace document record opening view state', () => {
         }});
         const pending = createPendingWorkspaceDocumentRecord({
             fileName: 'large.pdf',
-            originalPath: '/docs/large.pdf',
+            originalPath: requireDocumentRef('/docs/large.pdf'),
         }, {
             openingPageCount: 1_859,
             previousToolbarSnapshot: previous.toolbarSnapshot,

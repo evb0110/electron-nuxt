@@ -12,6 +12,10 @@ import {
 import { usePageFileOperations } from '@app/modules/workspace-shell/composables/usePageFileOperations';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import type { TOpenFileResult } from '@contracts/electronApiDocuments';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { IRecentFile } from '@contracts/shared';
+import { requireEpochMs } from '@contracts/timestamps';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentOpenOutcome } from '@app/types/documentOpenOutcome';
 import type { TPdfSource } from '@app/types/pdfUi';
 import { cast } from '@tests/helpers/cast';
@@ -45,8 +49,8 @@ function openedOutcome(path = '/tmp/working.pdf'): TDocumentOpenOutcome {
         status: 'opened',
         result: {
             kind: 'pdf',
-            originalPath: path,
-            workingPath: path,
+            originalPath: requireDocumentRef(path),
+            workingPath: requireDocumentRef(path),
         },
     };
 }
@@ -224,8 +228,8 @@ describe('usePageFileOperations', () => {
         mockHasElectronAPI.mockReturnValue(false);
         const openResult = {
             kind: 'pdf' as const,
-            originalPath: 'browser://documents/source/browser-open.pdf',
-            workingPath: 'browser://documents/working/browser-open.pdf',
+            originalPath: requireDocumentRef('browser://documents/source/browser-open.pdf'),
+            workingPath: requireDocumentRef('browser://documents/working/browser-open.pdf'),
         };
         const deps = createDeps({pickFileToOpen: vi.fn(async () => openResult)});
         const { handleOpenFileFromUi } = usePageFileOperations(deps);
@@ -248,7 +252,7 @@ describe('usePageFileOperations', () => {
         });
         const { handleOpenFileDirectWithPersist } = usePageFileOperations(deps);
 
-        await expect(handleOpenFileDirectWithPersist('/tmp/blocked.pdf')).resolves.toBe(false);
+        await expect(handleOpenFileDirectWithPersist(requireDocumentRef('/tmp/blocked.pdf'))).resolves.toBe(false);
 
         expect(deps.openFileDirect).toHaveBeenCalledOnce();
         expect(deps.closeAllDropdowns).not.toHaveBeenCalled();
@@ -276,7 +280,7 @@ describe('usePageFileOperations', () => {
             lastOpenOutcome,
         } = usePageFileOperations(deps);
 
-        const outcome = await handleOpenFileDirectWithPersistDetailed('/tmp/blocked.pdf');
+        const outcome = await handleOpenFileDirectWithPersistDetailed(requireDocumentRef('/tmp/blocked.pdf'));
 
         expect(outcome).toEqual({
             status: 'failed',
@@ -290,7 +294,7 @@ describe('usePageFileOperations', () => {
         const infoSpy = vi.spyOn(BrowserLogger, 'info').mockImplementation(() => {});
         const pdfSrc = ref<TPdfSource | null>(null);
         let openAttempt = 0;
-        const openFileDirect = vi.fn(async (path: string) => {
+        const openFileDirect = vi.fn(async (path: TDocumentRef) => {
             openAttempt += 1;
             if (openAttempt === 1) {
                 return {
@@ -298,7 +302,7 @@ describe('usePageFileOperations', () => {
                     result: {
                         kind: 'pdf' as const,
                         originalPath: path,
-                        workingPath: '/tmp/stale-working.pdf',
+                        workingPath: requireDocumentRef('/tmp/stale-working.pdf'),
                     },
                 };
             }
@@ -316,7 +320,7 @@ describe('usePageFileOperations', () => {
         });
         const { handleOpenFileDirectWithPersist } = usePageFileOperations(deps);
 
-        await expect(handleOpenFileDirectWithPersist('/tmp/startup.pdf')).resolves.toBe(true);
+        await expect(handleOpenFileDirectWithPersist(requireDocumentRef('/tmp/startup.pdf'))).resolves.toBe(true);
 
         expect(openFileDirect).toHaveBeenCalledTimes(2);
         expect(openFileDirect).toHaveBeenNthCalledWith(1, '/tmp/startup.pdf');
@@ -370,8 +374,8 @@ describe('usePageFileOperations', () => {
     it('runs the full open flow and closes dropdowns after handling the result', async () => {
         const openResult = {
             kind: 'pdf' as const,
-            originalPath: '/tmp/source.pdf',
-            workingPath: '/tmp/working.pdf',
+            originalPath: requireDocumentRef('/tmp/source.pdf'),
+            workingPath: requireDocumentRef('/tmp/working.pdf'),
         };
         const deps = createDeps({ pickFileToOpen: vi.fn(async () => openResult) });
         const { handleOpenFileFromUi } = usePageFileOperations(deps);
@@ -414,8 +418,8 @@ describe('usePageFileOperations', () => {
     it('opens combined generated PDF in a new tab only when a document is already open', async () => {
         const generated = {
             kind: 'pdf' as const,
-            originalPath: '/tmp/generated.pdf',
-            workingPath: '/tmp/working.pdf',
+            originalPath: requireDocumentRef('/tmp/generated.pdf'),
+            workingPath: requireDocumentRef('/tmp/working.pdf'),
             isGenerated: true,
         };
         mockOpenCombineDialog.mockResolvedValue(generated);
@@ -441,8 +445,8 @@ describe('usePageFileOperations', () => {
     it('opens combined generated PDF in a new tab while a DjVu document is open', async () => {
         const generated = {
             kind: 'pdf' as const,
-            originalPath: '/tmp/generated-from-djvu.pdf',
-            workingPath: '/tmp/working-from-djvu.pdf',
+            originalPath: requireDocumentRef('/tmp/generated-from-djvu.pdf'),
+            workingPath: requireDocumentRef('/tmp/working-from-djvu.pdf'),
             isGenerated: true,
         };
         mockOpenCombineDialog.mockResolvedValue(generated);
@@ -463,10 +467,10 @@ describe('usePageFileOperations', () => {
         const warnSpy = vi.spyOn(BrowserLogger, 'warn').mockImplementation(() => {});
         const deps = createDeps({removeRecentFileIfMissing: vi.fn(async () => true)});
         const { openRecentFile } = usePageFileOperations(deps);
-        const file = {
-            originalPath: '/tmp/missing.pdf',
+        const file: IRecentFile = {
+            originalPath: requireDocumentRef('/tmp/missing.pdf'),
             fileName: 'missing.pdf',
-            timestamp: 0,
+            timestamp: requireEpochMs(0),
             fileSize: 0,
         };
 
@@ -484,10 +488,10 @@ describe('usePageFileOperations', () => {
     it('opens a recent file retained by the missing-file preflight', async () => {
         const deps = createDeps();
         const { openRecentFile } = usePageFileOperations(deps);
-        const file = {
-            originalPath: '/tmp/present.pdf',
+        const file: IRecentFile = {
+            originalPath: requireDocumentRef('/tmp/present.pdf'),
             fileName: 'present.pdf',
-            timestamp: 0,
+            timestamp: requireEpochMs(0),
             fileSize: 4096,
         };
 

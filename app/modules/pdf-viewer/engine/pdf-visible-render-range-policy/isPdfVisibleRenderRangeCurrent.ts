@@ -1,3 +1,6 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 import type {TPdfViewMode} from '@contracts/shared';
 import type {IPageRange} from '@app/types/pdfUi';
 import {getPageRowBoundsForViewMode} from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
@@ -8,7 +11,7 @@ function isFinitePageRange(range: IPageRange) {
         && range.start <= range.end;
 }
 
-function pageRangeContainsPage(range: IPageRange, pageNumber: number) {
+function pageRangeContainsPage(range: IPageRange, pageNumber: TPageNumber) {
     return isFinitePageRange(range)
         && pageNumber >= range.start
         && pageNumber <= range.end;
@@ -26,12 +29,12 @@ function expandRangeToCompleteRows(options: IResolvePdfProtectedVisibleRangeOpti
         return options.visibleRange;
     }
     const firstRow = getPageRowBoundsForViewMode({
-        pageNumber: options.visibleRange.start,
+        pageNumber: requirePageNumber(options.visibleRange.start, options.totalPages),
         viewMode: options.viewMode,
         totalPages: options.totalPages,
     });
     const lastRow = getPageRowBoundsForViewMode({
-        pageNumber: options.visibleRange.end,
+        pageNumber: requirePageNumber(options.visibleRange.end, options.totalPages),
         viewMode: options.viewMode,
         totalPages: options.totalPages,
     });
@@ -62,7 +65,7 @@ export function resolvePdfProtectedVisibleRange(
     const visibleRows = expandRangeToCompleteRows(options);
     if (options.navigationTargetPage !== null && options.totalPages > 0) {
         const targetRow = getPageRowBoundsForViewMode({
-            pageNumber: options.navigationTargetPage,
+            pageNumber: requirePageNumber(options.navigationTargetPage, options.totalPages),
             viewMode: options.viewMode,
             totalPages: options.totalPages,
         });
@@ -70,8 +73,8 @@ export function resolvePdfProtectedVisibleRange(
         // Once measured geometry reaches the target row, however, every row that
         // intersects the viewport is authoritative raster demand too.
         return pageRangesIntersect(visibleRows, targetRow) ? {
-            start: Math.min(visibleRows.start, targetRow.start),
-            end: Math.max(visibleRows.end, targetRow.end),
+            start: requirePageNumber(Math.min(visibleRows.start, targetRow.start), options.totalPages),
+            end: requirePageNumber(Math.max(visibleRows.end, targetRow.end), options.totalPages),
         } : targetRow;
     }
     return visibleRows;
@@ -83,7 +86,10 @@ export function isPdfVisibleRenderRangeCurrent(
     if (options.navigationTargetPage !== null && options.totalPages > 0) {
         const targetRowBounds = resolvePdfProtectedVisibleRange(options);
         return pageRangesIntersect(options.range, targetRowBounds)
-            || pageRangeContainsPage(options.range, options.navigationTargetPage);
+            || pageRangeContainsPage(
+                options.range,
+                requirePageNumber(options.navigationTargetPage, options.totalPages),
+            );
     }
 
     return pageRangesIntersect(options.range, resolvePdfProtectedVisibleRange(options));

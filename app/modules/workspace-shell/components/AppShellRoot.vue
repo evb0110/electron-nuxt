@@ -151,6 +151,7 @@
 import { useEventListener } from '@vueuse/core';
 import { logicNot } from '@vueuse/math';
 import { guardAsync } from '@app/utils/asyncGuard';
+import { createDisposalFlag } from '@app/utils/createDisposalFlag';
 import { resolveAppWindowTitle } from '@app/utils/appWindowTitle';
 import { traceRendererStartup } from '@app/utils/traceRendererStartup';
 import { syncBrowserWindowTitle } from '@app/platform/browserWindowTabs';
@@ -200,6 +201,7 @@ import type { TStartSection } from '@app/types/startSection';
 import type { IHostZenModeState } from '@contracts/hostPlatformFeature';
 import type { ITab } from '@app/types/tabs';
 import type { IWorkspaceDocumentRecord } from '@app/modules/workspace-shell/state/workspaceDocumentRecord';
+import { parseTabId } from '@contracts/windowTabs';
 import { getHostCapability } from '@app/utils/getHostCapability';
 import { waitForDesktopPlatformBridge } from '@app/utils/platform';
 import { getDocumentWindowCapability } from '@app/utils/platformDocuments';
@@ -473,24 +475,23 @@ useEventListener(window, 'keydown', (event: KeyboardEvent) => {
 }, { capture: true });
 
 let unsubscribeZenModeChange: (() => void) | null = null;
-let isShellRootDisposed = false;
+const shellRootLifecycle = createDisposalFlag();
 // Keep hook disposal paired with the component instance during dev HMR.
 let cleanupAppShellE2EHooks: (() => void) | null = null;
 
 onMounted(() => {
-    isShellRootDisposed = false;
     guardAsync(
         (async () => {
             await waitForDesktopPlatformBridge({ shouldWait: !isBrowserRuntime.value });
-            if (isShellRootDisposed) {
+            if (shellRootLifecycle.isDisposed()) {
                 return;
             }
             await getHostCapability().getZenModeState().then(applyZenModeState);
-            if (isShellRootDisposed) {
+            if (shellRootLifecycle.isDisposed()) {
                 return;
             }
             const unsubscribe = getHostCapability().onZenModeChange(applyZenModeState);
-            if (isShellRootDisposed) {
+            if (shellRootLifecycle.isDisposed()) {
                 unsubscribe();
                 return;
             }
@@ -516,7 +517,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    isShellRootDisposed = true;
+    shellRootLifecycle.dispose();
     unsubscribeZenModeChange?.();
     unsubscribeZenModeChange = null;
     cleanupAppShellE2EHooks?.();
@@ -652,6 +653,10 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
         return null;
     }
 
+    const tabId = parseTabId(tab.id);
+    if (tabId === null) {
+        return null;
+    }
     const session = documentSessionsByTabId.value[tab.id] ?? null;
     const identity = session ? unref(session.snapshot).identity : null;
     const documentSessionKey = identity?.documentSessionKey ?? null;
@@ -667,9 +672,9 @@ const assistantChatScope = computed<IAgentAssistantChatScope | null>(() => {
             ? `document-session:${documentSessionKey}`
             : documentRef
                 ? `document:${documentBackend ?? 'unknown'}:${documentRef}`
-                : `tab:${tab.id}`,
+                : `tab:${tabId}`,
         title,
-        tabId: tab.id,
+        tabId,
         ...(documentSessionKey ? { documentSessionKey } : {}),
         ...(documentInstanceId ? { documentInstanceId } : {}),
         ...(documentRef ? { documentRef } : {}),

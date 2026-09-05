@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import { setTimeout as delay } from 'node:timers/promises';
 import type {
     CDPSession,
@@ -421,7 +422,7 @@ export async function runStressDeterministicSteps(steps: readonly TStressStep[],
                 );
             } catch (error) {
                 record.status = 'failed';
-                record.error = error instanceof Error ? error.message : String(error);
+                record.error = getErrorMessage(error);
                 if (error instanceof ElectronE2ETimeoutError || (step.kind === 'open' && step.expect !== 'open-error')) {
                     abortRemaining = true;
                 }

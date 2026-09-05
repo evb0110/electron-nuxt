@@ -11,6 +11,7 @@ import {
 import type {IPdfCombinePageLabelRange} from '@pdf-core/pdfCombineCatalog';
 import { writePdfBookmarkOutlines } from '@pdf-core/writePdfBookmarkOutlines';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import type {
     IBrowserPdfCombineWorkerRequest,
     TBrowserPdfCombineWorkerResponse,
@@ -292,7 +293,7 @@ async function handleCombinePdfsRequest(
         }
         sourceOutlines.push({
             title: input.fileName,
-            pageIndex: firstPageIndex,
+            pageIndex: requirePageIndex(firstPageIndex),
             namedDest: null,
             bold: false,
             italic: false,

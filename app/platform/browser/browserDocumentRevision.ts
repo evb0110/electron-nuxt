@@ -4,6 +4,7 @@ import {
     requireDocumentRevisionToken,
     type IDocumentRevisionInfo,
 } from '@contracts/documentRevision';
+import { createEpochMs } from '@contracts/timestamps';
 
 export function getBrowserDocumentEntryContentRevision(entry: IBrowserDocumentEntry) {
     return typeof entry.contentRevision === 'number'
@@ -23,7 +24,7 @@ export function createBrowserDocumentRevisionInfo(
         authority: 'browser-document-store',
         token: requireDocumentRevisionToken(`drt1:browser:${entry.contentToken ?? 'legacy'}`),
         contentRevision: getBrowserDocumentEntryContentRevision(entry),
-        mintedAt: entry.updatedAt,
+        mintedAt: createEpochMs(entry.updatedAt),
     };
 }
 

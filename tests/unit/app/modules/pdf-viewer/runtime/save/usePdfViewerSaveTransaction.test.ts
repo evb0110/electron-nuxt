@@ -1,3 +1,6 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     computed,
     ref,
@@ -42,7 +45,7 @@ describe('usePdfViewerSaveTransaction', () => {
 
         const result = await runSaveTransaction({
             mode: 'persist',
-            workingPath: '/tmp/work.pdf',
+            workingPath: requireDocumentRef('/tmp/work.pdf'),
             source: {
                 getSourcePdfData,
                 serializePdfForSave,
@@ -87,7 +90,7 @@ describe('usePdfViewerSaveTransaction', () => {
         const created = application.store.createStickyNote({
             kind: 'sticky-note',
             identity: {id: asAnnotationId('save-transaction-note')},
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
@@ -181,11 +184,11 @@ describe('usePdfViewerSaveTransaction', () => {
                 elementId: editorKey,
                 pdfRef: '12R',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: 0,
             deleted: false,
-            createdAt: 1_781_000_000_000,
+            createdAt: requireEpochMs(1_781_000_000_000),
             modifiedAt: null,
             author: 'Tester',
             text: 'saved note',
@@ -280,7 +283,7 @@ describe('usePdfViewerSaveTransaction', () => {
             annotationId: 'anno_diagnostic',
             kind: 'text-markup' as const,
             reopenedKind: 'text-markup' as const,
-            pageIndex: 184,
+            pageIndex: requirePageIndex(184),
             expectedSubtype: 'Highlight',
             reopenedSubtype: 'Highlight',
             expectedText: {
@@ -336,11 +339,11 @@ describe('usePdfViewerSaveTransaction', () => {
                 id: asAnnotationId('anno_large_pdf_note'),
                 elementId: 'pdfjs_internal_editor_0',
             },
-            pageIndex: 6,
+            pageIndex: requirePageIndex(6),
             revision: 1,
             persistedRevision: -1,
             deleted: false,
-            createdAt: 1_781_000_000_000,
+            createdAt: requireEpochMs(1_781_000_000_000),
             modifiedAt: null,
             author: 'Tester',
             text: 'Large PDF native note',
@@ -433,7 +436,7 @@ describe('usePdfViewerSaveTransaction', () => {
                 elementId: 'pdfjs_internal_editor_0',
                 pdfjsUid: 'pdfjs_internal_editor_0',
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 1,
             persistedRevision: -1,
             deleted: false,

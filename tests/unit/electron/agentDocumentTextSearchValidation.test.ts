@@ -7,6 +7,9 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentTabSnapshot } from '@contracts/agent';
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePaneId } from '@contracts/editorPanes';
+import { requireTabId } from '@contracts/windowTabs';
 import type * as SearchRequestValidation from '@electron/features/search/main/searchRequestValidation';
 
 const mocks = vi.hoisted(() => ({
@@ -56,10 +59,10 @@ vi.mock('@electron/file-access/documentRevisionStore', () => ({getWorkingCopyRev
 vi.mock('@electron/utils/createLogger', () => ({ createLogger: () => ({debug: mocks.loggerDebug}) }));
 
 const pdfTab: IAgentTabSnapshot = {
-    tabId: 'tab-1',
-    paneId: 'pane-1',
+    tabId: requireTabId('tab-1'),
+    paneId: requirePaneId('pane-1'),
     fileName: 'Grammar.pdf',
-    originalPath: '/tmp/Grammar.pdf',
+    originalPath: requireDocumentRef('/tmp/Grammar.pdf'),
     isDirty: false,
     kind: 'pdf',
     workspaceAttached: true,

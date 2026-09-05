@@ -11,7 +11,6 @@ const DIAGNOSTIC_EVENT_ID_PATTERN = new RegExp(
     `^[0-9a-f]{${DIAGNOSTIC_EVENT_ID_HEX_LENGTH}}$`,
     'u',
 );
-const HEX_DIGITS = '0123456789abcdef';
 
 export function isDiagnosticEventId(value: unknown): value is DiagnosticEventId {
     return typeof value === 'string'
@@ -35,17 +34,10 @@ export function requireDiagnosticEventId(value: unknown): DiagnosticEventId {
 }
 
 export function createDiagnosticEventId(): DiagnosticEventId {
-    const cryptoSource = globalThis.crypto;
-    if (cryptoSource === undefined || typeof cryptoSource.getRandomValues !== 'function') {
-        throw new Error('Secure random values are unavailable for diagnostic event ID creation');
-    }
-
-    const bytes = new Uint8Array(DIAGNOSTIC_EVENT_ID_BYTES);
-    cryptoSource.getRandomValues(bytes);
-
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(DIAGNOSTIC_EVENT_ID_BYTES));
     let result = '';
     for (const byte of bytes) {
-        result += HEX_DIGITS[byte >> 4]! + HEX_DIGITS[byte & 0x0f]!;
+        result += byte.toString(16).padStart(2, '0');
     }
-    return result as DiagnosticEventId;
+    return requireDiagnosticEventId(result);
 }

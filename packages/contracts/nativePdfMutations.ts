@@ -24,6 +24,7 @@ import type {
     IPdfNoteTextUpdate,
 } from '@contracts/electronApiDocuments';
 import {decodeManagedTempFileHandle} from '@contracts/electronApiDocuments';
+import {isPdfDateString} from '@contracts/pdfDateString';
 import type { IPdfBookmarkEntry } from '@contracts/pdfBookmarkEntry';
 import {
     PDF_ANNOTATION_LINE_END_STYLES,
@@ -41,6 +42,7 @@ import {
     isOneOf,
     isRecord,
 } from '@contracts/runtimeGuards';
+import {requireEpochMs} from '@contracts/timestamps';
 
 export const PDF_NATIVE_MUTATION_LIMITS = {
     collectionItems: 100_000,
@@ -73,9 +75,13 @@ export const PDF_NATIVE_MUTATION_ENUM_VALUES = {
     markupSubtypes: PDF_ANNOTATION_MARKUP_SUBTYPES,
 } as const;
 
-export const PDF_NATIVE_DATE_PATTERN = /^D:\d{14}(?:Z|[+-]\d{2}'\d{2}')?$/u;
-
 const PDF_NATIVE_F32_MAX = 3.4028234663852886e38;
+const PDF_NATIVE_ROTATIONS = [
+    0,
+    90,
+    180,
+    270,
+] as const;
 
 type TPdfNativeValidationErrorKind = 'typeError' | 'error';
 export type IPdfNativePlacedImageNativeToolPayload = Simplify<
@@ -159,6 +165,36 @@ function normalizeFiniteNonNegativeNumber(value: unknown, label: string, options
     return value;
 }
 
+function normalizeNativeF32(value: unknown, label: string, options: IPdfNativeValidationOptions) {
+    if (typeof value !== 'number' || !isNativeF32(value)) {
+        fail(`${label} must be a finite number`, options);
+    }
+    return value;
+}
+
+function normalizeNativeColorComponent(value: unknown, label: string, options: IPdfNativeValidationOptions) {
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > 255) {
+        fail(`${label} must be an integer RGB component from 0 to 255`, options);
+    }
+    return value;
+}
+
+function normalizePdfObjectGeneration(value: unknown, label: string, options: IPdfNativeValidationOptions) {
+    if (
+        typeof value !== 'number'
+        || !Number.isSafeInteger(value)
+        || value < 0
+        || value > 65_535
+    ) {
+        fail(`${label} must be an integer from 0 to 65535`, options);
+    }
+    return value;
+}
+
+function isPdfRotation(value: unknown): value is typeof PDF_NATIVE_ROTATIONS[number] {
+    return PDF_NATIVE_ROTATIONS.some(rotation => rotation === value);
+}
+
 function normalizeOptionalFiniteUnitNumber(value: unknown, label: string, options: IPdfNativeValidationOptions) {
     if (value === undefined || value === null) {
         return null;
@@ -191,7 +227,7 @@ function normalizeOptionalTimestamp(value: unknown, label: string, options: IPdf
     if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
         fail(`${label} must be a finite positive timestamp or null`, options);
     }
-    return Math.trunc(value);
+    return requireEpochMs(Math.trunc(value));
 }
 
 function normalizeNativeMarkerRect(
@@ -353,42 +389,41 @@ function normalizeFreeTextEditors(
         ))) {
             fail(`${label}[${index}].text contains characters unsupported by the bounded Helvetica appearance`, options);
         }
-        if (
-            !Array.isArray(editor.rect)
-            || editor.rect.length !== 4
-            || editor.rect.some(coordinate => typeof coordinate !== 'number' || !isNativeF32(coordinate))
-            || editor.rect[2] <= editor.rect[0]
-            || editor.rect[3] <= editor.rect[1]
-        ) {
+        if (!Array.isArray(editor.rect) || editor.rect.length !== 4) {
             fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
         }
-        if (![
-            0,
-            90,
-            180,
-            270,
-        ].includes(editor.rotation as number)) {
+        const rect: [number, number, number, number] = [
+            normalizeNativeF32(editor.rect[0], `${label}[${index}].rect[0]`, options),
+            normalizeNativeF32(editor.rect[1], `${label}[${index}].rect[1]`, options),
+            normalizeNativeF32(editor.rect[2], `${label}[${index}].rect[2]`, options),
+            normalizeNativeF32(editor.rect[3], `${label}[${index}].rect[3]`, options),
+        ];
+        if (rect[2] <= rect[0] || rect[3] <= rect[1]) {
+            fail(`${label}[${index}].rect must be a finite PDF rectangle with positive width and height`, options);
+        }
+        if (!isPdfRotation(editor.rotation)) {
             fail(`${label}[${index}].rotation must be 0, 90, 180, or 270`, options);
         }
         if (typeof editor.fontSize !== 'number' || !isNativeF32(editor.fontSize) || editor.fontSize <= 0 || editor.fontSize > 512) {
             fail(`${label}[${index}].fontSize must be a finite number from 0 to 512`, options);
         }
-        if (
-            !Array.isArray(editor.color)
-            || editor.color.length !== 3
-            || editor.color.some(component => typeof component !== 'number' || !Number.isInteger(component) || component < 0 || component > 255)
-        ) {
+        if (!Array.isArray(editor.color) || editor.color.length !== 3) {
             fail(`${label}[${index}].color must contain three integer RGB components from 0 to 255`, options);
         }
+        const color: [number, number, number] = [
+            normalizeNativeColorComponent(editor.color[0], `${label}[${index}].color[0]`, options),
+            normalizeNativeColorComponent(editor.color[1], `${label}[${index}].color[1]`, options),
+            normalizeNativeColorComponent(editor.color[2], `${label}[${index}].color[2]`, options),
+        ];
         return {
             pageIndex: requirePageIndex(editor.pageIndex),
             stableKey,
             ...(editor.annotationId === undefined ? {} : {annotationId}),
             text: editor.text,
-            rect: editor.rect.map(coordinate => Number(coordinate)) as [number, number, number, number],
-            rotation: editor.rotation as 0 | 90 | 180 | 270,
+            rect,
+            rotation: editor.rotation,
             fontSize: editor.fontSize,
-            color: editor.color.map(component => Number(component)) as [number, number, number],
+            color,
         };
     });
 }
@@ -436,15 +471,15 @@ function normalizeAnnotationDeletes(
         const normalizedDelete = {
             pageIndex: requirePageIndex(item.pageIndex),
             ...(stableKey ? {stableKey} : {}),
-            ...(createdAt !== null ? {createdAt: Math.trunc(createdAt)} : {}),
+            ...(createdAt !== null ? {createdAt: requireEpochMs(Math.trunc(createdAt))} : {}),
         };
         if (!hasValidRef) {
             return normalizedDelete;
         }
         return {
             ...normalizedDelete,
-            objectNumber: item.objectNumber as number,
-            generationNumber: item.generationNumber as number,
+            objectNumber: normalizePositiveInteger(item.objectNumber, `${label}[${index}].objectNumber`, options),
+            generationNumber: normalizePdfObjectGeneration(item.generationNumber, `${label}[${index}].generationNumber`, options),
         };
     });
 }
@@ -631,7 +666,7 @@ function normalizeBookmarkItems(
         }
         return {
             title,
-            pageIndex: pageIndex,
+            pageIndex: pageIndex === null ? null : requirePageIndex(pageIndex),
             pageYRatio: typeof pageYRatio === 'number' ? pageYRatio : null,
             namedDest: namedDest,
             bold: item.bold === true,
@@ -1045,14 +1080,20 @@ function normalizePlacedImage(
     if (value.mimeType !== 'image/jpeg') {
         fail(`${label}.mimeType must be image/jpeg`, options);
     }
-    const stableKey = normalizeOptionalString(value.stableKey, `${label}.stableKey`, options);
-    if (value.stableKey !== undefined && (stableKey === null || stableKey.trim().length === 0)) {
+    const stableKey = value.stableKey === undefined
+        ? undefined
+        : normalizeOptionalString(value.stableKey, `${label}.stableKey`, options);
+    if (
+        value.stableKey !== undefined
+        && (stableKey === undefined || stableKey === null || stableKey.trim().length === 0)
+    ) {
         fail(`${label}.stableKey must be a non-empty string`, options);
     }
+    const normalizedStableKey = stableKey === null ? undefined : stableKey?.trim();
     const annotationId = normalizeOptionalString(value.annotationId, `${label}.annotationId`, options);
     const normalized = {
         pageIndex: requirePageIndex(pageIndex),
-        ...(value.stableKey === undefined ? {} : {stableKey: stableKey?.trim() as string}),
+        ...(normalizedStableKey === undefined ? {} : {stableKey: normalizedStableKey}),
         ...(value.annotationId === undefined ? {} : {annotationId}),
         x,
         y,
@@ -1129,7 +1170,7 @@ export function normalizePdfNativeModifiedAt(
     options: IPdfNativeValidationOptions = {},
 ) {
     const normalized = typeof value === 'string' ? value.trim() : '';
-    if (!PDF_NATIVE_DATE_PATTERN.test(normalized)) {
+    if (!isPdfDateString(normalized)) {
         fail(`${label} must be a PDF date string`, options);
     }
     return normalized;
@@ -1415,8 +1456,11 @@ function splitShapeMutation(
     ) {
         const chunkShapes: IPdfNativeShapeAnnotation[] = [];
         let pointCount = 0;
-        while (shapeIndex < shapes.shapes.length && chunkShapes.length < PDF_NATIVE_MUTATION_LIMITS.shapes) {
-            const shape = shapes.shapes[shapeIndex]!;
+        while (chunkShapes.length < PDF_NATIVE_MUTATION_LIMITS.shapes) {
+            const shape = shapes.shapes[shapeIndex];
+            if (shape === undefined) {
+                break;
+            }
             const nextPointCount = pointCount + shapePointCount(shape);
             if (chunkShapes.length > 0 && nextPointCount > PDF_NATIVE_MUTATION_LIMITS.shapePoints) {
                 break;
@@ -1468,8 +1512,11 @@ function splitMarkupMutation(markup: NonNullable<IPdfNativeMutationSet['markup']
         overrideIndex += overrides.length;
         const hints: IPdfNativeMarkupSubtypeHint[] = [];
         let geometryCount = 0;
-        while (hintIndex < markup.hints.length && hints.length < PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
-            const hint = markup.hints[hintIndex]!;
+        while (hints.length < PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
+            const hint = markup.hints[hintIndex];
+            if (hint === undefined) {
+                break;
+            }
             const nextGeometryCount = geometryCount + markupGeometryCount(hint);
             if (hints.length > 0 && nextGeometryCount > PDF_NATIVE_MUTATION_LIMITS.markupGeometryItems) {
                 break;
@@ -1536,25 +1583,30 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     }
 
     const editorChunks = sliceIntoChunks(mutations.freeTextEditors ?? [], PDF_NATIVE_MUTATION_LIMITS.freeTextEditors);
-    const pageLabelChunks = mutations.pageLabels === undefined
+    const {
+        pageLabels: pageLabelsMutation,
+        bookmarks: bookmarksMutation,
+        shapes: shapesMutation,
+    } = mutations;
+    const pageLabelChunks = pageLabelsMutation === undefined
         ? []
-        : sliceIntoChunks(mutations.pageLabels.ranges, PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges)
+        : sliceIntoChunks(pageLabelsMutation.ranges, PDF_NATIVE_MUTATION_LIMITS.pageLabelRanges)
             .map(ranges => ({
-                ...mutations.pageLabels!,
+                ...pageLabelsMutation,
                 ranges,
             }));
-    const bookmarkChunks = mutations.bookmarks === undefined
+    const bookmarkChunks = bookmarksMutation === undefined
         ? []
-        : splitBookmarkItems(mutations.bookmarks.items)
+        : splitBookmarkItems(bookmarksMutation.items)
             .map(({
                 items,
                 bookmarkPath,
             }) => ({
-                ...mutations.bookmarks!,
+                ...bookmarksMutation,
                 items,
                 ...(bookmarkPath === undefined ? {} : {bookmarkPath}),
             }));
-    const shapeChunks = mutations.shapes === undefined ? [] : splitShapeMutation(mutations.shapes);
+    const shapeChunks = shapesMutation === undefined ? [] : splitShapeMutation(shapesMutation);
     const markupChunks = mutations.markup === undefined ? [] : splitMarkupMutation(mutations.markup);
     const imageChunks = sliceIntoChunks(mutations.placedImages ?? [], PDF_NATIVE_MUTATION_LIMITS.placedImages);
 
@@ -1569,11 +1621,11 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
     const firstBookmarks = bookmarkChunks[0];
     if (firstBookmarks) base.bookmarks = firstBookmarks;
     const firstShapes = shapeChunks[0];
-    if (firstShapes) {
+    if (shapesMutation !== undefined && firstShapes) {
         base.shapes = {
-            ...mutations.shapes!,
+            ...shapesMutation,
             ...firstShapes,
-            rewriteShapeState: mutations.shapes!.rewriteShapeState,
+            rewriteShapeState: shapesMutation.rewriteShapeState,
         };
     }
     const firstMarkup = markupChunks[0];
@@ -1591,14 +1643,20 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
         append: (chunk: TPdfNativeMutationChunk, value: T) => void,
         continuationFields?: (value: T) => Partial<IPdfNativeMutationContinuation>,
     ) => {
-        for (let index = 1; index < values.length; index += 1) {
+        for (const [
+            index,
+            value,
+        ] of values.entries()) {
+            if (index === 0) {
+                continue;
+            }
             const chunk: TPdfNativeMutationChunk = {continuation: {
                 family,
                 chunkIndex: index,
                 chunkCount: values.length,
-                ...continuationFields?.(values[index]!),
+                ...continuationFields?.(value),
             }};
-            append(chunk, values[index]!);
+            append(chunk, value);
             chunks.push(chunk);
         }
     };
@@ -1621,13 +1679,15 @@ export function splitPdfNativeMutationSetIntoBoundedChunks(
             return bookmarkPath === undefined ? {} : {bookmarkPath};
         },
     );
-    appendFamilyChunks('shapes', shapeChunks, (chunk, value) => {
-        chunk.shapes = {
-            ...mutations.shapes!,
-            ...value,
-            rewriteShapeState: false,
-        };
-    });
+    if (shapesMutation !== undefined) {
+        appendFamilyChunks('shapes', shapeChunks, (chunk, value) => {
+            chunk.shapes = {
+                ...shapesMutation,
+                ...value,
+                rewriteShapeState: false,
+            };
+        });
+    }
     appendFamilyChunks('markup', markupChunks, (chunk, value) => {chunk.markup = value;});
     appendFamilyChunks('placedImages', imageChunks, (chunk, value) => {chunk.placedImages = value;});
     return chunks;

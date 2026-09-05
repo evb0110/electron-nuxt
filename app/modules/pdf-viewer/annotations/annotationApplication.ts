@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     IAnnotationCommentSummary,
     IShapeAnnotation,
@@ -5,6 +8,8 @@ import type {
 } from '@app/types/annotations';
 import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 import type {TDocumentRevisionToken} from '@contracts/documentRevision';
+import type {TDocumentRef} from '@contracts/documentRef';
+import { createEpochMs } from '@contracts/timestamps';
 import {measureOperationPhase} from '@contracts/measureOperationPhase';
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type {
@@ -105,7 +110,7 @@ function parseNativePdfObjectRef(pdfRef: string) {
 export interface IAnnotationReadModel {
     readonly annotationId: AnnotationId;
     readonly kind: AnnotationEntity['kind'];
-    readonly pageIndex: number;
+    readonly pageIndex: TPageIndex;
     readonly text: string;
     readonly deleted: boolean;
 }
@@ -225,6 +230,7 @@ export class AnnotationApplication {
             if (!comment.markerRect || comment.source === 'shape') {
                 return;
             }
+            const pageIndex = requirePageIndex(comment.pageIndex);
             const imageAnnotationName = placedImageAnnotationName(comment);
             if (
                 imageAnnotationName
@@ -254,8 +260,8 @@ export class AnnotationApplication {
                 annotationId = asAnnotationId(comment.appAnnotationId);
             } else if (existingPlacedImage) {
                 annotationId = existingPlacedImage;
-            } else if (existingByCanonicalPdfName) {
-                annotationId = annotationNameId!;
+            } else if (annotationNameId && existingByCanonicalPdfName) {
+                annotationId = annotationNameId;
             } else if (persisted) {
                 annotationId = deriveAnnotationId(this.documentKey, persistentKey);
             } else {
@@ -316,7 +322,7 @@ export class AnnotationApplication {
                 if (identifiesSameRecord && imageAnnotationName && existing.kind === 'placed-image') {
                     const nextPdfRef = comment.annotationId ?? existing.identity.pdfRef;
                     const rectChanged = !markerRectsEqual(existing.rect, comment.markerRect);
-                    const pageChanged = existing.pageIndex !== comment.pageIndex;
+                    const pageChanged = existing.pageIndex !== pageIndex;
                     const refChanged = nextPdfRef !== existing.identity.pdfRef;
                     const nameChanged = existing.identity.pdfName !== imageAnnotationName;
                     if (rectChanged || pageChanged || refChanged || nameChanged) {
@@ -327,7 +333,7 @@ export class AnnotationApplication {
                                 ...(nextPdfRef ? {pdfRef: nextPdfRef} : {}),
                                 pdfName: imageAnnotationName,
                             },
-                            pageIndex: comment.pageIndex,
+                            pageIndex,
                             rect: structuredClone(comment.markerRect),
                         });
                     }
@@ -350,7 +356,7 @@ export class AnnotationApplication {
             };
             const common = {
                 identity,
-                pageIndex: comment.pageIndex,
+                pageIndex,
                 revision: 0,
                 persistedRevision: persisted ? 0 : -1,
                 deleted: false,
@@ -364,7 +370,7 @@ export class AnnotationApplication {
                     ...common,
                     kind: 'text-markup',
                     subtype: markupSubtype,
-                    text: normalizeAnnotationText(comment.text ?? ''),
+                    text: normalizeAnnotationText(comment.text),
                     // One rect per stored quad. A multi-line highlight that
                     // arrived as its bounding box would be reported as a
                     // geometry-count failure the moment the save verifier read
@@ -398,7 +404,7 @@ export class AnnotationApplication {
             const entity: IStickyNoteEntity = {
                 ...common,
                 kind: 'sticky-note',
-                text: normalizeAnnotationText(comment.text ?? ''),
+                text: normalizeAnnotationText(comment.text),
                 anchor: structuredClone(comment.markerRect),
                 color: comment.color ?? null,
             };
@@ -480,12 +486,12 @@ export class AnnotationApplication {
                 elementId: geometry.id,
                 ...(stableKey ? {pdfName: stableKey} : {}),
             },
-            pageIndex: geometry.pageIndex,
+            pageIndex: requirePageIndex(geometry.pageIndex),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
-            createdAt: geometry.createdAt ?? Date.now(),
-            modifiedAt: geometry.modifiedAt ?? Date.now(),
+            createdAt: geometry.createdAt ?? createEpochMs(),
+            modifiedAt: geometry.modifiedAt ?? createEpochMs(),
             author: null,
             geometry: cloneShape(geometry),
         });
@@ -802,7 +808,7 @@ export class AnnotationApplication {
 
     async verifySavePath(
         session: IAnnotationSaveSession,
-        path: string,
+        path: TDocumentRef,
         knownSize: number,
         options: IAnnotationSaveVerificationOptions = {},
     ) {
@@ -922,12 +928,13 @@ export class AnnotationApplication {
         });
         let document: PDFDocumentProxy | null = null;
         try {
-            document = await measure('load-document', () => Promise.race([
+            const loadedDocument = await measure('load-document', () => Promise.race([
                 loadingTask.promise,
                 rangeReadFailure,
             ]));
+            document = loadedDocument;
             await measure('verify-expected-annotations', () => Promise.race([
-                this.#verifySaveDocument(session, document!, initialData, options),
+                this.#verifySaveDocument(session, loadedDocument, initialData, options),
                 rangeReadFailure,
             ]));
             const after = await measure('stat-after', () => documentFiles.statFile(path));
@@ -1148,7 +1155,7 @@ export class AnnotationApplication {
      */
     async #verificationPage(
         document: PDFDocumentProxy,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         cache: Map<number, Promise<IVerificationPage>>,
     ) {
         const cached = cache.get(pageIndex);

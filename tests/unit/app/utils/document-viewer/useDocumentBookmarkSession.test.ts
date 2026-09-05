@@ -15,11 +15,12 @@ import type {
     IDocumentPageSource,
 } from '@app/utils/document-viewer/source/documentPageSource';
 import { useDocumentBookmarkSession } from '@app/utils/document-viewer/bookmarks/useDocumentBookmarkSession';
+import {requireDocumentRef} from '@contracts/documentRef';
 
 function createSource(getOutline: NonNullable<IDocumentPageSource['outlineProvider']>['getOutline']): IDocumentPageSource {
     return {
         kind: 'djvu',
-        documentRef: 'test.djvu',
+        documentRef: requireDocumentRef('/test.djvu'),
         pageCount: 4,
         outlineProvider: {getOutline},
         getPageMetrics: vi.fn(),

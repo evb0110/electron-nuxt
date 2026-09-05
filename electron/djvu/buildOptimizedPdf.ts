@@ -125,7 +125,7 @@ export async function buildOptimizedPdf(
         ]);
         const imageName = page.node.newXObject('Img', imageRef);
 
-        const ops = `q ${pageWidth.toFixed(4)} 0 0 ${pageHeight.toFixed(4)} 0 0 cm ${imageName} Do Q\n`;
+        const ops = `q ${pageWidth.toFixed(4)} 0 0 ${pageHeight.toFixed(4)} 0 0 cm ${imageName.toString()} Do Q\n`;
         const contentRef = context.register(context.flateStream(ops));
         page.node.set(PDFName.of('Contents'), contentRef);
 

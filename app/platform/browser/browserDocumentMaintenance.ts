@@ -152,7 +152,7 @@ export async function sweepBrowserDocumentMaintenance(
     if (!available) {
         return;
     }
-    const pendingRefs = new Set(Array.from(entries.values())
+    const pendingRefs = new Set<string>(Array.from(entries.values())
         .filter((entry) => Boolean(entry.pendingLoad))
         .map((entry) => entry.ref));
     const recordsByRef = new Map(records.map((record) => [

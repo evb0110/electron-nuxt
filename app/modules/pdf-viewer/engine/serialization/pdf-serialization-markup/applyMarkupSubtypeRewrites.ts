@@ -1,3 +1,6 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type {
     PDFDict,
     PDFDocument,
@@ -194,10 +197,18 @@ function readPdfMarkupColor(dict: PDFDict): IRgbColor | null {
     }
 
     const allChannelsAreUnitRange = channels.every(channel => channel >= 0 && channel <= 1);
+    const [
+        red,
+        green,
+        blue,
+    ] = channels;
+    if (red === undefined || green === undefined || blue === undefined) {
+        return null;
+    }
     return {
-        r: toPdfColorChannel(channels[0]!, allChannelsAreUnitRange),
-        g: toPdfColorChannel(channels[1]!, allChannelsAreUnitRange),
-        b: toPdfColorChannel(channels[2]!, allChannelsAreUnitRange),
+        r: toPdfColorChannel(red, allChannelsAreUnitRange),
+        g: toPdfColorChannel(green, allChannelsAreUnitRange),
+        b: toPdfColorChannel(blue, allChannelsAreUnitRange),
     };
 }
 
@@ -441,7 +452,11 @@ function normalizeMarkupQuadPointsForSubtypeRewrite(dict: PDFDict) {
         index,
         value,
     ] of normalizedValues.entries()) {
-        if (Math.abs(value - quadPointData.values[index]!) > Number.EPSILON) {
+        const originalValue = quadPointData.values[index];
+        if (originalValue === undefined) {
+            return false;
+        }
+        if (Math.abs(value - originalValue) > Number.EPSILON) {
             changed = true;
         }
         quadPointData.quadPoints.set(index, PDFNumber.of(value));
@@ -453,10 +468,19 @@ function normalizePdfRect(rect: readonly number[]): TPdfTextMarkupRect | null {
     if (rect.length < 4 || rect.some(value => !Number.isFinite(value))) {
         return null;
     }
-    const left = Math.min(rect[0]!, rect[2]!);
-    const right = Math.max(rect[0]!, rect[2]!);
-    const bottom = Math.min(rect[1]!, rect[3]!);
-    const top = Math.max(rect[1]!, rect[3]!);
+    const [
+        x0,
+        y0,
+        x2,
+        y3,
+    ] = rect;
+    if (x0 === undefined || y0 === undefined || x2 === undefined || y3 === undefined) {
+        return null;
+    }
+    const left = Math.min(x0, x2);
+    const right = Math.max(x0, x2);
+    const bottom = Math.min(y0, y3);
+    const top = Math.max(y0, y3);
     if (right <= left || top <= bottom) {
         return null;
     }
@@ -535,17 +559,37 @@ function buildSquigglyAppearanceOperators(values: readonly number[], color: IRgb
 
     let hasPath = false;
     for (let offset = 0; offset + 8 <= values.length; offset += 8) {
+        const x0 = values[offset];
+        const x1 = values[offset + 2];
+        const x2 = values[offset + 4];
+        const x3 = values[offset + 6];
+        const y0 = values[offset + 1];
+        const y1 = values[offset + 3];
+        const y2 = values[offset + 5];
+        const y3 = values[offset + 7];
+        if (
+            x0 === undefined
+            || x1 === undefined
+            || x2 === undefined
+            || x3 === undefined
+            || y0 === undefined
+            || y1 === undefined
+            || y2 === undefined
+            || y3 === undefined
+        ) {
+            continue;
+        }
         const xs = [
-            values[offset]!,
-            values[offset + 2]!,
-            values[offset + 4]!,
-            values[offset + 6]!,
+            x0,
+            x1,
+            x2,
+            x3,
         ];
         const ys = [
-            values[offset + 1]!,
-            values[offset + 3]!,
-            values[offset + 5]!,
-            values[offset + 7]!,
+            y0,
+            y1,
+            y2,
+            y3,
         ];
         const left = Math.min(...xs);
         const right = Math.max(...xs);
@@ -685,7 +729,7 @@ function ensureMarkupAnnotationName(dict: PDFDict) {
 function forEachPageAnnotationContext(
     doc: PDFDocument,
     callback: (
-        pageIndex: number,
+        pageIndex: TPageIndex,
         context: NonNullable<ReturnType<typeof resolvePageAnnotationContext>>,
     ) => void,
 ) {
@@ -698,7 +742,7 @@ function forEachPageAnnotationContext(
         if (!context) {
             continue;
         }
-        callback(pageIndex, context);
+        callback(requirePageIndex(pageIndex), context);
     }
 }
 

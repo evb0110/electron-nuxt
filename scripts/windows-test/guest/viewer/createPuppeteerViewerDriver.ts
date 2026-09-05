@@ -1,9 +1,11 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import type { Page } from 'puppeteer-core';
 import { delay } from 'es-toolkit/promise';
 import {
     requireDocumentRevisionToken,
     type TDocumentRevisionToken,
 } from '@contracts/documentRevision';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IE2EWindow } from '@tests/e2e/electron/helpers/e2EWindow';
 import {
     evaluateInPage,
@@ -33,7 +35,7 @@ const PRINT_POLL_INTERVAL_MS = 50;
 
 function describeError(error: unknown) {
     if (error instanceof Error) {
-        return error.stack ?? error.message;
+        return error.stack ?? getErrorMessage(error);
     }
     return typeof error === 'string' ? error : JSON.stringify(error);
 }
@@ -49,7 +51,7 @@ function failureOutcome(error: unknown): IViewerOperationOutcome {
 async function readDocumentRevisionToken(page: Page) {
     const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(page);
     return evaluateInPage(page, async (workingPath) => {
-        const getDocumentRevision = (window as IE2EWindow).electronAPI?.documentFiles?.getDocumentRevision;
+        const getDocumentRevision = (window as IE2EWindow).electronAPI?.documentFiles.getDocumentRevision;
         if (!getDocumentRevision) {
             throw new Error('electronAPI.documentFiles.getDocumentRevision is unavailable');
         }
@@ -79,14 +81,14 @@ async function deletePageWithToken(
             expectedTotalPages,
             expectedRevisionToken,
         }: {
-            workingPath: string;
+            workingPath: TDocumentRef;
             targetPage: number;
             expectedTotalPages: number;
             expectedRevisionToken: TDocumentRevisionToken | null;
         }) => {
             const api = (window as IE2EWindow).electronAPI;
-            const deletePages = api?.pageOps?.delete;
-            const getDocumentRevision = api?.documentFiles?.getDocumentRevision;
+            const deletePages = api?.pageOps.delete;
+            const getDocumentRevision = api?.documentFiles.getDocumentRevision;
             if (!deletePages || !getDocumentRevision) {
                 throw new Error('electronAPI page deletion capability is unavailable');
             }
@@ -286,7 +288,7 @@ export function createPuppeteerViewerDriver(page: Page): IViewerDriver {
                 pdfPath,
                 searchQuery,
             }) => {
-                const run = (window as IE2EWindow).electronAPI?.search?.run;
+                const run = (window as IE2EWindow).electronAPI?.search.run;
                 if (!run) {
                     throw new Error('electronAPI.search.run is unavailable');
                 }

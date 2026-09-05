@@ -80,7 +80,10 @@ describe('useWorkspaceCrashCheckpoint', () => {
         const {useWorkspaceCrashCheckpoint} = await import(
             '@app/modules/workspace-shell/checkpoint/useWorkspaceCrashCheckpoint'
         );
-        useWorkspaceCrashCheckpoint({enabled: {value: true}} as never);
+        useWorkspaceCrashCheckpoint({
+            enabled: {value: true},
+            tabs: {value: []},
+        } as never);
     }
 
     it('uses 500 ms for medium/high tiers and 1,500 ms for low tier', async () => {

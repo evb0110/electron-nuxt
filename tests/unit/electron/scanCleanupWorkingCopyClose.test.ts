@@ -35,6 +35,7 @@ import {
     resetMainOperationLifecycleForTests,
     snapshotMainOperations,
 } from '@electron/operation-lifecycle/mainOperationLifecycle';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 interface IWorkingCopyEntry {
     backingState: 'eager';
@@ -572,7 +573,7 @@ describe('closing a source document during scan cleanup', () => {
             },
             toError: (cause, kind) => ({
                 code: kind,
-                message: cause instanceof Error ? cause.message : String(cause),
+                message: getErrorMessage(cause),
             }),
             terminalProgress: {
                 completed: latest => latest,

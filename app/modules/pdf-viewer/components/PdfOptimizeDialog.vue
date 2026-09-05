@@ -169,8 +169,6 @@ const progressStatus = computed(() => {
             return t('optimizePdf.progress.validating');
         case 'complete':
             return t('optimizePdf.progress.complete');
-        default:
-            return t('optimizePdf.progress.preparing');
     }
 });
 

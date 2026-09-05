@@ -1,3 +1,4 @@
+import { getCliErrorMessage } from '../lib/cli-error.mjs';
 import { execFileSync } from 'node:child_process';
 import {
     readFileSync,
@@ -8,18 +9,28 @@ import { fileURLToPath } from 'node:url';
 
 const SEMVER_PATTERN = /^(\d+)\.(\d+)\.(\d+)$/;
 
+/** @typedef {'patch' | 'minor' | 'major'} TReleaseLevel */
+/** @typedef {(command: string, args: string[], options?: import('node:child_process').ExecFileSyncOptions) => string} TCommandRunner */
+/** @typedef {{branch: string, ref: string, remote: string}} IUpstream */
+/** @typedef {{context?: string, ignoredPathPrefixes?: string[], runCommand?: TCommandRunner}} IChangedFileAssertionOptions */
+/** @typedef {{readVersionFn?: () => string, stderr?: NodeJS.WriteStream, writeVersionFn?: (version: string) => void}} IRestoreVersionOptions */
+/** @typedef {{attempts?: number, delayMs?: number, runCommand?: TCommandRunner, sleepFn?: (milliseconds: number) => Promise<void>, stderr?: NodeJS.WriteStream}} IRetryOptions */
+
 // The exact-SHA wait script imports this module before release jobs install
 // project dependencies. Keep these small helpers local so that safety checks
 // remain runnable from the workflow's dependency-free preparation job.
+/** @param {string[]} values */
 function compact(values) {
     return values.filter(Boolean);
 }
 
+/** @param {string[]} values @param {string[]} excludedValues */
 function difference(values, excludedValues) {
     const excluded = new Set(excludedValues);
     return values.filter(value => !excluded.has(value));
 }
 
+/** @param {number} milliseconds */
 function delay(milliseconds) {
     return new Promise(resolvePromise => setTimeout(resolvePromise, milliseconds));
 }
@@ -32,6 +43,7 @@ export const VALID_RELEASE_LEVELS = new Set([
 
 export const MAIN_APP_RELEASE_IGNORED_PATH_PREFIXES = Object.freeze(['landing']);
 
+/** @param {unknown} versionRange @param {string} [context] */
 export function parsePinnedNodeMajor(versionRange, context = 'Release') {
     const match = String(versionRange ?? '').trim().match(/^(\d+)\.x$/);
 
@@ -45,6 +57,7 @@ export function parsePinnedNodeMajor(versionRange, context = 'Release') {
     return Number.parseInt(match[1], 10);
 }
 
+/** @param {number} expectedMajor @param {string} [context] */
 export function assertNodeMajor(expectedMajor, context = 'Release') {
     const currentMajor = Number.parseInt(process.versions.node.split('.')[0] ?? '', 10);
 
@@ -59,6 +72,7 @@ export function assertNodeMajor(expectedMajor, context = 'Release') {
     );
 }
 
+/** @param {string} [context] */
 export function assertNodeProjectBaseline(context = 'Release') {
     const packageJsonPath = resolve(process.cwd(), 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
@@ -81,12 +95,17 @@ const TRANSIENT_GITHUB_AUTH_ERROR_PATTERNS = [
     /504 Gateway Timeout/i,
 ];
 
+/** @param {unknown} error */
 export function isTransientGitHubAuthError(error) {
     const message = errorMessage(error);
 
     return TRANSIENT_GITHUB_AUTH_ERROR_PATTERNS.some(pattern => pattern.test(message));
 }
 
+/**
+ * @param {string} [context]
+ * @param {IRetryOptions} [options]
+ */
 export async function assertGitHubCliReady(context = 'Release', {
     attempts = 3,
     delayMs = 5_000,
@@ -149,6 +168,11 @@ export async function assertGitHubCliReady(context = 'Release', {
     );
 }
 
+/**
+ * @param {string} command
+ * @param {string[]} args
+ * @param {import('node:child_process').ExecFileSyncOptions} [options]
+ */
 export function run(command, args, options = {}) {
     const output = execFileSync(command, args, {
         cwd: process.cwd(),
@@ -170,14 +194,10 @@ export function run(command, args, options = {}) {
 
 export const sleep = delay;
 
-export function errorMessage(error) {
-    if (error instanceof Error) {
-        return error.message;
-    }
+const errorMessage = getCliErrorMessage;
+export { errorMessage };
 
-    return String(error);
-}
-
+/** @param {unknown} error */
 export function getExitStatus(error) {
     if (
         error
@@ -205,12 +225,14 @@ const TRANSIENT_REMOTE_GIT_ERROR_PATTERNS = [
     /504 Gateway Timeout/i,
 ];
 
+/** @param {unknown} error */
 export function isTransientRemoteGitError(error) {
     const message = errorMessage(error);
 
     return TRANSIENT_REMOTE_GIT_ERROR_PATTERNS.some(pattern => pattern.test(message));
 }
 
+/** @param {{ignoredPathPrefixes?: string[], runCommand?: TCommandRunner}} [options] */
 export function assertCleanWorktree({
     ignoredPathPrefixes = [],
     runCommand = run,
@@ -224,6 +246,7 @@ export function assertCleanWorktree({
     }
 }
 
+/** @param {string} [context] @param {{runCommand?: TCommandRunner}} [options] */
 export function requireNamedBranch(context = 'Release', {runCommand = run} = {}) {
     const branch = runCommand('git', [
         'rev-parse',
@@ -237,12 +260,14 @@ export function requireNamedBranch(context = 'Release', {runCommand = run} = {})
     return branch;
 }
 
+/** @returns {string} */
 export function readVersion() {
     const packageJsonPath = resolve(process.cwd(), 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
     return packageJson.version;
 }
 
+/** @param {string} version */
 export function writeVersion(version) {
     const packageJsonPath = resolve(process.cwd(), 'package.json');
     const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
@@ -250,6 +275,10 @@ export function writeVersion(version) {
     writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
 }
 
+/**
+ * @param {string} expectedVersion
+ * @param {IRestoreVersionOptions} [options]
+ */
 export function restoreVersionIfChanged(
     expectedVersion,
     {
@@ -271,6 +300,7 @@ export function restoreVersionIfChanged(
     return true;
 }
 
+/** @param {string} version @param {TReleaseLevel} level */
 export function bumpVersion(version, level) {
     const match = version.match(SEMVER_PATTERN);
     if (!match) {
@@ -296,6 +326,7 @@ export function bumpVersion(version, level) {
     throw new Error(`Unsupported release level "${level}"`);
 }
 
+/** @param {string} [context] @param {{runCommand?: TCommandRunner}} [options] */
 export function getUpstream(context = 'Release', {runCommand = run} = {}) {
     try {
         const upstream = runCommand('git', [
@@ -321,12 +352,14 @@ export function getUpstream(context = 'Release', {runCommand = run} = {}) {
     }
 }
 
+/** @param {string} branch @param {string} context */
 function assertReleaseMainBranchName(branch, context) {
     if (branch !== 'main') {
         throw new Error(`${context} requires the current branch to be main, received "${branch}"`);
     }
 }
 
+/** @param {IUpstream} upstream @param {string} context */
 function assertReleaseMainUpstream(upstream, context) {
     if (
         upstream.branch !== 'main'
@@ -341,6 +374,10 @@ function assertReleaseMainUpstream(upstream, context) {
     return upstream;
 }
 
+/**
+ * @param {string} [context]
+ * @param {{readBranch?: (context: string) => string, readUpstream?: (context: string) => IUpstream, runCommand?: TCommandRunner}} [options]
+ */
 export function getReleaseMainUpstream(context = 'Release', {
     readBranch,
     readUpstream,
@@ -355,6 +392,7 @@ export function getReleaseMainUpstream(context = 'Release', {
     );
 }
 
+/** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
 export function assertReleaseMainTip(upstream, {runCommand = run} = {}) {
     fetchReleaseMain(upstream, {runCommand});
 
@@ -381,6 +419,7 @@ export function assertReleaseMainTip(upstream, {runCommand = run} = {}) {
     };
 }
 
+/** @param {IUpstream} upstream @param {{runCommand?: TCommandRunner}} [options] */
 export function fetchReleaseMain(upstream, {runCommand = run} = {}) {
     runCommand('git', [
         'fetch',
@@ -390,6 +429,7 @@ export function fetchReleaseMain(upstream, {runCommand = run} = {}) {
     ], {stdio: 'inherit'});
 }
 
+/** @param {string} commitSha @param {{runCommand?: TCommandRunner, fetchParent?: boolean}} [options] */
 export function getCommitParentSha(commitSha, {
     runCommand = run,
     fetchParent = true,
@@ -422,6 +462,7 @@ export function getCommitParentSha(commitSha, {
     }
 }
 
+/** @param {string} parentSha @param {string} commitSha @param {{runCommand?: TCommandRunner}} [options] */
 export function isVersionOnlyPackageCommit(parentSha, commitSha, {runCommand = run} = {}) {
     const numstat = runCommand('git', [
         'diff',
@@ -447,13 +488,16 @@ export function isVersionOnlyPackageCommit(parentSha, commitSha, {runCommand = r
     const addedLines = diff
         .split('\n')
         .filter(line => line.startsWith('+') && !line.startsWith('+++'));
+    const removedVersion = removedLines[0] ?? '';
+    const addedVersion = addedLines[0] ?? '';
 
     return removedLines.length === 1
         && addedLines.length === 1
-        && /^-\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(removedLines[0])
-        && /^\+\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(addedLines[0]);
+        && /^-\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(removedVersion)
+        && /^\+\s*"version"\s*:\s*"[^"]+"\s*,?$/u.test(addedVersion);
 }
 
+/** @param {string} parentSha @param {string} commitSha @param {{context?: string, runCommand?: TCommandRunner}} [options] */
 export function assertVersionOnlyPackageCommit(parentSha, commitSha, {
     context = 'Release',
     runCommand = run,
@@ -480,6 +524,7 @@ export const PUBLICATION_POLICY_SCRIPT = fileURLToPath(
  * (`assertUpstreamBeforeShaPresent`) so the widened scan cannot be mistaken for
  * a clean gate over a stale checkout.
  */
+/** @param {string} beforeSha @param {string} headSha */
 export function getPublicationPolicyCheckArgs(beforeSha, headSha) {
     return [
         PUBLICATION_POLICY_SCRIPT,
@@ -494,6 +539,7 @@ export function getPublicationPolicyCheckArgs(beforeSha, headSha) {
 // actually is on the remote. A branch the remote does not have yet advertises
 // nothing, so the before SHA is empty and the scan widens to the head's full
 // history; an unreachable remote makes `ls-remote` fail and aborts the push.
+/** @param {IUpstream} upstream @param {TCommandRunner} runCommand */
 function readUpstreamBeforeSha({
     branch,
     remote,
@@ -507,6 +553,7 @@ function readUpstreamBeforeSha({
     return output.split('\n')[0]?.split(/\s+/u)[0]?.trim() ?? '';
 }
 
+/** @param {string} oid @param {TCommandRunner} runCommand */
 function hasLocalCommit(oid, runCommand) {
     try {
         runCommand('git', [
@@ -532,6 +579,7 @@ function hasLocalCommit(oid, runCommand) {
  * deliberately left to the operator: a release must publish the history the
  * operator verified, not one this script silently moved underneath them.
  */
+/** @param {string} beforeSha @param {IUpstream} upstream @param {TCommandRunner} runCommand */
 export function assertUpstreamBeforeShaPresent(beforeSha, {
     branch,
     remote,
@@ -561,6 +609,7 @@ export function assertUpstreamBeforeShaPresent(beforeSha, {
  * A failing scan throws out of here, so the push — and any dispatch a caller
  * would run afterwards — cannot happen.
  */
+/** @param {{upstream: IUpstream}} options @param {{runCommand?: TCommandRunner}} [runOptions] */
 export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
     const targetSha = runCommand('git', [
         'rev-parse',
@@ -585,6 +634,7 @@ export function pushReleaseBranch({upstream}, {runCommand = run} = {}) {
     return targetSha;
 }
 
+/** @param {string} tag @param {TCommandRunner} runCommand */
 function readLocalTagCommitSha(tag, runCommand) {
     try {
         return runCommand('git', [
@@ -601,6 +651,7 @@ function readLocalTagCommitSha(tag, runCommand) {
     }
 }
 
+/** @param {string} tag @param {string} remote @param {TCommandRunner} runCommand */
 function readRemoteTagCommitSha(tag, remote, runCommand) {
     const tagRef = `refs/tags/${tag}`;
     const entries = runCommand('git', [
@@ -611,7 +662,16 @@ function readRemoteTagCommitSha(tag, remote, runCommand) {
     ])
         .split('\n')
         .filter(Boolean)
-        .map(line => line.split('\t'));
+        .map(line => {
+            const [
+                sha,
+                ref,
+            ] = line.split('\t');
+            return [
+                sha ?? '',
+                ref ?? '',
+            ];
+        });
     const peeled = entries.find(([
         ,
         ref,
@@ -633,6 +693,7 @@ function readRemoteTagCommitSha(tag, remote, runCommand) {
  * resume case and is reused; a tag that points elsewhere is a conflict and
  * stops the release before anything is dispatched.
  */
+/** @param {{tag: string, targetSha: string, upstream: IUpstream}} options @param {{runCommand?: TCommandRunner}} [runOptions] */
 export function pushReleaseTag({
     tag,
     targetSha,
@@ -671,14 +732,17 @@ export function pushReleaseTag({
     ], {stdio: 'inherit'});
 }
 
+/** @param {string} filePath */
 function normalizeGitPath(filePath) {
     return filePath.replaceAll('\\', '/');
 }
 
+/** @param {string[]} ignoredPathPrefixes */
 function normalizeIgnoredPathPrefixes(ignoredPathPrefixes) {
     return compact(ignoredPathPrefixes.map(prefix => normalizeGitPath(prefix).replace(/\/+$/u, '')));
 }
 
+/** @param {string[]} files @param {string[]} [ignoredPathPrefixes] */
 export function filterIgnoredFiles(files, ignoredPathPrefixes = []) {
     const ignoredPrefixes = normalizeIgnoredPathPrefixes(ignoredPathPrefixes);
 
@@ -695,6 +759,7 @@ export function filterIgnoredFiles(files, ignoredPathPrefixes = []) {
     });
 }
 
+/** @param {{ignoredPathPrefixes?: string[], runCommand?: TCommandRunner}} [options] */
 export function listChangedFiles({
     ignoredPathPrefixes = [],
     runCommand = run,
@@ -735,6 +800,7 @@ export function listChangedFiles({
     return filterIgnoredFiles(Array.from(files), ignoredPathPrefixes);
 }
 
+/** @param {string | IChangedFileAssertionOptions} contextOrOptions */
 function normalizeChangedFileAssertionOptions(contextOrOptions) {
     if (typeof contextOrOptions === 'string') {
         return {
@@ -751,6 +817,7 @@ function normalizeChangedFileAssertionOptions(contextOrOptions) {
     };
 }
 
+/** @param {string[]} expectedFiles @param {string | IChangedFileAssertionOptions} [contextOrOptions] */
 export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Release') {
     const {
         context,
@@ -782,6 +849,7 @@ export function assertChangedFilesMatch(expectedFiles, contextOrOptions = 'Relea
     );
 }
 
+/** @param {string[]} files @param {{runCommand?: TCommandRunner}} [options] */
 export function stageFiles(files, {runCommand = run} = {}) {
     if (files.length === 0) {
         throw new Error('Version bump did not produce any file changes');
@@ -794,6 +862,7 @@ export function stageFiles(files, {runCommand = run} = {}) {
     ], {stdio: 'inherit'});
 }
 
+/** @param {string} tag @param {string} remote @param {IRetryOptions} [options] */
 export async function assertTagAbsent(tag, remote, {
     attempts = 3,
     delayMs = 5_000,

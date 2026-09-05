@@ -224,7 +224,7 @@ export async function extractTextWithPdfjsWordBoxes(
                 }
                 onPageText?.(pageWithGeometry);
             } finally {
-                page.cleanup?.();
+                page.cleanup();
             }
         }
 
@@ -313,7 +313,7 @@ export async function extractTextWithPdfjs(
                     }
                     onPageText?.(pageText);
                 } finally {
-                    page.cleanup?.();
+                    page.cleanup();
                 }
             }
 

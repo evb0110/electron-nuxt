@@ -1,3 +1,4 @@
+import { requirePageIndex } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -20,14 +21,14 @@ describe('annotation bridge leases and sync protocol', () => {
             page: () => generations.page,
         });
         const editor = {};
-        const lease = facade.bindEditor(editor, asAnnotationId('anno_lease'), 'editor-1', 0);
+        const lease = facade.bindEditor(editor, asAnnotationId('anno_lease'), 'editor-1', requirePageIndex(0));
         const action = vi.fn(() => 'ok');
-        expect(facade.withEditor(lease, 0, () => editor, action)).toEqual({
+        expect(facade.withEditor(lease, requirePageIndex(0), () => editor, action)).toEqual({
             status: 'ok',
             value: 'ok',
         });
         generations.page += 1;
-        expect(facade.withEditor(lease, 0, () => editor, action)).toEqual({status: 'stale'});
+        expect(facade.withEditor(lease, requirePageIndex(0), () => editor, action)).toEqual({status: 'stale'});
         expect(action).toHaveBeenCalledOnce();
     });
 
@@ -38,10 +39,10 @@ describe('annotation bridge leases and sync protocol', () => {
             page: () => 1,
         });
         const editor = {};
-        const lease = facade.bindEditor(editor, asAnnotationId('anno_ephemeral'), 'editor-ephemeral', 0);
+        const lease = facade.bindEditor(editor, asAnnotationId('anno_ephemeral'), 'editor-ephemeral', requirePageIndex(0));
         const action = vi.fn();
 
-        expect(facade.withEditor(lease, 0, () => null, action)).toEqual({status: 'stale'});
+        expect(facade.withEditor(lease, requirePageIndex(0), () => null, action)).toEqual({status: 'stale'});
         expect(action).not.toHaveBeenCalled();
     });
 

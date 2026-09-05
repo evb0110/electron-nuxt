@@ -129,7 +129,6 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         const operationId = options.operationId ?? activeExpectedZoomScrollOperationId;
         if (
             operationId === null
-            || operationId === undefined
             || activeExpectedZoomScrollOperationId !== operationId
         ) {
             return false;
@@ -212,7 +211,6 @@ export const usePdfViewerZoomInteractionLock = (options: IUsePdfViewerZoomIntera
         const operationId = options.operationId ?? activeZoomRerenderOperationId;
         if (
             operationId === null
-            || operationId === undefined
             || activeZoomRerenderOperationId !== operationId
         ) {
             return false;

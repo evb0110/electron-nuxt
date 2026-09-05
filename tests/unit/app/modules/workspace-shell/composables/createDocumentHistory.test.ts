@@ -14,23 +14,26 @@ import {
     createMissingRevisionError,
     createStaleRevisionError,
 } from '@contracts/documentMutationErrors';
+import { requireDocumentRef } from '@contracts/documentRef';
+import type { TDocumentRef } from '@contracts/documentRef';
+import { requireEpochMs } from '@contracts/timestamps';
 import {requireDocumentRevisionToken} from '@contracts';
 
 function createHistoryHarness(isDesktopRuntime = false) {
     const state = createDocumentSessionState({ isDesktopRuntime: ref(isDesktopRuntime) });
-    state.workingCopyPath.value = '/tmp/work.pdf';
-    state.originalPath.value = '/tmp/original.pdf';
+    state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
+    state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
     state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
     const documentFiles = {
         writeFile: vi.fn(async () => true),
         getDocumentRevision: vi.fn(async () => ({
             version: 1 as const,
-            documentRef: '/tmp/history.pdf',
+            documentRef: requireDocumentRef('/tmp/history.pdf'),
             token: requireDocumentRevisionToken('revision-before-restore'),
             contentRevision: 1,
             authority: 'electron-working-copy' as const,
-            mintedAt: 1,
+            mintedAt: requireEpochMs(1),
         })),
         statFile: vi.fn(async () => ({size: 1})),
         savePdfData: vi.fn(async () => ({
@@ -42,8 +45,8 @@ function createHistoryHarness(isDesktopRuntime = false) {
     };
     const documentWorkingCopy = {
         cleanupFile: vi.fn(async () => undefined),
-        createWorkingCopyFromData: vi.fn(async () => '/tmp/history.pdf'),
-        createWorkingCopyFromPath: vi.fn(async () => '/tmp/history.pdf'),
+        createWorkingCopyFromData: vi.fn(async () => requireDocumentRef('/tmp/history.pdf')),
+        createWorkingCopyFromPath: vi.fn(async () => requireDocumentRef('/tmp/history.pdf')),
     };
     const applyLoadedPdfState = vi.fn(async () => undefined);
 
@@ -60,7 +63,7 @@ function createHistoryHarness(isDesktopRuntime = false) {
             pdfData: new Uint8Array([3]),
             pdfSrc: {
                 kind: 'path',
-                path: '/tmp/history.pdf',
+                path: requireDocumentRef('/tmp/history.pdf'),
                 size: 1,
             },
         })),
@@ -87,13 +90,13 @@ describe('createDocumentHistory', () => {
         const largeDocumentSize = (2 * 1024 * 1024 * 1024) + 1;
         state.pdfSrc.value = {
             kind: 'path',
-            path: '/tmp/work.pdf',
+            path: requireDocumentRef('/tmp/work.pdf'),
             size: largeDocumentSize,
         };
         state.pdfReloadSrc.value = state.pdfSrc.value;
         documentWorkingCopy.createWorkingCopyFromPath
-            .mockResolvedValueOnce('/tmp/large-history-baseline.pdf')
-            .mockResolvedValueOnce('/tmp/large-history-next.pdf');
+            .mockResolvedValueOnce(requireDocumentRef('/tmp/large-history-baseline.pdf'))
+            .mockResolvedValueOnce(requireDocumentRef('/tmp/large-history-next.pdf'));
 
         await expect(history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true})).resolves.toBe(true);
         await expect(history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true})).resolves.toBe(true);
@@ -125,10 +128,10 @@ describe('createDocumentHistory', () => {
         } = createHistoryHarness(true);
         state.pdfSrc.value = {
             kind: 'path',
-            path: '/tmp/work.pdf',
+            path: requireDocumentRef('/tmp/work.pdf'),
             size: 2 * 1024 * 1024 * 1024,
         };
-        const staging = Promise.withResolvers<string>();
+        const staging = Promise.withResolvers<TDocumentRef>();
         documentWorkingCopy.createWorkingCopyFromPath.mockReturnValueOnce(staging.promise);
         let isCurrent = true;
 
@@ -140,7 +143,7 @@ describe('createDocumentHistory', () => {
             expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
         });
         isCurrent = false;
-        staging.resolve('/tmp/canceled-history.pdf');
+        staging.resolve(requireDocumentRef('/tmp/canceled-history.pdf'));
 
         await expect(reset).resolves.toBe(false);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/canceled-history.pdf');
@@ -156,21 +159,21 @@ describe('createDocumentHistory', () => {
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
         await history.markCurrentHistoryEntryClean(null, {
             lazyBaseline: {
-                workingPath: '/tmp/work.pdf',
+                workingPath: requireDocumentRef('/tmp/work.pdf'),
                 revision: requireDocumentRevisionToken('revision-before-restore'),
                 size: 2 * 1024 * 1024 * 1024,
             },
             recordSnapshotChange: false,
         });
-        documentWorkingCopy.createWorkingCopyFromPath.mockResolvedValueOnce('/tmp/failed-history.pdf');
+        documentWorkingCopy.createWorkingCopyFromPath.mockResolvedValueOnce(requireDocumentRef('/tmp/failed-history.pdf'));
         documentFiles.getDocumentRevision
             .mockResolvedValueOnce({
                 version: 1,
-                documentRef: '/tmp/work.pdf',
+                documentRef: requireDocumentRef('/tmp/work.pdf'),
                 token: requireDocumentRevisionToken('revision-before-restore'),
                 contentRevision: 1,
                 authority: 'electron-working-copy',
-                mintedAt: 1,
+                mintedAt: requireEpochMs(1),
             })
             .mockRejectedValueOnce(new Error('revision read failed'));
 
@@ -337,7 +340,7 @@ describe('createDocumentHistory', () => {
 
         await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
         await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
-        documentFiles.writeFile.mockRejectedValueOnce(createMissingRevisionError({ documentRef: '/tmp/work.pdf' }));
+        documentFiles.writeFile.mockRejectedValueOnce(createMissingRevisionError({documentRef: requireDocumentRef('/tmp/work.pdf')}));
 
         await expect(history.undo()).rejects.toMatchObject({ code: 'MISSING_REVISION' });
         expect(history.getHistoryDebugState().historyIndex).toBe(1);
@@ -357,7 +360,7 @@ describe('createDocumentHistory', () => {
         await history.resetHistory(new Uint8Array([1]), { reuseSnapshot: true });
         await history.pushHistorySnapshot(new Uint8Array([2]), { reuseSnapshot: true });
         documentFiles.writeFile.mockRejectedValueOnce(createStaleRevisionError({
-            documentRef: '/tmp/work.pdf',
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
             expectedRevision: requireDocumentRevisionToken('revision-before-restore'),
             actualRevision: requireDocumentRevisionToken('revision-after-edit'),
         }));
@@ -373,15 +376,15 @@ describe('createDocumentHistory', () => {
 
     it('restores path-backed external mutations to the clean baseline on undo', async () => {
         const state = createDocumentSessionState({ isDesktopRuntime: ref(true) });
-        state.workingCopyPath.value = '/tmp/work.pdf';
-        state.originalPath.value = '/tmp/original.pdf';
+        state.workingCopyPath.value = requireDocumentRef('/tmp/work.pdf');
+        state.originalPath.value = requireDocumentRef('/tmp/original.pdf');
         state.documentRevisionToken.value = requireDocumentRevisionToken('revision-before-restore');
 
         const createWorkingCopyFromPath = vi.fn()
-            .mockResolvedValueOnce('/tmp/history-baseline.pdf')
-            .mockResolvedValueOnce('/tmp/history-ocr.pdf')
-            .mockResolvedValueOnce('/tmp/restored-work.pdf');
-        const readPdfStateFromPath = vi.fn(async (path: string): Promise<IPdfLoadedState> => ({
+            .mockResolvedValueOnce(requireDocumentRef('/tmp/history-baseline.pdf'))
+            .mockResolvedValueOnce(requireDocumentRef('/tmp/history-ocr.pdf'))
+            .mockResolvedValueOnce(requireDocumentRef('/tmp/restored-work.pdf'));
+        const readPdfStateFromPath = vi.fn(async (path: TDocumentRef): Promise<IPdfLoadedState> => ({
             pdfData: null,
             pdfSrc: {
                 kind: 'path',
@@ -400,11 +403,11 @@ describe('createDocumentHistory', () => {
                 writeFile: vi.fn(async () => true),
                 getDocumentRevision: vi.fn(async () => ({
                     version: 1 as const,
-                    documentRef: '/tmp/history.pdf',
+                    documentRef: requireDocumentRef('/tmp/history.pdf'),
                     token: requireDocumentRevisionToken('revision-before-restore'),
                     contentRevision: 1,
                     authority: 'electron-working-copy' as const,
-                    mintedAt: 1,
+                    mintedAt: requireEpochMs(1),
                 })),
                 statFile: vi.fn(async () => ({size: 64 * 1024 * 1024})),
                 savePdfData: vi.fn(async () => ({
@@ -416,7 +419,7 @@ describe('createDocumentHistory', () => {
             }),
             documentWorkingCopy: () => ({
                 cleanupFile: vi.fn(async () => undefined),
-                createWorkingCopyFromData: vi.fn(async () => '/tmp/unused-data-history.pdf'),
+                createWorkingCopyFromData: vi.fn(async () => requireDocumentRef('/tmp/unused-data-history.pdf')),
                 createWorkingCopyFromPath,
             }),
             getOpenEpoch: () => 1,
@@ -468,7 +471,7 @@ describe('createDocumentHistory', () => {
                 pdfData: null,
                 pdfSrc: {
                     kind: 'path',
-                    path: '/tmp/restored-work.pdf',
+                    path: requireDocumentRef('/tmp/restored-work.pdf'),
                     size: 64 * 1024 * 1024,
                 },
             },
@@ -485,7 +488,7 @@ describe('createDocumentHistory', () => {
             documentWorkingCopy,
             history,
         } = createHistoryHarness(true);
-        const staging = Promise.withResolvers<string>();
+        const staging = Promise.withResolvers<TDocumentRef>();
         documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
 
         const first = history.ensureHistoryBaselineForMutation();
@@ -494,7 +497,7 @@ describe('createDocumentHistory', () => {
             expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
         });
 
-        staging.resolve('/tmp/first-mutation-baseline.pdf');
+        staging.resolve(requireDocumentRef('/tmp/first-mutation-baseline.pdf'));
         await expect(Promise.all([
             first,
             second,
@@ -528,16 +531,16 @@ describe('createDocumentHistory', () => {
             history,
             state,
         } = createHistoryHarness(true);
-        const staging = Promise.withResolvers<string>();
+        const staging = Promise.withResolvers<TDocumentRef>();
         documentWorkingCopy.createWorkingCopyFromPath.mockReturnValue(staging.promise);
 
         const baseline = history.ensureHistoryBaselineForMutation();
         await vi.waitFor(() => {
             expect(documentWorkingCopy.createWorkingCopyFromPath).toHaveBeenCalledOnce();
         });
-        state.workingCopyPath.value = '/tmp/next.pdf';
+        state.workingCopyPath.value = requireDocumentRef('/tmp/next.pdf');
         history.incrementSessionVersion();
-        staging.resolve('/tmp/stale-mutation-baseline.pdf');
+        staging.resolve(requireDocumentRef('/tmp/stale-mutation-baseline.pdf'));
 
         await expect(baseline).resolves.toBe(false);
         expect(documentWorkingCopy.cleanupFile).toHaveBeenCalledWith('/tmp/stale-mutation-baseline.pdf');
@@ -555,11 +558,11 @@ describe('createDocumentHistory', () => {
         state.documentRevisionToken.value = revision;
         documentFiles.getDocumentRevision.mockResolvedValue({
             version: 1,
-            documentRef: '/tmp/work.pdf',
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
             token: revision,
             contentRevision: 2,
             authority: 'electron-working-copy',
-            mintedAt: 2,
+            mintedAt: requireEpochMs(2),
         });
         const register = vi.fn();
         history.setWorkspaceCommandSink({
@@ -570,7 +573,7 @@ describe('createDocumentHistory', () => {
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
         await history.markCurrentHistoryEntryClean(null, {
             lazyBaseline: {
-                workingPath: '/tmp/work.pdf',
+                workingPath: requireDocumentRef('/tmp/work.pdf'),
                 revision,
                 size: 128,
             },
@@ -603,7 +606,7 @@ describe('createDocumentHistory', () => {
         state.documentRevisionToken.value = baselineRevision;
         await history.markCurrentHistoryEntryClean(null, {
             lazyBaseline: {
-                workingPath: '/tmp/work.pdf',
+                workingPath: requireDocumentRef('/tmp/work.pdf'),
                 revision: baselineRevision,
                 size: 128,
             },
@@ -611,11 +614,11 @@ describe('createDocumentHistory', () => {
         });
         documentFiles.getDocumentRevision.mockResolvedValue({
             version: 1,
-            documentRef: '/tmp/work.pdf',
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
             token: requireDocumentRevisionToken('lazy-history-after'),
             contentRevision: 3,
             authority: 'electron-working-copy',
-            mintedAt: 3,
+            mintedAt: requireEpochMs(3),
         });
 
         await expect(history.ensureHistoryBaselineForMutation()).resolves.toBe(false);
@@ -634,17 +637,17 @@ describe('createDocumentHistory', () => {
         state.documentRevisionToken.value = revision;
         documentFiles.getDocumentRevision.mockResolvedValue({
             version: 1,
-            documentRef: '/tmp/work.pdf',
+            documentRef: requireDocumentRef('/tmp/work.pdf'),
             token: revision,
             contentRevision: 4,
             authority: 'electron-working-copy',
-            mintedAt: 4,
+            mintedAt: requireEpochMs(4),
         });
         await history.resetHistory(new Uint8Array([1]), {reuseSnapshot: true});
         await history.pushHistorySnapshot(new Uint8Array([2]), {reuseSnapshot: true});
         await history.markCurrentHistoryEntryClean(null, {
             lazyBaseline: {
-                workingPath: '/tmp/work.pdf',
+                workingPath: requireDocumentRef('/tmp/work.pdf'),
                 revision,
                 size: 256,
             },

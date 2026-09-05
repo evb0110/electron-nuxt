@@ -1,3 +1,5 @@
+import { requireEpochMs } from '@contracts/timestamps';
+import { requirePageIndex } from '@contracts/pageNumbers';
 import { createHash } from 'node:crypto';
 import {
     mkdtemp,
@@ -180,7 +182,7 @@ function createHighlightEntity(application: AnnotationApplication, boxes: readon
     return application.store.applyTextMarkupSelection({
         kind: 'text-markup',
         identity: {id: mintAnnotationId()},
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         subtype: 'Highlight',
         // Selection-created markup carries no note text; the selected document
         // text is derived for display and is never serialized as /Contents.
@@ -189,8 +191,8 @@ function createHighlightEntity(application: AnnotationApplication, boxes: readon
         color: 'rgba(255, 204, 0, 0.4)',
         opacity: 0.4,
         author: null,
-        createdAt: now,
-        modifiedAt: now,
+        createdAt: requireEpochMs(now),
+        modifiedAt: requireEpochMs(now),
         revision: 0,
         persistedRevision: -1,
         deleted: false,

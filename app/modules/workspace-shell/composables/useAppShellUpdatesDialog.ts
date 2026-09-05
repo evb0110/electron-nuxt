@@ -27,6 +27,8 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         }
 
         switch (options.updatesDialog.value.phase) {
+            case 'available':
+                return t('updates.availableTitle');
             case 'checking':
                 return t('updates.checkingTitle');
             case 'downloading':
@@ -37,8 +39,6 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
                 return t('updates.errorTitle');
             case 'unsupported':
                 return t('updates.unsupportedTitle');
-            default:
-                return t('updates.checkingTitle');
         }
     });
 
@@ -53,6 +53,8 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
         }
 
         switch (options.updatesDialog.value.phase) {
+            case 'available':
+                return t('updates.availableDescription', { version });
             case 'checking':
                 return t('updates.checkingDescription');
             case 'downloading': {
@@ -68,8 +70,6 @@ export const useAppShellUpdatesDialog = (options: IUseAppShellUpdatesDialogOptio
                 return t('updates.errorDescription', { message: options.updatesDialog.value.message ?? t('updates.unknownError') });
             case 'unsupported':
                 return options.updatesDialog.value.message ?? t('updates.unsupportedDescription');
-            default:
-                return t('updates.checkingDescription');
         }
     });
 

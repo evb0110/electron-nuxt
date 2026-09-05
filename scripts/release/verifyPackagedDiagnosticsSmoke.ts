@@ -52,7 +52,7 @@ interface ISentryNodeAuditEntry {
     dist: string;
     environment: string;
     eventId: string;
-    itemType: 'event';
+    itemType: string;
     phase: 'accepted' | 'attempted' | 'rejected';
     release: string;
     runtime: string;
@@ -200,8 +200,8 @@ async function startSession(
             'pipe',
         ],
     });
-    child.stdout?.pipe(process.stdout);
-    child.stderr?.pipe(process.stderr);
+    child.stdout.pipe(process.stdout);
+    child.stderr.pipe(process.stderr);
 
     let browser: Browser | null = null;
     try {
@@ -317,7 +317,7 @@ async function runGrantedMatrix(session: IRunningSession) {
     );
     const renderedErrorId = await session.page.$eval(
         `[data-runtime-error-report-id="${firstReceipt.eventId}"] code`,
-        element => element.textContent?.trim() ?? '',
+        element => element.textContent.trim(),
     );
     if (renderedErrorId !== firstReceipt.eventId.slice(0, 8)) {
         throw new Error(`Runtime error UI rendered Error ID ${renderedErrorId}, expected ${firstReceipt.eventId.slice(0, 8)}`);
@@ -343,7 +343,7 @@ async function runGrantedMatrix(session: IRunningSession) {
     await session.page.waitForSelector('#fatal-runtime-error-id code', {timeout: DELIVERY_TIMEOUT_MS});
     const fatalErrorId = await session.page.$eval(
         '#fatal-runtime-error-id code',
-        element => element.textContent?.trim() ?? '',
+        element => element.textContent.trim(),
     );
     if (fatalErrorId !== fatalReceipt.eventId.slice(0, 8)) {
         throw new Error('Fatal error UI did not render the captured Error ID');

@@ -35,6 +35,11 @@ import {
 import {getActiveWorkspaceWorkingCopyPath} from '@tests/e2e/electron/helpers/electronApiHelpers';
 import {createVisibleWindowElectronE2ESessionFixture} from '@tests/e2e/electron/helpers/createElectronE2ESessionFixture';
 import type {IE2EWindow} from '@tests/e2e/electron/helpers/e2EWindow';
+import type {TDocumentRef} from '@contracts/documentRef';
+import {
+    requirePageNumber,
+    type TPageNumber,
+} from '@contracts/pageNumbers';
 import {
     openPdfInApp,
     waitForPdfLoaded,
@@ -400,18 +405,28 @@ acceptanceDescribe('Electron E2E - macOS PDF print acceptance', () => {
         await waitForPdfLoaded(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
         await waitForViewerInteractive(session.page, PRINT_ACCEPTANCE_TIMEOUT_MS);
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const printPromise = session.page.evaluate(async (path: string) => {
+        const pageNumbers: TPageNumber[] = [requirePageNumber(1)];
+        const printPromise = session.page.evaluate(async ({
+            path,
+            pageNumbers,
+        }: {
+            path: TDocumentRef;
+            pageNumbers: TPageNumber[];
+        }) => {
             const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
             if (!printPdfPath) {
                 throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
             }
 
             return printPdfPath(path, 'macos-print-acceptance.pdf', {
-                pageNumbers: [1],
+                pageNumbers,
                 viewMode: 'single',
                 orientation: 'auto',
             });
-        }, workingCopyPath);
+        }, {
+            path: workingCopyPath,
+            pageNumbers,
+        });
         void printPromise.catch(() => undefined);
 
         await completeMacOsPrintDialog(outputPath, electronPid);
@@ -474,23 +489,33 @@ printLayoutSmokeDescribe('Electron E2E - macOS PDF print composition smoke', () 
         );
         await openPdfInApp(session.page, sourcePath, PRINT_ACCEPTANCE_TIMEOUT_MS);
         const workingCopyPath = await getActiveWorkspaceWorkingCopyPath(session.page);
-        const printResult = await session.page.evaluate(async (path: string) => {
+        const pageNumbers: TPageNumber[] = [
+            requirePageNumber(1),
+            requirePageNumber(2),
+            requirePageNumber(3),
+            requirePageNumber(4),
+        ];
+        const printResult = await session.page.evaluate(async ({
+            path,
+            pageNumbers,
+        }: {
+            path: TDocumentRef;
+            pageNumbers: TPageNumber[];
+        }) => {
             const printPdfPath = (window as IE2EWindow).electronAPI?.documentPdf?.printPdfPath;
             if (!printPdfPath) {
                 throw new Error('electronAPI.documentPdf.printPdfPath is unavailable');
             }
 
             return printPdfPath(path, 'facing-first-single-print-smoke.pdf', {
-                pageNumbers: [
-                    1,
-                    2,
-                    3,
-                    4,
-                ],
+                pageNumbers,
                 viewMode: 'facing-first-single',
                 orientation: 'auto',
             });
-        }, workingCopyPath);
+        }, {
+            path: workingCopyPath,
+            pageNumbers,
+        });
 
         expect(printResult).toEqual(expect.objectContaining({success: true}));
         expect(existsSync(printLayoutSmokeOutputPath)).toBe(true);

@@ -8,6 +8,7 @@ import {
     assertSameSentryBuildIdentity,
     assertSentryBuildIdentity,
 } from '../../packages/contracts/diagnostics/releaseIdentity.js';
+import {getErrorMessage} from '../../packages/contracts/getErrorMessage.js';
 import {
     CANARY_RECEIPT_SCHEMA_VERSION,
     CANARY_EVENT_VERSION,
@@ -649,7 +650,7 @@ export async function verifySentrySourcemapCanaries({
             };
         } catch (error) {
             return {
-                error: error instanceof Error ? error.message : 'verification failed',
+                error: getErrorMessage(error),
                 ok: false,
                 value: {
                     bundle: evidence.bundle,

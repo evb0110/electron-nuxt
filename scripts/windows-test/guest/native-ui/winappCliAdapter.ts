@@ -686,7 +686,7 @@ export function createWinappCliAdapter({
                 windowRef.handle,
             ];
         }
-        if (windowRef.processId !== null && windowRef.processId !== undefined) {
+        if (windowRef.processId !== null) {
             return [
                 '--app',
                 String(windowRef.processId),

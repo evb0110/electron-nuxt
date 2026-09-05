@@ -1,3 +1,4 @@
+import { getErrorMessage } from '@contracts/getErrorMessage';
 import {
     stat,
     statfs,
@@ -152,7 +153,7 @@ export async function readUtmScreenshotPreference(
     } catch (error) {
         return {
             enabled: false,
-            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${error instanceof Error ? error.message : String(error)}.`,
+            detail: `Could not read ${UTM_SCREENSHOT_PREFERENCE_DOMAIN} ${UTM_SCREENSHOT_PREFERENCE_KEY}: ${getErrorMessage(error)}.`,
             remedy: UTM_SCREENSHOT_PREFERENCE_REMEDY,
         };
     }
@@ -238,7 +239,7 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
     try {
         version = parseUtmctlVersion(await dependencies.utmctl.version());
     } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
+        const detail = getErrorMessage(error);
         const consentMissing = detectsAutomationConsentFailure(detail);
         checks.push(check(
             consentMissing ? 'automation-consent' : 'utmctl-present',
@@ -278,7 +279,7 @@ async function checkUtmctl(dependencies: IWindowsTestDoctorDependencies) {
         checks.push(check(
             'automation-consent',
             false,
-            `utmctl list failed: ${error instanceof Error ? error.message : String(error)}.`,
+            `utmctl list failed: ${getErrorMessage(error)}.`,
             'Grant the qualified launcher Automation access to UTM in System Settings > Privacy & Security > Automation, then retry.',
         ));
     }
@@ -301,7 +302,7 @@ async function checkGoldenImage(
         return check(
             'golden-image-stopped',
             false,
-            `The golden image ${config.goldenVmId} could not be queried: ${error instanceof Error ? error.message : String(error)}.`,
+            `The golden image ${config.goldenVmId} could not be queried: ${getErrorMessage(error)}.`,
             'Register the golden image in UTM and record its UUID as goldenVmId.',
         );
     }
@@ -373,7 +374,7 @@ export async function runWindowsTestDoctor(
             false,
             error instanceof WindowsTestConfigError
                 ? `${error.kind}: ${error.message}`
-                : `The host configuration could not be loaded: ${error instanceof Error ? error.message : String(error)}.`,
+                : `The host configuration could not be loaded: ${getErrorMessage(error)}.`,
             `Create ${dependencies.layout.configFile} and record the golden image, the test VM allowlist and the retention policy.`,
         ));
     }

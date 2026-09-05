@@ -21,6 +21,8 @@ import {
     vi,
 } from 'vitest';
 import type { IAgentAssistantChatScope } from '@contracts/agent';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireTabId} from '@contracts/windowTabs';
 import {
     AssistantChatPersistence,
     AssistantChatPersistenceError,
@@ -35,8 +37,8 @@ const scope = {
     kind: 'document',
     key: 'document:/tmp/a.pdf',
     title: 'a.pdf',
-    tabId: 'tab-a',
-    documentRef: '/tmp/a.pdf',
+    tabId: requireTabId('tab-a'),
+    documentRef: requireDocumentRef('/tmp/a.pdf'),
 } satisfies IAgentAssistantChatScope;
 
 const selection = {
@@ -421,7 +423,7 @@ describe('assistant chat session store persistence', () => {
             ...scope,
             key: `document:/tmp/${'deep-path-segment/'.repeat(80)}large.pdf`,
             title: 'large.pdf',
-            documentRef: `/tmp/${'deep-path-segment/'.repeat(80)}large.pdf`,
+            documentRef: requireDocumentRef(`/tmp/${'deep-path-segment/'.repeat(80)}large.pdf`),
         } satisfies IAgentAssistantChatScope;
         const session = store.getSession(longScope, selection, { create: true });
 

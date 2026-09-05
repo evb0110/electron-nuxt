@@ -11,13 +11,14 @@ import {
     isSparseDocumentPageMetrics,
     loadInitialDocumentPageMetric,
 } from '@app/modules/workspace-shell/viewers/loadPrioritizedDocumentPageMetrics';
+import { requireDocumentRef } from '@contracts/documentRef';
 import type { IDocumentPageSource } from '@app/utils/document-viewer/source/documentPageSource';
 
 function createSource(pageCount: number) {
     const calls: number[] = [];
     const source: IDocumentPageSource = {
         kind: 'djvu',
-        documentRef: '/documents/scan.djvu',
+        documentRef: requireDocumentRef('/documents/scan.djvu'),
         pageCount,
         async getPageMetrics(pageNumber: number) {
             calls.push(pageNumber);

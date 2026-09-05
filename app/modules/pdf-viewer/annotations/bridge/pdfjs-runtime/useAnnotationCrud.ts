@@ -1,3 +1,15 @@
+import {
+    pageIndexToPageNumber,
+    pageNumberToPageIndex,
+    requirePageIndex,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
+import type {
+    TPageIndex,
+    TPageNumber,
+} from '@contracts/pageNumbers';
+import { createEpochMs } from '@contracts/timestamps';
+
 // PDF.js-private CRUD executor; exposed through the canonical mutation port.
 import { AnnotationEditorType } from '@app/services/pdfjs/runtimeLib';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
@@ -103,7 +115,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         focusPulseTimers.add(timer);
     }
 
-    function hasMountedPageCanvas(pageNumber: number) {
+    function hasMountedPageCanvas(pageNumber: TPageNumber) {
         return Boolean(
             viewerContainer.value?.querySelector(
                 `.page_container[data-page="${pageNumber}"] .page_canvas canvas`,
@@ -114,29 +126,33 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     function resolveMountedPageIndexes() {
         const pageNumbers = getMountedPageNumbers?.();
         if (pageNumbers) {
-            return Array.from(pageNumbers, pageNumber => (
-                Number.isSafeInteger(pageNumber) ? pageNumber - 1 : Number.NaN
-            ));
+            return Array.from(pageNumbers, pageNumber => {
+                if (!Number.isSafeInteger(pageNumber) || pageNumber < 1) {
+                    return null;
+                }
+                return pageNumberToPageIndex(requirePageNumber(pageNumber));
+            }).filter((pageIndex): pageIndex is TPageIndex => pageIndex !== null);
         }
         const container = viewerContainer.value;
         if (!container) {
             return [];
         }
-        const mountedPageIndexes: number[] = [];
+        const mountedPageIndexes: TPageIndex[] = [];
         for (const pageContainer of container.querySelectorAll<HTMLElement>('.page_container[data-page]')) {
             const pageNumber = Number.parseInt(pageContainer.dataset.page ?? '', 10);
             if (Number.isSafeInteger(pageNumber) && pageNumber > 0) {
-                mountedPageIndexes.push(pageNumber - 1);
+                mountedPageIndexes.push(pageNumberToPageIndex(requirePageNumber(pageNumber)));
             }
         }
         return mountedPageIndexes;
     }
 
     function resolveAnnotationPageIndexes() {
-        return getAnnotationPageIndexes?.() ?? annotationCommentsCache.value.map(comment => comment.pageIndex);
+        const pageIndexes = getAnnotationPageIndexes?.() ?? annotationCommentsCache.value.map(comment => comment.pageIndex);
+        return Array.from(pageIndexes, pageIndex => requirePageIndex(pageIndex));
     }
 
-    function resolveEditorSearchPages(preferredPageIndex: number) {
+    function resolveEditorSearchPages(preferredPageIndex: TPageIndex) {
         return getAnnotationEditorPageSearchOrder({
             annotationPageIndexes: resolveAnnotationPageIndexes(),
             mountedPageIndexes: resolveMountedPageIndexes(),
@@ -158,7 +174,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         );
     }
 
-    function findEditorByAnnotationElementId(pageIndex: number, annotationId: string) {
+    function findEditorByAnnotationElementId(pageIndex: TPageIndex, annotationId: string) {
         return getStoredAnnotationEditor(pdfDocument.value, annotationId)
             ?? findEditorByAnnotationElementIdHelper(
                 annotationUiManager.value,
@@ -195,7 +211,10 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         }
         setActiveCommentAndSync(comment.stableKey);
 
-        const pageNumber = clamp(comment.pageNumber, 1, Math.max(1, numPages.value));
+        const pageNumber = requirePageNumber(
+            clamp(comment.pageNumber, 1, Math.max(1, numPages.value)),
+            numPages.value,
+        );
         scrollToPage(pageNumber, { markerRect: comment.markerRect });
 
         await nextTick();
@@ -234,7 +253,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         inlineIndicators.pulseCommentIndicator(comment.stableKey);
 
         const uiManager = annotationUiManager.value;
-        const pageIndex = pageNumber - 1;
+        const pageIndex = pageNumberToPageIndex(pageNumber);
 
         if (uiManager) {
             try {
@@ -279,7 +298,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         ]);
         const uiManager = annotationUiManager.value;
         const editorCountsByPage = uiManager
-            ? resolveEditorSearchPages(resolvedComment.pageIndex).map(pageIndex => ({
+            ? resolveEditorSearchPages(requirePageIndex(resolvedComment.pageIndex)).map(pageIndex => ({
                 pageIndex,
                 count: getEditorsOnPage(uiManager, pageIndex).length,
             }))
@@ -318,13 +337,15 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const inlineIndicators = getInlineIndicators();
 
         const resolvedComment = resolveCommentForDelete(comment) ?? comment;
-        const preferredPageIndex = Number.isFinite(resolvedComment.pageIndex)
-            ? resolvedComment.pageIndex
-            : comment.pageIndex;
+        const preferredPageIndex = requirePageIndex(
+            Number.isFinite(resolvedComment.pageIndex)
+                ? resolvedComment.pageIndex
+                : comment.pageIndex,
+        );
         const editor = findEditorForComment(resolvedComment)
             ?? findEditorForComment(comment)
             ?? (resolvedComment.annotationId ? findPopupModeDeleteEditor(preferredPageIndex, resolvedComment) : null)
-            ?? (comment.annotationId ? findPopupModeDeleteEditor(comment.pageIndex, comment) : null);
+            ?? (comment.annotationId ? findPopupModeDeleteEditor(requirePageIndex(comment.pageIndex), comment) : null);
         if (!editor) {
             logMissingEditorForCommentUpdate(comment, resolvedComment);
             return false;
@@ -341,7 +362,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         writeEditorCommentToAnnotationStorage(editor, nextRawLength > 0 ? text : '');
 
         if (nextTrimmed.length > 0) {
-            const modifiedAt = Date.now();
+            const modifiedAt = createEpochMs();
             identity.rememberSummaryText({
                 ...resolvedComment,
                 text,
@@ -361,11 +382,14 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     }
 
     function toDeleteTargetState(comment: IAnnotationCommentSummary) {
-        const pageNumber = clamp(comment.pageNumber, 1, Math.max(1, numPages.value));
+        const pageNumber = requirePageNumber(
+            clamp(comment.pageNumber, 1, Math.max(1, numPages.value)),
+            numPages.value,
+        );
         return {
             comment,
             pageNumber,
-            pageIndex: Math.max(0, pageNumber - 1),
+            pageIndex: pageNumberToPageIndex(pageNumber),
             candidateIds: getCommentCandidateIds(comment),
         };
     }
@@ -376,7 +400,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
     function findEditorByDeleteCandidateIds(
         uiManager: AnnotationEditorUIManager,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         candidateIds: string[],
     ) {
         for (const id of candidateIds) {
@@ -398,7 +422,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
 
     async function selectDeleteCandidates(
         uiManager: AnnotationEditorUIManager,
-        pageIndex: number,
+        pageIndex: TPageIndex,
         candidateIds: string[],
     ) {
         let attemptedCommentSelection = false;
@@ -410,7 +434,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     }
 
     function findPopupModeDeleteEditor(
-        pageIndex: number,
+        pageIndex: TPageIndex,
         comment: IAnnotationCommentSummary,
     ) {
         if (!shouldAttemptPopupModeForDelete(comment) || !comment.annotationId) {
@@ -463,7 +487,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         toolManager: ICrudToolManager,
         uiManager: AnnotationEditorUIManager,
         comment: IAnnotationCommentSummary,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         previousMode: ReturnType<AnnotationEditorUIManager['getMode']>,
     ) {
         if (!shouldAttemptPopupModeForDelete(comment) || previousMode === AnnotationEditorType.POPUP) {
@@ -479,7 +503,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         uiManager: AnnotationEditorUIManager,
         switchedToPopupMode: boolean,
         previousMode: ReturnType<AnnotationEditorUIManager['getMode']>,
-        pageNumber: number,
+        pageNumber: TPageNumber,
     ) {
         if (switchedToPopupMode) {
             await toolManager.updateModeWithRetry(uiManager, previousMode, pageNumber);
@@ -632,7 +656,11 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
     }
 
     function findEditorFromTarget(target: HTMLElement): IEditorTargetMatch | null {
-        return findEditorFromTargetHelper(annotationUiManager.value, target, currentPage.value);
+        return findEditorFromTargetHelper(
+            annotationUiManager.value,
+            target,
+            requirePageNumber(currentPage.value),
+        );
     }
 
     function findEditorSummaryFromTarget(target: HTMLElement) {
@@ -657,6 +685,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             annotationId: summary.annotationId ?? match.targetAnnotationId,
             stableKey: identity.computeSummaryStableKey({
                 ...stableKeyParams,
+                pageIndex: requirePageIndex(stableKeyParams.pageIndex),
                 ...(summaryUid !== undefined ? { uid: summaryUid } : {}),
             }),
         };
@@ -686,7 +715,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const editorSummary = findEditorSummaryFromTarget(target);
         const pdfSummary = findPdfAnnotationSummaryFromTarget(
             target,
-            currentPage.value,
+            requirePageNumber(currentPage.value),
             annotationCommentsCache.value,
         );
 
@@ -713,7 +742,7 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
             target,
             clientX,
             clientY,
-            currentPage.value,
+            requirePageNumber(currentPage.value),
             annotationCommentsCache.value,
             getHighlight().findPageContainerFromClientPoint,
         );
@@ -741,7 +770,11 @@ export const useAnnotationCrud = (options: IUseAnnotationCrudOptions) => {
         const mode = activeTool === 'text'
             ? AnnotationEditorType.FREETEXT
             : AnnotationEditorType.POPUP;
-        const modeError = await getToolManager().updateModeWithRetry(uiManager, mode, match.pageIndex + 1);
+        const modeError = await getToolManager().updateModeWithRetry(
+            uiManager,
+            mode,
+            pageIndexToPageNumber(match.pageIndex),
+        );
         if (modeError) {
             BrowserLogger.warn('annotations', `Failed to enable editor interaction mode: ${errorToLogText(modeError)}`);
             return false;

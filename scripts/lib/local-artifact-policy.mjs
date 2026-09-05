@@ -62,6 +62,7 @@ export const LOCAL_ONLY_DIRECTORY_NAMES = LOCAL_ONLY_DIRECTORIES.map(({name}) =>
 //
 // Directory names are compared exactly: the tooling that creates `.claude` and
 // `.devkit` always spells them in lower case.
+/** @param {string} value */
 function asciiLowerCase(value) {
     return value.replace(/[A-Z]/gu, character => character.toLowerCase());
 }
@@ -94,6 +95,7 @@ export function normalizeRepositoryRelativePath(filePath) {
     return normalized;
 }
 
+/** @param {string} filePath */
 export function isTopLevelDocsPath(filePath) {
     return normalizeRepositoryRelativePath(filePath)[0] === 'docs';
 }
@@ -137,7 +139,11 @@ export function describeForbiddenArtifactPath(filePath) {
         return null;
     }
 
-    const instructionFileName = findAgentInstructionFileName(segments.at(-1));
+    const fileName = segments.at(-1);
+    if (fileName === undefined) {
+        return null;
+    }
+    const instructionFileName = findAgentInstructionFileName(fileName);
     if (instructionFileName) {
         return `agent instruction file ${instructionFileName} at ${filePath}`;
     }
@@ -149,7 +155,7 @@ export function describeForbiddenArtifactPath(filePath) {
         return `${directory.kind} ${directory.name}/ at ${filePath}`;
     }
 
-    const rootOnlyArtifactName = findRootOnlyLocalArtifactFileName(segments.at(-1));
+    const rootOnlyArtifactName = findRootOnlyLocalArtifactFileName(fileName);
     return rootOnlyArtifactName && segments[0] !== 'docs'
         ? `local working document ${rootOnlyArtifactName} outside docs/ at ${filePath}`
         : null;

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     describe,
     expect,
@@ -127,7 +128,7 @@ function createResidentCanvasFixture(
             documentRevision: snapshot.identity!.documentRevision,
             renderVersion: 1,
             requestId: pageNumber,
-            pageNumber,
+            pageNumber: requirePageNumber(pageNumber),
         });
     }
 
@@ -145,7 +146,7 @@ describe('createPdfInitialVisualCommit', () => {
     it('adopts a ready resident canvas into a newly opened surface with no committed geometry', () => {
         const fixture = createResidentCanvasFixture();
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value).toMatchObject({
             generation: 1,
@@ -173,7 +174,7 @@ describe('createPdfInitialVisualCommit', () => {
         expect(fixture.commitCurrentViewportIfSettled).toHaveBeenCalledExactlyOnceWith(2);
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledExactlyOnceWith({pageNumber: 2});
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.emitInitialVisualReady).toHaveBeenCalledOnce();
 
         fixture.viewerContainer.remove();
@@ -182,7 +183,7 @@ describe('createPdfInitialVisualCommit', () => {
     it('does not start a render fence until resident canvas geometry is measurable', () => {
         const fixture = createResidentCanvasFixture(false);
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value).toMatchObject({
             phase: 'pending',
@@ -198,7 +199,7 @@ describe('createPdfInitialVisualCommit', () => {
 
     it('returns the viewport to ready after an in-document navigation repaints the new page', () => {
         const fixture = createResidentCanvasFixture();
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
         expect(fixture.surface.viewportSession.value.lifecycle).toBe('ready');
 
         fixture.surface.requestNavigation(3, 0);
@@ -231,7 +232,7 @@ describe('createPdfInitialVisualCommit', () => {
             bottom: 1_440_755,
         });
 
-        fixture.initialVisual.adoptResidentCanvas(2);
+        fixture.initialVisual.adoptResidentCanvas(requirePageNumber(2));
 
         expect(fixture.surface.snapshot.value.phase).toBe('viewport-committed');
         expect(fixture.surface.viewportSession.value).toMatchObject({

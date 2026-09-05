@@ -13,6 +13,7 @@ import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { syncFileHandleForDurability } from '@electron/utils/syncFileHandleForDurability';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     compactSearchIndexRecordsFitLoadBudget as recordsFitLoadBudget,
     parseCompactSearchIndexHeader as parseHeader,
@@ -653,7 +654,7 @@ async function scanStreamingDirectory(
             bytesWritten += byteLength;
             if (includeRecords) {
                 records.push({
-                    pageNumber,
+                    pageNumber: requirePageNumber(pageNumber),
                     textUtf16Length,
                     byteOffset,
                     byteLength,

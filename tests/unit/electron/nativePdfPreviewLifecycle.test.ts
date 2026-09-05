@@ -7,6 +7,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import {requireRequestId} from '@contracts/shared';
 import {mainJobBroker} from '@electron/resources/jobBroker';
 
 const mocks = vi.hoisted(() => ({
@@ -702,7 +703,7 @@ describe('native PDF preview lifecycle', () => {
         const previewPromise = handlePdfNativePagePreview({
             sender: sender as never,
             senderId: sender.id,
-        }, '/tmp/input.pdf', 1, {previewRequestId: 'preview-1'});
+        }, '/tmp/input.pdf', 1, {previewRequestId: requireRequestId('preview-1')});
         await vi.waitFor(() => {
             expect(capturedOptions).toHaveLength(1);
         });
@@ -710,7 +711,7 @@ describe('native PDF preview lifecycle', () => {
         await expect(handleCancelPdfNativePagePreview({
             sender: sender as never,
             senderId: sender.id,
-        }, 'preview-1')).resolves.toEqual({canceled: true});
+        }, requireRequestId('preview-1'))).resolves.toEqual({canceled: true});
         await expect(previewPromise).rejects.toThrow('Native PDF preview canceled');
         expect(mocks.cancelNativeCommandGroup).toHaveBeenCalledWith(expect.stringMatching(/^pdf-native-preview:/u));
         expect(mocks.rm).toHaveBeenCalledWith('/tmp/native-preview', {
@@ -732,12 +733,12 @@ describe('native PDF preview lifecycle', () => {
         const previewPromise = handlePdfNativePagePreview({
             sender: sender as never,
             senderId: sender.id,
-        }, '/tmp/input.pdf', 1, {previewRequestId: 'preview-path-resolution'});
+        }, '/tmp/input.pdf', 1, {previewRequestId: requireRequestId('preview-path-resolution')});
 
         await expect(handleCancelPdfNativePagePreview({
             sender: sender as never,
             senderId: sender.id,
-        }, 'preview-path-resolution')).resolves.toEqual({canceled: true});
+        }, requireRequestId('preview-path-resolution'))).resolves.toEqual({canceled: true});
         pathResolution.resolve('/tmp/input.pdf');
 
         await expect(previewPromise).rejects.toThrow('Native PDF preview canceled');
@@ -841,7 +842,7 @@ describe('native PDF preview lifecycle', () => {
         }>();
         mocks.runNativeToolCommand.mockReturnValueOnce(command.promise);
         const { handlePdfNativePagePreview } = await import('@electron/features/documents/main/nativePdfPreview');
-        const options = {previewRequestId: 'preview-coalesced'};
+        const options = {previewRequestId: requireRequestId('preview-coalesced')};
 
         const first = handlePdfNativePagePreview({
             sender: sender as never,

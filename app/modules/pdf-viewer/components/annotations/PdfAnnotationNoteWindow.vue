@@ -59,6 +59,8 @@
 </template>
 
 <script setup lang="ts">
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 
 import {
     useEventListener,
@@ -74,7 +76,7 @@ import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 interface IProps {
     annotationId: string;
-    pageNumber: number;
+    pageNumber: TPageNumber;
     author: string | null;
     createdAt: number | null;
     modifiedAt: number | null;
@@ -156,7 +158,7 @@ const authorText = computed(() => {
     if (commentAuthor) {
         return commentAuthor;
     }
-    const settingsAuthor = settings.value.authorName?.trim();
+    const settingsAuthor = settings.value.authorName.trim();
     return settingsAuthor && settingsAuthor.length > 0
         ? settingsAuthor
         : t('noteWindow.unknownAuthor');
@@ -234,8 +236,8 @@ function syncPosition(position: IAnnotationNotePosition | null) {
         height: height.value,
     };
     const nextSize = clampSize(
-        position?.width ?? width.value ?? NOTE_WINDOW.DEFAULT_WIDTH,
-        position?.height ?? height.value ?? NOTE_WINDOW.DEFAULT_HEIGHT,
+        position?.width ?? width.value,
+        position?.height ?? height.value,
     );
     width.value = nextSize.width;
     height.value = nextSize.height;

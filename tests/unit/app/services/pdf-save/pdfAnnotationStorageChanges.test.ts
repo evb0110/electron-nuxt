@@ -14,6 +14,8 @@ import { asAnnotationId } from '@app/modules/pdf-viewer/engine/annotations/domai
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/engine/annotations/bridge/getPdfjsEditorFacadeState';
 import type { IPdfNativeFreeTextEditor } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
+import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
 
 const MARKER_RECT = {
     left: 0.1,
@@ -38,11 +40,11 @@ function createPersistedCommentMarkerAnchorFixture() {
             elementId: editorKey,
             pdfRef: '12R',
         },
-        pageIndex: 0,
+        pageIndex: requirePageIndex(0),
         revision: 0,
         persistedRevision: 0,
         deleted: false,
-        createdAt: 1_781_000_000_000,
+        createdAt: requireEpochMs(1_781_000_000_000),
         modifiedAt: null,
         author: 'Tester',
         text: 'text-note-1',
@@ -85,11 +87,11 @@ function createPersistedCommentMarkerAnchorFixture() {
         hash: 'persisted-anchor-hash',
         map: serializableMap,
     };
-    const document = {annotationStorage: {
+    const document = createPdfDocumentProxy({annotationStorage: {
         serializable,
         modifiedIds: {ids: new Set()},
         getRawValue: (key: string) => key === editorKey ? anchorEditor : undefined,
-    }} as never;
+    }});
     return {
         anchorEditor,
         annotationStore,
@@ -173,14 +175,14 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     it('exposes named bridge helpers for PDF.js annotation storage resets', () => {
         let resetModifiedCalls = 0;
         let resetModifiedIdsCalls = 0;
-        const document = { annotationStorage: {
+        const document = createPdfDocumentProxy({ annotationStorage: {
             resetModified() {
                 resetModifiedCalls += 1;
             },
             resetModifiedIds() {
                 resetModifiedIdsCalls += 1;
             },
-        }} as never;
+        }});
 
         expect(resetLivePdfJsAnnotationStorageModifiedState(document)).toBe(true);
         expect(resetLivePdfJsAnnotationStorageModifiedIds(document)).toBe(true);
@@ -190,7 +192,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('treats missing PDF.js annotation storage reset methods as no-ops', () => {
-        expect(resetLivePdfJsAnnotationStorageModifiedState({ annotationStorage: {} } as never)).toBe(false);
+        expect(resetLivePdfJsAnnotationStorageModifiedState(createPdfDocumentProxy({ annotationStorage: {} }))).toBe(false);
         expect(resetLivePdfJsAnnotationStorageModifiedIds(null)).toBe(false);
     });
 
@@ -199,10 +201,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
             'pdfjs_internal_editor_0',
             { deleted: true },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -219,7 +221,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 this.modifiedIds = { ids: new Set() };
             },
         };
-        const document = { annotationStorage: storage } as never;
+        const document = createPdfDocumentProxy({ annotationStorage: storage });
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -236,10 +238,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 annotationId: '3856R',
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_1']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -259,12 +261,12 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 id: asAnnotationId('shape-1'),
                 elementId: editorKey,
             },
-            pageIndex: 0,
+            pageIndex: requirePageIndex(0),
             revision: 0,
             persistedRevision: -1,
             deleted: false,
-            createdAt: 1,
-            modifiedAt: 1,
+            createdAt: requireEpochMs(1),
+            modifiedAt: requireEpochMs(1),
             author: null,
             geometry: {
                 id: editorKey,
@@ -290,14 +292,14 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 ],
             },
         });
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([[
                 editorKey,
                 {annotationType: 15},
             ]])},
             modifiedIds: {ids: new Set([editorKey])},
             getRawValue: (key: string) => key === editorKey ? editor : undefined,
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document, {annotationStore});
 
@@ -319,10 +321,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -450,10 +452,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 value: '',
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -472,10 +474,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 value: '\u200B',
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -494,10 +496,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 value: '',
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -520,10 +522,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -546,10 +548,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set([undefined]) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -568,10 +570,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 value: 'visible typewriter text',
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: { map: serializableMap },
             modifiedIds: { ids: new Set(['pdfjs_internal_editor_0']) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -605,13 +607,13 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 id: null,
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {
                 map: serializableMap,
                 hash: 'recorded-large-pdf-free-text-box',
             },
             modifiedIds: { ids: new Set([null]) },
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -642,7 +644,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('captures an edited imported FreeText box by its existing PDF identity', () => {
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([[
                 'pdfjs_internal_editor_4',
                 {
@@ -666,7 +668,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             ]])},
             modifiedIds: {ids: new Set(['pdfjs_internal_editor_4'])},
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -689,7 +691,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('captures an edited non-point imported FreeText even when its legacy Popup is serialized', () => {
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([[
                 'pdfjs_internal_editor_5',
                 {
@@ -717,7 +719,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             ]])},
             modifiedIds: {ids: new Set(['pdfjs_internal_editor_5'])},
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -734,7 +736,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('removes PDF.js invisible placeholders from a native FreeText mutation', () => {
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([[
                 'pdfjs_internal_editor_2',
                 {
@@ -758,7 +760,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 },
             ]])},
             modifiedIds: {ids: new Set([null])},
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -787,13 +789,13 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
             value: 'saved text',
             id: null,
         };
-        const createDocument = () => ({annotationStorage: {
+        const createDocument = () => createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([[
                 'pdfjs_internal_editor_0',
                 editor,
             ]])},
             modifiedIds: {ids: new Set([null])},
-        }}) as never;
+        }});
         const firstDocument = createDocument();
         const reopenedDocument = createDocument();
 
@@ -810,7 +812,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('ignores a blank editor-only FreeText placeholder beside a saveable text box', () => {
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: new Map([
                 [
                     'pdfjs_internal_editor_0',
@@ -845,7 +847,7 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 ],
             ])},
             modifiedIds: {ids: new Set([null])},
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -881,10 +883,10 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
                 id: null,
             },
         ]]);
-        const document = {annotationStorage: {
+        const document = createPdfDocumentProxy({annotationStorage: {
             serializable: {map: serializableMap},
             modifiedIds: {ids: new Set([null])},
-        }} as never;
+        }});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -895,9 +897,9 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('treats PDF.js annotation storage inspection failures as unknown live changes', () => {
-        const document = { annotationStorage: {resetModifiedIds() {
+        const document = createPdfDocumentProxy({ annotationStorage: {resetModifiedIds() {
             throw new Error('pdfjs storage unavailable');
-        }}} as never;
+        }}});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 
@@ -907,9 +909,9 @@ describe('collectLivePdfJsAnnotationChangeIds', () => {
     });
 
     it('treats serializable getter failures as unknown live changes', () => {
-        const document = { annotationStorage: {get serializable() {
+        const document = createPdfDocumentProxy({ annotationStorage: {get serializable() {
             throw new Error('pdfjs serialization failed');
-        }}} as never;
+        }}});
 
         const result = collectLivePdfJsAnnotationChangeIds(document);
 

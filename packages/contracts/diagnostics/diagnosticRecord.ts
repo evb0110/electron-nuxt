@@ -17,6 +17,10 @@ import {
     MAX_CANONICAL_APP_FRAMES,
     type CanonicalAppFrame,
 } from '@contracts/diagnostics/canonicalAppFrames';
+import {
+    isEpochMs,
+    type TEpochMs,
+} from '@contracts/timestamps';
 
 export type {CanonicalAppFrame} from '@contracts/diagnostics/canonicalAppFrames';
 export type {
@@ -64,7 +68,7 @@ export interface DiagnosticRecord<C extends DiagnosticCode = DiagnosticCode> {
     severity: FailureSeverity;
     runtime: DiagnosticRuntime;
     operation?: DiagnosticOperation;
-    occurredAt: number;
+    occurredAt: TEpochMs;
     frames: readonly CanonicalAppFrame[];
     context: DiagnosticContext<C>;
 }
@@ -111,20 +115,14 @@ function hasRequiredKeys(value: Record<string, unknown>, requiredKeys: readonly 
     return requiredKeys.every(key => Object.hasOwn(value, key));
 }
 
-function isFiniteSafeTimestamp(value: unknown): value is number {
-    return typeof value === 'number'
-        && Number.isSafeInteger(value)
-        && value >= 0;
-}
-
 function isFailureSeverity(value: unknown): value is FailureSeverity {
     return typeof value === 'string'
-        && FAILURE_SEVERITIES.includes(value as FailureSeverity);
+        && FAILURE_SEVERITIES.some(severity => severity === value);
 }
 
 function isDiagnosticRuntime(value: unknown): value is DiagnosticRuntime {
     return typeof value === 'string'
-        && DIAGNOSTIC_RUNTIMES.includes(value as DiagnosticRuntime);
+        && DIAGNOSTIC_RUNTIMES.some(runtime => runtime === value);
 }
 
 export function decodeDiagnosticRecord(value: unknown): DiagnosticRecord | null {
@@ -162,7 +160,7 @@ export function decodeDiagnosticRecord(value: unknown): DiagnosticRecord | null 
             || !isDiagnosticCode(value.code)
             || !isFailureSeverity(value.severity)
             || !isDiagnosticRuntime(value.runtime)
-            || !isFiniteSafeTimestamp(value.occurredAt)
+            || !isEpochMs(value.occurredAt)
             || !isUnknownArray(value.frames)
             || value.frames.length > MAX_DIAGNOSTIC_RECORD_FRAMES
             || !hasOnlyArrayIndices(value.frames)

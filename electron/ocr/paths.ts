@@ -287,10 +287,15 @@ async function validateOcrToolsUncached(paths: IOcrToolPaths): Promise<IOcrToolV
         tesseract: {
             found: tesseract.found,
             path: paths.tesseract,
+            ...(tesseract.version === undefined ? {} : {version: tesseract.version}),
         },
         tessdata: {
             found: tessdata.found,
             path: paths.tessdata,
+            ...(tessdata.languages === undefined ? {} : {languages: [...tessdata.languages]}),
+            ...(tessdata.onDemandLanguages === undefined
+                ? {}
+                : {onDemandLanguages: [...tessdata.onDemandLanguages]}),
         },
         pdftoppm: {
             found: pdftoppmFound,
@@ -302,29 +307,17 @@ async function validateOcrToolsUncached(paths: IOcrToolPaths): Promise<IOcrToolV
         },
         popplerRuntime: {
             dataDirFound: popplerRuntime.dataDirFound,
+            ...(popplerRuntime.dataDir === undefined ? {} : {dataDir: popplerRuntime.dataDir}),
             fontConfigDirFound: popplerRuntime.fontConfigDirFound,
+            ...(popplerRuntime.fontConfigDir === undefined
+                ? {}
+                : {fontConfigDir: popplerRuntime.fontConfigDir}),
         },
         qpdf: {
             found: qpdfFound,
             path: paths.qpdf,
         },
     };
-    if (tesseract.version !== undefined) {
-        tools.tesseract.version = tesseract.version;
-    }
-    if (tessdata.languages !== undefined) {
-        tools.tessdata.languages = tessdata.languages;
-    }
-    if (tessdata.onDemandLanguages !== undefined) {
-        tools.tessdata.onDemandLanguages = tessdata.onDemandLanguages;
-    }
-    if (popplerRuntime.dataDir !== undefined) {
-        tools.popplerRuntime.dataDir = popplerRuntime.dataDir;
-    }
-    if (popplerRuntime.fontConfigDir !== undefined) {
-        tools.popplerRuntime.fontConfigDir = popplerRuntime.fontConfigDir;
-    }
-
     return {
         valid,
         tools,

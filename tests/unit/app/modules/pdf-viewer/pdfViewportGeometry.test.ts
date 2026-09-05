@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     createPdfViewportGeometryFromLayout,
     computePdfViewportGeometry,
@@ -283,7 +284,7 @@ describe('pdfViewportGeometry', () => {
             expect(firstPage.height).toBe(500);
             expect(lastPage.width).toBe(320);
             expect(lastPage.height).toBe(520);
-            expect(getViewportGeometryRowForPage(geometry, totalPages)).toMatchObject({
+            expect(getViewportGeometryRowForPage(geometry, requirePageNumber(totalPages))).toMatchObject({
                 startPage: totalPages - 1,
                 endPage: totalPages,
             });

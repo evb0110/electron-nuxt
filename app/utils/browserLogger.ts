@@ -1,4 +1,6 @@
+import { getErrorMessage } from '@app/utils/error';
 import { STORAGE_KEYS } from '@app/constants/storageKeys';
+import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import type { IRendererLogEntry } from '@contracts/electronApiCommon';
 import type {
     CaptureFailureInput,
@@ -13,6 +15,7 @@ import {
     captureRendererFailure,
     initializeRendererFailureReporter,
 } from '@app/utils/failureReporter';
+import { createIsoTimestamp } from '@contracts/timestamps';
 
 type TBrowserLogLevel = 'debug' | 'info' | 'warn' | 'error' | 'silent';
 type TEmitLogLevel = Exclude<TBrowserLogLevel, 'silent'>;
@@ -113,8 +116,8 @@ function hasElectronRendererBridge() {
     }
 
     try {
-        const electronAPI = (window as Window & {electronAPI?: unknown;}).electronAPI;
-        return typeof electronAPI === 'object' && electronAPI !== null;
+        const electronAPI: unknown = Reflect.get(window, 'electronAPI');
+        return electronAPI !== null && typeof electronAPI === 'object';
     } catch {
         return false;
     }
@@ -130,7 +133,7 @@ function serializeForRendererLog(value: unknown) {
             if (currentValue instanceof Error) {
                 return {
                     name: currentValue.name,
-                    message: currentValue.message,
+                    message: getErrorMessage(currentValue),
                     stack: currentValue.stack,
                 };
             }
@@ -145,7 +148,13 @@ function serializeForRendererLog(value: unknown) {
         const parsed: unknown = JSON.parse(serialized);
         return parsed;
     } catch {
-        return String(value);
+        if (typeof value === 'object' && value !== null) {
+            return '[unserializable object]';
+        }
+        const serializedValue: unknown = JSON.stringify(value);
+        return typeof serializedValue === 'string'
+            ? serializedValue
+            : '<unserializable value>';
     }
 }
 
@@ -155,10 +164,13 @@ function forwardToMain(entry: IRendererLogEntry) {
     }
 
     try {
-        const electronAPI = (window as Window & {electronAPI?: {settings?: {rendererLog?: (payload: IRendererLogEntry) => void;};};}).electronAPI;
-        const rendererLog = electronAPI?.settings?.rendererLog;
-        if (typeof rendererLog === 'function') {
-            rendererLog(entry);
+        const electronAPI: unknown = Reflect.get(window, 'electronAPI');
+        const settings: unknown = typeof electronAPI === 'object' && electronAPI !== null
+            ? Reflect.get(electronAPI, 'settings')
+            : null;
+        const rendererLog = getOptionalFunction<[IRendererLogEntry]>(settings, 'rendererLog');
+        if (rendererLog) {
+            rendererLog.call(settings, entry);
         }
     } catch {
         // Ignore IPC bridge failures in browser logger
@@ -280,7 +292,7 @@ function emitLog(
         return;
     }
 
-    const timestamp = new Date().toISOString();
+    const timestamp = createIsoTimestamp();
     const resolved = resolveLazyValue(data);
     if (options.writeConsole !== false) {
         writeToConsole(level, `[${timestamp}] [${section}] ${message}`, resolved);

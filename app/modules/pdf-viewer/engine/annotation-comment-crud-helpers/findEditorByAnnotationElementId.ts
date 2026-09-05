@@ -1,3 +1,5 @@
+import type { TPageIndex } from '@contracts/pageNumbers';
+
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import {
     getEditorById,
@@ -6,14 +8,14 @@ import {
 import { getAnnotationEditorPageSearchOrder } from '@app/modules/pdf-viewer/engine/annotation-comment-crud-helpers/getAnnotationEditorPageSearchOrder';
 
 interface IFindEditorByAnnotationElementIdOptions {
-    annotationPageIndexes?: Iterable<number> | null;
-    mountedPageIndexes?: Iterable<number> | null;
+    annotationPageIndexes?: Iterable<TPageIndex> | null;
+    mountedPageIndexes?: Iterable<TPageIndex> | null;
 }
 
 export function findEditorByAnnotationElementId(
     uiManager: AnnotationEditorUIManager | null,
     numPages: number,
-    pageIndex: number,
+    pageIndex: TPageIndex,
     annotationId: string,
     options: IFindEditorByAnnotationElementIdOptions = {},
 ) {

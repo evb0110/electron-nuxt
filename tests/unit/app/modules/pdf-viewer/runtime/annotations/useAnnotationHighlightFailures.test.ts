@@ -1,3 +1,4 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
 // @vitest-environment happy-dom
 
 import {
@@ -441,7 +442,7 @@ describe('useAnnotationHighlight creation outcomes', () => {
         };
         stubSelection(null);
 
-        const outcome = await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        const outcome = await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: false});
 
         expect(outcome).toEqual({status: 'cancelled'});
         expect(harness.bindProjectedEditorIdentity).not.toHaveBeenCalled();
@@ -492,7 +493,7 @@ describe('useAnnotationHighlight creation outcomes', () => {
         stubSelection(null);
 
         const result = await harness.highlight.createTextMarkupFromText({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
         });
 
@@ -509,7 +510,7 @@ describe('useAnnotationHighlight creation outcomes', () => {
         stubSelection(null);
 
         const result = await harness.highlight.createTextMarkupFromText({
-            pageNumber: 1,
+            pageNumber: requirePageNumber(1),
             text: 'Page 1 text',
         });
 
@@ -525,7 +526,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         pagePointRange.value = harness.rangeOnPage(1);
         stubSelection(null);
 
-        await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: true});
+        await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: true});
 
         expect(harness.submitSelectionMarkupIntent).not.toHaveBeenCalled();
         expect(harness.submitStickyNoteIntent).toHaveBeenCalledOnce();
@@ -538,7 +539,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         pagePointRange.value = harness.rangeOnPage(1);
         stubSelection(null);
 
-        const outcome = await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: true});
+        const outcome = await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: true});
 
         expect(harness.submitSelectionMarkupIntent).toHaveBeenCalledOnce();
         expect(harness.submitStickyNoteIntent).not.toHaveBeenCalled();
@@ -552,7 +553,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         pagePointRange.value = harness.rangeOnPage(1);
         stubSelection(null);
 
-        await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: true});
+        await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: true});
 
         // The attempt suppressed its own report so a fallback could own the
         // outcome; no fallback ran, so the reason must not be swallowed.
@@ -565,7 +566,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         pagePointRange.value = harness.rangeOnPage(1);
         stubSelection(null);
 
-        const outcome = await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: true});
+        const outcome = await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: true});
 
         // The text-anchor attempt minted the annotation, so no sticky-note
         // fallback runs and `commentAtPoint` hands over the one reason.
@@ -585,7 +586,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         const harness = createHarness({createdEditor: null});
         stubSelection(null);
 
-        const placement = harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        const placement = harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: false});
         // The point path settles for 60 ms before it gives up on a directly
         // created editor, so the placement only resolves once time moves.
         await vi.advanceTimersByTimeAsync(60);
@@ -604,7 +605,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         const harness = createHarness({createdEditor: null});
         stubSelection(null);
 
-        const placement = harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        const placement = harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: false});
         await vi.advanceTimersByTimeAsync(60);
         await placement;
         harness.uiManager.getEditors.mockClear();
@@ -629,7 +630,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         // async continuation, which is exactly when a late retry used to be
         // scheduled with nothing left to clear it.
         stopTrackedScopes();
-        const placement = harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        const placement = harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: false});
         await vi.advanceTimersByTimeAsync(60);
         await placement;
         harness.uiManager.getEditors.mockClear();
@@ -662,7 +663,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         };
         stubSelection(null);
 
-        const outcome = await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: false});
+        const outcome = await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: false});
 
         expect(outcome).toEqual({status: 'cancelled'});
         expect(harness.emitAnnotationOpenNote).not.toHaveBeenCalled();
@@ -677,7 +678,7 @@ describe('useAnnotationHighlight point comment fallback', () => {
         pagePointRange.value = harness.rangeOnPage(1);
         stubSelection(null);
 
-        const outcome = await harness.highlight.commentAtPoint(1, 0.5, 0.5, {preferTextAnchor: true});
+        const outcome = await harness.highlight.commentAtPoint(requirePageNumber(1), 0.5, 0.5, {preferTextAnchor: true});
 
         expect(harness.submitSelectionMarkupIntent).toHaveBeenCalledOnce();
         expect(harness.submitStickyNoteIntent).not.toHaveBeenCalled();

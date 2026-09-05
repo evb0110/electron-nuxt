@@ -2,6 +2,7 @@ import type { IShapeAnnotation } from '@app/types/annotations';
 import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import type { IPdfNativeShapeAnnotation } from '@contracts/electronApiDocuments';
 import { requirePageIndex } from '@contracts/pageNumbers';
+import { parseEpochMs } from '@contracts/timestamps';
 import {
     PDF_ANNOTATION_LINE_END_STYLES,
     PDF_ANNOTATION_SHAPE_PDF_SUBTYPES,
@@ -108,12 +109,8 @@ export function toNativeShapeAnnotation(shape: IShapeAnnotation): IPdfNativeShap
         pdfSubtype: shape.pdfSubtype ?? null,
         lineStartStyle: shape.lineStartStyle ?? null,
         lineEndStyle: shape.lineEndStyle ?? null,
-        createdAt: typeof shape.createdAt === 'number' && Number.isFinite(shape.createdAt)
-            ? Math.trunc(shape.createdAt)
-            : null,
-        modifiedAt: typeof shape.modifiedAt === 'number' && Number.isFinite(shape.modifiedAt)
-            ? Math.trunc(shape.modifiedAt)
-            : null,
+        createdAt: parseEpochMs(shape.createdAt),
+        modifiedAt: parseEpochMs(shape.modifiedAt),
     };
     if (shape.points) {
         nativeShape.points = shape.points.map(point => ({...point}));

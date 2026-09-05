@@ -2,6 +2,9 @@ import type {
     IPdfOpeningGeometry,
     TOpenFileResult,
 } from '@contracts/electronApiDocuments';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { parseEpochMs } from '@contracts/timestamps';
+import type { TDocumentRef } from '@contracts/documentRef';
 import type { IDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
 import type { IPdfValidationSourceRevision } from '@app/modules/workspace-shell/composables/document-session/pdfValidationRevisionCache';
 import type { IPdfOpeningGeometryResolution } from '@app/modules/workspace-shell/composables/document-session/stagePdfOpeningPreview';
@@ -15,16 +18,17 @@ import { getErrorMessage } from '@app/utils/error';
 const RECENT_OPEN_LOG_SECTION = 'recent-open';
 
 function sourceRevision(
-    documentId: string,
+    documentId: TDocumentRef,
     geometry: Pick<IPdfOpeningGeometry, 'size' | 'modifiedAt'> | null | undefined,
 ): IPdfValidationSourceRevision | null {
+    const modifiedAt = parseEpochMs(geometry?.modifiedAt);
     return geometry
         && Number.isSafeInteger(geometry.size)
-        && Number.isSafeInteger(geometry.modifiedAt)
+        && modifiedAt !== null
         ? {
             documentId,
             size: geometry.size,
-            modifiedAt: geometry.modifiedAt,
+            modifiedAt,
         }
         : null;
 }
@@ -47,7 +51,10 @@ export function resolvePdfOpeningGeometry(options: {
     } = options;
     const surfaceSnapshot = openSurface?.snapshot.value;
     const surfaceGeneration = surfaceSnapshot?.generation;
-    const cachedGeometry = readPrevalidatedTrustedPdfOpenGeometry(result.originalPath, 1);
+    const cachedGeometry = readPrevalidatedTrustedPdfOpenGeometry(
+        result.originalPath,
+        requirePageNumber(1),
+    );
     if (
         cachedGeometry
         && openSurface
@@ -65,14 +72,16 @@ export function resolvePdfOpeningGeometry(options: {
         ? options.readSourceRevision().catch(() => null)
         : Promise.resolve(null);
     const validationRevision = initialSourceRevision === null
-        ? recentSourceTask.then(recentSource => recentSource?.fileSize !== undefined
-            && recentSource.modifiedAt !== undefined
-            ? {
-                documentId: result.originalPath,
-                size: recentSource.fileSize,
-                modifiedAt: recentSource.modifiedAt,
-            }
-            : null)
+        ? recentSourceTask.then(recentSource => {
+            const modifiedAt = parseEpochMs(recentSource?.modifiedAt);
+            return recentSource?.fileSize !== undefined && modifiedAt !== null
+                ? {
+                    documentId: result.originalPath,
+                    size: recentSource.fileSize,
+                    modifiedAt,
+                }
+                : null;
+        })
         : Promise.resolve(initialSourceRevision);
     const fallback: IPdfOpeningGeometryResolution = {
         openingGeometry: initialOpeningGeometry,

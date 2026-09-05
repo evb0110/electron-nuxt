@@ -47,7 +47,7 @@ export function normalizeAssistantEffortId(value: unknown): TAgentAssistantEffor
 }
 
 function titleCaseEffortSegment(segment: string) {
-    return segment ? `${segment[0]!.toUpperCase()}${segment.slice(1)}` : segment;
+    return `${segment.slice(0, 1).toUpperCase()}${segment.slice(1)}`;
 }
 
 export function getAssistantEffortFallbackLabel(effort: TAgentAssistantEffort) {

@@ -12,6 +12,7 @@ import type { IScrollSnapshot } from '@app/types/pdfUi';
 import type { TDocumentRef } from '@contracts/documentRef';
 import type { TDocumentRevisionToken } from '@contracts/documentRevision';
 import type { IPdfOptimizeOptions } from '@contracts/electronApiDocuments';
+import type { TRequestId } from '@contracts/shared';
 import {
     usePdfSerialization,
     resolvePdfReloadPage,
@@ -355,7 +356,7 @@ export const usePageSaveOrchestration = (deps: IPageSaveOrchestrationDeps) => {
         return handleOptimizePdfForInteractionWithReload();
     }
 
-    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: string) {
+    async function handleOptimizePdfAsCopy(options: IPdfOptimizeOptions, requestId?: TRequestId) {
         reconcilePreservedAnnotationSourceDirty?.();
         if (canSave.value) {
             const saved = await handleSaveWithReload();

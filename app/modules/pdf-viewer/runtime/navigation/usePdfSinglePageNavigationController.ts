@@ -1,3 +1,5 @@
+import { requirePageNumber } from '@contracts/pageNumbers';
+import type { TPageNumber } from '@contracts/pageNumbers';
 import {tryOnScopeDispose} from '@vueuse/core';
 import {clamp} from 'es-toolkit/math';
 import {createPdfNavigationMachineState} from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
@@ -63,9 +65,9 @@ interface IUsePdfSinglePageNavigationControllerOptions extends IUsePdfSinglePage
     getDocumentRevision: () => number;
     getGeometryRevision: () => number;
     onViewportPositionCommitted?: ((commit: IPdfViewportPositionCommit) => void) | undefined;
-    onUserViewportPageObserved?: ((pageNumber: number) => void) | undefined;
-    requestSurfacePageNavigation?: ((pageNumber: number) => number) | undefined;
-    onPageVisualReady?: ((pageNumber: number) => void) | undefined;
+    onUserViewportPageObserved?: ((pageNumber: TPageNumber) => void) | undefined;
+    requestSurfacePageNavigation?: ((pageNumber: TPageNumber) => number) | undefined;
+    onPageVisualReady?: ((pageNumber: TPageNumber) => void) | undefined;
     beginLayoutGeometryReplacement?: (() => () => void) | undefined;
 }
 
@@ -86,6 +88,13 @@ export function shouldSubmitRequestedCurrentPage(
 }
 
 export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageNavigationControllerOptions) => {
+    const pageCount = () => Math.max(1, options.numPages.value);
+    const toPageNumber = (page: number) => requirePageNumber(page, pageCount());
+    // The viewport authority's committed page outlives a document swap by a
+    // tick. requirePageNumber rejects rather than clamps, so branding that stale
+    // page unbounded would throw the viewport update away instead of letting it
+    // settle into the shorter document.
+    const toBoundedPageNumber = (page: number) => toPageNumber(clamp(Math.trunc(page), 1, pageCount()));
     let intentSequence = 0;
     let navigationIntentSequence = 0;
     let viewportPreviewWriteSequence = 0;
@@ -121,7 +130,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
 
     function resolveAnchorForViewport(
         snapshot: IPdfViewportGeometry,
-        pageNumber: number,
+        pageNumber: TPageNumber,
         viewportFraction?: {
             x: number;
             y: number;
@@ -137,10 +146,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }, viewportFraction);
     }
 
-    function resolveScrollForViewport(
-        snapshot: IPdfViewportGeometry,
-        anchor: IPdfSemanticAnchor,
-    ) {
+    function resolveScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
         const container = options.viewerContainer.value;
         if (container && !options.continuousScroll.value) {
             return resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
@@ -148,16 +154,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return resolveScrollForAnchor(snapshot, anchor);
     }
 
-    function resolveNavigationScrollForViewport(
-        snapshot: IPdfViewportGeometry,
-        anchor: IPdfSemanticAnchor,
-    ) {
+    function resolveNavigationScrollForViewport(snapshot: IPdfViewportGeometry, anchor: IPdfSemanticAnchor) {
         const container = options.viewerContainer.value;
-        if (container && hasMeasurableMountedPage(container, anchor.page)) {
+        if (container && hasMeasurableMountedPage(container, requirePageNumber(anchor.page))) {
             const scroll = resolvePagedScrollForAnchor(container, anchor, options.scaledMargin.value);
             const spread = getCurrentSpreadRenderedBoundsFromDom({
                 container,
-                pageNumber: anchor.page,
+                pageNumber: requirePageNumber(anchor.page),
                 viewMode: options.viewMode.value,
                 totalPages: options.numPages.value,
             });
@@ -189,10 +192,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 resolvedTargets.set(intent.id, resolved);
                 navigationVisualHandoff.resolveIntent(intent.id, resolved.page, signal.aborted);
             }
-            const page = resolved?.page ?? getRequestPage(
-                intent.navigation,
-                intent.anchor?.page ?? options.currentPage.value,
-            );
+            const page = toPageNumber(resolved?.page ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
             await metricHydrator.ensure(page, signal);
             if (!options.continuousScroll.value || intent.navigation) {
                 await options.prepareNavigationLayout?.(page, signal);
@@ -230,14 +230,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 : Promise.resolve(commit)
         ),
         awaitSlots: async (intent, signal) => {
-            const page = resolvedTargets.get(intent.id)?.page
-                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
+            const page = toPageNumber(resolvedTargets.get(intent.id)?.page
+                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
             const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const start = row?.startPage ?? page;
             const end = row?.endPage ?? page;
             await nextTick();
             await Promise.all(Array.from({length: end - start + 1}, (_, offset) => (
-                options.pageSlots.whenMounted(start + offset, signal)
+                options.pageSlots.whenMounted(toPageNumber(start + offset), signal)
             )));
         },
         awaitLayoutGeometrySettled: async (_intent, _signal) => {
@@ -288,8 +288,8 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             options.onViewportPositionCommitted?.(commit);
         },
         awaitVisual: async (intent, signal) => {
-            const page = resolvedTargets.get(intent.id)?.page
-                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value);
+            const page = toPageNumber(resolvedTargets.get(intent.id)?.page
+                ?? getRequestPage(intent.navigation, intent.anchor?.page ?? options.currentPage.value));
             const row = geometry ? getViewportGeometryRowForPage(geometry, page) : null;
             const container = options.viewerContainer.value;
             const readiness = intent.navigation?.readiness ?? 'page-canvas';
@@ -326,7 +326,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 container,
                 page,
                 readiness,
-                options.isPageFreshlyRenderedForNavigation ?? (() => true),
+                pageNumber => options.isPageFreshlyRenderedForNavigation?.(toPageNumber(pageNumber)) ?? true,
             )) {
                 await ensureTextLayerReady();
                 options.onPageVisualReady?.(page);
@@ -350,7 +350,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 container,
                 page,
                 readiness,
-                options.isPageFreshlyRenderedForNavigation ?? (() => true),
+                pageNumber => options.isPageFreshlyRenderedForNavigation?.(toPageNumber(pageNumber)) ?? true,
             )) {
                 logPdfRenderTrace('navigation-await-visual-exit', {
                     intentId: intent.id,
@@ -378,10 +378,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             refreshGeometry();
         },
         postArrival: async (request, signal) => {
-            if (signal.aborted) {
-                return;
+            if (!signal.aborted) {
+                await options.onNavigationPostArrival?.(request, signal);
             }
-            await options.onNavigationPostArrival?.(request, signal);
             if (signal.aborted) {
                 return;
             }
@@ -547,11 +546,14 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             }));
             return false;
         }
-        const queued = queuedNavigation!;
+        const queued = queuedNavigation;
+        if (!queued) {
+            return false;
+        }
         const request = clampNavigationRequest(queued.request, options.numPages.value);
         const page = getNavigationRequestPage(request);
         if (page !== null) {
-            options.requestSurfacePageNavigation?.(page);
+            options.requestSurfacePageNavigation?.(requirePageNumber(page, options.numPages.value));
             retainedNavigationAnchorPage.value = page;
             options.emitNavigationFeedbackPage?.(page);
         }
@@ -600,7 +602,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         options.emitNavigationFeedbackPage?.(null);
     }
 
-    function submitPageNavigation(pageNumber: number, scrollOptions?: IScrollToPageOptions) {
+    function submitPageNavigation(pageNumber: TPageNumber, scrollOptions?: IScrollToPageOptions) {
         if (!Number.isFinite(pageNumber)) {
             return false;
         }
@@ -663,7 +665,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             ? resolvedTargets.get(viewportAuthority.activeIntent.value.id)
             : null;
         const anchor = (absorbedNavigation ? undefined : state.anchor) ?? (container && snapshot && state.viewportPoint
-            ? resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value, {
+            ? resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value), {
                 x: state.viewportPoint.x / Math.max(1, container.clientWidth),
                 y: state.viewportPoint.y / Math.max(1, container.clientHeight),
             })
@@ -731,16 +733,12 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         snapshot: IPdfViewportGeometry,
         kind: TPdfViewportIntentKind,
     ): IPdfSemanticAnchor {
-        const semanticPage = clamp(
-            Math.trunc(viewportAuthority.currentPage.value),
-            1,
-            Math.max(1, options.numPages.value),
-        );
+        const semanticPage = toBoundedPageNumber(viewportAuthority.currentPage.value);
         if (kind === 'fit') {
             // Fit replaces row heights, so retain the committed page instead of the old pixel offset.
             return getRequestAnchor(undefined, semanticPage);
         }
-        const liveAnchor = resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value);
+        const liveAnchor = resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value));
         // A zoom ref and page layout can update before this watcher runs. Keep
         // the live point fractions, but do not reinterpret the old pixel scroll
         // against new-scale rows and jump to an earlier page. The viewport
@@ -762,7 +760,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         const anchor = container && snapshot
-            ? resolveAnchorForViewport(snapshot, viewportAuthority.currentPage.value)
+            ? resolveAnchorForViewport(snapshot, toBoundedPageNumber(viewportAuthority.currentPage.value))
             : getRequestAnchor(undefined, options.currentPage.value);
         viewportAuthority.observeUserScroll(anchor);
         if (container) options.viewportWritePort.observeUserScroll(container);
@@ -778,7 +776,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     left: container.scrollLeft,
                     top: container.scrollTop,
                 }, viewportAuthority.committedAnchor.value)
-                : resolvePagedAnchorFromViewport(container, viewportAuthority.currentPage.value)
+                : resolvePagedAnchorFromViewport(container, toBoundedPageNumber(viewportAuthority.currentPage.value))
             : viewportAuthority.committedAnchor.value;
     }
 
@@ -804,7 +802,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
     }
 
     function commitCurrentViewportPosition(
-        pageNumber: number,
+        pageNumber: TPageNumber,
         intentId: string,
         intentKind: TPdfViewportIntentKind = 'document-restore',
     ) {
@@ -813,7 +811,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         if (!container || !snapshot || viewportAuthority.activeIntent.value !== null) {
             return false;
         }
-        const page = clamp(Math.trunc(pageNumber), 1, Math.max(1, options.numPages.value));
+        const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
         const anchor = {
             ...resolveAnchorForViewport(snapshot, page),
             page,
@@ -830,13 +828,13 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         }) !== null;
     }
 
-    function commitCurrentViewportIfSettled(pageNumber: number) {
+    function commitCurrentViewportIfSettled(pageNumber: TPageNumber) {
         const container = options.viewerContainer.value;
         const snapshot = refreshGeometry();
         if (!container || !snapshot || viewportAuthority.activeIntent.value !== null) {
             return false;
         }
-        const page = clamp(Math.trunc(pageNumber), 1, Math.max(1, options.numPages.value));
+        const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
         const expected = resolveScrollForViewport(snapshot, getRequestAnchor(undefined, page));
         if (
             Math.abs(container.scrollLeft - expected.left) > 1
@@ -847,7 +845,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         return commitCurrentViewportPosition(page, `viewport-observed-${String(++intentSequence)}`);
     }
 
-    function captureViewportCommitDiagnostics(pageNumber: number) {
+    function captureViewportCommitDiagnostics(pageNumber: TPageNumber) {
         const container = options.viewerContainer.value;
         const layout = options.getPageLayoutMetrics?.() ?? null;
         const snapshot = container && layout
@@ -856,7 +854,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                 height: container.clientHeight,
             }, options.getGeometryRevision())
             : null;
-        const page = clamp(Math.trunc(pageNumber), 1, Math.max(1, options.numPages.value));
+        const page = toPageNumber(clamp(Math.trunc(pageNumber), 1, pageCount()));
         const expected = snapshot
             ? resolveScrollForViewport(snapshot, getRequestAnchor(undefined, page))
             : null;
@@ -893,7 +891,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         // commit are still settling). Publish the live anchor at the input
         // boundary so the shared session cannot remain transitioning merely
         // because no follow-up scroll event was emitted.
-        options.onUserViewportPageObserved?.(page);
+        options.onUserViewportPageObserved?.(requirePageNumber(page));
         return page;
     }
 
@@ -970,7 +968,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         const direction = resolveWheelDirection(event.deltaY);
         const bounds = getPageScrollBounds({
             container,
-            pageNumber: viewportAuthority.currentPage.value,
+            pageNumber: toBoundedPageNumber(viewportAuthority.currentPage.value),
             totalPages: options.numPages.value,
             viewMode: options.viewMode.value,
             scaledMargin: options.scaledMargin.value,
@@ -1000,7 +998,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             return false;
         }
         event.preventDefault();
-        const submitted = submitPageNavigation(target, {navigationSource: 'wheel'});
+        const submitted = submitPageNavigation(toPageNumber(target), {navigationSource: 'wheel'});
         if (submitted) {
             wheelNavigationCursorPage.value = target;
             wheelFlipGate.recordFlip(direction, event.timeStamp, event.deltaY);
@@ -1053,7 +1051,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
                     return;
                 }
                 options.cancelPendingSearchScroll();
-                submitPageNavigation(requestedPage);
+                // Pre-ready the page count is still a placeholder, so clamping
+                // against it would reject a restored page beyond that placeholder.
+                submitPageNavigation(requirePageNumber(requestedPage));
             }
         },
         {
@@ -1138,11 +1138,11 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
             const container = options.viewerContainer.value;
             const snapshot = refreshGeometry();
             const anchor = container && snapshot
-                ? resolveAnchorForViewport(snapshot, page)
+                ? resolveAnchorForViewport(snapshot, toPageNumber(page))
                 : getRequestAnchor(undefined, page);
             viewportAuthority.observeUserScroll({
                 ...anchor,
-                page,
+                page: toPageNumber(page),
             });
             logPdfRenderTrace('viewport-current-page-commit-observed', () => ({
                 page,
@@ -1159,9 +1159,9 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         currentPageAuthority,
         handleWheel,
         scrollToPage: submitPageNavigation,
-        snapToPage: (page: number, _anchor?: unknown, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(page, scrollOptions),
-        beginSearchNavigation: (page: number) => submitPageNavigation(page, {navigationSource: 'search'}),
-        revealSearchNavigationTarget: (page: number, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(page, {
+        snapToPage: (page: number, _anchor?: unknown, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(toPageNumber(page), scrollOptions),
+        beginSearchNavigation: (page: number) => submitPageNavigation(toPageNumber(page), {navigationSource: 'search'}),
+        revealSearchNavigationTarget: (page: number, scrollOptions?: IScrollToPageOptions) => submitPageNavigation(toPageNumber(page), {
             ...scrollOptions,
             navigationSource: 'search',
         }),
@@ -1174,7 +1174,7 @@ export const usePdfSinglePageNavigationController = (options: IUsePdfSinglePageN
         submitNavigationRequest,
         submitViewportStateIntent,
         captureCurrentSemanticAnchor,
-        applyOpeningViewportAnchor: (pageNumber: number) => applyViewportAnchorPreview(
+        applyOpeningViewportAnchor: (pageNumber: TPageNumber) => applyViewportAnchorPreview(
             getRequestAnchor(undefined, pageNumber),
         ),
         applyResizeAnchorPreview: applyViewportAnchorPreview,

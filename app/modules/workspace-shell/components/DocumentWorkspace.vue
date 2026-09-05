@@ -1447,14 +1447,12 @@ fileLifecycle.bindWorkspaceProjection({
     pendingDocumentPath: computed(() => pendingDocumentPath),
     toolbarSnapshot: workspaceToolbarSnapshot,
     currentViewState: computed(() => {
-        const retainedState = documentSession.snapshot.value.viewState ?? initialViewState;
-        return retainedState
-            ? {
-                ...retainedState,
-                surfaceMode: surfaceMode.value,
-                ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
-            }
-            : null;
+        const retainedState = documentSession.snapshot.value.viewState;
+        return {
+            ...retainedState,
+            surfaceMode: surfaceMode.value,
+            ...(scanCleanupSessionState.value ? {scanCleanup: scanCleanupSessionState.value} : {}),
+        };
     }),
     formatPendingBatchLabel: values => t('tabs.preparingBatch', values),
     publishRecord: record => emit('update-document-record', record),

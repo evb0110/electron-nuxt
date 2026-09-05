@@ -120,7 +120,10 @@ export async function verifyAllAnnotationPersistenceBackends(
     }
     assertAnnotationBackendSemanticConformance(plan);
     return Promise.all(ANNOTATION_PERSISTENCE_BACKENDS.map(async (backend) => {
-        const adapter = byBackend.get(backend)!;
+        const adapter = byBackend.get(backend);
+        if (!adapter) {
+            throw new Error(`Missing annotation persistence adapter for ${backend}`);
+        }
         const mutations = projectAnnotationBackendMutations(plan, backend);
         const bytes = await adapter.apply(mutations);
         await verifyAnnotationSave(bytes, plan, adapter);

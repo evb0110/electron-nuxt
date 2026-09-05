@@ -16,6 +16,9 @@ import {
 } from '@app/platform/browser-api/browserDjvuConversionPipeline';
 import {browserDocumentStore} from '@app/platform/browserDocumentStore';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
+import {requireDocumentRef} from '@contracts/documentRef';
+import {requireJobId} from '@contracts/shared';
+import {requireEpochMs} from '@contracts/timestamps';
 
 const mocks = vi.hoisted(() => ({
     createWorker: vi.fn(),
@@ -38,7 +41,7 @@ vi.mock('@app/utils/browserLogger', () => ({BrowserLogger: {
 const browserFailure: FailureReceipt = {
     eventId: '0123456789abcdef0123456789abcdef' as FailureReceipt['eventId'],
     code: 'UNCLASSIFIED_RENDERER_ERROR',
-    occurredAt: 1,
+    occurredAt: requireEpochMs(1),
     severity: 'error',
 };
 
@@ -50,7 +53,7 @@ describe('browserDjvuConversionPipeline', () => {
             readFileRange: vi.fn(),
         }}});
 
-        expect(() => assertBrowserDjvuSource('/tmp/native.djvu', 'info')).toThrowError(
+        expect(() => assertBrowserDjvuSource(requireDocumentRef('/tmp/native.djvu'), 'info')).toThrowError(
             expect.objectContaining({
                 code: 'native-unavailable',
                 name: 'PdfCombineCapabilityError',
@@ -71,7 +74,7 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.createWorker.mockRejectedValue(new Error('browser DjVu worker must not be created'));
 
         await expect(withBrowserDjvuWorker(
-            '/tmp/native.djvu',
+            requireDocumentRef('/tmp/native.djvu'),
             async () => undefined,
             'info',
         )).rejects.toMatchObject({
@@ -86,7 +89,7 @@ describe('browserDjvuConversionPipeline', () => {
     });
 
     it('preserves browser document references for the browser worker route', () => {
-        expect(() => assertBrowserDjvuSource('browser://documents/book.djvu', 'info')).not.toThrow();
+        expect(() => assertBrowserDjvuSource(requireDocumentRef('browser://documents/book.djvu'), 'info')).not.toThrow();
     });
 
     it('keeps direct raster exports at the requested source detail', () => {
@@ -252,9 +255,9 @@ describe('browserDjvuConversionPipeline', () => {
         mocks.loggerError.mockClear();
 
         await expect(runBrowserDjvuConversion(
-            'browser://documents/book.djvu',
-            '/tmp/output.pdf',
-            {jobId: 'djvu-convert-invalid-output'},
+            requireDocumentRef('browser://documents/book.djvu'),
+            requireDocumentRef('/tmp/output.pdf'),
+            {jobId: requireJobId('djvu-convert-invalid-output')},
         )).resolves.toMatchObject({
             success: false,
             expected: {
@@ -276,9 +279,9 @@ describe('browserDjvuConversionPipeline', () => {
 
         try {
             await expect(runBrowserDjvuConversion(
-                'browser://documents/book.djvu',
-                'browser://documents/output.pdf',
-                {jobId: 'djvu-convert-worker-failure'},
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {jobId: requireJobId('djvu-convert-worker-failure')},
             )).resolves.toMatchObject({
                 success: false,
                 error: 'DjVu decoder failed',
@@ -301,9 +304,9 @@ describe('browserDjvuConversionPipeline', () => {
 
         try {
             await expect(runBrowserDjvuConversion(
-                'browser://documents/book.djvu',
-                'browser://documents/output.pdf',
-                {jobId: 'djvu-convert-abort-wording-failure'},
+                requireDocumentRef('browser://documents/book.djvu'),
+                requireDocumentRef('browser://documents/output.pdf'),
+                {jobId: requireJobId('djvu-convert-abort-wording-failure')},
             )).resolves.toMatchObject({
                 success: false,
                 error: 'Failed to abort PDF output cleanup',

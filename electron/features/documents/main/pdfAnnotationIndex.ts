@@ -1,4 +1,3 @@
-import {randomUUID} from 'node:crypto';
 import {createReadStream} from 'node:fs';
 import {
     lstat,
@@ -17,6 +16,11 @@ import type {
     IPdfAnnotationIndexOptions,
     IPdfAnnotationIndexSession,
 } from '@contracts/electronApiDocuments';
+import type { TDocumentRef } from '@contracts/documentRef';
+import {
+    createSessionId,
+    type TSessionId,
+} from '@contracts/shared';
 import {createStaleRevisionError} from '@contracts/documentMutationErrors';
 import {
     parseDocumentRevisionToken,
@@ -74,9 +78,9 @@ interface IScannedAnnotationIndex {
 }
 
 interface IAnnotationIndexSessionState {
-    sessionId: string;
+    sessionId: TSessionId;
     ownerId: number;
-    documentRef: string;
+    documentRef: TDocumentRef;
     resolvedPath: string;
     expectedRevisionToken: TDocumentRevisionToken;
     sidecarDirectory: string;
@@ -91,7 +95,7 @@ interface IAnnotationIndexSessionState {
     cleanupPromise?: Promise<void>;
 }
 
-const sessions = new Map<string, IAnnotationIndexSessionState>();
+const sessions = new Map<TSessionId, IAnnotationIndexSessionState>();
 
 function getOwnerId(context: IDocumentsSenderIdContext) {
     return context.senderId ?? -1;
@@ -470,11 +474,11 @@ async function runPdfAnnotationIndexNative(
 
 export async function beginPdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    filePath: string,
+    filePath: TDocumentRef,
     options: IPdfAnnotationIndexOptions,
 ): Promise<IPdfAnnotationIndexSession> {
     const expectedRevisionToken = parseDocumentRevisionToken(
-        options?.expectedDocumentRevisionToken,
+        options.expectedDocumentRevisionToken,
     );
     if (expectedRevisionToken === null) {
         throw new Error('Document revision token is required to build a PDF annotation index');
@@ -483,14 +487,14 @@ export async function beginPdfAnnotationIndex(
     const revision = await getWorkingCopyRevision(resolvedPath, context.senderId);
     if (revision.token !== expectedRevisionToken) {
         throw createStaleRevisionError({
-            documentRef: resolvedPath,
+            documentRef: filePath,
             expectedRevision: expectedRevisionToken,
             actualRevision: revision.token,
         });
     }
     await assertWorkingCopyRevisionCurrent(resolvedPath, expectedRevisionToken);
 
-    const sessionId = randomUUID();
+    const sessionId = createSessionId('pdf-annotation-index');
     const sidecarDirectory = await mkdtemp(join(getAppTempDir(), ANNOTATION_INDEX_DIRECTORY_PREFIX));
     const sidecarPath = join(sidecarDirectory, ANNOTATION_INDEX_FILE_NAME);
     const abortController = new AbortController();
@@ -598,7 +602,7 @@ export async function beginPdfAnnotationIndex(
 
 export async function readPdfAnnotationIndexChunk(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
     offset: number,
     options?: IPdfAnnotationIndexChunkOptions,
 ): Promise<IPdfAnnotationIndexChunk> {
@@ -666,7 +670,7 @@ export async function readPdfAnnotationIndexChunk(
 
 export async function releasePdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -684,7 +688,7 @@ export async function releasePdfAnnotationIndex(
 
 export function cancelPdfAnnotationIndex(
     context: IDocumentsSenderIdContext,
-    sessionId: string,
+    sessionId: TSessionId,
 ) {
     const session = sessions.get(sessionId);
     if (!session) {
@@ -744,4 +748,4 @@ const annotationIndexTtlTimer = setInterval(() => {
         logger.debug(`PDF annotation index TTL sweep failed: ${String(error)}`);
     });
 }, 30_000);
-annotationIndexTtlTimer.unref?.();
+annotationIndexTtlTimer.unref();

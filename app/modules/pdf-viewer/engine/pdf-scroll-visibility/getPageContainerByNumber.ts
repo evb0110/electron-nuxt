@@ -1,8 +1,10 @@
+import type { TPageNumber } from '@contracts/pageNumbers';
+
 
 
 export function getPageContainerByNumber(
     container: HTMLElement,
-    pageNumber: number,
+    pageNumber: TPageNumber,
 ) {
     if (!Number.isFinite(pageNumber)) {
         return null;

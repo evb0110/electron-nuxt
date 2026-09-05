@@ -1,3 +1,4 @@
+import {assertNever} from '@contracts/assertNever';
 import type {TScanCleanupWarningEvent} from '@contracts/scan-cleanup/nativeProtocolV3';
 
 const REPORTED_PAGE_NUMBER_LIMIT = 20;
@@ -130,14 +131,11 @@ function describeScanCleanupWarningEvent(event: TScanCleanupWarningEvent) {
         case 'render-dpi-limited':
             return `Requested render DPI ${fixedPoint(event.requestedDpiThousandths, 3)} was limited to `
                 + `${fixedPoint(event.appliedDpiThousandths, 3)} by native raster safety limits`;
-        default: {
-            // A new event variant reaches the user as a sentence or not at all,
-            // so it has to fail here at compile time rather than silently
-            // decode into a warning nobody displays.
-            const exhaustive: never = event;
-            throw new Error(`Unhandled scan-cleanup warning event: ${JSON.stringify(exhaustive)}`);
-        }
     }
+    // A new event variant reaches the user as a sentence or not at all, so it
+    // has to fail here at compile time rather than silently decode into a
+    // warning nobody displays.
+    return assertNever(event, 'Unhandled scan-cleanup warning event');
 }
 
 /**

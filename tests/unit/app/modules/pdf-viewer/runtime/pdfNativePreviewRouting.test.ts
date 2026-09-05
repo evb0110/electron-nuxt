@@ -1,3 +1,6 @@
+import { requireDocumentRef } from '@contracts/documentRef';
+import { requirePageNumber } from '@contracts/pageNumbers';
+import { requireEpochMs } from '@contracts/timestamps';
 import {
     describe,
     expect,
@@ -13,7 +16,7 @@ describe('pdfNativePreviewRouting', () => {
     it('recognizes path-backed PDF source objects', () => {
         expect(isPathPdfSource({
             kind: 'path',
-            path: '/tmp/a.pdf',
+            path: requireDocumentRef('/tmp/a.pdf'),
             size: 1,
         })).toBe(true);
 
@@ -24,17 +27,17 @@ describe('pdfNativePreviewRouting', () => {
     it('stages a sub-threshold page-heavy non-linearized PDF without changing its final viewer route', () => {
         const source = {
             kind: 'path' as const,
-            path: '/tmp/dictionary.pdf',
+            path: requireDocumentRef('/tmp/dictionary.pdf'),
             size: 170_496_793,
         };
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 1_859,
             width: 612,
             height: 792,
             rotation: 0 as const,
             size: source.size,
-            modifiedAt: 1_724_000_000_000,
+            modifiedAt: requireEpochMs(1_724_000_000_000),
             linearized: false,
         };
 
@@ -52,17 +55,17 @@ describe('pdfNativePreviewRouting', () => {
     it('stages an opening raster for an oversized PDF without changing the final PDF.js viewer', () => {
         const source = {
             kind: 'path' as const,
-            path: '/tmp/native-dictionary.pdf',
+            path: requireDocumentRef('/tmp/native-dictionary.pdf'),
             size: 722_049_367,
         };
         const openingGeometry = {
-            pageNumber: 1 as const,
+            pageNumber: requirePageNumber(1),
             pageCount: 882,
             width: 612,
             height: 792,
             rotation: 0 as const,
             size: source.size,
-            modifiedAt: 1_776_000_000_000,
+            modifiedAt: requireEpochMs(1_776_000_000_000),
             linearized: false,
         };
 

@@ -50,6 +50,7 @@ import {
     waitForSaveFrontierReady,
     waitForWorkspaceToolbarIdle,
 } from '@tests/e2e/electron/helpers/workspaceExpose';
+import {getErrorMessage} from '@contracts/getErrorMessage';
 
 const E2E_TIMEOUT_MS = 180_000;
 const SAVE_TIMEOUT_MS = 60_000;
@@ -472,7 +473,7 @@ describe('Electron E2E - save pipeline diagnostics', () => {
                 beforeHash,
                 openHandles,
                 processTree,
-                saveOutcome: saveOutcome.error instanceof Error ? saveOutcome.error.message : saveOutcome,
+                saveOutcome: saveOutcome.error instanceof Error ? getErrorMessage(saveOutcome.error) : saveOutcome,
                 sessionOwned,
                 stagedArtifactPath: stagedArtifact.path,
                 stagedArtifactRemains: existsSync(stagedArtifact.path),

@@ -25,7 +25,15 @@ import type {
     IPdfEmbeddedShapeIndexEntry,
     IPdfNativeMutationSet,
 } from '@contracts/electronApiDocuments';
-import {normalizePdfNativeMutationSet} from '@contracts/nativePdfMutations';
+import {
+    requireDocumentRef,
+    type TDocumentRef,
+} from '@contracts/documentRef';
+import {
+    normalizePdfNativeModifiedAt,
+    normalizePdfNativeMutationSet,
+} from '@contracts/nativePdfMutations';
+import type {TPdfDateString} from '@contracts/pdfDateString';
 import {
     resolveLargePdfFixtureAvailability,
     selectFixtureDescribe,
@@ -56,7 +64,7 @@ const MATRIX_TIMEOUT_MS = 15 * 60_000;
 // enough room for the native append and its post-save validation as well.
 const PLACED_IMAGE_SAVE_TIMEOUT_MS = 120_000;
 const ANNOTATION_INDEX_CHUNK_BYTES = 512 * 1_024;
-const MODIFIED_AT = 'D:20260830020000Z';
+const MODIFIED_AT = normalizePdfNativeModifiedAt('D:20260830020000Z', 'modifiedAt');
 const MATRIX_PAGE_INDEX = 24;
 const PLACED_IMAGE_PAGE_NUMBER = 31;
 const ACTIVE_IMAGE_PLACEMENT_SELECTOR = '.editor-pane.is-active .workspace-host[data-workspace-active="true"] .pdf-image-placement';
@@ -180,10 +188,11 @@ async function applyOneLogicalNativeRevision(
     workingCopyPath: string,
     mutations: IPdfNativeMutationSet,
 ) {
+    const documentRef = requireDocumentRef(workingCopyPath);
     return page.evaluate(async (input: {
-        modifiedAt: string;
+        modifiedAt: TPdfDateString;
         mutations: IPdfNativeMutationSet;
-        workingCopyPath: string;
+        workingCopyPath: TDocumentRef;
     }) => {
         const files = window.electronAPI?.documentFiles;
         if (
@@ -209,7 +218,7 @@ async function applyOneLogicalNativeRevision(
             {
                 expectedDocumentRevisionToken: before.token,
                 ...(staged.identityBindings?.length
-                    ? {identityBindings: staged.identityBindings}
+                    ? {identityBindings: [...staged.identityBindings]}
                     : {}),
             },
         );
@@ -226,14 +235,15 @@ async function applyOneLogicalNativeRevision(
     }, {
         modifiedAt: MODIFIED_AT,
         mutations,
-        workingCopyPath,
+        workingCopyPath: documentRef,
     });
 }
 
 async function readAnnotationIndex(page: Page, documentPath: string) {
+    const documentRef = requireDocumentRef(documentPath);
     return page.evaluate(async (input: {
         chunkBytes: number;
-        documentPath: string;
+        documentPath: TDocumentRef;
     }) => {
         const files = window.electronAPI?.documentFiles;
         if (
@@ -279,14 +289,15 @@ async function readAnnotationIndex(page: Page, documentPath: string) {
         };
     }, {
         chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath,
+        documentPath: documentRef,
     });
 }
 
 async function readShapeIndex(page: Page, documentPath: string) {
+    const documentRef = requireDocumentRef(documentPath);
     return page.evaluate(async (input: {
         chunkBytes: number;
-        documentPath: string;
+        documentPath: TDocumentRef;
     }) => {
         const files = window.electronAPI?.documentFiles;
         if (
@@ -329,7 +340,7 @@ async function readShapeIndex(page: Page, documentPath: string) {
         return entries;
     }, {
         chunkBytes: ANNOTATION_INDEX_CHUNK_BYTES,
-        documentPath,
+        documentPath: documentRef,
     });
 }
 
@@ -379,7 +390,7 @@ function requireNamedEntry(
     return matches[0]!;
 }
 
-function requireMarkupRefs(bindings: INativeIdentityBinding[]) {
+function requireMarkupRefs(bindings: readonly INativeIdentityBinding[]) {
     const refs: Record<string, IAnnotationRef> = {};
     for (const [
         subtype,
@@ -402,7 +413,7 @@ function requireMarkupRefs(bindings: INativeIdentityBinding[]) {
 async function collectMatrixRefs(
     page: Page,
     workingCopyPath: string,
-    bindings: INativeIdentityBinding[],
+    bindings: readonly INativeIdentityBinding[],
 ) {
     const {entries} = await readAnnotationIndex(page, workingCopyPath);
     const freeTextNote = requireNamedEntry(
@@ -731,7 +742,8 @@ function createPlacedImageFixture(workingCopyPath: string) {
 }
 
 async function installManagedJpegClipboard(page: Page, imagePath: string) {
-    const probe = await page.evaluate(async (input: {imagePath: string;}) => {
+    const imageRef = requireDocumentRef(imagePath);
+    const probe = await page.evaluate(async (input: {imagePath: TDocumentRef;}) => {
         const files = window.electronAPI?.documentFiles;
         if (!files?.createManagedTempFileHandle) {
             throw new Error('Managed image handles are unavailable');
@@ -765,7 +777,7 @@ async function installManagedJpegClipboard(page: Page, imagePath: string) {
             dimensions,
             hasNativeSourceHandle: 'nativeSourceHandle' in probeFile,
         };
-    }, {imagePath});
+    }, {imagePath: imageRef});
     expect(probe).toEqual({
         dimensions: {
             height: 40,
