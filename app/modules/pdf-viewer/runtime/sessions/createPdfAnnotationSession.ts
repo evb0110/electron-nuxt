@@ -55,7 +55,7 @@ import {getDocumentWorkingCopyCapability} from '@app/utils/platformDocuments';
 import { groupBy } from 'es-toolkit/array';
 import type { IAnnotationEnrichmentState } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationEnrichmentPolicy';
 import { usePdfViewerSaveTransaction } from '@app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction';
-import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import { collectLivePdfJsAnnotationChangeIds } from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import {
     annotationEditorSurfaceKey,
     usePdfAnnotationEditorSurface,

@@ -27,7 +27,6 @@ interface IWorkspaceSaveTransactionRequestDependencies {
     pdf: {
         document: {value: PDFDocumentProxy | null};
         getSourceData: IPdfViewerSaveTransactionSource['getSourcePdfData'];
-        serializeForSave: NonNullable<IPdfViewerSaveTransactionSource['serializePdfForSave']>;
     };
     persistence: {
         trySavePdfNativeMutations?: unknown;
@@ -84,7 +83,7 @@ export function buildSaveTransactionRequest(
         mode: 'persist',
         saveMode: getSaveMode(plan),
         saveFlowMode: getSaveFlow(plan),
-        forcePdfjsMaterialize: plan.dirtyState.preservedAnnotationSource
+        forceWriterSave: plan.dirtyState.preservedAnnotationSource
             || plan.dirtyState.savedPdfjsAnnotationBaseline,
         savedPdfjsAnnotationFingerprint: deps.annotations.getSavedPdfJsAnnotationFingerprint?.() ?? null,
         includeManagedShapes: body.includeManagedShapes,
@@ -100,10 +99,7 @@ export function buildSaveTransactionRequest(
         },
         nativeCapabilities,
         documentStructure,
-        source: {
-            getSourcePdfData: deps.pdf.getSourceData,
-            serializePdfForSave: deps.pdf.serializeForSave,
-        },
+        source: {getSourcePdfData: deps.pdf.getSourceData},
         workingPath: requiresNativePathBackedSave(plan)
             ? plan.target.expectedWorkingPath
             : null,

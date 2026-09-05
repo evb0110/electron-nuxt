@@ -7,7 +7,7 @@ import { toPdfRectFromMarkerRect } from '@app/modules/pdf-viewer/engine/annotati
 import { normalizeMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/normalizeMarkerRect';
 import type { TPageRotation } from '@app/modules/pdf-viewer/engine/annotation-geometry/pageRotation';
 import { parseCssRgbColor } from '@app/modules/pdf-viewer/engine/text-markup-color/parseCssRgbColor';
-import type { ISerializationPlan } from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import type { ISerializationPlan } from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import {
     formatPdfJsAnnotationRef,

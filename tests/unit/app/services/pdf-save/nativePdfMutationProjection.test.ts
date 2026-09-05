@@ -12,9 +12,9 @@ import {
     buildNativeFreeTextNotesForSave,
     isReplayableEditorOnlyFreeTextNote,
     toNativeFreeTextNote,
-} from '@app/modules/pdf-viewer/runtime/save/nativeFreeTextNotes';
-import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/runtime/save/nativeNoteTextUpdates';
-import { buildNativeAnnotationDeletesForSave } from '@app/modules/pdf-viewer/runtime/save/buildNativeAnnotationDeletesForSave';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeFreeTextNoteProjection';
+import { buildNativeNoteTextUpdatesForSave } from '@app/modules/pdf-viewer/annotations/persistence/nativeNoteTextUpdateProjection';
+import { projectNativeAnnotationDeletes } from '@app/modules/pdf-viewer/annotations/persistence/nativeAnnotationDeleteProjection';
 import {
     buildNativeShapesMutationForSave,
     isNativeShapeEligible,
@@ -23,7 +23,7 @@ import {
 import {
     buildNativeMarkupMutationForSave,
     toNativeMarkupHint,
-} from '@app/modules/pdf-viewer/runtime/save/nativeMarkupMutations';
+} from '@app/modules/pdf-viewer/annotations/persistence/nativeMarkupProjection';
 import { PDF_NATIVE_MUTATION_LIMITS } from '@contracts/nativePdfMutations';
 
 function createComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
@@ -194,7 +194,7 @@ describe('native note text and delete builders', () => {
     });
 
     it('builds native deletes for PDF refs and editor-only FreeText stable keys', () => {
-        const deletes = buildNativeAnnotationDeletesForSave(createMutationProjectionInput({pendingDeletes: [
+        const deletes = projectNativeAnnotationDeletes(createMutationProjectionInput({pendingDeletes: [
             createComment(),
             createEditorFreeTextComment(),
         ]}));

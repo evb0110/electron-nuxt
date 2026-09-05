@@ -48,13 +48,6 @@ interface IWorkspaceInteractionControlsOptions {
     annotationTool: Ref<TAnnotationTool>;
     pdfViewerRef: Ref<IWorkspacePdfViewerInteractionPort | null>;
     documentViewerRef: Ref<IWorkspaceDocumentViewerSplitPort | null>;
-    serializePdfForSave?: (
-        data: Uint8Array,
-        options?: {
-            includeShapes?: boolean;
-            rewriteShapeState?: boolean;
-        },
-    ) => Promise<Uint8Array>;
     shapePropertiesPopoverVisible: ComputedRef<boolean>;
     annotationContextMenuVisible: ComputedRef<boolean>;
     pageContextMenuVisible: ComputedRef<boolean>;
@@ -281,7 +274,6 @@ export const useWorkspaceInteractionControls = (options: IWorkspaceInteractionCo
         pdfViewerRef,
         documentViewerRef,
         pdfData,
-        ...(options.serializePdfForSave !== undefined ? { serializePdfForSave: options.serializePdfForSave } : {}),
         openFileWithViewerLifecycle,
         waitForPdfReload,
         loadPdfFromPath,

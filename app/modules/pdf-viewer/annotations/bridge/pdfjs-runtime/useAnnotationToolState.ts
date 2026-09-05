@@ -16,7 +16,7 @@ import type {
     TAnnotationTool,
     TMarkupSubtype,
 } from '@app/types/annotations';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import { isAuthoringAnnotationTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isAuthoringAnnotationTool';
 import { isSelectionMarkupTool } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/isSelectionMarkupTool';
 import { shouldForceTextMarkup } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/shouldForceTextMarkup';

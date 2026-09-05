@@ -21,12 +21,12 @@ import {
     deriveAnnotationId,
     type AnnotationEntity,
 } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import { cast } from '@tests/helpers/cast';
 
 export const toastAddMock = vi.fn();
 const TEST_BROWSER_SOURCE_REF = 'browser://documents/source.pdf';
-export const TEST_BROWSER_WORKING_COPY_REF = 'browser://documents/work.pdf';
+const TEST_BROWSER_WORKING_COPY_REF = 'browser://documents/work.pdf';
 type TFileOperationsSaveControllerTestDeps =
     IWorkspaceSaveDependencies['status']
     & {
@@ -73,7 +73,6 @@ type TFileOperationsSaveControllerTestDeps =
         pdfDocument: IWorkspaceSaveDependencies['pdf']['document'];
         commitPdfEditorsForSave?: IWorkspaceSaveDependencies['pdf']['commitEditorsForSave'];
         runSaveTransaction: IWorkspaceSaveDependencies['pdf']['runSaveTransaction'];
-        saveDocument: () => Promise<Uint8Array | null>;
         getSourcePdfData: IWorkspaceSaveDependencies['pdf']['getSourceData'];
         serializePdfForSave: IWorkspaceSaveDependencies['pdf']['serializeForSave'];
         validatePdfPath: IWorkspaceSaveDependencies['persistence']['validatePdfPath'];
@@ -388,7 +387,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
         totalPages: ref(1),
         untitledBookmarkLabel: 'Untitled',
         pdfDocument: shallowRef(cast({ annotationStorage: { resetModified } })),
-        saveDocument: vi.fn(async () => new Uint8Array([1])),
         getSourcePdfData: vi.fn(async () => new Uint8Array([1])),
         validatePdfPath: vi.fn(async () => ({
             isValid: true,
@@ -436,7 +434,6 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
             || overrides.captureCanonicalPendingTextUpdates !== undefined
             || overrides.captureCanonicalPendingAnnotationDeletes !== undefined;
         const transaction = usePdfViewerSaveTransaction({
-            materializePdfJsDocumentForInternalUse: deps.saveDocument,
             getPdfDocument: () => deps.pdfDocument.value,
             ...(hasCanonicalAnnotationPlan
                 ? {prepareAnnotationSave: () => ({
@@ -462,68 +459,11 @@ export function createDeps(overrides: Partial<Parameters<typeof useWorkspaceSave
     };
 }
 
-export function expectWorkspaceSaveMarked(deps: ReturnType<typeof createDeps>['deps']) {
-    expect(deps.markAnnotationSaved).toHaveBeenCalledOnce();
-    expect(deps.markPageLabelsSaved).toHaveBeenCalledOnce();
-    expect(deps.markBookmarksSaved).toHaveBeenCalledOnce();
-    expect(deps.markShapeStateSaved).toHaveBeenCalledOnce();
-}
-
 export function expectWorkspaceSaveNotMarked(deps: ReturnType<typeof createDeps>['deps']) {
     expect(deps.markAnnotationSaved).not.toHaveBeenCalled();
     expect(deps.markPageLabelsSaved).not.toHaveBeenCalled();
     expect(deps.markBookmarksSaved).not.toHaveBeenCalled();
     expect(deps.markShapeStateSaved).not.toHaveBeenCalled();
-}
-
-export function createPdfNoteComment(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
-    return {
-        id: overrides.id ?? '3856R',
-        stableKey: overrides.stableKey ?? 'ann:0:3856R',
-        sortIndex: null,
-        pageIndex: 0,
-        pageNumber: 1,
-        text: overrides.text ?? 'Original note',
-        kindLabel: 'Note',
-        subtype: overrides.subtype ?? 'Text',
-        author: null,
-        modifiedAt: null,
-        color: null,
-        uid: null,
-        annotationId: overrides.annotationId ?? '3856R',
-        source: overrides.source ?? 'pdf',
-        hasNote: overrides.hasNote ?? true,
-        markerRect: null,
-        ...overrides,
-    };
-}
-
-export function createEditorFreeTextNote(overrides: Partial<IAnnotationCommentSummary> = {}): IAnnotationCommentSummary {
-    return {
-        id: overrides.id ?? 'pdfjs_internal_editor_0',
-        stableKey: overrides.stableKey ?? 'ann:0:pdfjs_internal_editor_0',
-        sortIndex: null,
-        pageIndex: 0,
-        pageNumber: 1,
-        text: overrides.text ?? 'Editor note',
-        kindLabel: 'Inline Note',
-        subtype: overrides.subtype ?? 'Typewriter',
-        author: overrides.author ?? 'Tester',
-        modifiedAt: null,
-        createdAt: overrides.createdAt ?? 1781009077000,
-        color: overrides.color ?? 'rgba(255, 204, 0, 0.8)',
-        uid: overrides.uid ?? 'pdfjs_internal_editor_0',
-        annotationId: overrides.annotationId ?? null,
-        source: overrides.source ?? 'editor',
-        hasNote: overrides.hasNote ?? true,
-        markerRect: overrides.markerRect ?? {
-            left: 0.1,
-            top: 0.2,
-            width: 0.0016,
-            height: 0.0016,
-        },
-        ...overrides,
-    };
 }
 
 export function createShapeAnnotation(overrides: Partial<IShapeAnnotation> = {}): IShapeAnnotation {

@@ -57,7 +57,6 @@ const mocks = vi.hoisted(() => {
             savePdfNoteTextUpdates: createBroadFacadeTripwire('savePdfNoteTextUpdates'),
             writeFile: createBroadFacadeTripwire('writeFile'),
         },
-        savePdfBytesToWorkingCopy: vi.fn(),
         readDocumentBytes: vi.fn(),
         shouldRefreshWorkingCopyAfterSaveAs: vi.fn(),
     };
@@ -68,7 +67,6 @@ vi.mock('@app/utils/platformDocuments', () => ({
     getDocumentWorkingCopyCapability: () => mocks.documentWorkingCopyCapability,
     shouldRefreshWorkingCopyAfterSaveAs: mocks.shouldRefreshWorkingCopyAfterSaveAs,
 }));
-vi.mock('@app/services/pdf-file/savePdfBytesToWorkingCopy', () => ({savePdfBytesToWorkingCopy: mocks.savePdfBytesToWorkingCopy}));
 vi.mock('@app/utils/documentBytes', () => ({readDocumentBytes: mocks.readDocumentBytes}));
 
 function createPersistenceHarness(isDesktopRuntime = false) {
@@ -273,10 +271,6 @@ describe('createDocumentPersistence', () => {
         mocks.documentFilesCapability.writeFile.mockResolvedValue(true);
         mocks.documentWorkingCopyCapability.cleanupFile.mockResolvedValue(undefined);
         mocks.documentWorkingCopyCapability.createWorkingCopyFromPath.mockResolvedValue('/tmp/new-working.pdf');
-        mocks.savePdfBytesToWorkingCopy.mockResolvedValue({
-            isValid: true,
-            errors: [],
-        });
         mocks.shouldRefreshWorkingCopyAfterSaveAs.mockReturnValue(true);
     });
 
@@ -474,42 +468,6 @@ describe('createDocumentPersistence', () => {
         expect(mocks.documentWorkingCopyCapability.cleanupFile).toHaveBeenCalledWith('/tmp/old-working.pdf');
         expectBroadFilePersistenceFacadeNotUsed();
         expectBroadWorkingCopyFacadeNotUsed();
-    });
-
-    it('adopts a committed Save As path before reporting a post-commit validation failure', async () => {
-        const {
-            persistence,
-            state,
-        } = createPersistenceHarness();
-        mocks.documentFilesCapability.savePdfDataAs.mockResolvedValueOnce({
-            path: '/tmp/committed.pdf',
-            validation: {
-                isValid: false,
-                tool: 'native',
-                errors: ['copy-back failed'],
-                warnings: ['copy-back failed'],
-            },
-        });
-
-        const saveAsResult = await persistence.saveWorkingCopyAs(new Uint8Array([1]));
-
-        expect(saveAsResult).toMatchObject({
-            success: false,
-            outPath: '/tmp/committed.pdf',
-        });
-        expect(state.originalPath.value).toBe('/tmp/committed.pdf');
-        expect(state.workingCopyPath.value).toBe('/tmp/old-working.pdf');
-        expect(state.isDirty.value).toBe(true);
-
-        const nextSaveResult = await persistence.saveWorkingCopy();
-        expect(nextSaveResult).toMatchObject({
-            success: true,
-            outPath: '/tmp/committed.pdf',
-        });
-        expect(mocks.documentFilesCapability.saveFileStructured).toHaveBeenCalledWith(
-            '/tmp/old-working.pdf',
-            {expectedDocumentRevisionToken: TEST_DOCUMENT_REVISION_TOKEN},
-        );
     });
 
     it('cleans a stale Save As working copy through the split working-copy capability', async () => {
@@ -843,7 +801,6 @@ describe('createDocumentPersistence', () => {
         })).rejects.toThrow('Staged artifact content changed after staging');
 
         expect(mocks.documentFilesCapability.commitStagedPdfNativeMutations).toHaveBeenCalledOnce();
-        expect(mocks.savePdfBytesToWorkingCopy).not.toHaveBeenCalled();
     });
 
     it('releases an unverifiable staged native output without exposing it', async () => {

@@ -6,7 +6,7 @@ import {
 } from 'pdf-lib';
 import { getPdfStringValue } from '@app/utils/pdfDict';
 import { formatPdfJsAnnotationRef } from '@app/utils/pdfAnnotationRefs';
-import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/engine/pdf-page-annotation-iteration/iterateAnnotationRefDicts';
+import { iterateAnnotationRefDicts } from '@app/modules/pdf-viewer/annotations/pdf-page-iteration/iterateAnnotationRefDicts';
 
 const ANNOTATION_NAME = PDFName.of('NM');
 

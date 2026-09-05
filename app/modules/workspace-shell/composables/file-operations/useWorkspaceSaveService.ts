@@ -131,14 +131,7 @@ export interface IWorkspaceSaveDependencies {
         commitEditorsForSave?: () => Promise<void>;
         runSaveTransaction: IPdfViewerSaveExpose['runSaveTransaction'];
         getSourceData: () => Promise<Uint8Array | null>;
-        serializeForSave: (
-            data: Uint8Array,
-            options?: {
-                forceRewrite?: boolean;
-                includeShapes?: boolean;
-                rewriteShapeState?: boolean;
-            },
-        ) => Promise<Uint8Array>;
+        serializeForSave: ((...args: never[]) => Promise<Uint8Array>) | undefined;
     };
     shapes: {
         hasChanges: () => boolean;
@@ -594,7 +587,6 @@ async function persistNativeMutationProjection(
 async function executeNativeMutationSave(
     plan: Extract<TWorkspaceSavePlan, {kind: 'native-mutation'}>,
     deps: IWorkspaceSaveDependencies,
-    getReloadWaiter: () => IPostSaveReloadWaiter | null,
 ): Promise<TWorkspaceSaveExecutionResult> {
     const saveTransaction = await deps.pdf.runSaveTransaction(
         buildSaveTransactionRequest(
@@ -609,36 +601,33 @@ async function executeNativeMutationSave(
     ) as TSingleWriterSaveTransaction;
     const nativePathBacked = requiresNativePathBackedSave(plan);
     const projection = saveTransaction.nativeMutationProjection;
-    const executeFallback = () => executeSerializedBytesSave(
-        plan,
-        plan.serializedFallback,
-        deps,
-        getReloadWaiter(),
-        async () => {
-            const fallbackTransaction = await saveTransaction.executeFallback?.();
-            if (!fallbackTransaction) {
-                throw new Error('Classifier-owned PDF save fallback is unavailable');
-            }
-            return fallbackTransaction;
-        },
-    );
     if (!projection) {
-        if (nativePathBacked) {
-            BrowserLogger.warn('workspace', 'Native path-backed PDF save had no mutation projection', {
-                failure: saveTransaction.nativeRequiredFailure ?? null,
-                fallbackRejection: saveTransaction.fallbackDecision.nativeRejection,
-                annotationPlan: saveTransaction.annotationSavePlan,
-            });
-            return notSavedBeforeWrite(
-                'native-save-required',
-                plan.target.expectedRevisionToken,
-                null,
-            );
-        }
-        return executeFallback();
+        BrowserLogger.warn('workspace', 'Native PDF save had no mutation projection', {
+            failure: saveTransaction.nativeRequiredFailure ?? null,
+            annotationPlan: saveTransaction.annotationSavePlan,
+        });
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
 
-    if (Object.keys(projection.mutations).length === 0) {
+    // The projection keeps placed-image geometry beside the generic mutation
+    // map. Persistence owns the final payload, including the empty-payload
+    // guard below.
+    const placedImageGeometryUpdates = projection.placedImageGeometryUpdates ?? [];
+    const nativeMutations = placedImageGeometryUpdates.length > 0
+        && projection.mutations.placedImageGeometryUpdates === undefined
+        ? {
+            ...projection.mutations,
+            placedImageGeometryUpdates,
+        }
+        : projection.mutations;
+    const effectiveProjection = nativeMutations === projection.mutations
+        ? projection
+        : {
+            ...projection,
+            mutations: nativeMutations,
+        };
+
+    if (Object.keys(nativeMutations).length === 0) {
         saveTransaction.commitAnnotationSave?.();
         return {
             status: 'saved',
@@ -665,7 +654,7 @@ async function executeNativeMutationSave(
     try {
         persisted = await persistNativeMutationProjection(
             plan,
-            projection,
+            effectiveProjection,
             deps,
             saveTransaction.verifyAnnotationSavePath,
             saveTransaction.assertAnnotationSaveCurrent,
@@ -692,7 +681,7 @@ async function executeNativeMutationSave(
                 null,
             );
         }
-        return executeFallback();
+        return notSavedBeforeWrite('native-save-required', plan.target.expectedRevisionToken, null);
     }
     if (!persisted.success) {
         if (
@@ -707,6 +696,22 @@ async function executeNativeMutationSave(
             );
         }
         return notSavedAfterWrite(abortReasonForPersistResult(persisted), null);
+    }
+
+    if (plan.request.kind === 'save-as') {
+        const saveAsPersisted = await timedSavePhase(
+            'persist-save_as-native-writer-output',
+            () => deps.persistence.saveAs(undefined, {
+                saveMode: 'save_as_rewrite',
+                expectedWorkingPath: plan.target.expectedWorkingPath,
+                expectedDocumentRevisionToken: plan.target.expectedRevisionToken,
+                optimizeLossless: plan.request.kind === 'save-as' && plan.request.optimizeLossless,
+            }),
+        );
+        if (!saveAsPersisted.success) {
+            return notSavedAfterWrite(abortReasonForPersistResult(saveAsPersisted), null);
+        }
+        persisted = saveAsPersisted;
     }
 
     let preparedShapeStateSnapshot: unknown = null;
@@ -850,7 +855,7 @@ async function executeSavePlan(
             return await executeNativeWorkingCopySave(plan, deps);
         }
         if (plan.kind === 'native-mutation') {
-            return await executeNativeMutationSave(plan, deps, getReloadWaiter);
+            return await executeNativeMutationSave(plan, deps);
         }
         if (plan.body.source === 'working-copy') {
             return await executeWorkingCopySave(plan, deps);

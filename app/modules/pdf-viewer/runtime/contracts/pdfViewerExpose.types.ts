@@ -9,7 +9,7 @@ import type {
 import type {IPageIdentityDelta} from '@contracts/electronApiPageOps';
 import type { IShapeAnnotationConstructionOptions } from '@app/types/shapeAnnotationConstructionOptions';
 import type { ICropSelectionResult } from '@app/types/crop';
-import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/pdf-serialization-subtype-hints/pdfSerializationSubtypeHintsTypes';
+import type { IMarkupSubtypeHint } from '@app/modules/pdf-viewer/engine/annotation-subtype-hints/pdfSerializationSubtypeHintsTypes';
 import type { IPdfPageMetric } from '@app/types/pdfUi';
 import type { IScrollToPageOptions } from '@app/modules/pdf-viewer/runtime/composables/pdf/usePdfScroll';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -23,7 +23,7 @@ import type { TAnnotationCreationFailureReason } from '@app/modules/pdf-viewer/e
 import type {
     IPdfAnnotationStorageDebugState,
     IPdfLiveAnnotationChangeSummary,
-} from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+} from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 import type { ITextBoxEntity } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
 
 /** @deprecated Use the format-neutral document sidebar tab contract. */
@@ -132,8 +132,6 @@ export interface IPdfViewerSaveExpose {
     runSaveTransaction: (
         request: IPdfViewerSaveTransactionRequest,
     ) => Promise<IPdfViewerSaveTransactionResult>;
-    saveDocument: () => Promise<Uint8Array | null>;
-    materializePdfJsDocumentForInternalUse: () => Promise<Uint8Array | null>;
     commitPdfEditorsForSave?: () => Promise<void>;
 }
 

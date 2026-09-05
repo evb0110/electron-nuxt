@@ -22,7 +22,6 @@ import {
     isPdfPlacedImageNativePathResult,
     resolveAnnotationCommentTextMarkupColor,
     annotationIdForSummary,
-    resolvePdfViewerSaveTransactionFinalBytes,
 } from '@app/modules/pdf-viewer/public';
 import type { TPdfPlacedImageEmbeddingResult } from '@app/modules/pdf-viewer/public';
 import { isNativeDocumentRef } from '@app/utils/documentRef';
@@ -114,7 +113,7 @@ interface IPageAnnotationActionsDeps {
         persistWorkingCopy?: boolean;
     }) => Promise<void>;
     loadPdfFromPath?: (path: TDocumentRef, opts?: { markDirty?: boolean }) => Promise<void>;
-    materializeAnnotationsForPageMutation?: () => Promise<boolean>;
+    saveAnnotationsForPageMutation?: () => Promise<boolean>;
     waitForPdfReload: (page: number) => Promise<void>;
     invalidateThumbnailPages?: (pages: number[]) => void;
     markPreservedAnnotationSourceDirty?: () => void;
@@ -158,7 +157,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         annotationNoteWindows,
         loadPdfFromData,
         loadPdfFromPath,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages,
         isSameAnnotationComment,
@@ -881,7 +880,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                 const capturedWorkingCopy = captureActiveWorkingCopy();
                 const isNativePathBacked = isNativeDocumentRef(capturedWorkingCopy);
                 if (isNativePathBacked) {
-                    if (!materializeAnnotationsForPageMutation) {
+                    if (!saveAnnotationsForPageMutation) {
                         throw new NativePdfSaveRequiredError({
                             code: 'native-save-required',
                             phase: 'pre-write',
@@ -889,7 +888,7 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
                             detail: 'Native placed-image persistence requires page-mutation materialization',
                         });
                     }
-                    if (!await materializeAnnotationsForPageMutation()) {
+                    if (!await saveAnnotationsForPageMutation()) {
                         pdfViewerRef.value?.restorePendingImagePlacement?.();
                         return false;
                     }
@@ -1095,43 +1094,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         closeAnnotationContextMenu();
     }
 
-    async function serializeCurrentPdfForEmbeddedFallback() {
-        if (!pdfViewerRef.value) {
-            return false;
-        }
-
-        return runWithDocumentOperationLease('page-operation', async () => {
-            const capturedWorkingCopy = captureActiveWorkingCopy();
-            const saveTransaction = await pdfViewerRef.value?.runSaveTransaction({
-                mode: 'embedded-mutation',
-                forcePdfjsMaterialize: true,
-            });
-            const rawData = resolvePdfViewerSaveTransactionFinalBytes(saveTransaction);
-            if (!rawData) {
-                return false;
-            }
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                return false;
-            }
-
-            const pageToRestore = currentPage.value;
-            const restorePromise = waitForPdfReload(pageToRestore);
-            await loadPdfFromData(rawData, {
-                pushHistory: true,
-                persistWorkingCopy: !!capturedWorkingCopy,
-            });
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                void restorePromise.catch(() => {});
-                return false;
-            }
-            await restorePromise;
-            if (!isCapturedWorkingCopyActive(capturedWorkingCopy)) {
-                return false;
-            }
-            return true;
-        });
-    }
-
     async function handleCopyAnnotationComment(comment: IAnnotationCommentSummary) {
         closeAnnotationContextMenu();
         const text = comment.text?.trim();
@@ -1184,7 +1146,6 @@ export const usePageAnnotationActions = (deps: IPageAnnotationActionsDeps) => {
         insertContextMenuImageFromFile,
         pasteContextMenuImageFromClipboard,
         createContextMenuMarkup,
-        serializeCurrentPdfForEmbeddedFallback,
         handleCopyAnnotationComment,
         handleDeleteAnnotationComment,
         handleFinalizePlacedImage,

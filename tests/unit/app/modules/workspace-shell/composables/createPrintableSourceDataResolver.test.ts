@@ -22,16 +22,6 @@ import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/
 import { createWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
 import { TEST_PDF_SAVE_BYTE_ROUTE_DECISION } from '@tests/unit/app/modules/pdf-viewer/runtime/save/testPdfSaveByteRouteDecision';
 
-// The real transaction binds canonical identities off the main thread; the
-// print frontier test only needs the byte route, not a worker round trip.
-vi.mock(
-    '@app/modules/pdf-viewer/engine/pdf-serialization-worker-client/bindCanonicalAnnotationIdentitiesOffThread',
-    () => ({bindCanonicalAnnotationIdentitiesOffThread: vi.fn(async (data: Uint8Array) => ({
-        data,
-        identityBindings: [],
-    }))}),
-);
-
 const PRINT_FRONTIER_REVISION = requireDocumentRevisionToken('print-frontier-revision');
 
 interface IPrintTestViewer {runSaveTransaction(request: IPdfViewerSaveTransactionRequest): Promise<IPdfViewerSaveTransactionResult>;}
@@ -154,7 +144,7 @@ describe('createPrintableSourceDataResolver', () => {
         expect(leaseKinds).toEqual(['print-materialize']);
         expect(runSaveTransaction).toHaveBeenCalledWith({
             mode: 'print',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: true,
             includeManagedShapes: true,
             rewriteShapeState: true,
@@ -423,11 +413,6 @@ describe('createPrintableSourceDataResolver', () => {
         const {runSaveTransaction} = usePdfViewerSaveTransaction({
             annotationApplication: shallowRef(application),
             documentRevisionToken: computed(() => PRINT_FRONTIER_REVISION),
-            materializePdfJsDocumentForInternalUse: async () => {
-                const entity = application.store.get(note.identity.id);
-                materializedPersistedRevisions.push(entity ? entity.persistedRevision : Number.NaN);
-                return documentBytes.value;
-            },
         });
         const runTransaction = vi.fn(async (request: IPdfViewerSaveTransactionRequest) => {
             events.push(`transaction-start:${request.mode}`);
@@ -474,7 +459,7 @@ describe('createPrintableSourceDataResolver', () => {
             'transaction-start:persist',
             'transaction-settled:persist',
         ]);
-        expect(materializedPersistedRevisions).toEqual([-1]);
+        expect(materializedPersistedRevisions).toEqual([]);
         expect(application.store.get(note.identity.id)).toMatchObject({persistedRevision: -1});
 
         durableWriteCompleted.resolve(undefined);
@@ -492,17 +477,14 @@ describe('createPrintableSourceDataResolver', () => {
         ]);
         // The print materialized the acknowledged frontier and the post-ack
         // source bytes, not the pre-acknowledgement snapshot the save owned.
-        expect(materializedPersistedRevisions).toEqual([
-            -1,
-            0,
-        ]);
+        expect(materializedPersistedRevisions).toEqual([]);
         expect(application.store.get(note.identity.id)).toMatchObject({persistedRevision: 0});
         expect(application.store.hasChangesSinceSavedBaseline()).toBe(false);
 
         expect(runTransaction).toHaveBeenCalledTimes(2);
         expect(runTransaction.mock.calls[1]?.[0]).toMatchObject({
             mode: 'print',
-            forcePdfjsMaterialize: true,
+            forceWriterSave: true,
             serializeResult: true,
         });
         // The print owns a post-acknowledgement frontier of its own.

@@ -4,6 +4,7 @@
         class="pdf-annotation-editor-layer"
         :class="{'is-interactive': isInteractive}"
         data-pdf-annotation-editor-surface
+        :data-pdf-annotation-editor-ready="editorReady ? 'true' : undefined"
         tabindex="0"
         @mousedown.stop
         @pointerdown.stop="handleSurfacePointerDown"
@@ -141,6 +142,7 @@ if (!injectedSurface) {
 }
 const surface: IAnnotationEditorSurface = injectedSurface;
 const layerRef = ref<HTMLElement | null>(null);
+const editorReady = ref(false);
 const editingId = ref<AnnotationId | null>(null);
 const draggedAnnotationId = ref<AnnotationId | null>(null);
 const isCreating = ref(false);
@@ -152,6 +154,10 @@ const textBoxRefs = new Map<AnnotationId, IPdfTextBoxAnnotationExpose>();
 let suppressNextClick = false;
 let suppressClickTimer: ReturnType<typeof setTimeout> | null = null;
 let capturedClickAnnotationId: AnnotationId | null = null;
+
+onMounted(() => {
+    editorReady.value = true;
+});
 
 const pointerGesture = useAnnotationPointerGesture({
     surface,

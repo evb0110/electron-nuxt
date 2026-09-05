@@ -4,7 +4,7 @@ import {
     it,
 } from 'vitest';
 import {AnnotationStore} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
-import {buildSerializationPlan} from '@app/modules/pdf-viewer/serialization/serializationPlan';
+import {buildSerializationPlan} from '@app/modules/pdf-viewer/annotations/persistence/annotationSavePlan';
 import type {IAnnotationHistoryAuthority} from '@app/modules/pdf-viewer/annotations/domain/annotationStore';
 import type {
     AnnotationId,

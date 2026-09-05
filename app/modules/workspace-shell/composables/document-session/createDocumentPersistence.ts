@@ -23,8 +23,6 @@ import type {
     IPdfLoadedState,
 } from '@app/modules/workspace-shell/composables/document-session/createDocumentHistory';
 import { createDocumentPersistResults } from '@app/modules/workspace-shell/composables/document-session/createDocumentPersistResults';
-import { savePdfBytesAs } from '@app/services/pdf-file/savePdfBytesAs';
-import { savePdfBytesToWorkingCopy } from '@app/services/pdf-file/savePdfBytesToWorkingCopy';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getErrorMessage } from '@app/utils/error';
 import { runDetached } from '@app/utils/asyncGuard';
@@ -417,15 +415,21 @@ export function createDocumentPersistence(
                 });
             }
 
-            const validation = await savePdfBytesToWorkingCopy(
+            const wrote = await getDocumentFilesCapability().writeFile(
                 workingPath,
                 data,
                 resolveDocumentMutationRevisionOptions({
                     expectedDocumentRevisionToken,
                     ...(opts?.changedObjectRefs?.length ? {changedObjectRefs: opts.changedObjectRefs} : {}),
+                    ...(opts?.commitCallbacks ? {commitCallbacks: opts.commitCallbacks} : {}),
                 }),
-                opts?.commitCallbacks,
             );
+            const validation = {
+                isValid: wrote,
+                tool: 'native' as const,
+                errors: wrote ? [] : [deps.t('errors.file.save')],
+                warnings: [],
+            };
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale PDF save completion', {
                     workingPath,
@@ -849,11 +853,6 @@ export function createDocumentPersistence(
         };
 
         try {
-            const forceSaveAs = await measurePdfPersistPhase(
-                phaseTimings,
-                'should-force-save-as',
-                () => deps.shouldForceSaveAsForWorkingCopy(requestedSaveMode, workingPath),
-            );
             if (!state.isActiveWorkingCopy(workingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale native PDF mutation save before write', {
                     workingPath,
@@ -863,12 +862,6 @@ export function createDocumentPersistence(
                 logRendererTimings('stale-before-write');
                 return createStalePersistResult(requestedSaveMode, false);
             }
-            if (forceSaveAs) {
-                BrowserLogger.diagnostic('workspace', 'Native PDF mutation persistence returned no result', {reason: 'force-save-as'});
-                logRendererTimings('force-save-as');
-                return null;
-            }
-
             const result = await measurePdfPersistPhase(
                 phaseTimings,
                 'native-ipc',
@@ -1093,36 +1086,16 @@ export function createDocumentPersistence(
             const saveAsOptions = opts?.optimizeLossless === true
                 ? { optimizeLossless: true }
                 : undefined;
-            const saveAsResult = data
-                ? await savePdfBytesAs(
+            void data;
+            const saveAsResult = {
+                path: await getDocumentFilesCapability().savePdfAs(
                     workingPath,
-                    data,
                     saveAsOptions,
                     revisionOptions,
-                    opts?.commitCallbacks,
-                )
-                : {
-                    path: await getDocumentFilesCapability().savePdfAs(
-                        workingPath,
-                        saveAsOptions,
-                        revisionOptions,
-                    ),
-                    validation: null,
-                };
+                ),
+                validation: null,
+            };
             const savedPath = saveAsResult.path;
-            if (saveAsResult.validation && !saveAsResult.validation.isValid) {
-                state.error.value = saveAsResult.validation.errors.join('\n') || deps.t('errors.file.save');
-                if (savedPath && state.isActiveWorkingCopy(previousWorkingPath)) {
-                    // A legacy or compatibility main process can report a
-                    // post-commit refresh error as invalid validation. The
-                    // target is already durable, so keep renderer path state
-                    // aligned while leaving the working copy dirty for retry.
-                    state.originalPath.value = savedPath;
-                    state.requiresSaveAsOnFirstSave.value = false;
-                    return createPersistResult(false, requestedSaveMode, true, savedPath);
-                }
-                return createFailedPersistResult(requestedSaveMode, true);
-            }
             if (!state.isActiveWorkingCopy(previousWorkingPath)) {
                 BrowserLogger.debug('workspace', 'Skipped stale Save As completion', {
                     workingPath: previousWorkingPath,

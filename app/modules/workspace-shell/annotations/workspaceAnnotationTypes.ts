@@ -3,7 +3,6 @@ import type {
     ShallowRef,
 } from 'vue';
 import type { PDFDocumentProxy } from 'pdfjs-dist';
-import type { TDocumentRef } from '@contracts/documentRef';
 import type { IShapeAnnotation } from '@app/types/annotations';
 import type {
     IPdfLiveAnnotationChangeSummary,
@@ -18,22 +17,6 @@ export interface IWorkspacePdfViewerForAnnotationUtils {
     collectLiveAnnotationChanges?: (() => IPdfLiveAnnotationChangeSummary) | undefined;
     getAllShapes: () => IShapeAnnotation[];
 }
-
-export interface ISerializeEmbeddedFallbackDeps {
-    pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;
-    currentPage: Ref<number>;
-    workingCopyPath: Ref<TDocumentRef | null>;
-    waitForPdfReload: (page: number) => Promise<void>;
-    loadPdfFromData: (
-        data: Uint8Array,
-        opts?: {
-            pushHistory?: boolean;
-            persistWorkingCopy?: boolean;
-        },
-    ) => Promise<void>;
-}
-
-export type TSerializeEmbeddedFallbackResult = Uint8Array | null;
 
 export interface IHasAnnotationChangesDeps {
     pdfViewerRef: Ref<IWorkspacePdfViewerForAnnotationUtils | null>;

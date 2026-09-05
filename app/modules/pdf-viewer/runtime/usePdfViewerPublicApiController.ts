@@ -11,7 +11,7 @@ import { toShapeAnnotationCommentSummary } from '@app/modules/pdf-viewer/engine/
 import { getPageContainerByNumber } from '@app/modules/pdf-viewer/engine/pdf-scroll-visibility/getPageContainerByNumber';
 import { toSelectedTextMarkupComment } from '@app/modules/pdf-viewer/annotations/usePdfAnnotationColorCommands';
 import { cloneSparsePageMetrics } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
-import { collectPdfJsAnnotationStorageDebugState } from '@app/modules/pdf-viewer/runtime/save/pdfAnnotationStorageChanges';
+import { collectPdfJsAnnotationStorageDebugState } from '@app/modules/pdf-viewer/runtime/save/pdfjsAnnotationDiagnostics';
 
 const POINT_NOTE_CANCELLED_REASON = 'The document changed before the point note was created.';
 
@@ -153,8 +153,6 @@ export const usePdfViewerPublicApiController = (
         restorePreparedManagedShapesAfterFailedSave: annotationRuntime.restorePreparedManagedShapesAfterFailedSave,
         commitPdfEditorsForSave: annotationSession.commitPdfEditorsForSave,
         runSaveTransaction: annotationSession.runSaveTransaction,
-        saveDocument: annotationSession.saveViewerDocument,
-        materializePdfJsDocumentForInternalUse: annotationSession.materializePdfJsDocumentForInternalUse,
         clearAnnotationHistory: () => annotationSession.appAnnotationHistory.clear(),
         renderLoadedPdfPagesForBrowserPrint: options.renderLoadedPdfPagesForBrowserPrint,
         markSavedShapeState: (_prepared?: unknown) => {

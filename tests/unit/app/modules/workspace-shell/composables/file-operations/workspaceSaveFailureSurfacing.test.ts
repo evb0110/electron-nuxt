@@ -9,15 +9,19 @@ import {
 import { ref } from 'vue';
 import { requireDocumentRevisionToken } from '@contracts/documentRevision';
 import { BrowserLogger } from '@app/utils/browserLogger';
+import type {IPdfNativePlacedImageGeometryUpdate} from '@contracts/electronApiDocuments';
 import {
     createDeps,
     createShapeAnnotation,
     expectWorkspaceSaveNotMarked,
     toastAddMock,
+    type TPdfNativeMutationSave,
     useWorkspaceSaveServiceForTest,
 } from '@tests/unit/app/modules/workspace-shell/composables/file-operations/workspaceSaveServiceFixture';
+import {cast} from '@tests/helpers/cast';
 
 type TSaveFixtureDeps = ReturnType<typeof createDeps>['deps'];
+type TSaveTransactionResult = Awaited<ReturnType<NonNullable<TSaveFixtureDeps['runSaveTransaction']>>>;
 
 /** The user opened a different file while a save was still running. */
 function replaceOpenDocument(deps: TSaveFixtureDeps) {
@@ -38,6 +42,63 @@ describe('workspace save failure surfacing', () => {
 
     afterEach(() => {
         vi.restoreAllMocks();
+    });
+
+    it('passes projected placed-image geometry to the native persistence owner', async () => {
+        const placedImageGeometryUpdates: IPdfNativePlacedImageGeometryUpdate[] = [{
+            stableKey: 'placed-image:one',
+            annotationId: 'image-one',
+            pageIndex: cast<IPdfNativePlacedImageGeometryUpdate['pageIndex']>(0),
+            x: 0.1,
+            y: 0.2,
+            width: 0.3,
+            height: 0.4,
+            rotationDegrees: 0,
+        }];
+        const trySavePdfNativeMutations: TPdfNativeMutationSave = vi.fn(async () => ({
+            success: true,
+            outPath: '/tmp/work.pdf',
+            saveMode: 'rewrite' as const,
+            didSaveAs: false,
+        }));
+        const { deps } = createDeps({
+            originalPath: ref('/tmp/source.pdf'),
+            workingCopyPath: ref('/tmp/work.pdf'),
+            annotationDirty: ref(true),
+            hasAnnotationChanges: vi.fn(() => true),
+            trySavePdfNativeMutations,
+            runSaveTransaction: vi.fn(async () => cast<TSaveTransactionResult>({
+                source: 'native' as const,
+                baseBytes: null,
+                serializedBytes: null,
+                serializedResult: null,
+                nativeMutationProjection: {
+                    mutations: {},
+                    placedImageGeometryUpdates,
+                    noteTextUpdates: [],
+                    noteGeometryUpdates: [],
+                    freeTextNotes: [],
+                    freeTextEditors: [],
+                    textBoxes: [],
+                    annotationDeletes: [],
+                    hasMetadataMutations: false,
+                    hasShapeMutations: false,
+                    hasMarkupMutations: false,
+                    phase: 'persist-native-pdf-mutations',
+                },
+                fallbackDecision: null,
+                annotationSavePlan: null,
+            })),
+        });
+        const service = useWorkspaceSaveServiceForTest(deps);
+
+        await expect(service.handleSave()).resolves.toBe(true);
+
+        expect(deps.runSaveTransaction).toHaveBeenCalled();
+        expect(trySavePdfNativeMutations).toHaveBeenCalledWith(
+            expect.objectContaining({placedImageGeometryUpdates}),
+            expect.objectContaining({expectedWorkingPath: '/tmp/work.pdf'}),
+        );
     });
 
     it('reports a validation rejection instead of returning a silent false', async () => {
@@ -457,7 +518,6 @@ describe('workspace save failure surfacing', () => {
     it('reports a serialization that produced no bytes to write', async () => {
         const { deps } = createDeps({
             annotationDirty: ref(true),
-            saveDocument: vi.fn(async () => null),
             getSourcePdfData: vi.fn(async () => null),
         });
         const service = useWorkspaceSaveServiceForTest(deps);

@@ -309,7 +309,7 @@ describe('annotation architecture boundaries', () => {
             'app/modules/pdf-viewer/components/PdfAnnotationCommentsList.vue',
             'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/buildPdfAnnotationCommentSummary.ts',
             'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect.ts',
-            'app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect.ts',
+            'app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect.ts',
         ];
         for (const path of callSites) {
             expect(read(path)).toContain('annotation-rules/pointNoteMarkerPolicy\'');

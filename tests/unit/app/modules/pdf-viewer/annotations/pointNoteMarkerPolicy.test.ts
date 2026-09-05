@@ -20,7 +20,7 @@ import {
 import {
     POINT_NOTE_MARKER_SIZE,
     toFreeTextNoteMarkerRect,
-} from '@app/modules/pdf-viewer/engine/serialization/pdf-serialization-shared/toFreeTextNoteMarkerRect';
+} from '@app/modules/pdf-viewer/engine/annotations/toFreeTextNoteMarkerRect';
 import { toMarkerRectFromPdfRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toMarkerRectFromPdfRect';
 import { toPdfRectFromMarkerRect } from '@app/modules/pdf-viewer/engine/annotation-geometry/toPdfRectFromMarkerRect';
 import { resolveEditorMarkerRect } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/resolveEditorMarkerRect';

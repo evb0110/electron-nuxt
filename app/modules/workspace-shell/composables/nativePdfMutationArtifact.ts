@@ -24,7 +24,7 @@ export interface INativePdfSaveTransactionOptions {
     nativeCapabilities: NonNullable<IPdfViewerSaveTransactionRequest['nativeCapabilities']>;
     dirtyState: NonNullable<IPdfViewerSaveTransactionRequest['dirtyState']>;
     documentStructure: NonNullable<IPdfViewerSaveTransactionRequest['documentStructure']>;
-    forcePdfjsMaterialize?: boolean;
+    forceWriterSave?: boolean;
     savedPdfjsAnnotationFingerprint?: string | null;
 };
 

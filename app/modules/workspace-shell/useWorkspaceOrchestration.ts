@@ -36,7 +36,7 @@ import { useDocxExport } from '@app/composables/useDocxExport';
 import { useWorkspacePrint } from '@app/modules/workspace-shell/composables/useWorkspacePrint';
 import { useMetadataSession } from '@app/modules/workspace-shell/composables/useMetadataSession';
 import type { IWorkspaceDocumentController } from '@app/modules/workspace-shell/document-sessions/workspaceDocumentController';
-import { createPageMutationAnnotationMaterializer } from '@app/modules/workspace-shell/composables/createPageMutationAnnotationMaterializer';
+import { createPageMutationWriterSave } from '@app/modules/workspace-shell/composables/createPageMutationWriterSave';
 import { createPrintableSourceDataResolver } from '@app/modules/workspace-shell/composables/createPrintableSourceDataResolver';
 import type { ITabViewSessionState } from '@app/modules/workspace-shell/tabs/tabSessionStoreTypes';
 import type { IBrowserPrintDocument } from '@app/utils/pdfPrintShared';
@@ -142,10 +142,10 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfError,
         wasEncrypted,
         pdfFailurePresentation,
+        loadPdfFromData,
         loadPdfFromPath,
         ensureHistoryBaselineForMutation,
         reloadWorkingCopyIntoHistory,
-        loadPdfFromData,
         saveFile,
         repairWorkingCopy,
         optimizeWorkingCopy,
@@ -525,7 +525,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasSaveFailure,
         embedPlacedImageToPage,
         getSourcePdfData,
-        serializePdfForSave,
         saveForExternalRead,
         getNativeSaveTransactionOptions,
     } = pageSaveOrchestration;
@@ -649,7 +648,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         )
     ));
     const canMutatePages = computed(() => deps.sourceCapabilities.value.pageEdits);
-    const materializeAnnotationsForPageMutation = createPageMutationAnnotationMaterializer({
+    const saveAnnotationsForPageMutation = createPageMutationWriterSave({
         annotationDirty,
         hasAnnotationChanges,
         hasLivePdfJsAnnotationChanges,
@@ -661,7 +660,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         pdfViewerRef,
         currentPage,
         waitForPdfReload,
-        loadPdfFromData,
         loadPdfFromPath,
         getNativeSaveTransactionOptions,
     });
@@ -687,7 +685,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationNoteWindows,
         loadPdfFromData,
         loadPdfFromPath,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         waitForPdfReload,
         invalidateThumbnailPages: requestThumbnailInvalidation,
         markPreservedAnnotationSourceDirty,
@@ -759,7 +757,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         closePageContextMenu,
         handleExportImages,
         ensureHistoryBaselineForMutation,
-        materializeAnnotationsForPageMutation,
+        saveAnnotationsForPageMutation,
         reloadWorkingCopyIntoHistory,
         preparePdfReloadWaiter,
         clearOcrCache: (path) => clearOcrCache(path),
@@ -790,10 +788,7 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         hasPendingUnsavedChanges,
         pdfData,
         pdfViewerRef,
-        source: {
-            getSourcePdfData,
-            serializePdfForSave,
-        },
+        source: {getSourcePdfData},
         runWithDocumentOperationLease: documentOperationLease.runExclusive,
     });
 
@@ -913,7 +908,6 @@ export const useWorkspaceOrchestration = (deps: IWorkspaceOrchestrationDeps) => 
         annotationTool,
         pdfViewerRef,
         documentViewerRef,
-        serializePdfForSave,
         shapePropertiesPopoverVisible: computed(() => shapePropertiesPopover.value.visible),
         annotationContextMenuVisible: computed(() => annotationContextMenu.value.visible),
         pageContextMenuVisible: computed(() => pageContextMenu.value.visible),

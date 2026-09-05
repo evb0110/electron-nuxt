@@ -40,7 +40,7 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
         cancelCropSelection: vi.fn(),
         isCropSelecting: false,
         runSaveTransaction: vi.fn(async () => ({
-            source: 'pdfjs-materialize' as const,
+            source: 'writer-save' as const,
             baseBytes: null,
             serializedBytes: null,
             serializedResult: null,
@@ -53,8 +53,6 @@ function createPdfViewerExpose(overrides: Partial<IPdfViewerExpose> = {}): IPdfV
                 unreplayableLiveAnnotationIds: [],
             },
         })),
-        saveDocument: vi.fn(async () => null),
-        materializePdfJsDocumentForInternalUse: vi.fn(async () => null),
         highlightSelection: vi.fn(async () => false),
         commentSelection: vi.fn(async () => false),
         createTextMarkupFromText: vi.fn(async (options: TCreateTextMarkupOptions) => ({

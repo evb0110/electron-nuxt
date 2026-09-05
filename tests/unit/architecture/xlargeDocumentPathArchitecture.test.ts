@@ -39,7 +39,6 @@ type TWholeDocumentPrimitive =
   | 'readDocumentBytes'
   | 'PDFDocument.load'
   | 'PDF.js getData'
-  | 'PDF.js saveDocument'
   | 'fs.readFile'
   | 'fs.readFileSync'
   | 'Blob/File.arrayBuffer';
@@ -81,21 +80,9 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts',
+      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
         primitive: 'readDocumentBytes',
         occurrences: 1,
-        maximumBytesClassifier:
-      'BROWSER_MAX_FULL_READ_BYTES, 16 MiB byte compatibility cap; native reload rejects before reading',
-        reason:
-      'A disposable serialization worker failure reloads the exact working copy into a JS request.',
-        removalCondition:
-      'Remove the reload when native or worker serialization accepts the path and fails with a typed capability error.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
-        primitive: 'readDocumentBytes',
-        occurrences: 2,
         maximumBytesClassifier:
       'BROWSER_MAX_FULL_READ_BYTES, 16 MiB nonnative compatibility fallback; native path must fail closed',
         reason:
@@ -105,15 +92,27 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
+      'app/modules/pdf-viewer/runtime/composables/pdf/createPdfSourceDataReader.ts',
+        primitive: 'readDocumentBytes',
+        occurrences: 1,
+        maximumBytesClassifier:
+      'Working-copy bytes are bounded by the existing native/print operation policy',
+        reason:
+      'The writer path rereads the committed working copy for detached consumers.',
+        removalCondition:
+      'Remove the read when all detached consumers can consume a staged output path.',
+    },
+    {
+        module:
       'app/modules/workspace-shell/composables/useWorkspaceSplitPayload.ts',
         primitive: 'readDocumentBytes',
         occurrences: 2,
         maximumBytesClassifier:
-      'BROWSER_MAX_FULL_READ_BYTES, 16 MiB compatibility fallback; native path split handoff must fail closed',
+      'Working-copy split snapshots use the bounded document bytes capability',
         reason:
-      'The split payload compatibility path materializes the working copy for renderer handoff.',
+      'Split handoff rereads the current working copy for a detached snapshot.',
         removalCondition:
-      'Remove both reads when split handoff is path-backed or uses <=8 MiB chunks.',
+      'Remove both reads when split handoff can consume a staged output path.',
     },
     {
         module:
@@ -129,30 +128,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
     },
     {
         module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'The renderer rewrite backend loads the complete document before applying edits.',
-        removalCondition:
-      'Remove the whole-document load when path-backed serialization uses native append or a bounded worker route.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/deleteEmbeddedAnnotation.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Embedded annotation deletion remains a complete in-memory rewrite.',
-        removalCondition:
-      'Remove the whole-document load when deletion runs through path-backed native serialization.',
-    },
-    {
-        module:
       'app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPdfAnnotationNamesByPage.ts',
         primitive: 'PDFDocument.load',
         occurrences: 1,
@@ -162,41 +137,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'The browser and in-memory annotation identity fallback reparses PDF.js bytes as a complete document.',
         removalCondition:
       'Remove the load when all desktop path sources use the native annotation index and browser-only use is isolated.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-bookmark-serialization/rewriteBookmarks.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason: 'Bookmark rewrite is a complete in-memory document operation.',
-        removalCondition:
-      'Remove the whole-document load when bookmark serialization accepts a path-backed operation.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/pdf-serialization-operations/updateEmbeddedAnnotationText.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Embedded note updates load and save the complete document in JavaScript.',
-        removalCondition:
-      'Remove the whole-document load when note updates use native incremental serialization.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/engine/serialization/pdf-serialization-annotations/applyCanonicalAnnotationIdentityBindings.ts',
-        primitive: 'PDFDocument.load',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'Caller-owned Uint8Array with no maximum byte classifier, legacy in-memory operation',
-        reason:
-      'Canonical identity binding still parses a complete byte buffer before PDF.js save.',
-        removalCondition:
-      'Remove the whole-document load when identity binding moves to the path-backed annotation index.',
     },
     {
         module: 'packages/pdf-core/pdfPrintLayout.ts',
@@ -231,18 +171,6 @@ const WHOLE_DOCUMENT_ALLOWLIST: readonly IWholeDocumentAllowlistEntry[] = [
       'The browser and in-memory annotation identity fallback asks PDF.js for the whole document.',
         removalCondition:
       'Remove getData when browser-only enrichment no longer shares the desktop path flow.',
-    },
-    {
-        module:
-      'app/modules/pdf-viewer/runtime/save/usePdfViewerSaveTransaction.ts',
-        primitive: 'PDF.js saveDocument',
-        occurrences: 1,
-        maximumBytesClassifier:
-      'PDF.js save output has no <=8 MiB chunk classifier, legacy in-memory save route',
-        reason:
-      'The compatibility save route materializes a complete PDF.js output byte array.',
-        removalCondition:
-      'Remove saveDocument from desktop path saves when native append owns the path output.',
     },
     {
         module: 'electron/image/tryCreatePdfWithNativeImageCombiner.ts',
@@ -317,7 +245,7 @@ const KNOWN_NON_DOCUMENT_READS: readonly IKnownNonDocumentRead[] = [
 const KNOWN_ARRAY_BUFFER_EXCEPTIONS: readonly IKnownNonDocumentRead[] = [
     {
         module:
-      'app/modules/pdf-viewer/runtime/composables/pdf/usePdfSerialization.ts',
+      'app/modules/pdf-viewer/runtime/composables/pdf/pdfDocumentPersistence.ts',
         pattern: /new Uint8Array\(await blob\.arrayBuffer\(\)\)/u,
         reason: 'Placed image Blob, not a document PDF.',
     },
@@ -412,12 +340,6 @@ function collectWholeDocumentCallSites() {
                     source,
                     'PDF.js getData',
                     /\.\s*getData\s*\(/gu,
-                ).filter(() => !isBrowserModule(modulePath)),
-                ...findCallSites(
-                    modulePath,
-                    source,
-                    'PDF.js saveDocument',
-                    /\.\s*saveDocument\s*\(/gu,
                 ).filter(() => !isBrowserModule(modulePath)),
                 ...findCallSites(
                     modulePath,
@@ -582,9 +504,6 @@ describe('xlarge document path architecture', () => {
         const documentPersistenceSource = readSource(
             'app/modules/workspace-shell/composables/document-session/createDocumentPersistence.ts',
         );
-        const serializationWorkerSource = readSource(
-            'app/modules/pdf-viewer/engine/pdf-serialization-worker-client/runSerializationWorkerRequest.ts',
-        );
         const browserCombineSource = readSource(
             'app/platform/browser-api/createCombinedPdfFromPaths.ts',
         );
@@ -640,9 +559,6 @@ describe('xlarge document path architecture', () => {
         );
         expect(documentPersistenceSource).toContain(
             'const MAX_IN_MEMORY_PDF_BYTES = BROWSER_MAX_FULL_READ_BYTES;',
-        );
-        expect(serializationWorkerSource).toContain(
-            'const SERIALIZATION_WORKER_MAX_INPUT_BYTES = BROWSER_MAX_FULL_READ_BYTES;',
         );
         expect(browserCombineSource).toContain(
             'const BROWSER_COMBINED_PDF_TOTAL_INPUT_MAX_BYTES = BROWSER_MAX_FULL_READ_BYTES;',

@@ -187,7 +187,7 @@ function createHarness() {
         deleteShapeById: vi.fn(),
         getAllShapes: vi.fn(() => []),
         runSaveTransaction: vi.fn(async () => ({
-            source: 'pdfjs-materialize' as const,
+            source: 'writer-save' as const,
             baseBytes: null,
             serializedBytes: Uint8Array.of(9, 9),
             serializedResult: null,
@@ -268,7 +268,7 @@ function createHarness() {
             persistWorkingCopy?: boolean;
         }) => {}),
         loadPdfFromPath: vi.fn(async (_path: string, _opts?: { markDirty?: boolean }) => {}),
-        materializeAnnotationsForPageMutation: vi.fn(async () => true),
+        saveAnnotationsForPageMutation: vi.fn(async () => true),
         waitForPdfReload: vi.fn(async (_page: number) => {}),
         invalidateThumbnailPages: vi.fn(),
         removeAnnotationFromCache: vi.fn(),
@@ -1008,7 +1008,7 @@ describe('usePageAnnotationActions', () => {
         } = createHarness();
         deps.workingCopyPath.value = '/tmp/large-work.pdf';
         const appliedMutations: string[] = [];
-        deps.materializeAnnotationsForPageMutation.mockImplementationOnce(async () => {
+        deps.saveAnnotationsForPageMutation.mockImplementationOnce(async () => {
             if (pendingAnnotations) {
                 appliedMutations.push('annotations');
             }
@@ -1027,7 +1027,7 @@ describe('usePageAnnotationActions', () => {
         const finalized = await actions.handleFinalizePlacedImage(placedImagePayload(90));
 
         expect(finalized).toBe(true);
-        expect(deps.materializeAnnotationsForPageMutation).toHaveBeenCalledOnce();
+        expect(deps.saveAnnotationsForPageMutation).toHaveBeenCalledOnce();
         expect(deps.getEmbeddedMutationBaseData).not.toHaveBeenCalled();
         expect(deps.embedPlacedImageToPage).toHaveBeenCalledWith(null, expect.any(Object));
         expect(deps.loadPdfFromPath).toHaveBeenCalledWith('/tmp/large-work.pdf', {markDirty: true});
@@ -1526,51 +1526,6 @@ describe('usePageAnnotationActions', () => {
         await actions.handleDeleteAnnotationComment(comment);
 
         expect(viewer.deleteEmbeddedAnnotationDeferred).toHaveBeenCalledWith(comment);
-    });
-
-    it('reloads current page from serialized data for embedded fallback', async () => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-
-        const didReload = await actions.serializeCurrentPdfForEmbeddedFallback();
-
-        expect(didReload).toBe(true);
-        expect(deps.waitForPdfReload).toHaveBeenCalledWith(3);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
-    });
-
-    it('runs embedded fallback working-copy reloads through the document operation lease', async () => {
-        const {
-            deps,
-            actions,
-        } = createHarness();
-        const leaseGate = Promise.withResolvers<undefined>();
-        deps.runWithDocumentOperationLease.mockImplementationOnce(async <T>(
-            kind: TDocumentOperationKind,
-            operation: () => Promise<T>,
-        ) => {
-            expect(kind).toBe('page-operation');
-            await leaseGate.promise;
-            return operation();
-        });
-
-        const reloadPromise = actions.serializeCurrentPdfForEmbeddedFallback();
-        await Promise.resolve();
-
-        expect(deps.runWithDocumentOperationLease).toHaveBeenCalledWith('page-operation', expect.any(Function));
-        expect(deps.loadPdfFromData).not.toHaveBeenCalled();
-
-        leaseGate.resolve(undefined);
-        await expect(reloadPromise).resolves.toBe(true);
-        expect(deps.loadPdfFromData).toHaveBeenCalledWith(Uint8Array.of(9, 9), {
-            pushHistory: true,
-            persistWorkingCopy: true,
-        });
     });
 
 });

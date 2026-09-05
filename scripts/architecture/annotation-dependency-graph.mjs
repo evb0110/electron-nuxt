@@ -13,9 +13,6 @@ export const ANNOTATION_GRAPH_SCAN_ROOTS = [
     'app/modules/pdf-viewer/tools',
     'app/modules/pdf-viewer/runtime/save',
     'app/modules/pdf-viewer/engine/annotations',
-    'app/modules/pdf-viewer/engine/pdf-serialization-comments',
-    'app/modules/pdf-viewer/engine/pdf-serialization-operations',
-    'app/modules/pdf-viewer/engine/serialization',
 ];
 
 const ANNOTATION_POLICY_ROOTS = [
