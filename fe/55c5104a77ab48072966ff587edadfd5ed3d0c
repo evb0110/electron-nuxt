@@ -1,0 +1,53 @@
+tests/unit/app/modules/workspace-shell/components/deferredDocumentWorkspaceHostModule.test.ts
+  s_0c808a1c79a8cb::t_6843a43b974f3c 19
+tests/e2e/electron/helpers/searchHighlightPaint.ts
+  s_0c808a1c79a8cb::t_258e06cca7d2fd 1-4
+  s_0c808a1c79a8cb::t_b82f2b78be7605 5-69,71-74,76-94,96-101,103-113,115-143,145-151,156-159,162-196,198-200,202-220,222-228
+  s_0c808a1c79a8cb::t_4f10b16ca04d2a 152-155,160-161
+  s_3e4a192066773e::t_c26237f7e268a4 70,75,95,102,114,144,197,201,221
+docs/research/search-match-navigation-2026-09-05.md
+  s_0c808a1c79a8cb::t_e382b1b3e473ed 161-205
+  s_0c808a1c79a8cb::t_c38841d9ab6566 206-220
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_0c808a1c79a8cb::t_0db251b356c5a9 4,189-194,525,532-549
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_0c808a1c79a8cb::t_2c6d771f886d24 790-819,830-831,833-834,849-854,857-862,872-873,877-886,922,944,974,988
+  s_0c808a1c79a8cb::t_86c23c3615520e 678-693,724-739
+  s_0c808a1c79a8cb::t_31bb8b6c4bef0c 820-825,874,890
+  s_0c808a1c79a8cb::t_a71738effc0e19 27-28,30,32
+  s_cf09a11bf9eebf::t_c363844533f13f 29,31,651-653,891-918,923,925-943,945-956,958-973,975-987,989-990,992-1018
+tests/unit/app/modules/pdf-viewer/composables/usePdfViewerResizeLifecycle.test.ts
+  s_0c808a1c79a8cb::t_7b3ec673ec8ff7 38,75,205,207-213,218-232,234,239-248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "fe55c5104a77ab48072966ff587edadfd5ed3d0c",
+  "prompts": {},
+  "sessions": {
+    "s_0c808a1c79a8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e75-4bed-7722-8420-a914585d293c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_3e4a192066773e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30f39d2d-9e1c-4eef-8840-2d62537b8816",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
