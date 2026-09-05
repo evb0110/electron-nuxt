@@ -4,6 +4,10 @@ import type {
     IRendererLogEntry,
     TRendererLogLevel,
 } from '@contracts/electronApiCommon';
+import {
+    decodeFailureReceipt,
+    type FailureReceipt,
+} from '@contracts/diagnostics/failureReceipt';
 import { isRecord } from '@contracts/runtimeGuards';
 import { CORE_IPC_SEND_CHANNELS } from '@electron/platform-ipc/coreContract';
 import { createLogger } from '@electron/utils/createLogger';
@@ -332,6 +336,7 @@ interface INormalizedRendererLogEntry {
     message: string;
     timestamp: string;
     serializedData: string;
+    failureRef?: FailureReceipt;
 }
 
 const RENDERER_LOG_TIMESTAMP_MAX_CHARS = 128;
@@ -371,12 +376,14 @@ function normalizeRendererLogTimestamp(value: unknown) {
 }
 
 export function normalizeRendererLogEntry(payload: unknown): INormalizedRendererLogEntry {
+    const failureRef = decodeFailureReceipt(readRendererLogField(payload, 'failureRef'));
     return {
         level: normalizeRendererLogLevel(readRendererLogField(payload, 'level')),
         section: normalizeRendererLogSection(readRendererLogField(payload, 'section')),
         message: normalizeRendererLogMessage(readRendererLogField(payload, 'message')),
         timestamp: normalizeRendererLogTimestamp(readRendererLogField(payload, 'timestamp')),
         serializedData: stringifyRendererLogData(readRendererLogField(payload, 'data')),
+        ...(failureRef ? {failureRef} : {}),
     };
 }
 
@@ -385,7 +392,8 @@ function formatRendererLogLine(webContentsId: number, entry: INormalizedRenderer
         + entry.serializedData;
 }
 
-function dispatchRendererLogLine(level: TRendererLogLevel, line: string) {
+function dispatchRendererLogLine(entry: INormalizedRendererLogEntry, line: string) {
+    const {level} = entry;
     if (level === 'debug') {
         rendererLogger.debug(line);
         return;
@@ -395,10 +403,13 @@ function dispatchRendererLogLine(level: TRendererLogLevel, line: string) {
         return;
     }
     if (level === 'error') {
-        rendererLogger.error(line, {
-            code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
-            context: {},
-        });
+        rendererLogger.error(
+            line,
+            entry.failureRef ?? {
+                code: 'MAIN_RENDERER_LOG_BRIDGE_FAILED',
+                context: {},
+            },
+        );
         return;
     }
     rendererLogger.info(line);
@@ -435,7 +446,7 @@ export function registerRendererLogBridge(options: IRendererLogBridgeOptions) {
         }
 
         const entry = normalizeRendererLogEntry(payload);
-        dispatchRendererLogLine(entry.level, formatRendererLogLine(webContentsId, entry));
+        dispatchRendererLogLine(entry, formatRendererLogLine(webContentsId, entry));
     }
 
     registerListener(CORE_IPC_SEND_CHANNELS.rendererLog, handleRendererLog);

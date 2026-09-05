@@ -80,6 +80,18 @@ describe('canonical application frame normalization', () => {
         ]);
     });
 
+    it('normalizes packaged renderer frames only from the application origin', () => {
+        const result = normalizeCanonicalApplicationFrames(`at canary (evb-viewer://app/_nuxt/viewer-abc.js:17:9)
+    at injected (evb-viewer://extension/_nuxt/injected.js:2:3)`);
+
+        expect(result.frames).toEqual([{
+            module: '_nuxt/viewer-abc.js',
+            function: 'canary',
+            line: 17,
+            column: 9,
+        }]);
+    });
+
     it('normalizes the production web host, the current preview host, and Nitro task bundles', () => {
         vi.stubGlobal('location', {hostname: 'evb-viewer-preview-abc.vercel.app'});
         const result = normalizeCanonicalApplicationFrames(`Error: hosted failure

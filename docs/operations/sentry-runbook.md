@@ -35,7 +35,7 @@ Automatic GitHub issue creation and automatic Sentry resolution stay off.
 | New or regressed fatal | Both projects, `environment:production`, level `fatal`, high-priority issue | First new or regressed issue | Preview, development, test, expected teardown, recovery already in progress |
 | New diagnostic code | Both projects, `environment:production`, `diagnostic_code` present | New issue or resolved issue regression | Expected outcomes, cancellation, validation, unsupported input, ordinary offline behavior |
 | Code rate | Both projects, `environment:production`, `diagnostic_code` present | More than 20 events in one issue within five minutes | Preview, development, test, and client-suppressed repeats |
-| Quota | Organization usage | 50, 70, and 90 percent of the included event quota | No pay-as-you-go continuation |
+| Quota | Organization usage | Personal error-quota notification at the platform-supported 80 and 100 percent points | No pay-as-you-go continuation; Sentry exposes no custom 50, 70, 75, or 90 percent points for this account |
 
 Record completion without private links:
 
@@ -44,7 +44,7 @@ Record completion without private links:
 | Fatal alert | Repository owner | 2026-09-04 | Enabled |
 | New-code alert | Repository owner | 2026-09-04 | Enabled |
 | Rate alert | Repository owner | 2026-09-04 | Enabled |
-| Quota alert | Repository owner | Pending | Pending |
+| Quota alert | Repository owner | 2026-09-05 | Enabled at the stricter available `100% and 80%` setting |
 
 ## Weekly and post-release triage
 
@@ -78,7 +78,7 @@ Weekly evidence template:
 
 | Review date | Releases checked | Open issues reviewed | GitHub issues created | Resolved issues deleted | Forbidden fields | Symbolication | Quota | Reviewer |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| Pending | Pending | Pending | Pending | Pending | None expected | Pending | Pending | Repository owner |
+| 2026-09-05 | `v0.1.452` production clients and sampled `0.1.450` test canaries | 0 actionable production issues outside the deterministic source-map canaries | 0 | 0; the resolved queue was empty | None in the sampled closed-schema event | Pass; sampled top in-app frame was `electron/main.ts` | 5,448 of 5,000,000 accepted errors, 0 filtered, rate-limited, invalid, or over-quota | Repository owner account |
 
 ## Privacy incident response
 
@@ -154,7 +154,7 @@ artifact-scan checks for every dist below.
 
 | Dist | Release | Unknown requests | Denied requests | Granted event count | Revocation requests | Error ID matched | Symbolicated | Artifact scan | Behavior deadlines | Date |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `macos-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
+| `macos-arm64` | `evb-viewer-desktop@0.1.453` local packaged test build | 0 | 0 | 6 one-item attempts against a rejecting test DSN, plus 228 source-map canaries | 0, including close-time | Pass for runtime and fatal UI | Pass | Pass in exact-tag job | Startup crash, replay, relaunch, and shutdown pass; update and recovery pending hosted proof | 2026-09-05 |
 | `macos-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
 | `windows-x64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
 | `windows-arm64` | `evb-viewer-desktop@0.1.452` test build | Pending | Pending | 228 source-map canaries | Pending | Pending | Pass | Pass in exact-tag job | Pending | 2026-09-05 |
@@ -176,6 +176,17 @@ macOS arm64, Windows arm64, and Store arm64 events and resolved them to original
 EVB source lines with source context, the expected release, and the expected
 dist. This is source-map evidence only. It does not replace the packaged
 consent and behavior matrix still marked pending in the same rows.
+
+The local packaged macOS arm64 matrix runs through
+`pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts`. It uses isolated user data and a
+deliberately non-existent EU test project, so the audit records six attempted
+one-event envelopes and six terminal rejections without adding account data.
+The six owners are UI-only, renderer, worker-parent, direct-console, main, and
+fatal UI. The same run proves the first still-live occurrence is resent only
+after durable grant, Error IDs match both UI surfaces, revocation and close add
+no envelopes, and a real uncaught main failure writes and replays the startup
+marker. Hosted release jobs require accepted delivery and cover every shipping
+identity.
 
 Artifact workflow
 [33928531296](https://github.com/evb0110/evb-viewer/actions/runs/33928531296)

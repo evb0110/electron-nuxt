@@ -7,6 +7,7 @@ import {
     type DiagnosticEventId,
 } from '@contracts/diagnostics/diagnosticEventId';
 import type {FailureSeverity} from '@contracts/diagnostics/diagnosticRecord';
+import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import {
     isOneOf,
     isRecord,
@@ -156,4 +157,5 @@ export interface IRendererLogEntry {
     message: string;
     timestamp: string;
     data?: unknown;
+    failureRef?: FailureReceipt;
 }

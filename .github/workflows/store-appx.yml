@@ -239,6 +239,13 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
         run: node scripts/release/upload-sentry-sourcemaps.mjs
 
+      - name: Verify packaged diagnostics consent and crash matrix
+        if: steps.sentry_upload.outputs.enabled == 'true'
+        shell: bash
+        run: >-
+          pnpm exec tsx scripts/release/verifyPackagedDiagnosticsSmoke.ts --
+          --executable ".tmp/store-appx-${{ matrix.arch }}/app/EVB Viewer.exe"
+
       - name: Send private Sentry source-map canaries
         if: steps.sentry_upload.outputs.enabled == 'true' && inputs.send_sentry_canaries
         shell: bash

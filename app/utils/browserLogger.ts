@@ -271,7 +271,10 @@ function emitLog(
     section: string,
     message: string,
     data?: TLazyValue,
-    options: {writeConsole?: boolean;} = {},
+    options: {
+        failureRef?: FailureReceipt;
+        writeConsole?: boolean;
+    } = {},
 ) {
     if (!shouldLog(level)) {
         return;
@@ -289,6 +292,7 @@ function emitLog(
         message,
         timestamp,
         data: serializeForRendererLog(resolved),
+        ...(options.failureRef ? {failureRef: options.failureRef} : {}),
     });
 }
 
@@ -418,7 +422,7 @@ export const BrowserLogger = {
             }
         }
 
-        emitLog('error', section, message, resolved);
+        emitLog('error', section, message, resolved, {failureRef: receipt});
         return receipt;
     },
 };

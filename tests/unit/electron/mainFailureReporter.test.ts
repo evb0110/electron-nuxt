@@ -126,6 +126,29 @@ describe('Electron main failure reporter', () => {
         expect(send).toHaveBeenCalledTimes(2);
     });
 
+    it('exposes the in-flight adapter load so a persisted grant can wait before resending', async () => {
+        let finishLoading!: () => void;
+        const reporter = createMainFailureReporter({
+            preference: 'unknown',
+            transport: {isReady: false},
+            onPreferenceGranted: () => new Promise<void>((resolve) => {
+                finishLoading = resolve;
+            }),
+        });
+
+        reporter.setPreference('granted');
+        let ready = false;
+        const readiness = reporter.waitForTransportReady().then(() => {
+            ready = true;
+        });
+        await Promise.resolve();
+        expect(ready).toBe(false);
+
+        finishLoading();
+        await readiness;
+        expect(ready).toBe(true);
+    });
+
     it('uses the source stack only for source-policy diagnostic codes', () => {
         const send = vi.fn();
         const reporter = createMainFailureReporter({

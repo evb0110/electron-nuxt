@@ -328,3 +328,8 @@ export function installConsoleErrorObserver(
 }
 
 export const createConsoleErrorObserver = installConsoleErrorObserver;
+
+/** Exercises the installed observer only from the isolated packaged canary. */
+export function emitObservedConsoleErrorForCanary() {
+    console.error('Packaged direct-console diagnostics canary');
+}

@@ -11,7 +11,30 @@ import type {
     IWindowCloseResponse,
 } from '@contracts/systemPlatformFeature';
 
-export const CORE_IPC_CHANNELS = {rendererReady: 'app:rendererReady'} as const;
+export const CORE_IPC_CHANNELS = {
+    diagnosticsCanary: 'automation:diagnosticsCanary',
+    rendererReady: 'app:rendererReady',
+} as const;
+
+export const DIAGNOSTICS_CANARY_ACTIONS = [
+    'main-error',
+    'crash-main',
+    'main-health',
+] as const;
+
+export type TDiagnosticsCanaryAction = typeof DIAGNOSTICS_CANARY_ACTIONS[number];
+
+export interface IDiagnosticsCanaryMainHealth {
+    preference: 'denied' | 'granted' | 'unknown';
+    transportReady: boolean;
+}
+
+export function decodeDiagnosticsCanaryAction(value: unknown): TDiagnosticsCanaryAction | null {
+    return typeof value === 'string'
+        && (DIAGNOSTICS_CANARY_ACTIONS as readonly string[]).includes(value)
+        ? value as TDiagnosticsCanaryAction
+        : null;
+}
 
 export const CORE_IPC_EVENT_CHANNELS = {
     menuCheckForUpdates: 'menu:checkForUpdates',

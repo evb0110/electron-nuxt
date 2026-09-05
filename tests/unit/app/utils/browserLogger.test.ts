@@ -443,6 +443,7 @@ describe('BrowserLogger', () => {
             section: 'section-a',
             message: 'existing receipt',
             data: {detail: 'kept locally'},
+            failureRef: receipt,
         }));
     });
 

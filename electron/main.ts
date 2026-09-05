@@ -189,6 +189,15 @@ function ensureMainDiagnosticsAdapter() {
     if (mainDiagnosticsAdapterLoad !== null) {
         return mainDiagnosticsAdapterLoad;
     }
+    if (
+        process.env.EVB_ENABLE_DIAGNOSTICS_CANARY === '1'
+        && process.env.EVB_DIAGNOSTICS_CANARY_DISABLE_ADAPTER === '1'
+        && automationUserDataDir
+        && process.env.EVB_AUTOMATION_SESSION_NAME?.trim()
+    ) {
+        mainDiagnosticsAdapterLoad = Promise.resolve();
+        return mainDiagnosticsAdapterLoad;
+    }
     mainDiagnosticsAdapterLoad = import('@electron/features/diagnostics/sentryNodeAdapter')
         .then(({createSentryNodeDiagnosticsTransportFromEnvironment}) => {
             const transport = createSentryNodeDiagnosticsTransportFromEnvironment({
@@ -221,7 +230,7 @@ function ensureMainDiagnosticsAdapter() {
 const mainFailureReporterForAdapter = initializeMainFailureReporter({
     preference: diagnosticsPreference,
     transport: unavailableMainDiagnosticsTransport,
-    onPreferenceGranted: () => { void ensureMainDiagnosticsAdapter(); },
+    onPreferenceGranted: ensureMainDiagnosticsAdapter,
 });
 if (diagnosticsPreference === 'granted') {
     void ensureMainDiagnosticsAdapter();

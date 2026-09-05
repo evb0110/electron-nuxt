@@ -157,12 +157,13 @@ function extractPath(value: string): ExtractedPath | null {
         return null;
     }
 
-    if (/^(?:https?|file|webpack|vite):/iu.test(raw)) {
+    if (/^(?:evb-viewer|https?|file|webpack|vite):/iu.test(raw)) {
         try {
             const url = new URL(raw);
             const protocol = url.protocol.toLowerCase();
             const trustedOrigin = protocol === 'file:'
                 || (protocol === 'http:' || protocol === 'https:') && isTrustedOriginHost(url.hostname)
+                || protocol === 'evb-viewer:' && url.hostname === 'app'
                 || (protocol === 'webpack:' || protocol === 'vite:')
                     && (url.hostname.length === 0 || url.hostname === '.' || url.hostname === 'evb-viewer');
             if (!trustedOrigin) {

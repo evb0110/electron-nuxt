@@ -181,9 +181,10 @@ reporting and does not satisfy a live canary.
 
 - A qualified person must approve the viewer Nitro legitimate-interests
   assessment before Nitro processing starts.
-- The packaged desktop consent canary, the one-week Nitro canary, quota
-  notifications, the first weekly operations cycle, and the four-week
-  production proof remain incomplete.
+- The packaged desktop consent canary, the one-week Nitro canary, and the
+  four-week production proof remain incomplete. The first weekly operations
+  cycle and the platform-supported quota notifications were verified on
+  2026-09-05.
 
 ## Current repository baseline
 
@@ -1652,7 +1653,8 @@ current repository or external-gate status.
 
 #### SEN-CON-07 No-client-report proof
 
-- Status: implemented and locally verified; packaged canary proof pending
+- Status: implemented and locally verified; macOS arm64 packaged proof passed
+  2026-09-05, remaining shipping identities pending hosted proof
 - Depends on: SEN-CON-06, SEN-SDK-02, SEN-SDK-03, SEN-SDK-05
 - Difficulty: medium
 - Paths: `electron/features/diagnostics/sentryNodeAdapter.ts`,
@@ -1672,7 +1674,8 @@ current repository or external-gate status.
 
 #### SEN-CAN-01 Desktop consent canary
 
-- Status: blocked by signed artifacts, live project, and map upload
+- Status: implemented; macOS arm64 local packaged matrix passed 2026-09-05,
+  all-identity hosted acceptance and update/recovery deadline proof pending
 - Depends on: SEN-CON-03, SEN-CON-05, SEN-CORE-09, SEN-MIG-04, SEN-MIG-07,
   SEN-MIG-09, SEN-MIG-13, SEN-SDK-02, SEN-MAP-04, SEN-CON-07
 - Difficulty: x-hard
@@ -1707,22 +1710,23 @@ current repository or external-gate status.
 
 #### SEN-OPS-01 Alerts and quota
 
-- Status: partially complete; the three production issue alerts are enabled, while organization quota notifications remain pending
+- Status: complete; three production issue alerts and the platform-supported personal error-quota notification are enabled
 - Depends on: SEN-CAN-01, SEN-CAN-02, SEN-CAN-03
 - Difficulty: medium
 - Behavior: configure exactly four alert classes: a new or regressed high-priority
   fatal production issue, a new or regressed production issue with a diagnostic
   code, a production issue with a diagnostic code that exceeds 20 events in five
-  minutes, and quota at 50, 70, and 90 percent. Sentry exposes quota thresholds
-  in ten-percent steps, so the architecture's original 75-percent point is
-  implemented as the closest earlier threshold.
+  minutes, and an organization quota notification. The live account UI exposes
+  only `100% and 80%` or `100%`; it does not expose custom 50, 70, 75, or 90
+  percent points. The stricter available `100% and 80%` option is enabled, and
+  pay-as-you-go remains disabled.
   Do not alert on preview, tests, cancellation, expected teardown, validation,
   unsupported input, or ordinary offline behavior.
 - Exit evidence: the four alerts exist and the excluded categories are recorded.
 
 #### SEN-OPS-02 Weekly triage procedure
 
-- Status: partially complete; runbook implemented, first live weekly cycle pending
+- Status: complete; runbook implemented and first live weekly cycle recorded 2026-09-05
 - Depends on: SEN-OPS-01
 - Difficulty: medium
 - Paths: `docs/releasing.md` or a dedicated operations section for the runbook
