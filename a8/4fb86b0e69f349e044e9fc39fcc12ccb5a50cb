@@ -1,0 +1,36 @@
+scripts/release/waitForPackagedCdpEndpoint.ts
+  s_b412fd4cd3f576::t_cee706c55f984d 3-9,32-50
+scripts/release/verifyPackagedDiagnosticsSmoke.ts
+  s_b412fd4cd3f576::t_cee706c55f984d 33-36,214
+scripts/release/verifyPackagedCorePdfSmoke.ts
+  s_b412fd4cd3f576::t_cee706c55f984d 27-29,250-254
+  s_cf09a11bf9eebf::t_fb3afa44ea72e6 26
+scripts/release/verifyPackagedScanCleanup.ts
+  s_b412fd4cd3f576::t_cee706c55f984d 40-43,818-822
+tests/unit/scripts/verifyPackagedDiagnosticsSmoke.test.ts
+  s_b412fd4cd3f576::t_cee706c55f984d 7,19-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "a84fb86b0e69f349e044e9fc39fcc12ccb5a50cb",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
