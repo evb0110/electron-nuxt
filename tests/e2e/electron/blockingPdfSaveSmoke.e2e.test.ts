@@ -18,6 +18,7 @@ import {
 import {
     openAnnotationsTab,
     saveViaWindowHandle,
+    waitForLivePdfJsAnnotationChange,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -56,21 +57,6 @@ async function waitForToolbarCanSave(page: Page) {
     }
 
     throw new Error(`Save did not become available: ${JSON.stringify(snapshot)}`);
-}
-
-async function waitForLivePdfJsAnnotationChange(page: Page) {
-    const startedAt = Date.now();
-    let dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
-
-    while (Date.now() - startedAt < 15_000) {
-        if (dirtyState?.hasLivePdfJsAnnotationChanges === true) {
-            return;
-        }
-        await delay(150);
-        dirtyState = (await readWorkspaceStateValues<{dirtyState?: {hasLivePdfJsAnnotationChanges?: boolean;};}>(page, ['dirtyState'])).dirtyState;
-    }
-
-    throw new Error(`FreeText editor did not enter PDF.js annotation storage: ${JSON.stringify(dirtyState)}`);
 }
 
 async function clickVisibleSaveToolbarButton(page: Page) {

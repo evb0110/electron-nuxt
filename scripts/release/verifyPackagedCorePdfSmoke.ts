@@ -41,6 +41,7 @@ import {
     openAnnotationsTab,
     openPdfInApp,
     saveViaWindowHandle,
+    waitForLivePdfJsAnnotationChange,
     waitForPdfLoaded,
     waitForViewerInteractive,
 } from '@tests/e2e/electron/helpers/viewerCore';
@@ -282,6 +283,7 @@ async function run() {
             throw new Error('Packaged smoke failed to create a FreeText annotation');
         }
         await page.keyboard.press('Escape');
+        await waitForLivePdfJsAnnotationChange(page, OPERATION_TIMEOUT_MS);
         await waitForSaveEnabled(page);
         await saveViaWindowHandle(page, OPERATION_TIMEOUT_MS);
         await waitForSavedAnnotation(fixturePath, OPERATION_TIMEOUT_MS);
