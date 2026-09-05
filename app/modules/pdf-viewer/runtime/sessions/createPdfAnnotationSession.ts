@@ -415,6 +415,7 @@ export const createPdfAnnotationSession = (options: ICreatePdfAnnotationSessionO
         annotationCommentsCache,
         activeCommentStableKey,
         markerGeometryVersion: rendering.renderedPageStateVersion,
+        isPageRenderedForClass: rendering.isPageRenderedForClass,
         labels: {
             annotation: t('annotations.annotationLabel'),
             note: t('annotations.stickyNoteLabel'),

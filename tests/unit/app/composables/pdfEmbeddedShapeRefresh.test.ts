@@ -301,6 +301,25 @@ describe('syncHiddenEmbeddedAnnotationDom', () => {
 });
 
 describe('resolveHiddenEmbeddedAnnotationIdsForPageContainer', () => {
+    it('collects paint-ready overlay ids once for a page', () => {
+        const querySelectorAll = vi.fn(() => []);
+        const pageContainer = Object.assign(Object.create(null) as HTMLElement, {querySelectorAll});
+
+        resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+            hiddenAnnotationIds: new Set([
+                '12R0',
+                '34R0',
+            ]),
+            managedAnnotationIds: new Set([
+                '12R',
+                '34R',
+            ]),
+            pageContainer,
+        });
+
+        expect(querySelectorAll).toHaveBeenCalledOnce();
+    });
+
     it('keeps active managed embedded annotations visible until their page overlay is mounted', () => {
         const { pageContainer } = createFakeHiddenAnnotationContainer('12R', { hasShapeOverlay: false });
         const hiddenIds = resolveHiddenEmbeddedAnnotationIdsForPageContainer({

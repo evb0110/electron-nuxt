@@ -19,7 +19,7 @@ import { disconnectHighlightCompositeOverlay } from '@app/modules/pdf-viewer/eng
 import { observeHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/observeHighlightCompositeOverlay';
 import { refreshHighlightCompositeOverlay } from '@app/modules/pdf-viewer/engine/pdf-highlight-composite-overlay/refreshHighlightCompositeOverlay';
 import { combinePdfLayerVisualSnapshotReleases } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/combinePdfLayerVisualSnapshotReleases';
-import { shouldHideHiddenEmbeddedAnnotation } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
+import { resolveHiddenEmbeddedAnnotationIdsForPageContainer } from '@app/modules/pdf-viewer/engine/pdf-embedded-shape-refresh/syncHiddenEmbeddedAnnotationDom';
 import { hasPdfPageAnnotationVisualContentForSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageAnnotationVisualContentForSnapshotRelease';
 import { hasPdfPageDrawLayerVisualContent } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/hasPdfPageDrawLayerVisualContent';
 import { preservePdfLayerVisualSnapshot } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/preservePdfLayerVisualSnapshot';
@@ -37,6 +37,7 @@ import {
 import { getOptionalFunction } from '@app/services/pdfjs/runtime';
 import { BrowserLogger } from '@app/utils/browserLogger';
 import { getShellCapability } from '@app/utils/getShellCapability';
+import { normalizePdfJsAnnotationId } from '@app/utils/pdfAnnotationRefs';
 import { normalizeAllowedExternalUrl } from '@contracts/externalUrl';
 import type { IPdfRenderSupervisor } from '@app/modules/pdf-viewer/engine/pdf-render-supervisor/pdfRenderSupervisor';
 import type {
@@ -439,33 +440,32 @@ export const usePdfAnnotationLayerRenderer = (deps: {
         const pageContainer = getPageContainerForLayer(annotationLayerDiv);
         const annotationLayerSnapshotRelease =
             preservePdfLayerVisualSnapshot(annotationLayerDiv);
-        
         try {
             const annotations = await raceWithAnnotationAbort(
                 getParsedPageAnnotations(pdfPage),
                 pageNumber,
                 options,
             );
-            
             if (
                 annotationLayerPageRenderTokens.get(pageNumber) !== renderToken
                 || !shouldContinueLayerRender(options)
             ) {
-                
                 return null;
             }
             const hiddenAnnotationIds = getNormalizedHiddenAnnotationIds();
             const managedAnnotationIds = getNormalizedManagedAnnotationIds();
+            const hiddenAnnotationIdsForPage = hiddenAnnotationIds.size > 0
+                ? resolveHiddenEmbeddedAnnotationIdsForPageContainer({
+                    hiddenAnnotationIds,
+                    managedAnnotationIds,
+                    pageContainer,
+                })
+                : hiddenAnnotationIds;
             const visibleAnnotations = hiddenAnnotationIds.size === 0
                 ? annotations
-                : annotations.filter(annotation => {
-                    return !shouldHideHiddenEmbeddedAnnotation({
-                        annotationId: getAnnotationId(annotation),
-                        hiddenAnnotationIds,
-                        managedAnnotationIds,
-                        pageContainer,
-                    });
-                });
+                : annotations.filter(annotation => (
+                    !hiddenAnnotationIdsForPage.has(normalizePdfJsAnnotationId(getAnnotationId(annotation)) ?? '')
+                ));
             const annotationStorage = deps.pdfDocument.value?.annotationStorage;
             const annotationUiManager = getAnnotationUiManager();
 

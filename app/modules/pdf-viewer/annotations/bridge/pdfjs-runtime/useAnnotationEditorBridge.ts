@@ -646,6 +646,12 @@ export const useAnnotationEditorBridge = (deps: IEditorBridgeDeps) => {
                 bindFreeTextDraftInput(createdEditor);
                 return result;
             }
+            if (createdEditor && pendingFreeTextDrafts.delete(createdEditor)) {
+                // FreeTextEditor.commit() reaches this hook before it disables
+                // edit mode. Once the editor has storage, save must not treat
+                // it as a draft again after page virtualization detaches it.
+                emitAnnotationState({hasPendingFreeTextDraft: hasPendingFreeTextDraft()});
+            }
             toolManager.enforceHighlightDefaultsForNewEditor(createdEditor);
             const editorSubtype = createdEditor
                 ? detectEditorSubtype(createdEditor)

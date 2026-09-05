@@ -18,6 +18,7 @@ import {
     interceptPdfjsCleanUndoStack,
     interceptPdfjsDelete,
     interceptPdfjsRegisterEditorTypes,
+    renderPdfjsAnnotationLayer,
 } from '@app/services/pdfjs/pdfViewerFacade';
 
 const runtimeMocks = vi.hoisted(() => ({
@@ -83,6 +84,7 @@ describe('pdfViewerFacade', () => {
         const uiManager = {};
         const drawLayer = {};
         const l10n = {};
+        const annotationLayerRender = vi.fn();
 
         createPdfjsAnnotationLayer({
             div,
@@ -91,6 +93,17 @@ describe('pdfViewerFacade', () => {
             annotationEditorUiManager: uiManager as never,
             linkService: linkService as never,
         });
+        renderPdfjsAnnotationLayer(
+            {render: annotationLayerRender} as never,
+            {
+                annotations: [],
+                div,
+                page: page as never,
+                viewport: viewport as never,
+                linkService: linkService as never,
+                renderForms: false,
+            },
+        );
         createPdfjsEditorLayer({
             div,
             uiManager: uiManager as never,
@@ -109,6 +122,7 @@ describe('pdfViewerFacade', () => {
             annotationEditorUIManager: uiManager,
             linkService,
         }));
+        expect(annotationLayerRender).toHaveBeenCalledWith(expect.objectContaining({imageResourcesPath: '/pdfjs/images/'}));
         expect(runtimeMocks.AnnotationEditorLayer).toHaveBeenCalledWith(expect.objectContaining({
             div,
             uiManager,

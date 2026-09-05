@@ -1,4 +1,16 @@
-import { setNuxtPort } from '@scripts/electron-run/electronRunPortConfig';
+import { startNuxtServer } from '@scripts/electron-run/electronRunNuxtServer';
+import {
+    getNuxtPort,
+    setNuxtPort,
+} from '@scripts/electron-run/electronRunPortConfig';
+import {
+    isProcessAlive,
+    killProcessTree,
+} from '@scripts/electron-run/electronRunProcessTree';
+import {
+    getCurrentSessionName,
+    setCurrentSessionName,
+} from '@scripts/electron-run/electronRunSessionPaths';
 import {
     buildStrictE2ERunEnv,
     getE2ERunId,
@@ -62,4 +74,57 @@ export function buildE2ESharedRendererEnv(port: number): NodeJS.ProcessEnv {
 
 export function getE2ESharedRendererSessionName(env: NodeJS.ProcessEnv = process.env) {
     return `e2e-${getE2ERunId(env)}-shared-renderer`;
+}
+
+/** Own one renderer server while each scenario keeps its separate Electron process and profile. */
+export async function startE2ESharedRenderer() {
+    const previousEnv = {...process.env};
+    const previousSessionName = getCurrentSessionName();
+    const previousPort = getNuxtPort();
+    const strictEnv = buildStrictE2ERunEnv(process.env);
+    const ownedEnvKeys = [
+        ...Object.keys(strictEnv),
+        E2E_SHARED_RENDERER_ENABLED_ENV,
+        E2E_SHARED_RENDERER_PORT_ENV,
+    ];
+    const sessionName = getE2ESharedRendererSessionName();
+    Object.assign(process.env, strictEnv);
+    setCurrentSessionName(sessionName);
+    function restoreEnvironment() {
+        for (const key of ownedEnvKeys) {
+            if (previousEnv[key] === undefined) {
+                Reflect.deleteProperty(process.env, key);
+            } else {
+                process.env[key] = previousEnv[key];
+            }
+        }
+        setNuxtPort(previousPort);
+    }
+    try {
+        const renderer = await startNuxtServer(false);
+        const port = getNuxtPort();
+        Object.assign(process.env, buildE2ESharedRendererEnv(port));
+        let stopPromise: Promise<void> | null = null;
+        return {
+            sessionName,
+            port,
+            stop() {
+                stopPromise ??= (async () => {
+                    try {
+                        if (renderer?.pid && isProcessAlive(renderer.pid)) {
+                            await killProcessTree(renderer.pid, 1200);
+                        }
+                    } finally {
+                        restoreEnvironment();
+                    }
+                })();
+                return stopPromise;
+            },
+        };
+    } catch (error) {
+        restoreEnvironment();
+        throw error;
+    } finally {
+        setCurrentSessionName(previousSessionName);
+    }
 }

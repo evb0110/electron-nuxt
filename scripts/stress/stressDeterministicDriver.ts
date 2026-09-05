@@ -8,7 +8,7 @@ import {
     ElectronE2ETimeoutError,
     runWithElectronE2EDeadline,
 } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
-import { createFreeTextAnnotation } from '@tests/e2e/electron/helpers/viewerAnnotations';
+import { createFreeTextAnnotationWithPointer } from '@tests/e2e/electron/helpers/viewerAnnotations';
 import {
     openDjvuInApp,
     openPdfInApp,
@@ -339,13 +339,22 @@ async function executeStep(context: IStepContext, step: TStressStep, signal: Abo
             return {direction: step.direction};
         case 'freeText': {
             const totalPages = Math.max(1, await readTotalPages(page));
+            const noteTimeoutMs = Math.min(
+                30_000,
+                Math.max(5_000, Math.floor(context.stepTimeoutMs / Math.max(1, step.count))),
+            );
             for (let index = 0; index < step.count; index += 1) {
                 signal.throwIfAborted();
                 const pageNumber = 1 + (index % totalPages);
-                await createFreeTextAnnotation(page, `${step.text} ${index + 1}`, {
+                context.log(`freeText ${index + 1}/${step.count} page ${pageNumber} scroll`);
+                await scrollViewerToPage(page, pageNumber);
+                signal.throwIfAborted();
+                context.log(`freeText ${index + 1}/${step.count} page ${pageNumber} create`);
+                await createFreeTextAnnotationWithPointer(page, `${step.text} ${index + 1}`, {
                     x: 0.2 + (index % 5) * 0.12,
                     y: 0.2 + (Math.floor(index / 5) % 4) * 0.15,
-                }, pageNumber);
+                }, pageNumber, noteTimeoutMs);
+                context.log(`freeText ${index + 1}/${step.count} page ${pageNumber} created`);
             }
             return {created: step.count};
         }

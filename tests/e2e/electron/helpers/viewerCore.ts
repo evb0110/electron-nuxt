@@ -641,25 +641,28 @@ export async function waitForViewerInteractive(page: Page, timeoutMs = DEFAULT_T
         ) ?? null;
         const legacyViewer = chassis ? null : host.querySelector<HTMLElement>('.pdfViewer');
         const viewport = chassisViewport ?? legacyViewer;
-        const pageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]')
-            ?? legacyViewer;
-        if (!viewport || !pageTrack) {
+        const pdfPageTrack = chassisViewport?.querySelector<HTMLElement>('[data-pdf-page-track]') ?? null;
+        const documentSourceViewer = chassisViewport?.querySelector<HTMLElement>(
+            '[data-testid="document-page-source-viewer"]',
+        ) ?? null;
+        const interactiveSurface = pdfPageTrack ?? documentSourceViewer ?? legacyViewer;
+        if (!viewport || !interactiveSurface) {
             return false;
         }
 
         const viewportStyle = window.getComputedStyle(viewport);
-        const pageTrackStyle = window.getComputedStyle(pageTrack);
-        const pageTrackPresented = pageTrackStyle.display !== 'none'
-            && pageTrackStyle.visibility !== 'hidden'
-            && Number(pageTrackStyle.opacity || '1') > 0;
+        const surfaceStyle = window.getComputedStyle(interactiveSurface);
+        const surfacePresented = surfaceStyle.display !== 'none'
+            && surfaceStyle.visibility !== 'hidden'
+            && Number(surfaceStyle.opacity || '1') > 0;
         const viewportPresented = viewportStyle.display !== 'none'
             && viewportStyle.visibility !== 'hidden'
             && Number(viewportStyle.opacity || '1') > 0;
         if (
-            !pageTrackPresented
+            !surfacePresented
             || !viewportPresented
-            || pageTrack.classList.contains('pdfViewer--resize-transition')
-            || pageTrack.classList.contains('pdfViewer--hidden')
+            || interactiveSurface.classList.contains('pdfViewer--resize-transition')
+            || interactiveSurface.classList.contains('pdfViewer--hidden')
         ) {
             return false;
         }

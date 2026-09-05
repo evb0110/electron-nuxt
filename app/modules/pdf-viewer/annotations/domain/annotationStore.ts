@@ -105,6 +105,8 @@ interface IPendingMarkupSubtypeIntent {
     readonly subtype: TMarkupSubtype;
 }
 
+interface IBulkImportState {canUseFastPath: boolean;}
+
 export class AnnotationStore {
     readonly #entities = new Map<AnnotationId, AnnotationEntity>();
     readonly #identities = new ExternalIdentityIndex();
@@ -122,6 +124,9 @@ export class AnnotationStore {
     };
     #hasShapeImportBaseline = false;
     #adoptSelfSavedShapesOnNextImport = false;
+    #batchDepth = 0;
+    #batchEmissionPending = false;
+    #bulkImportState: IBulkImportState | null = null;
 
     constructor(history: IAnnotationHistoryAuthority = new LocalAnnotationHistoryAuthority()) {
         this.#history = history;
@@ -144,12 +149,54 @@ export class AnnotationStore {
         return () => this.#listeners.delete(listener);
     }
 
+    /** Defers the immutable store snapshot until a group of related mutations finishes. */
+    batch<T>(callback: () => T): T {
+        this.#batchDepth += 1;
+        try {
+            return callback();
+        } finally {
+            this.#batchDepth -= 1;
+            if (this.#batchDepth === 0 && this.#batchEmissionPending) {
+                this.#batchEmissionPending = false;
+                this.#emitNow();
+            }
+        }
+    }
+
+    /**
+     * Runs related persisted imports with one saved-baseline comparison. The
+     * callback still controls each import, so identity resolution and pending
+     * subtype acknowledgement keep their existing order and side effects.
+     */
+    importMany<T>(callback: () => T): T {
+        if (this.#bulkImportState) {
+            return callback();
+        }
+        this.#bulkImportState = {canUseFastPath: !this.hasChangesSinceSavedBaseline()};
+        try {
+            return callback();
+        } finally {
+            this.#bulkImportState = null;
+        }
+    }
+
     import(entity: AnnotationEntity, options: { preserveSavedBaseline?: boolean } = {}) {
-        const wasSemanticallyClean = !this.hasChangesSinceSavedBaseline();
+        const bulkImportState = this.#bulkImportState;
+        const canUseFastPath = bulkImportState?.canUseFastPath === true;
+        const shouldUpdateSavedBaseline = entity.persistedRevision >= 0
+            && options.preserveSavedBaseline !== true;
+        const wasSemanticallyClean = shouldUpdateSavedBaseline
+            ? bulkImportState
+                ? canUseFastPath || !this.hasChangesSinceSavedBaseline()
+                : !this.hasChangesSinceSavedBaseline()
+            : false;
         const current = this.#entities.get(entity.identity.id);
         if (current && current.revision > entity.revision) {
             return current;
         }
+        const currentSemanticFingerprint = canUseFastPath && !shouldUpdateSavedBaseline && current
+            ? semanticEntityFingerprint(current)
+            : null;
         const pendingSubtype = entity.kind === 'text-markup'
             ? this.#findPendingMarkupSubtype(this.#externalIdentityKeys(entity.identity))
             : null;
@@ -167,11 +214,23 @@ export class AnnotationStore {
         if (pendingSubtype) {
             this.#forgetPendingMarkupSubtype(pendingSubtype);
         }
-        if (imported.persistedRevision >= 0 && wasSemanticallyClean && !options.preserveSavedBaseline) {
-            this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+        if (shouldUpdateSavedBaseline && wasSemanticallyClean) {
+            if (canUseFastPath) {
+                this.#savedSemanticSnapshot.set(imported.identity.id, {
+                    kind: imported.kind,
+                    fingerprint: semanticEntityFingerprint(imported),
+                });
+            } else {
+                this.#savedSemanticSnapshot = semanticSnapshot(this.#entities.values());
+            }
+        } else if (
+            canUseFastPath
+            && currentSemanticFingerprint !== semanticEntityFingerprint(imported)
+        ) {
+            this.#disableBulkImportFastPath();
         }
         this.#mutationEpoch += 1;
-        this.#emit();
+        this.#emit(true);
         return imported;
     }
 
@@ -464,13 +523,21 @@ export class AnnotationStore {
             ...entity,
             identity,
         };
+        const identityChanged = entity.identity.pdfRef !== identity.pdfRef
+            || entity.identity.pdfName !== identity.pdfName
+            || entity.identity.pdfjsUid !== identity.pdfjsUid
+            || entity.identity.elementId !== identity.elementId;
+        if (identityChanged) {
+            this.#disableBulkImportFastPath();
+        }
+        const preserveBulkImportFastPath = Boolean(this.#bulkImportState) && !identityChanged;
         this.#replaceEntities([{
             id: entity.identity.id,
             before: entity,
             after: updated,
         }]);
         this.#mutationEpoch += 1;
-        this.#emit();
+        this.#emit(preserveBulkImportFastPath);
     }
 
     resolveExternal(bindings: Parameters<ExternalIdentityIndex['resolve']>[0]) {
@@ -842,8 +909,12 @@ export class AnnotationStore {
         });
     }
 
-    undo() { return this.#history.undo(); }
-    redo() { return this.#history.redo(); }
+    undo() {
+        return this.#history.undo();
+    }
+    redo() {
+        return this.#history.redo();
+    }
     get canUndo() { return this.#history.canUndo; }
     get canRedo() { return this.#history.canRedo; }
 
@@ -902,11 +973,17 @@ export class AnnotationStore {
             annotationIds: entries.map(entry => entry.id),
         });
     }
+    #disableBulkImportFastPath() {
+        if (this.#bulkImportState) {
+            this.#bulkImportState.canUseFastPath = false;
+        }
+    }
     #applyHistoryEntries(
         entries: readonly IHistoryEntry[],
         mode: 'commit' | 'replay',
         registerFailureRollback?: TRegisterAnnotationHistoryFailureRollback,
     ) {
+        this.#disableBulkImportFastPath();
         const previousEpoch = this.#mutationEpoch;
         // A replay restores authored content onto the persistence identity of
         // record; only a fresh commit carries its own.
@@ -948,71 +1025,73 @@ export class AnnotationStore {
         mode: TShapeApplyMode,
         frontier?: IAnnotationSaveFrontier,
     ) {
-        const shapes = this.listShapes({includeDeleted: true});
-        if (mode === 'replace') {
-            this.forget(new Set(shapes.map(entity => entity.identity.id)));
-            this.adoptEntitiesAsSavedBaseline(new Set(proposals.map(proposal => this.#importShape(proposal))));
-            return;
-        }
-
-        if (mode === 'prime') {
-            // A pdfRef names an object inside one document revision, and a save
-            // that rematerializes the shapes renumbers them: a deleted shape's
-            // number is free for a survivor to take. The previous revision's
-            // numbering is therefore retired wholesale and re-derived from the
-            // bytes below, so delete verification cannot mistake whichever
-            // annotation inherited a removed shape's number.
-            this.#releasePersistedShapeRefs(shapes, frontier);
-        }
-        const remaining = proposals.map(proposal => ({
-            annotationId: proposal.annotationId,
-            geometry: structuredClone(proposal.geometry),
-        }));
-        const adopted = new Set<AnnotationId>();
-        shapes.filter(entity => !entity.deleted).forEach((entity) => {
-            const index = findImportedShapeMatchIndex(entity.geometry, remaining.map(item => item.geometry));
-            const [match] = index === -1 ? [] : remaining.splice(index, 1);
-            if (!match) {
+        this.batch(() => {
+            const shapes = this.listShapes({includeDeleted: true});
+            if (mode === 'replace') {
+                this.forget(new Set(shapes.map(entity => entity.identity.id)));
+                this.adoptEntitiesAsSavedBaseline(new Set(proposals.map(proposal => this.#importShape(proposal))));
                 return;
             }
-            this.#adoptImportedGeometry(entity, match.geometry, mode, frontier);
-            adopted.add(entity.identity.id);
+
+            if (mode === 'prime') {
+                // A pdfRef names an object inside one document revision, and a save
+                // that rematerializes the shapes renumbers them: a deleted shape's
+                // number is free for a survivor to take. The previous revision's
+                // numbering is therefore retired wholesale and re-derived from the
+                // bytes below, so delete verification cannot mistake whichever
+                // annotation inherited a removed shape's number.
+                this.#releasePersistedShapeRefs(shapes, frontier);
+            }
+            const remaining = proposals.map(proposal => ({
+                annotationId: proposal.annotationId,
+                geometry: structuredClone(proposal.geometry),
+            }));
+            const adopted = new Set<AnnotationId>();
+            shapes.filter(entity => !entity.deleted).forEach((entity) => {
+                const index = findImportedShapeMatchIndex(entity.geometry, remaining.map(item => item.geometry));
+                const [match] = index === -1 ? [] : remaining.splice(index, 1);
+                if (!match) {
+                    return;
+                }
+                this.#adoptImportedGeometry(entity, match.geometry, mode, frontier);
+                adopted.add(entity.identity.id);
+            });
+
+            const tombstones = shapes.filter(entity => entity.deleted);
+            const survivingTombstones = mode === 'prime'
+                ? tombstones
+                : tombstones.filter(entity => proposals.some(
+                    proposal => shapeStableRefsMatch(proposal.geometry, entity.geometry),
+                ));
+            // Unmatched embedded shapes are gone from the document; local drafts and
+            // tombstones the scan still carries survive it. A tombstone the scanned
+            // bytes still contain outlived them: the delete landed after those bytes
+            // were written, so it is the newer truth and must not be adopted away.
+            // Priming removes nothing at all: it runs against bytes whose save is not
+            // acknowledged yet, and dropping a captured entity would break the save
+            // frontier.
+            this.forget(mode === 'prime' ? new Set() : new Set([
+                ...shapes
+                    .filter(entity => !entity.deleted
+                        && !adopted.has(entity.identity.id)
+                        && entity.geometry.source === 'embedded')
+                    .map(entity => entity.identity.id),
+                ...tombstones
+                    .filter(entity => !survivingTombstones.includes(entity))
+                    .map(entity => entity.identity.id),
+            ]));
+
+            if (mode === 'prime') {
+                return;
+            }
+            remaining
+                .filter(item => !survivingTombstones.some(entity => shapeStableRefsMatch(item.geometry, entity.geometry)))
+                .forEach(item => adopted.add(this.#importShape(item)));
+
+            this.adoptEntitiesAsSavedBaseline(mode === 'adopt-self-saved'
+                ? new Set(this.listShapes().map(entity => entity.identity.id))
+                : adopted);
         });
-
-        const tombstones = shapes.filter(entity => entity.deleted);
-        const survivingTombstones = mode === 'prime'
-            ? tombstones
-            : tombstones.filter(entity => proposals.some(
-                proposal => shapeStableRefsMatch(proposal.geometry, entity.geometry),
-            ));
-        // Unmatched embedded shapes are gone from the document; local drafts and
-        // tombstones the scan still carries survive it. A tombstone the scanned
-        // bytes still contain outlived them: the delete landed after those bytes
-        // were written, so it is the newer truth and must not be adopted away.
-        // Priming removes nothing at all: it runs against bytes whose save is not
-        // acknowledged yet, and dropping a captured entity would break the save
-        // frontier.
-        this.forget(mode === 'prime' ? new Set() : new Set([
-            ...shapes
-                .filter(entity => !entity.deleted
-                    && !adopted.has(entity.identity.id)
-                    && entity.geometry.source === 'embedded')
-                .map(entity => entity.identity.id),
-            ...tombstones
-                .filter(entity => !survivingTombstones.includes(entity))
-                .map(entity => entity.identity.id),
-        ]));
-
-        if (mode === 'prime') {
-            return;
-        }
-        remaining
-            .filter(item => !survivingTombstones.some(entity => shapeStableRefsMatch(item.geometry, entity.geometry)))
-            .forEach(item => adopted.add(this.#importShape(item)));
-
-        this.adoptEntitiesAsSavedBaseline(mode === 'adopt-self-saved'
-            ? new Set(this.listShapes().map(entity => entity.identity.id))
-            : adopted);
     }
 
     #adoptImportedGeometry(
@@ -1199,7 +1278,18 @@ export class AnnotationStore {
         return changed ? restored : current;
     }
 
-    #emit() {
+    #emit(preserveBulkImportFastPath = false) {
+        if (!preserveBulkImportFastPath) {
+            this.#disableBulkImportFastPath();
+        }
+        if (this.#batchDepth > 0) {
+            this.#batchEmissionPending = true;
+            return;
+        }
+        this.#emitNow();
+    }
+
+    #emitNow() {
         const snapshot = this.list();
         this.#listeners.forEach(listener => listener(snapshot));
     }

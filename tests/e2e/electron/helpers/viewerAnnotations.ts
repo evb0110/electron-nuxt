@@ -136,7 +136,11 @@ async function getActiveToolLabel(page: Page) {
     });
 }
 
-export async function clickAnnotationTool(page: Page, label: string, timeoutMs = DEFAULT_TIMEOUT_MS) {
+export async function clickAnnotationTool(
+    page: Page,
+    label: string,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+) {
     await openAnnotationsTab(page, timeoutMs);
     await waitForViewerInteractive(page, timeoutMs);
 
@@ -1262,15 +1266,14 @@ export async function createFreeTextAnnotationWithPointer(
         y: number
     },
     pageNumber?: number,
+    timeoutMs = DEFAULT_TIMEOUT_MS,
 ) {
-    const before = await getOrdinaryFreeTextEditorCount(page);
-    if (await getActiveToolLabel(page) !== 'text') {
-        await clickAnnotationTool(page, 'Text', 30_000);
-    } else {
-        await openAnnotationsTab(page, 30_000);
-        await waitForViewerInteractive(page, 30_000);
+    try {
+        await clickAnnotationTool(page, 'Text', timeoutMs);
+        await waitForAnnotationEditorMode(page, 'freetextEditing', timeoutMs, pageNumber);
+    } catch (error) {
+        throw new Error(`FreeText tool activation failed${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
     }
-    await waitForAnnotationEditorMode(page, 'freetextEditing', 30_000, pageNumber);
 
     const point = await page.evaluate(async ({
         targetPageNumber,
@@ -1294,7 +1297,9 @@ export async function createFreeTextAnnotationWithPointer(
             inline: 'center',
         });
         await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
-        const rect = pageContainer.getBoundingClientRect();
+        const editorLayer = pageContainer.querySelector<HTMLElement>('.annotationEditorLayer, .annotation-editor-layer');
+        const target = editorLayer ?? pageContainer;
+        const rect = target.getBoundingClientRect();
         const hostRect = host.getBoundingClientRect();
         const left = Math.max(rect.left, hostRect.left, 0) + 24;
         const right = Math.min(rect.right, hostRect.right, window.innerWidth) - 24;
@@ -1307,6 +1312,9 @@ export async function createFreeTextAnnotationWithPointer(
             Math.min(Math.max(value, min), max)
         );
         return {
+            existingEditorIds: Array.from(pageContainer.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            )).map(editor => editor.id),
             x: Math.round(clamp(rect.left + rect.width * xRatio, left, right)),
             y: Math.round(clamp(rect.top + rect.height * yRatio, top, bottom)),
         };
@@ -1316,32 +1324,83 @@ export async function createFreeTextAnnotationWithPointer(
         yRatio: position.y,
     });
     if (!point) {
-        throw new Error('Strict FreeText creation could not resolve the annotation editor layer');
+        throw new Error(`Strict FreeText creation could not resolve the annotation editor layer${pageNumber ? ` on page ${pageNumber}` : ''}`);
     }
     await page.mouse.click(point.x, point.y);
 
-    await page.waitForFunction((minimumCount: number) => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
-        ) ?? []);
-        if (editors.length <= minimumCount) {
-            return false;
+    let createdEditorId: string | null = null;
+    try {
+        const createdEditorHandle = await page.waitForFunction((args: {
+            existingEditorIds: string[];
+            targetPageNumber: number | null;
+        }) => {
+            const pageSelector = args.targetPageNumber
+                ? `.page_container[data-page="${args.targetPageNumber}"]`
+                : '.page_container--rendered';
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+            const pageRoot = args.targetPageNumber
+                ? host?.querySelector<HTMLElement>(pageSelector)
+                : host;
+            const editors = Array.from(pageRoot?.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            ) ?? []);
+            return editors.find(editor => {
+                if (!editor.id || args.existingEditorIds.includes(editor.id)) {
+                    return false;
+                }
+                const editable = editor.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
+                return Boolean(editable && (editable === document.activeElement || editable.contains(document.activeElement)));
+            })?.id ?? false;
+        }, {timeout: timeoutMs}, {
+            existingEditorIds: point.existingEditorIds,
+            targetPageNumber: pageNumber ?? null,
+        });
+        try {
+            const resolvedEditorId = await createdEditorHandle.jsonValue();
+            if (typeof resolvedEditorId !== 'string' || !resolvedEditorId) {
+                throw new Error('new focused editor did not expose a stable id');
+            }
+            createdEditorId = resolvedEditorId;
+        } finally {
+            await createdEditorHandle.dispose();
         }
-        const editor = editors[editors.length - 1];
-        const editable = editor?.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
-        return Boolean(editable && (editable === document.activeElement || editable.contains(document.activeElement)));
-    }, {timeout: DEFAULT_TIMEOUT_MS}, before);
+    } catch (error) {
+        throw new Error(`Strict FreeText pointer click did not create an editor${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (!createdEditorId) {
+        throw new Error(`Strict FreeText pointer click did not expose an editor id${pageNumber ? ` on page ${pageNumber}` : ''}`);
+    }
 
     await page.keyboard.type(text, {delay: 10});
-    await page.waitForFunction((expectedText: string) => {
-        const host = globalThis.__evbE2E.getActiveWorkspaceHost();
-        const editors = Array.from(host?.querySelectorAll<HTMLElement>(
-            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
-        ) ?? []);
-        const latest = editors[editors.length - 1];
-        return (latest?.textContent ?? '').replace(/[\u200B\uFEFF]/gu, '').trim() === expectedText;
-    }, {timeout: DEFAULT_TIMEOUT_MS}, text);
+    try {
+        await page.waitForFunction((args: {
+            editorId: string;
+            expectedText: string;
+            targetPageNumber: number | null;
+        }) => {
+            const pageSelector = args.targetPageNumber
+                ? `.page_container[data-page="${args.targetPageNumber}"]`
+                : '.page_container--rendered';
+            const host = globalThis.__evbE2E.getActiveWorkspaceHost(pageSelector);
+            const pageRoot = args.targetPageNumber
+                ? host?.querySelector<HTMLElement>(pageSelector)
+                : host;
+            const editor = Array.from(pageRoot?.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            ) ?? []).find(candidate => candidate.id === args.editorId);
+            const editable = editor?.querySelector<HTMLElement>('[contenteditable="true"], .internal[contenteditable="true"]');
+            const actualText = (editable?.textContent ?? editor?.textContent ?? '')
+                .replace(/[\u200B\uFEFF]/gu, '')
+                .trim();
+            return actualText === args.expectedText;
+        }, {timeout: timeoutMs}, {
+            editorId: createdEditorId,
+            expectedText: text,
+            targetPageNumber: pageNumber ?? null,
+        });
+    } catch (error) {
+        throw new Error(`Strict FreeText editor did not receive text${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+    }
     await page.keyboard.press('Escape');
 
     return getOrdinaryFreeTextEditorCount(page);

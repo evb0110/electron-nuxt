@@ -25,14 +25,28 @@ export interface IShouldHideHiddenEmbeddedAnnotationOptions {
 }
 
 function toNormalizedAnnotationIdSet(ids: ReadonlySet<string> | undefined) {
-    const normalizedIds = new Set<string>();
-    ids?.forEach((id) => {
-        const normalizedId = normalizePdfJsAnnotationId(id);
-        if (normalizedId) {
-            normalizedIds.add(normalizedId);
+    if (!ids || ids.size === 0) {
+        return new Set<string>();
+    }
+
+    // The render path already supplies normalized PDF ids. Keep that set by
+    // identity so every annotation check does not allocate a second copy of
+    // the full shape set. Allocate only when a caller actually supplied an id
+    // that needs normalization.
+    for (const id of ids) {
+        if (normalizePdfJsAnnotationId(id) !== id) {
+            const normalizedIds = new Set<string>();
+            ids.forEach((candidate) => {
+                const normalizedId = normalizePdfJsAnnotationId(candidate);
+                if (normalizedId) {
+                    normalizedIds.add(normalizedId);
+                }
+            });
+            return normalizedIds;
         }
-    });
-    return normalizedIds;
+    }
+
+    return ids;
 }
 
 function getElementAnnotationId(element: HTMLElement) {
@@ -126,6 +140,29 @@ function hasManagedShapeOverlayForAnnotation(
     ));
 }
 
+function getPaintReadyManagedShapeOverlayIds(
+    pageContainer: HTMLElement | null | undefined,
+) {
+    const readyAnnotationIds = new Set<string>();
+    if (!pageContainer) {
+        return readyAnnotationIds;
+    }
+
+    pageContainer.querySelectorAll(
+        '.pdf-shape-overlay.has-shapes [data-annotation-id]',
+    ).forEach((element) => {
+        const annotationId = getOverlayCandidateAnnotationId(element);
+        if (
+            annotationId
+            && !readyAnnotationIds.has(annotationId)
+            && isOverlayCandidatePaintReady(element)
+        ) {
+            readyAnnotationIds.add(annotationId);
+        }
+    });
+    return readyAnnotationIds;
+}
+
 function getPageContainerForAnnotationElement(element: HTMLElement) {
     return typeof element.closest === 'function'
         ? element.closest<HTMLElement>('.page_container')
@@ -143,11 +180,14 @@ export function shouldHideHiddenEmbeddedAnnotation({
         return false;
     }
 
-    return resolveHiddenEmbeddedAnnotationIdsForPageContainer({
-        hiddenAnnotationIds,
-        managedAnnotationIds,
-        pageContainer,
-    }).has(normalizedAnnotationId);
+    const normalizedHiddenIds = toNormalizedAnnotationIdSet(hiddenAnnotationIds);
+    if (!normalizedHiddenIds.has(normalizedAnnotationId)) {
+        return false;
+    }
+
+    const normalizedManagedIds = toNormalizedAnnotationIdSet(managedAnnotationIds);
+    return !normalizedManagedIds.has(normalizedAnnotationId)
+        || hasManagedShapeOverlayForAnnotation(pageContainer, normalizedAnnotationId);
 }
 
 export function resolveHiddenEmbeddedAnnotationIdsForPageContainer({
@@ -165,9 +205,10 @@ export function resolveHiddenEmbeddedAnnotationIdsForPageContainer({
         return normalizedHiddenIds;
     }
 
+    const readyManagedShapeOverlayIds = getPaintReadyManagedShapeOverlayIds(pageContainer);
     const visibleUntilOverlayIds = new Set(normalizedHiddenIds);
     normalizedManagedIds.forEach((annotationId) => {
-        if (!hasManagedShapeOverlayForAnnotation(pageContainer, annotationId)) {
+        if (!readyManagedShapeOverlayIds.has(annotationId)) {
             visibleUntilOverlayIds.delete(annotationId);
         }
     });
@@ -193,6 +234,16 @@ export function syncHiddenEmbeddedAnnotationDom({
     }
 
     const normalizedManagedIds = toNormalizedAnnotationIdSet(managedAnnotationIds);
+    const readyManagedShapeOverlayIdsByPage = new Map<HTMLElement | null, Set<string>>();
+    const getReadyManagedShapeOverlayIdsForPage = (pageContainer: HTMLElement | null) => {
+        const cached = readyManagedShapeOverlayIdsByPage.get(pageContainer);
+        if (cached) {
+            return cached;
+        }
+        const readyIds = getPaintReadyManagedShapeOverlayIds(pageContainer);
+        readyManagedShapeOverlayIdsByPage.set(pageContainer, readyIds);
+        return readyIds;
+    };
     container.querySelectorAll<HTMLElement>('[data-annotation-id]').forEach((element) => {
         if (isAppShapeOverlayElement(element)) {
             return;
@@ -205,10 +256,9 @@ export function syncHiddenEmbeddedAnnotationDom({
 
         if (
             normalizedManagedIds.has(annotationId)
-            && !hasManagedShapeOverlayForAnnotation(
+            && !getReadyManagedShapeOverlayIdsForPage(
                 getPageContainerForAnnotationElement(element),
-                annotationId,
-            )
+            ).has(annotationId)
         ) {
             result.deferredManagedAnnotationCount += 1;
             return;

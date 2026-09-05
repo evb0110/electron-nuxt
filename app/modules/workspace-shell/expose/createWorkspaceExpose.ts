@@ -131,6 +131,7 @@ export interface ICreateWorkspaceExposeDeps extends
     waitForDocumentOpenSettled: IWorkspaceExpose['waitForDocumentOpenSettled'];
     workingCopyPath: Ref<TDocumentRef | null>;
     originalPath: Ref<TDocumentRef | null>;
+    djvuSourcePath: Ref<TDocumentRef | null>;
     pdfData: Ref<Uint8Array | null>;
     pdfReloadSrc: Ref<TPdfSource | null>;
     requiresSaveAsOnFirstSave?: Ref<boolean>;
@@ -402,6 +403,9 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
     function getAutomationStateSnapshot(): IWorkspaceAutomationStateSnapshot {
         const reloadSrc = deps.pdfReloadSrc.value;
         const livePdfJsAnnotationChanges = deps.pdfAutomationViewerRef?.value?.collectLiveAnnotationChanges?.();
+        const originalPath = deps.isDjvuMode.value
+            ? deps.djvuSourcePath.value ?? deps.originalPath.value
+            : deps.originalPath.value;
         return {
             annotationComments: [...deps.annotationComments.value],
             annotationCommentsStatus: deps.annotationCommentsStatus.value,
@@ -433,7 +437,7 @@ export function createWorkspaceExpose(deps: ICreateWorkspaceExposeDeps): IWorksp
                     }
                     : null,
             },
-            originalPath: deps.originalPath.value,
+            originalPath,
             pdfSourceState: {
                 hasInMemoryData: deps.pdfData.value !== null,
                 reloadKind: reloadSrc instanceof Blob

@@ -145,6 +145,7 @@ function createWorkspaceExposeDeps(overrides: Partial<Parameters<typeof createWo
         readAgentResource: vi.fn(async () => ({})),
         workingCopyPath: ref(null),
         originalPath: ref(null),
+        djvuSourcePath: ref(null),
         annotationComments: ref([]),
         annotationCommentsStatus: ref('ready'),
         annotationInventory: ref(null),

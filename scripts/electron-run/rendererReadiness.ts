@@ -19,6 +19,7 @@ const RENDERER_READINESS_ERROR_NAME = 'RendererReadinessError';
 const RETRYABLE_RENDERER_BINDINGS_ERROR_NAME = 'RetryableRendererBindingsError';
 const RETRYABLE_RENDERER_BODY_ERROR_NAME = 'RetryableRendererBodyError';
 const RENDERER_BODY_PROBE_TIMEOUT_MS = 5_000;
+const BROWSER_PAGE_DISCOVERY_TIMEOUT_MS = 5_000;
 const RENDERER_DEAD_PAGE_RELOAD_INTERVAL_MS = 5_000;
 const RENDERER_DEAD_PAGE_MAX_RELOADS = 5;
 
@@ -155,18 +156,29 @@ function createRetryableRendererBodyError() {
 }
 
 export async function probeRendererBody(
-    page: Pick<Page, '$'>,
+    page: Pick<Page, 'evaluate'>,
     timeoutMs = RENDERER_BODY_PROBE_TIMEOUT_MS,
 ) {
     const timeoutMarker = {};
-    const result = await Promise.race([
-        page.$('body'),
-        delay(timeoutMs).then(() => timeoutMarker),
-    ]);
-    if (result === timeoutMarker) {
-        return 'unresponsive' as const;
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    try {
+        // Readiness needs a boolean, not an element handle from Puppeteer's
+        // isolated DOM-query realm, which may still be initializing on attach.
+        const result = await Promise.race([
+            page.evaluate(() => Boolean(document.body)),
+            new Promise<typeof timeoutMarker>((resolve) => {
+                timeoutHandle = setTimeout(() => resolve(timeoutMarker), timeoutMs);
+            }),
+        ]);
+        if (result === timeoutMarker) {
+            return 'unresponsive' as const;
+        }
+        return result === true ? 'ready' as const : 'waiting' as const;
+    } finally {
+        if (timeoutHandle !== undefined) {
+            clearTimeout(timeoutHandle);
+        }
     }
-    return result === null ? 'waiting' as const : 'ready' as const;
 }
 
 function hasRendererDeadDevServerBody(state: IRendererState) {
@@ -307,8 +319,35 @@ export function selectNewestElectronAppPage<TPage extends {
     return null;
 }
 
-async function findAppPage(browser: Browser): Promise<Page | null> {
-    return selectNewestElectronAppPage(await browser.pages());
+async function getBrowserPages(
+    browser: Pick<Browser, 'pages'>,
+    timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS,
+): Promise<Page[]> {
+    // Puppeteer attaches every page target before browser.pages() resolves. A
+    // stuck CDP target attach must fail inside the launch deadline so the
+    // existing Electron recovery loop can replace this process.
+    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+    try {
+        return await Promise.race([
+            browser.pages(),
+            new Promise<never>((_, reject) => {
+                timeoutHandle = setTimeout(() => {
+                    reject(new Error(`Puppeteer page discovery did not respond within ${String(timeoutMs)}ms`));
+                }, timeoutMs);
+            }),
+        ]);
+    } finally {
+        if (timeoutHandle !== undefined) {
+            clearTimeout(timeoutHandle);
+        }
+    }
+}
+
+export async function findAppPage(
+    browser: Pick<Browser, 'pages'>,
+    timeoutMs = BROWSER_PAGE_DISCOVERY_TIMEOUT_MS,
+): Promise<Page | null> {
+    return selectNewestElectronAppPage(await getBrowserPages(browser, timeoutMs));
 }
 
 async function waitForAppPage(browser: Browser, timeoutMs: number): Promise<Page | null> {
@@ -401,10 +440,11 @@ async function connectPuppeteerWithRetries(browserWsUrl: string) {
 }
 
 async function findInitialElectronPage(browser: Browser) {
-    for (let i = 0; i < 30; i += 1) {
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < ELECTRON_APP_PAGE_APPEAR_TIMEOUT_MS) {
         const page = await findAppPage(browser);
         if (!page) {
-            const allPages = await browser.pages();
+            const allPages = await getBrowserPages(browser);
             const fallbackPage = allPages.find(candidate => !candidate.isClosed()) ?? null;
             if (fallbackPage) {
                 return fallbackPage;

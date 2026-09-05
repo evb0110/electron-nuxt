@@ -462,6 +462,57 @@ describe('useAnnotationEditorBridge', () => {
         });
     });
 
+    it('does not re-enter edit mode for a committed FreeText editor after its page layer detaches', async () => {
+        const {
+            commitPendingFreeTextDraftsForSave,
+            emitAnnotationState,
+            uiManager,
+        } = await createBridgeHarness('text');
+        const isEmpty = vi.fn(() => true);
+        let isInEditMode = true;
+        let hasDetached = false;
+        const enableEditMode = vi.fn(() => {
+            if (hasDetached) {
+                throw new TypeError('Cannot read properties of null (reading \'setEditingState\')');
+            }
+            isInEditMode = true;
+            return true;
+        });
+        const editorDiv = document.createElement('div');
+        editorDiv.className = 'freeTextEditor';
+        const editable = document.createElement('div');
+        editable.className = 'internal';
+        editable.contentEditable = 'true';
+        editorDiv.append(editable);
+        const editor = cast<IPdfjsEditor>({
+            id: 'text-committed-detached',
+            div: editorDiv,
+            annotationElementId: null,
+            parentPageIndex: 0,
+            parent: {setEditingState: vi.fn()},
+            isEmpty,
+            isInEditMode: vi.fn(() => isInEditMode),
+            enableEditMode,
+            commitOrRemove: vi.fn(),
+        });
+
+        uiManager.addToAnnotationStorage(editor);
+        editable.textContent = 'draft text';
+        editable.dispatchEvent(new InputEvent('input', {bubbles: true}));
+
+        isEmpty.mockReturnValue(false);
+        uiManager.addToAnnotationStorage(editor);
+        expect(emitAnnotationState).toHaveBeenLastCalledWith({hasPendingFreeTextDraft: false});
+        isInEditMode = false;
+        hasDetached = true;
+        delete editor.parent;
+
+        expect(() => commitPendingFreeTextDraftsForSave()).not.toThrow();
+        expect(enableEditMode).not.toHaveBeenCalled();
+        expect(editor.commitOrRemove).not.toHaveBeenCalled();
+        expect(emitAnnotationState).toHaveBeenLastCalledWith({hasPendingFreeTextDraft: false});
+    });
+
     it('does not infer the active underline tool for an existing PDF highlight editor', async () => {
         const {
             markupSubtype,

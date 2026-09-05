@@ -21,6 +21,7 @@ interface IUseAnnotationMarkerViewModelOptions {
     annotationCommentsCache: Ref<IAnnotationCommentSummary[]>;
     activeCommentStableKey: Ref<string | null>;
     markerGeometryVersion?: Ref<number> | undefined;
+    isPageRenderedForClass?: ((pageNumber: number) => boolean) | undefined;
     labels: {
         annotation: string;
         note: string;
@@ -96,10 +97,26 @@ function computeMarkersByPage(
     comments: IAnnotationCommentSummary[],
     activeKey: string | null,
     viewerContainer: HTMLElement | null,
+    isPageRenderedForClass: ((pageNumber: number) => boolean) | undefined,
     labels: IUseAnnotationMarkerViewModelOptions['labels'],
 ): Map<number, IMarkerViewModel[]> {
     const result = new Map<number, IMarkerViewModel[]>();
-    const withRect = comments.filter(isMarkerEligibleComment);
+    const renderedPageCache = new Map<number, boolean>();
+    const isRenderedPage = (pageNumber: number) => {
+        if (!isPageRenderedForClass) {
+            return true;
+        }
+        const cached = renderedPageCache.get(pageNumber);
+        if (cached !== undefined) {
+            return cached;
+        }
+        const rendered = isPageRenderedForClass(pageNumber);
+        renderedPageCache.set(pageNumber, rendered);
+        return rendered;
+    };
+    const withRect = comments.filter(comment => (
+        isRenderedPage(comment.pageNumber) && isMarkerEligibleComment(comment)
+    ));
 
     if (withRect.length === 0) {
         return result;
@@ -179,6 +196,7 @@ export const useAnnotationMarkerViewModel = (options: IUseAnnotationMarkerViewMo
             annotationCommentsCache.value,
             activeCommentStableKey.value,
             viewerContainer.value,
+            options.isPageRenderedForClass,
             labels,
         );
     };

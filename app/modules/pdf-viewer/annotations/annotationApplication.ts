@@ -207,6 +207,10 @@ export class AnnotationApplication {
     }
 
     ingestLegacySummaries(comments: readonly IAnnotationCommentSummary[]) {
+        this.store.batch(() => this.store.importMany(() => this.#ingestLegacySummaries(comments)));
+    }
+
+    #ingestLegacySummaries(comments: readonly IAnnotationCommentSummary[]) {
         const placedImageNameCounts = new Map<string, number>();
         comments.forEach((comment) => {
             const annotationName = placedImageAnnotationName(comment);
@@ -409,8 +413,18 @@ export class AnnotationApplication {
             reconcileMissingTransient?: boolean;
         } = {},
     ) {
+        return this.store.batch(() => this.store.importMany(() => this.#reconcileLegacySummaries(comments, options)));
+    }
+
+    #reconcileLegacySummaries(
+        comments: readonly IAnnotationCommentSummary[],
+        options: {
+            adoptAsSavedBaseline?: boolean;
+            reconcileMissingTransient?: boolean;
+        },
+    ) {
         const entityIdsBeforeIngest = new Set(this.store.list({includeDeleted: true}).map(entity => entity.identity.id));
-        this.ingestLegacySummaries(comments);
+        this.#ingestLegacySummaries(comments);
         if (options.reconcileMissingTransient === false) {
             return;
         }

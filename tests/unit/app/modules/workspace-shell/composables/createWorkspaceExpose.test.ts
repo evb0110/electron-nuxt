@@ -95,6 +95,7 @@ function createDeps(overrides: Partial<Parameters<typeof createWorkspaceExpose>[
         readAgentResource: vi.fn(async () => ({})),
         workingCopyPath: ref(null),
         originalPath: ref(null),
+        djvuSourcePath: ref(null),
         pdfData: ref(null),
         pdfReloadSrc: ref(null),
         annotationComments: ref([]),
@@ -176,6 +177,16 @@ describe('createWorkspaceExpose', () => {
     it('reports a null inventory until a scan has measured one', () => {
         expect(createWorkspaceExpose(createDeps()).getAutomationStateSnapshot().annotationInventory)
             .toBeNull();
+    });
+
+    it('reports the active DjVu source as the automation document identity', () => {
+        const expose = createWorkspaceExpose(createDeps({
+            isDjvuMode: ref(true),
+            originalPath: ref(null),
+            djvuSourcePath: ref('/tmp/reader.djvu'),
+        }));
+
+        expect(expose.getAutomationStateSnapshot().originalPath).toBe('/tmp/reader.djvu');
     });
 
     it('reports path-backed PDF ownership without exposing bytes', () => {

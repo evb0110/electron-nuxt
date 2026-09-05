@@ -696,7 +696,7 @@ describe('sessionManager automation launch args', () => {
     });
 
     it('classifies an initial body probe that never answers as unresponsive', async () => {
-        const page = {$: (_selector: string) => new Promise<null>(() => {})};
+        const page = {evaluate: () => new Promise<never>(() => {})};
 
         await expect(probeRendererBody(page, 5)).resolves.toBe('unresponsive');
     });

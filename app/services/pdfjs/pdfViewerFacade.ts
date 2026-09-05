@@ -144,6 +144,8 @@ export function renderPdfjsAnnotationLayer(
         linkService: options.linkService as never,
         renderForms: options.renderForms,
         annotationStorage: options.annotationStorage,
+        // PDF.js builds Text annotation icon URLs at render time, outside the viewer CSS.
+        imageResourcesPath: '/pdfjs/images/',
     });
 }
 

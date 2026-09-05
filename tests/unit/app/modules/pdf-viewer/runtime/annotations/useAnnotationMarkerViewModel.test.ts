@@ -2,6 +2,7 @@ import {
     describe,
     expect,
     it,
+    vi,
 } from 'vitest';
 import {
     nextTick,
@@ -207,5 +208,37 @@ describe('useAnnotationMarkerViewModel', () => {
         await nextTick();
 
         expect(markersByPage.value.get(1)?.[0]?.leftPercent).toBe(2.5);
+    });
+
+    it('projects markers only for pages with a committed visual', () => {
+        const annotationCommentsCache = ref<IAnnotationCommentSummary[]>([
+            createComment({
+                id: 'rendered-page',
+                stableKey: 'ann:0:rendered-page',
+                annotationId: 'rendered-page',
+                pageNumber: 1,
+                hasNote: true,
+            }),
+            createComment({
+                id: 'unrendered-page',
+                stableKey: 'ann:0:unrendered-page',
+                annotationId: 'unrendered-page',
+                pageNumber: 2,
+                hasNote: true,
+            }),
+        ]);
+
+        const isPageRenderedForClass = vi.fn((pageNumber: number) => pageNumber === 1);
+        const { markersByPage } = useAnnotationMarkerViewModel({
+            viewerContainer: ref<HTMLElement | null>(null),
+            annotationCommentsCache,
+            activeCommentStableKey: ref<string | null>(null),
+            isPageRenderedForClass,
+            labels,
+        });
+
+        expect(markersByPage.value.has(1)).toBe(true);
+        expect(markersByPage.value.has(2)).toBe(false);
+        expect(isPageRenderedForClass).toHaveBeenCalledTimes(2);
     });
 });

@@ -1150,6 +1150,39 @@ describe('AnnotationApplication', () => {
         expect(projected.at(-1)).toHaveLength(1);
     });
 
+    it('publishes one complete snapshot for a bulk embedded-shape import', () => {
+        const application = new AnnotationApplication('document');
+        const emissions: Array<readonly unknown[]> = [];
+        application.store.subscribe(entities => emissions.push(entities));
+        emissions.length = 0;
+
+        application.importEmbeddedShapes([
+            shape({
+                source: 'embedded',
+                annotationId: '12R0',
+            }),
+            shape({
+                id: 'shape-2',
+                pageIndex: 1,
+                source: 'embedded',
+                annotationId: '13R0',
+            }),
+            shape({
+                id: 'shape-3',
+                pageIndex: 2,
+                source: 'embedded',
+                annotationId: '14R0',
+            }),
+        ], {
+            documentKey: 'document',
+            path: null,
+        });
+
+        expect(emissions).toHaveLength(1);
+        expect(emissions[0]).toHaveLength(3);
+        expect(application.store.hasChangesSinceSavedBaseline('shape')).toBe(false);
+    });
+
     it('remaps surviving annotation and shape identities through a page-tree delta', () => {
         const application = new AnnotationApplication('document');
         application.store.createStickyNote(note({pageIndex: 0}));

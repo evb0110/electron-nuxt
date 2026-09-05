@@ -45,6 +45,7 @@ import {
     cloneSparsePageMetrics,
     forEachKnownPageMetric,
 } from '@app/modules/pdf-viewer/engine/pdf-page-layout/normalizePageMetrics';
+import { getPerformanceProfile } from '@app/utils/performanceProfile';
 
 type TPdfDocumentLoadState = TaggedUnion<'status', {
     idle: { version: number };
@@ -568,6 +569,10 @@ export const createPdfDocumentSession = (options: ICreatePdfDocumentSessionOptio
         activeRasterScheduler = ensurePdfPageRasterScheduler(document, {
             documentFence: captureFence(),
             leasePage,
+            // Keep the existing two-render ceiling for normal hosts. Low and
+            // software profiles still reduce it to one before native PDF.js
+            // surfaces can overlap and multiply their memory cost.
+            maxConcurrency: Math.min(2, getPerformanceProfile().concurrentPdfRenders),
         });
         numPages.value = document.numPages;
         await primeInitialPageMetrics(document, version);

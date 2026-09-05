@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
+import { appendFileSync } from 'node:fs';
 import {
-    appendFile,
     copyFile,
     mkdir,
     realpath,
@@ -12,6 +12,7 @@ import {
     resolve,
 } from 'node:path';
 import { runWithElectronE2EDeadline } from '@tests/e2e/electron/helpers/electronE2ESessionFailure';
+import { startE2ESharedRenderer } from '@scripts/electron-run/electronRunE2ESharedRenderer';
 import { collectStressAppState } from '@scripts/stress/stressAppState';
 import {
     buildStressCalibrationRecord,
@@ -121,7 +122,8 @@ function createLogger(runDir: string | null) {
         const stamped = `[+${((Date.now() - startedAt) / 1000).toFixed(1)}s] ${line}`;
         console.log(stamped);
         if (runDir) {
-            void appendFile(join(runDir, 'run.log'), `${stamped}\n`).catch(() => {});
+            // Persist each step before returning or exiting the CLI.
+            appendFileSync(join(runDir, 'run.log'), `${stamped}\n`);
         }
     };
 }
@@ -527,9 +529,16 @@ export async function runStress(argv: readonly string[]) {
         log,
     };
 
+    let rendererStartup: ReturnType<typeof startE2ESharedRenderer> | null = null;
+    let interrupted = false;
+    const stopRenderer = async () => {
+        const renderer = await rendererStartup?.catch(() => null);
+        await renderer?.stop();
+    };
     const onInterrupt = () => {
+        interrupted = true;
         log('interrupted; stopping the active Electron session');
-        void (context.activeSession?.stop() ?? Promise.resolve()).finally(() => {
+        void (context.activeSession?.stop() ?? Promise.resolve()).finally(stopRenderer).finally(() => {
             void writeStressRunJson(runDir, run).finally(() => process.exit(130));
         });
     };
@@ -538,6 +547,12 @@ export async function runStress(argv: readonly string[]) {
 
     try {
         try {
+            rendererStartup = startE2ESharedRenderer();
+            const renderer = await rendererStartup;
+            if (interrupted) {
+                return 130;
+            }
+            log(`shared renderer ${renderer.sessionName} ready at http://127.0.0.1:${renderer.port}/electron`);
             context.activeSession = await startStressSession('calibration', profile, log);
             run.calibration = await calibrate(context.activeSession, fixtures, log);
         } catch (error) {
@@ -614,8 +629,12 @@ export async function runStress(argv: readonly string[]) {
         }
         return run.verdict === 'passed' ? 0 : 1;
     } finally {
-        process.off('SIGINT', onInterrupt);
-        process.off('SIGTERM', onInterrupt);
+        try {
+            await stopRenderer();
+        } finally {
+            process.off('SIGINT', onInterrupt);
+            process.off('SIGTERM', onInterrupt);
+        }
     }
 }
 

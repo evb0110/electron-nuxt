@@ -976,6 +976,7 @@ export function ensurePdfPageRasterScheduler(
     options: {
         documentFence: IPdfRasterDocumentFence;
         leasePage: ICreatePdfPageRasterSchedulerOptions['leasePage'];
+        maxConcurrency?: number | undefined;
     },
 ) {
     const existing = pdfDocumentRasterSchedulers.get(document);
@@ -985,6 +986,7 @@ export function ensurePdfPageRasterScheduler(
     const scheduler = createPdfPageRasterScheduler({
         documentFence: options.documentFence,
         leasePage: options.leasePage,
+        maxConcurrency: options.maxConcurrency,
     });
     pdfDocumentRasterSchedulers.set(document, scheduler);
     return scheduler;
