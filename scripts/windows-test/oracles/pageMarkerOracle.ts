@@ -10,6 +10,7 @@ import {
 } from '@scripts/windows-test/oracles/pdfjsNodeRuntime';
 import {evaluateOcrPageMarkers} from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
 import type { TOcrProcessRunner } from '@scripts/windows-test/oracles/ocrPageMarkerOracle';
+import {collectMarkerFailures} from '@scripts/windows-test/oracles/collectMarkerFailures';
 
 export const PAGE_MARKER_ORACLE_ID = 'page-markers';
 
@@ -79,30 +80,14 @@ export async function evaluatePageMarkers(
             observations: { bytes: bytes.byteLength },
         });
     }
-    const failures: string[] = [];
-    if (observations.length !== expectation.expectedMarkers.length) {
-        failures.push(
-            `document has ${observations.length} pages but ${expectation.expectedMarkers.length} markers were expected`,
-        );
-    }
-    expectation.expectedMarkers.forEach((marker, index) => {
-        const observation = observations[index];
-        if (observation === undefined) {
-            failures.push(`page ${index + 1} is missing, expected marker ${marker}`);
-            return;
-        }
-        if (!observation.text.includes(marker)) {
-            failures.push(
-                `page ${index + 1} does not carry ${marker}; extracted ${JSON.stringify(observation.text.slice(0, 80))}`,
-            );
-        }
-    });
-    const wholeDocumentText = observations.map(observation => observation.text).join('\n');
-    for (const forbidden of expectation.forbiddenMarkers ?? []) {
-        if (wholeDocumentText.includes(forbidden)) {
-            failures.push(`forbidden marker ${forbidden} is present`);
-        }
-    }
+    const failures = collectMarkerFailures(
+        observations,
+        expectation.expectedMarkers,
+        expectation.forbiddenMarkers,
+        (marker, observation, index) => observation.text.includes(marker)
+            ? undefined
+            : `page ${index + 1} does not carry ${marker}; extracted ${JSON.stringify(observation.text.slice(0, 80))}`,
+    );
     return createOracleResult({
         oracleId: PAGE_MARKER_ORACLE_ID,
         oracleVersion: PAGE_MARKER_ORACLE_VERSION,

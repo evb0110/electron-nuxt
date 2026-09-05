@@ -1,4 +1,3 @@
-import { createCanvas } from '@napi-rs/canvas';
 import type { IOracleResult } from '@scripts/windows-test/oracles/oracleResult';
 import {
     createOracleResult,
@@ -8,6 +7,7 @@ import {
     isPdfjsRuntimeUnavailable,
     loadPdfjsDocument,
 } from '@scripts/windows-test/oracles/pdfjsNodeRuntime';
+import {withRenderedPdfPage} from '@scripts/windows-test/oracles/withRenderedPdfPage';
 
 export const RENDER_BLANK_ORACLE_ID = 'render-nonblank';
 
@@ -38,13 +38,6 @@ export interface IRenderBlankExpectation {
     maxMaskDivergence?: number;
 }
 
-function castRenderSurface<T>(value: object) {
-    // @napi-rs/canvas implements the parts of the DOM canvas surface PDF.js
-    // touches, but it does not declare the DOM types, so the render call needs
-    // the structural handoff.
-    return value as T;
-}
-
 export async function renderPageObservations(
     bytes: Uint8Array,
     expectation: IRenderBlankExpectation,
@@ -55,53 +48,48 @@ export async function renderPageObservations(
         const observations: IRenderedPageObservation[] = [];
         for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
             const page = await document.getPage(pageNumber);
-            const viewport = page.getViewport({ scale });
-            const width = Math.max(1, Math.ceil(viewport.width));
-            const height = Math.max(1, Math.ceil(viewport.height));
-            const canvas = createCanvas(width, height);
-            const context = canvas.getContext('2d');
-            context.fillStyle = '#ffffff';
-            context.fillRect(0, 0, width, height);
-            await page.render({
-                canvas: castRenderSurface<HTMLCanvasElement>(canvas),
-                canvasContext: castRenderSurface<CanvasRenderingContext2D>(context),
-                viewport,
-            }).promise;
-            const pixels = context.getImageData(0, 0, width, height).data;
-            const cellInk = new Array<number>(RENDER_MASK_COLUMNS * RENDER_MASK_ROWS).fill(0);
-            let inkPixels = 0;
-            let luminanceTotal = 0;
-            for (let offset = 0; offset < pixels.length; offset += 4) {
-                const luminance = ((pixels[offset] ?? 255) * 0.2126)
-                    + ((pixels[offset + 1] ?? 255) * 0.7152)
-                    + ((pixels[offset + 2] ?? 255) * 0.0722);
-                luminanceTotal += luminance;
-                if (luminance >= INK_LUMINANCE_CEILING) {
-                    continue;
-                }
-                inkPixels += 1;
-                const pixelIndex = offset / 4;
-                const column = Math.min(
-                    RENDER_MASK_COLUMNS - 1,
-                    Math.floor(((pixelIndex % width) / width) * RENDER_MASK_COLUMNS),
-                );
-                const row = Math.min(
-                    RENDER_MASK_ROWS - 1,
-                    Math.floor((Math.floor(pixelIndex / width) / height) * RENDER_MASK_ROWS),
-                );
-                const cellIndex = (row * RENDER_MASK_COLUMNS) + column;
-                cellInk[cellIndex] = (cellInk[cellIndex] ?? 0) + 1;
-            }
-            const pixelCount = width * height;
-            observations.push({
-                pageNumber,
+            const observation = await withRenderedPdfPage(page, scale, ({
+                context,
                 width,
                 height,
-                nonWhiteRatio: inkPixels / pixelCount,
-                meanLuminance: luminanceTotal / pixelCount,
-                inkCells: cellInk.filter(value => value > 0).length,
-                contentMask: cellInk.map(value => (value > 0 ? 1 : 0)),
+            }) => {
+                const pixels = context.getImageData(0, 0, width, height).data;
+                const cellInk = new Array<number>(RENDER_MASK_COLUMNS * RENDER_MASK_ROWS).fill(0);
+                let inkPixels = 0;
+                let luminanceTotal = 0;
+                for (let offset = 0; offset < pixels.length; offset += 4) {
+                    const luminance = ((pixels[offset] ?? 255) * 0.2126)
+                        + ((pixels[offset + 1] ?? 255) * 0.7152)
+                        + ((pixels[offset + 2] ?? 255) * 0.0722);
+                    luminanceTotal += luminance;
+                    if (luminance >= INK_LUMINANCE_CEILING) {
+                        continue;
+                    }
+                    inkPixels += 1;
+                    const pixelIndex = offset / 4;
+                    const column = Math.min(
+                        RENDER_MASK_COLUMNS - 1,
+                        Math.floor(((pixelIndex % width) / width) * RENDER_MASK_COLUMNS),
+                    );
+                    const row = Math.min(
+                        RENDER_MASK_ROWS - 1,
+                        Math.floor((Math.floor(pixelIndex / width) / height) * RENDER_MASK_ROWS),
+                    );
+                    const cellIndex = (row * RENDER_MASK_COLUMNS) + column;
+                    cellInk[cellIndex] = (cellInk[cellIndex] ?? 0) + 1;
+                }
+                const pixelCount = width * height;
+                return {
+                    pageNumber,
+                    width,
+                    height,
+                    nonWhiteRatio: inkPixels / pixelCount,
+                    meanLuminance: luminanceTotal / pixelCount,
+                    inkCells: cellInk.filter(value => value > 0).length,
+                    contentMask: cellInk.map(value => (value > 0 ? 1 : 0)),
+                };
             });
+            observations.push(observation);
             page.cleanup();
         }
         return observations;

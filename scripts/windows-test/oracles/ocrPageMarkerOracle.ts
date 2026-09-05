@@ -10,6 +10,8 @@ import {
     isPdfjsRuntimeUnavailable,
     loadPdfjsDocument,
 } from '@scripts/windows-test/oracles/pdfjsNodeRuntime';
+import {collectMarkerFailures} from '@scripts/windows-test/oracles/collectMarkerFailures';
+import {withRenderedPdfPage} from '@scripts/windows-test/oracles/withRenderedPdfPage';
 
 const OCR_PAGE_MARKER_LANGUAGE_CODE = (() => {
     const language = AVAILABLE_OCR_LANGUAGES.find(language => language.code === 'eng');
@@ -146,10 +148,6 @@ const defaultProcessRunner: TOcrProcessRunner = (command, args, input, timeoutMs
     child.stdin.end(Buffer.from(input));
 });
 
-function castRenderSurface<T>(value: object) {
-    return value as T;
-}
-
 function markerCrop(width: number, height: number) {
     const x = Math.max(0, Math.floor(width * 0.08));
     const y = Math.max(0, Math.floor(height * 0.10));
@@ -172,42 +170,21 @@ function readOcrText(stdout: string) {
 }
 
 async function renderMarkerCrop(page: unknown) {
-    const pageProxy = page as {
-        getViewport(options: {scale: number}): {
-            width: number;
-            height: number
-        };
-        render(options: {
-            canvas: HTMLCanvasElement;
-            canvasContext: CanvasRenderingContext2D;
-            viewport: {
-                width: number;
-                height: number
-            };
-        }): {promise: Promise<void>};
-        cleanup(): void;
-    };
-    const viewport = pageProxy.getViewport({scale: OCR_RENDER_SCALE});
-    const width = Math.max(1, Math.ceil(viewport.width));
-    const height = Math.max(1, Math.ceil(viewport.height));
-    const canvas = createCanvas(width, height);
-    const context = canvas.getContext('2d');
-    context.fillStyle = '#ffffff';
-    context.fillRect(0, 0, width, height);
-    await pageProxy.render({
-        canvas: castRenderSurface<HTMLCanvasElement>(canvas),
-        canvasContext: castRenderSurface<CanvasRenderingContext2D>(context),
-        viewport,
-    }).promise;
-    const crop = markerCrop(width, height);
-    const cropCanvas = createCanvas(crop.width, crop.height);
-    const cropContext = cropCanvas.getContext('2d');
-    cropContext.putImageData(
-        context.getImageData(crop.x, crop.y, crop.width, crop.height),
-        0,
-        0,
-    );
-    return cropCanvas.toBuffer('image/png');
+    return withRenderedPdfPage(page, OCR_RENDER_SCALE, ({
+        context,
+        width,
+        height,
+    }) => {
+        const crop = markerCrop(width, height);
+        const cropCanvas = createCanvas(crop.width, crop.height);
+        const cropContext = cropCanvas.getContext('2d');
+        cropContext.putImageData(
+            context.getImageData(crop.x, crop.y, crop.width, crop.height),
+            0,
+            0,
+        );
+        return cropCanvas.toBuffer('image/png');
+    });
 }
 
 export async function extractOcrPageMarkers(
@@ -275,30 +252,14 @@ export async function evaluateOcrPageMarkers(
             observations: {bytes: bytes.byteLength},
         });
     }
-    const failures: string[] = [];
-    if (observations.length !== expectation.expectedMarkers.length) {
-        failures.push(
-            `document has ${observations.length} pages but ${expectation.expectedMarkers.length} markers were expected`,
-        );
-    }
-    expectation.expectedMarkers.forEach((marker, index) => {
-        const observation = observations[index];
-        if (observation === undefined) {
-            failures.push(`page ${index + 1} is missing, expected marker ${marker}`);
-            return;
-        }
-        if (observation.text !== marker) {
-            failures.push(
-                `page ${index + 1} OCR marker ${JSON.stringify(observation.text)} does not exactly match ${marker}`,
-            );
-        }
-    });
-    const wholeDocumentText = observations.map(observation => observation.text).join('\n');
-    for (const forbidden of expectation.forbiddenMarkers ?? []) {
-        if (wholeDocumentText.includes(forbidden)) {
-            failures.push(`forbidden marker ${forbidden} is present`);
-        }
-    }
+    const failures = collectMarkerFailures(
+        observations,
+        expectation.expectedMarkers,
+        expectation.forbiddenMarkers,
+        (marker, observation, index) => observation.text === marker
+            ? undefined
+            : `page ${index + 1} OCR marker ${JSON.stringify(observation.text)} does not exactly match ${marker}`,
+    );
     return createOracleResult({
         oracleId: 'page-markers',
         oracleVersion: OCR_PAGE_MARKER_ORACLE_VERSION,
