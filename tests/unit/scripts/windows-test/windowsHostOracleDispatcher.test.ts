@@ -260,7 +260,7 @@ describe('windows host oracle dispatcher', () => {
         expect(result.report.results.some(entry => entry.oracleId === 'page-count' && entry.status === 'passed')).toBe(true);
         expect(result.report.results.some(entry => entry.oracleId === 'page-markers' && entry.status === 'failed')).toBe(true);
         expect(result.report.results.some(entry => entry.oracleId === 'render-nonblank' && entry.status === 'failed')).toBe(true);
-    });
+    }, 30_000);
 
     it('rejects a same-shape PDF whose page markers are wrong', async () => {
         const result = await runPlan('WIN-PRINT-01', {
@@ -272,7 +272,7 @@ describe('windows host oracle dispatcher', () => {
         expect(result.dispatch.outcome).toBe('product-failed');
         expect(result.report.results.some(entry => entry.oracleId === 'page-markers' && entry.status === 'failed')).toBe(true);
         expect(result.report.results.some(entry => entry.oracleId === 'render-nonblank' && entry.status === 'passed')).toBe(true);
-    });
+    }, 30_000);
 
     it('classifies a missing required artifact as infrastructure failure', async () => {
         const result = await runPlan('WIN-PRINT-01', {

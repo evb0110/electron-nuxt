@@ -54,6 +54,9 @@ const allTs7Projects = [
     'tsconfig.scripts-js.json',
     'server/tsconfig.json',
 ];
+// ESLint holds one TypeScript program per tsconfig in the flat config, and the
+// tests program alone types 1300+ files, so the peak lives above 6 GB.
+const eslintNodeHeapMb = 8192;
 const heavyGateDefaultWaitMs = 30 * 60_000;
 const validationCacheSchemaVersion = 1;
 const validationCacheRootOnlyDirectories = new Set([
@@ -1441,7 +1444,7 @@ async function runLint(argv) {
             ...(!noCache ? {cachePath: cachePaths.eslint} : {}),
             additionalInputPaths: relevantFiles,
             cacheable: true,
-            env: withNodeHeap(process.env, 6144),
+            env: withNodeHeap(process.env, eslintNodeHeapMb),
             heavyWeight: full ? (eslintCacheWarm ? 1 : 2) : 0,
             inputScope: 'lint',
             weight: full ? (eslintCacheWarm ? 1 : 2) : 1,

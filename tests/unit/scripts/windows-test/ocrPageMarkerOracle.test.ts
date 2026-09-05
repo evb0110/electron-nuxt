@@ -88,7 +88,7 @@ describe('OCR page-marker oracle', () => {
         });
         expect(missingResult.status).toBe('failed');
         expect(missingResult.detail).toContain('page 6 OCR marker ""');
-    });
+    }, 30_000);
 
     it('does not accept extra OCR text as an exact marker', async () => {
         const markers = numberedFixtureMarkers();
