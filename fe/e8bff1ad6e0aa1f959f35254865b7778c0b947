@@ -1,0 +1,277 @@
+tests/unit/scripts/windows-test/hostStopRun.test.ts
+  s_dce5cb16f63961::t_45cee9efe98761 22-25,35,37-40,45-49,149-153,265-277,279-295,297-299
+  s_dce5cb16f63961::t_17e52cbd6d421e 278,296
+  s_dce5cb16f63961::t_3b9dbd8de2f76e 300
+scripts/windows-test/oracles/verifyGeneratedPdfWrapper.ts
+  s_dce5cb16f63961::t_45cee9efe98761 134-142
+scripts/windows-test/images/createTestClone.ts
+  s_dce5cb16f63961::t_a094c7f9b12711 15,174-184
+  s_dce5cb16f63961::t_cb2028fded7a46 1-14,16-173,185
+scripts/windows-test/cli/runWindowsTestDoctorCli.ts
+  s_dce5cb16f63961::t_45cee9efe98761 13-14,47
+scripts/windows-test/guest/bundleGuestWorker.ts
+  s_dce5cb16f63961::t_45cee9efe98761 62,64-69,97-100
+scripts/windows-test/guest/cases/caseSupport.ts
+  s_dce5cb16f63961::t_45cee9efe98761 11-12,42-63
+  s_dce5cb16f63961::t_d09f87080df637 64-65
+scripts/windows-test/guest/guestWorker.ts
+  s_dce5cb16f63961::t_e6387e44435501 491-492
+  s_dce5cb16f63961::t_4435383b8ba9f1 734-735,747-748,784-787
+  s_dce5cb16f63961::t_45cee9efe98761 10,39-42,84-87,279-291,295-298,300,302-304,345,429-432,459-485,678-685,717-719,727-729,743,745,749
+  s_dce5cb16f63961::t_fc63508580bb88 433-458
+  s_dce5cb16f63961::t_b5134e42de42b1 317,319-323
+  s_dce5cb16f63961::t_0b6563ffd8413b 292-294,299,301,305-315
+  s_dce5cb16f63961::t_b08cc0288999b7 318,324-343,694,705,708
+  s_dce5cb16f63961::t_b82e7cb6736b34 316,686-687,706-707
+tests/unit/scripts/windows-test/hostConfig.test.ts
+  s_dce5cb16f63961::t_e38566d7022b4d 56-58
+  s_dce5cb16f63961::t_45cee9efe98761 100-109
+docs/windows-tests/setup-and-repair.md
+  s_dce5cb16f63961::t_45cee9efe98761 32,44-45,47-54,60,76-81,86-97,112-118,128-133,137-162,165-177,187-190
+  s_dce5cb16f63961::t_17c0f485425a92 82-84
+  s_dce5cb16f63961::t_766f8a36f9940d 46
+  s_dce5cb16f63961::t_6f92379178612c 85
+scripts/windows-test/images/vmIdentityGuard.ts
+  s_dce5cb16f63961::t_45cee9efe98761 5,7,28-31,47-48,51-53,55-59,165
+  s_dce5cb16f63961::t_d04ffaa4683956 49-50,159-164,166-203
+  s_dce5cb16f63961::t_380f88e2119a0f 204
+scripts/windows-test/oracles/windowsHostOracleDispatcher.ts
+  s_dce5cb16f63961::t_c8e0e4342a8ab7 421-426,428-430,439-444
+  s_dce5cb16f63961::t_1ac2c18fa5d7f6 641-643
+  s_dce5cb16f63961::t_a331c57afa5062 451,669-673
+  s_dce5cb16f63961::t_2cb7ef41128ce8 19
+  s_dce5cb16f63961::t_1e76845eb3394e 470-484
+  s_dce5cb16f63961::t_d4e8bd7719505e 333-341,456-457
+  s_dce5cb16f63961::t_013a69bcc25b4f 599-604,611
+  s_dce5cb16f63961::t_746ac3a2210c80 217
+  s_dce5cb16f63961::t_5720dd4e967c7b 660-662
+  s_dce5cb16f63961::t_9743043efc0a8a 50,75,420
+  s_dce5cb16f63961::t_6c94d07e98b569 1-18,20-49,51-74,76-134,139-216,218-332,342-354,357-419,427,431-438,445-450,452-455,458-469,485-504,511-598,605-610,612-640,644-659,663-668,674-744
+  s_dce5cb16f63961::t_4a27d544fd0988 135-138,355-356
+  s_dce5cb16f63961::t_e443710033b1af 505-510
+tests/unit/scripts/windows-test/hostDoctor.test.ts
+  s_dce5cb16f63961::t_440191dfa71fda 185
+  s_dce5cb16f63961::t_6b16f5fdc5a1a0 10,268-282
+  s_dce5cb16f63961::t_45cee9efe98761 5,24,159-179,187-188,217-227,242,244-245,260-267,283,317-328
+  s_dce5cb16f63961::t_f55b2f4498db79 180-184,186,243
+  s_bc2aa2f16622bc::t_c88f17a0dff026 284,329
+tests/unit/scripts/windows-test/hostCoordinator.test.ts
+  s_dce5cb16f63961::t_d58493369d20f1 495,507-508
+  s_dce5cb16f63961::t_10c52850cd3466 256-259
+  s_dce5cb16f63961::t_a852bf638569db 492-493
+  s_dce5cb16f63961::t_23f3c5f40a30e9 355
+  s_dce5cb16f63961::t_45cee9efe98761 354,365-367,384,418-422,461,488,650,718-725
+  s_dce5cb16f63961::t_ba4fed5f1e151c 434-438
+  s_dce5cb16f63961::t_19972e3d6e358a 433
+  s_dce5cb16f63961::t_70b96eca91dc0c 491,494,496-506,509-519,648
+  s_dce5cb16f63961::t_7860cc0112c3d6 654
+  s_dce5cb16f63961::t_f0ce4b49b6d850 489-490
+  s_dce5cb16f63961::t_f862b2b47bd836 645-647
+  s_dce5cb16f63961::t_f145be650faaa8 649
+  s_dce5cb16f63961::t_480d0568914998 651-653
+  s_dce5cb16f63961::t_e37cdf10227939 655-656
+  s_dce5cb16f63961::t_14e1d57707eba2 726-728
+  s_502d6a03bdb684::t_2f2d8645fcb778 641-644
+docs/research/utm-windows-autotest-implementation-ledger-2026-09-04.md
+  s_dce5cb16f63961::t_766f8a36f9940d 421
+  s_dce5cb16f63961::t_d9d28da00ab60c 428,434-443,445
+  s_dce5cb16f63961::t_59c2305ebbb93d 430-433
+  s_dce5cb16f63961::t_91dd0acad58aed 444
+  s_dce5cb16f63961::t_45cee9efe98761 13-14,32-33,295-297,397-420,422-427,429
+  s_dce5cb16f63961::t_35a701174e7995 446
+scripts/windows-test/host/doctor.ts
+  s_dce5cb16f63961::t_58f18041121546 17-20,332-334,338-339,363-371
+  s_dce5cb16f63961::t_45cee9efe98761 5-6,36-70,157-158,160,162-165,224,239,321-331,340-361
+  s_dce5cb16f63961::t_67b955ddb806a5 335-337
+  s_dce5cb16f63961::t_de248ba815fd41 362
+tests/unit/scripts/windows-test/guestWorker.test.ts
+  s_dce5cb16f63961::t_5a4f223513ce8c 206-210,213,335-357
+  s_dce5cb16f63961::t_4cf67e0e0b9fe8 288-305
+  s_dce5cb16f63961::t_b2e68fa2ca6f64 221,420,423-425,434
+  s_dce5cb16f63961::t_926448973f4cd3 281,286-287,306-331,333-334
+  s_dce5cb16f63961::t_45cee9efe98761 220,222-227,517,519-524
+  s_dce5cb16f63961::t_dca3b07e6e8840 262
+  s_dce5cb16f63961::t_8ade05f254c47b 282-285
+  s_dce5cb16f63961::t_b5134e42de42b1 332
+  s_dce5cb16f63961::t_209d83c6029290 358
+scripts/windows-test/host/runCoordinator.ts
+  s_dce5cb16f63961::t_aa3c4b86124c25 247,748,810,816
+  s_dce5cb16f63961::t_2137b7e53dfc27 749,751-756,758-776
+  s_dce5cb16f63961::t_bbe590e3c93ab0 843-849
+  s_dce5cb16f63961::t_fc701c894304c8 596-603
+  s_dce5cb16f63961::t_4f05cf5233839e 102-115,139,225
+  s_dce5cb16f63961::t_12a22287c10105 138
+  s_dce5cb16f63961::t_5b1adb4e239371 747,750,757
+  s_dce5cb16f63961::t_38bcbbc7956eb9 59,187,197
+  s_dce5cb16f63961::t_45cee9efe98761 39,97-98,136-137,196,198-224,441-472,508-512,542-543,549-562,567-570,575,582-584,604,619-629,632,640,809,815,817-825,829-841,850
+  s_dce5cb16f63961::t_053e2d776981fa 226,777
+tests/unit/scripts/windows-test/imagesManifest.test.ts
+  s_dce5cb16f63961::t_45cee9efe98761 149-169
+tests/unit/scripts/windows-test/oraclesRegistry.test.ts
+  s_dce5cb16f63961::t_45cee9efe98761 221-235,340,354
+scripts/windows-test/guest/cases/printCases.ts
+  s_dce5cb16f63961::t_45cee9efe98761 24,102,134-139,145,190-195,220,337-342
+scripts/windows-test/contracts/windowsTestPaths.ts
+  s_dce5cb16f63961::t_45cee9efe98761 95,98
+tests/unit/scripts/windows-test/hostGuestProtocolIntegration.test.ts
+  s_dce5cb16f63961::t_7860cc0112c3d6 272
+  s_dce5cb16f63961::t_fdf2e1249cea1b 347,350-354,385
+  s_dce5cb16f63961::t_1ecf9873b4789a 1-185,190-271,273-346,348-349,355-384,386-473,479-501,503-519
+  s_dce5cb16f63961::t_7a7dae6e610ffc 187,502
+  s_dce5cb16f63961::t_30d5a10a13d931 186,188-189
+  s_dce5cb16f63961::t_ba4fed5f1e151c 474-478
+scripts/windows-test/guest/powershell/register-worker-logon-task.ps1
+  s_dce5cb16f63961::t_45cee9efe98761 20-21,36
+tests/unit/scripts/windows-test/imagesIdentityGuard.test.ts
+  s_dce5cb16f63961::t_d04ffaa4683956 23
+  s_dce5cb16f63961::t_45cee9efe98761 41-51,92,166-176,178-201,219-223,233
+  s_dce5cb16f63961::t_17e52cbd6d421e 177,202-218
+scripts/windows-test/host/stopRun.ts
+  s_dce5cb16f63961::t_45cee9efe98761 26,64-65,68-70,72-73,81-82,84-85
+  s_dce5cb16f63961::t_17e52cbd6d421e 66-67,71,74-80,83
+package.json
+  s_dce5cb16f63961::t_45cee9efe98761 132
+scripts/windows-test/host/guestChannel.ts
+  s_dce5cb16f63961::t_bd1f2ad66e2403 52-61,64,110-121
+  s_b412fd4cd3f576::t_c05f4b5779ca5f 122
+scripts/windows-test/guest/cases/saveCases.ts
+  s_dce5cb16f63961::t_45cee9efe98761 9,11,35,93-97,147,150,213-218,224,302,306-312,318-320,324-325,381-391
+  s_dce5cb16f63961::t_1cb2e84672ad63 22-25,246,248,303-305
+scripts/windows-test/host/hostConfig.ts
+  s_dce5cb16f63961::t_8fa9a6008f6f7f 207-208
+  s_dce5cb16f63961::t_45cee9efe98761 202-203,216,236
+  s_dce5cb16f63961::t_3aee128b7e405a 204
+tests/unit/scripts/windows-test/windowsHostOracleDispatcher.test.ts
+  s_dce5cb16f63961::t_03e894ec36cc8a 31,288-291
+  s_dce5cb16f63961::t_f2ccde13506138 295-300
+  s_dce5cb16f63961::t_e4ead30e18e387 1-9,11-17,21-27,29-30,32-121,123-136,141-156,163-175,180-186,199-287,292-293,330
+  s_dce5cb16f63961::t_01e46451a72a06 10,18-20,122,137-140,157-162,176-179,187-198
+  s_dce5cb16f63961::t_1099211d92e2aa 333-346
+  s_dce5cb16f63961::t_6d2c0771df529a 301-319
+  s_dce5cb16f63961::t_e8a3993154d400 28,294,320-329,331-332,347
+scripts/windows-test/host/hostRunner.ts
+  s_dce5cb16f63961::t_4c3fed6963a0e7 60,300-308
+  s_dce5cb16f63961::t_6336dfbb3f1c0e 61,296-299
+  s_dce5cb16f63961::t_45cee9efe98761 49-52,69-133,164-170,244-251,295
+  s_dce5cb16f63961::t_4e72b4c80fd493 22
+scripts/windows-test/guest/guestWorkerMain.ts
+  s_dce5cb16f63961::t_ad380a89cae69e 82-83,85
+  s_dce5cb16f63961::t_45cee9efe98761 1,28,81,84,86,88
+scripts/windows-test/host/resultValidation.ts
+  s_dce5cb16f63961::t_45cee9efe98761 27,219-230
+tests/unit/scripts/windows-test/createTestClone.test.ts
+  s_dce5cb16f63961::t_4e4bc7afb91963 1-205
+scripts/windows-test/guest/cases/caseContext.ts
+  s_dce5cb16f63961::t_56ff45f7324834 149-156
+  s_dce5cb16f63961::t_45cee9efe98761 83-84,109-124,137,139-148,157-159,161
+tests/unit/scripts/windows-test/casesRegistry.test.ts
+  s_dce5cb16f63961::t_eb13b668c059ae 223-228
+  s_dce5cb16f63961::t_7de0da2fb97338 220-222,229-240
+docs/agents/utm-windows-tests.md
+  s_dce5cb16f63961::t_45cee9efe98761 15,24-25
+tests/unit/scripts/windows-test/guestWorkerRuntime.test.ts
+  s_dce5cb16f63961::t_45cee9efe98761 244-247
+scripts/windows-test/guest/cases/uiToolsCases.ts
+  s_dce5cb16f63961::t_45cee9efe98761 13,15,35,39,99-103
+tests/unit/scripts/windows-test/casesEndToEnd.test.ts
+  s_dce5cb16f63961::t_b691d1f9463295 766,768-791
+  s_dce5cb16f63961::t_45cee9efe98761 15-16,58-59,206-207,229-230
+  s_dce5cb16f63961::t_7f723e202ee379 767
+  s_dce5cb16f63961::t_e15ce1b5f49be8 792-793
+tests/unit/scripts/windows-test/hostResultValidation.test.ts
+  s_dce5cb16f63961::t_530467ba6cefab 260
+  s_dce5cb16f63961::t_45cee9efe98761 257-259,261-266
+scripts/windows-test/images/vmBundleLocator.ts
+  s_dce5cb16f63961::t_45cee9efe98761 13-16,18-20,30,33,42-52
+scripts/windows-test/oracles/sourceIsolationOracle.ts
+  s_dce5cb16f63961::t_45cee9efe98761 20-21,64-68,92-94,98-99
+tests/unit/scripts/packageScripts.test.ts
+  s_dce5cb16f63961::t_d4bde21b7ced2a 161,178-179
+scripts/windows-test/host/prepareWindowsTestHost.ts
+  s_dce5cb16f63961::t_a6b9d2f8882e54 101-113,115-116
+  s_dce5cb16f63961::t_629da5a5b632a2 114
+  s_dce5cb16f63961::t_67b955ddb806a5 1-13,18-100,117-132
+  s_dce5cb16f63961::t_7a3f9710770e6f 14-17
+tests/unit/scripts/windows-test/hostUtmctl.test.ts
+  s_dce5cb16f63961::t_264d60be3f79b7 19,235-256
+  s_b412fd4cd3f576::t_cca91e84623cba 257
+tests/unit/scripts/windows-test/hostCapabilityRegistry.test.ts
+  s_dce5cb16f63961::t_45cee9efe98761 176-183
+scripts/stress/stressCalibration.ts
+  s_dce5cb16f63961::t_55a33c21cede20 25
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_dce5cb16f63961::t_67b955ddb806a5 1-3,5-27,29-68,70-78,98
+  s_dce5cb16f63961::t_63bdd1033bbbad 28,69,87,95
+  s_dce5cb16f63961::t_7a3f9710770e6f 4,79-86,88-94,96-97
+scripts/windows-test/host/capabilityRegistry.ts
+  s_dce5cb16f63961::t_66994a48a7c389 8-9
+  s_dce5cb16f63961::t_45cee9efe98761 20-23,49,59-70
+scripts/windows-test/guest/native-ui/winappCliAdapter.ts
+  s_dce5cb16f63961::t_f6bb265532f9cd 566-570,620,958
+  s_dce5cb16f63961::t_f58a1d72d6865c 445-458,765-773,899-908
+  s_dce5cb16f63961::t_ff7c2341726e69 804
+  s_dce5cb16f63961::t_fcd85869e89d43 709-714
+  s_dce5cb16f63961::t_56d16baeae2865 279,805
+  s_dce5cb16f63961::t_b733bb9bb41b20 33-35,37-43,46,50,54,57-59,62,359-366,684-687,690-693,704-707,716-719
+  s_dce5cb16f63961::t_b96ab54fac5335 470-479,653,760-764,825,846,895-898,975-976,987,990,993,999,1001-1010
+  s_dce5cb16f63961::t_a91f4fd25e9e52 22-23,28-30,67-69,71-73,75-157,162-169,172-195,197-199,201-222,226-252,254-274,276-278,280-286,288-358,367-377,379-387,393,404-405,417,419-421,423-430,438-444,459-469,480-565,571-619,621-628,637-643,651-652,654,660-673,675-683,688-689,695-698,701-703,708,715,720-724,727-759,774-797,806-807,809-824,826,828-845,847-848,850,853-854,857-860,868,872-875,883-888,890-894,909-934,942-943,945,947-951,959-974,978-980,982-984,986,988-989,991-992,994,1000,1030-1035
+tests/unit/scripts/windows-test/nativeUiAdapters.test.ts
+  s_dce5cb16f63961::t_0568fbc8a858a6 19-20,22-26,28-30
+  s_dce5cb16f63961::t_b485a4b52743c7 529-537,552,555-583,587-590,592-593
+  s_dce5cb16f63961::t_d90380ce41abdc 249,594,628-637,642,645,649,672,677-712,738-744,746-770,821,841-858
+  s_dce5cb16f63961::t_8a248b0acffffb 177-198,201,204-212,214-215,217-219,224,251-277,282-300
+  s_dce5cb16f63961::t_8c14044c9bbcfb 225-248,542,547,591,745
+  s_dce5cb16f63961::t_a036663605e9e0 220-221,278-281,495-524,638-641,643-644,646-648,650-671,673-676,713-737
+  s_dce5cb16f63961::t_ae959b3e34d1b0 223
+  s_dce5cb16f63961::t_5b84f5375321e4 377,380-406,771-820,823-840
+  s_dce5cb16f63961::t_caf3a69e7c8a54 213
+  s_dce5cb16f63961::t_c4013d50ac93a6 407-451,454-493
+  s_dce5cb16f63961::t_990ac451321a2a 222
+  s_dce5cb16f63961::t_fc15c8bced98a9 320,323-345,352-355,364,366-367,369-373
+  s_dce5cb16f63961::t_69050a37b70dd4 822
+  s_dce5cb16f63961::t_d391223f0c50c1 250,494,595
+scripts/windows-test/cli/runWindowsTestPrepareCli.ts
+  s_dce5cb16f63961::t_01058d2afa8201 1-46
+tests/unit/scripts/windows-test/hostRunner.test.ts
+  s_dce5cb16f63961::t_f1f20899c43b0e 1-99
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fee8bff1ad6e0aa1f959f35254865b7778c0b947",
+  "prompts": {},
+  "sessions": {
+    "s_502d6a03bdb684": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e7e-aee0-7f92-aa20-b8069cc21f08",
+        "model": "unknown"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bc2aa2f16622bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e50-172a-7fa0-84f6-7eff6b90222a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_dce5cb16f63961": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e51-7a49-77b2-8efa-6de7e66c342c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+tests/unit/scripts/deployVercelPrivate.test.ts
+  s_b412fd4cd3f576::t_3386cbe295e61d 128-131
+  s_b412fd4cd3f576::t_ce529a9ad4eeda 941,945-963,969-981
+  s_b412fd4cd3f576::t_293abe371d6976 964-968
+  s_b412fd4cd3f576::t_cee5be0cb0d9e0 127,132,234-238,889
+  s_b412fd4cd3f576::t_f0d7efa8bbba11 126
+  s_b412fd4cd3f576::t_4eaf1f6772ab7d 942-944
+scripts/deployVercelPrivate.mjs
+  s_b412fd4cd3f576::t_cee5be0cb0d9e0 47,56,960
+scripts/promoteLandingVercelOutput.mjs
+  s_b412fd4cd3f576::t_cee5be0cb0d9e0 1-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "c5f1e7b0ef8e4781541d12f8cf3526ed78d37f64",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

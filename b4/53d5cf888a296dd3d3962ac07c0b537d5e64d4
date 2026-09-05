@@ -1,0 +1,20 @@
+tests/unit/scripts/windows-test/hostPreparation.test.ts
+  s_dce5cb16f63961::t_07f859f4efa1f5 16,18,28,102-119,121-135
+  s_dce5cb16f63961::t_df45595aeee51a 120
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "b453d5cf888a296dd3d3962ac07c0b537d5e64d4",
+  "prompts": {},
+  "sessions": {
+    "s_dce5cb16f63961": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e51-7a49-77b2-8efa-6de7e66c342c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

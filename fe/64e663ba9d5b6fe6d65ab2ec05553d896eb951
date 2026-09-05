@@ -1,0 +1,144 @@
+tests/unit/app/modules/pdf-viewer/usePdfViewerVirtualization.test.ts
+  s_0c808a1c79a8cb::t_b64cdbe9625401 143
+  s_0c808a1c79a8cb::t_025278a608bdad 128-132,134-142,144-159,161-171,803
+  s_bc2aa2f16622bc::t_c49f38463cdda7 133,160
+app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.ts
+  s_0c808a1c79a8cb::t_7f72820b1efd7a 38-39,157-163
+  s_0c808a1c79a8cb::t_52ce057f517ebf 164-167
+  s_0c808a1c79a8cb::t_890f2fbef5b502 654,664,785,787
+  s_0c808a1c79a8cb::t_12b80531758bef 84,739
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 786
+  s_b412fd4cd3f576::t_2e0ba5b3d00da6 728
+app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession.ts
+  s_0c808a1c79a8cb::t_7b520e152f8b4b 662
+tests/unit/app/modules/pdf-viewer/pdfNavigationRequestResolver.test.ts
+  s_0c808a1c79a8cb::t_6f27d1f6640422 223
+  s_0c808a1c79a8cb::t_50bac412d25525 229-274,276-284,293-297
+  s_0c808a1c79a8cb::t_fa197bdc48fc93 432-486,489-495
+  s_0c808a1c79a8cb::t_1893a39a14e3c4 275,487-488
+  s_0c808a1c79a8cb::t_f3bbf0aa2661ee 497-515
+  s_0c808a1c79a8cb::t_18c164b627958c 496
+  s_0c808a1c79a8cb::t_fd8639a04a5186 224-227,366-431
+  s_0c808a1c79a8cb::t_9ea4595c52b227 298-365
+  s_0c808a1c79a8cb::t_430f6aadf3a8ed 285-292
+  s_d57a58de884222::t_4335f73c1c690d 228
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 35
+app/modules/pdf-viewer/engine/pdf-search-match-scroller/createPdfSearchMatchScroller.ts
+  s_0c808a1c79a8cb::t_4587402c02b0f4 29
+  s_0c808a1c79a8cb::t_9d81520d7d5e06 75-82,143-145,154
+app/assets/css/pdf-viewer.scss
+  s_0c808a1c79a8cb::t_b64cdbe9625401 414-415
+  s_0c808a1c79a8cb::t_e61fdf355af0e7 407-413,416-418
+app/modules/pdf-viewer/runtime/composables/usePdfViewerRerenderCoordinator.ts
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 462
+  s_0c808a1c79a8cb::t_664de81ef7e736 459-461
+docs/pdf-viewer-architecture.md
+  s_0c808a1c79a8cb::t_1cc240f43efa9c 70-73,75-77
+  s_0c808a1c79a8cb::t_d77e68aceeed1a 74
+tests/unit/app/modules/pdf-viewer/composables/usePdfSearchHighlight.test.ts
+  s_0c808a1c79a8cb::t_21d243e7bab3ec 208-244,247-251
+  s_0c808a1c79a8cb::t_dc1b769ec09f27 245-246
+app/modules/pdf-viewer/engine/viewport/createPageNavigationRequest.ts
+  s_0c808a1c79a8cb::t_af395d775c7780 16
+  s_0c808a1c79a8cb::t_9d81520d7d5e06 17
+app/modules/pdf-viewer/runtime/composables/usePdfViewerVirtualization.ts
+  s_0c808a1c79a8cb::t_e61fdf355af0e7 25,720-726,729
+app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes.ts
+  s_0c808a1c79a8cb::t_1354928496baa8 82
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 83
+tests/unit/app/composables/pdfSearchMatchScroller.test.ts
+  s_0c808a1c79a8cb::t_b440510f719005 115-119,134,138-172
+  s_b412fd4cd3f576::t_95d9f3e4ee8764 173-174
+tests/e2e/electron/searchMatchScrolling.e2e.test.ts
+  s_0c808a1c79a8cb::t_c8750b1f9f1320 728-729,731-733,735-737,739-741,743-745,747-749,751-753,755-759,761-763,765-767,769-771,773-775,777-780,782,866
+  s_0c808a1c79a8cb::t_2987d8ef59af9f 839-848,851-857,888-893,895-896
+  s_0c808a1c79a8cb::t_c37f7b119a71f9 858
+  s_0c808a1c79a8cb::t_e982f59ae62645 692
+  s_0c808a1c79a8cb::t_06b1d0c52dba64 849-850
+  s_0c808a1c79a8cb::t_8fc527d3a70159 870-880
+  s_0c808a1c79a8cb::t_cbc32f8787c7b3 655
+  s_0c808a1c79a8cb::t_1e99b17e2dc175 882-884,886
+  s_0c808a1c79a8cb::t_1bee43172b27a4 786-788
+  s_0c808a1c79a8cb::t_5a03dcdacb2f2c 859
+  s_b412fd4cd3f576::t_ba65aacb1e83c7 5,693-727,730,734,738,742,746,750,754,760,764,768,772,776,781,783-785,789-838,860-865,867-869,881,885,887,894,897-901
+tests/unit/app/modules/pdf-viewer/usePdfViewerRerenderCoordinator.test.ts
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 1706-1737
+  s_0c808a1c79a8cb::t_7b26627920c3c1 1696-1705
+  s_0c808a1c79a8cb::t_beb10863473104 1695
+app/modules/pdf-viewer/runtime/viewport/pdfNavigationRequestResolver.ts
+  s_0c808a1c79a8cb::t_1893a39a14e3c4 119-124
+  s_0c808a1c79a8cb::t_151cbc976eb5ea 29-30,111,113-114,116,118
+  s_0c808a1c79a8cb::t_12f30a602b8ac4 20-28,110,115,117
+  s_0c808a1c79a8cb::t_9d81520d7d5e06 112
+app/modules/pdf-viewer/runtime/viewport/usePdfViewportViewModel.ts
+  s_0c808a1c79a8cb::t_e61fdf355af0e7 123
+docs/research/search-match-navigation-2026-09-05.md
+  s_0c808a1c79a8cb::t_169f67c75678b7 115-125
+  s_0c808a1c79a8cb::t_29592871c6ae02 1-48,50-54,56-58,84-94
+  s_0c808a1c79a8cb::t_58b81bb5064da0 59-62,70-83
+  s_0c808a1c79a8cb::t_cb5ab707bfd9f4 63-69
+  s_0c808a1c79a8cb::t_38ef20fd1dcc8a 95-114
+  s_bc2aa2f16622bc::t_43bd0f653bf9de 49,55
+app/modules/pdf-viewer/engine/search/buildVisualMatchesWithCurrent.ts
+  s_0c808a1c79a8cb::t_a59c801f23f175 129-135,150
+  s_0c808a1c79a8cb::t_2569f0afcf3783 146-147
+  s_0c808a1c79a8cb::t_97a579712e95a2 138,145,148-149,151-156,191
+app/modules/pdf-viewer/engine/search/pdfSearchHighlightDom.ts
+  s_0c808a1c79a8cb::t_9d81520d7d5e06 251,274-280
+tests/unit/app/modules/pdf-viewer/runtime/navigation/usePdfSinglePageNavigationController.test.ts
+  s_0c808a1c79a8cb::t_1c2d83850a2df3 12,212-348,350-359,361,363-376,384-385
+  s_0c808a1c79a8cb::t_45c45a93361fd2 378-383
+  s_0c808a1c79a8cb::t_fd198bd9ce6efa 360,362
+  s_0c808a1c79a8cb::t_3b8d7d90f915f8 349,377,1066-1069,1171-1178
+  s_0c808a1c79a8cb::t_03987f0c2d7d05 386-389,503-630
+  s_a003a75b2b22cf::t_cba4c5c95d6b3e 390,1180
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "fe64e663ba9d5b6fe6d65ab2ec05553d896eb951",
+  "prompts": {},
+  "sessions": {
+    "s_0c808a1c79a8cb": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e75-4bed-7722-8420-a914585d293c",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_a003a75b2b22cf": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "f4b161bb-6504-4449-b6e7-ca74d01418a8",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bc2aa2f16622bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e50-172a-7fa0-84f6-7eff6b90222a",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_d57a58de884222": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e7e-9439-7481-bacd-9ec160ca5f5e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}

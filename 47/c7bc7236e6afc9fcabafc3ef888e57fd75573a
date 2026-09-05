@@ -1,0 +1,31 @@
+tests/unit/scripts/stress/stressMetricsSampler.test.ts
+  s_b412fd4cd3f576::t_a11a868de987eb 1-5,15-18,174-178,180-184,193-196
+  s_bc2aa2f16622bc::t_e2c69ec885d121 6-8,13,165-173,179,185-192,197
+  s_bc2aa2f16622bc::t_8999afde6519d5 198-199
+scripts/stress/stressMetricsSampler.ts
+  s_bc2aa2f16622bc::t_e2c69ec885d121 7,218,220
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.0",
+  "base_commit_sha": "47c7bc7236e6afc9fcabafc3ef888e57fd75573a",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-sol"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_bc2aa2f16622bc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a06e50-172a-7fa0-84f6-7eff6b90222a",
+        "model": "gpt-6-astra"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
