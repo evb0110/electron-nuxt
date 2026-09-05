@@ -748,8 +748,8 @@ async function run() {
         env: {
             ...process.env,
             EVB_ALLOW_MULTI_AUTOMATION_SESSIONS: '1',
-            EVB_AUTOMATION_HIDE_WINDOW: '0',
-            EVB_AUTOMATION_NO_FOCUS: '0',
+            EVB_AUTOMATION_HIDE_WINDOW: '1',
+            EVB_AUTOMATION_NO_FOCUS: '1',
             EVB_AUTOMATION_SESSION_NAME: 'packaged-scan-cleanup-verification',
             EVB_AUTOMATION_USER_DATA_DIR: userDataPath,
             EVB_ENABLE_RENDERER_FILE_OPEN_HELPER: '1',

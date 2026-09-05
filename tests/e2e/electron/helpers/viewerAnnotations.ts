@@ -1371,6 +1371,86 @@ export async function createFreeTextAnnotationWithPointer(
         throw new Error(`Strict FreeText pointer click did not expose an editor id${pageNumber ? ` on page ${pageNumber}` : ''}`);
     }
 
+    await page.evaluate((editorId: string) => {
+        const trace: Array<Record<string, unknown>> = [];
+        const describe = (kind: string, event: Event) => {
+            const activeElement = document.activeElement as HTMLElement | null;
+            const activeEditor = activeElement?.closest<HTMLElement>('.freeTextEditor:not(.pdf-comment-marker-anchor-editor)');
+            const editors = Array.from(document.querySelectorAll<HTMLElement>(
+                '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+            )).map(editor => {
+                const editable = editor.querySelector<HTMLElement>('[contenteditable], .internal');
+                return {
+                    contentEditable: editable?.getAttribute('contenteditable') ?? null,
+                    id: editor.id,
+                    text: (editable?.textContent ?? editor.textContent ?? '')
+                        .replace(/[\u200B\uFEFF]/gu, ''),
+                };
+            });
+            const keyboardEvent = event instanceof KeyboardEvent ? event : null;
+            const inputEvent = event instanceof InputEvent ? event : null;
+            trace.push({
+                activeEditorId: activeEditor?.id ?? null,
+                activeId: activeElement?.id ?? null,
+                activeTag: activeElement?.tagName ?? null,
+                createdEditorId: editorId,
+                defaultPrevented: event.defaultPrevented,
+                data: inputEvent?.data ?? null,
+                isComposing: inputEvent?.isComposing ?? keyboardEvent?.isComposing ?? null,
+                key: keyboardEvent?.key ?? null,
+                kind,
+                inputType: inputEvent?.inputType ?? null,
+                editors,
+                timestamp: performance.now(),
+            });
+        };
+        const eventKinds = [
+            'beforeinput',
+            'compositionend',
+            'compositionstart',
+            'focusin',
+            'focusout',
+            'input',
+            'keydown',
+            'keyup',
+        ] as const;
+        const listeners = eventKinds.map(kind => {
+            const listener = (event: Event) => describe(kind, event);
+            document.addEventListener(kind, listener, true);
+            return {
+                kind,
+                listener,
+            };
+        });
+        (globalThis as typeof globalThis & {__evbFreeTextInputTrace?: {
+            read: () => Array<Record<string, unknown>>;
+            stop: () => void;
+        };}).__evbFreeTextInputTrace = {
+            read: () => trace,
+            stop: () => listeners.forEach(({
+                kind,
+                listener,
+            }) => document.removeEventListener(kind, listener, true)),
+        };
+    }, createdEditorId);
+
+    let inputTrace: Array<Record<string, unknown>> = [];
+    const stopInputTrace = async () => {
+        inputTrace = await page.evaluate(() => {
+            const trace = (globalThis as typeof globalThis & {__evbFreeTextInputTrace?: {
+                read: () => Array<Record<string, unknown>>;
+                stop: () => void;
+            };}).__evbFreeTextInputTrace;
+            if (!trace) {
+                return [];
+            }
+            const snapshot = trace.read();
+            trace.stop();
+            delete (globalThis as typeof globalThis & {__evbFreeTextInputTrace?: unknown;}).__evbFreeTextInputTrace;
+            return snapshot;
+        });
+    };
+
     await page.keyboard.type(text, {delay: 10});
     try {
         await page.waitForFunction((args: {
@@ -1399,8 +1479,10 @@ export async function createFreeTextAnnotationWithPointer(
             targetPageNumber: pageNumber ?? null,
         });
     } catch (error) {
-        throw new Error(`Strict FreeText editor did not receive text${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}`);
+        await stopInputTrace();
+        throw new Error(`Strict FreeText editor did not receive text${pageNumber ? ` on page ${pageNumber}` : ''}: ${error instanceof Error ? error.message : String(error)}; inputTrace=${JSON.stringify(inputTrace)}`);
     }
+    await stopInputTrace();
     await page.keyboard.press('Escape');
 
     return getOrdinaryFreeTextEditorCount(page);

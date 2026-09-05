@@ -1352,9 +1352,21 @@ describe('CI topology policy', () => {
 
     it('keeps packaged annotation persistence on the strict pointer and keyboard path', async () => {
         const packagedSmoke = await readProjectFile('scripts/release/verifyPackagedCorePdfSmoke.ts');
+        const packagedDiagnostics = await readProjectFile('scripts/release/verifyPackagedDiagnosticsSmoke.ts');
+        const packagedScanCleanup = await readProjectFile('scripts/release/verifyPackagedScanCleanup.ts');
 
         expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
         expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
+        for (const verifier of [
+            packagedSmoke,
+            packagedDiagnostics,
+            packagedScanCleanup,
+        ]) {
+            expect(verifier).toContain('EVB_AUTOMATION_HIDE_WINDOW: \'1\'');
+            expect(verifier).toContain('EVB_AUTOMATION_NO_FOCUS: \'1\'');
+        }
+        expect(packagedSmoke).toContain('assertPathAbsent(workDirectory, \'temporary smoke directory\')');
+        expect(packagedSmoke).toContain('did not exit after cleanup');
     });
 
     it('keeps Partner Center submission out of the release workflows', async () => {
