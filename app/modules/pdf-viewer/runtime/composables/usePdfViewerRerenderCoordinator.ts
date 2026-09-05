@@ -14,6 +14,7 @@ import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
+import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
     PDF_RERENDER_SOURCE,
     isZoomRestorePdfRerenderSource,
@@ -561,6 +562,18 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ? computeFitWidthScale(viewerContainer.value)
             : computeFitWidthScale(viewerContainer.value, {page: requirePageNumber(pageToSnapTo)});
         if (!(updated || options.forceRerender === true) || !document) {
+            return;
+        }
+        // The fit refs already changed during the click, but the toolbar's
+        // patch is queued with the viewer's render work. Give Vue and the
+        // browser one completed frame before replacing page geometry, so a
+        // fit command cannot change the document first and paint its active
+        // button afterwards.
+        await waitForVisualFrames({ frames: 2 });
+        if (
+            !isRunActive()
+            || !canConfirmFitAnchor(source, runId, physicalNavigationEpoch)
+        ) {
             return;
         }
         // Both fit modes rewrite every row's physical top, so the pre-fit pixel
