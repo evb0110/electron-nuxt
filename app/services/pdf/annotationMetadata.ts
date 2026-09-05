@@ -1,5 +1,7 @@
 import { PDFDateString } from '@app/services/pdfjs/runtimeLib';
 
+export { getAnnotationAuthor } from '@app/services/pdf/getAnnotationAuthor';
+
 export function parsePdfDateTimestamp(value: string | null | undefined) {
     if (!value) {
         return null;
@@ -36,16 +38,4 @@ export function getAnnotationCommentText(annotation: {
         return structured;
     }
     return annotation.contents ?? '';
-}
-
-export function getAnnotationAuthor(annotation: {
-    titleObj?: { str?: string | null };
-    title?: string;
-}) {
-    const withObj = annotation.titleObj?.str?.trim();
-    if (withObj) {
-        return withObj;
-    }
-    const direct = annotation.title?.trim();
-    return direct && direct.length > 0 ? direct : null;
 }
