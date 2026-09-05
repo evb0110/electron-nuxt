@@ -249,8 +249,8 @@ function eventFrames(payload) {
 }
 
 function eventEnvironmentMatches(payload, expectedEnvironment) {
-    if (payload?.environment === expectedEnvironment) {
-        return true;
+    if (typeof payload?.environment === 'string') {
+        return payload.environment === expectedEnvironment;
     }
     return Array.isArray(payload?.tags)
         && payload.tags.some(tag => (
@@ -267,6 +267,13 @@ function eventTagMatches(payload, key, expectedValue) {
         ));
     }
     return payload?.tags?.[key] === expectedValue;
+}
+
+function eventLoggerMatches(payload, expectedLogger) {
+    if (typeof payload?.logger === 'string') {
+        return payload.logger === expectedLogger;
+    }
+    return eventTagMatches(payload, 'logger', expectedLogger);
 }
 
 function inspectEventPayload(payload, identity, evidence) {
@@ -292,7 +299,7 @@ function inspectEventPayload(payload, identity, evidence) {
         };
     }
     if (
-        payload?.logger !== 'evb-viewer.sourcemap-canary'
+        !eventLoggerMatches(payload, 'evb-viewer.sourcemap-canary')
         || !eventTagMatches(payload, 'evb_canary', CANARY_EVENT_VERSION)
         || !eventTagMatches(payload, 'bundle_role', evidence.role)
     ) {

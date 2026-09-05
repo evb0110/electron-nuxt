@@ -149,9 +149,9 @@ function eventPayload({
             }]}}]},
             type: 'exception',
         }],
-        environment: identity.environment,
+        environment: null,
         eventID: evidence.eventId,
-        logger: 'evb-viewer.sourcemap-canary',
+        logger: null,
         release: {version: identity.release},
         tags: [
             {
@@ -161,6 +161,14 @@ function eventPayload({
             {
                 key: 'bundle_role',
                 value: evidence.role,
+            },
+            {
+                key: 'environment',
+                value: identity.environment,
+            },
+            {
+                key: 'logger',
+                value: 'evb-viewer.sourcemap-canary',
             },
         ],
         ...overrides,
@@ -318,10 +326,14 @@ describe('verifySentrySourcemapCanaries', () => {
                 reason: 'event is not the expected source-map canary',
             },
             {
-                payload: eventPayload({tags: [{
-                    key: 'evb_canary',
-                    value: 'other',
-                }]}),
+                payload: eventPayload({
+                    environment: identity.environment,
+                    logger: 'evb-viewer.sourcemap-canary',
+                    tags: [{
+                        key: 'evb_canary',
+                        value: 'other',
+                    }],
+                }),
                 reason: 'event is not the expected source-map canary',
             },
         ];
