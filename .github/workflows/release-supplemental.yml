@@ -457,8 +457,10 @@ jobs:
     # 8 MiB parts with the same bounded retries as the core mirror.
     timeout-minutes: 40
     environment: release
+    # A drill release stays a draft, and GitHub shows a draft and its assets
+    # only to a token that can write the repository's contents.
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout trusted release publisher

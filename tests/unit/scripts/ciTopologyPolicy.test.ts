@@ -1281,6 +1281,9 @@ describe('CI topology policy', () => {
         // channel belong to the promoted core release.
         const mirrorSupplementalJob = workflowJob(supplementalWorkflow, 'mirror_supplemental');
         expect(mirrorSupplementalJob).toContain('environment: release');
+        // The drill supplements a draft release, whose assets GitHub hides
+        // from a token that cannot write contents.
+        expect(mirrorSupplementalJob).toContain('contents: write');
         expect(mirrorSupplementalJob).toContain('- attach_win_arm64');
         expect(mirrorSupplementalJob).toContain('- attach_mac_intel');
         expect(mirrorSupplementalJob).toContain('MIRROR_RELEASE_PREFIX: ${{ inputs.mirror_prefix }}');
