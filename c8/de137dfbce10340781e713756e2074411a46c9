@@ -1,0 +1,21 @@
+tests/unit/scripts/verifySentrySourcemapCanaries.test.ts
+  s_b412fd4cd3f576::t_07d30d6a27d4e4 146
+scripts/release/verify-sentry-sourcemap-canaries.mjs
+  s_b412fd4cd3f576::t_07d30d6a27d4e4 29-32
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "c8de137dfbce10340781e713756e2074411a46c9",
+  "prompts": {},
+  "sessions": {
+    "s_b412fd4cd3f576": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a05839-3429-7e52-8e0b-e65766a7f3f4",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
