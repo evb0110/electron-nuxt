@@ -1,4 +1,7 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import {
+    clampPageNumber,
+    requirePageNumber,
+} from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type {
@@ -224,7 +227,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
         }
 
         const targetRow = getPageRowBoundsForViewMode({
-            pageNumber: requirePageNumber(targetPage, numPages.value),
+            pageNumber: clampPageNumber(targetPage, numPages.value),
             viewMode: viewMode.value,
             totalPages: numPages.value,
         });
@@ -304,7 +307,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             };
         }
 
-        const anchorPage = requirePageNumber(
+        const anchorPage = clampPageNumber(
             navigationAnchorPage.value ?? currentPage.value,
             numPages.value,
         );
@@ -316,12 +319,15 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
     });
 
     const pagedPresentationWindowBounds = computed(() => {
+        if (numPages.value <= 0) {
+            return pagedWindowBounds.value;
+        }
         if (navigationVisualHandoffTargetPage?.value === null
             || navigationVisualHandoffTargetPage?.value === undefined) {
             return pagedWindowBounds.value;
         }
         return getPageRowBoundsForViewMode({
-            pageNumber: requirePageNumber(currentPage.value, numPages.value),
+            pageNumber: clampPageNumber(currentPage.value, numPages.value),
             viewMode: viewMode.value,
             totalPages: numPages.value,
         });
@@ -564,7 +570,7 @@ export const usePdfViewerVirtualization = (options: IUsePdfViewerVirtualizationO
             if (!continuousScroll.value) {
                 return getPagedPagesToRender();
             }
-            const anchorPage = requirePageNumber(navigationAnchorPage.value
+            const anchorPage = clampPageNumber(navigationAnchorPage.value
                 ?? resizeTransitionAnchorPage.value
                 ?? currentPage.value, numPages.value);
             const window = createAnchorPageWindow({

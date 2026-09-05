@@ -573,6 +573,119 @@ export async function createMultiPageTextFixturePdf(filename: string, pageCount 
     return filePath;
 }
 
+/**
+ * Create a small multi-page PDF whose fifth page has both a link and a
+ * persisted annotation. The close-tab regression opens that page so the
+ * viewer has populated its page-scoped link cache before teardown.
+ */
+export async function createAnnotatedLinkFixturePdf(filename: string, pageCount = 6) {
+    if (pageCount < 5) {
+        throw new Error('Annotated link fixture requires at least five pages');
+    }
+
+    ensureFixtureDir();
+    const filePath = join(getFixtureDir(), filename);
+    const doc = await PDFDocument.create();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+
+    for (let pageNumber = 1; pageNumber <= pageCount; pageNumber += 1) {
+        const page = doc.addPage([
+            612,
+            792,
+        ]);
+        page.drawText(`E2E close-tab fixture page ${pageNumber}/${pageCount}`, {
+            x: 72,
+            y: 720,
+            size: 24,
+            font,
+            color: rgb(0.13, 0.13, 0.13),
+        });
+        page.drawText('The fifth page carries a URI link and a persisted note.', {
+            x: 72,
+            y: 675,
+            size: 14,
+            font,
+            color: rgb(0.22, 0.22, 0.22),
+        });
+    }
+
+    const page = doc.getPage(4);
+    const link = doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Link'),
+        Rect: [
+            72,
+            620,
+            280,
+            650,
+        ],
+        Border: [
+            0,
+            0,
+            1,
+        ],
+        C: [
+            0,
+            0,
+            1,
+        ],
+        A: doc.context.obj({
+            Type: PDFName.of('Action'),
+            S: PDFName.of('URI'),
+            URI: PDFString.of('https://example.com/evb-close-tab-regression'),
+        }),
+    });
+    const linkRef = doc.context.register(link);
+
+    const annotationRef = doc.context.nextRef();
+    const popupRef = doc.context.nextRef();
+    const noteText = 'EVB close-tab regression note';
+    doc.context.assign(annotationRef, doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Text'),
+        Rect: [
+            310,
+            620,
+            334,
+            644,
+        ],
+        NM: PDFHexString.fromText('evb-close-tab-regression-note'),
+        Contents: PDFHexString.fromText(noteText),
+        Popup: popupRef,
+        Open: false,
+        F: 4,
+        C: [
+            1,
+            0.8,
+            0,
+        ],
+        T: PDFHexString.fromText('EVB close-tab regression'),
+        M: PDFString.of('D:20260905000000Z'),
+    }));
+    doc.context.assign(popupRef, doc.context.obj({
+        Type: PDFName.of('Annot'),
+        Subtype: PDFName.of('Popup'),
+        Rect: [
+            340,
+            520,
+            540,
+            640,
+        ],
+        Parent: annotationRef,
+        Contents: PDFHexString.fromText(noteText),
+        Open: false,
+        F: 4,
+        M: PDFString.of('D:20260905000000Z'),
+    }));
+
+    page.node.set(PDFName.of('Annots'), doc.context.obj([
+        linkRef,
+        annotationRef,
+    ]));
+    writeFileSync(filePath, await doc.save({useObjectStreams: false}));
+    return filePath;
+}
+
 export const SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT = 241;
 export const SEARCH_MATCH_SCROLL_FIXTURE_TARGET_PAGE = SEARCH_MATCH_SCROLL_FIXTURE_PAGE_COUNT;
 export const SEARCH_MATCH_SCROLL_FIXTURE_QUERY = 'EVB_SEARCH_SCROLL_SENTINEL';

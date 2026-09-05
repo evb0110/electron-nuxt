@@ -1,8 +1,10 @@
 // @vitest-environment happy-dom
 
+import type * as TPdfRenderViewModel from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
 import { requirePageNumber } from '@contracts/pageNumbers';
 import {
     afterEach,
+    beforeEach,
     describe,
     expect,
     it,
@@ -23,7 +25,32 @@ import type {
     IPdfViewerProps,
 } from '@app/modules/pdf-viewer/runtime/contracts/pdfViewerComponent.types';
 
+const renderViewModelCapture = vi.hoisted(() => ({options: null as unknown}));
+
+beforeEach(() => {
+    renderViewModelCapture.options = null;
+});
+
+vi.mock('@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel', async importOriginal => {
+    const actual = await importOriginal<typeof TPdfRenderViewModel>();
+    return {
+        ...actual,
+        usePdfRenderViewModel: vi.fn((options: Parameters<typeof actual.usePdfRenderViewModel>[0]) => {
+            renderViewModelCapture.options = options;
+            return actual.usePdfRenderViewModel(options);
+        }),
+    };
+});
+
 type TFeatureController = ReturnType<typeof usePdfViewerFeatureController>;
+
+interface IPdfRenderStateOptions {
+    isPageBuffered: (pageNumber: number) => boolean;
+    isPageRenderedForClass: (pageNumber: number) => boolean;
+    isPageRendering: (pageNumber: number) => boolean;
+    isPageRenderFailed: (pageNumber: number) => boolean;
+    shouldShowSkeleton: (pageNumber: number) => boolean;
+}
 
 function readUserViewportInteractionEpoch(controller: TFeatureController) {
     const readEpoch = controller.pdfViewerPublicApi.getUserViewportInteractionEpoch;
@@ -132,6 +159,33 @@ describe('usePdfViewerFeatureController wiring', () => {
         // and branding it without a cap threw that RangeError at the caller.
         expect(() => harness.controller.pdfViewerPublicApi.scrollToPage(Number.MAX_SAFE_INTEGER * 4))
             .not.toThrow();
+    });
+
+    it('adapts every render-state read while the document page count is empty', () => {
+        const harness = mountFeatureController();
+        const options = renderViewModelCapture.options as IPdfRenderStateOptions | null;
+
+        if (!options) {
+            throw new Error('The render view model options were not captured.');
+        }
+
+        expect(harness.controller.isPageBuffered).toBe(options.isPageBuffered);
+        expect(harness.controller.isPageRenderFailed).toBe(options.isPageRenderFailed);
+        expect(harness.controller.isPageRenderedForClass).toBe(options.isPageRenderedForClass);
+
+        for (const predicateName of [
+            'isPageBuffered',
+            'isPageRenderedForClass',
+            'isPageRendering',
+            'isPageRenderFailed',
+        ] as const) {
+            expect(() => options[predicateName](5)).not.toThrow();
+            expect(options[predicateName](5)).toBe(false);
+        }
+
+        expect(() => options.shouldShowSkeleton(5)).not.toThrow();
+        expect(options.shouldShowSkeleton(5)).toBe(false);
+        expect(harness.controller.shouldShowPageSkeleton(5)).toBe(false);
     });
 
     it('routes a modifier wheel packet into the zoom path', () => {

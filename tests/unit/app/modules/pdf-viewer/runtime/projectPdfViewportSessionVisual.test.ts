@@ -120,4 +120,23 @@ describe('PDF viewport-session visual projection', () => {
             },
         })).toBe(true);
     });
+
+    it('does not assert a stale visual page against a shorter document', () => {
+        expect(shouldShowPdfViewportPageSkeleton({
+            fallbackVisible: true,
+            isEmptyToDocumentTransition: false,
+            isViewportTransitionActive: true,
+            pageNumber: requirePageNumber(3),
+            totalPages: 3,
+            viewMode: 'single',
+            visual: {
+                error: null,
+                frameKey: 'previous-document-page-383',
+                generation: 1,
+                kind: 'page',
+                pageNumber: 383,
+                presentation: 'skeleton',
+            },
+        })).toBe(false);
+    });
 });

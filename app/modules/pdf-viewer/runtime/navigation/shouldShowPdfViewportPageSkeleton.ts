@@ -1,4 +1,4 @@
-import { requirePageNumber } from '@contracts/pageNumbers';
+import { parsePageNumber } from '@contracts/pageNumbers';
 import type { TPageNumber } from '@contracts/pageNumbers';
 
 import type { TPdfViewMode } from '@contracts/shared';
@@ -22,9 +22,12 @@ export function shouldShowPdfViewportPageSkeleton(options: {
     }
 
     const visual = options.visual;
-    const visualRow = visual.kind === 'page' && options.totalPages > 0
+    const visualPageNumber = visual.kind === 'page'
+        ? parsePageNumber(visual.pageNumber, options.totalPages)
+        : null;
+    const visualRow = visualPageNumber !== null
         ? getPageRowBoundsForViewMode({
-            pageNumber: requirePageNumber(visual.pageNumber, options.totalPages),
+            pageNumber: visualPageNumber,
             totalPages: options.totalPages,
             viewMode: options.viewMode,
         })
