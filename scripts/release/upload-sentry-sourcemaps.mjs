@@ -215,6 +215,18 @@ function sourceUploadAliasPath(bundlePath, sourceRoot, source) {
     return alias;
 }
 
+/** @param {string} bundlePath @param {string | undefined} sourceRoot @param {string} sourcePath @returns {string | null} */
+function canonicalSourceMapReference(bundlePath, sourceRoot, sourcePath) {
+    const basePath = typeof sourceRoot === 'string' && sourceRoot.length > 0
+        ? path.posix.normalize(path.posix.join(path.posix.dirname(bundlePath), sourceRoot))
+        : path.posix.dirname(bundlePath);
+    if (!isRelativeSourceReference(basePath) || !isRelativeSourceReference(sourcePath)) {
+        return null;
+    }
+    const reference = path.posix.relative(basePath, sourcePath);
+    return isRelativeSourceReference(reference) ? reference : null;
+}
+
 /** @param {string} mapSource @param {IPrivateSource[]} sources @returns {IPrivateSource | null} */
 function findPrivateSource(mapSource, sources) {
     const normalizedMapSource = normalizeSourcePath(mapSource);
@@ -258,11 +270,24 @@ async function prepareSourceUploadAliases(
     }
     const uploadBundlePath = uploadRelativePath(identity.target, bundle.bundle);
     const sourceRoot = typeof map.sourceRoot === 'string' ? map.sourceRoot : undefined;
-    for (const mapSource of map.sources) {
+    let mapChanged = false;
+    for (let index = 0; index < map.sources.length; index += 1) {
+        const mapSource = map.sources[index];
         if (typeof mapSource !== 'string') {
             continue;
         }
         const source = findPrivateSource(mapSource, manifest.sources);
+        if (source) {
+            const canonicalReference = canonicalSourceMapReference(
+                uploadBundlePath,
+                sourceRoot,
+                source.path,
+            );
+            if (canonicalReference !== null && canonicalReference !== mapSource) {
+                map.sources[index] = canonicalReference;
+                mapChanged = true;
+            }
+        }
         const alias = sourceUploadAliasPath(uploadBundlePath, sourceRoot, mapSource);
         if (!source || !alias || alias === source.path) {
             continue;
@@ -272,6 +297,16 @@ async function prepareSourceUploadAliases(
             uploadRoot,
             alias,
             'upload source alias',
+        );
+    }
+    if (mapChanged) {
+        await writeFile(
+            resolveInside(
+                uploadRoot,
+                uploadRelativePath(identity.target, bundle.map),
+                'uploaded map',
+            ),
+            `${JSON.stringify(map)}\n`,
         );
     }
 }

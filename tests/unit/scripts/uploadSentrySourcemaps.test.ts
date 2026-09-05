@@ -272,6 +272,11 @@ describe('uploadSentrySourcemaps', () => {
                 path.join(uploadRoot, 'nuxt-output/packages/contracts/runtimeGuards.ts'),
                 'utf8',
             )).resolves.toContain('fixtureGuard');
+            const uploadedMap = JSON.parse(await readFile(
+                path.join(uploadRoot, `${outputRoot}/fixture.worker.js.map`),
+                'utf8',
+            ));
+            expect(uploadedMap).toMatchObject({sources: ['../../../packages/contracts/runtimeGuards.ts']});
         });
 
         await uploadSentrySourcemaps({
