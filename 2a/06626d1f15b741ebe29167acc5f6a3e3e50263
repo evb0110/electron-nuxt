@@ -1,0 +1,23 @@
+app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/schedulePdfResizeCanvasVisualSnapshotRelease.ts
+  s_afb15ae87b106f::t_3778cdd7e9f290 1,30-32
+app/modules/pdf-viewer/runtime/composables/usePdfViewerResizeLifecycle.ts
+  s_afb15ae87b106f::t_3778cdd7e9f290 6,451
+app/modules/pdf-viewer/engine/pdf-resize-visual-snapshot/preservePdfResizeCanvasVisualSnapshot.ts
+  s_afb15ae87b106f::t_3778cdd7e9f290 7
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "2a06626d1f15b741ebe29167acc5f6a3e3e50263",
+  "prompts": {},
+  "sessions": {
+    "s_afb15ae87b106f": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a070b8-dcf8-7d20-9d40-b8cb8b9060d9",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
