@@ -1350,6 +1350,13 @@ describe('CI topology policy', () => {
         }
     });
 
+    it('keeps packaged annotation persistence on the strict pointer and keyboard path', async () => {
+        const packagedSmoke = await readProjectFile('scripts/release/verifyPackagedCorePdfSmoke.ts');
+
+        expect(packagedSmoke).toContain('createFreeTextAnnotationWithPointer(');
+        expect(packagedSmoke).not.toContain('createFreeTextAnnotation(page,');
+    });
+
     it('keeps Partner Center submission out of the release workflows', async () => {
         for (const workflowPath of [
             '.github/workflows/release.yml',
