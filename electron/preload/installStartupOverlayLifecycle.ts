@@ -24,7 +24,7 @@ const DEV_STARTUP_OVERLAY_APP_READY_DELAY_MS = 2200;
 const STARTUP_OPEN_CLAIM_GRACE_MS = 300;
 const MAX_WAIT_MS = 30_000;
 
-function ensureStartupOverlayStyles() {
+function ensureStartupOverlayStyles(head: HTMLHeadElement) {
     if (document.getElementById(STARTUP_OVERLAY_STYLE_ID)) {
         return;
     }
@@ -83,7 +83,7 @@ function ensureStartupOverlayStyles() {
     to { transform: translateZ(0) rotate(360deg); }
 }
 `;
-    document.head.appendChild(style);
+    head.appendChild(style);
 }
 
 function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
@@ -91,7 +91,13 @@ function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
         return;
     }
 
-    ensureStartupOverlayStyles();
+    const head = document.head;
+    const body = document.body;
+    if (!head || !body) {
+        return;
+    }
+
+    ensureStartupOverlayStyles(head);
     const overlay = document.createElement('div');
     overlay.id = STARTUP_OVERLAY_ID;
     overlay.innerHTML = `
@@ -100,7 +106,7 @@ function mountStartupOverlay(deps: IStartupOverlayLifecycleDeps) {
   <div class="evb-startup-overlay__text">Loading...</div>
 </div>
 `;
-    document.body.appendChild(overlay);
+    body.appendChild(overlay);
     deps.tracePreload('startup overlay mounted');
     deps.forwardPreloadLogToMain('info', 'loader', 'Startup overlay mounted', {
         variant: 'startup-overlay',
