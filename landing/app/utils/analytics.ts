@@ -40,10 +40,7 @@ function getAnalyticsStorage() {
 
 function createAnalyticsRequestId() {
     try {
-        const randomUuid = globalThis.crypto?.randomUUID;
-        if (randomUuid) {
-            return randomUuid.call(globalThis.crypto);
-        }
+        return globalThis.crypto.randomUUID();
     } catch {
         // Fall back to a process-local ID when the browser does not expose
         // crypto.randomUUID or its implementation rejects the call.

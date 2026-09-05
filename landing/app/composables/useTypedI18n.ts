@@ -26,7 +26,7 @@ export function useTypedI18n() {
             return translated;
         }
 
-        const locale = typeof composer.locale?.value === 'string'
+        const locale = typeof composer.locale.value === 'string'
             ? composer.locale.value
             : DEFAULT_LOCALE;
         const primaryMessages = composer.getLocaleMessage(locale);

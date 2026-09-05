@@ -1,4 +1,8 @@
 import {
+    isIsoTimestamp,
+    type TIsoTimestamp,
+} from '@contracts/timestamps';
+import {
     createReleaseCatalogLoader,
     fetchReleaseDataWithRetry,
     getReleaseFetchStatusCode,
@@ -25,9 +29,12 @@ interface IGithubReleaseAsset {
     content_type: string
 }
 
+/** A GitHub asset whose wire timestamp has been checked against the ISO contract. */
+type TDatedReleaseAsset = IGithubReleaseAsset & {updated_at: TIsoTimestamp};
+
 const RELEASE_COHORT_COOKIE = 'evb_release_cohort';
 const RELEASE_COHORT_MAX_AGE_SECONDS = 90 * 24 * 60 * 60;
-const releaseCatalogLoader = createReleaseCatalogLoader<IGithubRelease[]>();
+const releaseCatalogLoader = createReleaseCatalogLoader<TPublishedGithubRelease[]>();
 const MIRROR_OMITTED_INSTALLER_PATTERNS = [
     /^EVB-Viewer-.+-x64\.zip$/u,
     /^EVB-Viewer-.+-arm64-setup\.exe$/u,
@@ -67,15 +74,25 @@ interface IGithubRelease {
     draft?: boolean
     prerelease?: boolean
     tag_name: string
-    name: string
-    published_at: string
+    // GitHub omits the name of an untitled release and the publish date of a draft.
+    name: string | null
+    published_at: string | null
     html_url: string
-    assets: IGithubReleaseAsset[]
+    assets?: IGithubReleaseAsset[]
+}
+
+/** A GitHub release whose wire timestamp has been checked against the ISO contract. */
+type TPublishedGithubRelease = IGithubRelease & {published_at: TIsoTimestamp};
+
+function isPublishedGithubRelease(release: IGithubRelease): release is TPublishedGithubRelease {
+    return isIsoTimestamp(release.published_at);
 }
 
 function toInstallers(release: IGithubRelease, mirrorBaseUrl: string): IReleaseInstaller[] {
-    const installers = (release.assets || [])
-        .filter(asset => isInstallerAsset(asset.name) && parseHttpsUrl(asset.browser_download_url))
+    const installers = (release.assets ?? [])
+        .filter((asset): asset is TDatedReleaseAsset => isInstallerAsset(asset.name)
+            && parseHttpsUrl(asset.browser_download_url) !== null
+            && isIsoTimestamp(asset.updated_at))
         .map<IReleaseInstaller>((asset) => {
             const mirrorDownloadUrl = mirrorBaseUrl
                 && isPublishedToReleaseMirror(asset.name)
@@ -132,7 +149,7 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
 
     const githubRepositoryApiUrl = `${githubApiBase}/repos/${encodeURIComponent(githubOwner)}/${encodeURIComponent(githubRepo)}`;
 
-    async function fetchReleaseCatalog(signal: AbortSignal): Promise<IGithubRelease[]> {
+    async function fetchReleaseCatalog(signal: AbortSignal): Promise<TPublishedGithubRelease[]> {
         const releases = await $fetch<IGithubRelease[]>(`${githubRepositoryApiUrl}/releases`, {
             headers,
             query: {per_page: 100},
@@ -162,11 +179,11 @@ export default defineEventHandler(async (event): Promise<ILatestReleaseResponse>
         return [
             ...releases,
             ...exactReleases.filter((release): release is IGithubRelease => release !== null),
-        ];
+        ].filter(isPublishedGithubRelease);
     }
 
     let catalogResult: {
-        catalog: IGithubRelease[]
+        catalog: TPublishedGithubRelease[]
         stale: boolean
     };
     try {

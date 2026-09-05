@@ -303,7 +303,7 @@ const runtimeConfig = useRuntimeConfig();
 
 const MICROSOFT_STORE_URL = 'https://apps.microsoft.com/detail/9N3MB1WJGX1L';
 
-const webAppUrl = computed(() => runtimeConfig.public.webAppUrl?.trim() || '');
+const webAppUrl = computed(() => runtimeConfig.public.webAppUrl.trim() || '');
 const pageDescription = computed(() => t('home.seo.ogDescription'));
 
 const {
