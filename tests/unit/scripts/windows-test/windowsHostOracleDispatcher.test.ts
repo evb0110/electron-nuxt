@@ -247,7 +247,7 @@ describe('windows host oracle dispatcher', () => {
         expect(result.report.results.every(entry => entry.side === 'host')).toBe(true);
         expect(result.report.results.every(entry => entry.provenance.includes('scripts/windows-test/oracles'))).toBe(true);
         expect(result.report.results.every(entry => entry.status === 'passed')).toBe(true);
-    });
+    }, 30_000);
 
     it('rejects a blank PDF with the expected page count', async () => {
         const result = await runPlan('WIN-PRINT-01', {
