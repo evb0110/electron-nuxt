@@ -1,0 +1,21 @@
+scripts/build-warning-allowlist.json
+  s_3e4a192066773e::t_365381d37789ad 7-8
+tests/unit/scripts/checkBuildWarnings.test.ts
+  s_3e4a192066773e::t_e5e11fe734dbe2 81-108
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "43b9929bca549c90ec6638aca95b3488dd680ba3",
+  "prompts": {},
+  "sessions": {
+    "s_3e4a192066773e": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "30f39d2d-9e1c-4eef-8840-2d62537b8816",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
