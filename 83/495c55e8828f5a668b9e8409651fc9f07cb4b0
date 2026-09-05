@@ -1,0 +1,32 @@
+scripts/windows-test/oracles/pageMarkerOracle.ts
+  s_cf09a11bf9eebf::t_1c07c9fe6cd9c8 13,83-90
+scripts/windows-test/oracles/ocrPageMarkerOracle.ts
+  s_cf09a11bf9eebf::t_cdc1a48984337f 13-14,173-177
+  s_cf09a11bf9eebf::t_1c07c9fe6cd9c8 178-187,255-262
+scripts/windows-test/oracles/renderBlankOracle.ts
+  s_cf09a11bf9eebf::t_cdc1a48984337f 10,51-52,55
+  s_cf09a11bf9eebf::t_1c07c9fe6cd9c8 56,82-90,92
+  s_cf09a11bf9eebf::t_06737ad35b2c61 57-81
+scripts/windows-test/oracles/withRenderedPdfPage.ts
+  s_cf09a11bf9eebf::t_d595d27727db1f 1
+  s_cf09a11bf9eebf::t_9d7a94b66260b0 6-55
+  s_cf09a11bf9eebf::t_e0f72c1be92fba 2-5
+scripts/windows-test/oracles/collectMarkerFailures.ts
+  s_cf09a11bf9eebf::t_bfac3dda114285 1-36
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "83495c55e8828f5a668b9e8409651fc9f07cb4b0",
+  "prompts": {},
+  "sessions": {
+    "s_cf09a11bf9eebf": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0702a-c1d1-7833-b70e-932e59033868",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
