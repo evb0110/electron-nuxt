@@ -69,6 +69,25 @@ async function waitForOpenedPdf(session: IElectronE2ESession, path: string) {
     await waitForViewerInteractive(session.page, 45_000);
 }
 
+async function readOrdinaryFreeTextSnapshot(session: IElectronE2ESession) {
+    return session.page.evaluate(() => {
+        const editors = Array.from(document.querySelectorAll<HTMLElement>(
+            '.freeTextEditor:not(.pdf-comment-marker-anchor-editor)',
+        ));
+        const annotationVisuals = Array.from(document.querySelectorAll<HTMLElement>(
+            '.annotationLayer .freeTextAnnotation, .annotation-layer .freeTextAnnotation',
+        ));
+        return {
+            editorCount: editors.length,
+            visualCount: annotationVisuals.length,
+            texts: [
+                ...editors,
+                ...annotationVisuals,
+            ].map(editor => editor.textContent?.replace(/[\u200B\uFEFF]/gu, '').trim() ?? ''),
+        };
+    });
+}
+
 describe('Electron E2E - native save and reopen', () => {
     let session: IElectronE2ESession | null = null;
 
@@ -129,6 +148,14 @@ describe('Electron E2E - native save and reopen', () => {
         });
         await waitForOpenedPdf(session, pdfPath);
         expect((await readPdfAnnotationSummary(pdfPath)).bySubtype.FreeText ?? 0).toBeGreaterThan(0);
+        await expect.poll(
+            () => readOrdinaryFreeTextSnapshot(session!),
+            {timeout: 20_000},
+        ).toEqual({
+            editorCount: 0,
+            visualCount: 1,
+            texts: [annotationText],
+        });
     }, NATIVE_SAVE_REOPEN_TIMEOUT_MS);
 
     it('preserves outlines and page labels through the six-operation fresh-process matrix', async () => {
