@@ -1,0 +1,56 @@
+scripts/release/publish-release-mirror.mjs
+  s_8239e4d1ccfe2f::t_bbb4c29a3402d9 222-295
+  s_8239e4d1ccfe2f::t_06ca96def265a4 128-129,132-135
+  s_8239e4d1ccfe2f::t_bc76086988e120 1039-1054
+  s_8239e4d1ccfe2f::t_f2f58c439e1ea8 71
+  s_8239e4d1ccfe2f::t_9ad72e4c93ce19 456-457,463,467,473-508
+.github/workflows/release-supplemental.yml
+  s_8239e4d1ccfe2f::t_c714c135d0c093 548
+  s_8239e4d1ccfe2f::t_776447688a2ad8 31-40
+  s_8239e4d1ccfe2f::t_f170567301c1fd 445-518,529
+  s_8239e4d1ccfe2f::t_740bceeb6c2a0d 577-578
+tests/unit/scripts/publishReleaseMirror.test.ts
+  s_8239e4d1ccfe2f::t_a33fcfcc4752cc 775-788
+  s_8239e4d1ccfe2f::t_416ebadc87ec4f 35
+  s_8239e4d1ccfe2f::t_de7c54b3fcd7cc 892-893,899
+  s_8239e4d1ccfe2f::t_5d49820a54f49a 736-774,789-807,809-849,852,854-869,871-891,894-898,900-913
+  s_8239e4d1ccfe2f::t_4019a611cc6592 808,850-851,853,870
+docs/release-guardrails.md
+  s_8239e4d1ccfe2f::t_adb2baef8d7dcb 103,135-138
+  s_8239e4d1ccfe2f::t_e89b6eebb20cbb 105
+docs/releasing.md
+  s_8239e4d1ccfe2f::t_e893623823a90d 25
+tests/unit/scripts/ciTopologyPolicy.test.ts
+  s_8239e4d1ccfe2f::t_c5750cac76bd50 1250
+  s_8239e4d1ccfe2f::t_5274b52dfaf2ce 1279-1288
+  s_8239e4d1ccfe2f::t_77b4c085ecd857 1308-1317
+.github/workflows/release-drill.yml
+  s_8239e4d1ccfe2f::t_29e8f4b8e97ea0 172-173,176-178,189-190
+  s_8239e4d1ccfe2f::t_0f568569925d1f 208-209
+tests/unit/server/latestReleaseEndpointPolicy.test.ts
+  s_8239e4d1ccfe2f::t_cef7b06ec6bb9b 12-15,93,152-153,195,248
+  s_8239e4d1ccfe2f::t_bd2e9a6e224e2e 64-66,72
+  s_8239e4d1ccfe2f::t_54e14868e0bf1b 67-71,122
+  s_8239e4d1ccfe2f::t_b951727462c614 123-151,154-194,196-203,208-210
+  s_8239e4d1ccfe2f::t_5bff7a61e898da 204-207
+landing/server/api/releases/latest.get.ts
+  s_8239e4d1ccfe2f::t_3bdb6cf7a832d8 38-41,45-55,57-122
+  s_8239e4d1ccfe2f::t_d2d23025800afd 169-170,174-180,193-194
+  s_8239e4d1ccfe2f::t_b68036b05aee1d 313
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "60d8acf88a947e40298a396ed7a82978200d3df2",
+  "prompts": {},
+  "sessions": {
+    "s_8239e4d1ccfe2f": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "db52d8ab-be91-4205-bacb-01c5c81152f0",
+        "model": "claude-opus-5"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
