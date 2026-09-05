@@ -143,7 +143,7 @@ function eventPayload({
                 absPath: evidence.expectedSource,
                 context,
                 filename: evidence.expectedSource,
-                function: evidence.expectedFunction,
+                function: 'evbViewerSourceMapCanary',
                 inApp: true,
                 lineNo: evidence.expectedLine,
             }]}}]},

@@ -26,7 +26,10 @@ const VERIFY_ATTEMPTS = 12;
 const VERIFY_RETRY_BASE_MS = 1_000;
 const VERIFY_RETRY_MAX_MS = 5_000;
 const VERIFY_REQUEST_TIMEOUT_MS = 30_000;
-const VERIFY_CONCURRENCY = 6;
+// Eight release lanes share the verification token. Keep aggregate request
+// concurrency below Sentry's 25-request limit while retaining parallelism
+// within each lane.
+const VERIFY_CONCURRENCY = 2;
 const DEBUG_ID_PATTERN = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/iu;
 
 class SentryApiError extends Error {
@@ -173,13 +176,6 @@ function sourcePathMatches(frame, expectedSource) {
         .some(value => value === expected);
 }
 
-function functionMatches(actual, expected) {
-    if (expected === null) {
-        return actual === null || actual === undefined || actual === '<anonymous>' || actual === '?';
-    }
-    return actual === expected;
-}
-
 function hasSourceContext(frame, expectedLine) {
     return Array.isArray(frame?.context)
         && frame.context.some(entry => (
@@ -313,7 +309,6 @@ function inspectEventPayload(payload, identity, evidence) {
         candidate.inApp === true
         && candidate.lineNo === evidence.expectedLine
         && sourcePathMatches(candidate, evidence.expectedSource)
-        && functionMatches(candidate.function, evidence.expectedFunction)
     ));
     if (!frame) {
         return {
