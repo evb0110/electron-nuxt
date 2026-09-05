@@ -1,8 +1,10 @@
+/* eslint-disable custom/file-naming -- this executable also exports its argument parser for coverage */
 import {spawn} from 'node:child_process';
 import {
     mkdir,
     mkdtemp,
     readFile,
+    realpath,
     readdir,
     rm,
     stat,
@@ -10,6 +12,7 @@ import {
 } from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import {fileURLToPath} from 'node:url';
 import {setTimeout as delay} from 'node:timers/promises';
 import puppeteer from 'puppeteer-core';
 import type {
@@ -77,7 +80,7 @@ interface IRunningSession {
 
 const activeSessions = new Set<IRunningSession>();
 
-function parseExecutableArgument(args: string[]) {
+export function parseExecutableArgument(args: string[]) {
     const index = args.indexOf('--executable');
     return index < 0 ? null : args[index + 1] ?? null;
 }
@@ -449,7 +452,17 @@ async function run() {
     }
 }
 
-void run().catch((error: unknown) => {
-    console.error(error instanceof Error ? error.stack ?? error.message : String(error));
-    process.exitCode = 1;
-});
+const canonicalEntryPath = process.argv[1] === undefined
+    ? null
+    : await realpath(path.resolve(process.argv[1])).catch(() => null);
+const canonicalModulePath = await realpath(fileURLToPath(import.meta.url)).catch(() => null);
+const isDirectInvocation = canonicalEntryPath !== null
+    && canonicalModulePath !== null
+    && canonicalEntryPath === canonicalModulePath;
+
+if (isDirectInvocation) {
+    void run().catch((error: unknown) => {
+        console.error(error instanceof Error ? error.stack ?? error.message : String(error));
+        process.exitCode = 1;
+    });
+}

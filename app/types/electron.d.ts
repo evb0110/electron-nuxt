@@ -5,12 +5,14 @@ import type { IEvbTestApi } from '@app/types/evbTestApi';
 import type { IAnnotationSyncAutomationActivity } from '@app/types/annotations';
 import type {FailureReceipt} from '@contracts/diagnostics/failureReceipt';
 import type {TClientDiagnosticsPreference} from '@contracts/diagnostics/diagnosticsPreference';
-import type {
-    IDiagnosticsCanaryMainHealth,
-    TDiagnosticsCanaryAction,
-} from '@electron/platform-ipc/coreContract';
+import type {TDiagnosticsCanaryAction} from '@electron/platform-ipc/coreContract';
 
 type TRendererDiagnosticsCanaryKind = 'fatal-ui' | 'renderer' | 'ui-only' | 'worker-parent';
+
+interface IDiagnosticsCanaryMainHealth {
+    preference: TClientDiagnosticsPreference;
+    transportReady: boolean;
+}
 
 interface IEvbDiagnosticsCanaryMainApi {trigger(action: TDiagnosticsCanaryAction): Promise<FailureReceipt | IDiagnosticsCanaryMainHealth | boolean | null>;}
 
