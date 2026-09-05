@@ -1,6 +1,4 @@
-import type { TPdfLayerVisualSnapshotRelease } from '@app/modules/pdf-viewer/engine/pdf-layer-visual-snapshot/pdfLayerVisualSnapshotRelease';
-
-interface IPdfLayerVisualSnapshotReleaseOptions {
+interface IPdfResizeCanvasVisualSnapshotReleaseOptions {
     forceReleaseAfterMaxDelay?: boolean;
     maxDelayMs?: number;
     minFrames?: number;
@@ -29,9 +27,9 @@ function normalizeMinFrames(minFrames: number | undefined) {
     return Math.ceil(minFrames);
 }
 
-export function schedulePdfLayerVisualSnapshotRelease(
-    release: TPdfLayerVisualSnapshotRelease | null | undefined,
-    options: IPdfLayerVisualSnapshotReleaseOptions = {},
+export function schedulePdfResizeCanvasVisualSnapshotRelease(
+    release: (() => void) | null | undefined,
+    options: IPdfResizeCanvasVisualSnapshotReleaseOptions = {},
 ) {
     if (!release) {
         return;
