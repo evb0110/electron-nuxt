@@ -20,6 +20,7 @@ import type {
     IAgentAssistantEvent,
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
+import type * as ClaudeProviderMetadataModule from '@electron/features/agent/claudeProviderMetadata';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -66,6 +67,11 @@ const mocks = vi.hoisted(() => ({
         promise: Promise<void>;
         resolve: () => void;
     },
+    claudeRuntimeLoadGate: null as null | {
+        promise: Promise<void>;
+        resolve: () => void;
+    },
+    claudeSessionConstructor: vi.fn(),
     codexAccountReadMode: 'success',
     codexAuthStatusMode: 'signed-in',
     logger: {
@@ -347,6 +353,24 @@ vi.mock('@electron/features/agent/codexCli', () => ({
     installManagedCodex: mocks.installManagedCodex,
 }));
 
+vi.mock('@electron/features/agent/claudeProviderMetadata', async (importOriginal) => {
+    const actual = await importOriginal<ClaudeProviderMetadataModule>();
+    return {
+        ...actual,
+        getClaudeAgentSdkInfo: vi.fn(async () => ({
+            installed: true,
+            version: 'test',
+            executablePath: '/usr/bin/claude',
+        })),
+        detectClaudeAuthState: vi.fn(async () => 'signed-in'),
+    };
+});
+
+vi.mock('@electron/features/agent/claudeAgentSdkAssistant', async () => {
+    await mocks.claudeRuntimeLoadGate?.promise;
+    return {ClaudeAgentAssistantSession: mocks.claudeSessionConstructor};
+});
+
 vi.mock('@electron/features/agent/mcpServer', () => ({
     abortActiveEmbeddedMcpRequests: mocks.abortActiveEmbeddedMcpRequests,
     getEmbeddedMcpServerDescriptor: vi.fn(() => null),
@@ -473,6 +497,8 @@ describe('agent assistant opt-in gating', () => {
         mocks.threadStartGate = null;
         mocks.loginStartGate = null;
         mocks.processKillGate = null;
+        mocks.claudeRuntimeLoadGate = createInitializeGate();
+        mocks.claudeSessionConstructor.mockReset();
         mocks.codexAccountReadMode = 'success';
         mocks.codexAuthStatusMode = 'signed-in';
     });
@@ -566,7 +592,7 @@ describe('agent assistant opt-in gating', () => {
         expect(mocks.logger.warn).not.toHaveBeenCalledWith(expect.stringContaining('falling back to auth status'));
     });
 
-    it('publishes an actionable auth error when Codex auth probes fail', async () => {
+    it('preserves signed-out Codex state and its error after a later state read', async () => {
         configureEnabledAssistantRuntime();
         mocks.codexAccountReadMode = 'error';
         mocks.codexAuthStatusMode = 'error';
@@ -588,6 +614,11 @@ describe('agent assistant opt-in gating', () => {
         expect(state.status.error).toContain('Could not verify Codex authentication');
         expect(state.status.error).toContain('account/read timed out');
         expect(state.status.error).toContain('getAuthStatus timed out');
+
+        const stateAfterRead = await getAgentAssistantState();
+        expect(stateAfterRead.status.authState).toBe('signed-out');
+        expect(stateAfterRead.status.runtimeState).toBe('stopped');
+        expect(stateAfterRead.status.error).toBe(state.status.error);
     });
 
     it('waits for in-flight Codex runtime startup before reusing the app-server client', async () => {
@@ -665,6 +696,31 @@ describe('agent assistant opt-in gating', () => {
         await expect(sendPromise).resolves.toMatchObject({ok: false});
         expect(process.requestMethods).not.toContain('turn/start');
         expect(process.kill).toHaveBeenCalled();
+    });
+
+    it('does not create a Claude session when opt-out wins during adapter loading', async () => {
+        configureEnabledAssistantRuntime();
+        const documentScope = createDocumentScope('disable-during-claude-load.pdf');
+        const {
+            sendAgentAssistantMessage,
+            shutdownAgentAssistant,
+        }: typeof CodexAssistantModule = await import('@electron/features/agent/codexAssistant');
+
+        const sendPromise = sendAgentAssistantMessage({
+            provider: 'claude',
+            text: 'Do not create this session',
+            scope: documentScope,
+        });
+        await settleAsyncTicks();
+        expect(mocks.claudeRuntimeLoadGate).toBeTruthy();
+        expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
+
+        mocks.loadSettings.mockResolvedValue({assistantPanelEnabled: false});
+        await shutdownAgentAssistant();
+        mocks.claudeRuntimeLoadGate?.resolve();
+
+        await expect(sendPromise).resolves.toMatchObject({ok: false});
+        expect(mocks.claudeSessionConstructor).not.toHaveBeenCalled();
     });
 
     it('waits for an old client shutdown before starting again after rapid re-enable', async () => {

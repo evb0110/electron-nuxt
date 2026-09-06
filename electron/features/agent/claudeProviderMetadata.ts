@@ -18,7 +18,6 @@ import {
     CLAUDE_ASSISTANT_DEFAULT_MODEL,
     CLAUDE_ASSISTANT_MODELS,
 } from '@contracts/agentModels';
-import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/assistantProviderStatus';
 import { createLogger } from '@electron/utils/createLogger';
 import { getErrorMessage } from '@electron/utils/error';
 import { isRecord } from '@contracts/runtimeGuards';
@@ -382,6 +381,13 @@ export async function getClaudeAgentSdkInfo(options: IClaudeAgentSdkInfoOptions 
 
 
 export type TClaudeAuthState = 'signed-in' | 'signed-out' | 'unknown';
+
+export interface IClaudeAssistantProviderInfo {
+    installed: boolean;
+    version: string | null;
+    executablePath: string | null;
+    error?: string;
+}
 
 const CLAUDE_AUTH_ENV_VARS = [
     'ANTHROPIC_API_KEY',

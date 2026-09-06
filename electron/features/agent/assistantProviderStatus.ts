@@ -42,19 +42,14 @@ import {
     getAssistantProviderLabel,
     normalizeAssistantProviderId,
 } from '@electron/features/agent/assistantProviderRegistry';
+import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
+export type { IClaudeAssistantProviderInfo };
 
 export interface IAssistantSelection {
     provider: TAgentAssistantProviderId;
     model: string;
     effort: TAgentAssistantEffort;
     speedMode: TAgentAssistantSpeedMode;
-}
-
-export interface IClaudeAssistantProviderInfo {
-    installed: boolean;
-    version: string | null;
-    executablePath: string | null;
-    error?: string;
 }
 
 interface IAssistantSelectionRequest {

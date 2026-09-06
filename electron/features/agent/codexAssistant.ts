@@ -37,6 +37,7 @@ import {
     shouldUseClaudeAssistantFastMode,
     normalizeClaudeAssistantModel,
 } from '@electron/features/agent/claudeProviderMetadata';
+import type { IClaudeAssistantProviderInfo } from '@electron/features/agent/claudeProviderMetadata';
 import type {
     IClaudeAgentAssistantInit,
     IClaudeAgentAssistantSessionOptions,
@@ -56,7 +57,6 @@ import {
     resolveAssistantSelection,
     resolveCodexServiceTier,
     type IAssistantSelection,
-    type IClaudeAssistantProviderInfo,
 } from '@electron/features/agent/assistantProviderStatus';
 import {
     createAssistantProviderRuntimeStates,
@@ -743,6 +743,7 @@ async function ensureClaudeAssistantSession(
     session.speedMode = normalizedSpeedMode;
     sessionStore.recordSessionSnapshot(session);
     const {ClaudeAgentAssistantSession} = await loadClaudeRuntimeModule();
+    await assistantFeatureLifecycle.assertEnabled(generation);
     session.claudeSession = new ClaudeAgentAssistantSession({
         cwd,
         model: session.model,
@@ -777,11 +778,7 @@ export async function getAgentAssistantState(
             codexProviderRuntime.runtimeState = 'stopped';
         }
     } else {
-        claudeInfoCache = await getClaudeAgentSdkInfo();
-        claudeProviderRuntime.authState = await detectClaudeAuthState();
-        claudeProviderRuntime.runtimeState = claudeInfoCache.installed
-            ? claudeProviderRuntime.runtimeState === 'busy' ? 'busy' : 'ready'
-            : 'stopped';
+        await refreshClaudeInfo();
     }
     return currentState(scope, selection);
 }

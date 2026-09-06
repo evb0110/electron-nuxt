@@ -58,6 +58,7 @@ export {
     shouldUseClaudeAssistantFastMode,
 } from '@electron/features/agent/claudeProviderMetadata';
 export type { IClaudeAgentSdkInfoOptions } from '@electron/features/agent/claudeProviderMetadata';
+export type { TClaudeAuthState } from '@electron/features/agent/claudeProviderMetadata';
 
 const logger = createLogger('agent-claude-assistant');
 const CLAUDE_EFFORT_LEVEL_BY_ASSISTANT_EFFORT = {
