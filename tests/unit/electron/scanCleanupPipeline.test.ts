@@ -55,6 +55,10 @@ import {createPagePlanResolver} from '@scan-cleanup-core/createPagePlanResolver'
 import {mapScanCleanupRasterPages} from '@scan-cleanup-core/resolveRasterHandoff';
 import {resolveCompactSourcePreservation} from '@scan-cleanup-core/assembleCompactScanCleanupPages';
 import {
+    createArrayBackedPdfPageSizeStore,
+    type IPdfPageSizeStore,
+} from '@scan-cleanup-core/pdfPageSizes';
+import {
     fitScanCleanupMarginAxisPx,
     placeScanCleanupCanvasBox,
 } from '@scan-cleanup-core/policy/documentCanvas';
@@ -5922,10 +5926,10 @@ describe('scan cleanup pipeline', () => {
                 1,
                 2,
             ],
-            documentGeometry([
+            createArrayBackedPdfPageSizeStore(documentGeometry([
                 2,
                 1,
-            ]),
+            ])),
             dpiDetails(300, [
                 [
                     1,
@@ -5944,7 +5948,51 @@ describe('scan cleanup pipeline', () => {
             highTierPolicy,
             pipelineDependencies,
         )).rejects.toThrow(
-            'Scan cleanup lossless assembly received page geometry out of document order: expected page 1 at index 0, received page 2',
+            'Page-size source returned no geometry for page 1',
+        );
+
+        expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
+    });
+
+    it('rejects a lossless store page whose identity does not match the requested page', async () => {
+        const fixture = await setup();
+        const pipelineDependencies = dependencies(vi.fn());
+        const wrongPage = documentGeometry([2])[0]!;
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 1,
+            getPage: vi.fn(async () => wrongPage),
+            readRange: vi.fn(async () => [wrongPage]),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
+
+        await expect(runLosslessScanCleanup(
+            {
+                sourcePdfPath: fixture.sourcePdfPath,
+                outputPdfPath: fixture.outputPdfPath,
+                options: {
+                    ...options,
+                    preserveOriginalQuality: true,
+                },
+            },
+            pipelinePaths(fixture.dir),
+            fixture.sourcePdfPath,
+            [],
+            [1],
+            pageSizeStore,
+            dpiDetails(300, [[
+                1,
+                300,
+            ]]),
+            fixture.dir,
+            join(fixture.dir, 'staged.pdf'),
+            new AbortController().signal,
+            vi.fn(),
+            vi.fn(),
+            highTierPolicy,
+            pipelineDependencies,
+        )).rejects.toThrow(
+            'Scan cleanup page-size store returned page 2 for requested page 1',
         );
 
         expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();
@@ -6033,11 +6081,11 @@ describe('scan cleanup pipeline', () => {
                 fixture.sourcePdfPath,
                 [],
                 losslessPageNumbers,
-                documentGeometry([
+                createArrayBackedPdfPageSizeStore(documentGeometry([
                     1,
                     2,
                     3,
-                ]),
+                ])),
                 dpiDetails(300, [
                     [
                         2,
