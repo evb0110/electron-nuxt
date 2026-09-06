@@ -1,0 +1,25 @@
+app/modules/pdf-viewer/components/PdfAnnotationEditorLayer.vue
+  s_d252de3ad71cee::t_f68621a06edf0a 19-22
+docs/pdf-annotations-audit-2026-08-22-implementation-ledger.md
+  s_d252de3ad71cee::t_752705b83c8726 990-1004
+  s_d252de3ad71cee::t_32b30b0703a4c7 956-989
+app/assets/css/pdf-viewer.scss
+  s_d252de3ad71cee::t_f68621a06edf0a 266-271
+  s_d252de3ad71cee::t_1cbb078fc98b16 274
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "d66433d2801df25b33720069e616a41292cc51e3",
+  "prompts": {},
+  "sessions": {
+    "s_d252de3ad71cee": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0723f-6c82-7453-a893-5fe26c4041d3",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
