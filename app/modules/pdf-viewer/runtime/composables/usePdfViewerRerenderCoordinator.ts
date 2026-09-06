@@ -9,10 +9,14 @@ import type {
 } from '@app/types/pdfContracts';
 import type { TPdfViewRotation } from '@contracts/shared';
 import type { IPageRange } from '@app/types/pdfUi';
-import type { ICurrentPageSyncOptions } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
+import type {
+    ICurrentPageSyncOptions,
+    IResizeAnchorContext,
+} from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerCurrentPageSync';
 import { getPageRowBoundsForViewMode } from '@app/modules/pdf-viewer/engine/pdf-page-layout/getPageRowBoundsForViewMode';
 import type { TPdfViewerTransactionState } from '@app/modules/pdf-viewer/engine/pdf-viewer-transaction/pdfViewerTransactionTypes';
 import type { IUsePdfViewerRerenderCoordinatorOptions } from '@app/modules/pdf-viewer/runtime/composables/pdfRerenderCoordinatorTypes';
+import type { IZoomViewportAnchor } from '@app/modules/pdf-viewer/runtime/viewport/pdfViewerViewportTypes';
 import { getRequestAnchor } from '@app/modules/pdf-viewer/runtime/navigation/pdfNavigationRequestAnchors';
 import { waitForVisualFrames } from '@app/utils/asyncHelpers';
 import {
@@ -85,6 +89,8 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         previousZoom: number | null;
         zoomChanged: boolean;
         modeChangedToCustom: boolean;
+        resizeAnchor: IResizeAnchorContext;
+        zoomViewportAnchor: IZoomViewportAnchor | null;
     } | null = null;
 
     function cancelPendingZoomOrchestration() {
@@ -128,17 +134,14 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         }
         cancelDestinationNavigationTarget?.();
         void cancelInFlightPageRenders?.();
-        const zoomViewportAnchor = consumeZoomViewportAnchor?.() ?? null;
+        const zoomViewportAnchor = pending.zoomViewportAnchor;
         const trustCurrentPageAnchor = canTrustCurrentPageAsZoomAnchor();
         const zoomRerenderSource = zoomViewportAnchor
             ? PDF_RERENDER_SOURCE.ZoomGestureChange
             : pending.modeChangedToCustom
                 ? PDF_RERENDER_SOURCE.ZoomModeChange
                 : PDF_RERENDER_SOURCE.ZoomChange;
-        const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? buildResizeAnchorContext({
-            preferredAnchorPage: currentPage.value,
-            trustPreferredAnchorPage: trustCurrentPageAnchor,
-        });
+        const zoomAnchor = zoomViewportAnchor?.resizeAnchor ?? pending.resizeAnchor;
         logPdfRenderTrace('zoom-rerender-anchor-captured', () => ({
             previousZoom: pending.previousZoom ?? nextZoom,
             nextZoom,
@@ -190,14 +193,26 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         ) {
             cancelPendingZoomOrchestration();
         }
+        const existingPendingZoomOrchestration = pendingZoomOrchestration;
+        const zoomViewportAnchor = existingPendingZoomOrchestration?.zoomViewportAnchor
+            ?? consumeZoomViewportAnchor?.()
+            ?? null;
+        const resizeAnchor = existingPendingZoomOrchestration?.resizeAnchor
+            ?? zoomViewportAnchor?.resizeAnchor
+            ?? buildResizeAnchorContext({
+                preferredAnchorPage: currentPage.value,
+                trustPreferredAnchorPage: canTrustCurrentPageAsZoomAnchor(),
+            });
         pendingZoomOrchestration = {
             document: pdfDocument.value,
-            previousZoom: pendingZoomOrchestration?.previousZoom
+            previousZoom: existingPendingZoomOrchestration?.previousZoom
                 ?? (change.zoomChanged === true ? change.previousZoom ?? zoom.value : null),
-            zoomChanged: pendingZoomOrchestration?.zoomChanged === true || change.zoomChanged === true,
+            zoomChanged: existingPendingZoomOrchestration?.zoomChanged === true || change.zoomChanged === true,
             modeChangedToCustom:
-                pendingZoomOrchestration?.modeChangedToCustom === true
+                existingPendingZoomOrchestration?.modeChangedToCustom === true
                 || change.modeChangedToCustom === true,
+            resizeAnchor,
+            zoomViewportAnchor,
         };
         if (zoomOrchestrationTaskId !== null) {
             return;

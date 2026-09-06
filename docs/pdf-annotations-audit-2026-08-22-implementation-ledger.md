@@ -890,3 +890,28 @@ in integration before commit. The next coordinator gates are targeted lint
 and unit checks, review, the broad regression, exact 882-page and 2,646-page
 acceptance, and then fresh integrated-main verification. The private book and
 recording remain on the VPS and were not uploaded publicly.
+
+### 2026-09-06, zoom-reset page-anchor repair
+
+The post-fix integration broad run exposed a real page-7 reset defect at
+`2026-09-06T08-19-14-170Z-3881437-e70f7eb1`. After the zoomed page-7 check, the
+reset changed the DOM scale before the deferred coordinator captured its
+anchor. The browser clamped the old scroll position to page 12, so the
+coordinator recorded page 12 even though page 7 was still the committed
+semantic page. The strict test then correctly found page 7's canvas absent.
+
+The smallest repair captures the zoom anchor in the watcher turn, before the
+deferred host task can change page geometry, and carries that capture through
+coalesced zoom and zoom-mode changes. Wheel gestures retain their already
+captured cursor anchor. The coordinator unit contract now proves the capture
+happens before the deferred task, while preserving the existing ordering and
+gesture assertions. Targeted lint passed, and the coordinator units passed
+43/43 on the candidate and 46/46 on integration.
+
+The unchanged page-7 acceptance passed on integration at
+`2026-09-06T08-29-24-337Z-3895238-f2c7f739` and on the candidate at
+`2026-09-06T08-30-55-538Z-3897496-aa752c72`. Both runs retained the original
+blank-frame, canvas-identity, semantic-page, and anchor-drift checks. The
+candidate and integration changes are now ready for commit and the affected
+regression group. The private book and recording remain on the VPS and were
+not uploaded publicly.
