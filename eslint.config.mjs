@@ -188,14 +188,25 @@ const projectConfig = withNuxt(
         ['app/modules/pdf-viewer/runtime/composables/pdf/usePdfTextLayerRenderer.ts', 1296],
         ['app/modules/pdf-viewer/runtime/usePdfViewerFeatureController.ts', 1216],
         ['electron/ocr/jobManager.ts', 1067],
-        ['packages/contracts/agentPlatformFeature.ts', 1813],
+        // The agent feature contract keeps its command, state, and renderer
+        // codecs together so the desktop and browser implementations share one
+        // validated protocol map.
+        ['packages/contracts/agentPlatformFeature.ts', 1831],
         ['app/modules/workspace-shell/components/AppShellRoot.vue', 900],
         ['app/modules/workspace-shell/agent/useDocumentWorkspaceAgent.ts', 1083],
         ['electron/features/agent/mcp/mcpServerCore.ts', 979],
         ['scripts/architecture/boundary-check.mjs', 1650],
         ['app/platform/browser-api/browserDjvuCapability.ts', 1202],
         ['electron/features/djvu/main/pdfExport.ts', 1288],
-        ['packages/contracts/djvuPlatformFeature.ts', 1328],
+        // DjVu open, preview, text, print, and conversion codecs are one paired
+        // protocol. Splitting them would make the native and renderer maps drift.
+        ['packages/contracts/djvuPlatformFeature.ts', 1490],
+        // Bookmark normalization and validation share page-number invariants in
+        // one agent boundary, including the nested and flat input forms.
+        ['app/modules/workspace-shell/agent/createDocumentAgentBookmarks.ts', 1205],
+        // Scan-cleanup request and result codecs are paired protocol registries.
+        ['packages/contracts/scan-cleanup/ipcRequestCodecs.ts', 1210],
+        ['packages/contracts/scan-cleanup/ipcResultCodecs.ts', 1213],
         ['packages/contracts/ocrPlatformFeature.ts', 1368],
         // The documents feature keeps its method codecs and result schemas
         // together so the Electron and browser implementations cannot drift.
