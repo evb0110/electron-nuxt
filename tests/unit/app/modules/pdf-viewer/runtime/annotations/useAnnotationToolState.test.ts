@@ -13,12 +13,11 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { ShallowRef } from 'vue';
-import type { AnnotationEditorUIManager } from 'pdfjs-dist';
 import type { IAnnotationSettings } from '@app/types/annotations';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import { getPdfjsEditorFacadeState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjsAnnotationFacade';
 import { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
+import type { useAnnotationToolState as TUseAnnotationToolState } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState';
 
 vi.mock('pdfjs-dist', () => ({
     AnnotationEditorType: {
@@ -97,7 +96,13 @@ function createMarkupElement() {
 }
 
 function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
-    return cast<ShallowRef<AnnotationEditorUIManager | null>>(shallowRef(uiManager));
+    // The state composable calls only the PDF.js manager methods represented by
+    // this small test double.
+    const managerProxy = new Proxy(Object.create(null), {
+        get: (_target, property) => Reflect.get(uiManager, property),
+        set: (_target, property, value) => Reflect.set(uiManager, property, value),
+    });
+    return shallowRef(managerProxy);
 }
 
 function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, overrides: Record<string, unknown> = {}) {
@@ -107,7 +112,7 @@ function createToolStateOptions(uiManager: ReturnType<typeof createUiManager>, o
         | undefined
     ) ?? (() => new Map());
     return {
-        pdfDocument: shallowRef({}),
+        pdfDocument: shallowRef(createPdfDocumentProxy()),
         annotationUiManager: mockUiManagerRef(uiManager),
         currentPage: ref(1),
         annotationTool: computed(() => (overrides.tool as string) ?? 'none'),
@@ -171,9 +176,81 @@ interface IAnnotationToolStateTestManager {
     updateTextMarkupAnnotationColor: (editor: unknown, pageIndex: number, subtype: string, color: string) => boolean;
 }
 
+type TAnnotationToolStateOptions = Parameters<typeof TUseAnnotationToolState>[0];
+
+function hasValueRef(value: unknown): boolean {
+    return typeof value === 'object' && value !== null && 'value' in value;
+}
+
+function isAnnotationToolStateOptions(value: unknown): value is TAnnotationToolStateOptions {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const refKeys = [
+        'pdfDocument',
+        'annotationUiManager',
+        'currentPage',
+        'annotationTool',
+        'annotationKeepActive',
+        'annotationSettings',
+        'numPages',
+    ];
+    const functionKeys = [
+        'getEditorIdentity',
+        'getCanonicalMarkupSubtypes',
+        'recordCanonicalMarkupSubtype',
+        'resolveCanonicalMarkupSubtype',
+        'forgetCanonicalMarkupSubtypeIntents',
+        'clearCanonicalMarkupSubtypeIntents',
+        'getFreeTextResize',
+        'emitAnnotationToolAutoReset',
+    ];
+    return refKeys.every(key => hasValueRef(Reflect.get(value, key)))
+        && functionKeys.every(key => typeof Reflect.get(value, key) === 'function');
+}
+
+function isAnnotationToolStateTestManager(value: unknown): value is IAnnotationToolStateTestManager {
+    if (typeof value !== 'object' || value === null) {
+        return false;
+    }
+    const methodKeys: Array<keyof IAnnotationToolStateTestManager> = [
+        'applyAnnotationSettings',
+        'forgetMarkupSubtypeOverride',
+        'getAnnotationMode',
+        'getMarkupSubtypeHints',
+        'getMarkupSubtypeOverrides',
+        'getSelectedTextMarkupAnnotationProperties',
+        'maybeAutoResetAnnotationTool',
+        'rememberMarkupSubtypeColorOverride',
+        'readMarkupSubtypeEditorPresentation',
+        'resolveEditorMarkupSubtypeColor',
+        'resolveEditorMarkupSubtypeOverride',
+        'resolveHighlightColorForTool',
+        'resolveHighlightOpacityForTool',
+        'setAnnotationTool',
+        'setEditorMarkupSubtypeOverride',
+        'updateModeWithRetry',
+        'updateSelectedTextMarkupAnnotationColor',
+        'updateTextMarkupAnnotationColor',
+    ];
+    return methodKeys.every(key => typeof Reflect.get(value, key) === 'function');
+}
+
 async function loadUseAnnotationToolState(): Promise<(options: unknown) => IAnnotationToolStateTestManager> {
     const module = await import('@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationToolState');
-    return cast<(options: unknown) => IAnnotationToolStateTestManager>(module.useAnnotationToolState);
+    if (typeof module.useAnnotationToolState !== 'function') {
+        throw new TypeError('useAnnotationToolState runtime export is unavailable');
+    }
+    return (options: unknown) => {
+        if (!isAnnotationToolStateOptions(options)) {
+            throw new TypeError('useAnnotationToolState received an invalid test fixture');
+        }
+        const manager = module.useAnnotationToolState(options);
+        if (!isAnnotationToolStateTestManager(manager)) {
+            throw new TypeError('useAnnotationToolState returned an invalid runtime manager');
+        }
+        return manager;
+    };
 }
 
 describe('useAnnotationToolState', () => {
@@ -267,7 +344,7 @@ describe('useAnnotationToolState', () => {
 
         const update = manager.setAnnotationTool('text');
         await vi.waitFor(() => expect(uiManager.updateMode).toHaveBeenCalledOnce());
-        options.pdfDocument.value = cast<Record<string, never>>({});
+        options.pdfDocument.value = createPdfDocumentProxy({});
         modeUpdate.resolve(undefined);
         await update;
 
@@ -283,7 +360,7 @@ describe('useAnnotationToolState', () => {
 
         const update = manager.setAnnotationTool('text');
         await vi.waitFor(() => expect(uiManager.updateMode).toHaveBeenCalledOnce());
-        options.annotationUiManager.value = cast<AnnotationEditorUIManager>(createUiManager());
+        options.annotationUiManager.value = mockUiManagerRef(createUiManager()).value;
         initialUpdate.reject(new Error('old manager failed'));
         await update;
 

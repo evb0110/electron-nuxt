@@ -14,7 +14,33 @@ import {
     shouldHandleSinglePageWheel,
 } from '@app/utils/document-viewer/single-page-wheel/singlePageWheelNavigation';
 import { resolveDocumentWheelInteraction } from '@app/utils/document-viewer/input/documentWheelInteraction';
-import { cast } from '@tests/helpers/cast';
+
+function createWheelEvent(options?: {
+    ctrlKey?: boolean;
+    deltaX?: number;
+    deltaY?: number;
+    metaKey?: boolean;
+}): WheelEvent {
+    // Wheel normalization reads only these event fields in this unit.
+    return {
+        ctrlKey: options?.ctrlKey ?? false,
+        deltaMode: 0,
+        deltaX: options?.deltaX ?? 0,
+        deltaY: options?.deltaY ?? 120,
+        deltaZ: 0,
+        metaKey: options?.metaKey ?? false,
+    } as WheelEvent;
+}
+
+function createContainer(scrollTop = 0): HTMLElement {
+    // Single-page wheel handling reads only scrollTop from this container.
+    return {scrollTop} as HTMLElement;
+}
+
+function createWheelContainer(): HTMLElement {
+    // Wheel normalization reads only clientHeight from this container.
+    return {clientHeight: 800} as HTMLElement;
+}
 
 function createWheelInteraction(options?: {
     ctrlKey?: boolean;
@@ -22,19 +48,7 @@ function createWheelInteraction(options?: {
     deltaY?: number;
     metaKey?: boolean;
 }) {
-    const event = cast<WheelEvent>({
-        ctrlKey: options?.ctrlKey ?? false,
-        deltaMode: 0,
-        deltaX: options?.deltaX ?? 0,
-        deltaY: options?.deltaY ?? 120,
-        deltaZ: 0,
-        metaKey: options?.metaKey ?? false,
-    });
-    return resolveDocumentWheelInteraction(event, cast<HTMLElement>({clientHeight: 800}), false);
-}
-
-function createContainer(scrollTop = 0) {
-    return cast<HTMLElement>({ scrollTop });
+    return resolveDocumentWheelInteraction(createWheelEvent(options), createWheelContainer(), false);
 }
 
 describe('singlePageWheelNavigation', () => {

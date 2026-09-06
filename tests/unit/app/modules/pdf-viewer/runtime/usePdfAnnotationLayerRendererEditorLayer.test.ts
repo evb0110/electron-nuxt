@@ -7,14 +7,16 @@ import {
     it,
     vi,
 } from 'vitest';
-import { ref } from 'vue';
-import type { Ref } from 'vue';
+import {
+    ref,
+    shallowRef,
+} from 'vue';
 import type {
     AnnotationEditorUIManager,
     PDFDocumentProxy,
     PDFPageProxy,
 } from 'pdfjs-dist';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 const loggerWarn = vi.fn();
 const loggerDebug = vi.fn();
@@ -70,8 +72,9 @@ class MockAnnotationLayer {
             if (!params.div || !annotation.id) {
                 return;
             }
-            cast<{ append: (element: IFakeEditorLayerAnnotationElement) => void }>(params.div)
-                .append(createAnnotationElement(annotation.id));
+            // The fake annotation layer element is not a real DOM node.
+            const annotationLayerDiv = params.div as HTMLDivElement & {append: (element: IFakeEditorLayerAnnotationElement) => void;};
+            annotationLayerDiv.append(createAnnotationElement(annotation.id));
         });
         await annotationLayerRender(params);
     }
@@ -205,7 +208,8 @@ function createDiv(): HTMLDivElement {
         querySelector: () => null,
         querySelectorAll: () => [],
     };
-    return cast<HTMLDivElement>(fakeDiv);
+    // PDF.js receives a DOM-shaped fixture, not a browser-owned element.
+    return Object.assign(Object.create(null), fakeDiv);
 }
 
 function createAnnotationElement(annotationId: string): IFakeEditorLayerAnnotationElement {
@@ -269,7 +273,8 @@ function createAnnotationLayerDiv(options?: {
             return [];
         },
     };
-    return cast<HTMLDivElement>(fakeDiv);
+    // PDF.js receives a DOM-shaped fixture, not a browser-owned element.
+    return Object.assign(Object.create(null), fakeDiv);
 }
 
 function createContainer(pageCanvas: HTMLDivElement) {
@@ -283,16 +288,27 @@ function createContainer(pageCanvas: HTMLDivElement) {
         querySelector,
         querySelectorAll: vi.fn(() => []),
     };
-    return cast<HTMLElement>(fakeContainer);
+    // The renderer only queries these container methods.
+    return Object.assign(Object.create(null), fakeContainer);
 }
 
 function createViewport(): ReturnType<PDFPageProxy['getViewport']> {
     const viewport: IViewportLike = { clone: vi.fn(() => ({ rawDims: {} })) };
-    return cast<ReturnType<PDFPageProxy['getViewport']>>(viewport);
+    // This fixture covers the viewport clone operation used by the renderer.
+    return Object.assign(Object.create(null), viewport);
 }
 
-function createUiManager(enabled = false) {
-    return {
+interface IMockUiManager {
+    direction: string;
+    addLayer: (layer: MockAnnotationEditorLayer) => void;
+    removeLayer: ReturnType<typeof vi.fn>;
+    getEditors: ReturnType<typeof vi.fn>;
+    getActive: ReturnType<typeof vi.fn>;
+    setActiveEditor: ReturnType<typeof vi.fn>;
+};
+
+function createUiManager(enabled = false): IMockUiManager & AnnotationEditorUIManager {
+    const fixture = {
         direction: 'ltr',
         addLayer: vi.fn((layer: MockAnnotationEditorLayer) => {
             if (enabled) {
@@ -306,10 +322,33 @@ function createUiManager(enabled = false) {
         getActive: vi.fn<() => unknown | null>(() => null),
         setActiveEditor: vi.fn(),
     };
+    // PDF.js manager methods are represented by the mocked fixture above.
+    return Object.assign(Object.create(null), fixture);
 }
 
-function mockUiManagerRef(uiManager: ReturnType<typeof createUiManager>) {
-    return cast<Ref<AnnotationEditorUIManager | null>>(ref(uiManager));
+function mockUiManagerRef(uiManager: IMockUiManager & AnnotationEditorUIManager) {
+    // The renderer passes this exact object to replacement callbacks.
+    return shallowRef(uiManager);
+}
+
+type TStaleUiManager = AnnotationEditorUIManager & {
+    destroy: () => void;
+    removeEditListeners: () => void;
+};
+
+function isStaleUiManager(manager: AnnotationEditorUIManager): manager is TStaleUiManager {
+    return typeof Reflect.get(manager, 'destroy') === 'function'
+        && typeof Reflect.get(manager, 'removeEditListeners') === 'function';
+}
+
+function createPdfPage(getAnnotations: PDFPageProxy['getAnnotations']): PDFPageProxy {
+    // Annotation rendering only calls getAnnotations on this page shim.
+    return Object.assign(Object.create(null), {getAnnotations});
+}
+
+function setConnectedState(element: HTMLElement, isConnected: boolean) {
+    // PDF.js replaces this DOM node while its late render is still pending.
+    (element as HTMLElement & {isConnected: boolean}).isConnected = isConnected;
 }
 
 describe('usePdfAnnotationLayerRenderer', () => {
@@ -386,7 +425,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         let mountedEditorLayerDiv = annotationEditorLayerDiv;
         const replaceChild = vi.fn((replacement: HTMLDivElement, staleLayer: HTMLElement) => {
             mountedEditorLayerDiv = replacement;
-            cast<{ isConnected: boolean }>(staleLayer).isConnected = false;
+            setConnectedState(staleLayer, false);
         });
         const layerParent = { replaceChild };
         Object.assign(annotationEditorLayerDiv, {
@@ -403,7 +442,8 @@ describe('usePdfAnnotationLayerRenderer', () => {
             }
             return null;
         });
-        const container = cast<HTMLElement>({ querySelector });
+        // This container models the page-canvas lookup used during replacement.
+        const container = Object.assign(Object.create(null), {querySelector});
         const abortController = new AbortController();
 
         const renderPromise = renderer.renderAnnotationEditorLayer(
@@ -430,13 +470,13 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
         expect(replacement).not.toBe(annotationEditorLayerDiv);
         expect(replacement?.hidden).toBe(true);
-        expect(cast<{ isConnected: boolean }>(annotationEditorLayerDiv).isConnected).toBe(false);
+        expect((annotationEditorLayerDiv as HTMLElement & {isConnected: boolean}).isConnected).toBe(false);
 
         lateRender.resolve(undefined);
         await vi.waitFor(() => {
             expect(uiManager.removeLayer).toHaveBeenCalledWith(editorLayerInstances[0]);
         });
-        expect(cast<{ isConnected: boolean }>(annotationEditorLayerDiv).isConnected).toBe(false);
+        expect((annotationEditorLayerDiv as HTMLElement & {isConnected: boolean}).isConnected).toBe(false);
         expect(mountedEditorLayerDiv).toBe(replacement);
         expect(loggerWarn).not.toHaveBeenCalled();
     });
@@ -472,7 +512,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         firstAbortController.abort();
-        uiManagerRef.value = cast<AnnotationEditorUIManager>(secondUiManager);
+        uiManagerRef.value = secondUiManager;
         const replacementRender = renderer.renderAnnotationEditorLayer(
             createContainer(createDiv()),
             createDiv(),
@@ -516,10 +556,15 @@ describe('usePdfAnnotationLayerRenderer', () => {
         const replacementUiManager = createUiManager(true);
         const uiManagerRef = mockUiManagerRef(staleUiManager);
         const replaceAnnotationUiManager = vi.fn((manager: AnnotationEditorUIManager) => {
-            const staleManager = cast<typeof staleUiManager>(manager);
+            // The callback receives PDF.js's base manager type; this test
+            // supplies the two lifecycle methods on its local manager fixture.
+            if (!isStaleUiManager(manager)) {
+                throw new TypeError('stale annotation manager lacks lifecycle methods');
+            }
+            const staleManager = manager;
             staleManager.removeEditListeners();
             staleManager.destroy();
-            uiManagerRef.value = cast<AnnotationEditorUIManager>(replacementUiManager);
+            uiManagerRef.value = replacementUiManager;
         });
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
@@ -532,13 +577,13 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
         const annotationAbortController = new AbortController();
         const annotationRender = renderer.renderAnnotationLayer(
-            cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => []) }),
+            createPdfPage(vi.fn(async () => [])),
             createAnnotationLayerDiv(),
             createViewport(),
             requirePageNumber(1),
             null,
             { signal: annotationAbortController.signal },
-        ).catch(error => error as Error);
+        ).catch(error => error);
         await vi.waitFor(() => {
             expect(annotationLayerRender).toHaveBeenCalledTimes(1);
         });
@@ -574,9 +619,9 @@ describe('usePdfAnnotationLayerRenderer', () => {
     });
 
     it('quarantines only the page whose annotation editor layer exhausts retries', async () => {
-        const firstDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
-        const secondDocument = cast<PDFDocumentProxy>({ annotationStorage: {} });
-        const pdfDocument = cast<Ref<PDFDocumentProxy | null>>(ref(firstDocument));
+        const firstDocument = createPdfDocumentProxy({annotationStorage: {}});
+        const secondDocument = createPdfDocumentProxy({annotationStorage: {}});
+        const pdfDocument = shallowRef<PDFDocumentProxy | null>(firstDocument);
         const uiManager = createUiManager(false);
         const renderer = usePdfAnnotationLayerRenderer({
             numPages: ref(1),
@@ -683,7 +728,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv();
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
+        const pdfPage = createPdfPage(vi.fn(async () => [{id: '12R'}]));
 
         await renderer.renderAnnotationLayer(
             pdfPage,
@@ -709,7 +754,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: false });
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
+        const pdfPage = createPdfPage(vi.fn(async () => [{id: '12R'}]));
 
         await renderer.renderAnnotationLayer(
             pdfPage,
@@ -735,7 +780,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: true });
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [{ id: '12R' }]) });
+        const pdfPage = createPdfPage(vi.fn(async () => [{id: '12R'}]));
 
         await renderer.renderAnnotationLayer(
             pdfPage,
@@ -764,10 +809,10 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv({ hasShapeOverlay: false });
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [
+        const pdfPage = createPdfPage(vi.fn(async () => [
             { id: '12R' },
             { id: '42R' },
-        ]) });
+        ]));
 
         const annotationLayer = await renderer.renderAnnotationLayer(
             pdfPage,
@@ -801,10 +846,10 @@ describe('usePdfAnnotationLayerRenderer', () => {
         });
 
         const annotationLayerDiv = createAnnotationLayerDiv();
-        const pdfPage = cast<PDFPageProxy>({ getAnnotations: vi.fn(async () => [
+        const pdfPage = createPdfPage(vi.fn(async () => [
             { id: '12R' },
             { id: '42R' },
-        ]) });
+        ]));
 
         const annotationLayer = await renderer.renderAnnotationLayer(
             pdfPage,

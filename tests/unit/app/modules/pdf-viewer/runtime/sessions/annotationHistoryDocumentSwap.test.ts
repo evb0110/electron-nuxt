@@ -18,6 +18,7 @@ import {
     nextTick,
     ref,
     shallowRef,
+    type ShallowRef,
 } from 'vue';
 import type {PDFDocumentProxy} from 'pdfjs-dist';
 import {asAnnotationId} from '@app/modules/pdf-viewer/engine/annotations/domain/annotationEntity';
@@ -25,7 +26,7 @@ import type {IStickyNoteEntity} from '@app/modules/pdf-viewer/engine/annotations
 import type {TPdfDocumentSession} from '@app/modules/pdf-viewer/runtime/sessions/pdfDocumentSession';
 import type {TPdfViewportSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfViewportSession';
 import type {TPdfRenderingSession} from '@app/modules/pdf-viewer/runtime/sessions/createPdfRenderingSession';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 vi.mock('@app/services/pdfjs/getPdfjsViewerRuntimeProbeFailures', () => ({
     EventBus: vi.fn(),
@@ -69,10 +70,59 @@ function stickyNote(id: string): IStickyNoteEntity {
 
 /** Enough of a proxy for identity comparisons; the session only swaps on it. */
 function createDocumentProxy(fingerprint: string) {
-    return cast<PDFDocumentProxy>({
+    return createPdfDocumentProxy({
         numPages: 1,
         fingerprints: [fingerprint],
     });
+}
+
+function createDocumentSessionFixture(pdfDocument: ShallowRef<PDFDocumentProxy | null>): TPdfDocumentSession {
+    const fixture = {
+        pdfDocument: computed(() => pdfDocument.value),
+        numPages: ref(1),
+        registerDisposable: vi.fn(),
+        subscribe: vi.fn(() => vi.fn()),
+    } satisfies Pick<TPdfDocumentSession, 'pdfDocument' | 'numPages' | 'registerDisposable' | 'subscribe'>;
+    // The annotation session only consumes this narrow sibling-session slice.
+    return Object.assign(Object.create(null), fixture);
+}
+
+function createViewportSessionFixture(): TPdfViewportSession {
+    const fixture = {
+        currentPage: computed(() => 1),
+        visibleRange: computed(() => ({
+            start: 1,
+            end: 1,
+        })),
+        scale: {effectiveScale: computed(() => 1)},
+        scroll: {updateVisibleRange: vi.fn()},
+        singlePageScroll: {scrollToPage: vi.fn()},
+    };
+    // The annotation session does not inspect the rest of viewport state.
+    return Object.assign(Object.create(null), fixture);
+}
+
+function createRenderingSessionFixture(): TPdfRenderingSession {
+    const fixture = {
+        attachAnnotationProjection: vi.fn(() => vi.fn()),
+        hideManagedAnnotationEditors: vi.fn(),
+        invalidatePages: vi.fn(),
+        isPageRendered: vi.fn(() => false),
+        renderAnnotationEditorLayerForPage: vi.fn(),
+        renderVisiblePages: vi.fn(),
+        renderedPageStateVersion: ref(0),
+    } satisfies Pick<
+        TPdfRenderingSession,
+        | 'attachAnnotationProjection'
+        | 'hideManagedAnnotationEditors'
+        | 'invalidatePages'
+        | 'isPageRendered'
+        | 'renderAnnotationEditorLayerForPage'
+        | 'renderVisiblePages'
+        | 'renderedPageStateVersion'
+    >;
+    // The annotation session only calls the rendering methods listed above.
+    return Object.assign(Object.create(null), fixture);
 }
 
 function mountAnnotationSession() {
@@ -82,34 +132,9 @@ function mountAnnotationSession() {
     document.body.append(host);
     const AnnotationSessionHost = defineComponent({ setup() {
         session = createPdfAnnotationSession({
-            // Only the three sibling sessions are cast: each is a wide surface
-            // this fixture has no reason to stub whole. The options themselves
-            // stay typed so a renamed or retyped option fails to compile here.
-            document: cast<TPdfDocumentSession>({
-                pdfDocument,
-                numPages: ref(1),
-                registerDisposable: vi.fn(),
-                subscribe: vi.fn(() => vi.fn()),
-            }),
-            viewport: cast<TPdfViewportSession>({
-                currentPage: ref(1),
-                visibleRange: computed(() => ({
-                    start: 1,
-                    end: 1,
-                })),
-                scale: {effectiveScale: computed(() => 1)},
-                scroll: {updateVisibleRange: vi.fn()},
-                singlePageScroll: {scrollToPage: vi.fn()},
-            }),
-            rendering: cast<TPdfRenderingSession>({
-                attachAnnotationProjection: vi.fn(() => vi.fn()),
-                hideManagedAnnotationEditors: vi.fn(),
-                invalidatePages: vi.fn(),
-                isPageRendered: vi.fn(() => false),
-                renderAnnotationEditorLayerForPage: vi.fn(),
-                renderVisiblePages: vi.fn(),
-                renderedPageStateVersion: ref(0),
-            }),
+            document: createDocumentSessionFixture(pdfDocument),
+            viewport: createViewportSessionFixture(),
+            rendering: createRenderingSessionFixture(),
             viewerContainer: ref(null),
             originalPath: computed(() => requireDocumentRef('/documents/original.pdf')),
             src: computed(() => ({

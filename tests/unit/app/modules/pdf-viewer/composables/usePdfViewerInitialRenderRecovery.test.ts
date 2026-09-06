@@ -14,7 +14,7 @@ import {
 } from 'vue';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import { usePdfViewerInitialRenderRecovery } from '@app/modules/pdf-viewer/runtime/composables/usePdfViewerInitialRenderRecovery';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 describe('usePdfViewerInitialRenderRecovery', () => {
     beforeEach(() => {
@@ -79,7 +79,7 @@ describe('usePdfViewerInitialRenderRecovery', () => {
         };
         const recovery = usePdfViewerInitialRenderRecovery({
             viewerContainer: ref(container),
-            pdfDocument: shallowRef(cast<PDFDocumentProxy>({})),
+            pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             numPages: ref(5),
             isLoading: ref(false),
             currentPage: ref(options.currentPage ?? 1),

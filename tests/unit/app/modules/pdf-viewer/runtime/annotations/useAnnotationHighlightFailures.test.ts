@@ -14,7 +14,6 @@ import {
     shallowRef,
 } from 'vue';
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
-import { cast } from '@tests/helpers/cast';
 import type { IAnnotationCreationFailureReport } from '@app/modules/pdf-viewer/engine/annotations/annotation-rules/annotationCreationOutcome.types';
 import { useAnnotationHighlight } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/useAnnotationHighlight';
 import {
@@ -268,7 +267,9 @@ function stubSelection(range: Range | null) {
             return range;
         },
     };
-    vi.spyOn(document, 'getSelection').mockReturnValue(cast<Selection>(selection));
+    // The browser owns Selection construction. This test supplies only the
+    // range accessors consumed by the highlight bridge.
+    vi.spyOn(document, 'getSelection').mockReturnValue(Object.assign(Object.create(null), selection));
     return selection;
 }
 

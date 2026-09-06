@@ -23,7 +23,7 @@ import type {
     TAnnotationTool,
 } from '@app/types/annotations';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 vi.mock('pdfjs-dist', () => ({AnnotationEditorType: {
     DISABLE: -1,
@@ -178,12 +178,9 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
 
     const editors = overrides.editors ?? [];
     const uiManager = overrides.uiManagerNull ? null : createFakeUiManager(editors, overrides.uiManagerOpts);
-    const annotationUiManager = cast<ShallowRef<AnnotationEditorUIManager | null>>(
-        shallowRef(uiManager),
-    );
-    const pdfDocument = cast<ShallowRef<PDFDocumentProxy | null>>(
-        shallowRef({ annotationStorage: { getEditor: overrides.annotationStorageGetEditor ?? (() => null) } }),
-    );
+    // The CRUD bridge uses the fake manager through its PDF.js methods only.
+    const annotationUiManager = shallowRef(uiManager) as ShallowRef<AnnotationEditorUIManager | null>;
+    const pdfDocument = shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy({annotationStorage: {getEditor: overrides.annotationStorageGetEditor ?? (() => null)}}));
     const annotationCommentsCache = ref<IAnnotationCommentSummary[]>(overrides.cache ?? []) as Ref<IAnnotationCommentSummary[]>;
 
 
@@ -253,7 +250,16 @@ async function createHarness(overrides: IHarnessOverrides = {}) {
             isPlacingComment: ref(false),
             placeCommentAtClientPoint: vi.fn(async () => true),
             findPageContainerFromClientPoint: vi.fn(() => null),
-            buildAnnotationContextMenuPayload: vi.fn(() => cast<never>({})),
+            buildAnnotationContextMenuPayload: vi.fn(() => ({
+                comment: null,
+                clientX: 0,
+                clientY: 0,
+                hasSelection: false,
+                selectionText: '',
+                pageNumber: null,
+                pageX: null,
+                pageY: null,
+            })),
         }),
         textMarkupPresentation: {notify: vi.fn()},
         scrollToPage: vi.fn(),

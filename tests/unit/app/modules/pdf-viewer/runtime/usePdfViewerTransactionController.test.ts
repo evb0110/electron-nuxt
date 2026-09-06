@@ -8,10 +8,9 @@ import {
     ref,
     shallowRef,
 } from 'vue';
-import type { PDFDocumentProxy } from 'pdfjs-dist';
 import { usePdfViewerTransactionController } from '@app/modules/pdf-viewer/runtime/transactions/usePdfViewerTransactionController';
 import type { IPdfNavigationState } from '@app/modules/pdf-viewer/runtime/navigation/createPdfNavigationMachineState';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 function createNavigationState(overrides: Partial<IPdfNavigationState> = {}) {
     return shallowRef<IPdfNavigationState>({
@@ -209,7 +208,7 @@ describe('usePdfViewerTransactionController', () => {
     });
 
     it('consumes active and settled paged-target fit render handoffs once', () => {
-        const document = cast<PDFDocumentProxy>({});
+        const document = createPdfDocumentProxy();
         const controller = usePdfViewerTransactionController({
             navigationState: createNavigationState({
                 status: 'idle',

@@ -14,10 +14,19 @@ import {
 import { requirePageNumber } from '@contracts/pageNumbers';
 import { createPdfRenderPagePredicate } from '@app/modules/pdf-viewer/runtime/rendering/createPdfRenderPagePredicate';
 import { usePdfRenderViewModel } from '@app/modules/pdf-viewer/runtime/rendering/usePdfRenderViewModel';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from '@app/types/pdfContracts';
 import type { TPdfSource } from '@app/types/pdfUi';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import { createDocumentOpenSurfaceSession } from '@app/utils/document-viewer/chassis/documentOpenSurfaceSession';
+
+function createPdfPageProxy(): PDFPageProxy {
+    // The view model stores the page returned by getPage but does not inspect
+    // it in these state-only tests.
+    return {} as PDFPageProxy;
+}
 
 function createHarness(options?: {
     hasMountedPageCanvas?: (page: number) => boolean;
@@ -42,8 +51,8 @@ function createHarness(options?: {
     const viewModel = scope.run(() => usePdfRenderViewModel({
         src: computed(() => null as TPdfSource | null),
         isLoading: ref(false),
-        pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
-        getPage: vi.fn(async () => cast({})),
+        pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
+        getPage: vi.fn(async () => createPdfPageProxy()),
         openSurface: createDocumentOpenSurfaceSession(),
         isVisualReloadTransitionActive: ref(false),
         suppressLoadingOverlay: computed(() => options?.suppressLoadingOverlay ?? false),

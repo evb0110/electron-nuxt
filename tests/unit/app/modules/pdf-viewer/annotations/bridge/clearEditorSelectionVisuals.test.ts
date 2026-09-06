@@ -10,14 +10,16 @@ import {
 } from 'vitest';
 import { ref } from 'vue';
 import type { AnnotationEditorUIManager } from 'pdfjs-dist';
-import { cast } from '@tests/helpers/cast';
 import { clearEditorSelectionVisuals } from '@app/modules/pdf-viewer/annotations/bridge/pdfjs-runtime/clearEditorSelectionVisuals';
 
 function createUiManager() {
-    return {
+    const fixture = {
         setActiveEditor: vi.fn(),
         unselectAll: vi.fn(),
-    };
+    } satisfies Pick<AnnotationEditorUIManager, 'setActiveEditor' | 'unselectAll'>;
+    // The production function accepts PDF.js's class, while this node test
+    // needs only the two methods it calls and no PDF.js constructor state.
+    return Object.assign(Object.create(null), fixture);
 }
 
 describe('clearEditorSelectionVisuals without a document', () => {
@@ -27,7 +29,7 @@ describe('clearEditorSelectionVisuals without a document', () => {
 
         expect(() => clearEditorSelectionVisuals({
             viewerContainer: ref(null),
-            uiManager: cast<AnnotationEditorUIManager>(uiManager),
+            uiManager,
             isUiManagerCurrent: () => true,
             editor: null,
         })).not.toThrow();
@@ -42,7 +44,7 @@ describe('clearEditorSelectionVisuals without a document', () => {
 
         clearEditorSelectionVisuals({
             viewerContainer: ref(null),
-            uiManager: cast<AnnotationEditorUIManager>(uiManager),
+            uiManager,
             isUiManagerCurrent: () => false,
             editor: null,
         });

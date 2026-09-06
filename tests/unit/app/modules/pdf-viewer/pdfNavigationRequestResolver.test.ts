@@ -6,8 +6,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import { cast } from '@tests/helpers/cast';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 import {
     isPdfNavigationReady,
     resolvePdfNavigationAnchor,
@@ -28,6 +27,36 @@ function request(overrides: Partial<IPdfNavigationRequest> = {}): IPdfNavigation
         supersession: 'latest-wins',
         ...overrides,
     };
+}
+
+function createDomRect(values: {
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}): DOMRect {
+    const {
+        left,
+        top,
+        width,
+        height,
+    } = values;
+    return {
+        bottom: top + height,
+        height,
+        left,
+        right: left + width,
+        top,
+        width,
+        x: left,
+        y: top,
+        toJSON: () => ({}),
+    } as DOMRect;
+}
+
+function createElementShim(shape: Record<string, unknown>): HTMLElement {
+    // These resolver fixtures model only the DOM methods used by the test.
+    return Object.assign(Object.create(null), shape);
 }
 
 describe('PDF navigation request resolver', () => {
@@ -90,7 +119,7 @@ describe('PDF navigation request resolver', () => {
                 destination: [1] as unknown[],
             },
         } as const;
-        const pdfDocument = cast<PDFDocumentProxy>({
+        const pdfDocument = createPdfDocumentProxy({
             numPages: 3,
             getDestination: vi.fn(async () => null),
             getPageIndex: vi.fn(async () => 1),
@@ -132,18 +161,18 @@ describe('PDF navigation request resolver', () => {
     });
 
     it('resolves a text anchor to normalized page geometry', () => {
-        const span = cast<HTMLElement>({
+        const span = createElementShim({
             textContent: 'prefix needle suffix',
-            getBoundingClientRect: () => cast<DOMRect>({
+            getBoundingClientRect: () => createDomRect({
                 left: 30,
                 top: 50,
                 width: 20,
                 height: 10,
             }),
         });
-        const textLayer = cast<HTMLElement>({querySelectorAll: () => [span]});
-        const page = cast<HTMLElement>({
-            getBoundingClientRect: () => cast<DOMRect>({
+        const textLayer = createElementShim({querySelectorAll: () => [span]});
+        const page = createElementShim({
+            getBoundingClientRect: () => createDomRect({
                 left: 10,
                 top: 10,
                 width: 100,
@@ -151,7 +180,7 @@ describe('PDF navigation request resolver', () => {
             }),
             querySelector: () => textLayer,
         });
-        const container = cast<HTMLElement>({querySelector: () => page});
+        const container = createElementShim({querySelector: () => page});
         expect(resolveTextAnchorRect(container, {
             kind: 'text-anchor',
             page: 2,
@@ -170,7 +199,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -190,7 +219,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -230,7 +259,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -250,7 +279,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -299,7 +328,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -319,7 +348,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -367,7 +396,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -387,7 +416,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -433,7 +462,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -455,7 +484,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -522,7 +551,7 @@ describe('PDF navigation request resolver', () => {
         const page = document.createElement('div');
         page.className = 'page_container';
         page.dataset.page = '2';
-        page.getBoundingClientRect = () => cast<DOMRect>({
+        page.getBoundingClientRect = () => createDomRect({
             left: 10,
             top: 10,
             width: 100,
@@ -544,7 +573,7 @@ describe('PDF navigation request resolver', () => {
 
         const originalGetBoundingClientRect = Range.prototype.getBoundingClientRect;
         Range.prototype.getBoundingClientRect = vi.fn(function (this: Range) {
-            return cast<DOMRect>(this.startContainer === second.firstChild
+            return createDomRect(this.startContainer === second.firstChild
                 ? {
                     left: 50,
                     top: 110,
@@ -604,15 +633,15 @@ describe('PDF navigation request resolver', () => {
             true,
         ],
     ] as const)('honors %s readiness', (readiness, expected) => {
-        const page = cast<HTMLElement>({querySelector: (selector: string) => selector.includes('text') || selector.includes('annotation') ? {dataset: {}} : null});
-        const container = cast<HTMLElement>({querySelector: () => page});
+        const page = createElementShim({querySelector: (selector: string) => selector.includes('text') || selector.includes('annotation') ? {dataset: {}} : null});
+        const container = createElementShim({querySelector: () => page});
         expect(isPdfNavigationReady(container, 2, readiness, () => true)).toBe(expected);
     });
 
     it('requires the renderer readiness marker before using a text layer', () => {
         const textLayer = {dataset: {pdfTextLayerReady: 'true'}};
-        const page = cast<HTMLElement>({querySelector: () => textLayer});
-        const container = cast<HTMLElement>({querySelector: () => page});
+        const page = createElementShim({querySelector: () => textLayer});
+        const container = createElementShim({querySelector: () => page});
         expect(isPdfNavigationReady(container, 2, 'text-layer', () => true)).toBe(true);
     });
 });

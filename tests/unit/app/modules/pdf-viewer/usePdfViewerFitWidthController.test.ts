@@ -13,7 +13,12 @@ import {
 } from 'vue';
 import { usePdfViewerFitWidthController } from '@app/modules/pdf-viewer/runtime/viewport/usePdfViewerFitWidthController';
 import type { PDFDocumentProxy } from '@app/types/pdfContracts';
-import { cast } from '@tests/helpers/cast';
+import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
+
+function createViewerContainer(): HTMLElement {
+    // The controller passes this element to mocked geometry callbacks only.
+    return {} as HTMLElement;
+}
 
 describe('usePdfViewerFitWidthController', () => {
     it('syncs fit-width zoom mode when the current page changes', async () => {
@@ -21,14 +26,14 @@ describe('usePdfViewerFitWidthController', () => {
         const emitZoomMode = vi.fn();
         const syncHorizontalScrollForZoomMode = vi.fn();
         const isFitWidthScaleCurrent = vi.fn(() => true);
-        const viewerContainer = ref(cast<HTMLElement>({}));
+        const viewerContainer = ref(createViewerContainer());
         const scope = effectScope();
 
         try {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),
@@ -69,14 +74,14 @@ describe('usePdfViewerFitWidthController', () => {
         const emitZoomMode = vi.fn();
         const syncHorizontalScrollForZoomMode = vi.fn();
         const isFitWidthScaleCurrent = vi.fn(() => true);
-        const viewerContainer = ref(cast<HTMLElement>({}));
+        const viewerContainer = ref(createViewerContainer());
         const scope = effectScope();
 
         try {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),
@@ -117,14 +122,14 @@ describe('usePdfViewerFitWidthController', () => {
         const emitZoomMode = vi.fn();
         const syncHorizontalScrollForZoomMode = vi.fn();
         const isFitWidthScaleCurrent = vi.fn(() => false);
-        const viewerContainer = ref(cast<HTMLElement>({}));
+        const viewerContainer = ref(createViewerContainer());
         const scope = effectScope();
 
         try {
             scope.run(() => {
                 usePdfViewerFitWidthController({
                     viewerContainer,
-                    pdfDocument: shallowRef<PDFDocumentProxy | null>(cast({})),
+                    pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
                     isLoading: ref(false),
                     continuousScroll: computed(() => true),
                     fitMode: computed(() => 'width' as const),

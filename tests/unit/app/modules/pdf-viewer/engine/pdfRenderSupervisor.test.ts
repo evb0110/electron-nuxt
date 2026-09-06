@@ -14,7 +14,6 @@ import {
     armPageStageDeadline,
     withPageStageTimeout,
 } from '@app/modules/pdf-viewer/engine/pdf-page-render-timeout/withPageStageTimeout';
-import { cast } from '@tests/helpers/cast';
 
 interface ITestPdfRenderTraceWindow {
     __pdfRenderTrace: boolean;
@@ -199,7 +198,10 @@ describe('pdf render supervisor', () => {
             onEvent: event => events.push(event),
             setTimeoutFn: nextCallback => {
                 callback = nextCallback;
-                return cast<ReturnType<typeof setTimeout>>(1);
+                // The supervisor treats this handle as opaque. A real zero
+                // delay handle keeps the timer type honest while the test
+                // manually drives the captured callback.
+                return setTimeout(() => undefined, 0);
             },
         });
         supervisor.armTimer({

@@ -16,30 +16,43 @@ import {
 } from 'vue';
 import { usePdfAnnotationLayerRenderer } from '@app/modules/pdf-viewer/runtime/rendering/usePdfAnnotationLayerRenderer';
 import type {PDFDocumentProxy} from '@app/types/pdfContracts';
-import {cast} from '@tests/helpers/cast';
 import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
 
 type TPdfViewport = ReturnType<PDFPageProxy['getViewport']>;
 
-function createPageProxy<TGetAnnotations extends (...args: never[]) => unknown>(
-    getAnnotations: TGetAnnotations,
-): PDFPageProxy & {getAnnotations: TGetAnnotations} {
-    return cast<PDFPageProxy & {getAnnotations: TGetAnnotations}>({getAnnotations});
+function createPageProxy(getAnnotations: PDFPageProxy['getAnnotations']): PDFPageProxy {
+    // Annotation rendering uses getAnnotations in this unit. PDF.js supplies
+    // the remaining page proxy members.
+    return {getAnnotations} as PDFPageProxy;
 }
 
 function createViewport(width = 200, height = 300): TPdfViewport {
-    return cast<TPdfViewport>({
+    // The layer renderer reads only viewport dimensions and rotation here.
+    return {
         width,
         height,
         rotation: 0,
-    });
+    } as TPdfViewport;
 }
 
 function createAnnotationLayerDiv(innerHTML = ''): HTMLElement {
-    return cast<HTMLElement>({
+    // The PDF.js layer mock reads the HTML string and annotation descendants.
+    return Object.assign(Object.create(null), {
         innerHTML,
         querySelectorAll: vi.fn(() => []),
     });
+}
+
+function createAnnotationUiManagerRef(
+    annotationUiManager: object,
+) {
+    // Forward PDF.js manager mutations to the local object while keeping the
+    // object identity that the guard tests inspect.
+    const managerProxy = new Proxy(Object.create(null), {
+        get: (_target, property) => Reflect.get(annotationUiManager, property),
+        set: (_target, property, value) => Reflect.set(annotationUiManager, property, value),
+    });
+    return shallowRef(managerProxy);
 }
 
 const annotationLayerCtor = vi.fn();
@@ -233,7 +246,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
+            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
             annotationL10n: ref(null),
         });
         const viewport = createViewport();
@@ -294,7 +307,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
+            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
             annotationL10n: ref(null),
         });
         const viewport = createViewport();
@@ -365,7 +378,7 @@ describe('usePdfAnnotationLayerRenderer', () => {
             pdfDocument: shallowRef<PDFDocumentProxy | null>(createPdfDocumentProxy()),
             showAnnotations: ref(true),
             hiddenAnnotationIds: ref(new Set(['hidden-1'])),
-            annotationUiManager: shallowRef<AnnotationEditorUIManager | null>(cast<AnnotationEditorUIManager>(annotationUiManager)),
+            annotationUiManager: createAnnotationUiManagerRef(annotationUiManager),
             annotationL10n: ref(null),
         });
         const viewport = createViewport();

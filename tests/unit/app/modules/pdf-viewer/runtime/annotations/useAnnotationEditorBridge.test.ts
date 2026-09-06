@@ -30,7 +30,12 @@ import type {IPdfjsAnnotationEditorState} from '@app/modules/pdf-viewer/runtime/
 import {usePdfAppAnnotationHistory} from '@app/modules/pdf-viewer/runtime/annotations/usePdfAppAnnotationHistory';
 import {AnnotationHistoryIndeterminateError} from '@app/modules/pdf-viewer/engine/annotations/annotation-history/pdfAppAnnotationHistoryCommand';
 import {BrowserLogger} from '@app/utils/browserLogger';
-import { cast } from '@tests/helpers/cast';
+
+function createEditorShim(shape: Record<string, unknown>): IPdfjsEditor {
+    // These bridge tests model only the PDF.js editor members each scenario
+    // exercises.
+    return shape as IPdfjsEditor;
+}
 
 const {
     annotationUiManagerInstances,
@@ -49,7 +54,7 @@ const {
         __addCommandsSpy = vi.fn();
         addCommands = this.__addCommandsSpy;
         addEditListeners = vi.fn(); copy = vi.fn(); cut = vi.fn(); destroy = vi.fn(); delete = vi.fn();
-        getEditors = vi.fn(() => []); keydown = vi.fn(); keyup = vi.fn(); onPageChanging = vi.fn();
+        getEditors = vi.fn<(pageIndex: number) => IPdfjsEditor[]>(() => []); keydown = vi.fn(); keyup = vi.fn(); onPageChanging = vi.fn();
         onScaleChanging = vi.fn(); paste = vi.fn(async () => {}); redo = vi.fn(); removeEditListeners = vi.fn();
         registerEditorTypes = vi.fn(); undo = vi.fn(); unselectAll = vi.fn(); updateParams = vi.fn();
         __setSelectedSpy = vi.fn(); setSelected = this.__setSelectedSpy;
@@ -321,7 +326,10 @@ describe('useAnnotationEditorBridge', () => {
     it('updates registered editor types without scanning every page', async () => {
         const {uiManager} = await createBridgeHarness('text', {numPages: 2_646});
         const editorType = {updateDefaultParams: vi.fn()};
-        uiManager.registerEditorTypes(cast<Parameters<AnnotationEditorUIManager['registerEditorTypes']>[0]>([editorType]));
+        // PDF.js accepts editor constructors here; the test needs only the
+        // updateDefaultParams callback used by the bridge.
+        const editorTypes = [editorType] as Parameters<AnnotationEditorUIManager['registerEditorTypes']>[0];
+        uiManager.registerEditorTypes(editorTypes);
         uiManager.getEditors.mockClear();
 
         expect(updateEditorDefaultParams(uiManager, 3, '#98ff98')).toBe(true);
@@ -335,7 +343,7 @@ describe('useAnnotationEditorBridge', () => {
             mountedPageNumbers: [2],
         });
         const editorType = {updateDefaultParams: vi.fn()};
-        const editor = cast<IPdfjsEditor>({
+        const editor = createEditorShim({
             id: 'existing-editor',
             div: document.createElement('div'),
             annotationElementId: null,
@@ -344,7 +352,7 @@ describe('useAnnotationEditorBridge', () => {
             constructor: editorType,
         });
         const getEditors = vi.fn((pageIndex: number) => pageIndex === 1 ? [editor] : []);
-        uiManager.getEditors = cast<typeof uiManager.getEditors>(getEditors);
+        uiManager.getEditors.mockImplementation(getEditors);
 
         expect(updateEditorDefaultParams(uiManager, 3, '#98ff98')).toBe(true);
         expect(getEditors).toHaveBeenCalledOnce();
@@ -484,7 +492,7 @@ describe('useAnnotationEditorBridge', () => {
         editable.className = 'internal';
         editable.contentEditable = 'true';
         editorDiv.append(editable);
-        const editor = cast<IPdfjsEditor>({
+        const editor = createEditorShim({
             id: 'text-committed-detached',
             div: editorDiv,
             annotationElementId: null,
@@ -588,17 +596,18 @@ describe('useAnnotationEditorBridge', () => {
         const cmd = vi.fn();
         const undo = vi.fn();
 
-        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+        const command = {
             cmd,
             undo,
-        }));
+        } satisfies Parameters<AnnotationEditorUIManager['addCommands']>[0];
+        uiManager.addCommands(command);
         expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
-        const command = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
+        const recordedCommand = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
         emitAnnotationModified.mockClear();
         scheduleAnnotationCommentsSync.mockClear();
 
-        command.undo();
-        command.cmd();
+        recordedCommand?.undo();
+        recordedCommand?.cmd();
 
         expect(undo).toHaveBeenCalledOnce();
         expect(cmd).toHaveBeenCalledOnce();
@@ -619,12 +628,13 @@ describe('useAnnotationEditorBridge', () => {
         const cmd = vi.fn(() => state.push('applied'));
         const undo = vi.fn(() => state.pop());
 
-        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+        const command = {
             cmd,
             undo,
-        }));
+        } satisfies Parameters<AnnotationEditorUIManager['addCommands']>[0];
+        uiManager.addCommands(command);
         expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
-        const command = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
+        const recordedCommand = recordPdfjsExecutorCommand.mock.calls[0]?.[0];
         const history = usePdfAppAnnotationHistory({
             pdfjsAnnotationState: ref({
                 isEditing: false,
@@ -636,7 +646,10 @@ describe('useAnnotationEditorBridge', () => {
             emitAnnotationState: vi.fn(),
             markModified: vi.fn(),
         });
-        history.registerExecutorCommand(command);
+        if (!recordedCommand) {
+            throw new Error('Expected PDF.js to record the command');
+        }
+        history.registerExecutorCommand(recordedCommand);
         emitAnnotationModified.mockClear();
         scheduleAnnotationCommentsSync.mockClear();
         emitAnnotationModified.mockImplementationOnce(() => {
@@ -691,10 +704,11 @@ describe('useAnnotationEditorBridge', () => {
             throw replayFailure;
         });
 
-        uiManager.addCommands(cast<Parameters<AnnotationEditorUIManager['addCommands']>[0]>({
+        const command = {
             cmd: () => state.push('applied'),
             undo,
-        }));
+        } satisfies Parameters<AnnotationEditorUIManager['addCommands']>[0];
+        uiManager.addCommands(command);
         expect(recordPdfjsExecutorCommand).toHaveBeenCalled();
         const history = usePdfAppAnnotationHistory({
             pdfjsAnnotationState: ref({
