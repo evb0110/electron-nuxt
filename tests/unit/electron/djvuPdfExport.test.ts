@@ -107,7 +107,7 @@ vi.mock('@electron/features/djvu/main/ddjvuConversion', () => ({
 
 vi.mock('@electron/features/djvu/main/buildCompactDjvuAwarePdfFromDjvu', () => ({buildCompactDjvuAwarePdfFromDjvu: mocks.buildCompactDjvuAwarePdfFromDjvu}));
 
-vi.mock('@electron/djvu/metadata', () => ({
+vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuOutline: mocks.getDjvuOutline,
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
@@ -118,18 +118,18 @@ vi.mock('@electron/features/djvu/main/pagePreview', () => ({
     getDjvuPageSizesForViewing: mocks.getDjvuPageSizesForViewing,
 }));
 
-vi.mock('@electron/djvu/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
-vi.mock('@electron/djvu/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
+vi.mock('@electron/features/djvu/main/parseDjvuOutline', () => ({parseDjvuOutline: mocks.parseDjvuOutline}));
+vi.mock('@electron/features/djvu/main/embedBookmarksIntoPdfFile', () => ({embedBookmarksIntoPdfFile: mocks.embedBookmarksIntoPdfFile}));
 vi.mock('@electron/features/documents/public/pdfSaveAsOptimization', () => ({optimizeGeneratedPdfForInteraction: (...args: unknown[]) => mocks.optimizeGeneratedPdfForInteraction(...args)}));
 vi.mock('@electron/utils/printHandoff', () => ({
     PRINT_DJVU_TEMP_PREFIX: 'print-djvu-',
     printManagedTempPdfPath: (...args: unknown[]) => mocks.printManagedTempPdfPath(...args),
 }));
 vi.mock('@electron/utils/appTempDir', () => ({getAppTempDir: () => mocks.getAppTempDir()}));
-vi.mock('@electron/djvu/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
+vi.mock('@electron/features/djvu/main/exportPaths', () => ({consumeAllowedDjvuWritePath: mocks.consumeAllowedDjvuWritePath}));
 vi.mock('@electron/file-access/openPathCapabilities', () => ({allowOpenPath: mocks.allowOpenPath}));
 vi.mock('@electron/features/djvu/main/viewing', () => ({adoptDjvuViewingPath: mocks.adoptDjvuViewingPath}));
-vi.mock('@electron/djvu/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
+vi.mock('@electron/features/djvu/main/safeSendToWindow', () => ({safeSendToWindow: mocks.safeSendToWindow}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
     info: mocks.loggerInfo,
     warn: mocks.loggerWarn,

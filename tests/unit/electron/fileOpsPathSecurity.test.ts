@@ -155,7 +155,7 @@ vi.mock('@electron/file-access/documentMutationGuards', () => ({
         options?.expectedDocumentRevisionToken?.trim() ?? null,
 }));
 vi.mock('@electron/file-access/originalPathSaveWitness', () => ({originalPathSaveBaseMatches: mocks.originalPathSaveBaseMatches}));
-vi.mock('@electron/djvu/viewing', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
+vi.mock('@electron/features/djvu/public', () => ({isAllowedDjvuViewingPath: mocks.isAllowedDjvuViewingPath}));
 vi.mock('@electron/ocr/createPendingResultFileStore', () => ({findPendingOcrResultFileForPath: mocks.findPendingOcrResultFileForPath}));
 vi.mock('@electron/ocr/documentTextCatalog', () => ({rebindDocumentTextCatalogRevision: vi.fn()}));
 vi.mock('@electron/ocr/worker/indexWriterV4', () => ({

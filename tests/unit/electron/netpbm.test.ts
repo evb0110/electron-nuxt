@@ -8,7 +8,7 @@ import {
     extractGrayscaleFromRgb,
     isRgbDataGrayscale,
     parseNetpbm,
-} from '@electron/djvu/netpbm';
+} from '@electron/features/djvu/main/netpbm';
 
 function netpbm(parts: Array<string | number[]>) {
     return Buffer.concat(parts.map((part) => {

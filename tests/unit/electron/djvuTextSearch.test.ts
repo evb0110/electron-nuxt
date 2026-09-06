@@ -9,15 +9,15 @@ import {requireRequestId} from '@contracts/shared';
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 
 const {
     createDjvuTextSExpressionParser,
     detectDjvuHasText,
     searchDjvuText,
-} = await import('@electron/djvu/textSearch');
+} = await import('@electron/features/djvu/main/textSearch');
 
 interface IRunOptions {
     onStdout?: (chunk: string) => void;

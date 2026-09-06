@@ -55,8 +55,8 @@ import {
     getDjvuOutline,
     getDjvuPageCount,
     getDjvuResolution,
-} from '@electron/djvu/metadata';
-import { parseDjvuOutline } from '@electron/djvu/parseDjvuOutline';
+} from '@electron/features/djvu/main/metadata';
+import { parseDjvuOutline } from '@electron/features/djvu/main/parseDjvuOutline';
 import {
     evaluateDjvuPdfConversionPolicy,
     resolveDjvuCompactFidelityPreset,
@@ -68,9 +68,9 @@ import {
 import {isPdfCombineOutputTooLargeError} from '@contracts/pdfCombineOutputPolicy';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';
-import { safeSendToWindow } from '@electron/djvu/safeSendToWindow';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
-import { consumeAllowedDjvuWritePath } from '@electron/djvu/exportPaths';
+import { safeSendToWindow } from '@electron/features/djvu/main/safeSendToWindow';
+import { embedBookmarksIntoPdfFile } from '@electron/features/djvu/main/embedBookmarksIntoPdfFile';
+import { consumeAllowedDjvuWritePath } from '@electron/features/djvu/main/exportPaths';
 import { allowOpenPath } from '@electron/file-access/openPathCapabilities';
 import type { TOpenPath } from '@electron/file-access/openPathCapabilities';
 import {

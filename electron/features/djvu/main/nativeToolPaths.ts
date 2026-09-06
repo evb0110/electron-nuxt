@@ -35,12 +35,12 @@ const DJVU_RESOURCE_NAME = 'djvulibre';
 function isElectronAppPackaged() {
     return app.isPackaged;
 }
-
 function getDjvuResourcesBaseCandidates(moduleDir: string, cwd = process.cwd()) {
     return [
         join(cwd, 'resources'),
         join(moduleDir, '..', '..', 'resources'),
         join(moduleDir, '..', '..', '..', 'resources'),
+        join(moduleDir, '..', '..', '..', '..', 'resources'),
     ];
 }
 

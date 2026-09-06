@@ -20,7 +20,7 @@ import {
     getWorkingCopyBackingEntry,
     getWorkingCopyOwnerWebContentsId,
 } from '@electron/file-access/workingCopyStore';
-import { isAllowedDjvuViewingPath } from '@electron/djvu/viewing';
+import { isAllowedDjvuViewingPath } from '@electron/features/djvu/public';
 import { requireOpenPath } from '@electron/file-access/openPathCapabilities';
 
 const MAX_IPC_READ_BYTES = (() => {

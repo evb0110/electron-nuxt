@@ -2,8 +2,8 @@ import {
     parentPort,
     workerData,
 } from 'worker_threads';
-import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
-import { embedBookmarksIntoPdfFile } from '@electron/djvu/embedBookmarksIntoPdfFile';
+import { buildOptimizedPdf } from '@electron/features/djvu/main/buildOptimizedPdf';
+import { embedBookmarksIntoPdfFile } from '@electron/features/djvu/main/embedBookmarksIntoPdfFile';
 import type {
     TDjvuPdfWorkerMessage,
     TDjvuPdfWorkerTask,
@@ -18,7 +18,6 @@ import { createWorkerTaskErrorFrame } from '@electron/utils/workerTask';
 import { getErrorMessage } from '@electron/utils/error';
 
 interface IDjvuPdfWorkerCancelMessage {type: 'cancel';}
-
 
 
 function isPdfBookmarkEntry(value: unknown): value is IPdfBookmarkEntry {

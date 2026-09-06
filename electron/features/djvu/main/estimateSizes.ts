@@ -14,8 +14,8 @@ import {
     DjvuPdfWorkerStartupError,
     getDjvuPageSizeForViewing,
 } from '@electron/features/djvu/public';
-import { getDjvuResolution } from '@electron/djvu/metadata';
-import { buildOptimizedPdf } from '@electron/djvu/buildOptimizedPdf';
+import { getDjvuResolution } from '@electron/features/djvu/main/metadata';
+import { buildOptimizedPdf } from '@electron/features/djvu/main/buildOptimizedPdf';
 import { te } from '@electron/te';
 import { createLogger } from '@electron/utils/createLogger';
 import { measureElectronPerfAsync } from '@electron/utils/measureElectronPerfAsync';

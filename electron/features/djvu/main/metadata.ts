@@ -1,10 +1,9 @@
-import { buildDjvuRuntimeEnv } from '@electron/djvu/paths';
-import { getDjvuNativeToolPaths } from '@electron/djvu/nativeToolPaths';
+import { buildDjvuRuntimeEnv } from '@electron/features/djvu/main/buildDjvuRuntimeEnv';
+import { getDjvuNativeToolPaths } from '@electron/features/djvu/main/nativeToolPaths';
 import { runNativeCommand } from '@electron/native-tools/runNativeCommand';
 import { createLogger } from '@electron/utils/createLogger';
 import { isAbortError } from '@electron/utils/abort';
-import {getCachedDjvuHasText} from '@electron/djvu/getCachedDjvuHasText';
-
+import {getCachedDjvuHasText} from '@electron/features/djvu/main/getCachedDjvuHasText';
 const logger = createLogger('djvu-metadata');
 
 interface IRunResult {

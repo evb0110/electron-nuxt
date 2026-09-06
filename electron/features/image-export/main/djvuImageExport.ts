@@ -12,9 +12,9 @@ import {
     join,
 } from 'node:path';
 import type { IImageExportProgress } from '@contracts/electronApiDocuments';
-import { getDjvuPageCount } from '@electron/djvu/metadata';
 import {
     convertDjvuPageToImage,
+    getDjvuPageCount,
     getDjvuPageSizeWindowsForViewing,
 } from '@electron/features/djvu/public';
 import {

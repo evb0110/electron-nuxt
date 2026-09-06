@@ -49,12 +49,12 @@ vi.mock('fs/promises', () => ({
     rm: mocks.rm,
     stat: mocks.stat,
 }));
-vi.mock('@electron/djvu/metadata', () => ({
+vi.mock('@electron/features/djvu/main/metadata', () => ({
     getDjvuPageCount: mocks.getDjvuPageCount,
     getDjvuResolution: mocks.getDjvuResolution,
 }));
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({DJVU: '1'})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({DJVU: '1'})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/native-tools/runNativeToolCommand', () => ({runNativeToolCommand: mocks.runNativeToolCommand}));
 vi.mock('@electron/features/djvu/main/probeNativeNetpbm', () => ({probeNativeNetpbm: mocks.probeNativeNetpbm}));

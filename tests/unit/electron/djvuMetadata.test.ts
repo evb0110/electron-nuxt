@@ -8,13 +8,13 @@ import {
 
 const mocks = vi.hoisted(() => ({runNativeCommand: vi.fn()}));
 
-vi.mock('@electron/djvu/paths', () => ({buildDjvuRuntimeEnv: () => ({})}));
-vi.mock('@electron/djvu/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
+vi.mock('@electron/features/djvu/main/buildDjvuRuntimeEnv', () => ({buildDjvuRuntimeEnv: () => ({})}));
+vi.mock('@electron/features/djvu/main/nativeToolPaths', () => ({getDjvuNativeToolPaths: () => ({djvused: '/tools/djvused'})}));
 vi.mock('@electron/native-tools/runNativeCommand', () => ({runNativeCommand: mocks.runNativeCommand}));
 vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({debug: vi.fn()})}));
-vi.mock('@electron/djvu/getCachedDjvuHasText', () => ({getCachedDjvuHasText: vi.fn()}));
+vi.mock('@electron/features/djvu/main/getCachedDjvuHasText', () => ({getCachedDjvuHasText: vi.fn()}));
 
-const {getDjvuPageCount} = await import('@electron/djvu/metadata');
+const {getDjvuPageCount} = await import('@electron/features/djvu/main/metadata');
 
 describe('DjVu metadata', () => {
     beforeEach(() => {

@@ -3,7 +3,7 @@ import {
     expect,
     it,
 } from 'vitest';
-import { isAllowedDjvuTempPdfPath } from '@electron/djvu/isAllowedDjvuTempPdfPath';
+import { isAllowedDjvuTempPdfPath } from '@electron/features/djvu/main/isAllowedDjvuTempPdfPath';
 
 describe('isAllowedDjvuTempPdfPath', () => {
     const tempDir = '/tmp';
