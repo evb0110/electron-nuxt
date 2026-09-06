@@ -5909,6 +5909,17 @@ describe('scan cleanup pipeline', () => {
     it('rejects page geometry that is not in document order at the lossless seam', async () => {
         const fixture = await setup();
         const pipelineDependencies = dependencies(vi.fn());
+        const outOfOrderPages = documentGeometry([
+            2,
+            1,
+        ]);
+        const pageSizeStore: IPdfPageSizeStore = {
+            pageCount: 2,
+            getPage: vi.fn(async pageNumber => outOfOrderPages[pageNumber - 1]!),
+            readRange: vi.fn(async () => outOfOrderPages),
+            forEachChunk: vi.fn(async () => undefined),
+            close: vi.fn(async () => undefined),
+        };
 
         await expect(runLosslessScanCleanup(
             {
@@ -5926,10 +5937,7 @@ describe('scan cleanup pipeline', () => {
                 1,
                 2,
             ],
-            createArrayBackedPdfPageSizeStore(documentGeometry([
-                2,
-                1,
-            ])),
+            pageSizeStore,
             dpiDetails(300, [
                 [
                     1,
@@ -5948,7 +5956,7 @@ describe('scan cleanup pipeline', () => {
             highTierPolicy,
             pipelineDependencies,
         )).rejects.toThrow(
-            'Page-size source returned no geometry for page 1',
+            'Scan cleanup page-size store returned page 2 for requested page 1',
         );
 
         expect(pipelineDependencies.runSidecar).not.toHaveBeenCalled();

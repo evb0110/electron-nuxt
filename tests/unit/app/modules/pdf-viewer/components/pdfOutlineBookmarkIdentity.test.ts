@@ -8,7 +8,10 @@ import {
     it,
     vi,
 } from 'vitest';
-import type {PDFDocumentProxy} from 'pdfjs-dist';
+import type {
+    PDFDocumentProxy,
+    PDFPageProxy,
+} from 'pdfjs-dist';
 import type { PropType } from 'vue';
 import {
     createApp,
@@ -21,6 +24,7 @@ import type { IBookmarkItem } from '@app/types/pdfOutline';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
 import type { IPdfBookmarkChangePayload } from '@app/types/pdfUi';
 import type { IDocumentBookmarkTreeItem } from '@app/utils/document-viewer/bookmarks/documentBookmarks';
+import {isRecord} from '@contracts/runtimeGuards';
 import PdfOutline from '@app/modules/pdf-viewer/components/PdfOutline.vue';
 import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
@@ -161,7 +165,7 @@ function createEntry(
 function createPdfDocumentStub(outline: unknown[]) {
     return createPdfDocumentProxy({
         numPages: 10,
-        getOutline: vi.fn(async () => outline),
+        getOutline: vi.fn(async () => createPdfOutlineFixture(outline)),
         getDestination: vi.fn(async (_name: string) => [
             {
                 num: 12,
@@ -170,16 +174,61 @@ function createPdfDocumentStub(outline: unknown[]) {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => ({
-            view: [
-                0,
-                0,
-                612,
-                792,
-            ],
-            getViewport: vi.fn(() => ({ height: 792 })),
-        })),
+        getPage: vi.fn(async (_pageNumber: number) => createPdfPageFixture()),
     });
+}
+
+type TPdfOutline = Awaited<ReturnType<PDFDocumentProxy['getOutline']>>;
+
+function createPdfOutlineFixture(outline: unknown[]): TPdfOutline {
+    function visit(value: unknown): TPdfOutline[number] {
+        if (!isRecord(value)) {
+            throw new TypeError('Invalid PDF.js outline fixture');
+        }
+        const destination = value.dest;
+        return {
+            title: typeof value.title === 'string' ? value.title : '',
+            bold: value.bold === true,
+            italic: value.italic === true,
+            color: value.color instanceof Uint8ClampedArray
+                ? value.color
+                : new Uint8ClampedArray([0, 0, 0]),
+            dest: typeof destination === 'string' || Array.isArray(destination) || destination === null
+                ? destination
+                : null,
+            url: typeof value.url === 'string' ? value.url : null,
+            unsafeUrl: typeof value.unsafeUrl === 'string' ? value.unsafeUrl : undefined,
+            newWindow: typeof value.newWindow === 'boolean' ? value.newWindow : undefined,
+            count: typeof value.count === 'number' ? value.count : undefined,
+            items: Array.isArray(value.items) ? value.items.map(visit) : [],
+        };
+    }
+
+    return outline.map(visit);
+}
+
+function isPdfPageFixture(value: unknown): value is PDFPageProxy {
+    return isRecord(value)
+        && Array.isArray(value.view)
+        && value.view.length === 4
+        && value.view.every(item => typeof item === 'number')
+        && typeof value.getViewport === 'function';
+}
+
+function createPdfPageFixture(): PDFPageProxy {
+    const page = {
+        view: [
+            0,
+            0,
+            612,
+            792,
+        ],
+        getViewport: vi.fn(() => ({height: 792})),
+    };
+    if (!isPdfPageFixture(page)) {
+        throw new TypeError('Invalid PDF.js page fixture');
+    }
+    return page;
 }
 
 async function mountOutline(options: {

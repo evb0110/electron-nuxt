@@ -1,9 +1,11 @@
 import type {PDFDocumentProxy} from '@app/types/pdfContracts';
 
-interface IPdfDocumentProxyFixture {readonly annotationStorage: object;}
+type TPdfDocumentProxyFixture = Omit<Partial<PDFDocumentProxy>, 'annotationStorage'>
+    & {annotationStorage?: object}
+    & Record<string, unknown>;
 
 export function createPdfDocumentProxy(
-    fixture: IPdfDocumentProxyFixture = {annotationStorage: {}},
+    fixture: TPdfDocumentProxyFixture = {annotationStorage: {}},
 ): PDFDocumentProxy {
     // The consumers covered by this fixture read only annotationStorage. Keep
     // the intentionally small proxy explicit instead of hiding an arbitrary

@@ -5,6 +5,7 @@ import {
     it,
     vi,
 } from 'vitest';
+import type {PDFPageProxy} from 'pdfjs-dist';
 import type {
     IBookmarkIdentityInput,
     IBookmarkItem,
@@ -16,6 +17,7 @@ import {
     parseOutlineItems,
 } from '@app/utils/pdfOutlineHelpers';
 import { createBookmarkIdentityFactory } from '@app/modules/pdf-viewer/engine/pdf-outline-identity/createBookmarkIdentityFactory';
+import {isRecord} from '@contracts/runtimeGuards';
 import { createPdfDocumentProxy } from '@tests/helpers/createPdfDocumentProxy';
 
 function createEntry(
@@ -69,16 +71,32 @@ function createPdfDocumentStub() {
             { name: 'Fit' },
         ]),
         getPageIndex: vi.fn(async (_ref: unknown) => 3),
-        getPage: vi.fn(async (_pageNumber: number) => ({
-            view: [
-                0,
-                0,
-                612,
-                792,
-            ],
-            getViewport: vi.fn(() => ({ height: 792 })),
-        })),
+        getPage: vi.fn(async (_pageNumber: number) => createPdfPageFixture()),
     });
+}
+
+function isPdfPageFixture(value: unknown): value is PDFPageProxy {
+    return isRecord(value)
+        && Array.isArray(value.view)
+        && value.view.length === 4
+        && value.view.every(item => typeof item === 'number')
+        && typeof value.getViewport === 'function';
+}
+
+function createPdfPageFixture(): PDFPageProxy {
+    const page = {
+        view: [
+            0,
+            0,
+            612,
+            792,
+        ],
+        getViewport: vi.fn(() => ({height: 792})),
+    };
+    if (!isPdfPageFixture(page)) {
+        throw new TypeError('Invalid PDF.js page fixture');
+    }
+    return page;
 }
 
 function collectAllIds(items: readonly IBookmarkItem[]): string[] {

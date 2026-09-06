@@ -114,8 +114,8 @@ describe('savePdfDocumentWithCommittedEditors', () => {
     });
 
     it('drops bytes when the PDF document changes before saveDocument resolves', async () => {
-        const saveState: {resolveSave?: (data: Uint8Array) => void} = {};
-        const saveDocument = vi.fn(() => new Promise<Uint8Array>((resolve) => {
+        const saveState: {resolveSave?: (data: Uint8Array<ArrayBuffer>) => void} = {};
+        const saveDocument = vi.fn(() => new Promise<Uint8Array<ArrayBuffer>>((resolve) => {
             saveState.resolveSave = resolve;
         }));
         const firstDocument = createPdfDocumentProxy({saveDocument});
@@ -133,7 +133,9 @@ describe('savePdfDocumentWithCommittedEditors', () => {
         });
 
         activeDocument = secondDocument;
-        saveState.resolveSave?.(new Uint8Array([7]));
+        const resolvedBytes = new Uint8Array(new ArrayBuffer(1));
+        resolvedBytes[0] = 7;
+        saveState.resolveSave?.(resolvedBytes);
 
         await expect(savePromise).resolves.toBeNull();
     });
