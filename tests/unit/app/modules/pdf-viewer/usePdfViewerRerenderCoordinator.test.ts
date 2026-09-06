@@ -1222,12 +1222,14 @@ describe('usePdfViewerRerenderCoordinator', () => {
         await Promise.resolve();
 
         expect(waitForVisualFrames).toHaveBeenCalledWith({frames: 2});
+        expect(computeFitWidthScale).not.toHaveBeenCalled();
         expect(setupPagePlaceholders).not.toHaveBeenCalled();
         expect(reRenderAllVisiblePages).not.toHaveBeenCalled();
 
         visualFrame.resolve();
         await flushFitModeReplacementStart();
 
+        expect(computeFitWidthScale).toHaveBeenCalledOnce();
         expect(setupPagePlaceholders).toHaveBeenCalledOnce();
         expect(reRenderAllVisiblePages).toHaveBeenCalledOnce();
     });

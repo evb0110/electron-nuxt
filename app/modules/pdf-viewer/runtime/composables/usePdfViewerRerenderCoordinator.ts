@@ -549,6 +549,18 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
         if (!isRunActive()) {
             return;
         }
+        // The fit refs already changed during the click, but Vue has not yet
+        // patched the toolbar when this watcher starts. Give Vue and the
+        // browser two frames before the synchronous scale calculation, so the
+        // fit command can paint its active button before the viewer does heavy
+        // layout work.
+        await waitForVisualFrames({frames: 2});
+        if (
+            !isRunActive()
+            || !canConfirmFitAnchor(source, runId, physicalNavigationEpoch)
+        ) {
+            return;
+        }
         // Navigation/viewport authority owns the semantic anchor across fit
         // geometry changes. Cancelling it here reinterprets the pre-fit pixel
         // scroll position under changing page metrics and can advance the
@@ -562,18 +574,6 @@ export const usePdfViewerRerenderCoordinator = (options: IUsePdfViewerRerenderCo
             ? computeFitWidthScale(viewerContainer.value)
             : computeFitWidthScale(viewerContainer.value, {page: requirePageNumber(pageToSnapTo)});
         if (!(updated || options.forceRerender === true) || !document) {
-            return;
-        }
-        // The fit refs already changed during the click, but the toolbar's
-        // patch is queued with the viewer's render work. Give Vue and the
-        // browser one completed frame before replacing page geometry, so a
-        // fit command cannot change the document first and paint its active
-        // button afterwards.
-        await waitForVisualFrames({ frames: 2 });
-        if (
-            !isRunActive()
-            || !canConfirmFitAnchor(source, runId, physicalNavigationEpoch)
-        ) {
             return;
         }
         // Both fit modes rewrite every row's physical top, so the pre-fit pixel
