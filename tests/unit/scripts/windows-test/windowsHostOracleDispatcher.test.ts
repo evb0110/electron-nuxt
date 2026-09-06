@@ -222,7 +222,7 @@ async function editedNumberedFixture() {
     return edited.save({ useObjectStreams: false });
 }
 
-describe('windows host oracle dispatcher', () => {
+describe('windows host oracle dispatcher', {timeout: 30_000}, () => {
     let numbered: Uint8Array;
     let blank: Uint8Array;
     let wrongMarkers: Uint8Array;

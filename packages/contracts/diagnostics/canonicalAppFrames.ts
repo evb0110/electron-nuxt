@@ -48,6 +48,13 @@ const BUNDLE_SOURCE_ROOTS = new Set([
     'vendor',
 ]);
 
+const NON_APPLICATION_BUNDLE_PREFIXES = [
+    'node_modules/.pnpm/@vitest+',
+    'node_modules/.pnpm/vitest@',
+    'node_modules/@vitest/',
+    'node_modules/vitest/',
+] as const;
+
 const TRUSTED_ORIGIN_HOSTS = new Set([
     '127.0.0.1',
     '0.0.0.0',
@@ -282,6 +289,9 @@ function canonicalizePath(value: unknown): string | null {
     }
 
     const normalized = canonicalSegments.join('/');
+    if (NON_APPLICATION_BUNDLE_PREFIXES.some(prefix => normalized.startsWith(prefix))) {
+        return null;
+    }
     return normalized.length > 0 && normalized.length <= MAX_CANONICAL_FRAME_MODULE_LENGTH
         ? normalized
         : null;

@@ -150,12 +150,14 @@ export async function createTestClone(options: {
         throw new Error('The clone destination already exists; preserved it without replacement.');
     }
     await mkdir(destination);
-    await cp(source, destination, {
-        recursive: true,
-        force: false,
-        errorOnExist: true,
-        mode: constants.COPYFILE_FICLONE,
-    });
+    for (const entry of await readdir(source)) {
+        await cp(path.join(source, entry), path.join(destination, entry), {
+            recursive: true,
+            force: false,
+            errorOnExist: true,
+            mode: constants.COPYFILE_FICLONE,
+        });
+    }
     if (inputMediaPath !== null) {
         const inputMediaDestination = path.join(destination, 'Data', INPUT_MEDIA_FILE_NAME);
         if (await lstat(inputMediaDestination).catch(() => null)) {

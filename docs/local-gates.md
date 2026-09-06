@@ -52,7 +52,23 @@ workload shares the machine. Ready stages launch highest priority first, then
 heaviest first, so coverage, Rust tests, and the strict build start in the
 first second instead of after a phase barrier. The cross-process
 `acquireHeavyGate` coordinator still bounds concurrent sessions on one
-machine; its default capacity follows the same core count.
+machine. A waiter rechecks the default capacity on every admission attempt, so
+new work follows the current CPU affinity or cgroup allowance. Existing live
+holders are never revoked. The override remains fixed for the lifetime of the
+waiter.
+
+The coordinator does not estimate capacity from free memory or load average.
+Those values are shared by all contenders and can make several processes admit
+the same apparent headroom. Job weights are the memory and I/O policy, while
+`os.availableParallelism()` supplies the host-aware CPU ceiling.
+
+When a job cannot fit, stderr reports `BLOCKED` with its ID, requested weight,
+current usage, holder IDs and PIDs, holder worktree roots, wait time, and the
+semaphore path. It reports `ADMITTED` when capacity becomes available, or
+prints the same details on timeout. On Linux the default semaphore directory is
+`~/.cache/evb-viewer/heavy-gates`; macOS uses
+`~/Library/Caches/evb-viewer/heavy-gates`. Set `EVB_GATE_SEMAPHORE_DIR` to use
+another shared directory.
 
 A failing stage does not stop the run. Its transitive dependents are skipped
 and every independent stage still finishes, so one pass lists every failure

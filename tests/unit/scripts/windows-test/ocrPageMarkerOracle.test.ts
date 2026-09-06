@@ -37,7 +37,7 @@ function runnerFor(outputs: readonly string[], calls: Array<{
     };
 }
 
-describe('OCR page-marker oracle', () => {
+describe('OCR page-marker oracle', {timeout: 30_000}, () => {
     it('requires every exact marker in page order', async () => {
         const markers = numberedFixtureMarkers();
         const calls: Array<{

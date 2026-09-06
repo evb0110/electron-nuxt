@@ -182,6 +182,14 @@ describe('canonical application frame normalization', () => {
         expect(result.debugMeta.images).toEqual([]);
     });
 
+    it('drops development-only Vitest runner frames', () => {
+        const result = normalizeCanonicalApplicationFrames(
+            'at runWithCancel (node_modules/.pnpm/@vitest+runner@4.1.11/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)',
+        );
+
+        expect(result.frames).toEqual([]);
+    });
+
     it('rejects non-canonical frames, wrappers, and extra fields at the record boundary', () => {
         expect(decodeCanonicalAppFrame({module: '/Users/alice/evb-viewer/app/viewer.ts'})).toBeNull();
         expect(decodeCanonicalAppFrame({module: 'app/viewer.ts?document=secret'})).toBeNull();

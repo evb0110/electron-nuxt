@@ -11,7 +11,7 @@ import {
     spawnSync,
 } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import os, { tmpdir } from 'node:os';
 import {
     join,
     resolve,
@@ -41,8 +41,10 @@ interface IValidationGateModule {
         waitMs?: number;
         weight?: number;
     }) => Promise<{
+        capacity: number;
         coordinated: boolean;
         release: () => Promise<void>;
+        waitedMs: number;
     }>;
     classifyValidationImpacts: (files: string[]) => {
         full: boolean;
@@ -565,6 +567,11 @@ describe('validation gate policy', () => {
 
     it('coordinates weighted work, reclaims capacity on release, and degrades open', async () => {
         const root = await mkdtemp(join(tmpdir(), 'evb-heavy-gate-'));
+        const stderrChunks: string[] = [];
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrChunks.push(String(chunk));
+            return true;
+        });
         try {
             const first = await validationGates.acquireHeavyGate({
                 capacity: 2,
@@ -584,7 +591,9 @@ describe('validation gate policy', () => {
                 weight: 1,
             });
             expect(first.coordinated).toBe(true);
+            expect(first.capacity).toBe(2);
             expect(saturated.coordinated).toBe(false);
+            expect(saturated.waitedMs).toBeGreaterThan(0);
             await expect(validationGates.acquireHeavyGate({
                 capacity: 2,
                 env: {},
@@ -604,6 +613,7 @@ describe('validation gate policy', () => {
                 weight: 1,
             });
             expect(afterRelease.coordinated).toBe(true);
+            expect(afterRelease.capacity).toBe(2);
             await afterRelease.release();
 
             const unusableRoot = join(root, 'not-a-directory');
@@ -616,6 +626,83 @@ describe('validation gate policy', () => {
             });
             expect(degraded.coordinated).toBe(false);
         } finally {
+            stderr.mockRestore();
+            await rm(root, {
+                force: true,
+                recursive: true,
+            });
+        }
+        expect(stderrChunks.join('')).toContain(
+            '[gate] BLOCKED waiting for heavy-gate: id=saturated, needs=1, used=2/2, holders=first(pid=',
+        );
+    });
+
+    it('re-evaluates the default capacity when admission starts and honors the environment override', async () => {
+        const root = await mkdtemp(join(tmpdir(), 'evb-heavy-gate-dynamic-'));
+        const availableParallelism = vi.spyOn(os, 'availableParallelism')
+            .mockReturnValueOnce(1)
+            .mockReturnValue(2);
+        const stderrChunks: string[] = [];
+        const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+            stderrChunks.push(String(chunk));
+            return true;
+        });
+        let blockingGate: Awaited<ReturnType<typeof validationGates.acquireHeavyGate>> | undefined;
+        let overriddenPromise: ReturnType<typeof validationGates.acquireHeavyGate> | undefined;
+        try {
+            const dynamic = await validationGates.acquireHeavyGate({
+                env: {},
+                id: 'dynamic',
+                root,
+                waitMs: 50,
+                weight: 2,
+            });
+            expect(dynamic.capacity).toBe(2);
+            expect(dynamic.waitedMs).toBe(0);
+            await dynamic.release();
+
+            blockingGate = await validationGates.acquireHeavyGate({
+                capacity: 2,
+                env: {},
+                id: 'blocking',
+                root,
+                waitMs: 1000,
+                weight: 2,
+            });
+            const overrideEnv: NodeJS.ProcessEnv = {EVB_GATE_CAPACITY: '2'};
+            overriddenPromise = validationGates.acquireHeavyGate({
+                env: overrideEnv,
+                id: 'overridden',
+                root,
+                waitMs: 15_000,
+                weight: 1,
+            });
+            await vi.waitFor(() => {
+                expect(stderrChunks.join('')).toContain(
+                    '[gate] BLOCKED waiting for heavy-gate: id=overridden, needs=1, used=2/2',
+                );
+            }, {timeout: 5000});
+            overrideEnv.EVB_GATE_CAPACITY = '1';
+            await blockingGate.release();
+            blockingGate = undefined;
+            const overridden = await overriddenPromise;
+            expect(overridden.capacity).toBe(2);
+            await overridden.release();
+            overriddenPromise = undefined;
+        } finally {
+            if (blockingGate) {
+                await blockingGate.release();
+            }
+            if (overriddenPromise) {
+                await overriddenPromise.then(
+                    async (gate) => {
+                        await gate.release();
+                    },
+                    () => undefined,
+                );
+            }
+            stderr.mockRestore();
+            availableParallelism.mockRestore();
             await rm(root, {
                 force: true,
                 recursive: true,

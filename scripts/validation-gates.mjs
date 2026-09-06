@@ -58,6 +58,7 @@ const allTs7Projects = [
 // tests program alone types 1300+ files, so the peak lives above 6 GB.
 const eslintNodeHeapMb = 8192;
 const heavyGateDefaultWaitMs = 30 * 60_000;
+const heavyGateWaitReportIntervalMs = 10_000;
 const validationCacheSchemaVersion = 1;
 const validationCacheRootOnlyDirectories = new Set([
     '.devkit',
@@ -235,10 +236,11 @@ const validationTiers = new Set([
 /** @typedef {{paths: string[]}} IValidationImpactDefinition */
 /** @typedef {{additionalInputPaths?: string[], extraValues?: unknown[], inputPaths?: string[], inputScope?: string | undefined, root?: string, tools?: string[]}} IValidationFingerprintOptions */
 /** @typedef {{cacheHit: boolean, cacheReason: string, cacheState: string, inputFingerprint: string}} IValidationCacheDecision */
-/** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed', wallMs: number, weight: number}} IValidationStageResult */
+/** @typedef {{cache: string, cacheHit: boolean, cacheReason: string, dependsOn: string[], endedAt: string, gateCapacity?: number, gateWaitMs?: number, id: string, inputFingerprint: string, loadAverage: number[], skipped: boolean, status: 'passed' | 'failed', wallMs: number, weight: number}} IValidationStageResult */
 /** @typedef {{error: unknown, id: string}} IValidationStageFailure */
 /** @typedef {{dependency: string, id: string}} IValidationStageSkip */
-/** @typedef {{coordinated: boolean, release: () => Promise<void>}} IHeavyGateHandle */
+/** @typedef {{capacity: number, coordinated: boolean, release: () => Promise<void>, waitedMs: number}} IHeavyGateHandle */
+/** @typedef {{acquired: boolean, capacity: number, holders: {id: string, pid: number, projectRoot?: string, weight: number}[], usedWeight: number}} IHeavyGateAdmission */
 /** @typedef {{error: unknown, ok: boolean, stageDefinition: IValidationStage}} IValidationStageOutcome */
 /** @typedef {{failures: IValidationStageFailure[], skipped: IValidationStageSkip[]}} IValidationStagePoolResult */
 /** @typedef {{code?: string, message?: string}} INodeError */
@@ -271,11 +273,23 @@ function parsePositiveInteger(value, fallback) {
     const parsed = Number.parseInt(String(value ?? ''), 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
+/** @param {unknown} value @returns {number | undefined} */
+function parsePositiveIntegerOrUndefined(value) {
+    const parsed = Number.parseInt(String(value ?? ''), 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
 /** @returns {number} */
 export function getDefaultGateCapacity() {
     return typeof os.availableParallelism === 'function'
         ? os.availableParallelism()
         : Math.max(os.cpus().length, 1);
+}
+/** @param {number | undefined} capacity @param {NodeJS.ProcessEnv} env @returns {number | undefined} */
+function resolveConfiguredHeavyGateCapacity(capacity, env) {
+    const configuredCapacity = capacity === undefined
+        ? env.EVB_GATE_CAPACITY
+        : capacity;
+    return parsePositiveIntegerOrUndefined(configuredCapacity);
 }
 /** @param {string[]} argv @param {string} name @returns {string | undefined} */
 function readArg(argv, name) {
@@ -1698,23 +1712,73 @@ async function withMutationLock(root, callback) {
     return null;
 }
 
+/** @param {unknown} value @returns {string} */
+function formatHeavyGateLabel(value) {
+    const label = String(value ?? 'unknown').replaceAll(/\s+/gu, ' ').trim();
+    return label || 'unknown';
+}
+/** @param {IHeavyGateAdmission['holders']} holders @returns {string} */
+function formatHeavyGateHolders(holders) {
+    if (holders.length === 0) {
+        return 'none';
+    }
+    return holders.map(holder => {
+        const holderRoot = typeof holder.projectRoot === 'string'
+            ? `, root=${formatHeavyGateLabel(holder.projectRoot)}`
+            : '';
+        return `${formatHeavyGateLabel(holder.id)}(pid=${String(holder.pid)}, weight=${String(holder.weight)}${holderRoot})`;
+    }).join(', ');
+}
+/** @param {IHeavyGateAdmission | null} admission @param {number} requestedWeight @param {number} fallbackCapacity @returns {string} */
+function describeHeavyGateAdmission(admission, requestedWeight, fallbackCapacity) {
+    if (!admission) {
+        return `needs=${String(requestedWeight)}, used=unknown/${String(fallbackCapacity)}, holders=mutation.lock busy`;
+    }
+    const admittedWeight = Math.min(requestedWeight, admission.capacity);
+    const needs = requestedWeight > admission.capacity
+        ? `${String(requestedWeight)} (capped to ${String(admittedWeight)})`
+        : String(requestedWeight);
+    return `needs=${needs}, used=${String(admission.usedWeight)}/${String(admission.capacity)}, holders=${formatHeavyGateHolders(admission.holders)}`;
+}
+/** @param {IHeavyGateAdmission | null} admission @returns {string} */
+function heavyGateAdmissionState(admission) {
+    if (!admission) {
+        return 'mutation.lock busy';
+    }
+    return [
+        admission.capacity,
+        admission.usedWeight,
+        ...admission.holders.map(holder => [
+            holder.id,
+            holder.pid,
+            holder.projectRoot,
+            holder.weight,
+        ]),
+    ].join('|');
+}
+
 /** @param {{capacity?: number, env?: NodeJS.ProcessEnv, failOpenOnTimeout?: boolean, id?: string, root?: string, waitMs?: number, weight?: number}} options @returns {Promise<IHeavyGateHandle>} */
 export async function acquireHeavyGate({
     env = process.env,
-    capacity = parsePositiveInteger(env.EVB_GATE_CAPACITY, getDefaultGateCapacity()),
+    capacity,
     failOpenOnTimeout = false,
     id = 'heavy',
     root = heavyGateRoot(env),
     waitMs = parsePositiveInteger(env.EVB_GATE_WAIT_MS, heavyGateDefaultWaitMs),
     weight = 1,
 } = {}) {
+    const configuredCapacity = resolveConfiguredHeavyGateCapacity(capacity, env);
+    const resolveCurrentCapacity = () => configuredCapacity ?? getDefaultGateCapacity();
+    const initialCapacity = resolveCurrentCapacity();
     if (env.EVB_HEAVY_GATE_HELD === '1' || weight < 1) {
         return {
+            capacity: initialCapacity,
             coordinated: true,
             release: async () => undefined,
+            waitedMs: 0,
         };
     }
-    const boundedWeight = Math.min(weight, capacity);
+    const requestedWeight = Number.isFinite(weight) ? Math.max(1, Math.floor(weight)) : 1;
     const holdersDir = path.join(root, 'holders');
     try {
         await mkdir(holdersDir, {
@@ -1724,29 +1788,57 @@ export async function acquireHeavyGate({
     } catch (error) {
         process.stderr.write(`[gate] Heavy-gate coordination unavailable (${isNodeError(error) ? error.message ?? String(error) : String(error)}); continuing uncoordinated.\n`);
         return {
+            capacity: initialCapacity,
             coordinated: false,
             release: async () => undefined,
+            waitedMs: 0,
         };
     }
 
     const holderName = `${process.pid}-${randomUUID()}.json`;
     const holderPath = path.join(holdersDir, holderName);
     const deadline = Date.now() + waitMs;
+    let blockedSinceMs;
+    let lastObservedCapacity = initialCapacity;
+    /** @type {IHeavyGateAdmission | null} */
+    let lastAdmission = null;
+    let lastReportedState = '';
+    let lastReportedAtMs = 0;
     while (Date.now() <= deadline) {
-        const acquired = await withMutationLock(root, async () => {
+        /** @type {IHeavyGateAdmission | null} */
+        const admission = /** @type {IHeavyGateAdmission | null} */ (await withMutationLock(root, async () => {
+            const currentCapacity = resolveCurrentCapacity();
             const holderNames = (await readdir(holdersDir)).filter(name => name.endsWith('.json'));
+            /** @type {IHeavyGateAdmission['holders']} */
+            const holders = [];
             let usedWeight = 0;
             for (const name of holderNames) {
                 const candidatePath = path.join(holdersDir, name);
                 const holder = await readJson(candidatePath);
-                if (!holder || !isPidAlive(holder.pid)) {
+                const holderPid = typeof holder?.pid === 'number' ? holder.pid : 0;
+                if (!holder || !isPidAlive(holderPid)) {
                     await unlink(candidatePath).catch(() => undefined);
                     continue;
                 }
-                usedWeight += parsePositiveInteger(holder.weight, 1);
+                const holderWeight = parsePositiveInteger(holder.weight, 1);
+                usedWeight += holderWeight;
+                holders.push({
+                    id: typeof holder.id === 'string' ? holder.id : 'unknown',
+                    pid: holderPid,
+                    weight: holderWeight,
+                    ...(typeof holder.projectRoot === 'string'
+                        ? {projectRoot: holder.projectRoot}
+                        : {}),
+                });
             }
-            if (usedWeight + boundedWeight > capacity) {
-                return false;
+            const boundedWeight = Math.min(requestedWeight, currentCapacity);
+            if (usedWeight + boundedWeight > currentCapacity) {
+                return {
+                    acquired: false,
+                    capacity: currentCapacity,
+                    holders,
+                    usedWeight,
+                };
             }
             await writeFile(holderPath, JSON.stringify({
                 acquiredAt: new Date().toISOString(),
@@ -1759,29 +1851,72 @@ export async function acquireHeavyGate({
                 flag: 'wx',
                 mode: 0o600,
             });
-            return true;
-        });
-        if (acquired) {
             return {
+                acquired: true,
+                capacity: currentCapacity,
+                holders,
+                usedWeight,
+            };
+        }));
+        if (admission?.acquired) {
+            const waitedMs = blockedSinceMs === undefined
+                ? 0
+                : Math.max(0, Date.now() - blockedSinceMs);
+            if (waitedMs > 0) {
+                const admittedAdmission = {
+                    ...admission,
+                    usedWeight: admission.usedWeight + Math.min(requestedWeight, admission.capacity),
+                };
+                process.stderr.write(
+                    `[gate] ADMITTED heavy-gate: id=${formatHeavyGateLabel(id)}, waited=${String(waitedMs)}ms, ${describeHeavyGateAdmission(admittedAdmission, requestedWeight, admission.capacity)}, semaphore=${formatHeavyGateLabel(root)}\n`,
+                );
+            }
+            return {
+                capacity: admission.capacity,
                 coordinated: true,
                 release: async () => {
                     await unlink(holderPath).catch(() => undefined);
                 },
+                waitedMs,
             };
         }
-        await new Promise(resolve => setTimeout(resolve, 250));
+        const nowMs = Date.now();
+        blockedSinceMs ??= nowMs;
+        lastAdmission = admission;
+        lastObservedCapacity = admission?.capacity ?? resolveCurrentCapacity();
+        const state = heavyGateAdmissionState(admission);
+        if (
+            state !== lastReportedState
+            || nowMs - lastReportedAtMs >= heavyGateWaitReportIntervalMs
+        ) {
+            process.stderr.write(
+                `[gate] BLOCKED waiting for heavy-gate: id=${formatHeavyGateLabel(id)}, ${describeHeavyGateAdmission(admission, requestedWeight, lastObservedCapacity)}, waited=${String(nowMs - blockedSinceMs)}ms, semaphore=${formatHeavyGateLabel(root)}\n`,
+            );
+            lastReportedState = state;
+            lastReportedAtMs = nowMs;
+        }
+        const remainingMs = deadline - Date.now();
+        if (remainingMs <= 0) {
+            break;
+        }
+        await new Promise(resolve => setTimeout(resolve, Math.min(250, remainingMs)));
     }
 
+    const waitedMs = blockedSinceMs === undefined
+        ? 0
+        : Math.max(0, Date.now() - blockedSinceMs);
+    const timeoutDetails = describeHeavyGateAdmission(lastAdmission, requestedWeight, lastObservedCapacity);
+    const timeoutMessage = `[gate] Timed out waiting ${String(waitedMs)}ms for heavy-gate capacity for ${formatHeavyGateLabel(id)}; ${timeoutDetails}; semaphore=${formatHeavyGateLabel(root)}.`;
     if (failOpenOnTimeout) {
-        process.stderr.write(
-            `[gate] Timed out waiting ${waitMs}ms for heavy-gate capacity; continuing ${id} uncoordinated.\n`,
-        );
+        process.stderr.write(`${timeoutMessage} Continuing uncoordinated.\n`);
         return {
+            capacity: lastObservedCapacity,
             coordinated: false,
             release: async () => undefined,
+            waitedMs,
         };
     }
-    throw new Error(`Timed out waiting ${waitMs}ms for heavy-gate capacity for ${id}.`);
+    throw new Error(timeoutMessage);
 }
 
 /** @returns {Promise<void>} */
@@ -2221,6 +2356,7 @@ async function runStages(stages, {
                     cacheReason,
                     dependsOn,
                     endedAt: timestamp,
+                    gateWaitMs: 0,
                     id: stageDefinition.id,
                     inputFingerprint,
                     loadAverage: os.loadavg(),
@@ -2240,6 +2376,7 @@ async function runStages(stages, {
                     dependsOn,
                     event: 'stage-start',
                     heavyGateCoordinated: true,
+                    gateWaitMs: 0,
                     heavyWeight: stageDefinition.heavyWeight,
                     id: stageDefinition.id,
                     inputFingerprint,
@@ -2271,6 +2408,8 @@ async function runStages(stages, {
                 ],
                 event: 'stage-start',
                 heavyGateCoordinated: gate.coordinated,
+                gateCapacity: gate.capacity,
+                gateWaitMs: gate.waitedMs,
                 heavyWeight: stageDefinition.heavyWeight ?? 0,
                 id: stageDefinition.id,
                 inputFingerprint,
@@ -2306,6 +2445,8 @@ async function runStages(stages, {
                     cacheReason,
                     endedAt: new Date(endedAtMs).toISOString(),
                     dependsOn,
+                    gateCapacity: gate.capacity,
+                    gateWaitMs: gate.waitedMs,
                     id: stageDefinition.id,
                     inputFingerprint,
                     loadAverage: os.loadavg(),
