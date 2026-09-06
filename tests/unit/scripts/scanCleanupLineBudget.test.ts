@@ -39,6 +39,7 @@ interface ILineBudgetModule {
         testCodeLines: number[]
     };
     parseNulDelimitedGitPaths: (output: Uint8Array) => string[];
+    classifyBaselineTreeEntry: (output: Uint8Array) => 'absent' | 'present';
     validateScanCleanupBaseline: (value: unknown, label?: string) => unknown;
     compareScanCleanupBaselines: (current: {
         homes: Record<string, {
@@ -244,6 +245,12 @@ describe('scan-cleanup line budget', () => {
             'quoted"name.vue',
         ]);
         expect(() => module.parseNulDelimitedGitPaths(Buffer.from('unfinished.ts'))).toThrow('unterminated NUL record');
+    });
+
+    it('bootstraps only when the exact baseline tree entry is absent', () => {
+        expect(module.classifyBaselineTreeEntry(Buffer.from(''))).toBe('absent');
+        expect(module.classifyBaselineTreeEntry(Buffer.from('scan-cleanup-line-budget-baseline.json\0'))).toBe('present');
+        expect(() => module.classifyBaselineTreeEntry(Buffer.from('other.json\0'))).toThrow('unexpected path');
     });
 
     it('fails closed when a confirmed Git worktree cannot enumerate its index', async () => {

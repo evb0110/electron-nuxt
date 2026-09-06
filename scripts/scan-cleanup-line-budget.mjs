@@ -324,6 +324,18 @@ export function parseNulDelimitedGitPaths(output) {
     return relativePaths;
 }
 
+/** @param {Uint8Array} output @returns {'absent' | 'present'} */
+export function classifyBaselineTreeEntry(output) {
+    const paths = parseNulDelimitedGitPaths(output);
+    if (paths.length === 0) {
+        return 'absent';
+    }
+    if (paths.length === 1 && paths[0] === SCAN_CLEANUP_LINE_BUDGET_BASELINE) {
+        return 'present';
+    }
+    throw new Error('Git baseline tree query returned an unexpected path.');
+}
+
 /** @param {string} root @returns {boolean} */
 function hasGitAdministrativeMarker(root) {
     let current = path.resolve(root);
@@ -816,11 +828,37 @@ function resolveBaseCommit(root, baseRef) {
 /** @param {string} root @param {string} baseRef @returns {{baseline: ILineBudgetBaseline | null, baseCommit: string}} */
 function readBaselineAtRef(root, baseRef) {
     const baseCommit = resolveBaseCommit(root, baseRef);
+    let treeOutput;
+    try {
+        treeOutput = execFileSync('git', [
+            'ls-tree',
+            '-z',
+            '--name-only',
+            baseCommit,
+            '--',
+            SCAN_CLEANUP_LINE_BUDGET_BASELINE,
+        ], {
+            cwd: root,
+            stdio: [
+                'ignore',
+                'pipe',
+                'ignore',
+            ],
+        });
+    } catch (error) {
+        throw new Error(`Cannot inspect the scan-cleanup baseline tree at base ref "${baseRef}".`, {cause: error});
+    }
+    if (classifyBaselineTreeEntry(treeOutput) === 'absent') {
+        return {
+            baseline: null,
+            baseCommit,
+        };
+    }
     let baselineText;
     try {
         baselineText = execFileSync('git', [
             'show',
-            `${baseRef}:${SCAN_CLEANUP_LINE_BUDGET_BASELINE}`,
+            `${baseCommit}:${SCAN_CLEANUP_LINE_BUDGET_BASELINE}`,
         ], {
             cwd: root,
             encoding: 'utf8',
@@ -830,11 +868,8 @@ function readBaselineAtRef(root, baseRef) {
                 'ignore',
             ],
         });
-    } catch {
-        return {
-            baseline: null,
-            baseCommit,
-        };
+    } catch (error) {
+        throw new Error(`Cannot read the scan-cleanup baseline blob at base ref "${baseRef}".`, {cause: error});
     }
     return {
         baseline: validateScanCleanupBaseline(JSON.parse(baselineText), 'base baseline'),
