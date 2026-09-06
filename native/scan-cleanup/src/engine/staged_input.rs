@@ -1126,6 +1126,7 @@ pub(crate) fn materialize_stream_page(
         ));
     }
     materialized.input_path = temporary_input.clone();
+    materialized.stream_input = false;
     Ok(MaterializedStreamPage {
         index,
         page: materialized,

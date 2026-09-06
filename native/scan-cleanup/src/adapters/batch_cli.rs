@@ -750,7 +750,7 @@ fn canvas_warning_to_protocol(
             CleanupWarningEvent::MatchedCanvasMarginsUnavailable
         }
         CanvasWarning::MatchedCanvasPaperDownscaled {
-            scale_percent_tenths,
+            paper_scale,
             document_canvas_width,
             document_canvas_height,
             paper_width,
@@ -758,7 +758,7 @@ fn canvas_warning_to_protocol(
             ..
         } => CleanupWarningEvent::MatchedCanvasPaperDownscaled {
             unit: WarningExtentUnit::Px,
-            scale_percent_tenths,
+            scale_percent_tenths: crate::pipeline::quantize_decimal(paper_scale * 100.0, 1),
             document_canvas_width,
             document_canvas_height,
             paper_width,
@@ -801,22 +801,66 @@ fn planning_page(page: &Page) -> PageDescriptor {
     }
 }
 
+fn planning_page_from_staged(
+    original: &PageDescriptor,
+    staged: &StagedPageDescriptor,
+) -> PageDescriptor {
+    PageDescriptor {
+        input_path: staged.input_path.clone(),
+        stream_input: staged.stream_input,
+        ..original.clone()
+    }
+}
+
+fn page_from_staged(page: &Page, staged: &PageDescriptor) -> Page {
+    let mut translated = page.clone();
+    translated.input_path = staged.input_path.clone();
+    translated
+}
+
+fn staged_page_descriptor(page: &Page) -> StagedPageDescriptor {
+    StagedPageDescriptor {
+        input_path: page.input_path.clone(),
+        metadata_path: page.page_metadata_path.clone(),
+        source_page_index: page.source_page_index,
+        max_bytes: MAX_STREAM_INPUT_BYTES,
+        stream_input: fs::metadata(&page.input_path)
+            .is_ok_and(|metadata| !metadata.file_type().is_file()),
+    }
+}
+
 fn staged_input_batch(manifest: &ManifestV3) -> StagedInputBatch {
     StagedInputBatch {
         raster_window: manifest.raster_window,
-        pages: manifest
-            .pages
-            .iter()
-            .map(|page| StagedPageDescriptor {
-                input_path: page.input_path.clone(),
-                metadata_path: page.page_metadata_path.clone(),
-                source_page_index: page.source_page_index,
-                max_bytes: MAX_STREAM_INPUT_BYTES,
-                stream_input: fs::metadata(&page.input_path)
-                    .is_ok_and(|metadata| !metadata.file_type().is_file()),
-            })
-            .collect(),
+        pages: manifest.pages.iter().map(staged_page_descriptor).collect(),
     }
+}
+
+fn run_one_staged_page_job<T, F>(
+    manifest: &ManifestV3,
+    index: usize,
+    task: F,
+) -> Result<T, Box<dyn Error>>
+where
+    T: Send,
+    F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
+{
+    let batch = StagedInputBatch {
+        raster_window: 1,
+        pages: vec![staged_page_descriptor(&manifest.pages[index])],
+    };
+    let mut results = crate::engine::staged_input::run_stream_page_jobs(&batch, |(_, staged)| {
+        let original = planning_page(&manifest.pages[index]);
+        let descriptor = planning_page_from_staged(&original, staged);
+        task((index, &descriptor))
+    })?;
+    results.pop().ok_or_else(|| {
+        NativeError::new(
+            NativeErrorCode::NativeFailure,
+            "Staged scan-cleanup page job produced no result",
+        )
+        .into()
+    })
 }
 
 fn staged_path_plan(manifest: &ManifestV3) -> StagedPathPlan {
@@ -877,8 +921,9 @@ impl PlanningManifest for ManifestV3 {
         F: Fn((usize, &PageDescriptor)) -> Result<T, NativeError> + Send + Sync,
     {
         let batch = staged_input_batch(self);
-        crate::engine::staged_input::run_stream_page_jobs(&batch, |(index, _)| {
-            let descriptor = planning_page(&self.pages[index]);
+        crate::engine::staged_input::run_stream_page_jobs(&batch, |(index, staged)| {
+            let original = planning_page(&self.pages[index]);
+            let descriptor = planning_page_from_staged(&original, staged);
             task((index, &descriptor))
         })
     }
@@ -1262,13 +1307,13 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
     };
     let plan_content = manifest.analysis_purpose == AnalysisPurpose::PagePlan;
     let run_analysis =
-        |(index, _descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
-            let page = &manifest.pages[index];
-            let lease = staged_lease(manifest, page);
+        |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
+            let page = page_from_staged(&manifest.pages[index], descriptor);
+            let lease = staged_lease(manifest, &page);
             let result = with_announced_staged_page_input(&lease, &announce_lease, || {
-                let page_cache = page_cache_for(&planning_page(page), &cache)?;
+                let page_cache = page_cache_for(descriptor, &cache)?;
                 run_classification(
-                    page,
+                    &page,
                     manifest.canvas_scope,
                     page.document_prior,
                     true,
@@ -1292,12 +1337,12 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
             Ok(result)
         };
     let run_one =
-        |(index, _descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
-            let page = &manifest.pages[index];
-            let page_cache = page_cache_for(&planning_page(page), &cache)?;
+        |(index, descriptor): (usize, &PageDescriptor)| -> Result<PageRunResult, NativeError> {
+            let page = page_from_staged(&manifest.pages[index], descriptor);
+            let page_cache = page_cache_for(descriptor, &cache)?;
             let publication = CliPagePublication;
             let result = run_page(
-                page,
+                &page,
                 manifest.canvas_scope,
                 manifest.render_mode == RenderMode::Final,
                 manifest.document_canvas,
@@ -1355,11 +1400,13 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                 } => {
                     let page = &manifest.pages[index];
                     let lease = staged_lease(manifest, page);
-                    let mut rerun =
-                        with_announced_staged_page_input(&lease, &announce_lease, || {
-                            let page_cache = page_cache_for(&planning_page(page), &cache)?;
+                    announce_lease(LeaseEvent::Required, lease.page_number, lease.total_pages)?;
+                    let rerun_result =
+                        run_one_staged_page_job(manifest, index, |(_, descriptor)| {
+                            let page = page_from_staged(&manifest.pages[index], descriptor);
+                            let page_cache = page_cache_for(descriptor, &cache)?;
                             run_classification(
-                                page,
+                                &page,
                                 manifest.canvas_scope,
                                 Some(prior),
                                 manifest.operation == Operation::Analyze
@@ -1371,7 +1418,14 @@ fn run_manifest_inner(manifest: &ManifestV3) -> Result<(), Box<dyn Error>> {
                                 let envelope = NativeErrorEnvelope::from_error(error.as_ref());
                                 NativeError::new(envelope.code, envelope.message)
                             })
-                        })?;
+                        });
+                    let released =
+                        announce_lease(LeaseEvent::Released, lease.page_number, lease.total_pages);
+                    let mut rerun = rerun_result.and_then(|result| {
+                        released
+                            .map(|()| result)
+                            .map_err(|error| -> Box<dyn Error> { Box::new(error) })
+                    })?;
                     rerun.timings += page_results[index].timings;
                     page_results[index] = rerun;
                     let metadata = &mut page_results[index].metadata;
@@ -2621,7 +2675,10 @@ impl PagePublication for CliPagePublication {
 mod tests {
     use super::page_workflow::{map_image_error, write_gray_layer_background};
     use super::{map_raster_error, parse_cli_args, ScanCleanupCliInvocation};
+    use crate::engine::resource_planning::{CleanupOptionsView, PageDescriptor};
+    use crate::engine::staged_input::StagedPageDescriptor;
     use crate::io::raster::RasterReadError;
+    use crate::io::MAX_STREAM_INPUT_BYTES;
     use evb_native_support::{NativeError, NativeErrorCode};
     use scan_primitives::{BinaryImage, GrayImage};
 
@@ -2657,6 +2714,72 @@ mod tests {
         args.iter()
             .map(|argument| (*argument).to_string())
             .collect()
+    }
+
+    #[test]
+    fn staged_translation_passes_materialized_input_to_downstream_once() {
+        let original = PageDescriptor {
+            input_path: PathBuf::from("/source/page.fifo"),
+            source_page_index: 4,
+            options: CleanupOptionsView {
+                max_pixels: 100,
+                max_dimension: 200,
+                output_mode: crate::OutputMode::Auto,
+                source_has_bilevel_layer: false,
+                thickness: 0,
+            },
+            stream_input: true,
+            trusted_foreground_mask_path: None,
+            trusted_mrc_background_path: None,
+        };
+        let staged = StagedPageDescriptor {
+            input_path: PathBuf::from("/scratch/materialized-page.raster"),
+            metadata_path: PathBuf::from("/scratch/page.json"),
+            source_page_index: 4,
+            max_bytes: MAX_STREAM_INPUT_BYTES,
+            stream_input: false,
+        };
+
+        let mut downstream_reads = 0;
+        let translated = {
+            downstream_reads += 1;
+            super::planning_page_from_staged(&original, &staged)
+        };
+
+        assert_eq!(downstream_reads, 1);
+        assert_eq!(translated.input_path, staged.input_path);
+        assert!(!translated.stream_input);
+        assert_eq!(translated.source_page_index, original.source_page_index);
+    }
+
+    #[test]
+    fn warning_mapping_keeps_wire_shape_and_rounds_scale_at_adapter_boundary() {
+        use crate::engine::output_geometry::CanvasWarning;
+
+        let warning = CanvasWarning::MatchedCanvasPaperDownscaled {
+            paper_scale: 1.2345,
+            document_canvas_width: 1000.0,
+            document_canvas_height: 800.0,
+            paper_width: Some(1100.0),
+            paper_height: Some(900.0),
+        };
+        let json = serde_json::to_value(super::canvas_warning_to_protocol(warning)).unwrap();
+
+        assert_eq!(json["code"], "matched-canvas-paper-downscaled");
+        assert_eq!(json["unit"], "px");
+        assert_eq!(json["scalePercentTenths"], 1234);
+        assert_eq!(json["documentCanvasWidth"], 1000.0);
+        assert_eq!(json["paperHeight"], 900.0);
+
+        let edge = CanvasWarning::MatchedCanvasPaperDownscaled {
+            paper_scale: 1.225,
+            document_canvas_width: 1.0,
+            document_canvas_height: 1.0,
+            paper_width: None,
+            paper_height: None,
+        };
+        let edge_json = serde_json::to_value(super::canvas_warning_to_protocol(edge)).unwrap();
+        assert_eq!(edge_json["scalePercentTenths"], 1225);
     }
 
     #[test]

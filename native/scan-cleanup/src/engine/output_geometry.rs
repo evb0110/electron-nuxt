@@ -3,33 +3,19 @@
 use crate::bw::paper_reference;
 #[cfg(test)]
 use crate::engine::render::CleanupRaster;
-use crate::pipeline::quantize_decimal;
 use crate::png::RgbImage;
 use crate::{CleanupOptions, OrthogonalRotation};
 use evb_native_support::{NativeError, NativeErrorCode};
 use rayon::prelude::*;
 use scan_primitives::{BinaryImage, GrayImage};
-use serde::Serialize;
 use std::collections::HashMap;
 
 pub(crate) const FOLD_TAIL_NEAR_PAPER_FLOOR: u8 = 250;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum CanvasWarningUnit {
-    Px,
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize)]
-#[serde(
-    tag = "code",
-    rename_all = "kebab-case",
-    rename_all_fields = "camelCase"
-)]
+#[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::enum_variant_names)]
 pub(crate) enum CanvasWarning {
     MatchedCanvasContentFitted {
-        unit: CanvasWarningUnit,
         content_width: f64,
         content_height: f64,
         inner_width: f64,
@@ -40,8 +26,7 @@ pub(crate) enum CanvasWarning {
     MatchedCanvasMarginsReduced,
     MatchedCanvasMarginsUnavailable,
     MatchedCanvasPaperDownscaled {
-        unit: CanvasWarningUnit,
-        scale_percent_tenths: i64,
+        paper_scale: f64,
         document_canvas_width: f64,
         document_canvas_height: f64,
         paper_width: Option<f64>,
@@ -922,7 +907,6 @@ pub(crate) fn canvas_placement_warning_events(
             .saturating_sub(margin_bottom)
             .max(1);
         events.push(CanvasWarning::MatchedCanvasContentFitted {
-            unit: CanvasWarningUnit::Px,
             content_width: placement.content_width as f64,
             content_height: placement.content_height as f64,
             inner_width: inner_width as f64,
@@ -959,8 +943,7 @@ pub(crate) fn canvas_placement_warning_events(
     }
     if placement.undersized_paper {
         events.push(CanvasWarning::MatchedCanvasPaperDownscaled {
-            unit: CanvasWarningUnit::Px,
-            scale_percent_tenths: quantize_decimal(placement.paper_scale * 100.0, 1),
+            paper_scale: placement.paper_scale,
             document_canvas_width: canvas.width_px as f64,
             document_canvas_height: canvas.height_px as f64,
             paper_width: None,
@@ -2953,7 +2936,6 @@ mod tests {
         assert_eq!(
             canvas_placement_warning_events(placement, &warning_event_canvas(), true),
             vec![CanvasWarning::MatchedCanvasContentFitted {
-                unit: CanvasWarningUnit::Px,
                 content_width: 600.0,
                 content_height: 500.0,
                 inner_width: 952.0,
@@ -3056,45 +3038,12 @@ mod tests {
         assert_eq!(
             canvas_placement_warning_events(placement, &warning_event_canvas(), true),
             vec![CanvasWarning::MatchedCanvasPaperDownscaled {
-                unit: CanvasWarningUnit::Px,
-                scale_percent_tenths: 500,
+                paper_scale: 0.5,
                 document_canvas_width: 1_000.0,
                 document_canvas_height: 1_000.0,
                 paper_width: None,
                 paper_height: None,
             }]
-        );
-    }
-
-    #[test]
-    fn warning_events_serialize_as_their_contract_codes_and_parameters() {
-        let placement = CanvasPlacement {
-            overflow: true,
-            margins_reduced: true,
-            requested_margins: [10, 10, 10, 10],
-            ..warning_event_placement()
-        };
-
-        assert_eq!(
-            serde_json::to_value(canvas_placement_warning_events(
-                placement,
-                &warning_event_canvas(),
-                true
-            ))
-            .unwrap(),
-            serde_json::json!([
-                {
-                    "code": "matched-canvas-content-fitted",
-                    "unit": "px",
-                    "contentWidth": 700.0,
-                    "contentHeight": 700.0,
-                    "innerWidth": 980.0,
-                    "innerHeight": 980.0,
-                    "documentCanvasWidth": 1_000.0,
-                    "documentCanvasHeight": 1_000.0,
-                },
-                {"code": "matched-canvas-margins-reduced"},
-            ])
         );
     }
 }
