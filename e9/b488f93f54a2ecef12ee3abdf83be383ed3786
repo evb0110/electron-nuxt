@@ -1,0 +1,40 @@
+docs/architecture/sentry-error-telemetry-ledger-2026-09-01.md
+  s_9af6769b123cca::t_1c27d06303bd63 114-119,146,1234-1236
+docs/architecture/sentry-implementation-ledger-2026-09-01.md
+  s_9af6769b123cca::t_1beee0c5801a09 410
+  s_9af6769b123cca::t_25118709e5d5ff 416
+  s_9af6769b123cca::t_1c27d06303bd63 112-126,197-203,399,401-403,531-532,549-551,1751,1763-1764
+docs/operations/sentry-runbook.md
+  s_9af6769b123cca::t_25118709e5d5ff 146-149
+  s_9af6769b123cca::t_1beee0c5801a09 132-135
+  s_9af6769b123cca::t_1c27d06303bd63 293-304,313-317
+  s_0afd208e8e7201::t_2a654c15024d1c 318
+README.md
+  s_9af6769b123cca::t_4dd3757daefb36 13-15
+  s_9af6769b123cca::t_1c27d06303bd63 16-19,23
+  s_0afd208e8e7201::t_08a9eb06f1db30 20-22
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.2",
+  "base_commit_sha": "e9b488f93f54a2ecef12ee3abdf83be383ed3786",
+  "prompts": {},
+  "sessions": {
+    "s_0afd208e8e7201": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a076de-4f3d-7f22-b613-f608930bc321",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    },
+    "s_9af6769b123cca": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0762b-3722-7670-b9a9-ffe5a696d53e",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
