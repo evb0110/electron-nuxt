@@ -1,13 +1,14 @@
 import {
     degrees,
     PDFArray,
+    PDFDict,
     PDFDocument,
     PDFName,
     PDFNumber,
+    PDFRef,
     PDFString,
     StandardFonts,
 } from 'pdf-lib';
-import type { PDFRef } from 'pdf-lib';
 import {
     DOMMatrix,
     ImageData,
@@ -18,13 +19,15 @@ import type {
     IAnnotationMarkerRect,
     ILinkAnnotation,
 } from '@app/types/annotations';
-import type { PDFDocumentProxy } from '@app/types/pdfContracts';
 import type { AnnotationApplication } from '@app/modules/pdf-viewer/annotations/annotationApplication';
 import { collectPagePdfSnapshotEntries } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/collectPagePdfSnapshotEntries';
 import { loadPdfPageAnnotations } from '@app/modules/pdf-viewer/engine/annotations/annotation-sync-helpers/loadPdfPageAnnotations';
 import { computeSummaryStableKey } from '@app/modules/pdf-viewer/engine/annotations/domain/annotationSummaryIdentity';
 import { requirePageNumber } from '@contracts/pageNumbers';
-import { cast } from '@tests/helpers/cast';
+import {
+    isFiniteNumber,
+    isRecord,
+} from '@contracts/runtimeGuards';
 
 /**
  * A page-level stand-in for the reported book: real text, a real PDF.js load, a
@@ -65,6 +68,31 @@ const FIXTURE_PAGE_HEIGHT = 792;
 
 /** Deliberately not the reported sentence; no document text is asserted on. */
 const FIXTURE_LINE = 'The quick brown fox jumps over the lazy dog again.';
+
+interface IPageRawDimensions {
+    readonly pageWidth: number;
+    readonly pageHeight: number;
+    readonly pageX: number;
+    readonly pageY: number;
+}
+
+function requirePageRawDimensions(value: unknown): IPageRawDimensions {
+    if (
+        !isRecord(value)
+        || !isFiniteNumber(value.pageWidth)
+        || !isFiniteNumber(value.pageHeight)
+        || !isFiniteNumber(value.pageX)
+        || !isFiniteNumber(value.pageY)
+    ) {
+        throw new TypeError('PDF.js viewport raw dimensions are invalid');
+    }
+    return {
+        pageWidth: value.pageWidth,
+        pageHeight: value.pageHeight,
+        pageX: value.pageX,
+        pageY: value.pageY,
+    };
+}
 
 function boundingRectOfQuads(quads: ReadonlyArray<readonly number[]>) {
     const xs = quads.flatMap(quad => quad.filter((_value, index) => index % 2 === 0));
@@ -205,7 +233,7 @@ function installPdfjsCanvasGlobals() {
         value,
     ]) => {
         const present = Object.hasOwn(globalThis, key);
-        const prior = present ? cast<unknown>(Reflect.get(globalThis, key)) : undefined;
+        const prior: unknown = present ? Reflect.get(globalThis, key) : undefined;
         Reflect.set(globalThis, key, value);
         return {
             key,
@@ -236,11 +264,14 @@ export function restorePdfjsCanvasGlobals() {
 async function loadWithPdfjs(bytes: Uint8Array) {
     installPdfjsCanvasGlobals();
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    return pdfjs.getDocument(cast<Parameters<typeof pdfjs.getDocument>[0]>({
+    const documentParameters = {
         data: bytes.slice(),
+        // The legacy build still accepts this Node option although current
+        // PDF.js declarations omit it.
         disableWorker: true,
         useSystemFonts: true,
-    })).promise;
+    } satisfies Extract<Parameters<typeof pdfjs.getDocument>[0], {data?: unknown}> & {disableWorker: boolean};
+    return pdfjs.getDocument(documentParameters).promise;
 }
 
 /**
@@ -274,7 +305,7 @@ export async function ingestFixtureAnnotations(
 ) {
     return withPdfjsDocument(bytes, async (document) => {
         const pageNumber = requirePageNumber(1);
-        const bundle = await loadPdfPageAnnotations(cast<PDFDocumentProxy>(document), pageNumber);
+        const bundle = await loadPdfPageAnnotations(document, pageNumber);
         if (!bundle) {
             throw new Error('The fixture page produced no annotation bundle');
         }
@@ -375,12 +406,7 @@ export async function stageHighlightSave(
 ): Promise<IStagedHighlight> {
     const staged = await withPdfjsDocument(fixture, async (document) => {
         const page = await document.getPage(1);
-        const rawDims = cast<{
-            pageWidth: number;
-            pageHeight: number;
-            pageX: number;
-            pageY: number;
-        }>(page.getViewport({ scale: 1 }).rawDims);
+        const rawDims = requirePageRawDimensions(page.getViewport({ scale: 1 }).rawDims);
         const preexisting = new Set((await page.getAnnotations()).map(record => String(record.id)));
         const boxes = options.reverseQuadOrder ? [...options.boxes].reverse() : options.boxes;
         const quadPoints = serializeSelectionBoxes(boxes, rawDims, options.cornerOrder ?? 'pdfjs');
@@ -399,7 +425,7 @@ export async function stageHighlightSave(
                 quadPoints[cursor + 5]!,
             ]);
         }
-        document.annotationStorage.setValue('pdfjs_internal_editor_0', cast<never>({
+        document.annotationStorage.setValue('pdfjs_internal_editor_0', {
             annotationType: 9,
             color: options.color ?? [
                 255,
@@ -420,7 +446,7 @@ export async function stageHighlightSave(
             rotation: 0,
             structTreeParentId: null,
             popupRef: '',
-        }));
+        });
         return {
             bytes: await document.saveDocument(),
             preexisting,
@@ -489,15 +515,12 @@ export async function mutateStagedHighlight(
                 ref,
                 dict: page.node.context.lookup(ref),
             }))
-            .find(entry => cast<{objectNumber?: number}>(entry.ref).objectNumber === objectNumber)?.dict
+            .find(entry => entry.ref instanceof PDFRef && entry.ref.objectNumber === objectNumber)?.dict
         : null;
-    if (!dict || !('set' in cast<Record<string, unknown>>(dict))) {
+    if (!(dict instanceof PDFDict)) {
         throw new Error(`Staged annotation ${pdfRef} is not reachable for mutation`);
     }
-    const annotationDict = cast<{
-        set(key: PDFName, value: unknown): void;
-        lookup(key: PDFName): unknown;
-    }>(dict);
+    const annotationDict = dict;
     mutate({
         setSubtype: (value: string) => annotationDict.set(PDFName.of('Subtype'), PDFName.of(value)),
         setContents: (value: string) => annotationDict.set(PDFName.of('Contents'), PDFString.of(value)),

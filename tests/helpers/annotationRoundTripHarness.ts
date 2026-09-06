@@ -17,20 +17,42 @@ import {
 import type { IAnnotationCommentSummary } from '@app/types/annotations';
 import type { IPdfSerializationSavePayload } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/pdfSerializationSavePayload';
 import { serializePdfEdits } from '@app/modules/pdf-viewer/engine/pdf-serialization-operations/serializePdfEdits';
-import { cast } from '@tests/helpers/cast';
+import { isRecord } from '@contracts/runtimeGuards';
 
 const MAX_NOTE_MARKER_SIZE = 0.02;
 
 interface IPdfjsAnnotationRecord {
-    annotationName?: string;
-    color?: Uint8ClampedArray | number[];
-    contents?: string;
-    contentsObj?: { str?: string };
-    id?: string;
-    opacity?: number;
-    popupRef?: string;
-    rect?: number[];
-    subtype?: string;
+    annotationName?: string | null;
+    color?: Uint8ClampedArray | number[] | null;
+    contents?: string | null;
+    contentsObj?: { str?: string } | null;
+    id?: string | null;
+    opacity?: number | null;
+    popupRef?: string | null;
+    rect?: number[] | null;
+    subtype?: string | null;
+}
+
+function isNumberArray(value: unknown): value is number[] {
+    return Array.isArray(value) && value.every(item => typeof item === 'number');
+}
+
+function isPdfjsAnnotationRecord(value: unknown): value is IPdfjsAnnotationRecord {
+    if (!isRecord(value)) {
+        return false;
+    }
+    return (value.annotationName === undefined || value.annotationName === null || typeof value.annotationName === 'string')
+        && (value.color === undefined || value.color === null || value.color instanceof Uint8ClampedArray || isNumberArray(value.color))
+        && (value.contents === undefined || value.contents === null || typeof value.contents === 'string')
+        && (value.contentsObj === undefined || value.contentsObj === null || (
+            isRecord(value.contentsObj)
+            && (value.contentsObj.str === undefined || typeof value.contentsObj.str === 'string')
+        ))
+        && (value.id === undefined || value.id === null || typeof value.id === 'string')
+        && (value.opacity === undefined || value.opacity === null || typeof value.opacity === 'number')
+        && (value.popupRef === undefined || value.popupRef === null || typeof value.popupRef === 'string')
+        && (value.rect === undefined || value.rect === null || isNumberArray(value.rect))
+        && (value.subtype === undefined || value.subtype === null || typeof value.subtype === 'string');
 }
 
 interface IPdfLibAnnotationMetadata {
@@ -119,11 +141,14 @@ async function reopenWithPdfjs(bytes: Uint8Array) {
         Path2D,
     });
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
-    const loadingTask = pdfjs.getDocument(cast<Parameters<typeof pdfjs.getDocument>[0]>({
+    const documentParameters = {
         data: bytes.slice(),
+        // The legacy build still accepts this Node option although current
+        // PDF.js declarations omit it.
         disableWorker: true,
         useSystemFonts: true,
-    }));
+    } satisfies Extract<Parameters<typeof pdfjs.getDocument>[0], {data?: unknown}> & {disableWorker: boolean};
+    const loadingTask = pdfjs.getDocument(documentParameters);
     return loadingTask.promise;
 }
 
@@ -222,7 +247,11 @@ export async function runAnnotationRoundTrip(
         let inkPixelCount = 0;
         for (let pageIndex = 0; pageIndex < document.numPages; pageIndex += 1) {
             const page = await document.getPage(pageIndex + 1);
-            const annotations = cast<IPdfjsAnnotationRecord[]>(await page.getAnnotations());
+            const rawAnnotations: unknown = await page.getAnnotations();
+            if (!Array.isArray(rawAnnotations) || !rawAnnotations.every(isPdfjsAnnotationRecord)) {
+                throw new TypeError('PDF.js returned an invalid annotation record list');
+            }
+            const annotations = rawAnnotations;
             const pageMetadata = pdfLibMetadata[pageIndex] ?? [];
             truth.push(...annotations.map((annotation, annotationIndex) => {
                 const normalizedId = annotation.id?.replace(/R0$/u, 'R') ?? '';
@@ -233,18 +262,33 @@ export async function runAnnotationRoundTrip(
 
             const textContent = await page.getTextContent();
             textItems.push(...textContent.items.flatMap((item) => {
-                const value = cast<{ str?: string }>(item).str;
-                return typeof value === 'string' ? [value] : [];
+                const rawItem: unknown = item;
+                if (!isRecord(rawItem) || typeof rawItem.str !== 'string') {
+                    return [];
+                }
+                return [rawItem.str];
             }));
 
             const viewport = page.getViewport({scale: 1});
             const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
             const context = canvas.getContext('2d');
-            await page.render({
-                canvas: cast<HTMLCanvasElement>(canvas),
-                canvasContext: cast<CanvasRenderingContext2D>(context),
+            // PDF.js's public types require browser DOM objects, while its
+            // legacy Node build accepts the @napi-rs/canvas equivalents. Read
+            // and invoke this third-party method through the runtime boundary
+            // so the browser-only parameter type does not leak into the shim.
+            const renderFunction: unknown = Reflect.get(page, 'render');
+            if (typeof renderFunction !== 'function') {
+                throw new TypeError('PDF.js page render method is unavailable');
+            }
+            const renderTask: unknown = Reflect.apply(renderFunction, page, [{
+                canvas,
+                canvasContext: context,
                 viewport,
-            }).promise;
+            }]);
+            if (!isRecord(renderTask) || !(renderTask.promise instanceof Promise)) {
+                throw new TypeError('PDF.js page render task is invalid');
+            }
+            await renderTask.promise;
             const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
             for (let offset = 0; offset < pixels.length; offset += 4) {
                 const alpha = pixels[offset + 3] ?? 0;

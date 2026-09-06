@@ -13,13 +13,13 @@ import {
     type TPageIndex,
 } from '@contracts/pageNumbers';
 import { writePdfBookmarkOutlines } from '@pdf-core';
-import {cast} from '@tests/helpers/cast';
 
 function createBookmark(title: string, pageIndex: number): IPdfBookmarkEntry {
     return {
         title,
         pageIndex: pageIndex < 0
-            ? cast<TPageIndex>(pageIndex)
+            // This test deliberately supplies a brand-invalid negative index.
+            ? pageIndex as TPageIndex
             : requirePageIndex(pageIndex),
         namedDest: null,
         bold: false,
