@@ -1,0 +1,75 @@
+native/scan-cleanup/src/engine/render/region_preparation.rs
+  s_ecb10d3801a59d::t_6ccb8ef0709722 1-69,74-95
+  s_ecb10d3801a59d::t_b4981afa78e78a 70-73
+  s_ecb10d3801a59d::t_279daacdc21737 96-99
+native/scan-cleanup/src/engine/render/document_analysis.rs
+  s_ecb10d3801a59d::t_b4981afa78e78a 50-63,233-286,288-311,313-318,320,324-327,329-380,382-395,397-399,401-429,431,434-529,531-570,573-581,584,587-686,689-698,700-709,715,717-759,770-800,805-860,862-882,887-919,921,923-965
+  s_ecb10d3801a59d::t_ae123005499733 64-219,221-232
+  s_ecb10d3801a59d::t_f0d4629de2948f 19
+  s_ecb10d3801a59d::t_754c2611163c4b 967
+  s_ecb10d3801a59d::t_20ed5c8cfc5b97 20-49,287,312,319,321-323,328,381,396,400,430,432-433,530,571-572,582-583,585-586,687-688,699,710-714,716,760-769,801-804,861,883-886,920,922,966,968
+  s_ecb10d3801a59d::t_562b8841fe4716 18
+  s_ecb10d3801a59d::t_bd7a2ed61d82e8 1
+  s_ecb10d3801a59d::t_0c195eb5b0d195 220
+  s_ecb10d3801a59d::t_4479a122970e42 2-17,969-980
+  s_ecb10d3801a59d::t_92e92c519aa238 981-984
+native/scan-cleanup/src/engine/render.rs
+  s_ecb10d3801a59d::t_99d09634db5efe 2684-2688,2695
+  s_ecb10d3801a59d::t_bac957cfbca8cf 1623,1635
+  s_ecb10d3801a59d::t_9d2f13cbc7d3de 75-78,5736
+  s_ecb10d3801a59d::t_121c701e2b75b6 2978-2989
+  s_ecb10d3801a59d::t_778e4016ff7d9b 5735
+  s_ecb10d3801a59d::t_6c0c0edc5340c3 2964
+  s_ecb10d3801a59d::t_8feb8eeb36d72d 4206-4209,4213-4217,4219-4222,4224-4226,4229,4231-4233,4235-4241
+  s_ecb10d3801a59d::t_b4981afa78e78a 79-82,1624-1634,4499-4512
+  s_ecb10d3801a59d::t_0aa89629bbfc60 1821,1823,1825-1826,1833,1835,1837,1968,1972-1973,1980,1982,1984
+  s_ecb10d3801a59d::t_85292577b51882 83-84
+  s_ecb10d3801a59d::t_238f222c773493 4210-4212,4218,4223,4227-4228
+  s_ecb10d3801a59d::t_a607595a5935e9 4498,4513
+native/scan-cleanup/src/engine/render/fold_edge_filtering.rs
+  s_ecb10d3801a59d::t_bd7a2ed61d82e8 1
+  s_ecb10d3801a59d::t_b693cfc4c0f660 463-466
+  s_ecb10d3801a59d::t_b4981afa78e78a 20-32
+  s_ecb10d3801a59d::t_bac957cfbca8cf 2-4,6-19,33-462
+  s_ecb10d3801a59d::t_10c785c9f9bf71 5
+native/scan-cleanup/src/engine/render/fold_edge_filtering_tests.rs
+  s_ecb10d3801a59d::t_b693cfc4c0f660 1-31
+native/scan-cleanup/src/engine/render/region_preparation_tests.rs
+  s_ecb10d3801a59d::t_b4981afa78e78a 21-27
+  s_ecb10d3801a59d::t_279daacdc21737 1-20,28-31
+native/scan-cleanup/src/engine/render/final_composition_tests.rs
+  s_ecb10d3801a59d::t_46e23bd58fd797 1-28
+native/scan-cleanup/src/engine/render/document_analysis_tests.rs
+  s_ecb10d3801a59d::t_b4981afa78e78a 23-26
+  s_ecb10d3801a59d::t_92e92c519aa238 1-22,27
+native/scan-cleanup/src/engine/render_tests/mod.rs
+  s_ecb10d3801a59d::t_778e4016ff7d9b 1-4
+native/scan-cleanup/src/engine/render/final_composition.rs
+  s_ecb10d3801a59d::t_46e23bd58fd797 267-270
+  s_ecb10d3801a59d::t_b4981afa78e78a 23-38
+  s_ecb10d3801a59d::t_a607595a5935e9 2-22,39-266
+  s_ecb10d3801a59d::t_bd7a2ed61d82e8 1
+native/scan-cleanup/src/engine/render/region_rendering_tests.rs
+  s_ecb10d3801a59d::t_fb05937a47a1b5 1-53
+native/scan-cleanup/src/engine/render/region_rendering.rs
+  s_ecb10d3801a59d::t_fb05937a47a1b5 1478-1481
+  s_ecb10d3801a59d::t_c459354f6345d1 3
+  s_ecb10d3801a59d::t_b4981afa78e78a 42-78
+  s_ecb10d3801a59d::t_8feb8eeb36d72d 1-2,4-41,79-1477
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.5.2",
+  "base_commit_sha": "205bcb6dcc204b56f6af4a97d0ca18d0ddfa4c39",
+  "prompts": {},
+  "sessions": {
+    "s_ecb10d3801a59d": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a07811-7527-7863-8fd2-8f8d811d7186",
+        "model": "gpt-5.6-luna"
+      },
+      "human_author": "Eugene Barsky <34789976+evb0110@users.noreply.github.com>"
+    }
+  }
+}
