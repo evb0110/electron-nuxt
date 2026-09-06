@@ -4,8 +4,7 @@ import {
     it,
     vi,
 } from 'vitest';
-import type * as ClaudeProviderMetadataModule from '@electron/features/agent/claudeProviderMetadata';
-import type * as CodexCliModule from '@electron/features/agent/codexCli';
+import {requireTabId} from '@contracts/windowTabs';
 
 const observations = vi.hoisted(() => ({sdkEvaluations: 0}));
 
@@ -32,7 +31,8 @@ vi.mock('@electron/utils/createLogger', () => ({createLogger: () => ({
 })}));
 vi.mock('@electron/settings', () => ({loadSettings: vi.fn(async () => ({assistantPanelEnabled: true}))}));
 vi.mock('@electron/features/agent/codexCli', async (importOriginal) => {
-    const actual = await importOriginal<CodexCliModule>();
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const actual = await importOriginal<typeof import('@electron/features/agent/codexCli')>();
     return {
         ...actual,
         getCodexCliInfo: vi.fn(async () => ({
@@ -45,7 +45,8 @@ vi.mock('@electron/features/agent/codexCli', async (importOriginal) => {
     };
 });
 vi.mock('@electron/features/agent/claudeProviderMetadata', async () => {
-    const actual = await vi.importActual<ClaudeProviderMetadataModule>('@electron/features/agent/claudeProviderMetadata');
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const actual = await vi.importActual<typeof import('@electron/features/agent/claudeProviderMetadata')>('@electron/features/agent/claudeProviderMetadata');
     return {
         ...actual,
         getClaudeAgentSdkInfo: vi.fn(async () => ({
@@ -96,7 +97,7 @@ describe('assistant provider initialization boundaries', () => {
                 kind: 'document',
                 key: 'document:initialization-test',
                 title: 'Initialization test',
-                tabId: 'tab-initialization-test',
+                tabId: requireTabId('tab-initialization-test'),
             },
         });
         expect(claudeFirstUse.ok).toBe(true);

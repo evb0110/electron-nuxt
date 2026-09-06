@@ -20,7 +20,6 @@ import type {
     IAgentAssistantEvent,
 } from '@contracts/agent';
 import type * as CodexAssistantModule from '@electron/features/agent/codexAssistant';
-import type * as ClaudeProviderMetadataModule from '@electron/features/agent/claudeProviderMetadata';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireDocumentRevisionToken} from '@contracts';
 import {requireEpochMs} from '@contracts/timestamps';
@@ -356,7 +355,8 @@ vi.mock('@electron/features/agent/codexCli', () => ({
 }));
 
 vi.mock('@electron/features/agent/claudeProviderMetadata', async (importOriginal) => {
-    const actual = await importOriginal<ClaudeProviderMetadataModule>();
+    // eslint-disable-next-line @typescript-eslint/consistent-type-imports
+    const actual = await importOriginal<typeof import('@electron/features/agent/claudeProviderMetadata')>();
     return {
         ...actual,
         getClaudeAgentSdkInfo: vi.fn(async () => ({
