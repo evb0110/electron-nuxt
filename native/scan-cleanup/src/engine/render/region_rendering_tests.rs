@@ -235,3 +235,90 @@ fn raster_stage_keeps_optional_color_and_alpha_planes_aligned() {
     assert_eq!((rendered_alpha.width(), rendered_alpha.height()), (3, 2));
     assert_eq!(output.rendered_gray, GrayImage::new(3, 2, 255));
 }
+
+#[test]
+fn mask_stage_keeps_absent_optional_masks_absent() {
+    let normalized = GrayImage::new(4, 3, 255);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 4.0, 3.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        4,
+        3,
+        Rect::new(0.0, 0.0, 4.0, 3.0),
+    );
+    let output = prepare_region_masks(MaskPreparationInput {
+        normalized: &normalized,
+        render_plan: &plan,
+        rendered_width: 4,
+        rendered_height: 3,
+        source_picture_mask: None,
+        halftone_zone_mask: None,
+        spatial_tone_mask: None,
+        chroma_picture_mask: None,
+        tone_picture_mask: None,
+        text_vicinity_mask: None,
+        text_mask: None,
+        trusted_foreground_mask: None,
+        options: &CleanupOptions::default(),
+        preserve_confirmed_photo_tones: false,
+        text_line_count: 0,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    assert!(output.rendered_picture_mask.is_none());
+    assert!(output.rendered_chroma_picture_mask.is_none());
+    assert!(output.rendered_text_mask.is_none());
+    assert!(output.rendered_trusted_foreground_mask.is_none());
+}
+
+#[test]
+fn mask_stage_preserves_overlapping_confirmed_ownership_pixels() {
+    let normalized = GrayImage::new(8, 4, 255);
+    let mut picture = BinaryImage::new(8, 4);
+    picture.set(2, 1, true);
+    let mut spatial = BinaryImage::new(8, 4);
+    spatial.set(5, 1, true);
+    let mut text_vicinity = BinaryImage::new(8, 4);
+    text_vicinity.set(2, 1, true);
+    text_vicinity.set(5, 1, true);
+    let plan = ComposedRenderPlan::new(
+        Rect::new(0.0, 0.0, 8.0, 4.0),
+        Affine::scaling(1.0, 1.0),
+        Affine::scaling(1.0, 1.0),
+        None,
+        8,
+        4,
+        Rect::new(0.0, 0.0, 8.0, 4.0),
+    );
+    let options = CleanupOptions {
+        output_mode: OutputMode::Mixed,
+        ..CleanupOptions::default()
+    };
+    let output = prepare_region_masks(MaskPreparationInput {
+        normalized: &normalized,
+        render_plan: &plan,
+        rendered_width: 8,
+        rendered_height: 4,
+        source_picture_mask: Some(&picture),
+        halftone_zone_mask: None,
+        spatial_tone_mask: Some(&spatial),
+        chroma_picture_mask: None,
+        tone_picture_mask: None,
+        text_vicinity_mask: Some(&text_vicinity),
+        text_mask: None,
+        trusted_foreground_mask: None,
+        options: &options,
+        preserve_confirmed_photo_tones: true,
+        text_line_count: 2,
+        timings: &mut PageStageTimings::default(),
+    });
+
+    let picture = output
+        .rendered_picture_mask
+        .expect("confirmed ownership must produce a mask");
+    assert_eq!(picture.count_black(), 2);
+    assert!(picture.get(2, 1));
+    assert!(picture.get(5, 1));
+}

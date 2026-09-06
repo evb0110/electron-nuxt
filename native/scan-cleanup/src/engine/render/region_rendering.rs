@@ -778,6 +778,146 @@ fn prepare_render_planes(input: RasterPlaneInput<'_>) -> Result<RasterPlaneOutpu
     })
 }
 
+struct MaskPreparationInput<'a> {
+    normalized: &'a GrayImage,
+    render_plan: &'a ComposedRenderPlan,
+    rendered_width: usize,
+    rendered_height: usize,
+    source_picture_mask: Option<&'a BinaryImage>,
+    halftone_zone_mask: Option<&'a BinaryImage>,
+    spatial_tone_mask: Option<&'a BinaryImage>,
+    chroma_picture_mask: Option<&'a BinaryImage>,
+    tone_picture_mask: Option<&'a BinaryImage>,
+    text_vicinity_mask: Option<&'a BinaryImage>,
+    text_mask: Option<&'a BinaryImage>,
+    trusted_foreground_mask: Option<&'a BinaryImage>,
+    options: &'a CleanupOptions,
+    preserve_confirmed_photo_tones: bool,
+    text_line_count: usize,
+    timings: &'a mut PageStageTimings,
+}
+
+struct MaskPreparationOutput {
+    rendered_picture_mask: Option<BinaryImage>,
+    rendered_chroma_picture_mask: Option<BinaryImage>,
+    rendered_text_vicinity_mask: Option<BinaryImage>,
+    rendered_text_mask: Option<BinaryImage>,
+    rendered_trusted_foreground_mask: Option<BinaryImage>,
+}
+
+fn prepare_region_masks(input: MaskPreparationInput<'_>) -> MaskPreparationOutput {
+    let MaskPreparationInput {
+        normalized,
+        render_plan,
+        rendered_width,
+        rendered_height,
+        source_picture_mask,
+        halftone_zone_mask,
+        spatial_tone_mask,
+        chroma_picture_mask,
+        tone_picture_mask,
+        text_vicinity_mask,
+        text_mask,
+        trusted_foreground_mask,
+        options,
+        preserve_confirmed_photo_tones,
+        text_line_count,
+        timings,
+    } = input;
+    let mask_rasterization_started = Instant::now();
+    let mut rendered_picture_mask = source_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_spatial_tone_mask = (options.output_mode == OutputMode::Mixed)
+        .then(|| {
+            spatial_tone_mask.map(|mask| {
+                let (mask_scale_x, mask_scale_y) =
+                    auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+                render_binary_mask(mask, rendered_width, rendered_height, |point| {
+                    map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+                })
+            })
+        })
+        .flatten();
+    let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    // Keep calibrated tone zones as geometry in render space. The alpha field
+    // is useful for semantic protection, but it is not a complete layer
+    // boundary: a bimodal photo or map can have low alpha over a valid
+    // midtone region. Fresh Mixed composition must still own that region from
+    // the cleaned raster rather than whitening it as unclassified paper.
+    let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_text_mask = text_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask_preserve_ink(
+            mask,
+            rendered_width,
+            rendered_height,
+            mask_scale_x,
+            mask_scale_y,
+            |point| map_auxiliary_mask_point(render_plan, mask_scale_x, mask_scale_y, point),
+        )
+    });
+    if options.output_mode == OutputMode::Mixed {
+        partition_mixed_picture_mask(
+            &mut rendered_picture_mask,
+            preserve_confirmed_photo_tones,
+            rendered_spatial_tone_mask.as_ref(),
+            rendered_chroma_picture_mask.as_ref(),
+            rendered_tone_picture_mask.as_ref(),
+            rendered_halftone_zone_mask.as_ref(),
+            rendered_text_vicinity_mask.as_ref(),
+            options.dpi,
+            text_line_count,
+        );
+    }
+    timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    MaskPreparationOutput {
+        rendered_picture_mask,
+        rendered_chroma_picture_mask,
+        rendered_text_vicinity_mask,
+        rendered_text_mask,
+        rendered_trusted_foreground_mask,
+    }
+}
+
 pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
     let Input {
         source,
@@ -958,91 +1098,30 @@ pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
         dewarp_model,
         timings,
     })?;
-    let mask_rasterization_started = Instant::now();
-    let mut rendered_picture_mask = source_picture_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
+    let MaskPreparationOutput {
+        mut rendered_picture_mask,
+        rendered_chroma_picture_mask,
+        rendered_text_vicinity_mask,
+        rendered_text_mask,
+        rendered_trusted_foreground_mask,
+    } = prepare_region_masks(MaskPreparationInput {
+        normalized,
+        render_plan: &render_plan,
+        rendered_width,
+        rendered_height,
+        source_picture_mask,
+        halftone_zone_mask,
+        spatial_tone_mask,
+        chroma_picture_mask,
+        tone_picture_mask,
+        text_vicinity_mask,
+        text_mask,
+        trusted_foreground_mask,
+        options,
+        preserve_confirmed_photo_tones,
+        text_line_count: text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
+        timings,
     });
-    let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    let rendered_spatial_tone_mask = (options.output_mode == OutputMode::Mixed)
-        .then(|| {
-            spatial_tone_mask.map(|mask| {
-                let (mask_scale_x, mask_scale_y) =
-                    auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-                render_binary_mask(mask, rendered_width, rendered_height, |point| {
-                    map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-                })
-            })
-        })
-        .flatten();
-    let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    // Keep calibrated tone zones as geometry in render space. The alpha field
-    // is useful for semantic protection, but it is not a complete layer
-    // boundary: a bimodal photo or map can have low alpha over a valid
-    // midtone region. Fresh Mixed composition must still own that region from
-    // the cleaned raster rather than whitening it as unclassified paper.
-    let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    let rendered_text_mask = text_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask(mask, rendered_width, rendered_height, |point| {
-            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
-        })
-    });
-    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
-        let (mask_scale_x, mask_scale_y) =
-            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
-        render_binary_mask_preserve_ink(
-            mask,
-            rendered_width,
-            rendered_height,
-            mask_scale_x,
-            mask_scale_y,
-            |point| map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point),
-        )
-    });
-    if options.output_mode == OutputMode::Mixed {
-        partition_mixed_picture_mask(
-            &mut rendered_picture_mask,
-            preserve_confirmed_photo_tones,
-            rendered_spatial_tone_mask.as_ref(),
-            rendered_chroma_picture_mask.as_ref(),
-            rendered_tone_picture_mask.as_ref(),
-            rendered_halftone_zone_mask.as_ref(),
-            rendered_text_vicinity_mask.as_ref(),
-            options.dpi,
-            text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
-        );
-    }
-    timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
     let output_processing_started = Instant::now();
     let ink_ownership_mask =
         page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
