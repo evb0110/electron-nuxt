@@ -1,0 +1,1481 @@
+use super::*;
+
+pub(crate) struct Input<'a> {
+    pub source: &'a GrayImage,
+    pub routing_source: &'a GrayImage,
+    pub normalized: &'a GrayImage,
+    pub analysis_normalized: &'a GrayImage,
+    pub analysis_scale_x: f64,
+    pub analysis_scale_y: f64,
+    pub canonical_routing_sample: &'a GrayImage,
+    pub canonical_leaf_source: &'a GrayImage,
+    pub canonical_routing_dpi: f64,
+    pub calibration: PageCalibration,
+    pub color_source: Option<&'a RgbImage>,
+    pub analysis_picture_mask: Option<&'a BinaryImage>,
+    pub source_picture_mask: Option<&'a BinaryImage>,
+    pub halftone_zone_mask: Option<&'a BinaryImage>,
+    pub spatial_tone_mask: Option<&'a BinaryImage>,
+    pub chroma_picture_mask: Option<&'a BinaryImage>,
+    pub tone_picture_mask: Option<&'a BinaryImage>,
+    pub preserve_confirmed_photo_tones: bool,
+    pub use_soft_alpha_foreground: bool,
+    pub tone_preservation_alpha: Option<&'a GrayImage>,
+    pub text_mask: Option<&'a BinaryImage>,
+    pub text_vicinity_mask: Option<&'a BinaryImage>,
+    pub trusted_foreground_mask: Option<&'a BinaryImage>,
+    pub options: &'a CleanupOptions,
+    pub source_page_index: usize,
+    pub split: &'a SplitResult,
+    pub spread_plan: Option<&'a SpreadBinarizationPlan>,
+    pub region: Rect,
+    pub half: PageHalf,
+    pub cache: Option<&'a PageCache>,
+    pub split_cache_key: Option<&'a StageCacheKey>,
+    pub source_effectively_blank: bool,
+    pub create_mixed_layers: bool,
+    pub create_mixed_composite: bool,
+    pub timings: &'a mut PageStageTimings,
+}
+
+pub(crate) fn run(input: Input<'_>) -> Result<CleanupResult, String> {
+    let Input {
+        source,
+        routing_source,
+        normalized,
+        analysis_normalized,
+        analysis_scale_x,
+        analysis_scale_y,
+        canonical_routing_sample,
+        canonical_leaf_source,
+        canonical_routing_dpi,
+        calibration,
+        color_source,
+        analysis_picture_mask,
+        source_picture_mask,
+        halftone_zone_mask,
+        spatial_tone_mask,
+        chroma_picture_mask,
+        tone_picture_mask,
+        preserve_confirmed_photo_tones,
+        use_soft_alpha_foreground,
+        tone_preservation_alpha,
+        text_mask,
+        text_vicinity_mask,
+        trusted_foreground_mask,
+        options,
+        source_page_index,
+        split,
+        spread_plan,
+        region,
+        half,
+        cache,
+        split_cache_key,
+        source_effectively_blank,
+        create_mixed_layers,
+        create_mixed_composite,
+        timings,
+    } = input;
+    let working_width = region.width.round().max(1.0) as usize;
+    let working_height = region.height.round().max(1.0) as usize;
+    let region_preparation = region_preparation::prepare(region_preparation::Input {
+        analysis_normalized,
+        analysis_scale_x,
+        analysis_scale_y,
+        analysis_picture_mask,
+        tone_picture_mask,
+        text_mask,
+        text_vicinity_mask,
+        options,
+        half,
+        region,
+        working_width,
+        working_height,
+    });
+    let region_preparation::Output {
+        analysis_working,
+        analysis_picture_working,
+        manual_picture_crop_authority,
+        text_tone_diagnostics,
+        local_scale_x,
+        local_scale_y,
+    } = region_preparation;
+    let deskew_key = cache
+        .zip(split_cache_key)
+        .map(|(cache, split_key)| StageCacheKey::deskew(&cache.source, options, split_key, region));
+    let deskew_started = Instant::now();
+    let deskew = if let Some(angle_degrees) = options
+        .manual_skew_degrees
+        .or_else(|| options.automatic_skew_for(half))
+    {
+        DeskewResult {
+            angle_degrees,
+            confidence: 1.0,
+            accepted: true,
+        }
+    } else {
+        cache
+            .zip(deskew_key.as_ref())
+            .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<DeskewResult>(key))
+            .map_or_else(
+                || {
+                    let result = detect_skew(&analysis_working, calibration.effective_dpi);
+                    if let (Some(cache), Some(key)) = (cache, deskew_key.clone()) {
+                        if let Ok(mut shared) = cache.shared.lock() {
+                            shared.insert(
+                                key,
+                                Arc::new(result),
+                                std::mem::size_of::<DeskewResult>(),
+                            );
+                        }
+                    }
+                    result
+                },
+                |cached| *cached,
+            )
+    };
+    timings.deskew_ms += deskew_started.elapsed().as_secs_f64() * 1_000.0;
+    let local_deskew_forward = deskew_transform(working_width, working_height, deskew);
+    let local_deskew_inverse = local_deskew_forward
+        .inverse()
+        .ok_or("Deskew transform is not invertible")?;
+    let analysis_deskew_forward =
+        deskew_transform(analysis_working.width(), analysis_working.height(), deskew);
+    let analysis_deskew_inverse = analysis_deskew_forward
+        .inverse()
+        .ok_or("Cleanup analysis deskew transform is not invertible")?;
+    let automatic_dewarp = if options.dewarp.is_none() && options.experimental.auto_dewarp {
+        // Curve detection is designed for the ~200-DPI working scale; handing
+        // it the full-resolution crop together with the capped analysis DPI
+        // made its internal downscale a no-op and ran thresholding, labeling
+        // and snake tracing on the full raster. Detect on the analysis-scale
+        // crop and map the curves back into region coordinates.
+        let mut detected = detect_curves_at_dpi_with_depth(
+            &analysis_working,
+            calibration.effective_dpi,
+            options.experimental.auto_dewarp_depth,
+        );
+        detected.model = detected.model.map(|model| {
+            transform_dewarp_options(
+                &model,
+                Affine::scaling(
+                    1.0 / local_scale_x.max(f64::EPSILON),
+                    1.0 / local_scale_y.max(f64::EPSILON),
+                )
+                .then(Affine::translation(region.x, region.y)),
+            )
+        });
+        Some(detected)
+    } else {
+        None
+    };
+    let deskewed_analysis = if deskew.accepted {
+        render_affine_gray(
+            &analysis_working,
+            analysis_working.width(),
+            analysis_working.height(),
+            analysis_deskew_inverse,
+        )
+    } else {
+        analysis_working
+    };
+    let deskewed_picture_mask = analysis_picture_working.map(|mask| {
+        if deskew.accepted {
+            render_binary_mask(&mask, mask.width(), mask.height(), |point| {
+                Some(analysis_deskew_inverse.apply(point))
+            })
+        } else {
+            mask
+        }
+    });
+    let deskewed_manual_picture_crop_authority = manual_picture_crop_authority.map(|mask| {
+        if deskew.accepted {
+            render_binary_mask(&mask, mask.width(), mask.height(), |point| {
+                Some(analysis_deskew_inverse.apply(point))
+            })
+        } else {
+            mask
+        }
+    });
+    let source_rotated_to_deskewed =
+        Affine::translation(-region.x, -region.y).then(local_deskew_forward);
+    let candidate_dewarp = options.dewarp.clone().or_else(|| {
+        automatic_dewarp
+            .as_ref()
+            .and_then(|result| result.model.clone())
+    });
+    let transformed_dewarp = candidate_dewarp
+        .as_ref()
+        .map(|model| transform_dewarp_options(model, source_rotated_to_deskewed));
+    let dewarp_model = if options.dewarp.is_some() {
+        transformed_dewarp
+            .as_ref()
+            .map(DewarpModel::from_options)
+            .transpose()
+            .map_err(|error| error.to_string())?
+    } else {
+        transformed_dewarp
+            .as_ref()
+            .and_then(|model| DewarpModel::from_options(model).ok())
+    };
+    let effective_dewarp = dewarp_model.as_ref().and(candidate_dewarp);
+    let dewarped_analysis = dewarp_model.as_ref().map(|model| {
+        let width = deskewed_analysis.width();
+        let height = deskewed_analysis.height();
+        rasterize_inverse_area_with(&deskewed_analysis, width, height, |point| {
+            model
+                .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+        })
+    });
+    let dewarped_picture_mask = dewarp_model.as_ref().and_then(|model| {
+        deskewed_picture_mask.as_ref().map(|mask| {
+            let width = mask.width();
+            let height = mask.height();
+            render_binary_mask(mask, width, height, |point| {
+                model
+                    .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                    .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+            })
+        })
+    });
+    let dewarped_manual_picture_crop_authority = dewarp_model.as_ref().and_then(|model| {
+        deskewed_manual_picture_crop_authority.as_ref().map(|mask| {
+            let width = mask.width();
+            let height = mask.height();
+            render_binary_mask(mask, width, height, |point| {
+                model
+                    .map_unit_to_source(point.x / width as f64, point.y / height as f64)
+                    .map(|mapped| Point::new(mapped.x * local_scale_x, mapped.y * local_scale_y))
+            })
+        })
+    });
+    let content_analysis = dewarped_analysis.as_ref().unwrap_or(&deskewed_analysis);
+    let content_picture_mask = dewarped_picture_mask
+        .as_ref()
+        .or(deskewed_picture_mask.as_ref());
+    let manual_picture_crop_authority = dewarped_manual_picture_crop_authority
+        .as_ref()
+        .or(deskewed_manual_picture_crop_authority.as_ref());
+    let content_key = cache.zip(deskew_key.as_ref()).map(|(cache, deskew_key)| {
+        StageCacheKey::content(&cache.source, options, deskew_key, half)
+    });
+    let content_started = Instant::now();
+    let cached_content = cache
+        .zip(content_key.as_ref())
+        .and_then(|(cache, key)| cache.shared.lock().ok()?.get::<CachedContentDetection>(key));
+    // A source-level blank verdict is deliberately independent of the
+    // selected output encoding. Auto mode may already have been resolved by
+    // document detection (for example to grayscale) before final rendering.
+    // Letting continuous-tone modes run content detection again made the
+    // 150-DPI preview white while a source-DPI final render promoted the same
+    // paper texture into false content. Manual content/picture/fill zones have
+    // already vetoed this verdict in prepare_analysis_page.
+    let force_clean_blank = source_effectively_blank;
+    let detected = if force_clean_blank {
+        CachedContentDetection {
+            detected_content: None,
+            source_content_box: None,
+            diagnostics: None,
+        }
+    } else if let Some(cached) = cached_content {
+        cached.as_ref().clone()
+    } else {
+        let detected = if let Some(manual) =
+            options.resolved_content_for(half, normalized.width(), normalized.height())
+        {
+            let left = manual.x.clamp(0.0, working_width.saturating_sub(1) as f64);
+            let top = manual.y.clamp(0.0, working_height.saturating_sub(1) as f64);
+            let right = manual.right().clamp(left + 1.0, working_width as f64);
+            let bottom = manual.bottom().clamp(top + 1.0, working_height as f64);
+            let source_content = Rect::new(left, top, right - left, bottom - top);
+            let deskewed_content = transform_rect_bounds(source_content, local_deskew_forward);
+            let output_content = if let Some(model) = &dewarp_model {
+                map_rect_bounds(deskewed_content, |point| {
+                    model.map_source_to_unit_approx(point).map(|unit| {
+                        Point::new(
+                            unit.x * working_width as f64,
+                            unit.y * working_height as f64,
+                        )
+                    })
+                })
+                .ok_or("Manual content box cannot be mapped through the dewarp model")?
+            } else {
+                deskewed_content
+            };
+            CachedContentDetection {
+                detected_content: Some(output_content),
+                source_content_box: Some(source_content),
+                diagnostics: None,
+            }
+        } else {
+            if let Some(dir) = std::env::var_os("EVB_SCAN_CLEANUP_DUMP_CONTENT_INPUT") {
+                let path = std::path::Path::new(&dir)
+                    .join(format!("content-input-{source_page_index}.pgm"));
+                let _ = crate::io::raster::write_gray_pgm_atomic(&path, content_analysis);
+            }
+            let detected_result = detect_content_and_margins_calibrated_with_crop_authority(
+                content_analysis,
+                content_picture_mask,
+                manual_picture_crop_authority,
+                calibration.effective_dpi,
+                None,
+                Some([0.0; 4]),
+                calibration,
+            );
+            if std::env::var_os("EVB_SCAN_CLEANUP_TRACE_CONTENT").is_some() {
+                eprintln!(
+                    "{{\"event\":\"content-call\",\"page\":{source_page_index},\"dpi\":{},\"pictureMask\":{},\"detected\":{:?}}}",
+                    calibration.effective_dpi,
+                    content_picture_mask.is_some(),
+                    detected_result.content,
+                );
+            }
+            let detected_content = detected_result.content.map(|rect| {
+                map_analysis_rect_to_source_support(
+                    rect,
+                    local_scale_x,
+                    local_scale_y,
+                    working_width as f64,
+                    working_height as f64,
+                    if dewarp_model.is_some() {
+                        SourceContentSupport::DewarpWithoutRectilinearPlane
+                    } else {
+                        SourceContentSupport::Rectilinear {
+                            image: routing_source,
+                            to_source: local_deskew_inverse
+                                .then(Affine::translation(region.x, region.y)),
+                        }
+                    },
+                )
+            });
+            let source_content_box = detected_content.and_then(|rect| {
+                let source = if let Some(model) = &dewarp_model {
+                    map_rect_bounds(rect, |point| {
+                        model
+                            .map_unit_to_source(
+                                point.x / working_width as f64,
+                                point.y / working_height as f64,
+                            )
+                            .map(|deskewed| local_deskew_inverse.apply(deskewed))
+                    })
+                } else {
+                    Some(transform_rect_bounds(rect, local_deskew_inverse))
+                }?;
+                let left = source.x.clamp(0.0, working_width.saturating_sub(1) as f64);
+                let top = source.y.clamp(0.0, working_height.saturating_sub(1) as f64);
+                let right = source.right().clamp(left + 1.0, working_width as f64);
+                let bottom = source.bottom().clamp(top + 1.0, working_height as f64);
+                Some(Rect::new(left, top, right - left, bottom - top))
+            });
+            let detected_content = match (dewarp_model.as_ref(), source_content_box) {
+                (None, Some(source)) => Some(transform_rect_bounds(source, local_deskew_forward)),
+                _ => detected_content,
+            };
+            CachedContentDetection {
+                detected_content,
+                source_content_box,
+                diagnostics: detected_result.diagnostics,
+            }
+        };
+        if let (Some(cache), Some(key)) = (cache, content_key) {
+            if let Ok(mut shared) = cache.shared.lock() {
+                shared.insert(
+                    key,
+                    Arc::new(detected.clone()),
+                    std::mem::size_of::<CachedContentDetection>(),
+                );
+            }
+        }
+        detected
+    };
+    timings.content_ms += content_started.elapsed().as_secs_f64() * 1_000.0;
+    if options.match_page_size {
+        // See the analysis path above: placement owns matched margins, while
+        // the renderer still rejects arithmetic that could not be represented.
+        content_result_for_dimensions(
+            working_width,
+            working_height,
+            options.dpi,
+            detected.detected_content,
+            options.margins_mm.map(crate::MarginsMm::values),
+            options.margins_pixels,
+        )?;
+    }
+    let content = content_result_for_dimensions(
+        working_width,
+        working_height,
+        options.dpi,
+        detected.detected_content,
+        if options.match_page_size {
+            None
+        } else {
+            options.margins_mm.map(crate::MarginsMm::values)
+        },
+        if options.match_page_size {
+            Some([0.0; 4])
+        } else {
+            options.margins_pixels
+        },
+    )?;
+    let source_content_box = detected.source_content_box;
+    let content_diagnostics = detected.diagnostics;
+    let crop_enabled = options.crop_content && !options.ocr_mode && content.content.is_some();
+    let output_rect = if crop_enabled {
+        content.output_rect
+    } else {
+        Rect::new(0.0, 0.0, working_width as f64, working_height as f64)
+    };
+    let (output_width, output_height) =
+        options.validate_derived_raster_dimensions(output_rect.width, output_rect.height)?;
+    let render_region = options.resolved_render_crop(output_width, output_height);
+    // Local threshold windows and connected-component cleanup need context
+    // beyond the visible tile. Sample a bounded apron, process it, then trim
+    // back to render_region so panning cannot change interior stroke weight.
+    let sampled_region = render_region.map(|crop| {
+        if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+            const PROCESSING_APRON_PX: f64 = 256.0;
+            let left = (crop.x - PROCESSING_APRON_PX).max(0.0);
+            let top = (crop.y - PROCESSING_APRON_PX).max(0.0);
+            let right = (crop.right() + PROCESSING_APRON_PX).min(output_width as f64);
+            let bottom = (crop.bottom() + PROCESSING_APRON_PX).min(output_height as f64);
+            Rect::new(left, top, right - left, bottom - top)
+        } else {
+            crop
+        }
+    });
+    let render_rect = sampled_region.map_or(output_rect, |crop| {
+        Rect::new(
+            output_rect.x + crop.x,
+            output_rect.y + crop.y,
+            crop.width,
+            crop.height,
+        )
+    });
+    let render_plan = ComposedRenderPlan::new(
+        region,
+        local_deskew_forward,
+        local_deskew_inverse,
+        dewarp_model.clone(),
+        working_width,
+        working_height,
+        render_rect,
+    );
+    let rendered_width = render_plan.output_width();
+    let rendered_height = render_plan.output_height();
+
+    let render_started = Instant::now();
+    let rasterization_started = Instant::now();
+    // Halftone plates can alias into horizontal bands when a confirmed photo
+    // is reduced to a smaller tonal layer. Descreen only the owner, and only
+    // when the render is genuinely downscaled; the routing raster and every
+    // unowned paper/text pixel continue to use the original normalized image.
+    let descreened_normalized = if should_prefilter_confirmed_photo_regions(
+        preserve_confirmed_photo_tones,
+        options.output_mode,
+        rendered_width,
+        rendered_height,
+        working_width,
+        working_height,
+    ) {
+        source_picture_mask
+            .filter(|mask| mask.count_black() > 0)
+            .map(|mask| {
+                let normalized_owner =
+                    resample_binary_mask_nearest(mask, normalized.width(), normalized.height());
+                let mut filtered = normalized.clone();
+                prefilter_confirmed_photo_regions(&mut filtered, &normalized_owner);
+                filtered
+            })
+    } else {
+        None
+    };
+    let tonal_render_source = descreened_normalized.as_ref().unwrap_or(normalized);
+    // A colour page publishes its RGB raster; the gray twin is never encoded, so
+    // the only question it answered — blankness — moves to the analysis level.
+    let skips_gray_twin = options.output_mode == OutputMode::Color
+        && color_source.is_some()
+        && !render_plan.has_dewarp();
+    let (mut rendered_gray, rendered_color, forward_transform, inverse_transform, dewarp_mapping) =
+        if render_plan.has_dewarp() {
+            let gray = rasterize_inverse_area_with(
+                tonal_render_source,
+                rendered_width,
+                rendered_height,
+                |point| render_plan.output_to_source(point),
+            );
+            let color = color_source.map(|source| {
+                rasterize_inverse_area_rgb_with(source, rendered_width, rendered_height, |point| {
+                    render_plan.output_to_source(point)
+                })
+            });
+            let metadata_plan = render_region.map_or_else(
+                || render_plan.clone(),
+                |crop| {
+                    ComposedRenderPlan::new(
+                        region,
+                        local_deskew_forward,
+                        local_deskew_inverse,
+                        dewarp_model,
+                        working_width,
+                        working_height,
+                        Rect::new(
+                            output_rect.x + crop.x,
+                            output_rect.y + crop.y,
+                            crop.width,
+                            crop.height,
+                        ),
+                    )
+                },
+            );
+            let grid = sampled_dewarp_grid(&metadata_plan, region);
+            (gray, color, None, None, Some(grid))
+        } else {
+            let inverse = render_plan
+                .affine_inverse()
+                .ok_or("Cleanup affine render plan is unavailable")?;
+            let forward = inverse
+                .inverse()
+                .ok_or("Cleanup transform is not invertible")?;
+            (
+                if skips_gray_twin {
+                    GrayImage::new(rendered_width, rendered_height, 255)
+                } else {
+                    render_affine_gray(
+                        tonal_render_source,
+                        rendered_width,
+                        rendered_height,
+                        inverse,
+                    )
+                },
+                color_source.map(|color| {
+                    render_affine_rgb(color, rendered_width, rendered_height, inverse)
+                }),
+                Some(forward),
+                Some(inverse),
+                None,
+            )
+        };
+    let rendered_source_gray = if render_plan.has_dewarp() {
+        rasterize_inverse_area_with(routing_source, rendered_width, rendered_height, |point| {
+            render_plan.output_to_source(point)
+        })
+    } else {
+        render_affine_gray(
+            routing_source,
+            rendered_width,
+            rendered_height,
+            render_plan
+                .affine_inverse()
+                .expect("cleanup affine render plan is available"),
+        )
+    };
+    timings.rasterization_ms += rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    // Coarse tonal evidence is valid for deriving the global tone curve, but
+    // only pixel-resolution picture geometry may form a boundary in the
+    // rendered raster.
+    let mut rendered_tone_alpha = tone_preservation_alpha.map(|alpha| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(alpha.width(), alpha.height(), normalized);
+        render_gray_field(alpha, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    if let Some(diagnostics) = text_tone_diagnostics {
+        apply_text_tone_excluding(
+            &mut rendered_gray,
+            diagnostics,
+            rendered_tone_alpha.as_ref(),
+        );
+    }
+    let (forward_transform, inverse_transform) =
+        if let (Some(forward), Some(region)) = (forward_transform, sampled_region) {
+            let intrinsic_forward = forward.then(Affine::translation(region.x, region.y));
+            (Some(intrinsic_forward), intrinsic_forward.inverse())
+        } else {
+            (forward_transform, inverse_transform)
+        };
+    let mask_rasterization_started = Instant::now();
+    let mut rendered_picture_mask = source_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_halftone_zone_mask = halftone_zone_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_spatial_tone_mask = (options.output_mode == OutputMode::Mixed)
+        .then(|| {
+            spatial_tone_mask.map(|mask| {
+                let (mask_scale_x, mask_scale_y) =
+                    auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+                render_binary_mask(mask, rendered_width, rendered_height, |point| {
+                    map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+                })
+            })
+        })
+        .flatten();
+    let rendered_chroma_picture_mask = chroma_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    // Keep calibrated tone zones as geometry in render space. The alpha field
+    // is useful for semantic protection, but it is not a complete layer
+    // boundary: a bimodal photo or map can have low alpha over a valid
+    // midtone region. Fresh Mixed composition must still own that region from
+    // the cleaned raster rather than whitening it as unclassified paper.
+    let rendered_tone_picture_mask = tone_picture_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_text_vicinity_mask = text_vicinity_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_text_mask = text_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask(mask, rendered_width, rendered_height, |point| {
+            map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point)
+        })
+    });
+    let rendered_trusted_foreground_mask = trusted_foreground_mask.map(|mask| {
+        let (mask_scale_x, mask_scale_y) =
+            auxiliary_mask_scales(mask.width(), mask.height(), normalized);
+        render_binary_mask_preserve_ink(
+            mask,
+            rendered_width,
+            rendered_height,
+            mask_scale_x,
+            mask_scale_y,
+            |point| map_auxiliary_mask_point(&render_plan, mask_scale_x, mask_scale_y, point),
+        )
+    });
+    if options.output_mode == OutputMode::Mixed {
+        partition_mixed_picture_mask(
+            &mut rendered_picture_mask,
+            preserve_confirmed_photo_tones,
+            rendered_spatial_tone_mask.as_ref(),
+            rendered_chroma_picture_mask.as_ref(),
+            rendered_tone_picture_mask.as_ref(),
+            rendered_halftone_zone_mask.as_ref(),
+            rendered_text_vicinity_mask.as_ref(),
+            options.dpi,
+            text_tone_diagnostics.map_or(0, |diagnostics| diagnostics.text_line_count),
+        );
+    }
+    timings.mask_rasterization_ms += mask_rasterization_started.elapsed().as_secs_f64() * 1_000.0;
+    let output_processing_started = Instant::now();
+    let ink_ownership_mask =
+        page_ink_ownership_mask(rendered_text_mask.as_ref(), rendered_picture_mask.as_ref());
+    let pale_tonal_structure =
+        !force_clean_blank && has_pale_tonal_structure(canonical_leaf_source);
+    let effectively_blank = force_clean_blank
+        || (!pale_tonal_structure
+            && is_effectively_blank(canonical_leaf_source, canonical_routing_dpi));
+    // A verso whose only survivor is the fold shadow along the leaf edge is a
+    // blank page, and publishing the streak serves nobody. The leaf has to own
+    // no text or picture ink and its inset interior must independently remain
+    // blank. A pale plate therefore survives even when an edge shadow is also
+    // present; only edge-confined unowned residue earns the white page.
+    let unowned_edge_residue = !pale_tonal_structure
+        && !effectively_blank
+        && content.content.is_none()
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
+    // A pale reverse-side bleed-through can establish page-scale tonal
+    // structure even when the leaf itself has no authored content. Treat that
+    // combination as blank only when both ownership masks are below the same
+    // minimum and the transformed interior is independently blank. A real
+    // faint plate/text block either owns enough pixels or fails the interior
+    // blank test, while the fold rail remains safely unowned.
+    let pale_blank_leaf = pale_tonal_structure
+        && !preserve_confirmed_photo_tones
+        && half != PageHalf::Full
+        && content.content.is_none()
+        && ink_ownership_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()))
+        && leaf_interior_is_blank(canonical_leaf_source, canonical_routing_dpi);
+    let fail_closed_blank = force_clean_blank
+        || (!pale_tonal_structure
+            && content.content.is_none()
+            && (effectively_blank || unowned_edge_residue))
+        || pale_blank_leaf;
+    // A sparse false-positive picture mask is common on a blank verso beside
+    // a fold shadow. Strict text evidence is the blank-page veto here; normal
+    // picture ownership still pins components, while the helper's separate
+    // blank-speck branch may remove only isolated sub-glyph marks in the
+    // fold corridor.
+    let fold_edge_blank_leaf = content.content.is_none()
+        && rendered_text_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
+    let unowned_fold_edge_blank_leaf = fold_edge_blank_leaf
+        && rendered_picture_mask
+            .as_ref()
+            .is_none_or(|mask| mask.count_black() < owned_ink_minimum(mask.width(), mask.height()));
+    // Whole-page abstention guarded against the old destructive whitening.
+    // Picture zones now preserve continuous tone exactly while everything
+    // else is smoothly normalized toward white, so cleanup is always safe and
+    // every page keeps the white-paper contract. The flags and metadata fields
+    // remain protocol-compatible markers; fresh output never sets them.
+    let trusted_selection_applied = rendered_trusted_foreground_mask.is_some();
+    let trusted_mrc_background_preserved = false;
+    let mut ink_consistency_diagnostics = None;
+    let mut conservation_warnings = Vec::new();
+    let mut emitted_output_mode = options.output_mode;
+    let (
+        mut image,
+        mut color_image,
+        binarization_mode,
+        binarization_diagnostics,
+        despeckle_fallback,
+        mut mixed_layers,
+    ) = if fail_closed_blank {
+        (
+            if matches!(options.output_mode, OutputMode::Bw | OutputMode::Mixed) {
+                CleanupRaster::Bilevel(BinaryImage::new(rendered_width, rendered_height))
+            } else {
+                CleanupRaster::Gray(GrayImage::new(rendered_width, rendered_height, 255))
+            },
+            if options.output_mode == OutputMode::Color && rendered_color.is_some() {
+                Some(RgbImage::new(rendered_width, rendered_height, [255; 3]))
+            } else {
+                None
+            },
+            None,
+            None,
+            false,
+            None,
+        )
+    } else {
+        match options.output_mode {
+            OutputMode::Bw => {
+                let routing_diagnostics = spread_plan.map_or_else(
+                    || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                    |plan| plan.diagnostics(),
+                );
+                let mode = routing_diagnostics.route;
+                let complete_trusted_foreground =
+                    rendered_trusted_foreground_mask.as_ref().filter(|_| {
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete
+                    });
+                if let Some(trusted_foreground) = complete_trusted_foreground {
+                    if !effectively_blank
+                        && pale_tonal_structure
+                        && pale_bilevel_collapse(trusted_foreground, pale_tonal_structure)
+                    {
+                        let (_, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                            trusted_foreground,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            half,
+                            split,
+                            region,
+                            &render_plan,
+                            source_content_box,
+                            fold_edge_blank_leaf,
+                            options.dpi,
+                        );
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            rendered_source_gray,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
+                        (
+                            CleanupRaster::Gray(grayscale_fallback),
+                            None,
+                            Some(mode),
+                            Some(routing_diagnostics),
+                            false,
+                            layers,
+                        )
+                    } else {
+                        let trusted_foreground = options.page_ink_consistency.map_or_else(
+                            || trusted_foreground.clone(),
+                            |context| {
+                                let (stabilized, diagnostics) = stabilize_trusted_stroke_mass(
+                                    trusted_foreground,
+                                    &rendered_source_gray,
+                                    rendered_picture_mask.as_ref(),
+                                    context,
+                                    normalized.width(),
+                                    normalized.height(),
+                                    options.dpi,
+                                );
+                                ink_consistency_diagnostics = Some(diagnostics);
+                                stabilized
+                            },
+                        );
+                        let trusted_foreground = filter_fold_edge_fragments(
+                            &trusted_foreground,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            half,
+                            split,
+                            region,
+                            &render_plan,
+                            source_content_box,
+                            fold_edge_blank_leaf,
+                            options.dpi,
+                        );
+                        (
+                            CleanupRaster::Bilevel(trusted_foreground),
+                            None,
+                            Some(mode),
+                            Some(routing_diagnostics),
+                            false,
+                            None,
+                        )
+                    }
+                } else {
+                    let global_threshold_source =
+                        (mode == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
+                    let binarization_started = Instant::now();
+                    let (fresh_binary, diagnostics, fresh_despeckle_fallback, stage_timings) =
+                        binarize_normalized_with_diagnostics(
+                            &rendered_gray,
+                            &rendered_source_gray,
+                            routing_diagnostics,
+                            global_threshold_source,
+                            options,
+                            calibration,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
+                        );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
+                    let reusable = split.reusable_binary.as_ref().filter(|binary| {
+                        mode == crate::BinarizationMode::Otsu
+                            && options.thickness == 0
+                            && !deskew.accepted
+                            && effective_dewarp.is_none()
+                            && !crop_enabled
+                            && region.x == 0.0
+                            && region.y == 0.0
+                            && region.width == normalized.width() as f64
+                            && region.height == normalized.height() as f64
+                            && binary.width() == rendered_gray.width()
+                            && binary.height() == rendered_gray.height()
+                    });
+                    let (binary, despeckle_fallback) = if let Some(binary) = reusable {
+                        postprocess_binary_with_diagnostics_and_raw(
+                            binary,
+                            Some(&rendered_gray),
+                            Some(&rendered_source_gray),
+                            options,
+                            calibration,
+                        )
+                    } else {
+                        (fresh_binary, fresh_despeckle_fallback)
+                    };
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_source_gray,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let conservative = binary.clone();
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        &rendered_source_gray,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
+                        options.dpi,
+                    );
+                    let (binary, _) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                        &binary,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
+                    );
+                    if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = if pale_tonal_structure {
+                            rendered_source_gray
+                        } else {
+                            rendered_gray
+                        };
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            grayscale_fallback,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
+                        (
+                            CleanupRaster::Gray(grayscale_fallback),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            layers,
+                        )
+                    } else {
+                        (
+                            CleanupRaster::Bilevel(binary),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    }
+                }
+            }
+            OutputMode::Mixed => {
+                let picture_mask = rendered_picture_mask
+                    .as_ref()
+                    .expect("mixed output prepares a picture mask");
+                if picture_mask.count_black() == 0 {
+                    let routing_diagnostics = spread_plan.map_or_else(
+                        || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                        |plan| plan.diagnostics(),
+                    );
+                    let route = routing_diagnostics.route;
+                    let global_threshold_source =
+                        (route == crate::BinarizationMode::Otsu).then_some(&rendered_source_gray);
+                    let binarization_started = Instant::now();
+                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
+                        binarize_normalized_with_diagnostics(
+                            &rendered_gray,
+                            &rendered_source_gray,
+                            routing_diagnostics,
+                            global_threshold_source,
+                            options,
+                            calibration,
+                            rendered_picture_mask.as_ref(),
+                            rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
+                        );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
+                    let mode = diagnostics.route;
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_source_gray,
+                        None,
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let conservative = binary.clone();
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        &rendered_source_gray,
+                        None,
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
+                        options.dpi,
+                    );
+                    let (binary, _) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                        &binary,
+                        rendered_picture_mask.as_ref(),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
+                    );
+                    if !effectively_blank && pale_bilevel_collapse(&binary, pale_tonal_structure) {
+                        conservation_warnings.push(format!(
+                            "Black-and-white rendering left source page {} ({}) empty although the leaf carries structure; the grayscale rendition was emitted instead",
+                            source_page_index + 1,
+                            page_half_label(half)
+                        ));
+                        emitted_output_mode = OutputMode::Grayscale;
+                        let grayscale_fallback = if pale_tonal_structure {
+                            rendered_source_gray
+                        } else {
+                            rendered_gray
+                        };
+                        let grayscale_fallback = whiten_collapsed_blank_fold_margin(
+                            grayscale_fallback,
+                            &fold_removed_edge_bands,
+                            half,
+                            split,
+                            unowned_fold_edge_blank_leaf,
+                        );
+                        let layers = create_mixed_layers.then(|| MixedLayers {
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: grayscale_fallback.clone(),
+                            color_background: None,
+                            source_mrc: false,
+                        });
+                        (
+                            CleanupRaster::Gray(grayscale_fallback),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            layers,
+                        )
+                    } else {
+                        (
+                            CleanupRaster::Bilevel(binary),
+                            None,
+                            Some(mode),
+                            Some(diagnostics),
+                            despeckle_fallback,
+                            None,
+                        )
+                    }
+                } else {
+                    // Mixed pages are uncommon and their picture-excluding route is
+                    // resolved inside the binarizer. Keep a geometry-matched raw
+                    // tone field available so a global route preserves the scan's
+                    // original glyph boundary. Adaptive routes ignore this field.
+                    let global_threshold_source = &rendered_source_gray;
+                    let routing_diagnostics = spread_plan.map_or_else(
+                        || resolve_binarization_diagnostics(canonical_routing_sample, options),
+                        |plan| plan.diagnostics(),
+                    );
+                    let binarization_started = Instant::now();
+                    let (binary, diagnostics, despeckle_fallback, stage_timings) =
+                        binarize_normalized_with_diagnostics_excluding(
+                            &rendered_gray,
+                            &rendered_source_gray,
+                            routing_diagnostics,
+                            Some(global_threshold_source),
+                            options,
+                            calibration,
+                            picture_mask,
+                            rendered_text_vicinity_mask.as_ref(),
+                            spread_plan,
+                        );
+                    timings.threshold_preparation_ms += stage_timings.preparation_ms;
+                    timings.thresholding_ms += stage_timings.thresholding_ms;
+                    timings.binary_postprocess_ms += stage_timings.postprocess_ms;
+                    timings.binarization_ms +=
+                        binarization_started.elapsed().as_secs_f64() * 1_000.0;
+                    let mode = diagnostics.route;
+                    let composition_started = Instant::now();
+                    // Semantic text recall may not reclaim pixels that the
+                    // representation has already assigned to a picture or an
+                    // independent-chroma plate. Red seals and map fills can
+                    // look text-like; OR-ing the raw text mask here painted
+                    // them into the black stencil and then whitened them out
+                    // of the continuous-tone background.
+                    // One recall mask serves both representations. The stencil
+                    // unions it below; soft-alpha composition takes its text
+                    // ownership and per-pixel trust from the same mask. Handing
+                    // the raw evidence to either one puts the coarse-grid halo
+                    // back on the page by a different route.
+                    let text_recall = rendered_text_mask.as_ref().map(|text_mask| {
+                        unowned_text_recall(&text_mask.subtract(picture_mask), &binary)
+                    });
+                    let mut binary = text_recall
+                        .as_ref()
+                        .map_or(binary.clone(), |recall| binary.or(recall));
+                    if matches!(
+                        options.binarization,
+                        crate::BinarizationMode::Auto | crate::BinarizationMode::Otsu
+                    ) {
+                        binary = binary.or(&rescue_isolated_raw_ink(
+                            &rendered_source_gray,
+                            picture_mask,
+                            options.dpi,
+                        ));
+                    }
+                    let conservative = binary.clone();
+                    let (binary, removed_edge_bands) = suppress_scanner_edge_bands(
+                        &binary,
+                        &rendered_gray,
+                        picture_mask,
+                        rendered_text_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = restore_genuine_horizontal_rules(
+                        &binary,
+                        &rendered_source_gray,
+                        Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    let binary = filter_soft_shallow_bleed_components(
+                        &binary,
+                        &rendered_source_gray,
+                        Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                    );
+                    // Producer MRC selections are excellent glyph evidence,
+                    // but they can also contain dark samples from photographs
+                    // and reliefs. The Mixed partition is authoritative: a
+                    // trusted selection may restore text only outside the
+                    // calibrated continuous-tone ownership mask.
+                    let trusted_text_foreground = trusted_mixed_foreground(
+                        rendered_trusted_foreground_mask.as_ref(),
+                        picture_mask,
+                    );
+                    let binary = enforce_source_ink_support(
+                        binary,
+                        &rendered_source_gray,
+                        trusted_text_foreground.as_ref(),
+                        options.source_has_bilevel_layer && !options.trusted_selection_incomplete,
+                        options.dpi,
+                    );
+                    // Restoring the pre-suppression stencil also has to restore
+                    // the bands it removed: composition whitens them out of the
+                    // background layer, which would delete the very ink the
+                    // guard just decided to keep.
+                    let (binary, conserved) = conserve_page_ink(
+                        conservative,
+                        binary,
+                        ink_ownership_mask.as_ref(),
+                        source_page_index,
+                        half,
+                        &mut conservation_warnings,
+                    );
+                    let (binary, fold_removed_edge_bands) = filter_fold_edge_fragments_with_removed(
+                        &binary,
+                        Some(picture_mask),
+                        rendered_text_mask.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        half,
+                        split,
+                        region,
+                        &render_plan,
+                        source_content_box,
+                        fold_edge_blank_leaf,
+                        options.dpi,
+                    );
+                    let removed_edge_bands = if !conserved {
+                        Some(removed_edge_bands.or(&fold_removed_edge_bands))
+                    } else if fold_removed_edge_bands.count_black() > 0 {
+                        Some(fold_removed_edge_bands)
+                    } else {
+                        None
+                    };
+                    let reuse_source_mrc_foreground = can_reuse_source_mrc_foreground(
+                        options,
+                        rendered_trusted_foreground_mask.as_ref(),
+                        picture_mask,
+                        split,
+                        half,
+                        deskew.accepted && deskew.angle_degrees.abs() > f64::EPSILON,
+                        effective_dewarp.is_some(),
+                        create_mixed_layers,
+                    );
+                    let (mixed_gray, mixed_color, layers) = compose_mixed(
+                        &rendered_gray,
+                        Some(&rendered_source_gray),
+                        rendered_color.as_ref(),
+                        &binary,
+                        picture_mask,
+                        rendered_chroma_picture_mask.as_ref(),
+                        removed_edge_bands.as_ref(),
+                        text_recall.as_ref(),
+                        rendered_text_vicinity_mask.as_ref(),
+                        options.dpi,
+                        preserve_confirmed_photo_tones,
+                        use_soft_alpha_foreground,
+                        create_mixed_layers,
+                        create_mixed_composite,
+                    );
+                    let layers = layers.map(|mut layers| {
+                        layers.source_mrc = reuse_source_mrc_foreground;
+                        layers
+                    });
+                    timings.mixed_composition_ms +=
+                        composition_started.elapsed().as_secs_f64() * 1_000.0;
+                    (
+                        CleanupRaster::Gray(mixed_gray),
+                        mixed_color,
+                        Some(mode),
+                        Some(diagnostics),
+                        despeckle_fallback,
+                        layers,
+                    )
+                }
+            }
+            OutputMode::Grayscale => (
+                CleanupRaster::Gray(rendered_gray),
+                None,
+                None,
+                None,
+                false,
+                None,
+            ),
+            OutputMode::Color => {
+                let color_layers = create_mixed_layers
+                    .then(|| {
+                        rendered_color.as_ref().map(|color| MixedLayers {
+                            // A fresh Color page has no separate ink owner.
+                            // Publishing an empty stencil beside the fresh
+                            // color raster lets the assembler use its compact
+                            // layered JPEG handoff without implying source-
+                            // layer identity.
+                            foreground_mask: BinaryImage::new(rendered_width, rendered_height),
+                            foreground_alpha: None,
+                            background: rendered_gray.clone(),
+                            color_background: Some(color.clone()),
+                            source_mrc: false,
+                        })
+                    })
+                    .flatten();
+                (
+                    CleanupRaster::Gray(rendered_gray),
+                    rendered_color,
+                    None,
+                    None,
+                    false,
+                    color_layers,
+                )
+            }
+            OutputMode::Auto => unreachable!("automatic output mode is resolved before render"),
+        }
+    };
+    if let (Some(requested), Some(sampled)) = (render_region, sampled_region) {
+        let payload_rect = Rect::new(
+            requested.x - sampled.x,
+            requested.y - sampled.y,
+            requested.width,
+            requested.height,
+        );
+        image = image.cropped(payload_rect);
+        color_image = color_image.map(|source| crop_rgb(&source, payload_rect));
+        rendered_picture_mask = rendered_picture_mask.map(|mask| crop_binary(&mask, payload_rect));
+        rendered_tone_alpha = rendered_tone_alpha.map(|alpha| crop_gray(&alpha, payload_rect));
+        mixed_layers = mixed_layers.map(|layers| MixedLayers {
+            foreground_mask: crop_binary(&layers.foreground_mask, payload_rect),
+            foreground_alpha: layers
+                .foreground_alpha
+                .map(|alpha| crop_gray(&alpha, payload_rect)),
+            background: crop_gray(&layers.background, payload_rect),
+            color_background: layers
+                .color_background
+                .map(|source| crop_rgb(&source, payload_rect)),
+            source_mrc: layers.source_mrc,
+        });
+    }
+    timings.output_processing_ms += output_processing_started.elapsed().as_secs_f64() * 1_000.0;
+    timings.render_ms += render_started.elapsed().as_secs_f64() * 1_000.0;
+    let mut warnings = if deskew.accepted || effective_dewarp.is_some() {
+        Vec::new()
+    } else {
+        vec![format!(
+            "Deskew confidence {:.3} was below the 2.0 acceptance threshold",
+            deskew.confidence
+        )]
+    };
+    warnings.append(&mut conservation_warnings);
+    if options.crop_content && !crop_enabled && content.content.is_none() {
+        warnings.push("Content crop was skipped because no content box was detected".into());
+    }
+    if let Some(auto) = &automatic_dewarp {
+        if auto.model.is_none() && auto.confidence < 0.6 {
+            warnings.push(format!(
+                "Experimental automatic dewarp confidence {:.3} was below 0.6; no dewarp was applied",
+                auto.confidence
+            ));
+        }
+    }
+    let source_dpi = options.source_dpi();
+    let requested_render_dpi = options.requested_render_dpi();
+    let raster_scale_limited = options.dpi + f64::EPSILON < requested_render_dpi;
+    let mut warning_events = Vec::new();
+    if raster_scale_limited {
+        warning_events.push(CleanupWarningEvent::RenderDpiLimited {
+            applied_dpi_thousandths: quantize_decimal(options.dpi, 3),
+            requested_dpi_thousandths: quantize_decimal(requested_render_dpi, 3),
+        });
+    }
+    Ok(CleanupResult {
+        image,
+        color_image,
+        picture_mask: rendered_picture_mask,
+        tone_preservation_alpha: rendered_tone_alpha,
+        mixed_layers,
+        effectively_blank,
+        metadata: CleanupMetadata {
+            source_page_index,
+            half,
+            detected_skew_degrees: deskew.angle_degrees,
+            skew_confidence: deskew.confidence,
+            skew_applied: deskew.accepted,
+            manual_skew: options.manual_skew_degrees.is_some(),
+            layout_classification: split.classification,
+            layout_confidence: split.confidence,
+            cutter_x: split.cutter_x,
+            split_geometry: split.pages.clone(),
+            split_seam: split.split_seam.clone(),
+            source_region: region,
+            content_box: source_content_box,
+            crop_rect: output_rect,
+            content_diagnostics,
+            applied_margins: if crop_enabled {
+                content.margins
+            } else {
+                [0.0; 4]
+            }
+            .into(),
+            soft_margins_pixels: [0; 4],
+            uniform_canvas: false,
+            canvas_policy: MatchedCanvasPolicy::Intrinsic,
+            canvas_overflow: false,
+            matched_canvas_target_width: None,
+            matched_canvas_target_height: None,
+            matched_canvas_target_width_points: None,
+            matched_canvas_target_height_points: None,
+            matched_canvas_content_width: None,
+            matched_canvas_content_height: None,
+            matched_canvas_optical_placement: false,
+            matched_canvas_optical_content_left: None,
+            matched_canvas_optical_content_right: None,
+            matched_canvas_intrinsic_overflow_left: 0,
+            matched_canvas_intrinsic_overflow_right: 0,
+            matched_canvas_intrinsic_overflow_top: 0,
+            fold_clip_left: 0,
+            fold_clip_right: 0,
+            pdf_image_placement: None,
+            output_mode: emitted_output_mode,
+            bilevel_written: false,
+            layered_written: false,
+            layered_foreground_kind: None,
+            layered_background_dpi: None,
+            layered_foreground_dpi: None,
+            trusted_mrc_background_preserved,
+            trusted_selection_applied,
+            illumination_normalized: options.normalize_illumination,
+            text_tone_diagnostics,
+            binarization_mode,
+            binarization_diagnostics,
+            ink_consistency_diagnostics,
+            despeckle_fallback,
+            forward_transform,
+            inverse_transform,
+            dewarp_model: effective_dewarp,
+            dewarp_mapping,
+            dewarp_confidence: automatic_dewarp.as_ref().map(|result| result.confidence),
+            input_width: source.width(),
+            input_height: source.height(),
+            output_width,
+            output_height,
+            intrinsic_raster_width: Some(output_width),
+            intrinsic_raster_height: Some(output_height),
+            render_region,
+            canvas_width: output_width,
+            canvas_height: output_height,
+            placement_offset_x: 0,
+            placement_offset_y: 0,
+            rotation: options.rotation,
+            canvas_scope: crate::protocol::manifest_v3::CanvasScope::Page,
+            resample_passes: 1,
+            source_dpi,
+            render_dpi: options.dpi,
+            requested_render_dpi,
+            raster_scale_limited,
+            warnings,
+            warning_events,
+        },
+    })
+}
+
+#[cfg(test)]
+#[path = "region_rendering_tests.rs"]
+mod tests;
