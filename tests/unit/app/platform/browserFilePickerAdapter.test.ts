@@ -5,7 +5,6 @@ import {
     it,
     vi,
 } from 'vitest';
-import {cast} from '@tests/helpers/cast';
 
 describe('browser file picker adapter', () => {
     afterEach(() => {
@@ -28,15 +27,23 @@ describe('browser file picker adapter', () => {
         const abort = vi.fn(async () => {
             aborted = true;
         });
-        const handle = cast<FileSystemFileHandle>({
+        const writable = Object.assign(new WritableStream(), {
+            abort,
+            close,
+            seek: vi.fn(async (_position: number) => {}),
+            truncate: vi.fn(async (_size: number) => {}),
+            write: vi.fn(async (_data: FileSystemWriteChunkType) => {}),
+        }) satisfies FileSystemWritableFileStream;
+        const handle = {
             kind: 'file',
             name: 'timed-out.pdf',
-            createWritable: vi.fn(async () => ({
-                write: vi.fn(async () => {}),
-                close,
-                abort,
-            })),
-        });
+            isSameEntry: vi.fn(async (_other: FileSystemHandle) => false),
+            getFile: vi.fn(async () => new File([], 'timed-out.pdf')),
+            createSyncAccessHandle: vi.fn(async () => {
+                throw new Error('Synchronous access is not part of this writer fixture');
+            }),
+            createWritable: vi.fn(async () => writable),
+        } satisfies FileSystemFileHandle;
         const {writeBytesToHandle} = await import('@app/platform/browser-api/browserFilePickerAdapter');
 
         const save = writeBytesToHandle(handle, Uint8Array.of(37, 80, 68, 70));

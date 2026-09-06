@@ -7,12 +7,29 @@ import { ref } from 'vue';
 import { normalizeBookmarkEntries } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/normalizeBookmarkEntries';
 import { rewriteBookmarks } from '@app/modules/pdf-viewer/engine/pdf-bookmark-serialization/rewriteBookmarks';
 import type { IPdfBookmarkEntry } from '@app/types/pdfContracts';
-import type {TPageIndex} from '@contracts/pageNumbers';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import {cast} from '@tests/helpers/cast';
+import {isRecord} from '@contracts/runtimeGuards';
 
-function createBookmark(overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmarkEntry {
-    return {
+interface IBookmarkFixtureOverrides extends Omit<Partial<IPdfBookmarkEntry>, 'items' | 'pageIndex'> {
+    items?: readonly IPdfBookmarkEntry[];
+    pageIndex?: number | null;
+}
+
+function isBookmarkEntryFixture(value: unknown): value is IPdfBookmarkEntry {
+    return isRecord(value)
+        && typeof value.title === 'string'
+        && (value.pageIndex === null || typeof value.pageIndex === 'number')
+        && (value.pageYRatio === undefined || value.pageYRatio === null || typeof value.pageYRatio === 'number')
+        && (value.namedDest === null || typeof value.namedDest === 'string')
+        && typeof value.bold === 'boolean'
+        && typeof value.italic === 'boolean'
+        && (value.color === null || typeof value.color === 'string')
+        && Array.isArray(value.items)
+        && value.items.every(item => isBookmarkEntryFixture(item));
+}
+
+function createBookmark(overrides: IBookmarkFixtureOverrides = {}): IPdfBookmarkEntry {
+    const fixture = {
         title: 'Bookmark',
         pageIndex: requirePageIndex(0),
         namedDest: null,
@@ -22,6 +39,12 @@ function createBookmark(overrides: Partial<IPdfBookmarkEntry> = {}): IPdfBookmar
         items: [],
         ...overrides,
     };
+    // Page-index branding disappears at runtime. The guard keeps this fixture
+    // able to exercise malformed numeric data without an unchecked cast.
+    if (!isBookmarkEntryFixture(fixture)) {
+        throw new TypeError('Invalid PDF bookmark fixture');
+    }
+    return fixture;
 }
 
 describe('normalizeBookmarkEntries', () => {
@@ -34,7 +57,7 @@ describe('normalizeBookmarkEntries', () => {
             color: '#abc',
             items: [createBookmark({
                 title: ' Child ',
-                pageIndex: cast<TPageIndex>(-3),
+                pageIndex: -3,
                 namedDest: 'DestA',
                 italic: true,
                 color: '#xyz123',

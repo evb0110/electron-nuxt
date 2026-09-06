@@ -9,7 +9,6 @@ import { createElectronPlatformApiFixture } from '@tests/helpers/createElectronP
 import { PdfCombineCapabilityError } from '@electron/image/pdfCombineErrors';
 import {requireDocumentRef} from '@contracts/documentRef';
 import {requireRequestId} from '@contracts/shared';
-import {cast} from '@tests/helpers/cast';
 
 const mocks = vi.hoisted(() => ({
     stat: vi.fn(),
@@ -76,7 +75,7 @@ interface IDjvuPreviewSourceForTest {
             total: number
         }) => void;
     }): Promise<{
-        results: unknown[];
+        results: readonly unknown[];
         truncated: boolean
     }>;
 }
@@ -599,7 +598,7 @@ describe('createDjvuWorkerFromPath', () => {
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
 
-        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/tiny-many-pages.djvu')));
+        const source: IDjvuPreviewSourceForTest = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/tiny-many-pages.djvu'));
         await expect(source.renderPageObjectUrl(10_001)).resolves.toEqual({
             objectUrl: 'blob:native-preview',
             renderedPx: 100,
@@ -654,7 +653,7 @@ describe('createDjvuWorkerFromPath', () => {
         })});
         const {createDjvuPagePreviewSourceFromPath} =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/huge.djvu')));
+        const source: IDjvuPreviewSourceForTest = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/huge.djvu'));
         const onProgress = vi.fn();
 
         await expect(source.searchText!({
@@ -732,7 +731,7 @@ describe('createDjvuWorkerFromPath', () => {
         })});
         const {createDjvuPagePreviewSourceFromPath} =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/small.djvu')));
+        const source: IDjvuPreviewSourceForTest = await createDjvuPagePreviewSourceFromPath(requireDocumentRef('/Users/test/small.djvu'));
         const onProgress = vi.fn();
 
         await expect(source.renderPageObjectUrl(1)).resolves.toEqual({
@@ -846,9 +845,9 @@ describe('createDjvuWorkerFromPath', () => {
         });
         const { createDjvuPagePreviewSourceFromPath } =
             await import('@app/platform/browser-api/createDjvuWorkerFromPath');
-        const source = cast<IDjvuPreviewSourceForTest>(await createDjvuPagePreviewSourceFromPath(
+        const source: IDjvuPreviewSourceForTest = await createDjvuPagePreviewSourceFromPath(
             requireDocumentRef('browser://documents/source/too-many-pages.djvu'),
-        ));
+        );
 
         await expect(source.getPageSizes!()).rejects.toThrow('capped at 10000 pages');
         expect(mocks.getPagesQuantity).toHaveBeenCalledOnce();

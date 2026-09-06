@@ -1,10 +1,12 @@
+// @vitest-environment happy-dom
+
 import {
+    afterEach,
     describe,
     expect,
     it,
     vi,
 } from 'vitest';
-import { cast } from '@tests/helpers/cast';
 import { toMarkerRectFromEditor } from '@app/modules/pdf-viewer/engine/pdf-annotation-editor-utils/toMarkerRectFromEditor';
 import {
     COMMENT_MARKER_ANCHOR_EDITOR_ATTRIBUTE,
@@ -24,17 +26,7 @@ interface IFakeRect {
 }
 
 function toDomRect(rect: IFakeRect) {
-    return {
-        x: rect.left,
-        y: rect.top,
-        left: rect.left,
-        top: rect.top,
-        width: rect.width,
-        height: rect.height,
-        right: rect.left + rect.width,
-        bottom: rect.top + rect.height,
-        toJSON: () => ({}),
-    };
+    return new DOMRect(rect.left, rect.top, rect.width, rect.height);
 }
 
 interface IFakeDivOptions {
@@ -44,43 +36,41 @@ interface IFakeDivOptions {
 }
 
 function createDiv(options: IFakeDivOptions) {
-    const closest = vi.fn((selector: string) => {
+    const div = document.createElement('div');
+    vi.spyOn(div, 'closest').mockImplementation((selector: string) => {
         if (selector === '.page_container') {
             return options.pageContainer ?? null;
         }
         return options.editorLayerByClass?.[selector] ?? null;
     });
-    const getBoundingClientRect = vi.fn(() =>
-        toDomRect(options.boundingRect ?? {
-            left: 0,
-            top: 0,
-            width: 0,
-            height: 0,
-        }));
-    return cast<HTMLElement>({
-        closest,
-        getBoundingClientRect,
-    });
+    vi.spyOn(div, 'getBoundingClientRect').mockReturnValue(toDomRect(options.boundingRect ?? {
+        left: 0,
+        top: 0,
+        width: 0,
+        height: 0,
+    }));
+    return div;
 }
 
 function createPageContainer(rect: IFakeRect) {
-    return cast<HTMLElement>({getBoundingClientRect: vi.fn(() => toDomRect(rect))});
+    const container = document.createElement('div');
+    vi.spyOn(container, 'getBoundingClientRect').mockReturnValue(toDomRect(rect));
+    return container;
 }
 
 function createCommentMarkerAnchorDiv() {
     const classNames = new Set<string>();
-    const internalSetAttribute = vi.fn();
-    const setAttribute = vi.fn();
-    const style: Record<string, string> = {};
-    const internal = cast<HTMLElement>({setAttribute: internalSetAttribute});
-    const div = cast<HTMLElement>({
-        classList: {add: (className: string) => classNames.add(className)},
-        querySelector: vi.fn((selector: string) => selector === '[contenteditable], .internal'
-            ? internal
-            : null),
-        setAttribute,
-        style,
+    const internal = document.createElement('div');
+    const div = document.createElement('div');
+    const internalSetAttribute = vi.spyOn(internal, 'setAttribute');
+    const setAttribute = vi.spyOn(div, 'setAttribute');
+    vi.spyOn(div.classList, 'add').mockImplementation((className: string) => {
+        classNames.add(className);
     });
+    vi.spyOn(div, 'querySelector').mockImplementation((selector: string) => selector === '[contenteditable], .internal'
+        ? internal
+        : null);
+    const style = div.style;
     return {
         classNames,
         div,
@@ -89,6 +79,11 @@ function createCommentMarkerAnchorDiv() {
         style,
     };
 }
+
+afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.replaceChildren();
+});
 
 function expectMarkerRectClose(
     actual: {

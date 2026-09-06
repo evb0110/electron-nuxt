@@ -9,6 +9,7 @@ import type {
     PDFPageProxy,
 } from 'pdfjs-dist';
 import type { IBookmarkItem } from '@app/types/pdfOutline';
+import type {IPdfBookmarkEntry} from '@app/types/pdfContracts';
 import {
     buildOutlineFromBookmarkEntries,
     buildResolvedOutline,
@@ -24,12 +25,20 @@ import {
     shouldEmitResolvedBookmarkDestinationTarget,
     summarizeBookmarkStyles,
 } from '@app/utils/pdfOutlineHelpers';
-import { cast } from '@tests/helpers/cast';
 import {requirePageIndex} from '@contracts/pageNumbers';
-import type {TPageIndex} from '@contracts/pageNumbers';
+import {isRecord} from '@contracts/runtimeGuards';
+import {createPdfDocumentProxy} from '@tests/helpers/createPdfDocumentProxy';
 
 type TOutlinePdfDocumentStub = Pick<PDFDocumentProxy, 'numPages' | 'getDestination' | 'getPageIndex' | 'getPage'>;
 type TPdfPageView = [number, number, number, number];
+
+function isPdfjsPageProxyFixture(value: unknown): value is PDFPageProxy {
+    return isRecord(value)
+        && Array.isArray(value.view)
+        && value.view.length === 4
+        && value.view.every(item => typeof item === 'number')
+        && typeof value.getViewport === 'function';
+}
 
 function createPdfPageStub(view: TPdfPageView = [
     0,
@@ -37,10 +46,17 @@ function createPdfPageStub(view: TPdfPageView = [
     612,
     792,
 ]): PDFPageProxy {
-    return cast<PDFPageProxy>({
+    const fixture = {
         view,
         getViewport: vi.fn(() => ({ height: view[3] - view[1] })),
-    });
+    };
+    // PDF.js page proxies expose many runtime fields; this test needs only
+    // page bounds and getViewport for destination normalization. The guard
+    // makes that boundary explicit without an unchecked assertion.
+    if (!isPdfjsPageProxyFixture(fixture)) {
+        throw new TypeError('Invalid PDF.js page fixture');
+    }
+    return fixture;
 }
 
 function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {}): PDFDocumentProxy {
@@ -50,22 +66,59 @@ function createPdfDocumentStub(overrides: Partial<TOutlinePdfDocumentStub> = {})
         getPageIndex: vi.fn(async (_ref: unknown) => 0),
         getPage: vi.fn(async (_pageNumber: number): Promise<PDFPageProxy> => createPdfPageStub()),
     };
-    return {
+    return createPdfDocumentProxy({
         ...base,
         ...overrides,
-    } as PDFDocumentProxy;
+    });
+}
+
+interface IBookmarkEntryFixtureOverrides extends Omit<Partial<IPdfBookmarkEntry>, 'items' | 'pageIndex'> {
+    items?: readonly IPdfBookmarkEntry[];
+    pageIndex?: number | null;
+}
+
+function isBookmarkEntryFixture(value: unknown): value is IPdfBookmarkEntry {
+    return isRecord(value)
+        && typeof value.title === 'string'
+        && (value.pageIndex === null || typeof value.pageIndex === 'number')
+        && (value.pageYRatio === undefined || value.pageYRatio === null || typeof value.pageYRatio === 'number')
+        && (value.namedDest === null || typeof value.namedDest === 'string')
+        && typeof value.bold === 'boolean'
+        && typeof value.italic === 'boolean'
+        && (value.color === null || typeof value.color === 'string')
+        && Array.isArray(value.items)
+        && value.items.every(item => isBookmarkEntryFixture(item));
+}
+
+function createBookmarkEntry(overrides: IBookmarkEntryFixtureOverrides = {}): IPdfBookmarkEntry {
+    const fixture = {
+        title: 'Bookmark',
+        pageIndex: requirePageIndex(0),
+        namedDest: null,
+        bold: false,
+        italic: false,
+        color: null,
+        items: [],
+        ...overrides,
+    };
+    // Page-index branding disappears at runtime. The guard keeps malformed
+    // numeric outline data explicit without an unchecked cast.
+    if (!isBookmarkEntryFixture(fixture)) {
+        throw new TypeError('Invalid PDF bookmark fixture');
+    }
+    return fixture;
 }
 
 function createBookmark(id: string, pageIndex: number | null): IBookmarkItem {
+    const entry = createBookmarkEntry({
+        title: id,
+        pageIndex,
+    });
     return {
         id,
-        title: id,
-        dest: null,
-        pageIndex: pageIndex === null
-            ? null
-            : Number.isNaN(pageIndex)
-                ? cast<TPageIndex>(pageIndex)
-                : requirePageIndex(pageIndex),
+        title: entry.title,
+        dest: entry.namedDest,
+        pageIndex: entry.pageIndex,
         bold: false,
         italic: false,
         color: null,
@@ -216,24 +269,24 @@ describe('pdfOutlineHelpers', () => {
     it('projects pending bookmark entries into visible outline items without PDF.js', () => {
         let bookmarkId = 0;
 
-        const resolved = buildOutlineFromBookmarkEntries([{
+        const resolved = buildOutlineFromBookmarkEntries([createBookmarkEntry({
             title: 'Contents',
             pageIndex: requirePageIndex(4),
             namedDest: 'page-5',
             bold: true,
             italic: false,
             color: '#ABC',
-            items: [{
+            items: [createBookmarkEntry({
                 title: 'Chapter',
-                pageIndex: cast<TPageIndex>(10.8),
+                pageIndex: 10.8,
                 pageYRatio: 0.42,
                 namedDest: null,
                 bold: false,
                 italic: true,
                 color: '#123456',
                 items: [],
-            }],
-        }], () => {
+            })],
+        })], () => {
             const id = `bookmark-${bookmarkId}`;
             bookmarkId += 1;
             return id;
